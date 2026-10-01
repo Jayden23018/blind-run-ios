@@ -25,6 +25,46 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/auth/verify-code`.
     /// - Remark: Generated from `#/paths//api/auth/verify-code/post(verifyCode)`.
     func verifyCode(_ input: Operations.verifyCode.Input) async throws -> Operations.verifyCode.Output
+    /// 我的固定搭档，收藏时间倒序。**仅 BLIND**。
+    ///
+    /// 陪跑的核心成本是**磨合** —— 用什么牵引方式、你习惯别人怎么提醒路况、你的配速。 每单换人等于每单重新磨合。United In Stride 的运营结论是每位视障跑者需要 6~8 名固定陪跑员。
+    ///
+    /// ⚠️ 条目里**没有电话**：这个列表是「我跟谁跑得来」不是通讯录。要打电话走订单详情的 `volunteerPhone`，那里有状态门（只在汇合四态下发）；把号码放进一个长期列表等于绕开那道门。 姓名一律掩码（`李*`）。志愿者已注销时 `volunteerName` 为 `null` —— 一个注销的搭档 不该让整个列表 500。
+    ///
+    /// - Remark: HTTP `GET /api/blind/favorite-volunteers`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/get(list_2)`.
+    func list_2(_ input: Operations.list_2.Input) async throws -> Operations.list_2.Output
+    /// 收藏一位志愿者。**幂等** —— 重复收藏返 204 而不是 409，客户端不必先查一次。
+    ///
+    /// 🚨 **必须一起跑完过至少一单**，否则返 400 + `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`。 两个理由：① 不设这道门，这个端点就变成「拿任意 userId 试一下，204 说明这人存在且是 志愿者」的枚举接口，且能把陌生人塞进自己的派单偏好；② 固定搭档的价值来自**已经磨合过**。 ⚠️ 「没一起跑完过」与「这个 id 根本不是志愿者」**同码同文案**，客户端不要试图区分 —— 区分开就等于确认了这个 id 是个志愿者。
+    ///
+    /// 🚨 **收藏只影响派单排序，不影响资格**：收藏的人照样要过全部硬过滤 （在线、已认证、距离、导盲犬、时间重叠）。加分（默认 15 分，加在满分 100 的五维加权和之外） **不是压倒一切** —— 附近有个不错的陌生人时，很远的固定搭档仍然会输。 客户端文案不要承诺「优先派给他」，只能说「更可能派给他」。
+    ///
+    /// 🚨 **对方退出过就加不回来了**（400 + `FAVORITE_VOLUNTEER_OPTED_OUT`）。退出标记跟着 **这一对**走 —— 跑者自己取消收藏也抹不掉它，所以「取消一下再重新收藏」不是恢复手段。 本轮没有恢复路径（见 `DELETE /api/volunteer/favorites/{blindUserId}` 的说明）。 ⚠️ 这个码的文案不要复用 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` 那句「只能收藏一起跑完过的」—— 这一对恰恰是跑过的，念出来是假话，而跑者只能听 TTS。
+    ///
+    /// - Remark: HTTP `PUT /api/blind/favorite-volunteers/{volunteerId}`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)`.
+    func add(_ input: Operations.add.Input) async throws -> Operations.add.Output
+    /// 取消收藏。**幂等** —— 没收藏过也返 204，客户端不需要先查一次。
+    ///
+    /// ⚠️ 服务端是**打标记不是删行**（对客户端无差别：这个人从列表里消失，名额也让出来）。 这么做是因为真删了，「取消 → 下次跑完再收藏」两次正常点击就会把对方的退出 无声地撤销掉。副作用是：**对方已退出的条目，取消之后就再也加不回来了** —— 如果界面上对 `partnerOptedOut=true` 的条目也提供取消按钮，建议加一次二次确认。
+    ///
+    /// - Remark: HTTP `DELETE /api/blind/favorite-volunteers/{volunteerId}`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/delete(remove)`.
+    func remove(_ input: Operations.remove.Input) async throws -> Operations.remove.Output
+    /// 我和固定搭档的双人火花（盲人视角）
+    ///
+    /// 连续多少个自然周（ISO 周，周一 00:00 – 周日 23:59）和同一位志愿者一起跑过。 该周内这一对有 ≥1 单 `COMPLETED` 就算这一周跑过。
+    ///
+    /// 🚨 **口径与积分刻意不同**：火花**不看**是手动完成还是超时自动完成。 火花衡量的是关系的连续性，而「志愿者忘了点完成」不该让两个人的关系断掉。
+    ///
+    /// ⚠️ **未点亮的一对不在数组里**（默认门槛连续 2 周）。数组按 `currentWeeks` 倒序 —— 读屏是顺序播报的，排在后面等于不存在。
+    ///
+    /// ⚠️ **惰性计算**：火花只在这一对完成订单时结算，不跑调度器。 所以「断了」是在他们**下一次跑完一单时**才被发现的 —— 这也是断裂通知 `PARTNER_STREAK_RESTARTED` 的文案是「新的连续记录开始了」而不是「已中断」的原因。
+    ///
+    /// - Remark: HTTP `GET /api/blind/partners/streaks`.
+    /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)`.
+    func myStreaksAsBlind(_ input: Operations.myStreaksAsBlind.Input) async throws -> Operations.myStreaksAsBlind.Output
     /// 获取盲人资料
     ///
     /// - Remark: HTTP `GET /api/blind/profile`.
@@ -70,6 +110,24 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/blind/volunteer-location`.
     /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
     func getVolunteerLocation(_ input: Operations.getVolunteerLocation.Input) async throws -> Operations.getVolunteerLocation.Output
+    /// 读取功能开关状态
+    ///
+    /// 2026-08-24 新增（handoff iOS 那条）。客户端用它决定**空态说什么**。
+    ///
+    /// 三个 SPEC-E 开关默认关闭，关着时相关端点返回空数组 —— 而同一个空数组有两个
+    /// 完全不同的含义：「功能还没开放」和「你确实还没点亮」。此前客户端恒说后者，
+    /// 于是开关关着的那段时间里，那句文案是在教用户去做一件**做了也不会有结果的事**。
+    /// 对读屏用户尤其糟：他会照着做两周，回来发现还是空的。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**：盲人要 `partnerStreakEnabled`，
+    /// 志愿者要另外两个，两边都得读；未登录的人拿它没有用途，所以也不放进 permitAll。
+    ///
+    /// 🚨 **本端点只回答「功能开没开」，不回答「你有没有」** —— 后者是各自列表端点的事。
+    /// 混进来的话客户端就有两个地方能得出「显示什么」，而它们迟早不一致。
+    ///
+    /// - Remark: HTTP `GET /api/config/features`.
+    /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
+    func getFeatures(_ input: Operations.getFeatures.Input) async throws -> Operations.getFeatures.Output
     /// 上报 APNs device token（iOS 离线推送兜底，B5）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
@@ -99,6 +157,21 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
     func unregisterApnsToken(_ input: Operations.unregisterApnsToken.Input) async throws -> Operations.unregisterApnsToken.Output
+    /// 陪跑员上传锁屏实时活动的 push token
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在
+    /// `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 可传。App 按下「我出发了」后本地 `Activity.request(pushType: .token)`，
+    /// 拿到 `pushTokenUpdates` 的 token（十六进制）就调本接口；同一单再传一次覆盖。
+    ///
+    /// 之后后端经 APNs（`apns-push-type: liveactivity`）推：状态变化、ETA 分钟数变化、晚到变化、跑者到集合点、
+    /// 汇合档位变化时 `update`；离开两态（开跑、完成、取消、重派、结束等待）时 `end`，锁屏保留 5 分钟。
+    /// payload 形状与**日期编码**见 `docs/live-activity.md`（⚠️ `arriveAt` 是 Swift `Date` 默认编码，2001 纪元秒）。
+    ///
+    /// token 只存 Redis（6 小时），Redis 不可用时本次不存、锁屏不刷新，App 内不受影响。
+    ///
+    /// - Remark: HTTP `POST /api/devices/live-activity-token`.
+    /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)`.
+    func registerLiveActivityToken(_ input: Operations.registerLiveActivityToken.Input) async throws -> Operations.registerLiveActivityToken.Output
     /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
     ///
     /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
@@ -221,6 +294,17 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders`.
     /// - Remark: Generated from `#/paths//api/orders/post(createOrder)`.
     func createOrder(_ input: Operations.createOrder.Input) async throws -> Operations.createOrder.Output
+    /// 我当前这一单（App 冷启动 / 断线重连恢复用）
+    ///
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    ///
+    /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
+    ///
+    /// 响应体与 `GET /api/orders/{id}` **逐字相同**（同一个 `OrderDetailResponse`）， 包括 `volunteerPhone`：在 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 四态下发**能直接拨通的明文号**，其余状态为 `null`，永远不是掩码串 （见该 schema 上的说明）。重开 App 后立刻能打给志愿者正是这个端点存在的理由之一。
+    ///
+    /// - Remark: HTTP `GET /api/orders/active`.
+    /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)`.
+    func activeOrder(_ input: Operations.activeOrder.Input) async throws -> Operations.activeOrder.Output
     /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
@@ -236,6 +320,26 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output
+    /// 我的跑后记录月度列表（按当前角色）
+    ///
+    /// 按当前用户角色返回某个月**已完成**订单的跑后记录列表 + 月度汇总（2026-09-24 新增）。
+    /// 按订单完成时间 `finishedAt` 归月；不分页（一个人一个月的量级）；完成时间倒序。
+    /// 取消 / 无人接单的订单不在这里（D9：客户端从 `GET /api/orders/mine` 自己分组到「未完成的预约」）。
+    /// 响应走 `ApiResponse` 信封。
+    ///
+    /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
+    ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
+    /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
+    /// - `monthSummary.distanceM`：有里程的那几单之和，一单都没有为 `null`
+    /// - `monthSummary.topPartner`：本月一起跑得最多的搭档，并列取最近的那位；本月没有记录为 `null`
+    /// - 还没生成过记录的历史单，**一次请求最多当场补算 5 张**；其余这一次先用完赛快照（`thumbnail` 为 `null`），
+    ///   下次请求再补下一批。只影响功能上线前的历史单，新完成的订单在完成时就已经生成
+    ///
+    /// - Remark: HTTP `GET /api/orders/mine/run-records`.
+    /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)`.
+    func getMyRunRecords(_ input: Operations.getMyRunRecords.Input) async throws -> Operations.getMyRunRecords.Output
     /// 整句语音解析（起点/开始时间/时长/额外需求），支持带 current 做一步修正
     ///
     /// "明天八点从人民广场出发跑一小时，我带导盲犬" 一句话抽必填三槽 + 可选的额外需求。
@@ -311,6 +415,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output
+    /// 志愿者临期确认「我还会去」（跨天预约单）
+    ///
+    /// 跨天预约单（`SCHEDULED_CONFIRMED`）的临期闸门。志愿者调它表示自己仍会赴约，
+    /// 订单随即转入 `PENDING_ACCEPT`，走与即时单完全相同的后续流程
+    /// （`/en-route` → `/arrived` → `/start-service` → `/finish`）。
+    ///
+    /// 🚩 **它与 `/en-route` 不是一回事，别合并**：这一步只回答「你还去吗」，人可能还在家里；
+    /// `/en-route` 是真的动身了、开始双向推位置了。合并会让位置互推提前几小时打开，
+    /// 而那期间双方并不需要找到对方。
+    ///
+    /// **不调用的后果**：距开跑 `app.order.departure-gate-lead-minutes`（默认 60 分钟）时
+    /// 订单被自动退回 `REMATCHING` 重新派单，志愿者收到 `SCHEDULED_DEPARTURE_GATE_MISSED`。
+    /// 这不计入接单率、不影响后续派单，只在 `volunteer_profile.scheduled_no_show_count` 记一笔。
+    ///
+    /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
+    /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
+    /// **那条通知与本端点是一对，客户端别只接一个**。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
+    func confirmDeparture(_ input: Operations.confirmDeparture.Input) async throws -> Operations.confirmDeparture.Output
     /// 陪跑员已动身（真的出门了，开始双向推位置）
     ///
     /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
@@ -328,6 +453,23 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
     func driverEnRoute(_ input: Operations.driverEnRoute.Input) async throws -> Operations.driverEnRoute.Output
+    /// 陪跑员到达后等满时限没碰上跑者，结束等待
+    ///
+    /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
+    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
+    ///
+    /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
+    /// **不算志愿者取消**（不走 `REMATCHING`、不重派），服务时长为 0（订单没进过 `IN_PROGRESS`）。
+    /// 盲人收到 `APP_NOTIFICATION`（`eventType = ORDER_WAIT_ENDED`，HIGH，带 `ttsText`），
+    /// 双方收到 `ORDER_STATUS_CHANGED`。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409 `ORDER_STATUS_NOT_ALLOWED`）→ 时限（409 `END_WAIT_TOO_EARLY`）
+    /// → 未结案求助（409 `ORDER_HAS_ACTIVE_EMERGENCY`）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/end-waiting`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)`.
+    func endWaiting(_ input: Operations.endWaiting.Input) async throws -> Operations.endWaiting.Output
     /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
     ///
     /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
@@ -430,6 +572,97 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/unreachable`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)`.
     func reportIntroCallUnreachable(_ input: Operations.reportIntroCallUnreachable.Input) async throws -> Operations.reportIntroCallUnreachable.Output
+    /// 盲人延长重新匹配等待窗口（REMATCHING 状态）
+    ///
+    /// 盲人在订单处于 REMATCHING（重新匹配志愿者）状态时，可调用此端点刷新重新匹配超时窗口，
+    /// 避免因无人接单导致的兜底取消。对称于 `keepWaiting`（PENDING_MATCH 状态延长匹配等待）。
+    ///
+    /// - 角色：仅 BLIND 可调用（`SecurityConfig` 显式规则 `PUT /api/orders/*/keep-rematching → hasRole("BLIND")`）。
+    /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
+    /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
+    ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
+    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
+    /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
+    ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
+    ///   进入 REMATCHING 后重新拥有完整的 10 次。到达上限后再调用返回 409 `KEEP_WAITING_LIMIT_REACHED`。
+    /// - 计数递增的是**超时轮数**而非按钮点击数：每轮重匹超时提醒 +1，用户在每一轮里可延长。
+    ///   倒数第二轮会额外推一条 HIGH 优先级的 `ORDER_CANCELLATION_WARNING`（带 ttsText）——
+    ///   刻意提前一轮，否则用户听完预警去点必定撞 409。
+    /// - ⚠️ 2026-08-12（N62）之前，本端点**既没有上限、也不延长任何东西**：死线硬锚在
+    ///   `lastRematchAt + 30min`，点 1 次和点 11 次订单在同一时刻转 `NO_VOLUNTEER`。
+    ///   本段描述当时是错的，现已让实现追上描述。
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/keep-rematching`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)`.
+    func keepRematching(_ input: Operations.keepRematching.Input) async throws -> Operations.keepRematching.Output
+    /// - Remark: HTTP `PUT /api/orders/{id}/keep-waiting`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/keep-waiting/put(keepWaiting)`.
+    func keepWaiting(_ input: Operations.keepWaiting.Input) async throws -> Operations.keepWaiting.Output
+    /// 播报位置 —— 把受助者当前坐标逆地理成一句可以念出来的话
+    ///
+    /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
+    ///
+    /// **两端拿到的都是「盲人」的位置**，不按调用者分支。盲人用它把自己的位置告诉路人 / 客服 / 120；
+    /// 志愿者用它说清「人在哪」（不是「我在哪」）。
+    ///
+    /// 🔴 **任何情况下都返 200**，拿不到地址就把 `degraded` 置 true。
+    /// 5xx / 404 在盲人端的表现是「点了没反应」，而这一项恰恰是他要靠它开口说话的。
+    /// 三种结果共用一个响应形状，客户端不需要错误分支：
+    ///
+    /// | 判据 | 客户端该做什么 |
+    /// |---|---|
+    /// | `formattedAddress != null` | 念地址 |
+    /// | `formattedAddress == null && latitude != null` | 地址查不到，念坐标 |
+    /// | `latitude == null` | 播「暂时定位不到，情况紧急请直接拨 110 或 120」 |
+    ///
+    /// 位置只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态下给
+    /// （即 `OrderStatus.sharesLiveLocation()`）。终态之后 Redis 里的坐标可能因 TTL 未到期而仍有值，
+    /// 但那已经不属于这趟行程 —— 与 `GET /api/orders/{id}/share` 的口径一致。
+    ///
+    /// ⚠️ **`ageSeconds` 必须用上。** 一个 28 秒前的坐标和 1 秒前的坐标在跑步时差着几百米，
+    /// 而从地址字符串上看不出区别 —— 不看新鲜度就是让人把旧位置当成当前位置报给 120。
+    /// 读不到时为 null（**宁可说不知道，不编一个 0**）。
+    ///
+    /// 逆地理结果按坐标取整到 4 位小数（约 11 米）缓存 5 分钟；**失败不进缓存**
+    /// （高德抖一下就把「查不到」缓 5 分钟，等于一次抖动让人几分钟内报不出自己在哪）。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/location/address`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)`.
+    func getLocationAddress(_ input: Operations.getLocationAddress.Input) async throws -> Operations.getLocationAddress.Output
+    /// 陪跑员暂停计时（跑者需要停下来）
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2 · V15）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在 `IN_PROGRESS`。
+    /// **幂等**：已在暂停时再按暂停、没在暂停时按继续，都返回 200 + 当前状态，不重复推送。
+    /// 两端同时按也只有一次生效（条件更新，同 `PUT /runner-message` 的乐观锁惯例）。
+    /// 生效时：盲人收 WS `APP_NOTIFICATION`（`eventType` 见下，HIGH，同时发 APNs，信封带 `orderId`，
+    /// 请朗读 `ttsText`）；订单双方收 WS `RUN_PROGRESS`（新 `run`）。
+    /// 志愿服务时长（`GET /api/volunteer/achievements` 的 `totalServiceMinutes`、跑后记录的 `service.durationMin`）
+    /// = 结束 − 开始 − 手动暂停总时长，按分钟向下取整（V9）。暂停中直接结束 = 暂停到结束为止都不计。
+    /// 盲人收到的 `eventType=RUN_PAUSED`。**同时告知客服，走非紧急通道**（V8）：每单第一次暂停时系统代开一条工单
+    /// （`GET /api/cs/tickets` 可见，分类 `ORDER_SERVICE`，挂在陪跑员名下、不占他的未结工单额度），
+    /// **不进** `/api/cs/emergency-events`。⚠️ 客服值班台目前不展示工单，所以这**不是**「客服已经收到」，
+    /// 页面文案不要承诺有人已收到。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/pause`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)`.
+    func pauseRun(_ input: Operations.pauseRun.Input) async throws -> Operations.pauseRun.Output
+    /// 志愿者汇合途中给盲人发一条预设快捷消息
+    ///
+    /// #359。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 可发。
+    /// 盲人收到 WS `APP_NOTIFICATION`，`eventType` 按 code 区分（见 `docs/websocket-protocol.md`），
+    /// 带 `ttsText` 直接朗读；priority 为 HIGH，App 在后台时走 APNs 兜底；同时写 `notification_logs`，
+    /// 重连后 `GET /api/notifications/since` 能补读。信封另带 `orderId` 与 `code` 两个字段。
+    ///
+    /// **只做预设文案，不做自由文本和语音**：文案由后端定死，不需要内容审核，也不存用户写的内容。
+    /// 完成后的跑后留言（`POST /api/orders/{id}/run-record/messages`）是另一条通道，和本端点无关。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流：同一单每 60 秒最多 3 条，第 4 条返回 429 并带 `Retry-After`。Redis 不可用时放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/quick-message`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)`.
+    func sendQuickMessage(_ input: Operations.sendQuickMessage.Input) async throws -> Operations.sendQuickMessage.Output
     /// 响应派单（接单 / 跳过，VOLUNTEER）
     ///
     /// 串行派单的唯一响应入口（旧 `/accept`、`/reject` 已 @Deprecated 并委托到此逻辑）。
@@ -458,6 +691,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
     func respondToDispatch(_ input: Operations.respondToDispatch.Input) async throws -> Operations.respondToDispatch.Output
+    /// 陪跑员继续计时
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2 · V15）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在 `IN_PROGRESS`。
+    /// **幂等**：已在暂停时再按暂停、没在暂停时按继续，都返回 200 + 当前状态，不重复推送。
+    /// 两端同时按也只有一次生效（条件更新，同 `PUT /runner-message` 的乐观锁惯例）。
+    /// 生效时：盲人收 WS `APP_NOTIFICATION`（`eventType` 见下，HIGH，同时发 APNs，信封带 `orderId`，
+    /// 请朗读 `ttsText`）；订单双方收 WS `RUN_PROGRESS`（新 `run`）。
+    /// 志愿服务时长（`GET /api/volunteer/achievements` 的 `totalServiceMinutes`、跑后记录的 `service.durationMin`）
+    /// = 结束 − 开始 − 手动暂停总时长，按分钟向下取整（V9）。暂停中直接结束 = 暂停到结束为止都不计。
+    /// 盲人收到的 `eventType=RUN_RESUMED`。继续不再开客服工单。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/resume`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)`.
+    func resumeRun(_ input: Operations.resumeRun.Input) async throws -> Operations.resumeRun.Output
     /// 盲人对已完成订单提交评价（每单一次）
     ///
     /// 鉴权：仅该订单的**盲人**一方可评价（志愿者调用返回 403）。
@@ -474,6 +721,115 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/review`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/review/post(createReview)`.
     func createReview(_ input: Operations.createReview.Input) async throws -> Operations.createReview.Output
+    /// 查询订单的评价（订单双方均可查）
+    ///
+    /// 鉴权：该订单的**盲人或志愿者**任一方均可查看（与提交评价不同，提交仅限盲人）。
+    /// （2026-07-31 补全：此前本节只有一个 `'200': type: object`，无 4xx、无响应形状。）
+    ///
+    /// ⚠️ **没有评价时返回 200 + `data: null`，不是 404。** 客户端必须处理 `data` 为 null 的情况。
+    /// 响应体是**裸 `Map`**、不走 `ApiResponse` 信封，只有一个 `data` 字段（没有 `success`/`code`）。
+    ///
+    /// 🔒 **2026-08-31 起：评语原文对被评的志愿者永久不可见**（审计 B-2 ①）。
+    /// 志愿者调用本端点拿到的是 `comment: null` + `commentWithheld: true`；
+    /// 写评价的盲人回显自己那条不受影响。`rating` 两侧都可见。
+    /// `commentWithheld` 是**新增的可选字段**，不接也不会坏 —— 但只判 `comment == null`
+    /// 会把「用户没写字」和「有原文但不给你看」混成一件事。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/reviews`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)`.
+    func getReview(_ input: Operations.getReview.Input) async throws -> Operations.getReview.Output
+    /// 跑者给陪跑员发节奏信号
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `BLIND`，且必须是**这一单的跑者**；只在 `IN_PROGRESS` 可发。
+    /// `signal`：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点（文案固定，客户端按枚举出字）。
+    ///
+    /// 陪跑员收到 WS `APP_NOTIFICATION`，`eventType=RUN_RHYTHM`，信封另带 `orderId`、`signal`、`at`（= `signalAt`）；
+    /// `body` / `ttsText` 形如「李：稍慢一点」—— 🔒 只带跑者**姓氏**（没填姓名时说「跑者」），不带全名、不带称谓。
+    /// priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），App 在前台时可以不弹横幅。
+    /// 订单详情 `run.lastSignal` / `run.lastSignalAt` 同步更新，陪跑员 App 冷启动后从那里恢复。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流：同一单**同一信号** 10 秒内只收一次（`Retry-After: 10`）；换一种信号不受影响。Redis 不可用时放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/rhythm`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)`.
+    func sendRhythmSignal(_ input: Operations.sendRhythmSignal.Input) async throws -> Operations.sendRhythmSignal.Output
+    /// 陪跑员在出发点让跑者手机响铃
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
+    /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
+    /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)`.
+    func ringRunner(_ input: Operations.ringRunner.Input) async throws -> Operations.ringRunner.Output
+    /// 跑后运动记录（订单双方可读）
+    ///
+    /// 订单 `COMPLETED` 之后，订单双方读同一条跑后记录（2026-09-24 新增，迁移 0047）。
+    /// 鉴权与 `GET /api/orders/{id}/track` 同一个入口（DECISIONS D12）：非双方 403、不存在 404；管理员读取本期不做。
+    /// 响应走 `ApiResponse` 信封。
+    ///
+    /// **一份数据，两个角色读到的只有这几处不同**（其余逐字一致）：
+    /// - `summary.steps` / `summary.avgCadence` / `summary.elevationGainM` 与 `splits[].avgCadence`：
+    ///   **请求者本人手机采集的那一份**（D3，来自 WebSocket `LOCATION_UPDATE` 的可选字段
+    ///   `steps` / `cadence` / `alt`，见 `websocket-protocol.md`），另一方的不下发
+    /// - `comparison`：只给跑者本人（D6：陪跑员看不到跑者的历史记录），陪跑员恒为 `null`
+    /// - `viewerRole`
+    ///
+    /// **路线、距离、配速、分段、配速采样、休息点一律以跑者（BLIND）轨迹为准**，坐标 GCJ-02（D1）。
+    /// 计算口径：hAcc > 30m 的点丢掉；相邻点推算速度 > 7 m/s 的丢掉；速度 < 0.5 m/s 连续 ≥ 10 秒为自动暂停
+    /// （不计运动时间**也不计距离**）；连续 ≥ 30 秒记一个休息点；每满 1000 米一段，余数单独一段；每 50 米一个配速点；
+    /// 爬升忽略 < 1 米的起伏。
+    ///
+    /// **没有数据的量一律 `null`，绝不给 `0`**（如陪跑员手机没开「运动与健身」权限 → 他那边 `steps` 为 `null`）。
+    /// 列表字段没有数据时是空数组。**文案一律由客户端生成**：`events[].type` 只是类型，后端不写中文句子。
+    ///
+    /// **生成状态 `status`**（响应向开放枚举）：
+    /// - `GENERATING` —— 订单刚完成、后端正在算（完成事件的异步监听器）。客户端 1–2 秒后重试；
+    ///   此时计算类字段为 `null` / 空数组，但姓名、服务时长、途中事件（状态日志那几条）、留言照给
+    /// - `READY`
+    /// - `INSUFFICIENT_TRACK` —— 跑者轨迹清洗后不足 2 个点，画不出路线：`track` 为 `null`，
+    ///   距离/分段为 `null` / 空，其余（步数、服务时长、途中事件、留言）照给
+    /// - `FAILED` —— 计算出错。下次读取会自动重算，客户端给「重试」即可
+    ///
+    /// **留存**：`track` 与休息点坐标随 `app.track.retention-days`（默认 90 天）清掉，数字永久保留 ——
+    /// 超过 90 天的记录 `status` 仍是 `READY` 但 `track` 为 `null`、`stops[].lat/lng` 为 `null`。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/run-record`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)`.
+    func getRunRecord(_ input: Operations.getRunRecord.Input) async throws -> Operations.getRunRecord.Output
+    /// 跑后留言（订单双方，订单完成后）
+    ///
+    /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
+    /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
+    /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)`.
+    func postMessage(_ input: Operations.postMessage.Input) async throws -> Operations.postMessage.Output
+    /// 约好之后跑者给陪跑员留一句话
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `BLIND`，且必须是**这一单的跑者**；只在
+    /// `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`（陪跑员已确定、还没开跑）可写。
+    /// 覆盖写；`text` 传空串（或全空白）= 清空，首尾空白会去掉。本期只限长度，不做内容审核。
+    ///
+    /// 写成功后推陪跑员 WS `APP_NOTIFICATION`，`eventType=RUNNER_MESSAGE_UPDATED`，信封另带 `orderId` 与
+    /// `messageToVolunteer`（留言原文，清空时为 `null`）。🔒 `body` / `ttsText` / APNs 正文**不含**留言内容（会上锁屏），
+    /// 客户端从 `messageToVolunteer` 或订单详情读。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）。与陪跑员侧的状态迁移恰好同时提交时，
+    /// 对方可能收到 409 `ORDER_CONCURRENT_CONFLICT`（重试即可），留言不会被静默盖掉。
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/runner-message`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)`.
+    func updateRunnerMessage(_ input: Operations.updateRunnerMessage.Input) async throws -> Operations.updateRunnerMessage.Output
     /// 生成行程分享链接（给家属）
     ///
     /// 盲人把这一趟行程分享给家属。家属**没有账号也不需要装 App**，凭返回的链接直接看。
@@ -530,6 +886,18 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output
+    /// 查询订单的状态变更日志（订单双方均可查）
+    ///
+    /// 鉴权：该订单的**盲人或志愿者**任一方均可查看。
+    /// 响应体是**裸数组**，不走 `ApiResponse` 信封。
+    ///
+    /// ⚠️ **2026-08-06 变更**：越权时的 `errorCode` 由 `NOT_ORDER_PARTICIPANT` 改为
+    /// `ORDER_PERMISSION_DENIED`，与另外三个只读查询端点（`GET /api/orders/{id}`、`/track`、
+    /// `/calls/records`）对齐。`message` 与 HTTP 状态均未变，按 message 或状态码分支的客户端无需改动。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/status-logs`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/status-logs/get(getStatusLogs)`.
+    func getStatusLogs(_ input: Operations.getStatusLogs.Input) async throws -> Operations.getStatusLogs.Output
     /// 查询订单双方历史路径轨迹与统计（订单结束后回放用）
     ///
     /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
@@ -540,6 +908,22 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/{id}/track`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/track/get(getOrderTrack)`.
     func getOrderTrack(_ input: Operations.getOrderTrack.Input) async throws -> Operations.getOrderTrack.Output
+    /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
+    ///
+    /// - Remark: HTTP `GET /api/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/support/tickets/get(listMine)`.
+    func listMine(_ input: Operations.listMine.Input) async throws -> Operations.listMine.Output
+    /// 提交申诉/工单。**盲人与志愿者都能提**（刻意不限角色 —— 只让盲人提， 等于让志愿者的问题永远没有出口）。
+    ///
+    /// 🚨 **这不是紧急求助入口。** 工单是「事后有异议」，可以慢；「现在有危险」走 `/api/emergency/*`（SOS + 短信 + 客服实时介入）。两条路的时效差着一个数量级 —— **客户端文案不得把用户从 SOS 引到这里**。
+    ///
+    /// `orderId` 可空，但给了就**必须是自己的订单**，否则返 404 —— 不然工单会变成一个「查任意订单号存不存在」的探测接口。
+    ///
+    /// 未关闭工单数上限 `app.support-ticket.max-open-per-user`（默认 5）， 防的是**误触连提**（语音输入下「提交」被识别两遍是真实场景）。 到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/support/tickets/post(create)`.
+    func create(_ input: Operations.create.Input) async throws -> Operations.create.Output
     /// 设定用户身份（一次性）
     ///
     /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
@@ -560,6 +944,21 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/user/role`.
     /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
     func setRole(_ input: Operations.setRole.Input) async throws -> Operations.setRole.Output
+    /// 我的邀请码 + 已邀请/已发奖人数
+    ///
+    /// 邀请码**稳定不变**（不是一次一码），8 位大写字母数字， **排除易混字符 `0 O 1 I L`** —— 第一版走「注册时手填」，不做深链接， 而邀请人多半是**口头念**给对方听的。
+    ///
+    /// ⚠️ **本端点会写库**：邀请码是惰性生成的，第一次调用时才落库。 别按纯读端点做缓存或预取。
+    ///
+    /// **角色：BLIND 或 VOLUNTEER**。盲人也能邀请 —— 关系照记， 只是**邀请盲人不发奖**（决策 14）。
+    ///
+    /// ⚠️ SPEC 写的是「任意已登录」，实现读成「任意已登录的 **App 用户**」： 客服走独立的 `cs_users` 表，**其 id 与 `users.id` 是两个独立自增空间、数值会重叠**， 而 JWT subject 不区分来源。不收紧的话，客服 token 撞上同 id 的真实用户， 会给**别人的账号**惰性生成一个他从没要过的邀请码（这是写操作）。 ⚠️ 尚未设角色的 UNSET 用户拿不到邀请码，需先设角色。
+    ///
+    /// 刻意**不返回被邀请人名单** —— 返回名单等于让任何人拿自己的码反查别人的注册状态。 要看关系明细走 `GET /api/admin/invitations/tree`（CS_ADMIN）。
+    ///
+    /// - Remark: HTTP `GET /api/users/me/invite-code`.
+    /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)`.
+    func myInviteCode(_ input: Operations.myInviteCode.Input) async throws -> Operations.myInviteCode.Output
     /// - Remark: HTTP `GET /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/get(getUserById)`.
     func getUserById(_ input: Operations.getUserById.Input) async throws -> Operations.getUserById.Output
@@ -662,6 +1061,54 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/volunteer/dispatch-summary`.
     /// - Remark: Generated from `#/paths//api/volunteer/dispatch-summary/get(getDispatchSummary)`.
     func getDispatchSummary(_ input: Operations.getDispatchSummary.Input) async throws -> Operations.getDispatchSummary.Output
+    /// 「有几位跑者把你设为固定搭档」+ 列表，收藏时间倒序。**仅 VOLUNTEER**。
+    ///
+    /// 这就是「志愿者知情」的形式 —— **拉取式，不推送**。收藏的准入门槛是两人已经一起跑完过 至少一单，所以志愿者本来就认识对方；「有人把你设为固定搭档」是零时效信息， 推一条通知换来的是一个新 eventType、两处模板行和一道漂移门，不成比例。
+    ///
+    /// ⚠️ **我已退出的条目仍然在列表里**，带 `optedOut=true` —— 否则志愿者点完退出， 那个人就从他的列表里消失了，他无从确认自己刚才做了什么。
+    ///
+    /// 姓名一律掩码（`李*`），盲人已注销时 `blindName` 为 `null`。 条目里**没有电话**，与盲人侧同一口径。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/favorites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/favorites/get(list_1)`.
+    func list_1(_ input: Operations.list_1.Input) async throws -> Operations.list_1.Output
+    /// 志愿者**单方面退出**与某位跑者的固定搭档关系。**仅 VOLUNTEER**。 「告知但不需同意，可单方面退出」——不做双向确认。
+    ///
+    /// 退出后三件事同时生效：**不进固定搭档优先轮、不再获得派单加分、双人火花停止累积**。
+    ///
+    /// 🚨 **打标记，不删行**：那位跑者的固定搭档列表**仍然显示你**，只是 `partnerOptedOut=true`。 删行会让他以为收藏丢了、于是重新收藏一次，把你刚做的退出无声地撤销掉。
+    ///
+    /// 🚨 **恒返 204，不区分「改到了」与「没这一行」**（盲人不存在 / 没收藏我 / 我已经退出过 一律 204）—— 区分开这个端点就成了「拿任意 userId 试一下，看响应差异」的探测器， 与收藏侧那道枚举门同一个道理。顺带幂等：重复点不报错。
+    ///
+    /// 🚨 **退出在本轮是不可撤销的**，也没有「撤销退出」端点。跑者那边重新收藏会拿到 400 + `FAVORITE_VOLUNTEER_OPTED_OUT`，而且他自己取消收藏**也抹不掉**这个标记 （服务端两侧都是打标记不是删行）。
+    ///
+    /// ⚠️ 此处原先写着「真要回来，重新一起跑一单、由对方再收藏一次即可」—— **那句话代码从来没有实现过**（`add()` 只看有没有一起跑完过，不看是不是退出之后跑的）， 于是实际效果是「跑者删掉收藏再点一次就恢复了」。已于 2026-09-14 连同实现一并改正。 恢复路径留给后续的双向同意功能（收藏要对方点头），那时退出与恢复走同一套确认。
+    ///
+    /// - Remark: HTTP `DELETE /api/volunteer/favorites/{blindUserId}`.
+    /// - Remark: Generated from `#/paths//api/volunteer/favorites/{blindUserId}/delete(optOut)`.
+    func optOut(_ input: Operations.optOut.Input) async throws -> Operations.optOut.Output
+    /// 我和固定搭档的双人火花（志愿者视角）
+    ///
+    /// 与 `GET /api/blind/partners/streaks` 完全同构，只是 `partnerUserId` / `partnerName` 指向盲人一侧（姓名同样掩码）。判定规则、点亮门槛、惰性计算的局限都相同。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/partners/streaks`.
+    /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)`.
+    func myStreaksAsVolunteer(_ input: Operations.myStreaksAsVolunteer.Input) async throws -> Operations.myStreaksAsVolunteer.Output
+    /// 我的积分（余额 + 分页流水）
+    ///
+    /// 余额 = 全部流水 `delta` 之和；流水按 `createdAt` 倒序（最近的在前）。
+    ///
+    /// ⚠️ **流水里会出现 `delta = 0` 的行，客户端不要过滤掉它。** 那是「这一单撞了防刷上限、 没有加分」的显式记录，`note` 里写着原因（例：「已达同一对每周上限 30 分，本单不加分」）。 藏起来就回到了「我这单怎么没加分」无从解释的状态 —— 而那正是这套设计要避免的静默错误。 `note` 的文案是这个 0 唯一的解释，读屏会把它念出来，**不要截断、不要只显示 `delta`**。
+    ///
+    /// `delta = 0` 目前有三种原因，都写在 `note` 里：每日上限、同一对每周上限， 以及**零位移**（「本单未记录到有效位移（轨迹 X 米），本单不加分」）。 ⚠️ 零位移那条只在**确实记录到轨迹、且轨迹显示几乎没有移动**时才出现： 拿不到轨迹（未授权定位、App 被切后台、服务端降级 ⇒ 距离为 `null`）照常发分； 轨迹跑到一半断掉（留下几百米）也照常发分 —— 门槛刻意压到「连断掉的轨迹都够不着」 的量级，因为误伤一个真跑了的陪跑员比漏掉一个刷分的人贵得多。 具体数值是服务端配置（`app.incentive.points.min-distance-meters`）， **客户端不要硬编码它**，直接展示 `note`。
+    ///
+    /// 🚨 **积分与「志愿服务时长」是两套数，文案里一次都不能混** （时长在 `GET /api/volunteer/achievements` 的 `totalServiceMinutes`）。 不得互相换算、不得写成「攒积分可折算志愿服务时长」—— 中央网信办 2026-06-19《关于开展网络平台涉志愿服务违规信息专项整治的通知》 第 2 条点名整治此类表述。
+    ///
+    /// 积分**只累计不消耗**，目前没有任何兑换出口。UI 需明确告知「商城开发中」， 不要让用户以为攒了能换东西。积分不可转让、不可提现。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/points`.
+    /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)`.
+    func myPoints(_ input: Operations.myPoints.Input) async throws -> Operations.myPoints.Output
     /// - Remark: HTTP `GET /api/volunteer/profile`.
     /// - Remark: Generated from `#/paths//api/volunteer/profile/get(getProfile)`.
     func getProfile(_ input: Operations.getProfile.Input) async throws -> Operations.getProfile.Output
@@ -691,6 +1138,37 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/volunteer/registration/step1`.
     /// - Remark: Generated from `#/paths//api/volunteer/registration/step1/post(submitBasicInfo)`.
     func submitBasicInfo(_ input: Operations.submitBasicInfo.Input) async throws -> Operations.submitBasicInfo.Output
+    /// 拒绝人脸认证，转替代认证路径（Step 3 - decline）
+    ///
+    /// 志愿者声明**不同意人脸认证**，转入「身份证二要素核验 + 人工审核」的替代路径。
+    /// 无请求体。依据《人脸识别技术应用安全管理办法》第十条：存在其他非人脸方式的，
+    /// 不得将人脸识别作为唯一验证方式；个人不同意人脸验证的，应当提供其他合理、便捷的方式。
+    ///
+    /// 📱 **客户端必须提供这个入口** —— 隐私政策与用户协议里都写了这条路径存在，
+    /// 用户（和 App 审核员）会照着文本去找。
+    ///
+    /// 调用成功后 `GET /api/volunteer/registration/status` 的
+    /// `stepDetails.faceVerifyStatus` 变为 `DECLINED`，`registrationCompleted` 变为 `true`
+    /// （注册流程走完了），但 `canAcceptOrders` **仍为 false** —— 后半段与人脸路径完全相同：
+    /// `POST /api/volunteer/verification` 上传能证明本人身份的材料 → 管理员人工审核通过
+    /// → `verified=true` 才能接单。
+    ///
+    /// ⚠️ **三种错误情形的状态码不一样**：
+    ///   - 当前不在 `STEP_3_FACE_VERIFY` → **409** `REGISTRATION_STEP_INVALID`
+    ///   - 活体已经通过（不允许降级）→ **409** `REGISTRATION_STEP_INVALID`
+    ///   - 身份证二要素**不是** `APPROVED` → **400** `ID_INFO_INVALID`，
+    ///     此时步骤位已被回退到 `STEP_1_BASIC_INFO`，客户端应回 step1 重填姓名+身份证号
+    ///
+    /// 最后一条比 `/face-verify/init` **更严**：init 只在二要素被明确 `REJECTED` 时才回退，
+    /// decline 要求二要素必须真的 `APPROVED` —— 这条路径的名字就叫「二要素核验 + 人工审核」，
+    /// 少了前半段（活体又被拿掉了），整条路径上没有任何机器核验过这个人是谁。
+    ///
+    /// ⚠️ 幂等性：已经是 `DECLINED` 时重复调用不报错。改主意想做人脸的，直接调
+    /// `/step3/face-verify/init` 即可，本端点不会把人锁死。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/decline`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/decline/post(declineFaceVerify)`.
+    func declineFaceVerify(_ input: Operations.declineFaceVerify.Input) async throws -> Operations.declineFaceVerify.Output
     /// 发起动作活体认证（Step 3 - init）
     ///
     /// 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云 InitFaceVerify（SMART 方案）返回 certifyId。客户端使用阿里云原生 App SDK （AliyunFaceAuthFacade.verify(certifyId)）直接完成动作活体，无需打开 URL， 随后轮询 /step3/face-verify/result 获取结果。
@@ -705,6 +1183,64 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/result`.
     /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/result/post(queryFaceVerifyResult)`.
     func queryFaceVerifyResult(_ input: Operations.queryFaceVerifyResult.Input) async throws -> Operations.queryFaceVerifyResult.Output
+    /// 培训课程列表（含我的进度与必修完成度）
+    ///
+    /// 志愿者线上培训（迁移 `0043`，2026-09-09 重新上线）。培训 2026-07-29 曾整体下线， 本次回归的形态是「Markdown 图文 + 情景单选题」。
+    ///
+    /// 依据：中央社会工作部《关于志愿者招募和培训的工作指引（试行）》（2025-06-05）—— 「对需要专门知识、技能的志愿服务坚持先培训再上岗」「志愿者在培训合格后参与志愿服务活动」， 且明确认可**线上笔试 + 情景模拟**两种考核形式、要求记录**学习时长**、允许颁发培训证书。
+    ///
+    /// 🚩 **`requiredCompleted` 由后端算，客户端不许自己数课程列表。** 分母是「当前上线的必修课数」，会随课程上下线变化；客户端自己算会在 「新增一门必修课」的那一刻与派单侧分叉 —— 表现是培训页显示已完成、却收不到任何派单， 而这个矛盾没有任何日志能解释。
+    ///
+    /// ⚠️ 它与「能不能接单」**不是同一件事**：还要过资质审核、开着可服务开关、在线。 接单资格的权威来源是 `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` （必修没做完时其中会有 `TRAINING_INCOMPLETE`）。
+    ///
+    /// ⚠️ **路径不在 `/api/volunteer/registration/` 下面**（旧模块曾是）。 刻意换掉：这次培训不进注册流程，走完注册也可能还没培训， `registrationCompleted` 不会等它。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/training/courses`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)`.
+    func listCourses(_ input: Operations.listCourses.Input) async throws -> Operations.listCourses.Output
+    /// 课程详情（Markdown 正文 + 题目）
+    ///
+    /// 🚨 **响应里没有正确答案，这是刻意的，不是漏字段。** 判卷只在服务端 （`POST /api/volunteer/training/courses/{courseId}/quiz`）。 这些题考的是人身安全处置，能查到答案的考试没有意义。
+    ///
+    /// `content` 是 Markdown。🚩 **客户端请原生渲染，不要塞进 WebView** —— WebView 里 Dynamic Type 和 VoiceOver 都不按系统设置走，而这是无障碍 App。
+    ///
+    /// 课程已下线（`isActive=false`）时返回 404，但该用户已有的进度记录仍然保留。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/training/courses/{courseId}`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)`.
+    func courseDetail(_ input: Operations.courseDetail.Input) async throws -> Operations.courseDetail.Output
+    /// 上报学习时长
+    ///
+    /// 🚩 存在的理由是**政策要求记录「学习时长」**（中央社会工作部 2025-06 培训指引原文列举了 「培训日期和学习时长」），不是为了做「最短阅读时间」门槛 —— 那道闸会把考核从「会不会」变成「熬够时间没有」。
+    ///
+    /// ⚠️ **`studiedSeconds` 是本次增量，不是累计值**，后端做加法。 传累计值会让「换一台设备继续学」把时长覆盖成更小的数。
+    ///
+    /// 单次上限 4 小时（14400 秒），超限返回 400 而**不是**静默截断 —— 截断会让一个坏掉的客户端永远悄悄地少记时长，而没人会发现。
+    ///
+    /// 已通过的课照样累加（复习也是学习），不会因为 `status=COMPLETED` 就被拒。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/training/courses/{courseId}/progress`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)`.
+    func reportProgress(_ input: Operations.reportProgress.Input) async throws -> Operations.reportProgress.Output
+    /// 提交考核答案（全对才通过，可无限重考）
+    ///
+    /// 及格线是**全对**：`passed == (correctCount == totalCount)`。 业界锚点其实是 85 分（国内助盲跑团的陪跑员笔试口径），本项目取更严的全对 —— 每道题都是人身安全底线，「对 4/5」意义不大。**可无限重考，不锁定、不冷却。**
+    ///
+    /// **一次交全卷，没有逐题提交。** 逐题提交等于允许「一题一题试到对」， 而及格线是全对 ⇒ 谁都能过，考核直接失效。
+    ///
+    /// ⚠️ 答案必须**一题不缺、也不能多**，`questionId` 都要属于这门课； 少答/多答/混入别的课的题号一律 400。 后端**不做「按能对上的部分判分」** —— 那会让一个漏传了两题的坏客户端 把用户判成不及格，而用户看到的是「你答错了」。
+    ///
+    /// 🚩 **`wrongQuestions` 带每道错题的 `explanation`，请务必展示。** 只给题号的话，用户在「全对才过 + 无限重考」下唯一的策略是改选项猜到过 —— 那样这个模块就从培训退化成一道验证码。
+    ///
+    /// 🚨 通过之后响应里**也不会**给出正确答案：答案一旦下发就能被抓包留存、传给下一个人。
+    ///
+    /// `awardedPoints`：只有**选修课首次通过**才 > 0（分值来自课程配置）。 必修课恒 0 —— 必修是接单门槛，给「达到最低要求」发奖会让积分失去意义。 ⚠️ 客户端**不要**用它判断「是否通过」，必修通过时它也是 0。 重复通过同一门课不重复发分（幂等键 `TRAINING_REWARD:{courseId}:{userId}`）。
+    ///
+    /// `requiredCompleted`：交卷之后必修是否已全部通过。 由 false 变 true 的那一刻意味着派单门槛刚刚解开， 客户端应据此刷新 `GET /api/volunteer/dispatch-summary`。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/training/courses/{courseId}/quiz`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)`.
+    func submitQuiz(_ input: Operations.submitQuiz.Input) async throws -> Operations.submitQuiz.Output
     /// 上传资质证书（VOLUNTEER）
     ///
     /// 提交资质（培训）证书等待管理员审核。提交后 `verificationStatus` 置为 `PENDING`。
@@ -772,6 +1308,54 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// 我的固定搭档，收藏时间倒序。**仅 BLIND**。
+    ///
+    /// 陪跑的核心成本是**磨合** —— 用什么牵引方式、你习惯别人怎么提醒路况、你的配速。 每单换人等于每单重新磨合。United In Stride 的运营结论是每位视障跑者需要 6~8 名固定陪跑员。
+    ///
+    /// ⚠️ 条目里**没有电话**：这个列表是「我跟谁跑得来」不是通讯录。要打电话走订单详情的 `volunteerPhone`，那里有状态门（只在汇合四态下发）；把号码放进一个长期列表等于绕开那道门。 姓名一律掩码（`李*`）。志愿者已注销时 `volunteerName` 为 `null` —— 一个注销的搭档 不该让整个列表 500。
+    ///
+    /// - Remark: HTTP `GET /api/blind/favorite-volunteers`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/get(list_2)`.
+    public func list_2(headers: Operations.list_2.Input.Headers = .init()) async throws -> Operations.list_2.Output {
+        try await list_2(Operations.list_2.Input(headers: headers))
+    }
+    /// 收藏一位志愿者。**幂等** —— 重复收藏返 204 而不是 409，客户端不必先查一次。
+    ///
+    /// 🚨 **必须一起跑完过至少一单**，否则返 400 + `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`。 两个理由：① 不设这道门，这个端点就变成「拿任意 userId 试一下，204 说明这人存在且是 志愿者」的枚举接口，且能把陌生人塞进自己的派单偏好；② 固定搭档的价值来自**已经磨合过**。 ⚠️ 「没一起跑完过」与「这个 id 根本不是志愿者」**同码同文案**，客户端不要试图区分 —— 区分开就等于确认了这个 id 是个志愿者。
+    ///
+    /// 🚨 **收藏只影响派单排序，不影响资格**：收藏的人照样要过全部硬过滤 （在线、已认证、距离、导盲犬、时间重叠）。加分（默认 15 分，加在满分 100 的五维加权和之外） **不是压倒一切** —— 附近有个不错的陌生人时，很远的固定搭档仍然会输。 客户端文案不要承诺「优先派给他」，只能说「更可能派给他」。
+    ///
+    /// 🚨 **对方退出过就加不回来了**（400 + `FAVORITE_VOLUNTEER_OPTED_OUT`）。退出标记跟着 **这一对**走 —— 跑者自己取消收藏也抹不掉它，所以「取消一下再重新收藏」不是恢复手段。 本轮没有恢复路径（见 `DELETE /api/volunteer/favorites/{blindUserId}` 的说明）。 ⚠️ 这个码的文案不要复用 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` 那句「只能收藏一起跑完过的」—— 这一对恰恰是跑过的，念出来是假话，而跑者只能听 TTS。
+    ///
+    /// - Remark: HTTP `PUT /api/blind/favorite-volunteers/{volunteerId}`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)`.
+    public func add(path: Operations.add.Input.Path) async throws -> Operations.add.Output {
+        try await add(Operations.add.Input(path: path))
+    }
+    /// 取消收藏。**幂等** —— 没收藏过也返 204，客户端不需要先查一次。
+    ///
+    /// ⚠️ 服务端是**打标记不是删行**（对客户端无差别：这个人从列表里消失，名额也让出来）。 这么做是因为真删了，「取消 → 下次跑完再收藏」两次正常点击就会把对方的退出 无声地撤销掉。副作用是：**对方已退出的条目，取消之后就再也加不回来了** —— 如果界面上对 `partnerOptedOut=true` 的条目也提供取消按钮，建议加一次二次确认。
+    ///
+    /// - Remark: HTTP `DELETE /api/blind/favorite-volunteers/{volunteerId}`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/delete(remove)`.
+    public func remove(path: Operations.remove.Input.Path) async throws -> Operations.remove.Output {
+        try await remove(Operations.remove.Input(path: path))
+    }
+    /// 我和固定搭档的双人火花（盲人视角）
+    ///
+    /// 连续多少个自然周（ISO 周，周一 00:00 – 周日 23:59）和同一位志愿者一起跑过。 该周内这一对有 ≥1 单 `COMPLETED` 就算这一周跑过。
+    ///
+    /// 🚨 **口径与积分刻意不同**：火花**不看**是手动完成还是超时自动完成。 火花衡量的是关系的连续性，而「志愿者忘了点完成」不该让两个人的关系断掉。
+    ///
+    /// ⚠️ **未点亮的一对不在数组里**（默认门槛连续 2 周）。数组按 `currentWeeks` 倒序 —— 读屏是顺序播报的，排在后面等于不存在。
+    ///
+    /// ⚠️ **惰性计算**：火花只在这一对完成订单时结算，不跑调度器。 所以「断了」是在他们**下一次跑完一单时**才被发现的 —— 这也是断裂通知 `PARTNER_STREAK_RESTARTED` 的文案是「新的连续记录开始了」而不是「已中断」的原因。
+    ///
+    /// - Remark: HTTP `GET /api/blind/partners/streaks`.
+    /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)`.
+    public func myStreaksAsBlind(headers: Operations.myStreaksAsBlind.Input.Headers = .init()) async throws -> Operations.myStreaksAsBlind.Output {
+        try await myStreaksAsBlind(Operations.myStreaksAsBlind.Input(headers: headers))
+    }
     /// 获取盲人资料
     ///
     /// - Remark: HTTP `GET /api/blind/profile`.
@@ -837,6 +1421,26 @@ extension APIProtocol {
     public func getVolunteerLocation(headers: Operations.getVolunteerLocation.Input.Headers = .init()) async throws -> Operations.getVolunteerLocation.Output {
         try await getVolunteerLocation(Operations.getVolunteerLocation.Input(headers: headers))
     }
+    /// 读取功能开关状态
+    ///
+    /// 2026-08-24 新增（handoff iOS 那条）。客户端用它决定**空态说什么**。
+    ///
+    /// 三个 SPEC-E 开关默认关闭，关着时相关端点返回空数组 —— 而同一个空数组有两个
+    /// 完全不同的含义：「功能还没开放」和「你确实还没点亮」。此前客户端恒说后者，
+    /// 于是开关关着的那段时间里，那句文案是在教用户去做一件**做了也不会有结果的事**。
+    /// 对读屏用户尤其糟：他会照着做两周，回来发现还是空的。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**：盲人要 `partnerStreakEnabled`，
+    /// 志愿者要另外两个，两边都得读；未登录的人拿它没有用途，所以也不放进 permitAll。
+    ///
+    /// 🚨 **本端点只回答「功能开没开」，不回答「你有没有」** —— 后者是各自列表端点的事。
+    /// 混进来的话客户端就有两个地方能得出「显示什么」，而它们迟早不一致。
+    ///
+    /// - Remark: HTTP `GET /api/config/features`.
+    /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
+    public func getFeatures(headers: Operations.getFeatures.Input.Headers = .init()) async throws -> Operations.getFeatures.Output {
+        try await getFeatures(Operations.getFeatures.Input(headers: headers))
+    }
     /// 上报 APNs device token（iOS 离线推送兜底，B5）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
@@ -878,6 +1482,29 @@ extension APIProtocol {
         body: Operations.unregisterApnsToken.Input.Body
     ) async throws -> Operations.unregisterApnsToken.Output {
         try await unregisterApnsToken(Operations.unregisterApnsToken.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 陪跑员上传锁屏实时活动的 push token
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在
+    /// `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 可传。App 按下「我出发了」后本地 `Activity.request(pushType: .token)`，
+    /// 拿到 `pushTokenUpdates` 的 token（十六进制）就调本接口；同一单再传一次覆盖。
+    ///
+    /// 之后后端经 APNs（`apns-push-type: liveactivity`）推：状态变化、ETA 分钟数变化、晚到变化、跑者到集合点、
+    /// 汇合档位变化时 `update`；离开两态（开跑、完成、取消、重派、结束等待）时 `end`，锁屏保留 5 分钟。
+    /// payload 形状与**日期编码**见 `docs/live-activity.md`（⚠️ `arriveAt` 是 Swift `Date` 默认编码，2001 纪元秒）。
+    ///
+    /// token 只存 Redis（6 小时），Redis 不可用时本次不存、锁屏不刷新，App 内不受影响。
+    ///
+    /// - Remark: HTTP `POST /api/devices/live-activity-token`.
+    /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)`.
+    public func registerLiveActivityToken(
+        headers: Operations.registerLiveActivityToken.Input.Headers = .init(),
+        body: Operations.registerLiveActivityToken.Input.Body
+    ) async throws -> Operations.registerLiveActivityToken.Output {
+        try await registerLiveActivityToken(Operations.registerLiveActivityToken.Input(
             headers: headers,
             body: body
         ))
@@ -1050,6 +1677,19 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// 我当前这一单（App 冷启动 / 断线重连恢复用）
+    ///
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    ///
+    /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
+    ///
+    /// 响应体与 `GET /api/orders/{id}` **逐字相同**（同一个 `OrderDetailResponse`）， 包括 `volunteerPhone`：在 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 四态下发**能直接拨通的明文号**，其余状态为 `null`，永远不是掩码串 （见该 schema 上的说明）。重开 App 后立刻能打给志愿者正是这个端点存在的理由之一。
+    ///
+    /// - Remark: HTTP `GET /api/orders/active`.
+    /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)`.
+    public func activeOrder(headers: Operations.activeOrder.Input.Headers = .init()) async throws -> Operations.activeOrder.Output {
+        try await activeOrder(Operations.activeOrder.Input(headers: headers))
+    }
     /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
@@ -1071,6 +1711,34 @@ extension APIProtocol {
         headers: Operations.getMyOrders.Input.Headers = .init()
     ) async throws -> Operations.getMyOrders.Output {
         try await getMyOrders(Operations.getMyOrders.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// 我的跑后记录月度列表（按当前角色）
+    ///
+    /// 按当前用户角色返回某个月**已完成**订单的跑后记录列表 + 月度汇总（2026-09-24 新增）。
+    /// 按订单完成时间 `finishedAt` 归月；不分页（一个人一个月的量级）；完成时间倒序。
+    /// 取消 / 无人接单的订单不在这里（D9：客户端从 `GET /api/orders/mine` 自己分组到「未完成的预约」）。
+    /// 响应走 `ApiResponse` 信封。
+    ///
+    /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
+    ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
+    /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
+    /// - `monthSummary.distanceM`：有里程的那几单之和，一单都没有为 `null`
+    /// - `monthSummary.topPartner`：本月一起跑得最多的搭档，并列取最近的那位；本月没有记录为 `null`
+    /// - 还没生成过记录的历史单，**一次请求最多当场补算 5 张**；其余这一次先用完赛快照（`thumbnail` 为 `null`），
+    ///   下次请求再补下一批。只影响功能上线前的历史单，新完成的订单在完成时就已经生成
+    ///
+    /// - Remark: HTTP `GET /api/orders/mine/run-records`.
+    /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)`.
+    public func getMyRunRecords(
+        query: Operations.getMyRunRecords.Input.Query,
+        headers: Operations.getMyRunRecords.Input.Headers = .init()
+    ) async throws -> Operations.getMyRunRecords.Output {
+        try await getMyRunRecords(Operations.getMyRunRecords.Input(
             query: query,
             headers: headers
         ))
@@ -1198,6 +1866,35 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 志愿者临期确认「我还会去」（跨天预约单）
+    ///
+    /// 跨天预约单（`SCHEDULED_CONFIRMED`）的临期闸门。志愿者调它表示自己仍会赴约，
+    /// 订单随即转入 `PENDING_ACCEPT`，走与即时单完全相同的后续流程
+    /// （`/en-route` → `/arrived` → `/start-service` → `/finish`）。
+    ///
+    /// 🚩 **它与 `/en-route` 不是一回事，别合并**：这一步只回答「你还去吗」，人可能还在家里；
+    /// `/en-route` 是真的动身了、开始双向推位置了。合并会让位置互推提前几小时打开，
+    /// 而那期间双方并不需要找到对方。
+    ///
+    /// **不调用的后果**：距开跑 `app.order.departure-gate-lead-minutes`（默认 60 分钟）时
+    /// 订单被自动退回 `REMATCHING` 重新派单，志愿者收到 `SCHEDULED_DEPARTURE_GATE_MISSED`。
+    /// 这不计入接单率、不影响后续派单，只在 `volunteer_profile.scheduled_no_show_count` 记一笔。
+    ///
+    /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
+    /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
+    /// **那条通知与本端点是一对，客户端别只接一个**。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
+    public func confirmDeparture(
+        path: Operations.confirmDeparture.Input.Path,
+        headers: Operations.confirmDeparture.Input.Headers = .init()
+    ) async throws -> Operations.confirmDeparture.Output {
+        try await confirmDeparture(Operations.confirmDeparture.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// 陪跑员已动身（真的出门了，开始双向推位置）
     ///
     /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
@@ -1219,6 +1916,31 @@ extension APIProtocol {
         headers: Operations.driverEnRoute.Input.Headers = .init()
     ) async throws -> Operations.driverEnRoute.Output {
         try await driverEnRoute(Operations.driverEnRoute.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 陪跑员到达后等满时限没碰上跑者，结束等待
+    ///
+    /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
+    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
+    ///
+    /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
+    /// **不算志愿者取消**（不走 `REMATCHING`、不重派），服务时长为 0（订单没进过 `IN_PROGRESS`）。
+    /// 盲人收到 `APP_NOTIFICATION`（`eventType = ORDER_WAIT_ENDED`，HIGH，带 `ttsText`），
+    /// 双方收到 `ORDER_STATUS_CHANGED`。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409 `ORDER_STATUS_NOT_ALLOWED`）→ 时限（409 `END_WAIT_TOO_EARLY`）
+    /// → 未结案求助（409 `ORDER_HAS_ACTIVE_EMERGENCY`）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/end-waiting`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)`.
+    public func endWaiting(
+        path: Operations.endWaiting.Input.Path,
+        headers: Operations.endWaiting.Input.Headers = .init()
+    ) async throws -> Operations.endWaiting.Output {
+        try await endWaiting(Operations.endWaiting.Input(
             path: path,
             headers: headers
         ))
@@ -1367,6 +2089,139 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 盲人延长重新匹配等待窗口（REMATCHING 状态）
+    ///
+    /// 盲人在订单处于 REMATCHING（重新匹配志愿者）状态时，可调用此端点刷新重新匹配超时窗口，
+    /// 避免因无人接单导致的兜底取消。对称于 `keepWaiting`（PENDING_MATCH 状态延长匹配等待）。
+    ///
+    /// - 角色：仅 BLIND 可调用（`SecurityConfig` 显式规则 `PUT /api/orders/*/keep-rematching → hasRole("BLIND")`）。
+    /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
+    /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
+    ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
+    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
+    /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
+    ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
+    ///   进入 REMATCHING 后重新拥有完整的 10 次。到达上限后再调用返回 409 `KEEP_WAITING_LIMIT_REACHED`。
+    /// - 计数递增的是**超时轮数**而非按钮点击数：每轮重匹超时提醒 +1，用户在每一轮里可延长。
+    ///   倒数第二轮会额外推一条 HIGH 优先级的 `ORDER_CANCELLATION_WARNING`（带 ttsText）——
+    ///   刻意提前一轮，否则用户听完预警去点必定撞 409。
+    /// - ⚠️ 2026-08-12（N62）之前，本端点**既没有上限、也不延长任何东西**：死线硬锚在
+    ///   `lastRematchAt + 30min`，点 1 次和点 11 次订单在同一时刻转 `NO_VOLUNTEER`。
+    ///   本段描述当时是错的，现已让实现追上描述。
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/keep-rematching`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)`.
+    public func keepRematching(
+        path: Operations.keepRematching.Input.Path,
+        headers: Operations.keepRematching.Input.Headers = .init()
+    ) async throws -> Operations.keepRematching.Output {
+        try await keepRematching(Operations.keepRematching.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `PUT /api/orders/{id}/keep-waiting`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/keep-waiting/put(keepWaiting)`.
+    public func keepWaiting(
+        path: Operations.keepWaiting.Input.Path,
+        headers: Operations.keepWaiting.Input.Headers = .init()
+    ) async throws -> Operations.keepWaiting.Output {
+        try await keepWaiting(Operations.keepWaiting.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 播报位置 —— 把受助者当前坐标逆地理成一句可以念出来的话
+    ///
+    /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
+    ///
+    /// **两端拿到的都是「盲人」的位置**，不按调用者分支。盲人用它把自己的位置告诉路人 / 客服 / 120；
+    /// 志愿者用它说清「人在哪」（不是「我在哪」）。
+    ///
+    /// 🔴 **任何情况下都返 200**，拿不到地址就把 `degraded` 置 true。
+    /// 5xx / 404 在盲人端的表现是「点了没反应」，而这一项恰恰是他要靠它开口说话的。
+    /// 三种结果共用一个响应形状，客户端不需要错误分支：
+    ///
+    /// | 判据 | 客户端该做什么 |
+    /// |---|---|
+    /// | `formattedAddress != null` | 念地址 |
+    /// | `formattedAddress == null && latitude != null` | 地址查不到，念坐标 |
+    /// | `latitude == null` | 播「暂时定位不到，情况紧急请直接拨 110 或 120」 |
+    ///
+    /// 位置只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态下给
+    /// （即 `OrderStatus.sharesLiveLocation()`）。终态之后 Redis 里的坐标可能因 TTL 未到期而仍有值，
+    /// 但那已经不属于这趟行程 —— 与 `GET /api/orders/{id}/share` 的口径一致。
+    ///
+    /// ⚠️ **`ageSeconds` 必须用上。** 一个 28 秒前的坐标和 1 秒前的坐标在跑步时差着几百米，
+    /// 而从地址字符串上看不出区别 —— 不看新鲜度就是让人把旧位置当成当前位置报给 120。
+    /// 读不到时为 null（**宁可说不知道，不编一个 0**）。
+    ///
+    /// 逆地理结果按坐标取整到 4 位小数（约 11 米）缓存 5 分钟；**失败不进缓存**
+    /// （高德抖一下就把「查不到」缓 5 分钟，等于一次抖动让人几分钟内报不出自己在哪）。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/location/address`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)`.
+    public func getLocationAddress(
+        path: Operations.getLocationAddress.Input.Path,
+        headers: Operations.getLocationAddress.Input.Headers = .init()
+    ) async throws -> Operations.getLocationAddress.Output {
+        try await getLocationAddress(Operations.getLocationAddress.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 陪跑员暂停计时（跑者需要停下来）
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2 · V15）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在 `IN_PROGRESS`。
+    /// **幂等**：已在暂停时再按暂停、没在暂停时按继续，都返回 200 + 当前状态，不重复推送。
+    /// 两端同时按也只有一次生效（条件更新，同 `PUT /runner-message` 的乐观锁惯例）。
+    /// 生效时：盲人收 WS `APP_NOTIFICATION`（`eventType` 见下，HIGH，同时发 APNs，信封带 `orderId`，
+    /// 请朗读 `ttsText`）；订单双方收 WS `RUN_PROGRESS`（新 `run`）。
+    /// 志愿服务时长（`GET /api/volunteer/achievements` 的 `totalServiceMinutes`、跑后记录的 `service.durationMin`）
+    /// = 结束 − 开始 − 手动暂停总时长，按分钟向下取整（V9）。暂停中直接结束 = 暂停到结束为止都不计。
+    /// 盲人收到的 `eventType=RUN_PAUSED`。**同时告知客服，走非紧急通道**（V8）：每单第一次暂停时系统代开一条工单
+    /// （`GET /api/cs/tickets` 可见，分类 `ORDER_SERVICE`，挂在陪跑员名下、不占他的未结工单额度），
+    /// **不进** `/api/cs/emergency-events`。⚠️ 客服值班台目前不展示工单，所以这**不是**「客服已经收到」，
+    /// 页面文案不要承诺有人已收到。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/pause`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)`.
+    public func pauseRun(
+        path: Operations.pauseRun.Input.Path,
+        headers: Operations.pauseRun.Input.Headers = .init()
+    ) async throws -> Operations.pauseRun.Output {
+        try await pauseRun(Operations.pauseRun.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 志愿者汇合途中给盲人发一条预设快捷消息
+    ///
+    /// #359。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 可发。
+    /// 盲人收到 WS `APP_NOTIFICATION`，`eventType` 按 code 区分（见 `docs/websocket-protocol.md`），
+    /// 带 `ttsText` 直接朗读；priority 为 HIGH，App 在后台时走 APNs 兜底；同时写 `notification_logs`，
+    /// 重连后 `GET /api/notifications/since` 能补读。信封另带 `orderId` 与 `code` 两个字段。
+    ///
+    /// **只做预设文案，不做自由文本和语音**：文案由后端定死，不需要内容审核，也不存用户写的内容。
+    /// 完成后的跑后留言（`POST /api/orders/{id}/run-record/messages`）是另一条通道，和本端点无关。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流：同一单每 60 秒最多 3 条，第 4 条返回 429 并带 `Retry-After`。Redis 不可用时放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/quick-message`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)`.
+    public func sendQuickMessage(
+        path: Operations.sendQuickMessage.Input.Path,
+        headers: Operations.sendQuickMessage.Input.Headers = .init(),
+        body: Operations.sendQuickMessage.Input.Body
+    ) async throws -> Operations.sendQuickMessage.Output {
+        try await sendQuickMessage(Operations.sendQuickMessage.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
     /// 响应派单（接单 / 跳过，VOLUNTEER）
     ///
     /// 串行派单的唯一响应入口（旧 `/accept`、`/reject` 已 @Deprecated 并委托到此逻辑）。
@@ -1405,6 +2260,28 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// 陪跑员继续计时
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2 · V15）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在 `IN_PROGRESS`。
+    /// **幂等**：已在暂停时再按暂停、没在暂停时按继续，都返回 200 + 当前状态，不重复推送。
+    /// 两端同时按也只有一次生效（条件更新，同 `PUT /runner-message` 的乐观锁惯例）。
+    /// 生效时：盲人收 WS `APP_NOTIFICATION`（`eventType` 见下，HIGH，同时发 APNs，信封带 `orderId`，
+    /// 请朗读 `ttsText`）；订单双方收 WS `RUN_PROGRESS`（新 `run`）。
+    /// 志愿服务时长（`GET /api/volunteer/achievements` 的 `totalServiceMinutes`、跑后记录的 `service.durationMin`）
+    /// = 结束 − 开始 − 手动暂停总时长，按分钟向下取整（V9）。暂停中直接结束 = 暂停到结束为止都不计。
+    /// 盲人收到的 `eventType=RUN_RESUMED`。继续不再开客服工单。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/resume`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)`.
+    public func resumeRun(
+        path: Operations.resumeRun.Input.Path,
+        headers: Operations.resumeRun.Input.Headers = .init()
+    ) async throws -> Operations.resumeRun.Output {
+        try await resumeRun(Operations.resumeRun.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// 盲人对已完成订单提交评价（每单一次）
     ///
     /// 鉴权：仅该订单的**盲人**一方可评价（志愿者调用返回 403）。
@@ -1426,6 +2303,169 @@ extension APIProtocol {
         body: Operations.createReview.Input.Body
     ) async throws -> Operations.createReview.Output {
         try await createReview(Operations.createReview.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 查询订单的评价（订单双方均可查）
+    ///
+    /// 鉴权：该订单的**盲人或志愿者**任一方均可查看（与提交评价不同，提交仅限盲人）。
+    /// （2026-07-31 补全：此前本节只有一个 `'200': type: object`，无 4xx、无响应形状。）
+    ///
+    /// ⚠️ **没有评价时返回 200 + `data: null`，不是 404。** 客户端必须处理 `data` 为 null 的情况。
+    /// 响应体是**裸 `Map`**、不走 `ApiResponse` 信封，只有一个 `data` 字段（没有 `success`/`code`）。
+    ///
+    /// 🔒 **2026-08-31 起：评语原文对被评的志愿者永久不可见**（审计 B-2 ①）。
+    /// 志愿者调用本端点拿到的是 `comment: null` + `commentWithheld: true`；
+    /// 写评价的盲人回显自己那条不受影响。`rating` 两侧都可见。
+    /// `commentWithheld` 是**新增的可选字段**，不接也不会坏 —— 但只判 `comment == null`
+    /// 会把「用户没写字」和「有原文但不给你看」混成一件事。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/reviews`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)`.
+    public func getReview(
+        path: Operations.getReview.Input.Path,
+        headers: Operations.getReview.Input.Headers = .init()
+    ) async throws -> Operations.getReview.Output {
+        try await getReview(Operations.getReview.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 跑者给陪跑员发节奏信号
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `BLIND`，且必须是**这一单的跑者**；只在 `IN_PROGRESS` 可发。
+    /// `signal`：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点（文案固定，客户端按枚举出字）。
+    ///
+    /// 陪跑员收到 WS `APP_NOTIFICATION`，`eventType=RUN_RHYTHM`，信封另带 `orderId`、`signal`、`at`（= `signalAt`）；
+    /// `body` / `ttsText` 形如「李：稍慢一点」—— 🔒 只带跑者**姓氏**（没填姓名时说「跑者」），不带全名、不带称谓。
+    /// priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），App 在前台时可以不弹横幅。
+    /// 订单详情 `run.lastSignal` / `run.lastSignalAt` 同步更新，陪跑员 App 冷启动后从那里恢复。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流：同一单**同一信号** 10 秒内只收一次（`Retry-After: 10`）；换一种信号不受影响。Redis 不可用时放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/rhythm`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)`.
+    public func sendRhythmSignal(
+        path: Operations.sendRhythmSignal.Input.Path,
+        headers: Operations.sendRhythmSignal.Input.Headers = .init(),
+        body: Operations.sendRhythmSignal.Input.Body
+    ) async throws -> Operations.sendRhythmSignal.Output {
+        try await sendRhythmSignal(Operations.sendRhythmSignal.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 陪跑员在出发点让跑者手机响铃
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
+    /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
+    /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)`.
+    public func ringRunner(
+        path: Operations.ringRunner.Input.Path,
+        headers: Operations.ringRunner.Input.Headers = .init()
+    ) async throws -> Operations.ringRunner.Output {
+        try await ringRunner(Operations.ringRunner.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 跑后运动记录（订单双方可读）
+    ///
+    /// 订单 `COMPLETED` 之后，订单双方读同一条跑后记录（2026-09-24 新增，迁移 0047）。
+    /// 鉴权与 `GET /api/orders/{id}/track` 同一个入口（DECISIONS D12）：非双方 403、不存在 404；管理员读取本期不做。
+    /// 响应走 `ApiResponse` 信封。
+    ///
+    /// **一份数据，两个角色读到的只有这几处不同**（其余逐字一致）：
+    /// - `summary.steps` / `summary.avgCadence` / `summary.elevationGainM` 与 `splits[].avgCadence`：
+    ///   **请求者本人手机采集的那一份**（D3，来自 WebSocket `LOCATION_UPDATE` 的可选字段
+    ///   `steps` / `cadence` / `alt`，见 `websocket-protocol.md`），另一方的不下发
+    /// - `comparison`：只给跑者本人（D6：陪跑员看不到跑者的历史记录），陪跑员恒为 `null`
+    /// - `viewerRole`
+    ///
+    /// **路线、距离、配速、分段、配速采样、休息点一律以跑者（BLIND）轨迹为准**，坐标 GCJ-02（D1）。
+    /// 计算口径：hAcc > 30m 的点丢掉；相邻点推算速度 > 7 m/s 的丢掉；速度 < 0.5 m/s 连续 ≥ 10 秒为自动暂停
+    /// （不计运动时间**也不计距离**）；连续 ≥ 30 秒记一个休息点；每满 1000 米一段，余数单独一段；每 50 米一个配速点；
+    /// 爬升忽略 < 1 米的起伏。
+    ///
+    /// **没有数据的量一律 `null`，绝不给 `0`**（如陪跑员手机没开「运动与健身」权限 → 他那边 `steps` 为 `null`）。
+    /// 列表字段没有数据时是空数组。**文案一律由客户端生成**：`events[].type` 只是类型，后端不写中文句子。
+    ///
+    /// **生成状态 `status`**（响应向开放枚举）：
+    /// - `GENERATING` —— 订单刚完成、后端正在算（完成事件的异步监听器）。客户端 1–2 秒后重试；
+    ///   此时计算类字段为 `null` / 空数组，但姓名、服务时长、途中事件（状态日志那几条）、留言照给
+    /// - `READY`
+    /// - `INSUFFICIENT_TRACK` —— 跑者轨迹清洗后不足 2 个点，画不出路线：`track` 为 `null`，
+    ///   距离/分段为 `null` / 空，其余（步数、服务时长、途中事件、留言）照给
+    /// - `FAILED` —— 计算出错。下次读取会自动重算，客户端给「重试」即可
+    ///
+    /// **留存**：`track` 与休息点坐标随 `app.track.retention-days`（默认 90 天）清掉，数字永久保留 ——
+    /// 超过 90 天的记录 `status` 仍是 `READY` 但 `track` 为 `null`、`stops[].lat/lng` 为 `null`。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/run-record`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)`.
+    public func getRunRecord(
+        path: Operations.getRunRecord.Input.Path,
+        headers: Operations.getRunRecord.Input.Headers = .init()
+    ) async throws -> Operations.getRunRecord.Output {
+        try await getRunRecord(Operations.getRunRecord.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 跑后留言（订单双方，订单完成后）
+    ///
+    /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
+    /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
+    /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)`.
+    public func postMessage(
+        path: Operations.postMessage.Input.Path,
+        headers: Operations.postMessage.Input.Headers = .init(),
+        body: Operations.postMessage.Input.Body
+    ) async throws -> Operations.postMessage.Output {
+        try await postMessage(Operations.postMessage.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 约好之后跑者给陪跑员留一句话
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `BLIND`，且必须是**这一单的跑者**；只在
+    /// `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`（陪跑员已确定、还没开跑）可写。
+    /// 覆盖写；`text` 传空串（或全空白）= 清空，首尾空白会去掉。本期只限长度，不做内容审核。
+    ///
+    /// 写成功后推陪跑员 WS `APP_NOTIFICATION`，`eventType=RUNNER_MESSAGE_UPDATED`，信封另带 `orderId` 与
+    /// `messageToVolunteer`（留言原文，清空时为 `null`）。🔒 `body` / `ttsText` / APNs 正文**不含**留言内容（会上锁屏），
+    /// 客户端从 `messageToVolunteer` 或订单详情读。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）。与陪跑员侧的状态迁移恰好同时提交时，
+    /// 对方可能收到 409 `ORDER_CONCURRENT_CONFLICT`（重试即可），留言不会被静默盖掉。
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/runner-message`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)`.
+    public func updateRunnerMessage(
+        path: Operations.updateRunnerMessage.Input.Path,
+        headers: Operations.updateRunnerMessage.Input.Headers = .init(),
+        body: Operations.updateRunnerMessage.Input.Body
+    ) async throws -> Operations.updateRunnerMessage.Output {
+        try await updateRunnerMessage(Operations.updateRunnerMessage.Input(
             path: path,
             headers: headers,
             body: body
@@ -1511,6 +2551,26 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 查询订单的状态变更日志（订单双方均可查）
+    ///
+    /// 鉴权：该订单的**盲人或志愿者**任一方均可查看。
+    /// 响应体是**裸数组**，不走 `ApiResponse` 信封。
+    ///
+    /// ⚠️ **2026-08-06 变更**：越权时的 `errorCode` 由 `NOT_ORDER_PARTICIPANT` 改为
+    /// `ORDER_PERMISSION_DENIED`，与另外三个只读查询端点（`GET /api/orders/{id}`、`/track`、
+    /// `/calls/records`）对齐。`message` 与 HTTP 状态均未变，按 message 或状态码分支的客户端无需改动。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/status-logs`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/status-logs/get(getStatusLogs)`.
+    public func getStatusLogs(
+        path: Operations.getStatusLogs.Input.Path,
+        headers: Operations.getStatusLogs.Input.Headers = .init()
+    ) async throws -> Operations.getStatusLogs.Output {
+        try await getStatusLogs(Operations.getStatusLogs.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// 查询订单双方历史路径轨迹与统计（订单结束后回放用）
     ///
     /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
@@ -1527,6 +2587,38 @@ extension APIProtocol {
         try await getOrderTrack(Operations.getOrderTrack.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
+    ///
+    /// - Remark: HTTP `GET /api/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/support/tickets/get(listMine)`.
+    public func listMine(
+        query: Operations.listMine.Input.Query = .init(),
+        headers: Operations.listMine.Input.Headers = .init()
+    ) async throws -> Operations.listMine.Output {
+        try await listMine(Operations.listMine.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// 提交申诉/工单。**盲人与志愿者都能提**（刻意不限角色 —— 只让盲人提， 等于让志愿者的问题永远没有出口）。
+    ///
+    /// 🚨 **这不是紧急求助入口。** 工单是「事后有异议」，可以慢；「现在有危险」走 `/api/emergency/*`（SOS + 短信 + 客服实时介入）。两条路的时效差着一个数量级 —— **客户端文案不得把用户从 SOS 引到这里**。
+    ///
+    /// `orderId` 可空，但给了就**必须是自己的订单**，否则返 404 —— 不然工单会变成一个「查任意订单号存不存在」的探测接口。
+    ///
+    /// 未关闭工单数上限 `app.support-ticket.max-open-per-user`（默认 5）， 防的是**误触连提**（语音输入下「提交」被识别两遍是真实场景）。 到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/support/tickets/post(create)`.
+    public func create(
+        headers: Operations.create.Input.Headers = .init(),
+        body: Operations.create.Input.Body
+    ) async throws -> Operations.create.Output {
+        try await create(Operations.create.Input(
+            headers: headers,
+            body: body
         ))
     }
     /// 设定用户身份（一次性）
@@ -1556,6 +2648,23 @@ extension APIProtocol {
             headers: headers,
             body: body
         ))
+    }
+    /// 我的邀请码 + 已邀请/已发奖人数
+    ///
+    /// 邀请码**稳定不变**（不是一次一码），8 位大写字母数字， **排除易混字符 `0 O 1 I L`** —— 第一版走「注册时手填」，不做深链接， 而邀请人多半是**口头念**给对方听的。
+    ///
+    /// ⚠️ **本端点会写库**：邀请码是惰性生成的，第一次调用时才落库。 别按纯读端点做缓存或预取。
+    ///
+    /// **角色：BLIND 或 VOLUNTEER**。盲人也能邀请 —— 关系照记， 只是**邀请盲人不发奖**（决策 14）。
+    ///
+    /// ⚠️ SPEC 写的是「任意已登录」，实现读成「任意已登录的 **App 用户**」： 客服走独立的 `cs_users` 表，**其 id 与 `users.id` 是两个独立自增空间、数值会重叠**， 而 JWT subject 不区分来源。不收紧的话，客服 token 撞上同 id 的真实用户， 会给**别人的账号**惰性生成一个他从没要过的邀请码（这是写操作）。 ⚠️ 尚未设角色的 UNSET 用户拿不到邀请码，需先设角色。
+    ///
+    /// 刻意**不返回被邀请人名单** —— 返回名单等于让任何人拿自己的码反查别人的注册状态。 要看关系明细走 `GET /api/admin/invitations/tree`（CS_ADMIN）。
+    ///
+    /// - Remark: HTTP `GET /api/users/me/invite-code`.
+    /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)`.
+    public func myInviteCode(headers: Operations.myInviteCode.Input.Headers = .init()) async throws -> Operations.myInviteCode.Output {
+        try await myInviteCode(Operations.myInviteCode.Input(headers: headers))
     }
     /// - Remark: HTTP `GET /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/get(getUserById)`.
@@ -1731,6 +2840,68 @@ extension APIProtocol {
     public func getDispatchSummary(headers: Operations.getDispatchSummary.Input.Headers = .init()) async throws -> Operations.getDispatchSummary.Output {
         try await getDispatchSummary(Operations.getDispatchSummary.Input(headers: headers))
     }
+    /// 「有几位跑者把你设为固定搭档」+ 列表，收藏时间倒序。**仅 VOLUNTEER**。
+    ///
+    /// 这就是「志愿者知情」的形式 —— **拉取式，不推送**。收藏的准入门槛是两人已经一起跑完过 至少一单，所以志愿者本来就认识对方；「有人把你设为固定搭档」是零时效信息， 推一条通知换来的是一个新 eventType、两处模板行和一道漂移门，不成比例。
+    ///
+    /// ⚠️ **我已退出的条目仍然在列表里**，带 `optedOut=true` —— 否则志愿者点完退出， 那个人就从他的列表里消失了，他无从确认自己刚才做了什么。
+    ///
+    /// 姓名一律掩码（`李*`），盲人已注销时 `blindName` 为 `null`。 条目里**没有电话**，与盲人侧同一口径。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/favorites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/favorites/get(list_1)`.
+    public func list_1(headers: Operations.list_1.Input.Headers = .init()) async throws -> Operations.list_1.Output {
+        try await list_1(Operations.list_1.Input(headers: headers))
+    }
+    /// 志愿者**单方面退出**与某位跑者的固定搭档关系。**仅 VOLUNTEER**。 「告知但不需同意，可单方面退出」——不做双向确认。
+    ///
+    /// 退出后三件事同时生效：**不进固定搭档优先轮、不再获得派单加分、双人火花停止累积**。
+    ///
+    /// 🚨 **打标记，不删行**：那位跑者的固定搭档列表**仍然显示你**，只是 `partnerOptedOut=true`。 删行会让他以为收藏丢了、于是重新收藏一次，把你刚做的退出无声地撤销掉。
+    ///
+    /// 🚨 **恒返 204，不区分「改到了」与「没这一行」**（盲人不存在 / 没收藏我 / 我已经退出过 一律 204）—— 区分开这个端点就成了「拿任意 userId 试一下，看响应差异」的探测器， 与收藏侧那道枚举门同一个道理。顺带幂等：重复点不报错。
+    ///
+    /// 🚨 **退出在本轮是不可撤销的**，也没有「撤销退出」端点。跑者那边重新收藏会拿到 400 + `FAVORITE_VOLUNTEER_OPTED_OUT`，而且他自己取消收藏**也抹不掉**这个标记 （服务端两侧都是打标记不是删行）。
+    ///
+    /// ⚠️ 此处原先写着「真要回来，重新一起跑一单、由对方再收藏一次即可」—— **那句话代码从来没有实现过**（`add()` 只看有没有一起跑完过，不看是不是退出之后跑的）， 于是实际效果是「跑者删掉收藏再点一次就恢复了」。已于 2026-09-14 连同实现一并改正。 恢复路径留给后续的双向同意功能（收藏要对方点头），那时退出与恢复走同一套确认。
+    ///
+    /// - Remark: HTTP `DELETE /api/volunteer/favorites/{blindUserId}`.
+    /// - Remark: Generated from `#/paths//api/volunteer/favorites/{blindUserId}/delete(optOut)`.
+    public func optOut(path: Operations.optOut.Input.Path) async throws -> Operations.optOut.Output {
+        try await optOut(Operations.optOut.Input(path: path))
+    }
+    /// 我和固定搭档的双人火花（志愿者视角）
+    ///
+    /// 与 `GET /api/blind/partners/streaks` 完全同构，只是 `partnerUserId` / `partnerName` 指向盲人一侧（姓名同样掩码）。判定规则、点亮门槛、惰性计算的局限都相同。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/partners/streaks`.
+    /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)`.
+    public func myStreaksAsVolunteer(headers: Operations.myStreaksAsVolunteer.Input.Headers = .init()) async throws -> Operations.myStreaksAsVolunteer.Output {
+        try await myStreaksAsVolunteer(Operations.myStreaksAsVolunteer.Input(headers: headers))
+    }
+    /// 我的积分（余额 + 分页流水）
+    ///
+    /// 余额 = 全部流水 `delta` 之和；流水按 `createdAt` 倒序（最近的在前）。
+    ///
+    /// ⚠️ **流水里会出现 `delta = 0` 的行，客户端不要过滤掉它。** 那是「这一单撞了防刷上限、 没有加分」的显式记录，`note` 里写着原因（例：「已达同一对每周上限 30 分，本单不加分」）。 藏起来就回到了「我这单怎么没加分」无从解释的状态 —— 而那正是这套设计要避免的静默错误。 `note` 的文案是这个 0 唯一的解释，读屏会把它念出来，**不要截断、不要只显示 `delta`**。
+    ///
+    /// `delta = 0` 目前有三种原因，都写在 `note` 里：每日上限、同一对每周上限， 以及**零位移**（「本单未记录到有效位移（轨迹 X 米），本单不加分」）。 ⚠️ 零位移那条只在**确实记录到轨迹、且轨迹显示几乎没有移动**时才出现： 拿不到轨迹（未授权定位、App 被切后台、服务端降级 ⇒ 距离为 `null`）照常发分； 轨迹跑到一半断掉（留下几百米）也照常发分 —— 门槛刻意压到「连断掉的轨迹都够不着」 的量级，因为误伤一个真跑了的陪跑员比漏掉一个刷分的人贵得多。 具体数值是服务端配置（`app.incentive.points.min-distance-meters`）， **客户端不要硬编码它**，直接展示 `note`。
+    ///
+    /// 🚨 **积分与「志愿服务时长」是两套数，文案里一次都不能混** （时长在 `GET /api/volunteer/achievements` 的 `totalServiceMinutes`）。 不得互相换算、不得写成「攒积分可折算志愿服务时长」—— 中央网信办 2026-06-19《关于开展网络平台涉志愿服务违规信息专项整治的通知》 第 2 条点名整治此类表述。
+    ///
+    /// 积分**只累计不消耗**，目前没有任何兑换出口。UI 需明确告知「商城开发中」， 不要让用户以为攒了能换东西。积分不可转让、不可提现。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/points`.
+    /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)`.
+    public func myPoints(
+        query: Operations.myPoints.Input.Query = .init(),
+        headers: Operations.myPoints.Input.Headers = .init()
+    ) async throws -> Operations.myPoints.Output {
+        try await myPoints(Operations.myPoints.Input(
+            query: query,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `GET /api/volunteer/profile`.
     /// - Remark: Generated from `#/paths//api/volunteer/profile/get(getProfile)`.
     public func getProfile(headers: Operations.getProfile.Input.Headers = .init()) async throws -> Operations.getProfile.Output {
@@ -1780,6 +2951,39 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// 拒绝人脸认证，转替代认证路径（Step 3 - decline）
+    ///
+    /// 志愿者声明**不同意人脸认证**，转入「身份证二要素核验 + 人工审核」的替代路径。
+    /// 无请求体。依据《人脸识别技术应用安全管理办法》第十条：存在其他非人脸方式的，
+    /// 不得将人脸识别作为唯一验证方式；个人不同意人脸验证的，应当提供其他合理、便捷的方式。
+    ///
+    /// 📱 **客户端必须提供这个入口** —— 隐私政策与用户协议里都写了这条路径存在，
+    /// 用户（和 App 审核员）会照着文本去找。
+    ///
+    /// 调用成功后 `GET /api/volunteer/registration/status` 的
+    /// `stepDetails.faceVerifyStatus` 变为 `DECLINED`，`registrationCompleted` 变为 `true`
+    /// （注册流程走完了），但 `canAcceptOrders` **仍为 false** —— 后半段与人脸路径完全相同：
+    /// `POST /api/volunteer/verification` 上传能证明本人身份的材料 → 管理员人工审核通过
+    /// → `verified=true` 才能接单。
+    ///
+    /// ⚠️ **三种错误情形的状态码不一样**：
+    ///   - 当前不在 `STEP_3_FACE_VERIFY` → **409** `REGISTRATION_STEP_INVALID`
+    ///   - 活体已经通过（不允许降级）→ **409** `REGISTRATION_STEP_INVALID`
+    ///   - 身份证二要素**不是** `APPROVED` → **400** `ID_INFO_INVALID`，
+    ///     此时步骤位已被回退到 `STEP_1_BASIC_INFO`，客户端应回 step1 重填姓名+身份证号
+    ///
+    /// 最后一条比 `/face-verify/init` **更严**：init 只在二要素被明确 `REJECTED` 时才回退，
+    /// decline 要求二要素必须真的 `APPROVED` —— 这条路径的名字就叫「二要素核验 + 人工审核」，
+    /// 少了前半段（活体又被拿掉了），整条路径上没有任何机器核验过这个人是谁。
+    ///
+    /// ⚠️ 幂等性：已经是 `DECLINED` 时重复调用不报错。改主意想做人脸的，直接调
+    /// `/step3/face-verify/init` 即可，本端点不会把人锁死。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/decline`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/decline/post(declineFaceVerify)`.
+    public func declineFaceVerify(headers: Operations.declineFaceVerify.Input.Headers = .init()) async throws -> Operations.declineFaceVerify.Output {
+        try await declineFaceVerify(Operations.declineFaceVerify.Input(headers: headers))
+    }
     /// 发起动作活体认证（Step 3 - init）
     ///
     /// 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云 InitFaceVerify（SMART 方案）返回 certifyId。客户端使用阿里云原生 App SDK （AliyunFaceAuthFacade.verify(certifyId)）直接完成动作活体，无需打开 URL， 随后轮询 /step3/face-verify/result 获取结果。
@@ -1806,6 +3010,94 @@ extension APIProtocol {
         body: Operations.queryFaceVerifyResult.Input.Body
     ) async throws -> Operations.queryFaceVerifyResult.Output {
         try await queryFaceVerifyResult(Operations.queryFaceVerifyResult.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 培训课程列表（含我的进度与必修完成度）
+    ///
+    /// 志愿者线上培训（迁移 `0043`，2026-09-09 重新上线）。培训 2026-07-29 曾整体下线， 本次回归的形态是「Markdown 图文 + 情景单选题」。
+    ///
+    /// 依据：中央社会工作部《关于志愿者招募和培训的工作指引（试行）》（2025-06-05）—— 「对需要专门知识、技能的志愿服务坚持先培训再上岗」「志愿者在培训合格后参与志愿服务活动」， 且明确认可**线上笔试 + 情景模拟**两种考核形式、要求记录**学习时长**、允许颁发培训证书。
+    ///
+    /// 🚩 **`requiredCompleted` 由后端算，客户端不许自己数课程列表。** 分母是「当前上线的必修课数」，会随课程上下线变化；客户端自己算会在 「新增一门必修课」的那一刻与派单侧分叉 —— 表现是培训页显示已完成、却收不到任何派单， 而这个矛盾没有任何日志能解释。
+    ///
+    /// ⚠️ 它与「能不能接单」**不是同一件事**：还要过资质审核、开着可服务开关、在线。 接单资格的权威来源是 `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` （必修没做完时其中会有 `TRAINING_INCOMPLETE`）。
+    ///
+    /// ⚠️ **路径不在 `/api/volunteer/registration/` 下面**（旧模块曾是）。 刻意换掉：这次培训不进注册流程，走完注册也可能还没培训， `registrationCompleted` 不会等它。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/training/courses`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)`.
+    public func listCourses(headers: Operations.listCourses.Input.Headers = .init()) async throws -> Operations.listCourses.Output {
+        try await listCourses(Operations.listCourses.Input(headers: headers))
+    }
+    /// 课程详情（Markdown 正文 + 题目）
+    ///
+    /// 🚨 **响应里没有正确答案，这是刻意的，不是漏字段。** 判卷只在服务端 （`POST /api/volunteer/training/courses/{courseId}/quiz`）。 这些题考的是人身安全处置，能查到答案的考试没有意义。
+    ///
+    /// `content` 是 Markdown。🚩 **客户端请原生渲染，不要塞进 WebView** —— WebView 里 Dynamic Type 和 VoiceOver 都不按系统设置走，而这是无障碍 App。
+    ///
+    /// 课程已下线（`isActive=false`）时返回 404，但该用户已有的进度记录仍然保留。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/training/courses/{courseId}`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)`.
+    public func courseDetail(
+        path: Operations.courseDetail.Input.Path,
+        headers: Operations.courseDetail.Input.Headers = .init()
+    ) async throws -> Operations.courseDetail.Output {
+        try await courseDetail(Operations.courseDetail.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 上报学习时长
+    ///
+    /// 🚩 存在的理由是**政策要求记录「学习时长」**（中央社会工作部 2025-06 培训指引原文列举了 「培训日期和学习时长」），不是为了做「最短阅读时间」门槛 —— 那道闸会把考核从「会不会」变成「熬够时间没有」。
+    ///
+    /// ⚠️ **`studiedSeconds` 是本次增量，不是累计值**，后端做加法。 传累计值会让「换一台设备继续学」把时长覆盖成更小的数。
+    ///
+    /// 单次上限 4 小时（14400 秒），超限返回 400 而**不是**静默截断 —— 截断会让一个坏掉的客户端永远悄悄地少记时长，而没人会发现。
+    ///
+    /// 已通过的课照样累加（复习也是学习），不会因为 `status=COMPLETED` 就被拒。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/training/courses/{courseId}/progress`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)`.
+    public func reportProgress(
+        path: Operations.reportProgress.Input.Path,
+        headers: Operations.reportProgress.Input.Headers = .init(),
+        body: Operations.reportProgress.Input.Body
+    ) async throws -> Operations.reportProgress.Output {
+        try await reportProgress(Operations.reportProgress.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 提交考核答案（全对才通过，可无限重考）
+    ///
+    /// 及格线是**全对**：`passed == (correctCount == totalCount)`。 业界锚点其实是 85 分（国内助盲跑团的陪跑员笔试口径），本项目取更严的全对 —— 每道题都是人身安全底线，「对 4/5」意义不大。**可无限重考，不锁定、不冷却。**
+    ///
+    /// **一次交全卷，没有逐题提交。** 逐题提交等于允许「一题一题试到对」， 而及格线是全对 ⇒ 谁都能过，考核直接失效。
+    ///
+    /// ⚠️ 答案必须**一题不缺、也不能多**，`questionId` 都要属于这门课； 少答/多答/混入别的课的题号一律 400。 后端**不做「按能对上的部分判分」** —— 那会让一个漏传了两题的坏客户端 把用户判成不及格，而用户看到的是「你答错了」。
+    ///
+    /// 🚩 **`wrongQuestions` 带每道错题的 `explanation`，请务必展示。** 只给题号的话，用户在「全对才过 + 无限重考」下唯一的策略是改选项猜到过 —— 那样这个模块就从培训退化成一道验证码。
+    ///
+    /// 🚨 通过之后响应里**也不会**给出正确答案：答案一旦下发就能被抓包留存、传给下一个人。
+    ///
+    /// `awardedPoints`：只有**选修课首次通过**才 > 0（分值来自课程配置）。 必修课恒 0 —— 必修是接单门槛，给「达到最低要求」发奖会让积分失去意义。 ⚠️ 客户端**不要**用它判断「是否通过」，必修通过时它也是 0。 重复通过同一门课不重复发分（幂等键 `TRAINING_REWARD:{courseId}:{userId}`）。
+    ///
+    /// `requiredCompleted`：交卷之后必修是否已全部通过。 由 false 变 true 的那一刻意味着派单门槛刚刚解开， 客户端应据此刷新 `GET /api/volunteer/dispatch-summary`。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/training/courses/{courseId}/quiz`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)`.
+    public func submitQuiz(
+        path: Operations.submitQuiz.Input.Path,
+        headers: Operations.submitQuiz.Input.Headers = .init(),
+        body: Operations.submitQuiz.Input.Body
+    ) async throws -> Operations.submitQuiz.Output {
+        try await submitQuiz(Operations.submitQuiz.Input(
+            path: path,
             headers: headers,
             body: body
         ))
@@ -2299,6 +3591,67 @@ public enum Components {
         /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
         /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
         ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse`.
+        public struct ApiResponseFeatureFlagsResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse/data`.
+            public var data: Components.Schemas.FeatureFlagsResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseFeatureFlagsResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseFeatureFlagsResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.FeatureFlagsResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
         /// - Remark: Generated from `#/components/schemas/ApiResponseLegalLinksResponse`.
         public struct ApiResponseLegalLinksResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ApiResponseLegalLinksResponse/code`.
@@ -2482,6 +3835,67 @@ public enum Components {
         /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
         /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
         ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse`.
+        public struct ApiResponseOrderDetailResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse/data`.
+            public var data: Components.Schemas.OrderDetailResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseOrderDetailResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseOrderDetailResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.OrderDetailResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
         /// - Remark: Generated from `#/components/schemas/ApiResponseRegistrationStatusResponse`.
         public struct ApiResponseRegistrationStatusResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ApiResponseRegistrationStatusResponse/code`.
@@ -2543,6 +3957,189 @@ public enum Components {
         /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
         /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
         ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse`.
+        public struct ApiResponseRunRecordHistoryResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse/data`.
+            public var data: Components.Schemas.RunRecordHistoryResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordHistoryResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseRunRecordHistoryResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.RunRecordHistoryResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse`.
+        public struct ApiResponseRunRecordMessageResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse/data`.
+            public var data: Components.Schemas.RunRecordMessageResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordMessageResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseRunRecordMessageResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.RunRecordMessageResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse`.
+        public struct ApiResponseRunRecordResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse/data`.
+            public var data: Components.Schemas.RunRecordResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRunRecordResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseRunRecordResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.RunRecordResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
         /// - Remark: Generated from `#/components/schemas/ApiResponseString`.
         public struct ApiResponseString: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ApiResponseString/code`.
@@ -2575,6 +4172,189 @@ public enum Components {
             public init(
                 code: Swift.Int32,
                 data: Swift.String? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse`.
+        public struct ApiResponseTrainingCourseDetailResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse/data`.
+            public var data: Components.Schemas.TrainingCourseDetailResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseDetailResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseTrainingCourseDetailResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.TrainingCourseDetailResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse`.
+        public struct ApiResponseTrainingCourseListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse/data`.
+            public var data: Components.Schemas.TrainingCourseListResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingCourseListResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseTrainingCourseListResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.TrainingCourseListResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse`.
+        public struct ApiResponseTrainingQuizResultResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse/data`.
+            public var data: Components.Schemas.TrainingQuizResultResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseTrainingQuizResultResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseTrainingQuizResultResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.TrainingQuizResultResponse? = nil,
                 errorCode: Swift.String? = nil,
                 hasMore: Swift.Bool? = nil,
                 message: Swift.String? = nil,
@@ -4699,6 +6479,29 @@ public enum Components {
                 case success
             }
         }
+        /// - Remark: Generated from `#/components/schemas/EndWaitingResponse`.
+        public struct EndWaitingResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EndWaitingResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/EndWaitingResponse/success`.
+            public var success: Swift.Bool?
+            /// Creates a new `EndWaitingResponse`.
+            ///
+            /// - Parameters:
+            ///   - orderId:
+            ///   - success:
+            public init(
+                orderId: Swift.Int64? = nil,
+                success: Swift.Bool? = nil
+            ) {
+                self.orderId = orderId
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case orderId
+                case success
+            }
+        }
         /// 陪跑员出发中的预计到达（陪跑员端订单页 v2）。剩余距离 = 陪跑员当前位置到出发点直线 × 1.4； 速度 = 上报的瞬时速度夹在 15 km/h 的 0.5–1.5 倍之间，没有则按 15 km/h。
         ///
         /// - Remark: Generated from `#/components/schemas/EtaView`.
@@ -4969,6 +6772,102 @@ public enum Components {
                 case status
             }
         }
+        /// 刻意**不含电话**：这个列表是「我跟谁跑得来」不是通讯录。要打电话走订单详情的 `volunteerPhone`，那里有状态门；把号码放进长期列表等于绕开那道门。
+        ///
+        /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse`.
+        public struct FavoriteVolunteerResponse: Codable, Hashable, Sendable {
+            /// 一起跑完过几单 —— 也是能不能收藏的准入判据
+            ///
+            /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse/completedRunsTogether`.
+            public var completedRunsTogether: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse/favoritedAt`.
+            public var favoritedAt: Swift.String?
+            /// 对方已单方面退出这一对（`DELETE /api/volunteer/favorites/{blindUserId}`）。 🚨 **为 true 的条目仍然留在列表里**，不是从列表消失 —— 消失会让用户以为收藏丢了、 于是重新收藏一次，把对方刚做的退出撤销掉。客户端要念成「对方已退出固定搭档」， 不要只是灰掉；退出的人不进优先轮、不加派单加分、火花也停止累积。 ⚠️ **这个标记是粘住的**：把条目取消掉再重新收藏并不能清掉它，重新收藏会拿到 400 + `FAVORITE_VOLUNTEER_OPTED_OUT`，而且取消之后连重试的入口都没有了。
+            ///
+            /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse/partnerOptedOut`.
+            public var partnerOptedOut: Swift.Bool?
+            /// 双人火花的连续周数（SPEC-E §6.2）。**未点亮时为 null** —— 同「未达成不显示」 而非灰显：只跑过一周就念一句「连续 1 周」是读屏噪音。火花开关关着时全部为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse/streakWeeks`.
+            public var streakWeeks: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse/volunteerId`.
+            public var volunteerId: Swift.Int64?
+            /// 掩码姓名（`李*`），与订单详情/分享页同口径。志愿者已注销时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/FavoriteVolunteerResponse/volunteerName`.
+            public var volunteerName: Swift.String?
+            /// Creates a new `FavoriteVolunteerResponse`.
+            ///
+            /// - Parameters:
+            ///   - completedRunsTogether: 一起跑完过几单 —— 也是能不能收藏的准入判据
+            ///   - favoritedAt:
+            ///   - partnerOptedOut: 对方已单方面退出这一对（`DELETE /api/volunteer/favorites/{blindUserId}`）。 🚨 **为 true 的条目仍然留在列表里**，不是从列表消失 —— 消失会让用户以为收藏丢了、 于是重新收藏一次，把对方刚做的退出撤销掉。客户端要念成「对方已退出固定搭档」， 不要只是灰掉；退出的人不进优先轮、不加派单加分、火花也停止累积。 ⚠️ **这个标记是粘住的**：把条目取消掉再重新收藏并不能清掉它，重新收藏会拿到 400 + `FAVORITE_VOLUNTEER_OPTED_OUT`，而且取消之后连重试的入口都没有了。
+            ///   - streakWeeks: 双人火花的连续周数（SPEC-E §6.2）。**未点亮时为 null** —— 同「未达成不显示」 而非灰显：只跑过一周就念一句「连续 1 周」是读屏噪音。火花开关关着时全部为 null。
+            ///   - volunteerId:
+            ///   - volunteerName: 掩码姓名（`李*`），与订单详情/分享页同口径。志愿者已注销时为 null
+            public init(
+                completedRunsTogether: Swift.Int32? = nil,
+                favoritedAt: Swift.String? = nil,
+                partnerOptedOut: Swift.Bool? = nil,
+                streakWeeks: Swift.Int32? = nil,
+                volunteerId: Swift.Int64? = nil,
+                volunteerName: Swift.String? = nil
+            ) {
+                self.completedRunsTogether = completedRunsTogether
+                self.favoritedAt = favoritedAt
+                self.partnerOptedOut = partnerOptedOut
+                self.streakWeeks = streakWeeks
+                self.volunteerId = volunteerId
+                self.volunteerName = volunteerName
+            }
+            public enum CodingKeys: String, CodingKey {
+                case completedRunsTogether
+                case favoritedAt
+                case partnerOptedOut
+                case streakWeeks
+                case volunteerId
+                case volunteerName
+            }
+        }
+        /// 功能开关的当前状态（`GET /api/config/features` 的 `data`）。
+        /// 🚨 **只放「功能开没开」，不放任何阈值、分值、名单** —— 那些下发出去等于让客户端
+        /// 有机会自己算一遍，而两边算得不一样时用户听到的是哪一份取决于时序。
+        ///
+        /// - Remark: Generated from `#/components/schemas/FeatureFlagsResponse`.
+        public struct FeatureFlagsResponse: Codable, Hashable, Sendable {
+            /// 派单的固定搭档优先轮是否开启（`app.dispatch.favorite-round.enabled`）。 ⚠️ 它**不影响收藏本身** —— 关着时照样能收藏、列表照样有数据，只是派单不会先问收藏的搭档。 拿它决定要不要说「会优先派给他们」这句承诺。
+            ///
+            /// - Remark: Generated from `#/components/schemas/FeatureFlagsResponse/favoriteDispatchRoundEnabled`.
+            public var favoriteDispatchRoundEnabled: Swift.Bool?
+            /// 拉新**奖励**是否开启（`app.incentive.invitation.enabled`）。 🚨 **名字里的 Reward 是刻意的，语义与上面两个不一样：它只关奖励，不关关系建立。** 关着时邀请码照样要填、邀请关系照样落库，只是双方不发积分。 **不要**因为它是 false 就把邀请码输入框藏掉 —— 那会让开关打开之后这批用户 永久拿不到奖励，而他们当时根本没机会填。
+            ///
+            /// - Remark: Generated from `#/components/schemas/FeatureFlagsResponse/invitationRewardEnabled`.
+            public var invitationRewardEnabled: Swift.Bool?
+            /// 双人火花是否开启（`app.incentive.streak.enabled`）。false ⇒ 火花相关端点恒返回空， 客户端该说「功能还没开放」，而不是「快去和同一位志愿者连跑两周」。
+            ///
+            /// - Remark: Generated from `#/components/schemas/FeatureFlagsResponse/partnerStreakEnabled`.
+            public var partnerStreakEnabled: Swift.Bool?
+            /// Creates a new `FeatureFlagsResponse`.
+            ///
+            /// - Parameters:
+            ///   - favoriteDispatchRoundEnabled: 派单的固定搭档优先轮是否开启（`app.dispatch.favorite-round.enabled`）。 ⚠️ 它**不影响收藏本身** —— 关着时照样能收藏、列表照样有数据，只是派单不会先问收藏的搭档。 拿它决定要不要说「会优先派给他们」这句承诺。
+            ///   - invitationRewardEnabled: 拉新**奖励**是否开启（`app.incentive.invitation.enabled`）。 🚨 **名字里的 Reward 是刻意的，语义与上面两个不一样：它只关奖励，不关关系建立。** 关着时邀请码照样要填、邀请关系照样落库，只是双方不发积分。 **不要**因为它是 false 就把邀请码输入框藏掉 —— 那会让开关打开之后这批用户 永久拿不到奖励，而他们当时根本没机会填。
+            ///   - partnerStreakEnabled: 双人火花是否开启（`app.incentive.streak.enabled`）。false ⇒ 火花相关端点恒返回空， 客户端该说「功能还没开放」，而不是「快去和同一位志愿者连跑两周」。
+            public init(
+                favoriteDispatchRoundEnabled: Swift.Bool? = nil,
+                invitationRewardEnabled: Swift.Bool? = nil,
+                partnerStreakEnabled: Swift.Bool? = nil
+            ) {
+                self.favoriteDispatchRoundEnabled = favoriteDispatchRoundEnabled
+                self.invitationRewardEnabled = invitationRewardEnabled
+                self.partnerStreakEnabled = partnerStreakEnabled
+            }
+            public enum CodingKeys: String, CodingKey {
+                case favoriteDispatchRoundEnabled
+                case invitationRewardEnabled
+                case partnerStreakEnabled
+            }
+        }
         /// 通话后的表态。⚠️ **刻意没有 reason 字段**——拒绝不需要给理由，系统也不记录理由。
         /// 要求填理由等于要求当面说「不」，而这个功能存在的意义正是让拒绝可以是无声的。
         ///
@@ -5146,6 +7045,41 @@ public enum Components {
                 case windowEndsAt
             }
         }
+        /// - Remark: Generated from `#/components/schemas/InviteCodeResponse`.
+        public struct InviteCodeResponse: Codable, Hashable, Sendable {
+            /// 8 位大写字母数字，**排除易混字符 `0 O 1 I L`**（要被口头念给人听）。 稳定不变，不是一次一码。
+            ///
+            /// - Remark: Generated from `#/components/schemas/InviteCodeResponse/inviteCode`.
+            public var inviteCode: Swift.String?
+            /// 我一共邀请了几个人（含盲人 —— 邀请盲人只记录不奖励）
+            ///
+            /// - Remark: Generated from `#/components/schemas/InviteCodeResponse/invitedCount`.
+            public var invitedCount: Swift.Int64?
+            /// 其中几个已发奖 = 被邀请的志愿者跑完了首单
+            ///
+            /// - Remark: Generated from `#/components/schemas/InviteCodeResponse/rewardedCount`.
+            public var rewardedCount: Swift.Int64?
+            /// Creates a new `InviteCodeResponse`.
+            ///
+            /// - Parameters:
+            ///   - inviteCode: 8 位大写字母数字，**排除易混字符 `0 O 1 I L`**（要被口头念给人听）。 稳定不变，不是一次一码。
+            ///   - invitedCount: 我一共邀请了几个人（含盲人 —— 邀请盲人只记录不奖励）
+            ///   - rewardedCount: 其中几个已发奖 = 被邀请的志愿者跑完了首单
+            public init(
+                inviteCode: Swift.String? = nil,
+                invitedCount: Swift.Int64? = nil,
+                rewardedCount: Swift.Int64? = nil
+            ) {
+                self.inviteCode = inviteCode
+                self.invitedCount = invitedCount
+                self.rewardedCount = rewardedCount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case inviteCode
+                case invitedCount
+                case rewardedCount
+            }
+        }
         /// 两个字段均可能为 null（生产 URL 未配置时）
         ///
         /// - Remark: Generated from `#/components/schemas/LegalLinksResponse`.
@@ -5169,6 +7103,29 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case privacyPolicyUrl
                 case userAgreementUrl
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest`.
+        public struct LiveActivityTokenRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/orderId`.
+            public var orderId: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/pushToken`.
+            public var pushToken: Swift.String?
+            /// Creates a new `LiveActivityTokenRequest`.
+            ///
+            /// - Parameters:
+            ///   - orderId:
+            ///   - pushToken:
+            public init(
+                orderId: Swift.Int64,
+                pushToken: Swift.String? = nil
+            ) {
+                self.orderId = orderId
+                self.pushToken = pushToken
+            }
+            public enum CodingKeys: String, CodingKey {
+                case orderId
+                case pushToken
             }
         }
         /// - Remark: Generated from `#/components/schemas/LoginResponse`.
@@ -6081,6 +8038,59 @@ public enum Components {
                 case volunteerVerified
             }
         }
+        /// 「播报位置」的答句素材。⚠️ **裸对象，不走 `ApiResponse` 信封**（与 `OrderTrackResponse` 同）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/OrderLocationAddressResponse`.
+        public struct OrderLocationAddressResponse: Codable, Hashable, Sendable {
+            /// 这个坐标是几秒前上报的（位置 TTL 是 30 秒，所以取值 0–30）。 读不到时为 null —— **宁可说不知道，不编一个 0**。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderLocationAddressResponse/ageSeconds`.
+            public var ageSeconds: Swift.Int32?
+            /// true = 没能给出可播报的地址（地址查不到，或连坐标都没有）
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderLocationAddressResponse/degraded`.
+            public var degraded: Swift.Bool
+            /// 高德规范化地址；查不到时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderLocationAddressResponse/formattedAddress`.
+            public var formattedAddress: Swift.String?
+            /// GCJ-02 纬度；没有位置时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderLocationAddressResponse/latitude`.
+            public var latitude: Swift.Double?
+            /// GCJ-02 经度；没有位置时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderLocationAddressResponse/longitude`.
+            public var longitude: Swift.Double?
+            /// Creates a new `OrderLocationAddressResponse`.
+            ///
+            /// - Parameters:
+            ///   - ageSeconds: 这个坐标是几秒前上报的（位置 TTL 是 30 秒，所以取值 0–30）。 读不到时为 null —— **宁可说不知道，不编一个 0**。
+            ///   - degraded: true = 没能给出可播报的地址（地址查不到，或连坐标都没有）
+            ///   - formattedAddress: 高德规范化地址；查不到时为 null
+            ///   - latitude: GCJ-02 纬度；没有位置时为 null
+            ///   - longitude: GCJ-02 经度；没有位置时为 null
+            public init(
+                ageSeconds: Swift.Int32? = nil,
+                degraded: Swift.Bool,
+                formattedAddress: Swift.String? = nil,
+                latitude: Swift.Double? = nil,
+                longitude: Swift.Double? = nil
+            ) {
+                self.ageSeconds = ageSeconds
+                self.degraded = degraded
+                self.formattedAddress = formattedAddress
+                self.latitude = latitude
+                self.longitude = longitude
+            }
+            public enum CodingKeys: String, CodingKey {
+                case ageSeconds
+                case degraded
+                case formattedAddress
+                case latitude
+                case longitude
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/OrderResponse`.
         public struct OrderResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/OrderResponse/id`.
@@ -6169,6 +8179,59 @@ public enum Components {
                 case id
                 case message
                 case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse`.
+        public struct OrderStatusLogResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/changedAt`.
+            public var changedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/changedBy`.
+            public var changedBy: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/fromStatus`.
+            public var fromStatus: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/id`.
+            public var id: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/remark`.
+            public var remark: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse/toStatus`.
+            public var toStatus: Swift.String?
+            /// Creates a new `OrderStatusLogResponse`.
+            ///
+            /// - Parameters:
+            ///   - changedAt:
+            ///   - changedBy:
+            ///   - fromStatus:
+            ///   - id:
+            ///   - orderId:
+            ///   - remark:
+            ///   - toStatus:
+            public init(
+                changedAt: Swift.String? = nil,
+                changedBy: Swift.Int64? = nil,
+                fromStatus: Swift.String? = nil,
+                id: Swift.Int64? = nil,
+                orderId: Swift.Int64? = nil,
+                remark: Swift.String? = nil,
+                toStatus: Swift.String? = nil
+            ) {
+                self.changedAt = changedAt
+                self.changedBy = changedBy
+                self.fromStatus = fromStatus
+                self.id = id
+                self.orderId = orderId
+                self.remark = remark
+                self.toStatus = toStatus
+            }
+            public enum CodingKeys: String, CodingKey {
+                case changedAt
+                case changedBy
+                case fromStatus
+                case id
+                case orderId
+                case remark
+                case toStatus
             }
         }
         /// 订单轨迹回放：双方各一条轨迹 + 各自统计
@@ -6319,6 +8382,83 @@ public enum Components {
             ///   - totalPages:
             public init(
                 content: [Components.Schemas.OrderDetailResponse]? = nil,
+                empty: Swift.Bool? = nil,
+                first: Swift.Bool? = nil,
+                last: Swift.Bool? = nil,
+                number: Swift.Int32? = nil,
+                numberOfElements: Swift.Int32? = nil,
+                pageable: Components.Schemas.PageableObject? = nil,
+                size: Swift.Int32? = nil,
+                sort: Components.Schemas.SortObject? = nil,
+                totalElements: Swift.Int64? = nil,
+                totalPages: Swift.Int32? = nil
+            ) {
+                self.content = content
+                self.empty = empty
+                self.first = first
+                self.last = last
+                self.number = number
+                self.numberOfElements = numberOfElements
+                self.pageable = pageable
+                self.size = size
+                self.sort = sort
+                self.totalElements = totalElements
+                self.totalPages = totalPages
+            }
+            public enum CodingKeys: String, CodingKey {
+                case content
+                case empty
+                case first
+                case last
+                case number
+                case numberOfElements
+                case pageable
+                case size
+                case sort
+                case totalElements
+                case totalPages
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse`.
+        public struct PageSupportTicketResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/content`.
+            public var content: [Components.Schemas.SupportTicketResponse]?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/empty`.
+            public var empty: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/first`.
+            public var first: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/last`.
+            public var last: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/number`.
+            public var number: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/numberOfElements`.
+            public var numberOfElements: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/pageable`.
+            public var pageable: Components.Schemas.PageableObject?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/size`.
+            public var size: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/sort`.
+            public var sort: Components.Schemas.SortObject?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/totalElements`.
+            public var totalElements: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/PageSupportTicketResponse/totalPages`.
+            public var totalPages: Swift.Int32?
+            /// Creates a new `PageSupportTicketResponse`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - empty:
+            ///   - first:
+            ///   - last:
+            ///   - number:
+            ///   - numberOfElements:
+            ///   - pageable:
+            ///   - size:
+            ///   - sort:
+            ///   - totalElements:
+            ///   - totalPages:
+            public init(
+                content: [Components.Schemas.SupportTicketResponse]? = nil,
                 empty: Swift.Bool? = nil,
                 first: Swift.Bool? = nil,
                 last: Swift.Bool? = nil,
@@ -7226,6 +9366,233 @@ public enum Components {
                 case userIntent
             }
         }
+        /// 一条双人火花（SPEC-E §4.3）。
+        ///
+        /// ⚠️ **列表里只有已点亮的**（`currentWeeks >= app.incentive.streak.light-up-weeks`，默认 2）。 未点亮的一对**根本不出现在数组里**，不是「返回了但周数小」—— 客户端不需要自己做门槛判断，拿到几条就念几条（Strava 口径：未达成不显示，而非灰显）。
+        ///
+        /// **刻意不做等级名称**（不叫「聊得火热」那套）：中文等级名对读屏是一串无信息的词， 而周数本身既是数字又是进度。盲人侧文案应念成「你和张师傅已经连续 7 周一起跑步」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse`.
+        public struct PartnerStreakResponse: Codable, Hashable, Sendable {
+            /// 历史最佳，**断裂时不清零** —— `PARTNER_STREAK_RESTARTED` 的文案要念它
+            ///
+            /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse/bestWeeks`.
+            public var bestWeeks: Swift.Int32?
+            /// 当前连续周数。断裂后从 **1** 重新开始（那一周他们确实跑了），不是 0
+            ///
+            /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse/currentWeeks`.
+            public var currentWeeks: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse/id`.
+            public var id: Swift.Int64?
+            /// ISO 周字符串，如 `2026-W34`。🚨 **这不是日期**，客户端不要拿去做日期解析 —— 跨年那一周（12/29 属于**下一年**的 W01）用日期表示是有歧义的，这正是它存成周号的原因。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse/lastCreditedWeek`.
+            public var lastCreditedWeek: Swift.String?
+            /// 对方姓名，**已掩码**（`张*`），与固定搭档列表、订单详情同一口径。 对方已注销时为 null。管理端对账接口恒为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse/partnerName`.
+            public var partnerName: Swift.String?
+            /// 对方的 userId。盲人侧是志愿者，志愿者侧是盲人。 ⚠️ 管理端对账接口复用本响应体，那里它固定是**志愿者**侧。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PartnerStreakResponse/partnerUserId`.
+            public var partnerUserId: Swift.Int64?
+            /// Creates a new `PartnerStreakResponse`.
+            ///
+            /// - Parameters:
+            ///   - bestWeeks: 历史最佳，**断裂时不清零** —— `PARTNER_STREAK_RESTARTED` 的文案要念它
+            ///   - currentWeeks: 当前连续周数。断裂后从 **1** 重新开始（那一周他们确实跑了），不是 0
+            ///   - id:
+            ///   - lastCreditedWeek: ISO 周字符串，如 `2026-W34`。🚨 **这不是日期**，客户端不要拿去做日期解析 —— 跨年那一周（12/29 属于**下一年**的 W01）用日期表示是有歧义的，这正是它存成周号的原因。
+            ///   - partnerName: 对方姓名，**已掩码**（`张*`），与固定搭档列表、订单详情同一口径。 对方已注销时为 null。管理端对账接口恒为 null。
+            ///   - partnerUserId: 对方的 userId。盲人侧是志愿者，志愿者侧是盲人。 ⚠️ 管理端对账接口复用本响应体，那里它固定是**志愿者**侧。
+            public init(
+                bestWeeks: Swift.Int32? = nil,
+                currentWeeks: Swift.Int32? = nil,
+                id: Swift.Int64? = nil,
+                lastCreditedWeek: Swift.String? = nil,
+                partnerName: Swift.String? = nil,
+                partnerUserId: Swift.Int64? = nil
+            ) {
+                self.bestWeeks = bestWeeks
+                self.currentWeeks = currentWeeks
+                self.id = id
+                self.lastCreditedWeek = lastCreditedWeek
+                self.partnerName = partnerName
+                self.partnerUserId = partnerUserId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case bestWeeks
+                case currentWeeks
+                case id
+                case lastCreditedWeek
+                case partnerName
+                case partnerUserId
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PointTransactionResponse`.
+        public struct PointTransactionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/createdAt`.
+            public var createdAt: Swift.String?
+            /// 可正可负。⚠️ **0 是合法值，不要当异常数据过滤掉** —— 表示这一单撞了防刷上限、 没有加分，`note` 里写着原因。冲正为负数。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/delta`.
+            public var delta: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/id`.
+            public var id: Swift.Int64?
+            /// 人读的原因。正常发分时为 null；撞上限或冲正时有值，可直接展示给用户
+            ///
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/note`.
+            public var note: Swift.String?
+            /// 来源订单；非订单来源（如冲正）为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// ⚠️ **开放枚举**：后续版本会新增取值（拉新奖励等）。 客户端必须能安全处理未知值，不要产成封闭枚举 —— 那会让**整条响应**解不出来， 对盲人端就是一整页空白。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/reason`.
+            public struct reasonPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/reason/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case ORDER_COMPLETED = "ORDER_COMPLETED"
+                    case ORDER_AUTO_COMPLETED = "ORDER_AUTO_COMPLETED"
+                    case INVITE_REWARD = "INVITE_REWARD"
+                    case TRAINING_REWARD = "TRAINING_REWARD"
+                    case REVERSAL = "REVERSAL"
+                }
+                /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/reason/value1`.
+                public var value1: Components.Schemas.PointTransactionResponse.reasonPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/reason/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `reasonPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.PointTransactionResponse.reasonPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// ⚠️ **开放枚举**：后续版本会新增取值（拉新奖励等）。 客户端必须能安全处理未知值，不要产成封闭枚举 —— 那会让**整条响应**解不出来， 对盲人端就是一整页空白。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PointTransactionResponse/reason`.
+            public var reason: Components.Schemas.PointTransactionResponse.reasonPayload?
+            /// Creates a new `PointTransactionResponse`.
+            ///
+            /// - Parameters:
+            ///   - createdAt:
+            ///   - delta: 可正可负。⚠️ **0 是合法值，不要当异常数据过滤掉** —— 表示这一单撞了防刷上限、 没有加分，`note` 里写着原因。冲正为负数。
+            ///   - id:
+            ///   - note: 人读的原因。正常发分时为 null；撞上限或冲正时有值，可直接展示给用户
+            ///   - orderId: 来源订单；非订单来源（如冲正）为 null
+            ///   - reason: ⚠️ **开放枚举**：后续版本会新增取值（拉新奖励等）。 客户端必须能安全处理未知值，不要产成封闭枚举 —— 那会让**整条响应**解不出来， 对盲人端就是一整页空白。
+            public init(
+                createdAt: Swift.String? = nil,
+                delta: Swift.Int32? = nil,
+                id: Swift.Int64? = nil,
+                note: Swift.String? = nil,
+                orderId: Swift.Int64? = nil,
+                reason: Components.Schemas.PointTransactionResponse.reasonPayload? = nil
+            ) {
+                self.createdAt = createdAt
+                self.delta = delta
+                self.id = id
+                self.note = note
+                self.orderId = orderId
+                self.reason = reason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case createdAt
+                case delta
+                case id
+                case note
+                case orderId
+                case reason
+            }
+        }
+        /// #359 快捷消息请求。**请求向闭合枚举**：ARRIVED_AT_ENTRANCE =「我到入口了」， WAIT_5_MIN =「再等我 5 分钟」，ALMOST_THERE =「我快到了」（2026-09-26 追加，陪跑员端订单页 v2； ARRIVED_AT_ENTRANCE 保留兼容）。实际朗读文案以服务端模板为准。
+        ///
+        /// - Remark: Generated from `#/components/schemas/QuickMessageRequest`.
+        public struct QuickMessageRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/QuickMessageRequest/code`.
+            @frozen public enum codePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case ARRIVED_AT_ENTRANCE = "ARRIVED_AT_ENTRANCE"
+                case WAIT_5_MIN = "WAIT_5_MIN"
+                case ALMOST_THERE = "ALMOST_THERE"
+            }
+            /// - Remark: Generated from `#/components/schemas/QuickMessageRequest/code`.
+            public var code: Components.Schemas.QuickMessageRequest.codePayload
+            /// Creates a new `QuickMessageRequest`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            public init(code: Components.Schemas.QuickMessageRequest.codePayload) {
+                self.code = code
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/QuickMessageResponse`.
+        public struct QuickMessageResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/QuickMessageResponse/delivered`.
+            public var delivered: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/QuickMessageResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/QuickMessageResponse/success`.
+            public var success: Swift.Bool?
+            /// Creates a new `QuickMessageResponse`.
+            ///
+            /// - Parameters:
+            ///   - delivered:
+            ///   - orderId:
+            ///   - success:
+            public init(
+                delivered: Swift.Bool? = nil,
+                orderId: Swift.Int64? = nil,
+                success: Swift.Bool? = nil
+            ) {
+                self.delivered = delivered
+                self.orderId = orderId
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case delivered
+                case orderId
+                case success
+            }
+        }
         /// 志愿者注册状态（`GET /api/volunteer/registration/status` 的 `data` 字段）。
         /// ⚠️ `registrationCompleted` 与 `canAcceptOrders` 正交，见各字段说明。
         ///
@@ -7482,6 +9849,1421 @@ public enum Components {
                 case ttsText
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ReviewQueryResponse`.
+        public struct ReviewQueryResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReviewQueryResponse/data`.
+            public var data: Components.Schemas.ReviewResponse?
+            /// Creates a new `ReviewQueryResponse`.
+            ///
+            /// - Parameters:
+            ///   - data:
+            public init(data: Components.Schemas.ReviewResponse? = nil) {
+                self.data = data
+            }
+            public enum CodingKeys: String, CodingKey {
+                case data
+            }
+        }
+        /// 订单评价内容（`GET /api/orders/{id}/reviews` 的 `data` 字段）。
+        ///
+        /// 🔒 **`comment` 的可见性取决于你是谁**：写评价的盲人拿到原文； **被评的志愿者永远拿不到原文**（2026-08-31 起，审计 B-2 ①）。 详见 `commentWithheld`。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ReviewResponse`.
+        public struct ReviewResponse: Codable, Hashable, Sendable {
+            /// 评价文字。**为 null 有两种完全不同的含义**，必须配合 `commentWithheld` 一起读， 不要只判 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/comment`.
+            public var comment: Swift.String?
+            /// 评语是否被服务端扣留了。**它存在的唯一理由是把 `comment == null` 的两种含义分开**：
+            ///
+            /// - `false` —— 盲人只打了星、没写字（本来就没有原文）
+            /// - `true` —— 有原文，但你（被评人）不能看
+            ///
+            /// ⚠️ 这两种情况客户端文案不同。别用空串区分，空串和「没写」分不开。
+            ///
+            /// **为什么是永久扣留而不是「攒够 N 条才可见」**：本端点是**按单查**的， 任何阈值一旦解锁，志愿者逐单查一遍就能精确知道这条差评是哪位盲人写的 —— 阈值只买到延后，买不到匿名。所以没有 N，也没有对应的配置项。
+            ///
+            /// 对盲人读自己写的那条恒为 `false`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/commentWithheld`.
+            public var commentWithheld: Swift.Bool?
+            /// 评价时间，ISO-8601 字符串；实体未落时间时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/createdAt`.
+            public var createdAt: Swift.String?
+            /// 三档评价（#347）：`GOOD` 很好 / `OK` 一般 / `PROBLEM` 有问题。 老数据与旧五星评价为 null。
+            ///
+            /// 🔒 **被评的志愿者读到 `PROBLEM` 那一单时 `level` 与 `rating` 都是 null**， 与 `commentWithheld` 同一个思路；写评价的盲人读自己那条不受影响。
+            ///
+            /// 开放枚举：遇到未知值请按「未知档位」处理，别让整条响应解不出来。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/level`.
+            public struct levelPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/ReviewResponse/level/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case GOOD = "GOOD"
+                    case OK = "OK"
+                    case PROBLEM = "PROBLEM"
+                }
+                /// - Remark: Generated from `#/components/schemas/ReviewResponse/level/value1`.
+                public var value1: Components.Schemas.ReviewResponse.levelPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/ReviewResponse/level/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `levelPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.ReviewResponse.levelPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 三档评价（#347）：`GOOD` 很好 / `OK` 一般 / `PROBLEM` 有问题。 老数据与旧五星评价为 null。
+            ///
+            /// 🔒 **被评的志愿者读到 `PROBLEM` 那一单时 `level` 与 `rating` 都是 null**， 与 `commentWithheld` 同一个思路；写评价的盲人读自己那条不受影响。
+            ///
+            /// 开放枚举：遇到未知值请按「未知档位」处理，别让整条响应解不出来。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/level`.
+            public var level: Components.Schemas.ReviewResponse.levelPayload?
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// 评分 1~5。三档评价折算成分数：`GOOD`=5、`OK`=4；**`PROBLEM` 为 null**（它不是分数）。 旧五星评价对被评人可见；**被评的志愿者读到 `PROBLEM` 那一单时为 null**（#347）。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReviewResponse/rating`.
+            public var rating: Swift.Int32?
+            /// Creates a new `ReviewResponse`.
+            ///
+            /// - Parameters:
+            ///   - comment: 评价文字。**为 null 有两种完全不同的含义**，必须配合 `commentWithheld` 一起读， 不要只判 null。
+            ///   - commentWithheld: 评语是否被服务端扣留了。**它存在的唯一理由是把 `comment == null` 的两种含义分开**：
+            ///   - createdAt: 评价时间，ISO-8601 字符串；实体未落时间时为 null
+            ///   - level: 三档评价（#347）：`GOOD` 很好 / `OK` 一般 / `PROBLEM` 有问题。 老数据与旧五星评价为 null。
+            ///   - orderId:
+            ///   - rating: 评分 1~5。三档评价折算成分数：`GOOD`=5、`OK`=4；**`PROBLEM` 为 null**（它不是分数）。 旧五星评价对被评人可见；**被评的志愿者读到 `PROBLEM` 那一单时为 null**（#347）。
+            public init(
+                comment: Swift.String? = nil,
+                commentWithheld: Swift.Bool? = nil,
+                createdAt: Swift.String? = nil,
+                level: Components.Schemas.ReviewResponse.levelPayload? = nil,
+                orderId: Swift.Int64? = nil,
+                rating: Swift.Int32? = nil
+            ) {
+                self.comment = comment
+                self.commentWithheld = commentWithheld
+                self.createdAt = createdAt
+                self.level = level
+                self.orderId = orderId
+                self.rating = rating
+            }
+            public enum CodingKeys: String, CodingKey {
+                case comment
+                case commentWithheld
+                case createdAt
+                case level
+                case orderId
+                case rating
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RhythmSignalRequest`.
+        public struct RhythmSignalRequest: Codable, Hashable, Sendable {
+            /// 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalRequest/signal`.
+            @frozen public enum signalPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case SLOWER = "SLOWER"
+                case OK = "OK"
+                case FASTER = "FASTER"
+            }
+            /// 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalRequest/signal`.
+            public var signal: Components.Schemas.RhythmSignalRequest.signalPayload
+            /// Creates a new `RhythmSignalRequest`.
+            ///
+            /// - Parameters:
+            ///   - signal: 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            public init(signal: Components.Schemas.RhythmSignalRequest.signalPayload) {
+                self.signal = signal
+            }
+            public enum CodingKeys: String, CodingKey {
+                case signal
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse`.
+        public struct RhythmSignalResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/delivered`.
+            public var delivered: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/signal`.
+            public struct signalPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/signal/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case SLOWER = "SLOWER"
+                    case OK = "OK"
+                    case FASTER = "FASTER"
+                }
+                /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/signal/value1`.
+                public var value1: Components.Schemas.RhythmSignalResponse.signalPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/signal/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `signalPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RhythmSignalResponse.signalPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/signal`.
+            public var signal: Components.Schemas.RhythmSignalResponse.signalPayload?
+            /// 受理时刻（服务器本地时间，无时区），与详情 `run.lastSignalAt` 同值
+            ///
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/signalAt`.
+            public var signalAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RhythmSignalResponse/success`.
+            public var success: Swift.Bool?
+            /// Creates a new `RhythmSignalResponse`.
+            ///
+            /// - Parameters:
+            ///   - delivered:
+            ///   - orderId:
+            ///   - signal: 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///   - signalAt: 受理时刻（服务器本地时间，无时区），与详情 `run.lastSignalAt` 同值
+            ///   - success:
+            public init(
+                delivered: Swift.Bool? = nil,
+                orderId: Swift.Int64? = nil,
+                signal: Components.Schemas.RhythmSignalResponse.signalPayload? = nil,
+                signalAt: Swift.String? = nil,
+                success: Swift.Bool? = nil
+            ) {
+                self.delivered = delivered
+                self.orderId = orderId
+                self.signal = signal
+                self.signalAt = signalAt
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case delivered
+                case orderId
+                case signal
+                case signalAt
+                case success
+            }
+        }
+        /// 与这位跑者上一张有完赛里程的已完成订单比；两边都用订单上的完赛快照 `actualDistanceMeters`（未经本记录的清洗，与 `summary.distanceM` 可能差几十米）
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunComparison`.
+        public struct RunComparison: Codable, Hashable, Sendable {
+            /// 本次 − 上次，可为负
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunComparison/deltaDistanceM`.
+            public var deltaDistanceM: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/RunComparison/previousDistanceM`.
+            public var previousDistanceM: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/RunComparison/previousOrderId`.
+            public var previousOrderId: Swift.Int64
+            /// Creates a new `RunComparison`.
+            ///
+            /// - Parameters:
+            ///   - deltaDistanceM: 本次 − 上次，可为负
+            ///   - previousDistanceM:
+            ///   - previousOrderId:
+            public init(
+                deltaDistanceM: Swift.Int32,
+                previousDistanceM: Swift.Int32,
+                previousOrderId: Swift.Int64
+            ) {
+                self.deltaDistanceM = deltaDistanceM
+                self.previousDistanceM = previousDistanceM
+                self.previousOrderId = previousOrderId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case deltaDistanceM
+                case previousDistanceM
+                case previousOrderId
+            }
+        }
+        /// 途中事件。**只给类型和时间，文案由客户端生成**
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunEvent`.
+        public struct RunEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunEvent/at`.
+            public var at: Swift.String
+            /// 仅 REST
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunEvent/durationSec`.
+            public var durationSec: Swift.Int32?
+            /// true = 由轨迹推算（REST、RUN_ENDED），false = 订单状态日志里的真实时刻
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunEvent/inferred`.
+            public var inferred: Swift.Bool
+            /// 仅 REST；超过留存期为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunEvent/lat`.
+            public var lat: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/RunEvent/lng`.
+            public var lng: Swift.Double?
+            /// `ARRIVED` 陪跑员到达会合点 · `RUN_STARTED` 开始服务（进入 IN_PROGRESS）· `REST` 休息（同 stops）·
+            /// `RUN_ENDED` 跑步结束（由轨迹推算）· `ORDER_COMPLETED` 订单完成。响应向开放枚举，不认识的跳过
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunEvent/type`.
+            public struct _typePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunEvent/type/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case ARRIVED = "ARRIVED"
+                    case RUN_STARTED = "RUN_STARTED"
+                    case REST = "REST"
+                    case RUN_ENDED = "RUN_ENDED"
+                    case ORDER_COMPLETED = "ORDER_COMPLETED"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunEvent/type/value1`.
+                public var value1: Components.Schemas.RunEvent._typePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunEvent/type/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `_typePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunEvent._typePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// `ARRIVED` 陪跑员到达会合点 · `RUN_STARTED` 开始服务（进入 IN_PROGRESS）· `REST` 休息（同 stops）·
+            /// `RUN_ENDED` 跑步结束（由轨迹推算）· `ORDER_COMPLETED` 订单完成。响应向开放枚举，不认识的跳过
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunEvent/type`.
+            public var _type: Components.Schemas.RunEvent._typePayload
+            /// Creates a new `RunEvent`.
+            ///
+            /// - Parameters:
+            ///   - at:
+            ///   - durationSec: 仅 REST
+            ///   - inferred: true = 由轨迹推算（REST、RUN_ENDED），false = 订单状态日志里的真实时刻
+            ///   - lat: 仅 REST；超过留存期为 null
+            ///   - lng:
+            ///   - _type: `ARRIVED` 陪跑员到达会合点 · `RUN_STARTED` 开始服务（进入 IN_PROGRESS）· `REST` 休息（同 stops）·
+            public init(
+                at: Swift.String,
+                durationSec: Swift.Int32? = nil,
+                inferred: Swift.Bool,
+                lat: Swift.Double? = nil,
+                lng: Swift.Double? = nil,
+                _type: Components.Schemas.RunEvent._typePayload
+            ) {
+                self.at = at
+                self.durationSec = durationSec
+                self.inferred = inferred
+                self.lat = lat
+                self.lng = lng
+                self._type = _type
+            }
+            public enum CodingKeys: String, CodingKey {
+                case at
+                case durationSec
+                case inferred
+                case lat
+                case lng
+                case _type = "type"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunHistoryItem`.
+        public struct RunHistoryItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunHistoryItem/distanceM`.
+            public var distanceM: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/RunHistoryItem/finishedAt`.
+            public var finishedAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/RunHistoryItem/orderId`.
+            public var orderId: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RunHistoryItem/partnerName`.
+            public var partnerName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunHistoryItem/place`.
+            public var place: Swift.String?
+            /// 仅陪跑员，≤ 64 点，GCJ-02
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunHistoryItem/thumbnail`.
+            public var thumbnail: [Components.Schemas.RunLatLng]?
+            /// Creates a new `RunHistoryItem`.
+            ///
+            /// - Parameters:
+            ///   - distanceM:
+            ///   - finishedAt:
+            ///   - orderId:
+            ///   - partnerName:
+            ///   - place:
+            ///   - thumbnail: 仅陪跑员，≤ 64 点，GCJ-02
+            public init(
+                distanceM: Swift.Int32? = nil,
+                finishedAt: Swift.String,
+                orderId: Swift.Int64,
+                partnerName: Swift.String? = nil,
+                place: Swift.String? = nil,
+                thumbnail: [Components.Schemas.RunLatLng]? = nil
+            ) {
+                self.distanceM = distanceM
+                self.finishedAt = finishedAt
+                self.orderId = orderId
+                self.partnerName = partnerName
+                self.place = place
+                self.thumbnail = thumbnail
+            }
+            public enum CodingKeys: String, CodingKey {
+                case distanceM
+                case finishedAt
+                case orderId
+                case partnerName
+                case place
+                case thumbnail
+            }
+        }
+        /// 仅陪跑员，≤ 64 点，GCJ-02
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunLatLng`.
+        public struct RunLatLng: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunLatLng/lat`.
+            public var lat: Swift.Double
+            /// - Remark: Generated from `#/components/schemas/RunLatLng/lng`.
+            public var lng: Swift.Double
+            /// Creates a new `RunLatLng`.
+            ///
+            /// - Parameters:
+            ///   - lat:
+            ///   - lng:
+            public init(
+                lat: Swift.Double,
+                lng: Swift.Double
+            ) {
+                self.lat = lat
+                self.lng = lng
+            }
+            public enum CodingKeys: String, CodingKey {
+                case lat
+                case lng
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunMonthSummary`.
+        public struct RunMonthSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunMonthSummary/distanceM`.
+            public var distanceM: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/RunMonthSummary/runs`.
+            public var runs: Swift.Int32
+            /// 仅陪跑员
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunMonthSummary/serviceMin`.
+            public var serviceMin: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/RunMonthSummary/topPartner`.
+            public var topPartner: Components.Schemas.RunTopPartner?
+            /// Creates a new `RunMonthSummary`.
+            ///
+            /// - Parameters:
+            ///   - distanceM:
+            ///   - runs:
+            ///   - serviceMin: 仅陪跑员
+            ///   - topPartner:
+            public init(
+                distanceM: Swift.Int32? = nil,
+                runs: Swift.Int32,
+                serviceMin: Swift.Int64? = nil,
+                topPartner: Components.Schemas.RunTopPartner? = nil
+            ) {
+                self.distanceM = distanceM
+                self.runs = runs
+                self.serviceMin = serviceMin
+                self.topPartner = topPartner
+            }
+            public enum CodingKeys: String, CodingKey {
+                case distanceM
+                case runs
+                case serviceMin
+                case topPartner
+            }
+        }
+        /// 每 50 米一个（±100 米窗口的配速），超过 50 公里时步长放大到 ≤ 1000 个点
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunPaceSample`.
+        public struct RunPaceSample: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunPaceSample/distanceM`.
+            public var distanceM: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/RunPaceSample/paceSecPerKm`.
+            public var paceSecPerKm: Swift.Int32
+            /// Creates a new `RunPaceSample`.
+            ///
+            /// - Parameters:
+            ///   - distanceM:
+            ///   - paceSecPerKm:
+            public init(
+                distanceM: Swift.Int32,
+                paceSecPerKm: Swift.Int32
+            ) {
+                self.distanceM = distanceM
+                self.paceSecPerKm = paceSecPerKm
+            }
+            public enum CodingKeys: String, CodingKey {
+                case distanceM
+                case paceSecPerKm
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse`.
+        public struct RunRecordHistoryResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/items`.
+            public var items: [Components.Schemas.RunHistoryItem]
+            /// `YYYY-MM`
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/month`.
+            public var month: Swift.String
+            /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/monthSummary`.
+            public var monthSummary: Components.Schemas.RunMonthSummary
+            /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/role`.
+            public struct rolePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/role/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case UNSET = "UNSET"
+                    case BLIND = "BLIND"
+                    case VOLUNTEER = "VOLUNTEER"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/role/value1`.
+                public var value1: Components.Schemas.RunRecordHistoryResponse.rolePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/role/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `rolePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunRecordHistoryResponse.rolePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/RunRecordHistoryResponse/role`.
+            public var role: Components.Schemas.RunRecordHistoryResponse.rolePayload
+            /// Creates a new `RunRecordHistoryResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - month: `YYYY-MM`
+            ///   - monthSummary:
+            ///   - role:
+            public init(
+                items: [Components.Schemas.RunHistoryItem],
+                month: Swift.String,
+                monthSummary: Components.Schemas.RunMonthSummary,
+                role: Components.Schemas.RunRecordHistoryResponse.rolePayload
+            ) {
+                self.items = items
+                self.month = month
+                self.monthSummary = monthSummary
+                self.role = role
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case month
+                case monthSummary
+                case role
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunRecordMessageRequest`.
+        public struct RunRecordMessageRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageRequest/text`.
+            public var text: Swift.String
+            /// 本期只有 TEXT（请求向闭合枚举）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageRequest/type`.
+            @frozen public enum _typePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case TEXT = "TEXT"
+            }
+            /// 本期只有 TEXT（请求向闭合枚举）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageRequest/type`.
+            public var _type: Components.Schemas.RunRecordMessageRequest._typePayload
+            /// Creates a new `RunRecordMessageRequest`.
+            ///
+            /// - Parameters:
+            ///   - text:
+            ///   - _type: 本期只有 TEXT（请求向闭合枚举）
+            public init(
+                text: Swift.String,
+                _type: Components.Schemas.RunRecordMessageRequest._typePayload
+            ) {
+                self.text = text
+                self._type = _type
+            }
+            public enum CodingKeys: String, CodingKey {
+                case text
+                case _type = "type"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse`.
+        public struct RunRecordMessageResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/createdAt`.
+            public var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/fromRole`.
+            public struct fromRolePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/fromRole/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case UNSET = "UNSET"
+                    case BLIND = "BLIND"
+                    case VOLUNTEER = "VOLUNTEER"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/fromRole/value1`.
+                public var value1: Components.Schemas.RunRecordMessageResponse.fromRolePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/fromRole/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `fromRolePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunRecordMessageResponse.fromRolePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/fromRole`.
+            public var fromRole: Components.Schemas.RunRecordMessageResponse.fromRolePayload
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/id`.
+            public var id: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/text`.
+            public var text: Swift.String?
+            /// P1 会加 VOICE。响应向开放枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/type`.
+            public struct _typePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/type/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TEXT = "TEXT"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/type/value1`.
+                public var value1: Components.Schemas.RunRecordMessageResponse._typePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/type/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `_typePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunRecordMessageResponse._typePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// P1 会加 VOICE。响应向开放枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordMessageResponse/type`.
+            public var _type: Components.Schemas.RunRecordMessageResponse._typePayload
+            /// Creates a new `RunRecordMessageResponse`.
+            ///
+            /// - Parameters:
+            ///   - createdAt:
+            ///   - fromRole:
+            ///   - id:
+            ///   - text:
+            ///   - _type: P1 会加 VOICE。响应向开放枚举
+            public init(
+                createdAt: Swift.String,
+                fromRole: Components.Schemas.RunRecordMessageResponse.fromRolePayload,
+                id: Swift.Int64,
+                text: Swift.String? = nil,
+                _type: Components.Schemas.RunRecordMessageResponse._typePayload
+            ) {
+                self.createdAt = createdAt
+                self.fromRole = fromRole
+                self.id = id
+                self.text = text
+                self._type = _type
+            }
+            public enum CodingKeys: String, CodingKey {
+                case createdAt
+                case fromRole
+                case id
+                case text
+                case _type = "type"
+            }
+        }
+        /// 跑后运动记录（`GET /api/orders/{id}/run-record` 的 `data`）。与 handoff 样例 `sample_run_record.json` 的对应：
+        /// `participants.runner/guide.displayName` → `blindName` / `volunteerName`；`startedAt/endedAt` → `runStartedAt/runEndedAt`；
+        /// `service.meetAt/status` 不存在（D4/D5，起点是进入 `IN_PROGRESS` 的时刻、没有确认状态）；
+        /// `comparison.previousRunId` → `previousOrderId`；`messages[].from`（RUNNER/GUIDE）→ `fromRole`（BLIND/VOLUNTEER）；
+        /// `events[].text` 不存在（文案由客户端生成）；`track.coordSystem` 恒为 `GCJ02`（D1）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunRecordResponse`.
+        public struct RunRecordResponse: Codable, Hashable, Sendable {
+            /// 跑者姓名，脱敏（`张*`），注销为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/blindName`.
+            public var blindName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/comparison`.
+            public var comparison: Components.Schemas.RunComparison?
+            /// 按时间正序
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/events`.
+            public var events: [Components.Schemas.RunEvent]
+            /// 最快的一段的 index —— 只在满 1 公里的段之间比，且至少两段满公里才有；否则 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/fastestSplitIndex`.
+            public var fastestSplitIndex: Swift.Int32?
+            /// 按发送时间正序，双方可见
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/messages`.
+            public var messages: [Components.Schemas.RunRecordMessageResponse]
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/orderId`.
+            public var orderId: Swift.Int64
+            /// 每 50 米一个（±100 米窗口的配速），超过 50 公里时步长放大到 ≤ 1000 个点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/paceSamples`.
+            public var paceSamples: [Components.Schemas.RunPaceSample]
+            /// 订单起点地址
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/place`.
+            public var place: Swift.String?
+            /// 跑者轨迹清洗后最后一个点的时刻（推算）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/runEndedAt`.
+            public var runEndedAt: Swift.String?
+            /// 跑者轨迹清洗后第一个点的时刻
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/runStartedAt`.
+            public var runStartedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/service`.
+            public var service: Components.Schemas.RunService
+            /// 这一单有过任何紧急求助（含事后撤销的）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/sosTriggered`.
+            public var sosTriggered: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/splits`.
+            public var splits: [Components.Schemas.RunSplit]
+            /// 生成状态，含义见端点说明。响应向开放枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/status`.
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunRecordResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case GENERATING = "GENERATING"
+                    case READY = "READY"
+                    case FAILED = "FAILED"
+                    case INSUFFICIENT_TRACK = "INSUFFICIENT_TRACK"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunRecordResponse/status/value1`.
+                public var value1: Components.Schemas.RunRecordResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunRecordResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunRecordResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 生成状态，含义见端点说明。响应向开放枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/status`.
+            public var status: Components.Schemas.RunRecordResponse.statusPayload
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/stops`.
+            public var stops: [Components.Schemas.RunStop]
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/summary`.
+            public var summary: Components.Schemas.RunSummary?
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/track`.
+            public var track: Components.Schemas.RunTrack?
+            /// 请求者在这一单里的角色（只会是 BLIND / VOLUNTEER）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/viewerRole`.
+            public struct viewerRolePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunRecordResponse/viewerRole/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case UNSET = "UNSET"
+                    case BLIND = "BLIND"
+                    case VOLUNTEER = "VOLUNTEER"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunRecordResponse/viewerRole/value1`.
+                public var value1: Components.Schemas.RunRecordResponse.viewerRolePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunRecordResponse/viewerRole/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `viewerRolePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunRecordResponse.viewerRolePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 请求者在这一单里的角色（只会是 BLIND / VOLUNTEER）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/viewerRole`.
+            public var viewerRole: Components.Schemas.RunRecordResponse.viewerRolePayload
+            /// 陪跑员姓名，同上
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunRecordResponse/volunteerName`.
+            public var volunteerName: Swift.String?
+            /// Creates a new `RunRecordResponse`.
+            ///
+            /// - Parameters:
+            ///   - blindName: 跑者姓名，脱敏（`张*`），注销为 null
+            ///   - comparison:
+            ///   - events: 按时间正序
+            ///   - fastestSplitIndex: 最快的一段的 index —— 只在满 1 公里的段之间比，且至少两段满公里才有；否则 null
+            ///   - messages: 按发送时间正序，双方可见
+            ///   - orderId:
+            ///   - paceSamples: 每 50 米一个（±100 米窗口的配速），超过 50 公里时步长放大到 ≤ 1000 个点
+            ///   - place: 订单起点地址
+            ///   - runEndedAt: 跑者轨迹清洗后最后一个点的时刻（推算）
+            ///   - runStartedAt: 跑者轨迹清洗后第一个点的时刻
+            ///   - service:
+            ///   - sosTriggered: 这一单有过任何紧急求助（含事后撤销的）
+            ///   - splits:
+            ///   - status: 生成状态，含义见端点说明。响应向开放枚举
+            ///   - stops:
+            ///   - summary:
+            ///   - track:
+            ///   - viewerRole: 请求者在这一单里的角色（只会是 BLIND / VOLUNTEER）
+            ///   - volunteerName: 陪跑员姓名，同上
+            public init(
+                blindName: Swift.String? = nil,
+                comparison: Components.Schemas.RunComparison? = nil,
+                events: [Components.Schemas.RunEvent],
+                fastestSplitIndex: Swift.Int32? = nil,
+                messages: [Components.Schemas.RunRecordMessageResponse],
+                orderId: Swift.Int64,
+                paceSamples: [Components.Schemas.RunPaceSample],
+                place: Swift.String? = nil,
+                runEndedAt: Swift.String? = nil,
+                runStartedAt: Swift.String? = nil,
+                service: Components.Schemas.RunService,
+                sosTriggered: Swift.Bool,
+                splits: [Components.Schemas.RunSplit],
+                status: Components.Schemas.RunRecordResponse.statusPayload,
+                stops: [Components.Schemas.RunStop],
+                summary: Components.Schemas.RunSummary? = nil,
+                track: Components.Schemas.RunTrack? = nil,
+                viewerRole: Components.Schemas.RunRecordResponse.viewerRolePayload,
+                volunteerName: Swift.String? = nil
+            ) {
+                self.blindName = blindName
+                self.comparison = comparison
+                self.events = events
+                self.fastestSplitIndex = fastestSplitIndex
+                self.messages = messages
+                self.orderId = orderId
+                self.paceSamples = paceSamples
+                self.place = place
+                self.runEndedAt = runEndedAt
+                self.runStartedAt = runStartedAt
+                self.service = service
+                self.sosTriggered = sosTriggered
+                self.splits = splits
+                self.status = status
+                self.stops = stops
+                self.summary = summary
+                self.track = track
+                self.viewerRole = viewerRole
+                self.volunteerName = volunteerName
+            }
+            public enum CodingKeys: String, CodingKey {
+                case blindName
+                case comparison
+                case events
+                case fastestSplitIndex
+                case messages
+                case orderId
+                case paceSamples
+                case place
+                case runEndedAt
+                case runStartedAt
+                case service
+                case sosTriggered
+                case splits
+                case status
+                case stops
+                case summary
+                case track
+                case viewerRole
+                case volunteerName
+            }
+        }
+        /// 志愿服务时长（D4：进入 IN_PROGRESS → 订单完成，**再减陪跑员手动暂停的总时长**（V9，2026-09-26 起），与成就页同口径；D5：没有确认状态）。 自动暂停（站着不动）只影响运动时间与配速，不影响这里
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunService`.
+        public struct RunService: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunService/completedAt`.
+            public var completedAt: Swift.String?
+            /// = 完成 − `startedAt` − 手动暂停总时长，按分钟向下取整；从未进入 IN_PROGRESS（超时自动完成）为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunService/durationMin`.
+            public var durationMin: Swift.Int32?
+            /// 第一次进入 IN_PROGRESS 的时刻
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunService/startedAt`.
+            public var startedAt: Swift.String?
+            /// 这位陪跑员的累计服务分钟数（D6，两个角色都能看到），与 `GET /api/volunteer/achievements` 的 `totalServiceMinutes` 同源；陪跑员已注销为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunService/volunteerTotalServiceMinutes`.
+            public var volunteerTotalServiceMinutes: Swift.Int64?
+            /// Creates a new `RunService`.
+            ///
+            /// - Parameters:
+            ///   - completedAt:
+            ///   - durationMin: = 完成 − `startedAt` − 手动暂停总时长，按分钟向下取整；从未进入 IN_PROGRESS（超时自动完成）为 null
+            ///   - startedAt: 第一次进入 IN_PROGRESS 的时刻
+            ///   - volunteerTotalServiceMinutes: 这位陪跑员的累计服务分钟数（D6，两个角色都能看到），与 `GET /api/volunteer/achievements` 的 `totalServiceMinutes` 同源；陪跑员已注销为 null
+            public init(
+                completedAt: Swift.String? = nil,
+                durationMin: Swift.Int32? = nil,
+                startedAt: Swift.String? = nil,
+                volunteerTotalServiceMinutes: Swift.Int64? = nil
+            ) {
+                self.completedAt = completedAt
+                self.durationMin = durationMin
+                self.startedAt = startedAt
+                self.volunteerTotalServiceMinutes = volunteerTotalServiceMinutes
+            }
+            public enum CodingKeys: String, CodingKey {
+                case completedAt
+                case durationMin
+                case startedAt
+                case volunteerTotalServiceMinutes
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunSplit`.
+        public struct RunSplit: Codable, Hashable, Sendable {
+            /// 请求者本人手机
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSplit/avgCadence`.
+            public var avgCadence: Swift.Int32?
+            /// 满公里为 1000，最后一段为余数
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSplit/distanceM`.
+            public var distanceM: Swift.Int32
+            /// 该段内的运动时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSplit/durationSec`.
+            public var durationSec: Swift.Int32
+            /// 从 1 起
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSplit/index`.
+            public var index: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/RunSplit/paceSecPerKm`.
+            public var paceSecPerKm: Swift.Int32
+            /// Creates a new `RunSplit`.
+            ///
+            /// - Parameters:
+            ///   - avgCadence: 请求者本人手机
+            ///   - distanceM: 满公里为 1000，最后一段为余数
+            ///   - durationSec: 该段内的运动时间
+            ///   - index: 从 1 起
+            ///   - paceSecPerKm:
+            public init(
+                avgCadence: Swift.Int32? = nil,
+                distanceM: Swift.Int32,
+                durationSec: Swift.Int32,
+                index: Swift.Int32,
+                paceSecPerKm: Swift.Int32
+            ) {
+                self.avgCadence = avgCadence
+                self.distanceM = distanceM
+                self.durationSec = durationSec
+                self.index = index
+                self.paceSecPerKm = paceSecPerKm
+            }
+            public enum CodingKeys: String, CodingKey {
+                case avgCadence
+                case distanceM
+                case durationSec
+                case index
+                case paceSecPerKm
+            }
+        }
+        /// 静止 ≥ 30 秒记一次
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunStop`.
+        public struct RunStop: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunStop/atDistanceM`.
+            public var atDistanceM: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/RunStop/durationSec`.
+            public var durationSec: Swift.Int32
+            /// GCJ-02；超过 90 天留存期为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunStop/lat`.
+            public var lat: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/RunStop/lng`.
+            public var lng: Swift.Double?
+            /// 本期恒为 null（逆地理编码是 P1）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunStop/placeName`.
+            public var placeName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunStop/startedAt`.
+            public var startedAt: Swift.String
+            /// Creates a new `RunStop`.
+            ///
+            /// - Parameters:
+            ///   - atDistanceM:
+            ///   - durationSec:
+            ///   - lat: GCJ-02；超过 90 天留存期为 null
+            ///   - lng:
+            ///   - placeName: 本期恒为 null（逆地理编码是 P1）
+            ///   - startedAt:
+            public init(
+                atDistanceM: Swift.Int32,
+                durationSec: Swift.Int32,
+                lat: Swift.Double? = nil,
+                lng: Swift.Double? = nil,
+                placeName: Swift.String? = nil,
+                startedAt: Swift.String
+            ) {
+                self.atDistanceM = atDistanceM
+                self.durationSec = durationSec
+                self.lat = lat
+                self.lng = lng
+                self.placeName = placeName
+                self.startedAt = startedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case atDistanceM
+                case durationSec
+                case lat
+                case lng
+                case placeName
+                case startedAt
+            }
+        }
+        /// GENERATING / FAILED 时为 null
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunSummary`.
+        public struct RunSummary: Codable, Hashable, Sendable {
+            /// 请求者本人手机，步/分钟
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/avgCadence`.
+            public var avgCadence: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/RunSummary/avgPaceSecPerKm`.
+            public var avgPaceSecPerKm: Swift.Int32?
+            /// 米，不含自动暂停段
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/distanceM`.
+            public var distanceM: Swift.Int32?
+            /// 第一个点到最后一个点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/elapsedSec`.
+            public var elapsedSec: Swift.Int32?
+            /// 请求者本人手机（气压计），米
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/elevationGainM`.
+            public var elevationGainM: Swift.Int32?
+            /// 运动时间（去掉自动暂停）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/movingSec`.
+            public var movingSec: Swift.Int32?
+            /// elapsedSec − movingSec（含 10–29 秒的短暂停，所以可能大于 stops 之和）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/restSec`.
+            public var restSec: Swift.Int32?
+            /// 请求者本人手机的累计步数；没有数据为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunSummary/steps`.
+            public var steps: Swift.Int32?
+            /// Creates a new `RunSummary`.
+            ///
+            /// - Parameters:
+            ///   - avgCadence: 请求者本人手机，步/分钟
+            ///   - avgPaceSecPerKm:
+            ///   - distanceM: 米，不含自动暂停段
+            ///   - elapsedSec: 第一个点到最后一个点
+            ///   - elevationGainM: 请求者本人手机（气压计），米
+            ///   - movingSec: 运动时间（去掉自动暂停）
+            ///   - restSec: elapsedSec − movingSec（含 10–29 秒的短暂停，所以可能大于 stops 之和）
+            ///   - steps: 请求者本人手机的累计步数；没有数据为 null
+            public init(
+                avgCadence: Swift.Int32? = nil,
+                avgPaceSecPerKm: Swift.Int32? = nil,
+                distanceM: Swift.Int32? = nil,
+                elapsedSec: Swift.Int32? = nil,
+                elevationGainM: Swift.Int32? = nil,
+                movingSec: Swift.Int32? = nil,
+                restSec: Swift.Int32? = nil,
+                steps: Swift.Int32? = nil
+            ) {
+                self.avgCadence = avgCadence
+                self.avgPaceSecPerKm = avgPaceSecPerKm
+                self.distanceM = distanceM
+                self.elapsedSec = elapsedSec
+                self.elevationGainM = elevationGainM
+                self.movingSec = movingSec
+                self.restSec = restSec
+                self.steps = steps
+            }
+            public enum CodingKeys: String, CodingKey {
+                case avgCadence
+                case avgPaceSecPerKm
+                case distanceM
+                case elapsedSec
+                case elevationGainM
+                case movingSec
+                case restSec
+                case steps
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunTopPartner`.
+        public struct RunTopPartner: Codable, Hashable, Sendable {
+            /// 脱敏，注销为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunTopPartner/name`.
+            public var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunTopPartner/runs`.
+            public var runs: Swift.Int32
+            /// Creates a new `RunTopPartner`.
+            ///
+            /// - Parameters:
+            ///   - name: 脱敏，注销为 null
+            ///   - runs:
+            public init(
+                name: Swift.String? = nil,
+                runs: Swift.Int32
+            ) {
+                self.name = name
+                self.runs = runs
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case runs
+            }
+        }
+        /// 轨迹不足、或超过 90 天留存期时为 null
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunTrack`.
+        public struct RunTrack: Codable, Hashable, Sendable {
+            /// 恒为 `GCJ02`
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunTrack/coordSystem`.
+            public var coordSystem: Swift.String
+            /// 清洗 + Douglas-Peucker 简化（2 米容差，≤ 600 点）后的跑者路线
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunTrack/points`.
+            public var points: [Components.Schemas.RunTrackPoint]
+            /// - Remark: Generated from `#/components/schemas/RunTrack/startedAt`.
+            public var startedAt: Swift.String
+            /// Creates a new `RunTrack`.
+            ///
+            /// - Parameters:
+            ///   - coordSystem: 恒为 `GCJ02`
+            ///   - points: 清洗 + Douglas-Peucker 简化（2 米容差，≤ 600 点）后的跑者路线
+            ///   - startedAt:
+            public init(
+                coordSystem: Swift.String,
+                points: [Components.Schemas.RunTrackPoint],
+                startedAt: Swift.String
+            ) {
+                self.coordSystem = coordSystem
+                self.points = points
+                self.startedAt = startedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case coordSystem
+                case points
+                case startedAt
+            }
+        }
+        /// 清洗 + Douglas-Peucker 简化（2 米容差，≤ 600 点）后的跑者路线
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunTrackPoint`.
+        public struct RunTrackPoint: Codable, Hashable, Sendable {
+            /// 到此点的累计距离（米，不含自动暂停段），配速图拖动 / 分段高亮用
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunTrackPoint/d`.
+            public var d: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/RunTrackPoint/lat`.
+            public var lat: Swift.Double
+            /// - Remark: Generated from `#/components/schemas/RunTrackPoint/lng`.
+            public var lng: Swift.Double
+            /// 距 startedAt 的秒数（0.1 精度）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunTrackPoint/t`.
+            public var t: Swift.Double
+            /// Creates a new `RunTrackPoint`.
+            ///
+            /// - Parameters:
+            ///   - d: 到此点的累计距离（米，不含自动暂停段），配速图拖动 / 分段高亮用
+            ///   - lat:
+            ///   - lng:
+            ///   - t: 距 startedAt 的秒数（0.1 精度）
+            public init(
+                d: Swift.Int32,
+                lat: Swift.Double,
+                lng: Swift.Double,
+                t: Swift.Double
+            ) {
+                self.d = d
+                self.lat = lat
+                self.lng = lng
+                self.t = t
+            }
+            public enum CodingKeys: String, CodingKey {
+                case d
+                case lat
+                case lng
+                case t
+            }
+        }
         /// （2026-09-26 新增，陪跑员端订单页 v2）跑步中的实时数据。**只在 `IN_PROGRESS` 非 `null`，订单双方都有**。 距离 / 配速按**跑者手机**的轨迹算，清洗与自动暂停口径与 `GET /api/orders/{id}/run-record` 完全一致 （hAcc > 30m 丢、相邻速度 > 7m/s 丢、< 0.5m/s 连续 ≥ 10 秒的段不计距离与运动时间），跑完那一刻的距离即跑后记录的距离。 与 WS `RUN_PROGRESS` 的 `run` 同形；客户端在两次推送之间可按 `paused` 本地推进 `elapsedSeconds`，收到即校正。
         ///
         /// - Remark: Generated from `#/components/schemas/RunView`.
@@ -7636,6 +11418,87 @@ public enum Components {
                 case startedAt
                 case targetKm
                 case turnaroundKm
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunnerMessageRequest`.
+        public struct RunnerMessageRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunnerMessageRequest/text`.
+            public var text: Swift.String
+            /// Creates a new `RunnerMessageRequest`.
+            ///
+            /// - Parameters:
+            ///   - text:
+            public init(text: Swift.String) {
+                self.text = text
+            }
+            public enum CodingKeys: String, CodingKey {
+                case text
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunnerMessageResponse`.
+        public struct RunnerMessageResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunnerMessageResponse/messageToVolunteer`.
+            public var messageToVolunteer: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunnerMessageResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/RunnerMessageResponse/success`.
+            public var success: Swift.Bool?
+            /// Creates a new `RunnerMessageResponse`.
+            ///
+            /// - Parameters:
+            ///   - messageToVolunteer:
+            ///   - orderId:
+            ///   - success:
+            public init(
+                messageToVolunteer: Swift.String? = nil,
+                orderId: Swift.Int64? = nil,
+                success: Swift.Bool? = nil
+            ) {
+                self.messageToVolunteer = messageToVolunteer
+                self.orderId = orderId
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case messageToVolunteer
+                case orderId
+                case success
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RunnerRingResponse`.
+        public struct RunnerRingResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RunnerRingResponse/delivered`.
+            public var delivered: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/RunnerRingResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// 响到这一刻为止（受理时刻 + 10 秒，服务器本地时间，无时区）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunnerRingResponse/ringingUntil`.
+            public var ringingUntil: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RunnerRingResponse/success`.
+            public var success: Swift.Bool?
+            /// Creates a new `RunnerRingResponse`.
+            ///
+            /// - Parameters:
+            ///   - delivered:
+            ///   - orderId:
+            ///   - ringingUntil: 响到这一刻为止（受理时刻 + 10 秒，服务器本地时间，无时区）
+            ///   - success:
+            public init(
+                delivered: Swift.Bool? = nil,
+                orderId: Swift.Int64? = nil,
+                ringingUntil: Swift.String? = nil,
+                success: Swift.Bool? = nil
+            ) {
+                self.delivered = delivered
+                self.orderId = orderId
+                self.ringingUntil = ringingUntil
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case delivered
+                case orderId
+                case ringingUntil
+                case success
             }
         }
         /// - Remark: Generated from `#/components/schemas/SendCodeRequest`.
@@ -7850,6 +11713,228 @@ public enum Components {
                 case success
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketRequest`.
+        public struct SupportTicketRequest: Codable, Hashable, Sendable {
+            /// 请求向用闭合枚举（客户端只发已知值）。取值刻意少而粗：分类是给客服**分流**用的， 不是给用户做选择题 —— 每多一个选项，读屏用户提交一次投诉就多听一句。 `SAFETY` 是**事后**的安全申诉，不是紧急求助入口。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketRequest/category`.
+            @frozen public enum categoryPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case ORDER_SERVICE = "ORDER_SERVICE"
+                case SAFETY = "SAFETY"
+                case ACCOUNT = "ACCOUNT"
+                case APP_ISSUE = "APP_ISSUE"
+                case OTHER = "OTHER"
+            }
+            /// 请求向用闭合枚举（客户端只发已知值）。取值刻意少而粗：分类是给客服**分流**用的， 不是给用户做选择题 —— 每多一个选项，读屏用户提交一次投诉就多听一句。 `SAFETY` 是**事后**的安全申诉，不是紧急求助入口。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketRequest/category`.
+            public var category: Components.Schemas.SupportTicketRequest.categoryPayload
+            /// - Remark: Generated from `#/components/schemas/SupportTicketRequest/content`.
+            public var content: Swift.String
+            /// 可空。给了就必须是自己的订单，否则 404
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketRequest/orderId`.
+            public var orderId: Swift.Int64?
+            /// Creates a new `SupportTicketRequest`.
+            ///
+            /// - Parameters:
+            ///   - category: 请求向用闭合枚举（客户端只发已知值）。取值刻意少而粗：分类是给客服**分流**用的， 不是给用户做选择题 —— 每多一个选项，读屏用户提交一次投诉就多听一句。 `SAFETY` 是**事后**的安全申诉，不是紧急求助入口。
+            ///   - content:
+            ///   - orderId: 可空。给了就必须是自己的订单，否则 404
+            public init(
+                category: Components.Schemas.SupportTicketRequest.categoryPayload,
+                content: Swift.String,
+                orderId: Swift.Int64? = nil
+            ) {
+                self.category = category
+                self.content = content
+                self.orderId = orderId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case category
+                case content
+                case orderId
+            }
+        }
+        /// 刻意**不下发 repliedByCsId**：那是 cs_users.id，对用户没有任何用处， 只提供一个「你们有几个客服」的枚举面。客服身份对用户不可见。
+        ///
+        /// - Remark: Generated from `#/components/schemas/SupportTicketResponse`.
+        public struct SupportTicketResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/category`.
+            public struct categoryPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/category/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case ORDER_SERVICE = "ORDER_SERVICE"
+                    case SAFETY = "SAFETY"
+                    case ACCOUNT = "ACCOUNT"
+                    case APP_ISSUE = "APP_ISSUE"
+                    case OTHER = "OTHER"
+                }
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/category/value1`.
+                public var value1: Components.Schemas.SupportTicketResponse.categoryPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/category/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `categoryPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.SupportTicketResponse.categoryPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/category`.
+            public var category: Components.Schemas.SupportTicketResponse.categoryPayload?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/content`.
+            public var content: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/createdAt`.
+            public var createdAt: Swift.String?
+            /// 未回复时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/csReply`.
+            public var csReply: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/id`.
+            public var id: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/repliedAt`.
+            public var repliedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status`.
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case OPEN = "OPEN"
+                    case REPLIED = "REPLIED"
+                    case CLOSED = "CLOSED"
+                }
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status/value1`.
+                public var value1: Components.Schemas.SupportTicketResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.SupportTicketResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status`.
+            public var status: Components.Schemas.SupportTicketResponse.statusPayload?
+            /// 提交人 users.id。客服侧 `GET /api/cs/tickets` 与用户侧共用本结构， 缺了它客服拿到的是一队「不知道谁提的」工单 —— 同一个人连提三条看不出是同一个人， 「APP 用不了」这类没有 orderId 的工单更是查无此人。 口径同客服侧 EmergencyEventResponse.userId：**给 id 不给号码**， 要联系人走既有的取号端点（那条有审计日志）。用户侧看到的是自己的 id。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/userId`.
+            public var userId: Swift.Int64?
+            /// Creates a new `SupportTicketResponse`.
+            ///
+            /// - Parameters:
+            ///   - category:
+            ///   - content:
+            ///   - createdAt:
+            ///   - csReply: 未回复时为 null
+            ///   - id:
+            ///   - orderId:
+            ///   - repliedAt:
+            ///   - status:
+            ///   - userId: 提交人 users.id。客服侧 `GET /api/cs/tickets` 与用户侧共用本结构， 缺了它客服拿到的是一队「不知道谁提的」工单 —— 同一个人连提三条看不出是同一个人， 「APP 用不了」这类没有 orderId 的工单更是查无此人。 口径同客服侧 EmergencyEventResponse.userId：**给 id 不给号码**， 要联系人走既有的取号端点（那条有审计日志）。用户侧看到的是自己的 id。
+            public init(
+                category: Components.Schemas.SupportTicketResponse.categoryPayload? = nil,
+                content: Swift.String? = nil,
+                createdAt: Swift.String? = nil,
+                csReply: Swift.String? = nil,
+                id: Swift.Int64? = nil,
+                orderId: Swift.Int64? = nil,
+                repliedAt: Swift.String? = nil,
+                status: Components.Schemas.SupportTicketResponse.statusPayload? = nil,
+                userId: Swift.Int64? = nil
+            ) {
+                self.category = category
+                self.content = content
+                self.createdAt = createdAt
+                self.csReply = csReply
+                self.id = id
+                self.orderId = orderId
+                self.repliedAt = repliedAt
+                self.status = status
+                self.userId = userId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case category
+                case content
+                case createdAt
+                case csReply
+                case id
+                case orderId
+                case repliedAt
+                case status
+                case userId
+            }
+        }
         /// 单个轨迹点
         ///
         /// - Remark: Generated from `#/components/schemas/TrackPointDto`.
@@ -7911,6 +11996,523 @@ public enum Components {
                 case avgPaceSecPerKm
                 case distanceMeters
                 case durationSeconds
+            }
+        }
+        /// 🚨 **不含正确答案**，判卷只在服务端。这不是漏字段，加上它等于把答案发给客户端
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse`.
+        public struct TrainingCourseDetailResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/attemptCount`.
+            public var attemptCount: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/code`.
+            public var code: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/completedAt`.
+            public var completedAt: Swift.String?
+            /// 正文，Markdown。🚩 请**原生渲染，不要用 WebView** —— WebView 里 Dynamic Type 与 VoiceOver 都不按系统设置走
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/content`.
+            public var content: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/estimatedMinutes`.
+            public var estimatedMinutes: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/id`.
+            public var id: Swift.Int64?
+            /// 题目，数组顺序即展示顺序（客户端不要重排：情景题的选项顺序有时是有意义的）
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/questions`.
+            public var questions: [Components.Schemas.TrainingCourseQuestion]?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/required`.
+            public var required: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/status`.
+            public var status: Components.Schemas.TrainingProgressStatus?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/studiedSeconds`.
+            public var studiedSeconds: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/summary`.
+            public var summary: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseDetailResponse/title`.
+            public var title: Swift.String?
+            /// Creates a new `TrainingCourseDetailResponse`.
+            ///
+            /// - Parameters:
+            ///   - attemptCount:
+            ///   - code:
+            ///   - completedAt:
+            ///   - content: 正文，Markdown。🚩 请**原生渲染，不要用 WebView** —— WebView 里 Dynamic Type 与 VoiceOver 都不按系统设置走
+            ///   - estimatedMinutes:
+            ///   - id:
+            ///   - questions: 题目，数组顺序即展示顺序（客户端不要重排：情景题的选项顺序有时是有意义的）
+            ///   - required:
+            ///   - status:
+            ///   - studiedSeconds:
+            ///   - summary:
+            ///   - title:
+            public init(
+                attemptCount: Swift.Int32? = nil,
+                code: Swift.String? = nil,
+                completedAt: Swift.String? = nil,
+                content: Swift.String? = nil,
+                estimatedMinutes: Swift.Int32? = nil,
+                id: Swift.Int64? = nil,
+                questions: [Components.Schemas.TrainingCourseQuestion]? = nil,
+                required: Swift.Bool? = nil,
+                status: Components.Schemas.TrainingProgressStatus? = nil,
+                studiedSeconds: Swift.Int32? = nil,
+                summary: Swift.String? = nil,
+                title: Swift.String? = nil
+            ) {
+                self.attemptCount = attemptCount
+                self.code = code
+                self.completedAt = completedAt
+                self.content = content
+                self.estimatedMinutes = estimatedMinutes
+                self.id = id
+                self.questions = questions
+                self.required = required
+                self.status = status
+                self.studiedSeconds = studiedSeconds
+                self.summary = summary
+                self.title = title
+            }
+            public enum CodingKeys: String, CodingKey {
+                case attemptCount
+                case code
+                case completedAt
+                case content
+                case estimatedMinutes
+                case id
+                case questions
+                case required
+                case status
+                case studiedSeconds
+                case summary
+                case title
+            }
+        }
+        /// 列表里的一门课。**没有 content 字段** —— 正文只在详情接口给
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem`.
+        public struct TrainingCourseListItem: Codable, Hashable, Sendable {
+            /// 已交卷次数（可无限重考）
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/attemptCount`.
+            public var attemptCount: Swift.Int32?
+            /// 稳定业务标识（`GUIDE_BASICS` / `EMERGENCY_HANDLING` / …）。 ⚠️ **开放枚举**，客户端不要产成封闭 enum —— 加一门课不该打碎已发版的 App
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/code`.
+            public var code: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/completedAt`.
+            public var completedAt: Swift.String?
+            /// 预计学习时长，仅展示
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/estimatedMinutes`.
+            public var estimatedMinutes: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/id`.
+            public var id: Swift.Int64?
+            /// 这门课有几道考核题
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/questionCount`.
+            public var questionCount: Swift.Int32?
+            /// 必修课。未全部通过则不进派单候选池，接单返回 403 `TRAINING_NOT_COMPLETED`
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/required`.
+            public var required: Swift.Bool?
+            /// 首次通过发多少分。**必修恒 0**（门槛不发奖），只有选修 > 0
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/rewardPoints`.
+            public var rewardPoints: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/status`.
+            public var status: Components.Schemas.TrainingProgressStatus?
+            /// 累计学习时长（秒）。政策要求记录的字段
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/studiedSeconds`.
+            public var studiedSeconds: Swift.Int32?
+            /// 一句话说明学完能干什么
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/summary`.
+            public var summary: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListItem/title`.
+            public var title: Swift.String?
+            /// Creates a new `TrainingCourseListItem`.
+            ///
+            /// - Parameters:
+            ///   - attemptCount: 已交卷次数（可无限重考）
+            ///   - code: 稳定业务标识（`GUIDE_BASICS` / `EMERGENCY_HANDLING` / …）。 ⚠️ **开放枚举**，客户端不要产成封闭 enum —— 加一门课不该打碎已发版的 App
+            ///   - completedAt:
+            ///   - estimatedMinutes: 预计学习时长，仅展示
+            ///   - id:
+            ///   - questionCount: 这门课有几道考核题
+            ///   - required: 必修课。未全部通过则不进派单候选池，接单返回 403 `TRAINING_NOT_COMPLETED`
+            ///   - rewardPoints: 首次通过发多少分。**必修恒 0**（门槛不发奖），只有选修 > 0
+            ///   - status:
+            ///   - studiedSeconds: 累计学习时长（秒）。政策要求记录的字段
+            ///   - summary: 一句话说明学完能干什么
+            ///   - title:
+            public init(
+                attemptCount: Swift.Int32? = nil,
+                code: Swift.String? = nil,
+                completedAt: Swift.String? = nil,
+                estimatedMinutes: Swift.Int32? = nil,
+                id: Swift.Int64? = nil,
+                questionCount: Swift.Int32? = nil,
+                required: Swift.Bool? = nil,
+                rewardPoints: Swift.Int32? = nil,
+                status: Components.Schemas.TrainingProgressStatus? = nil,
+                studiedSeconds: Swift.Int32? = nil,
+                summary: Swift.String? = nil,
+                title: Swift.String? = nil
+            ) {
+                self.attemptCount = attemptCount
+                self.code = code
+                self.completedAt = completedAt
+                self.estimatedMinutes = estimatedMinutes
+                self.id = id
+                self.questionCount = questionCount
+                self.required = required
+                self.rewardPoints = rewardPoints
+                self.status = status
+                self.studiedSeconds = studiedSeconds
+                self.summary = summary
+                self.title = title
+            }
+            public enum CodingKeys: String, CodingKey {
+                case attemptCount
+                case code
+                case completedAt
+                case estimatedMinutes
+                case id
+                case questionCount
+                case required
+                case rewardPoints
+                case status
+                case studiedSeconds
+                case summary
+                case title
+            }
+        }
+        /// 培训首页要的全部数据，一次给完
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingCourseListResponse`.
+        public struct TrainingCourseListResponse: Codable, Hashable, Sendable {
+            /// 培训证书编号；必修未全过时为 null。政策允许「考核通过的可颁发培训证书」
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListResponse/certificateNo`.
+            public var certificateNo: Swift.String?
+            /// 取得证书的时刻（= 最后通过的那门必修课的完成时间）；未取得为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListResponse/certifiedAt`.
+            public var certifiedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListResponse/courses`.
+            public var courses: [Components.Schemas.TrainingCourseListItem]?
+            /// 必修课是否已全部通过 —— 派单硬门槛的镜像。🚩 后端算，客户端不许自己数课程列表。 一门必修课都没配置时为 true（分母 0）：培训刚上线、种子数据还没导入的窗口里， 不该把全平台志愿者一起挡在门外。
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseListResponse/requiredCompleted`.
+            public var requiredCompleted: Swift.Bool?
+            /// Creates a new `TrainingCourseListResponse`.
+            ///
+            /// - Parameters:
+            ///   - certificateNo: 培训证书编号；必修未全过时为 null。政策允许「考核通过的可颁发培训证书」
+            ///   - certifiedAt: 取得证书的时刻（= 最后通过的那门必修课的完成时间）；未取得为 null
+            ///   - courses:
+            ///   - requiredCompleted: 必修课是否已全部通过 —— 派单硬门槛的镜像。🚩 后端算，客户端不许自己数课程列表。 一门必修课都没配置时为 true（分母 0）：培训刚上线、种子数据还没导入的窗口里， 不该把全平台志愿者一起挡在门外。
+            public init(
+                certificateNo: Swift.String? = nil,
+                certifiedAt: Swift.String? = nil,
+                courses: [Components.Schemas.TrainingCourseListItem]? = nil,
+                requiredCompleted: Swift.Bool? = nil
+            ) {
+                self.certificateNo = certificateNo
+                self.certifiedAt = certifiedAt
+                self.courses = courses
+                self.requiredCompleted = requiredCompleted
+            }
+            public enum CodingKeys: String, CodingKey {
+                case certificateNo
+                case certifiedAt
+                case courses
+                case requiredCompleted
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TrainingCourseOption`.
+        public struct TrainingCourseOption: Codable, Hashable, Sendable {
+            /// 选项标识（A/B/…），交卷时回传这个值
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseOption/id`.
+            public var id: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseOption/text`.
+            public var text: Swift.String?
+            /// Creates a new `TrainingCourseOption`.
+            ///
+            /// - Parameters:
+            ///   - id: 选项标识（A/B/…），交卷时回传这个值
+            ///   - text:
+            public init(
+                id: Swift.String? = nil,
+                text: Swift.String? = nil
+            ) {
+                self.id = id
+                self.text = text
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case text
+            }
+        }
+        /// 题目，数组顺序即展示顺序（客户端不要重排：情景题的选项顺序有时是有意义的）
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingCourseQuestion`.
+        public struct TrainingCourseQuestion: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseQuestion/id`.
+            public var id: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseQuestion/options`.
+            public var options: [Components.Schemas.TrainingCourseOption]?
+            /// 题干。全部是情景处置题
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingCourseQuestion/stem`.
+            public var stem: Swift.String?
+            /// Creates a new `TrainingCourseQuestion`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - options:
+            ///   - stem: 题干。全部是情景处置题
+            public init(
+                id: Swift.Int64? = nil,
+                options: [Components.Schemas.TrainingCourseOption]? = nil,
+                stem: Swift.String? = nil
+            ) {
+                self.id = id
+                self.options = options
+                self.stem = stem
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case options
+                case stem
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TrainingProgressRequest`.
+        public struct TrainingProgressRequest: Codable, Hashable, Sendable {
+            /// 本次新增的学习秒数（增量，非累计）
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingProgressRequest/studiedSeconds`.
+            public var studiedSeconds: Swift.Int32
+            /// Creates a new `TrainingProgressRequest`.
+            ///
+            /// - Parameters:
+            ///   - studiedSeconds: 本次新增的学习秒数（增量，非累计）
+            public init(studiedSeconds: Swift.Int32) {
+                self.studiedSeconds = studiedSeconds
+            }
+            public enum CodingKeys: String, CodingKey {
+                case studiedSeconds
+            }
+        }
+        /// 单门课的学习状态。⚠️ **开放枚举**：落库列是 VARCHAR 而非原生 ENUM，将来加值不需要迁移， 所以客户端**必须**能安全处理未知值 —— 产成封闭枚举会让整条响应解不出来， 对盲人端就是一整页空白。
+        ///
+        /// `NOT_STARTED` 在库里通常没有对应行（没打开过就没有进度记录）； 它存在是为了让「没有记录」和「有记录但没学完」返回同一种形状，客户端不必区分 null。
+        ///
+        /// `IN_PROGRESS` 包含「交卷没通过」——没过不会退回 NOT_STARTED。
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingProgressStatus`.
+        public struct TrainingProgressStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TrainingProgressStatus/value1`.
+            @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                case NOT_STARTED = "NOT_STARTED"
+                case IN_PROGRESS = "IN_PROGRESS"
+                case COMPLETED = "COMPLETED"
+            }
+            /// - Remark: Generated from `#/components/schemas/TrainingProgressStatus/value1`.
+            public var value1: Components.Schemas.TrainingProgressStatus.Value1Payload?
+            /// - Remark: Generated from `#/components/schemas/TrainingProgressStatus/value2`.
+            public var value2: Swift.String?
+            /// Creates a new `TrainingProgressStatus`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.TrainingProgressStatus.Value1Payload? = nil,
+                value2: Swift.String? = nil
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                    [
+                        self.value1,
+                        self.value2
+                    ],
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                    self.value1,
+                    self.value2
+                ])
+            }
+        }
+        /// 逐题作答，顺序无关（后端按 questionId 匹配）
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer`.
+        public struct TrainingQuizAnswer: Codable, Hashable, Sendable {
+            /// 选中的选项标识，取自课程详情的 `options[].id`
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/optionId`.
+            public var optionId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/questionId`.
+            public var questionId: Swift.Int64
+            /// Creates a new `TrainingQuizAnswer`.
+            ///
+            /// - Parameters:
+            ///   - optionId: 选中的选项标识，取自课程详情的 `options[].id`
+            ///   - questionId:
+            public init(
+                optionId: Swift.String? = nil,
+                questionId: Swift.Int64
+            ) {
+                self.optionId = optionId
+                self.questionId = questionId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case optionId
+                case questionId
+            }
+        }
+        /// 交卷结果。及格线是全对
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse`.
+        public struct TrainingQuizResultResponse: Codable, Hashable, Sendable {
+            /// 这是第几次交卷（从 1 开始）
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/attemptNo`.
+            public var attemptNo: Swift.Int32?
+            /// 本次实际发放的积分。0 = 没发（必修课、或这门课之前已经通过过）。 ⚠️ **不要用它判断是否通过** —— 必修课通过时它也是 0
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/awardedPoints`.
+            public var awardedPoints: Swift.Int32?
+            /// 培训证书编号；本次通过且必修已全过才有，否则 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/certificateNo`.
+            public var certificateNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/correctCount`.
+            public var correctCount: Swift.Int32?
+            /// 本次是否通过（correctCount == totalCount）
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/passed`.
+            public var passed: Swift.Bool?
+            /// 交卷之后必修是否已全部通过。由 false 变 true 意味着派单门槛刚刚解开， 客户端应据此刷新 `GET /api/volunteer/dispatch-summary`
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/requiredCompleted`.
+            public var requiredCompleted: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/totalCount`.
+            public var totalCount: Swift.Int32?
+            /// 答错的题及其解释；全对时为**空数组而不是 null**。 🚩 请展示 `explanation` —— 只给题号的话，在「全对才过 + 无限重考」下 用户唯一的策略是改选项猜到过
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizResultResponse/wrongQuestions`.
+            public var wrongQuestions: [Components.Schemas.TrainingQuizWrongQuestion]?
+            /// Creates a new `TrainingQuizResultResponse`.
+            ///
+            /// - Parameters:
+            ///   - attemptNo: 这是第几次交卷（从 1 开始）
+            ///   - awardedPoints: 本次实际发放的积分。0 = 没发（必修课、或这门课之前已经通过过）。 ⚠️ **不要用它判断是否通过** —— 必修课通过时它也是 0
+            ///   - certificateNo: 培训证书编号；本次通过且必修已全过才有，否则 null
+            ///   - correctCount:
+            ///   - passed: 本次是否通过（correctCount == totalCount）
+            ///   - requiredCompleted: 交卷之后必修是否已全部通过。由 false 变 true 意味着派单门槛刚刚解开， 客户端应据此刷新 `GET /api/volunteer/dispatch-summary`
+            ///   - totalCount:
+            ///   - wrongQuestions: 答错的题及其解释；全对时为**空数组而不是 null**。 🚩 请展示 `explanation` —— 只给题号的话，在「全对才过 + 无限重考」下 用户唯一的策略是改选项猜到过
+            public init(
+                attemptNo: Swift.Int32? = nil,
+                awardedPoints: Swift.Int32? = nil,
+                certificateNo: Swift.String? = nil,
+                correctCount: Swift.Int32? = nil,
+                passed: Swift.Bool? = nil,
+                requiredCompleted: Swift.Bool? = nil,
+                totalCount: Swift.Int32? = nil,
+                wrongQuestions: [Components.Schemas.TrainingQuizWrongQuestion]? = nil
+            ) {
+                self.attemptNo = attemptNo
+                self.awardedPoints = awardedPoints
+                self.certificateNo = certificateNo
+                self.correctCount = correctCount
+                self.passed = passed
+                self.requiredCompleted = requiredCompleted
+                self.totalCount = totalCount
+                self.wrongQuestions = wrongQuestions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case attemptNo
+                case awardedPoints
+                case certificateNo
+                case correctCount
+                case passed
+                case requiredCompleted
+                case totalCount
+                case wrongQuestions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TrainingQuizSubmitRequest`.
+        public struct TrainingQuizSubmitRequest: Codable, Hashable, Sendable {
+            /// 逐题作答，顺序无关（后端按 questionId 匹配）
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizSubmitRequest/answers`.
+            public var answers: [Components.Schemas.TrainingQuizAnswer]?
+            /// Creates a new `TrainingQuizSubmitRequest`.
+            ///
+            /// - Parameters:
+            ///   - answers: 逐题作答，顺序无关（后端按 questionId 匹配）
+            public init(answers: [Components.Schemas.TrainingQuizAnswer]? = nil) {
+                self.answers = answers
+            }
+            public enum CodingKeys: String, CodingKey {
+                case answers
+            }
+        }
+        /// 答错的题及其解释；全对时为**空数组而不是 null**。 🚩 请展示 `explanation` —— 只给题号的话，在「全对才过 + 无限重考」下 用户唯一的策略是改选项猜到过
+        ///
+        /// - Remark: Generated from `#/components/schemas/TrainingQuizWrongQuestion`.
+        public struct TrainingQuizWrongQuestion: Codable, Hashable, Sendable {
+            /// 可能为 null（题目没填解释），客户端要能处理而不是显示 "null"
+            ///
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizWrongQuestion/explanation`.
+            public var explanation: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizWrongQuestion/questionId`.
+            public var questionId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/TrainingQuizWrongQuestion/stem`.
+            public var stem: Swift.String?
+            /// Creates a new `TrainingQuizWrongQuestion`.
+            ///
+            /// - Parameters:
+            ///   - explanation: 可能为 null（题目没填解释），客户端要能处理而不是显示 "null"
+            ///   - questionId:
+            ///   - stem:
+            public init(
+                explanation: Swift.String? = nil,
+                questionId: Swift.Int64? = nil,
+                stem: Swift.String? = nil
+            ) {
+                self.explanation = explanation
+                self.questionId = questionId
+                self.stem = stem
+            }
+            public enum CodingKeys: String, CodingKey {
+                case explanation
+                case questionId
+                case stem
             }
         }
         /// - Remark: Generated from `#/components/schemas/VerificationStatusResponse`.
@@ -8716,6 +13318,47 @@ public enum Components {
                 case withinServiceTime
             }
         }
+        /// 志愿者视角的固定搭档条目：「谁把我设为了固定搭档」。同样**不含电话**，与盲人侧一个口径。
+        ///
+        /// - Remark: Generated from `#/components/schemas/VolunteerFavoritedByResponse`.
+        public struct VolunteerFavoritedByResponse: Codable, Hashable, Sendable {
+            /// 掩码姓名（`李*`）。盲人已注销时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerFavoritedByResponse/blindName`.
+            public var blindName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/VolunteerFavoritedByResponse/blindUserId`.
+            public var blindUserId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/VolunteerFavoritedByResponse/favoritedAt`.
+            public var favoritedAt: Swift.String?
+            /// 我已经单方面退出这一对（`DELETE /api/volunteer/favorites/{blindUserId}` 的结果）
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerFavoritedByResponse/optedOut`.
+            public var optedOut: Swift.Bool?
+            /// Creates a new `VolunteerFavoritedByResponse`.
+            ///
+            /// - Parameters:
+            ///   - blindName: 掩码姓名（`李*`）。盲人已注销时为 null
+            ///   - blindUserId:
+            ///   - favoritedAt:
+            ///   - optedOut: 我已经单方面退出这一对（`DELETE /api/volunteer/favorites/{blindUserId}` 的结果）
+            public init(
+                blindName: Swift.String? = nil,
+                blindUserId: Swift.Int64? = nil,
+                favoritedAt: Swift.String? = nil,
+                optedOut: Swift.Bool? = nil
+            ) {
+                self.blindName = blindName
+                self.blindUserId = blindUserId
+                self.favoritedAt = favoritedAt
+                self.optedOut = optedOut
+            }
+            public enum CodingKeys: String, CodingKey {
+                case blindName
+                case blindUserId
+                case favoritedAt
+                case optedOut
+            }
+        }
         /// 下一枚未解锁的勋章 —— 画进度条用。
         ///
         /// 「下一枚」= 勋章声明顺序里第一枚未解锁的，不是「最接近达成的那枚」；
@@ -8919,6 +13562,57 @@ public enum Components {
                 case current
                 case name
                 case target
+            }
+        }
+        /// 🚨 **与 `VolunteerAchievementsResponse.totalServiceMinutes` 是两套完全独立的数**， 文案里不得互相换算或混称（合规要求，见端点 description）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse`.
+        public struct VolunteerPointsResponse: Codable, Hashable, Sendable {
+            /// 余额 = 全部流水 delta 之和。只累计不消耗，目前无兑换出口
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse/balance`.
+            public var balance: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse/page`.
+            public var page: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse/size`.
+            public var size: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse/totalElements`.
+            public var totalElements: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse/totalPages`.
+            public var totalPages: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/VolunteerPointsResponse/transactions`.
+            public var transactions: [Components.Schemas.PointTransactionResponse]?
+            /// Creates a new `VolunteerPointsResponse`.
+            ///
+            /// - Parameters:
+            ///   - balance: 余额 = 全部流水 delta 之和。只累计不消耗，目前无兑换出口
+            ///   - page:
+            ///   - size:
+            ///   - totalElements:
+            ///   - totalPages:
+            ///   - transactions:
+            public init(
+                balance: Swift.Int64? = nil,
+                page: Swift.Int32? = nil,
+                size: Swift.Int32? = nil,
+                totalElements: Swift.Int64? = nil,
+                totalPages: Swift.Int32? = nil,
+                transactions: [Components.Schemas.PointTransactionResponse]? = nil
+            ) {
+                self.balance = balance
+                self.page = page
+                self.size = size
+                self.totalElements = totalElements
+                self.totalPages = totalPages
+                self.transactions = transactions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case balance
+                case page
+                case size
+                case totalElements
+                case totalPages
+                case transactions
             }
         }
         /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse`.
@@ -9615,6 +14309,491 @@ public enum Operations {
             }
         }
     }
+    /// 我的固定搭档，收藏时间倒序。**仅 BLIND**。
+    ///
+    /// 陪跑的核心成本是**磨合** —— 用什么牵引方式、你习惯别人怎么提醒路况、你的配速。 每单换人等于每单重新磨合。United In Stride 的运营结论是每位视障跑者需要 6~8 名固定陪跑员。
+    ///
+    /// ⚠️ 条目里**没有电话**：这个列表是「我跟谁跑得来」不是通讯录。要打电话走订单详情的 `volunteerPhone`，那里有状态门（只在汇合四态下发）；把号码放进一个长期列表等于绕开那道门。 姓名一律掩码（`李*`）。志愿者已注销时 `volunteerName` 为 `null` —— 一个注销的搭档 不该让整个列表 500。
+    ///
+    /// - Remark: HTTP `GET /api/blind/favorite-volunteers`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/get(list_2)`.
+    public enum list_2 {
+        public static let id: Swift.String = "list_2"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.list_2.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.list_2.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.list_2.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.list_2.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.FavoriteVolunteerResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.FavoriteVolunteerResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.list_2.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.list_2.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/get(list_2)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.list_2.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.list_2.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 收藏一位志愿者。**幂等** —— 重复收藏返 204 而不是 409，客户端不必先查一次。
+    ///
+    /// 🚨 **必须一起跑完过至少一单**，否则返 400 + `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`。 两个理由：① 不设这道门，这个端点就变成「拿任意 userId 试一下，204 说明这人存在且是 志愿者」的枚举接口，且能把陌生人塞进自己的派单偏好；② 固定搭档的价值来自**已经磨合过**。 ⚠️ 「没一起跑完过」与「这个 id 根本不是志愿者」**同码同文案**，客户端不要试图区分 —— 区分开就等于确认了这个 id 是个志愿者。
+    ///
+    /// 🚨 **收藏只影响派单排序，不影响资格**：收藏的人照样要过全部硬过滤 （在线、已认证、距离、导盲犬、时间重叠）。加分（默认 15 分，加在满分 100 的五维加权和之外） **不是压倒一切** —— 附近有个不错的陌生人时，很远的固定搭档仍然会输。 客户端文案不要承诺「优先派给他」，只能说「更可能派给他」。
+    ///
+    /// 🚨 **对方退出过就加不回来了**（400 + `FAVORITE_VOLUNTEER_OPTED_OUT`）。退出标记跟着 **这一对**走 —— 跑者自己取消收藏也抹不掉它，所以「取消一下再重新收藏」不是恢复手段。 本轮没有恢复路径（见 `DELETE /api/volunteer/favorites/{blindUserId}` 的说明）。 ⚠️ 这个码的文案不要复用 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` 那句「只能收藏一起跑完过的」—— 这一对恰恰是跑过的，念出来是假话，而跑者只能听 TTS。
+    ///
+    /// - Remark: HTTP `PUT /api/blind/favorite-volunteers/{volunteerId}`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)`.
+    public enum add {
+        public static let id: Swift.String = "add"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/{volunteerId}/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/{volunteerId}/PUT/path/volunteerId`.
+                public var volunteerId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - volunteerId:
+                public init(volunteerId: Swift.Int64) {
+                    self.volunteerId = volunteerId
+                }
+            }
+            public var path: Operations.add.Input.Path
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            public init(path: Operations.add.Input.Path) {
+                self.path = path
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// No Content（含重复收藏；也含「自己取消过之后再加回来」—— 对方没退出的话这条路照常通，服务端复活原来那一行）
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.add.Output.NoContent)
+            /// No Content（含重复收藏；也含「自己取消过之后再加回来」—— 对方没退出的话这条路照常通，服务端复活原来那一行）
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.add.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// 不能收藏（errorCode = FAVORITE_VOLUNTEER_NOT_ELIGIBLE：没一起跑完过 / 是自己； FAVORITE_VOLUNTEER_OPTED_OUT：对方已单方面退出； 或 FAVORITE_VOLUNTEER_LIMIT_EXCEEDED：数量到顶）
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.add.Output.BadRequest)
+            /// 不能收藏（errorCode = FAVORITE_VOLUNTEER_NOT_ELIGIBLE：没一起跑完过 / 是自己； FAVORITE_VOLUNTEER_OPTED_OUT：对方已单方面退出； 或 FAVORITE_VOLUNTEER_LIMIT_EXCEEDED：数量到顶）
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/put(add)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.add.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// 取消收藏。**幂等** —— 没收藏过也返 204，客户端不需要先查一次。
+    ///
+    /// ⚠️ 服务端是**打标记不是删行**（对客户端无差别：这个人从列表里消失，名额也让出来）。 这么做是因为真删了，「取消 → 下次跑完再收藏」两次正常点击就会把对方的退出 无声地撤销掉。副作用是：**对方已退出的条目，取消之后就再也加不回来了** —— 如果界面上对 `partnerOptedOut=true` 的条目也提供取消按钮，建议加一次二次确认。
+    ///
+    /// - Remark: HTTP `DELETE /api/blind/favorite-volunteers/{volunteerId}`.
+    /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/delete(remove)`.
+    public enum remove {
+        public static let id: Swift.String = "remove"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/{volunteerId}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/blind/favorite-volunteers/{volunteerId}/DELETE/path/volunteerId`.
+                public var volunteerId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - volunteerId:
+                public init(volunteerId: Swift.Int64) {
+                    self.volunteerId = volunteerId
+                }
+            }
+            public var path: Operations.remove.Input.Path
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            public init(path: Operations.remove.Input.Path) {
+                self.path = path
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// No Content（含从未收藏过）
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/delete(remove)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.remove.Output.NoContent)
+            /// No Content（含从未收藏过）
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/favorite-volunteers/{volunteerId}/delete(remove)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.remove.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// 我和固定搭档的双人火花（盲人视角）
+    ///
+    /// 连续多少个自然周（ISO 周，周一 00:00 – 周日 23:59）和同一位志愿者一起跑过。 该周内这一对有 ≥1 单 `COMPLETED` 就算这一周跑过。
+    ///
+    /// 🚨 **口径与积分刻意不同**：火花**不看**是手动完成还是超时自动完成。 火花衡量的是关系的连续性，而「志愿者忘了点完成」不该让两个人的关系断掉。
+    ///
+    /// ⚠️ **未点亮的一对不在数组里**（默认门槛连续 2 周）。数组按 `currentWeeks` 倒序 —— 读屏是顺序播报的，排在后面等于不存在。
+    ///
+    /// ⚠️ **惰性计算**：火花只在这一对完成订单时结算，不跑调度器。 所以「断了」是在他们**下一次跑完一单时**才被发现的 —— 这也是断裂通知 `PARTNER_STREAK_RESTARTED` 的文案是「新的连续记录开始了」而不是「已中断」的原因。
+    ///
+    /// - Remark: HTTP `GET /api/blind/partners/streaks`.
+    /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)`.
+    public enum myStreaksAsBlind {
+        public static let id: Swift.String = "myStreaksAsBlind"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/blind/partners/streaks/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myStreaksAsBlind.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myStreaksAsBlind.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.myStreaksAsBlind.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.myStreaksAsBlind.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/blind/partners/streaks/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/blind/partners/streaks/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PartnerStreakResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PartnerStreakResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.myStreaksAsBlind.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.myStreaksAsBlind.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已点亮的火花列表；一条都没有时返回空数组
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.myStreaksAsBlind.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.myStreaksAsBlind.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.myStreaksAsBlind.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.myStreaksAsBlind.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非 BLIND 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.myStreaksAsBlind.Output.Forbidden)
+            /// 非 BLIND 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/partners/streaks/get(myStreaksAsBlind)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.myStreaksAsBlind.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 获取盲人资料
     ///
     /// - Remark: HTTP `GET /api/blind/profile`.
@@ -10153,6 +15332,129 @@ public enum Operations {
             }
         }
     }
+    /// 读取功能开关状态
+    ///
+    /// 2026-08-24 新增（handoff iOS 那条）。客户端用它决定**空态说什么**。
+    ///
+    /// 三个 SPEC-E 开关默认关闭，关着时相关端点返回空数组 —— 而同一个空数组有两个
+    /// 完全不同的含义：「功能还没开放」和「你确实还没点亮」。此前客户端恒说后者，
+    /// 于是开关关着的那段时间里，那句文案是在教用户去做一件**做了也不会有结果的事**。
+    /// 对读屏用户尤其糟：他会照着做两周，回来发现还是空的。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**：盲人要 `partnerStreakEnabled`，
+    /// 志愿者要另外两个，两边都得读；未登录的人拿它没有用途，所以也不放进 permitAll。
+    ///
+    /// 🚨 **本端点只回答「功能开没开」，不回答「你有没有」** —— 后者是各自列表端点的事。
+    /// 混进来的话客户端就有两个地方能得出「显示什么」，而它们迟早不一致。
+    ///
+    /// - Remark: HTTP `GET /api/config/features`.
+    /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
+    public enum getFeatures {
+        public static let id: Swift.String = "getFeatures"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/config/features/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getFeatures.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getFeatures.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getFeatures.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.getFeatures.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/config/features/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/config/features/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseFeatureFlagsResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseFeatureFlagsResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getFeatures.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getFeatures.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getFeatures.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getFeatures.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 上报 APNs device token（iOS 离线推送兜底，B5）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
@@ -10588,6 +15890,309 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 陪跑员上传锁屏实时活动的 push token
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在
+    /// `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 可传。App 按下「我出发了」后本地 `Activity.request(pushType: .token)`，
+    /// 拿到 `pushTokenUpdates` 的 token（十六进制）就调本接口；同一单再传一次覆盖。
+    ///
+    /// 之后后端经 APNs（`apns-push-type: liveactivity`）推：状态变化、ETA 分钟数变化、晚到变化、跑者到集合点、
+    /// 汇合档位变化时 `update`；离开两态（开跑、完成、取消、重派、结束等待）时 `end`，锁屏保留 5 分钟。
+    /// payload 形状与**日期编码**见 `docs/live-activity.md`（⚠️ `arriveAt` 是 Swift `Date` 默认编码，2001 纪元秒）。
+    ///
+    /// token 只存 Redis（6 小时），Redis 不可用时本次不存、锁屏不刷新，App 内不受影响。
+    ///
+    /// - Remark: HTTP `POST /api/devices/live-activity-token`.
+    /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)`.
+    public enum registerLiveActivityToken {
+        public static let id: Swift.String = "registerLiveActivityToken"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.registerLiveActivityToken.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.registerLiveActivityToken.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.registerLiveActivityToken.Input.Headers
+            /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LiveActivityTokenRequest)
+            }
+            public var body: Operations.registerLiveActivityToken.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.registerLiveActivityToken.Input.Headers = .init(),
+                body: Operations.registerLiveActivityToken.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseVoid)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseVoid {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.registerLiveActivityToken.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.registerLiveActivityToken.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.registerLiveActivityToken.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.registerLiveActivityToken.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// orderId / pushToken 缺失或格式不对（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.registerLiveActivityToken.Output.BadRequest)
+            /// orderId / pushToken 缺失或格式不对（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.registerLiveActivityToken.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.registerLiveActivityToken.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.registerLiveActivityToken.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非志愿者角色，或不是这一单的陪跑员（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.registerLiveActivityToken.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.registerLiveActivityToken.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.registerLiveActivityToken.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.registerLiveActivityToken.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/devices/live-activity-token/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.registerLiveActivityToken.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.registerLiveActivityToken.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在出发中 / 已到达（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/live-activity-token/post(registerLiveActivityToken)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.registerLiveActivityToken.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.registerLiveActivityToken.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }
@@ -12085,6 +17690,192 @@ public enum Operations {
             }
         }
     }
+    /// 我当前这一单（App 冷启动 / 断线重连恢复用）
+    ///
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    ///
+    /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
+    ///
+    /// 响应体与 `GET /api/orders/{id}` **逐字相同**（同一个 `OrderDetailResponse`）， 包括 `volunteerPhone`：在 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 四态下发**能直接拨通的明文号**，其余状态为 `null`，永远不是掩码串 （见该 schema 上的说明）。重开 App 后立刻能打给志愿者正是这个端点存在的理由之一。
+    ///
+    /// - Remark: HTTP `GET /api/orders/active`.
+    /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)`.
+    public enum activeOrder {
+        public static let id: Swift.String = "activeOrder"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/active/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.activeOrder.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.activeOrder.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.activeOrder.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.activeOrder.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/active/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/active/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseOrderDetailResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseOrderDetailResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.activeOrder.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.activeOrder.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.activeOrder.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.activeOrder.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.activeOrder.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.activeOrder.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非 BLIND 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.activeOrder.Output.Forbidden)
+            /// 非 BLIND 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.activeOrder.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
@@ -12309,6 +18100,237 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 我的跑后记录月度列表（按当前角色）
+    ///
+    /// 按当前用户角色返回某个月**已完成**订单的跑后记录列表 + 月度汇总（2026-09-24 新增）。
+    /// 按订单完成时间 `finishedAt` 归月；不分页（一个人一个月的量级）；完成时间倒序。
+    /// 取消 / 无人接单的订单不在这里（D9：客户端从 `GET /api/orders/mine` 自己分组到「未完成的预约」）。
+    /// 响应走 `ApiResponse` 信封。
+    ///
+    /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
+    ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
+    /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
+    /// - `monthSummary.distanceM`：有里程的那几单之和，一单都没有为 `null`
+    /// - `monthSummary.topPartner`：本月一起跑得最多的搭档，并列取最近的那位；本月没有记录为 `null`
+    /// - 还没生成过记录的历史单，**一次请求最多当场补算 5 张**；其余这一次先用完赛快照（`thumbnail` 为 `null`），
+    ///   下次请求再补下一批。只影响功能上线前的历史单，新完成的订单在完成时就已经生成
+    ///
+    /// - Remark: HTTP `GET /api/orders/mine/run-records`.
+    /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)`.
+    public enum getMyRunRecords {
+        public static let id: Swift.String = "getMyRunRecords"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// `YYYY-MM`，如 `2026-09`
+                ///
+                /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/query/month`.
+                public var month: Swift.String
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - month: `YYYY-MM`，如 `2026-09`
+                public init(month: Swift.String) {
+                    self.month = month
+                }
+            }
+            public var query: Operations.getMyRunRecords.Input.Query
+            /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getMyRunRecords.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getMyRunRecords.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getMyRunRecords.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.getMyRunRecords.Input.Query,
+                headers: Operations.getMyRunRecords.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseRunRecordHistoryResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseRunRecordHistoryResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getMyRunRecords.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getMyRunRecords.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getMyRunRecords.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getMyRunRecords.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/mine/run-records/GET/responses/400/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getMyRunRecords.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getMyRunRecords.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// `month` 格式不对（errorCode `VALIDATION_ERROR`）或缺失（errorCode `BAD_REQUEST`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.getMyRunRecords.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.getMyRunRecords.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.getMyRunRecords.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/mine/run-records/get(getMyRunRecords)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.getMyRunRecords.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
                             response: self
                         )
                     }
@@ -13137,6 +19159,261 @@ public enum Operations {
             }
         }
     }
+    /// 志愿者临期确认「我还会去」（跨天预约单）
+    ///
+    /// 跨天预约单（`SCHEDULED_CONFIRMED`）的临期闸门。志愿者调它表示自己仍会赴约，
+    /// 订单随即转入 `PENDING_ACCEPT`，走与即时单完全相同的后续流程
+    /// （`/en-route` → `/arrived` → `/start-service` → `/finish`）。
+    ///
+    /// 🚩 **它与 `/en-route` 不是一回事，别合并**：这一步只回答「你还去吗」，人可能还在家里；
+    /// `/en-route` 是真的动身了、开始双向推位置了。合并会让位置互推提前几小时打开，
+    /// 而那期间双方并不需要找到对方。
+    ///
+    /// **不调用的后果**：距开跑 `app.order.departure-gate-lead-minutes`（默认 60 分钟）时
+    /// 订单被自动退回 `REMATCHING` 重新派单，志愿者收到 `SCHEDULED_DEPARTURE_GATE_MISSED`。
+    /// 这不计入接单率、不影响后续派单，只在 `volunteer_profile.scheduled_no_show_count` 记一笔。
+    ///
+    /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
+    /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
+    /// **那条通知与本端点是一对，客户端别只接一个**。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
+    public enum confirmDeparture {
+        public static let id: Swift.String = "confirmDeparture"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.confirmDeparture.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.confirmDeparture.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.confirmDeparture.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.confirmDeparture.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.confirmDeparture.Input.Path,
+                headers: Operations.confirmDeparture.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.confirmDeparture.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.confirmDeparture.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.confirmDeparture.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.confirmDeparture.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.confirmDeparture.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.confirmDeparture.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 这一单不是您接的（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.confirmDeparture.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.confirmDeparture.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/confirm-departure/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.confirmDeparture.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.confirmDeparture.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 两种成因，errorCode 不同：
+            ///
+            /// - `ORDER_STATUS_NOT_ALLOWED` — 订单已不在 `SCHEDULED_CONFIRMED`。
+            ///   **最常见成因是闸门已经把这一单退回重新匹配了**，客户端此刻才把确认发上来 ——
+            ///   不是参数错误，文案应告诉志愿者「这一单已经转走了」而不是「操作失败」。
+            /// - `DEPARTURE_TOO_EARLY` — 距开跑还超过 `app.order.departure-confirm-window-minutes`
+            ///   （默认 120 分钟），现在还轮不到确认。⚠️ 正常流程走不到这里：触发确认的那条
+            ///   `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` 通知用的是**同一个配置项**，
+            ///   所以「通知已经到了、按钮却被拒」由构造不可能发生。撞上它通常是客户端
+            ///   自己把按钮提前亮出来了。`message` 里带最早可操作时刻，可直接朗读。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.confirmDeparture.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.confirmDeparture.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 陪跑员已动身（真的出门了，开始双向推位置）
     ///
     /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
@@ -13285,6 +19562,283 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.conflict`.
             /// - SeeAlso: `.conflict`.
             public var conflict: Operations.driverEnRoute.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 陪跑员到达后等满时限没碰上跑者，结束等待
+    ///
+    /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
+    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
+    ///
+    /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
+    /// **不算志愿者取消**（不走 `REMATCHING`、不重派），服务时长为 0（订单没进过 `IN_PROGRESS`）。
+    /// 盲人收到 `APP_NOTIFICATION`（`eventType = ORDER_WAIT_ENDED`，HIGH，带 `ttsText`），
+    /// 双方收到 `ORDER_STATUS_CHANGED`。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409 `ORDER_STATUS_NOT_ALLOWED`）→ 时限（409 `END_WAIT_TOO_EARLY`）
+    /// → 未结案求助（409 `ORDER_HAS_ACTIVE_EMERGENCY`）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/end-waiting`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)`.
+    public enum endWaiting {
+        public static let id: Swift.String = "endWaiting"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.endWaiting.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.endWaiting.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.endWaiting.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.endWaiting.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.endWaiting.Input.Path,
+                headers: Operations.endWaiting.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EndWaitingResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EndWaitingResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.endWaiting.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.endWaiting.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已结束等待，订单已转 CANCELLED
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.endWaiting.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.endWaiting.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.endWaiting.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.endWaiting.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非志愿者角色，或不是这一单的志愿者（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.endWaiting.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.endWaiting.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.endWaiting.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.endWaiting.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/end-waiting/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.endWaiting.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.endWaiting.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在已到达（`ORDER_STATUS_NOT_ALLOWED`）；还没等满（`END_WAIT_TOO_EARLY`， message 带最早可结束的时刻，可直接朗读）；这一单有未结案的求助（`ORDER_HAS_ACTIVE_EMERGENCY`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/end-waiting/post(endWaiting)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.endWaiting.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.endWaiting.Output.Conflict {
                 get throws {
                     switch self {
                     case let .conflict(response):
@@ -14513,6 +21067,1346 @@ public enum Operations {
             }
         }
     }
+    /// 盲人延长重新匹配等待窗口（REMATCHING 状态）
+    ///
+    /// 盲人在订单处于 REMATCHING（重新匹配志愿者）状态时，可调用此端点刷新重新匹配超时窗口，
+    /// 避免因无人接单导致的兜底取消。对称于 `keepWaiting`（PENDING_MATCH 状态延长匹配等待）。
+    ///
+    /// - 角色：仅 BLIND 可调用（`SecurityConfig` 显式规则 `PUT /api/orders/*/keep-rematching → hasRole("BLIND")`）。
+    /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
+    /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
+    ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
+    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
+    /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
+    ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
+    ///   进入 REMATCHING 后重新拥有完整的 10 次。到达上限后再调用返回 409 `KEEP_WAITING_LIMIT_REACHED`。
+    /// - 计数递增的是**超时轮数**而非按钮点击数：每轮重匹超时提醒 +1，用户在每一轮里可延长。
+    ///   倒数第二轮会额外推一条 HIGH 优先级的 `ORDER_CANCELLATION_WARNING`（带 ttsText）——
+    ///   刻意提前一轮，否则用户听完预警去点必定撞 409。
+    /// - ⚠️ 2026-08-12（N62）之前，本端点**既没有上限、也不延长任何东西**：死线硬锚在
+    ///   `lastRematchAt + 30min`，点 1 次和点 11 次订单在同一时刻转 `NO_VOLUNTEER`。
+    ///   本段描述当时是错的，现已让实现追上描述。
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/keep-rematching`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)`.
+    public enum keepRematching {
+        public static let id: Swift.String = "keepRematching"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/keep-rematching/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/keep-rematching/PUT/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.keepRematching.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/keep-rematching/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.keepRematching.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.keepRematching.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.keepRematching.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.keepRematching.Input.Path,
+                headers: Operations.keepRematching.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/keep-rematching/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/keep-rematching/PUT/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.keepRematching.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.keepRematching.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 延长成功，重新匹配超时窗口已刷新
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.keepRematching.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.keepRematching.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证（缺少或无效 JWT）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.keepRematching.Output.Unauthorized)
+            /// 未认证（缺少或无效 JWT）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.keepRematching.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 无权限（非 BLIND 角色或非订单所属盲人）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.keepRematching.Output.Forbidden)
+            /// 无权限（非 BLIND 角色或非订单所属盲人）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.keepRematching.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.keepRematching.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.keepRematching.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// Creates a new `Conflict`.
+                public init() {}
+            }
+            /// 订单状态非法（非 REMATCHING）或已达到延长上限。
+            /// errorCode 取值：`ORDER_STATUS_NOT_ALLOWED`、`KEEP_WAITING_LIMIT_REACHED`。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.keepRematching.Output.Conflict)
+            /// 订单状态非法（非 REMATCHING）或已达到延长上限。
+            /// errorCode 取值：`ORDER_STATUS_NOT_ALLOWED`、`KEEP_WAITING_LIMIT_REACHED`。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-rematching/put(keepRematching)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            public static var conflict: Self {
+                .conflict(.init())
+            }
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.keepRematching.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `PUT /api/orders/{id}/keep-waiting`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/keep-waiting/put(keepWaiting)`.
+    public enum keepWaiting {
+        public static let id: Swift.String = "keepWaiting"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/keep-waiting/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/keep-waiting/PUT/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.keepWaiting.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/keep-waiting/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.keepWaiting.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.keepWaiting.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.keepWaiting.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.keepWaiting.Input.Path,
+                headers: Operations.keepWaiting.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/keep-waiting/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/keep-waiting/PUT/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.keepWaiting.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.keepWaiting.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/keep-waiting/put(keepWaiting)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.keepWaiting.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.keepWaiting.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 播报位置 —— 把受助者当前坐标逆地理成一句可以念出来的话
+    ///
+    /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
+    ///
+    /// **两端拿到的都是「盲人」的位置**，不按调用者分支。盲人用它把自己的位置告诉路人 / 客服 / 120；
+    /// 志愿者用它说清「人在哪」（不是「我在哪」）。
+    ///
+    /// 🔴 **任何情况下都返 200**，拿不到地址就把 `degraded` 置 true。
+    /// 5xx / 404 在盲人端的表现是「点了没反应」，而这一项恰恰是他要靠它开口说话的。
+    /// 三种结果共用一个响应形状，客户端不需要错误分支：
+    ///
+    /// | 判据 | 客户端该做什么 |
+    /// |---|---|
+    /// | `formattedAddress != null` | 念地址 |
+    /// | `formattedAddress == null && latitude != null` | 地址查不到，念坐标 |
+    /// | `latitude == null` | 播「暂时定位不到，情况紧急请直接拨 110 或 120」 |
+    ///
+    /// 位置只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态下给
+    /// （即 `OrderStatus.sharesLiveLocation()`）。终态之后 Redis 里的坐标可能因 TTL 未到期而仍有值，
+    /// 但那已经不属于这趟行程 —— 与 `GET /api/orders/{id}/share` 的口径一致。
+    ///
+    /// ⚠️ **`ageSeconds` 必须用上。** 一个 28 秒前的坐标和 1 秒前的坐标在跑步时差着几百米，
+    /// 而从地址字符串上看不出区别 —— 不看新鲜度就是让人把旧位置当成当前位置报给 120。
+    /// 读不到时为 null（**宁可说不知道，不编一个 0**）。
+    ///
+    /// 逆地理结果按坐标取整到 4 位小数（约 11 米）缓存 5 分钟；**失败不进缓存**
+    /// （高德抖一下就把「查不到」缓 5 分钟，等于一次抖动让人几分钟内报不出自己在哪）。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/location/address`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)`.
+    public enum getLocationAddress {
+        public static let id: Swift.String = "getLocationAddress"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.getLocationAddress.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getLocationAddress.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getLocationAddress.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getLocationAddress.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.getLocationAddress.Input.Path,
+                headers: Operations.getLocationAddress.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.OrderLocationAddressResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.OrderLocationAddressResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getLocationAddress.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getLocationAddress.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK（含降级场景，见 description 的判据表）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getLocationAddress.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getLocationAddress.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证。响应体形状与其余端点不同——没有 errorCode 字段：
+            /// `{"success": false, "code": 401, "message": "未认证"}`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.getLocationAddress.Output.Unauthorized)
+            /// 未认证。响应体形状与其余端点不同——没有 errorCode 字段：
+            /// `{"success": false, "code": 401, "message": "未认证"}`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.getLocationAddress.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getLocationAddress.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getLocationAddress.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT 用户不是该订单的盲人或志愿者一方，errorCode `ORDER_PERMISSION_DENIED`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getLocationAddress.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getLocationAddress.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/location/address/GET/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getLocationAddress.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getLocationAddress.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在，errorCode `ORDER_NOT_FOUND`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/location/address/get(getLocationAddress)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.getLocationAddress.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.getLocationAddress.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 陪跑员暂停计时（跑者需要停下来）
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2 · V15）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在 `IN_PROGRESS`。
+    /// **幂等**：已在暂停时再按暂停、没在暂停时按继续，都返回 200 + 当前状态，不重复推送。
+    /// 两端同时按也只有一次生效（条件更新，同 `PUT /runner-message` 的乐观锁惯例）。
+    /// 生效时：盲人收 WS `APP_NOTIFICATION`（`eventType` 见下，HIGH，同时发 APNs，信封带 `orderId`，
+    /// 请朗读 `ttsText`）；订单双方收 WS `RUN_PROGRESS`（新 `run`）。
+    /// 志愿服务时长（`GET /api/volunteer/achievements` 的 `totalServiceMinutes`、跑后记录的 `service.durationMin`）
+    /// = 结束 − 开始 − 手动暂停总时长，按分钟向下取整（V9）。暂停中直接结束 = 暂停到结束为止都不计。
+    /// 盲人收到的 `eventType=RUN_PAUSED`。**同时告知客服，走非紧急通道**（V8）：每单第一次暂停时系统代开一条工单
+    /// （`GET /api/cs/tickets` 可见，分类 `ORDER_SERVICE`，挂在陪跑员名下、不占他的未结工单额度），
+    /// **不进** `/api/cs/emergency-events`。⚠️ 客服值班台目前不展示工单，所以这**不是**「客服已经收到」，
+    /// 页面文案不要承诺有人已收到。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/pause`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)`.
+    public enum pauseRun {
+        public static let id: Swift.String = "pauseRun"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.pauseRun.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.pauseRun.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.pauseRun.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.pauseRun.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.pauseRun.Input.Path,
+                headers: Operations.pauseRun.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RunView)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RunView {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.pauseRun.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.pauseRun.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 当前的跑步实时数据（`paused=true`）。极少数情况下服务端算不出来时为 `null`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.pauseRun.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.pauseRun.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.pauseRun.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.pauseRun.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非志愿者角色，或不是这一单的陪跑员（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.pauseRun.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.pauseRun.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.pauseRun.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.pauseRun.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/pause/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.pauseRun.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.pauseRun.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在陪跑中（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/pause/post(pauseRun)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.pauseRun.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.pauseRun.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 志愿者汇合途中给盲人发一条预设快捷消息
+    ///
+    /// #359。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 可发。
+    /// 盲人收到 WS `APP_NOTIFICATION`，`eventType` 按 code 区分（见 `docs/websocket-protocol.md`），
+    /// 带 `ttsText` 直接朗读；priority 为 HIGH，App 在后台时走 APNs 兜底；同时写 `notification_logs`，
+    /// 重连后 `GET /api/notifications/since` 能补读。信封另带 `orderId` 与 `code` 两个字段。
+    ///
+    /// **只做预设文案，不做自由文本和语音**：文案由后端定死，不需要内容审核，也不存用户写的内容。
+    /// 完成后的跑后留言（`POST /api/orders/{id}/run-record/messages`）是另一条通道，和本端点无关。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流：同一单每 60 秒最多 3 条，第 4 条返回 429 并带 `Retry-After`。Redis 不可用时放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/quick-message`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)`.
+    public enum sendQuickMessage {
+        public static let id: Swift.String = "sendQuickMessage"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.sendQuickMessage.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.sendQuickMessage.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.sendQuickMessage.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.sendQuickMessage.Input.Headers
+            /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.QuickMessageRequest)
+            }
+            public var body: Operations.sendQuickMessage.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.sendQuickMessage.Input.Path,
+                headers: Operations.sendQuickMessage.Input.Headers = .init(),
+                body: Operations.sendQuickMessage.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.QuickMessageResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.QuickMessageResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.sendQuickMessage.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.sendQuickMessage.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已受理。`delivered=false` 表示推送没发出去（例如服务端模板缺失）， 客户端应提示「对方可能没收到」，不要当作成功播报。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.sendQuickMessage.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.sendQuickMessage.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// code 缺失或不在枚举内（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.sendQuickMessage.Output.BadRequest)
+            /// code 缺失或不在枚举内（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.sendQuickMessage.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.sendQuickMessage.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.sendQuickMessage.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非志愿者角色，或不是这一单的志愿者（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.sendQuickMessage.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.sendQuickMessage.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.sendQuickMessage.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.sendQuickMessage.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/quick-message/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.sendQuickMessage.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.sendQuickMessage.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在出发中 / 已到达（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.sendQuickMessage.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.sendQuickMessage.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// Creates a new `TooManyRequests`.
+                public init() {}
+            }
+            /// 同一单 60 秒内已发 3 条（`TOO_MANY_REQUESTS`，响应头带 `Retry-After`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.sendQuickMessage.Output.TooManyRequests)
+            /// 同一单 60 秒内已发 3 条（`TOO_MANY_REQUESTS`，响应头带 `Retry-After`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/quick-message/post(sendQuickMessage)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            public static var tooManyRequests: Self {
+                .tooManyRequests(.init())
+            }
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.sendQuickMessage.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 响应派单（接单 / 跳过，VOLUNTEER）
     ///
     /// 串行派单的唯一响应入口（旧 `/accept`、`/reject` 已 @Deprecated 并委托到此逻辑）。
@@ -14732,6 +22626,280 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.conflict`.
             /// - SeeAlso: `.conflict`.
             public var conflict: Operations.respondToDispatch.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 陪跑员继续计时
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2 · V15）角色 `VOLUNTEER`，且必须是**这一单已接单的陪跑员**；只在 `IN_PROGRESS`。
+    /// **幂等**：已在暂停时再按暂停、没在暂停时按继续，都返回 200 + 当前状态，不重复推送。
+    /// 两端同时按也只有一次生效（条件更新，同 `PUT /runner-message` 的乐观锁惯例）。
+    /// 生效时：盲人收 WS `APP_NOTIFICATION`（`eventType` 见下，HIGH，同时发 APNs，信封带 `orderId`，
+    /// 请朗读 `ttsText`）；订单双方收 WS `RUN_PROGRESS`（新 `run`）。
+    /// 志愿服务时长（`GET /api/volunteer/achievements` 的 `totalServiceMinutes`、跑后记录的 `service.durationMin`）
+    /// = 结束 − 开始 − 手动暂停总时长，按分钟向下取整（V9）。暂停中直接结束 = 暂停到结束为止都不计。
+    /// 盲人收到的 `eventType=RUN_RESUMED`。继续不再开客服工单。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/resume`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)`.
+    public enum resumeRun {
+        public static let id: Swift.String = "resumeRun"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.resumeRun.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.resumeRun.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.resumeRun.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.resumeRun.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.resumeRun.Input.Path,
+                headers: Operations.resumeRun.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RunView)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RunView {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.resumeRun.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.resumeRun.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 当前的跑步实时数据（`paused=false`）。极少数情况下服务端算不出来时为 `null`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.resumeRun.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.resumeRun.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.resumeRun.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.resumeRun.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非志愿者角色，或不是这一单的陪跑员（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.resumeRun.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.resumeRun.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.resumeRun.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.resumeRun.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/resume/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.resumeRun.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.resumeRun.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在陪跑中（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/resume/post(resumeRun)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.resumeRun.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.resumeRun.Output.Conflict {
                 get throws {
                     switch self {
                     case let .conflict(response):
@@ -15129,6 +23297,1995 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.conflict`.
             /// - SeeAlso: `.conflict`.
             public var conflict: Operations.createReview.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 查询订单的评价（订单双方均可查）
+    ///
+    /// 鉴权：该订单的**盲人或志愿者**任一方均可查看（与提交评价不同，提交仅限盲人）。
+    /// （2026-07-31 补全：此前本节只有一个 `'200': type: object`，无 4xx、无响应形状。）
+    ///
+    /// ⚠️ **没有评价时返回 200 + `data: null`，不是 404。** 客户端必须处理 `data` 为 null 的情况。
+    /// 响应体是**裸 `Map`**、不走 `ApiResponse` 信封，只有一个 `data` 字段（没有 `success`/`code`）。
+    ///
+    /// 🔒 **2026-08-31 起：评语原文对被评的志愿者永久不可见**（审计 B-2 ①）。
+    /// 志愿者调用本端点拿到的是 `comment: null` + `commentWithheld: true`；
+    /// 写评价的盲人回显自己那条不受影响。`rating` 两侧都可见。
+    /// `commentWithheld` 是**新增的可选字段**，不接也不会坏 —— 但只判 `comment == null`
+    /// 会把「用户没写字」和「有原文但不给你看」混成一件事。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/reviews`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)`.
+    public enum getReview {
+        public static let id: Swift.String = "getReview"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.getReview.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getReview.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getReview.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getReview.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.getReview.Input.Path,
+                headers: Operations.getReview.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ReviewQueryResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ReviewQueryResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getReview.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getReview.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 查询成功。`data` 为评价内容，该订单尚无评价时为 `null`。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getReview.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getReview.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证。形状同 `POST /api/orders/{id}/review` 的 401，无 errorCode 字段。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.getReview.Output.Unauthorized)
+            /// 未认证。形状同 `POST /api/orders/{id}/review` 的 401，无 errorCode 字段。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.getReview.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getReview.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getReview.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 调用方既不是该订单的盲人也不是志愿者，errorCode `NOT_ORDER_PARTICIPANT`（message「您无权查看此订单评价」）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getReview.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getReview.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/reviews/GET/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getReview.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getReview.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在，errorCode `ORDER_NOT_FOUND`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/reviews/get(getReview)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.getReview.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.getReview.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 跑者给陪跑员发节奏信号
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `BLIND`，且必须是**这一单的跑者**；只在 `IN_PROGRESS` 可发。
+    /// `signal`：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点（文案固定，客户端按枚举出字）。
+    ///
+    /// 陪跑员收到 WS `APP_NOTIFICATION`，`eventType=RUN_RHYTHM`，信封另带 `orderId`、`signal`、`at`（= `signalAt`）；
+    /// `body` / `ttsText` 形如「李：稍慢一点」—— 🔒 只带跑者**姓氏**（没填姓名时说「跑者」），不带全名、不带称谓。
+    /// priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），App 在前台时可以不弹横幅。
+    /// 订单详情 `run.lastSignal` / `run.lastSignalAt` 同步更新，陪跑员 App 冷启动后从那里恢复。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流：同一单**同一信号** 10 秒内只收一次（`Retry-After: 10`）；换一种信号不受影响。Redis 不可用时放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/rhythm`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)`.
+    public enum sendRhythmSignal {
+        public static let id: Swift.String = "sendRhythmSignal"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.sendRhythmSignal.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.sendRhythmSignal.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.sendRhythmSignal.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.sendRhythmSignal.Input.Headers
+            /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RhythmSignalRequest)
+            }
+            public var body: Operations.sendRhythmSignal.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.sendRhythmSignal.Input.Path,
+                headers: Operations.sendRhythmSignal.Input.Headers = .init(),
+                body: Operations.sendRhythmSignal.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RhythmSignalResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RhythmSignalResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.sendRhythmSignal.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.sendRhythmSignal.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已受理。`delivered=false` 表示推送没发出去（例如服务端模板缺失）， 跑者端不要播「已告诉陪跑员」，改提示「对方可能没收到」。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.sendRhythmSignal.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.sendRhythmSignal.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// signal 缺失或不在枚举内（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.sendRhythmSignal.Output.BadRequest)
+            /// signal 缺失或不在枚举内（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.sendRhythmSignal.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.sendRhythmSignal.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.sendRhythmSignal.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非盲人角色，或不是这一单的跑者（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.sendRhythmSignal.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.sendRhythmSignal.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.sendRhythmSignal.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.sendRhythmSignal.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/rhythm/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.sendRhythmSignal.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.sendRhythmSignal.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在陪跑中（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.sendRhythmSignal.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.sendRhythmSignal.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// Creates a new `TooManyRequests`.
+                public init() {}
+            }
+            /// 同一信号 10 秒内重复（`TOO_MANY_REQUESTS`，响应头带 `Retry-After`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.sendRhythmSignal.Output.TooManyRequests)
+            /// 同一信号 10 秒内重复（`TOO_MANY_REQUESTS`，响应头带 `Retry-After`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            public static var tooManyRequests: Self {
+                .tooManyRequests(.init())
+            }
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.sendRhythmSignal.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 陪跑员在出发点让跑者手机响铃
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
+    /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
+    /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
+    /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)`.
+    public enum ringRunner {
+        public static let id: Swift.String = "ringRunner"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ringRunner.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ringRunner.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ringRunner.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ringRunner.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ringRunner.Input.Path,
+                headers: Operations.ringRunner.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RunnerRingResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RunnerRingResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ringRunner.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ringRunner.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已受理。客户端在 `ringingUntil` 之前让按钮不可点。`delivered=false` 表示推送没发出去 （例如服务端模板缺失），客户端应提示「对方可能没收到」。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ringRunner.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ringRunner.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ringRunner.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ringRunner.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非志愿者角色，或不是这一单的志愿者（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.ringRunner.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.ringRunner.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.ringRunner.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.ringRunner.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/ring-runner/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ringRunner.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ringRunner.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在已到达（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.ringRunner.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.ringRunner.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// Creates a new `TooManyRequests`.
+                public init() {}
+            }
+            /// 距上次不到 10 秒，或这一单已响满 20 次（`TOO_MANY_REQUESTS`，响应头带 `Retry-After`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ringRunner.Output.TooManyRequests)
+            /// 距上次不到 10 秒，或这一单已响满 20 次（`TOO_MANY_REQUESTS`，响应头带 `Retry-After`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            public static var tooManyRequests: Self {
+                .tooManyRequests(.init())
+            }
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.ringRunner.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 跑后运动记录（订单双方可读）
+    ///
+    /// 订单 `COMPLETED` 之后，订单双方读同一条跑后记录（2026-09-24 新增，迁移 0047）。
+    /// 鉴权与 `GET /api/orders/{id}/track` 同一个入口（DECISIONS D12）：非双方 403、不存在 404；管理员读取本期不做。
+    /// 响应走 `ApiResponse` 信封。
+    ///
+    /// **一份数据，两个角色读到的只有这几处不同**（其余逐字一致）：
+    /// - `summary.steps` / `summary.avgCadence` / `summary.elevationGainM` 与 `splits[].avgCadence`：
+    ///   **请求者本人手机采集的那一份**（D3，来自 WebSocket `LOCATION_UPDATE` 的可选字段
+    ///   `steps` / `cadence` / `alt`，见 `websocket-protocol.md`），另一方的不下发
+    /// - `comparison`：只给跑者本人（D6：陪跑员看不到跑者的历史记录），陪跑员恒为 `null`
+    /// - `viewerRole`
+    ///
+    /// **路线、距离、配速、分段、配速采样、休息点一律以跑者（BLIND）轨迹为准**，坐标 GCJ-02（D1）。
+    /// 计算口径：hAcc > 30m 的点丢掉；相邻点推算速度 > 7 m/s 的丢掉；速度 < 0.5 m/s 连续 ≥ 10 秒为自动暂停
+    /// （不计运动时间**也不计距离**）；连续 ≥ 30 秒记一个休息点；每满 1000 米一段，余数单独一段；每 50 米一个配速点；
+    /// 爬升忽略 < 1 米的起伏。
+    ///
+    /// **没有数据的量一律 `null`，绝不给 `0`**（如陪跑员手机没开「运动与健身」权限 → 他那边 `steps` 为 `null`）。
+    /// 列表字段没有数据时是空数组。**文案一律由客户端生成**：`events[].type` 只是类型，后端不写中文句子。
+    ///
+    /// **生成状态 `status`**（响应向开放枚举）：
+    /// - `GENERATING` —— 订单刚完成、后端正在算（完成事件的异步监听器）。客户端 1–2 秒后重试；
+    ///   此时计算类字段为 `null` / 空数组，但姓名、服务时长、途中事件（状态日志那几条）、留言照给
+    /// - `READY`
+    /// - `INSUFFICIENT_TRACK` —— 跑者轨迹清洗后不足 2 个点，画不出路线：`track` 为 `null`，
+    ///   距离/分段为 `null` / 空，其余（步数、服务时长、途中事件、留言）照给
+    /// - `FAILED` —— 计算出错。下次读取会自动重算，客户端给「重试」即可
+    ///
+    /// **留存**：`track` 与休息点坐标随 `app.track.retention-days`（默认 90 天）清掉，数字永久保留 ——
+    /// 超过 90 天的记录 `status` 仍是 `READY` 但 `track` 为 `null`、`stops[].lat/lng` 为 `null`。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/run-record`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)`.
+    public enum getRunRecord {
+        public static let id: Swift.String = "getRunRecord"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.getRunRecord.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getRunRecord.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getRunRecord.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getRunRecord.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.getRunRecord.Input.Path,
+                headers: Operations.getRunRecord.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseRunRecordResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseRunRecordResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getRunRecord.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getRunRecord.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getRunRecord.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getRunRecord.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.getRunRecord.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.getRunRecord.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getRunRecord.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getRunRecord.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT 用户不是该订单的盲人或志愿者一方，errorCode `ORDER_PERMISSION_DENIED`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getRunRecord.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getRunRecord.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getRunRecord.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getRunRecord.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在，errorCode `ORDER_NOT_FOUND`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.getRunRecord.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.getRunRecord.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/GET/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getRunRecord.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getRunRecord.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单还没完成（不是 `COMPLETED`），errorCode `ORDER_STATUS_NOT_ALLOWED`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/get(getRunRecord)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.getRunRecord.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.getRunRecord.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 跑后留言（订单双方，订单完成后）
+    ///
+    /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
+    /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
+    /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)`.
+    public enum postMessage {
+        public static let id: Swift.String = "postMessage"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.postMessage.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.postMessage.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.postMessage.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.postMessage.Input.Headers
+            /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RunRecordMessageRequest)
+            }
+            public var body: Operations.postMessage.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.postMessage.Input.Path,
+                headers: Operations.postMessage.Input.Headers = .init(),
+                body: Operations.postMessage.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseRunRecordMessageResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseRunRecordMessageResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.postMessage.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.postMessage.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Created
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.postMessage.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.postMessage.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/400/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.postMessage.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.postMessage.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// `text` 为空白或超过 200 字（errorCode `VALIDATION_ERROR`）；`type` 不是 `TEXT`（errorCode `BAD_REQUEST`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.postMessage.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.postMessage.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.postMessage.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.postMessage.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.postMessage.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.postMessage.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是订单双方，errorCode `NOT_ORDER_PARTICIPANT`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.postMessage.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.postMessage.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.postMessage.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.postMessage.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在，errorCode `ORDER_NOT_FOUND`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.postMessage.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.postMessage.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/run-record/messages/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.postMessage.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.postMessage.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单还没完成，errorCode `ORDER_STATUS_NOT_ALLOWED`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.postMessage.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.postMessage.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 约好之后跑者给陪跑员留一句话
+    ///
+    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `BLIND`，且必须是**这一单的跑者**；只在
+    /// `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`（陪跑员已确定、还没开跑）可写。
+    /// 覆盖写；`text` 传空串（或全空白）= 清空，首尾空白会去掉。本期只限长度，不做内容审核。
+    ///
+    /// 写成功后推陪跑员 WS `APP_NOTIFICATION`，`eventType=RUNNER_MESSAGE_UPDATED`，信封另带 `orderId` 与
+    /// `messageToVolunteer`（留言原文，清空时为 `null`）。🔒 `body` / `ttsText` / APNs 正文**不含**留言内容（会上锁屏），
+    /// 客户端从 `messageToVolunteer` 或订单详情读。
+    ///
+    /// 守卫顺序：归属（403）→ 状态（409）。与陪跑员侧的状态迁移恰好同时提交时，
+    /// 对方可能收到 409 `ORDER_CONCURRENT_CONFLICT`（重试即可），留言不会被静默盖掉。
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/runner-message`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)`.
+    public enum updateRunnerMessage {
+        public static let id: Swift.String = "updateRunnerMessage"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.updateRunnerMessage.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.updateRunnerMessage.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.updateRunnerMessage.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.updateRunnerMessage.Input.Headers
+            /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.RunnerMessageRequest)
+            }
+            public var body: Operations.updateRunnerMessage.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.updateRunnerMessage.Input.Path,
+                headers: Operations.updateRunnerMessage.Input.Headers = .init(),
+                body: Operations.updateRunnerMessage.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RunnerMessageResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RunnerMessageResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.updateRunnerMessage.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.updateRunnerMessage.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已保存。`messageToVolunteer` 是去掉首尾空白后的值，清空时为 `null`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.updateRunnerMessage.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.updateRunnerMessage.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// text 缺失或超过 40 字（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.updateRunnerMessage.Output.BadRequest)
+            /// text 缺失或超过 40 字（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.updateRunnerMessage.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.updateRunnerMessage.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.updateRunnerMessage.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非跑者角色，或不是这一单的跑者（`NOT_ORDER_PARTICIPANT`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.updateRunnerMessage.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.updateRunnerMessage.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.updateRunnerMessage.Output.NotFound)
+            /// 订单不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.updateRunnerMessage.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/runner-message/PUT/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.updateRunnerMessage.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.updateRunnerMessage.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在上述四态（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/runner-message/put(updateRunnerMessage)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.updateRunnerMessage.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.updateRunnerMessage.Output.Conflict {
                 get throws {
                     switch self {
                     case let .conflict(response):
@@ -15963,6 +26120,243 @@ public enum Operations {
             }
         }
     }
+    /// 查询订单的状态变更日志（订单双方均可查）
+    ///
+    /// 鉴权：该订单的**盲人或志愿者**任一方均可查看。
+    /// 响应体是**裸数组**，不走 `ApiResponse` 信封。
+    ///
+    /// ⚠️ **2026-08-06 变更**：越权时的 `errorCode` 由 `NOT_ORDER_PARTICIPANT` 改为
+    /// `ORDER_PERMISSION_DENIED`，与另外三个只读查询端点（`GET /api/orders/{id}`、`/track`、
+    /// `/calls/records`）对齐。`message` 与 HTTP 状态均未变，按 message 或状态码分支的客户端无需改动。
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/status-logs`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/status-logs/get(getStatusLogs)`.
+    public enum getStatusLogs {
+        public static let id: Swift.String = "getStatusLogs"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.getStatusLogs.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getStatusLogs.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getStatusLogs.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getStatusLogs.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.getStatusLogs.Input.Path,
+                headers: Operations.getStatusLogs.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.OrderStatusLogResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.OrderStatusLogResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getStatusLogs.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getStatusLogs.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/status-logs/get(getStatusLogs)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getStatusLogs.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getStatusLogs.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getStatusLogs.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getStatusLogs.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 调用方既不是该订单的盲人也不是志愿者，errorCode `ORDER_PERMISSION_DENIED`（message「您无权查看此订单」）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/status-logs/get(getStatusLogs)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getStatusLogs.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getStatusLogs.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/status-logs/GET/responses/400/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getStatusLogs.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getStatusLogs.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在（本端点抛 `IllegalArgumentException` → 400 `BAD_REQUEST`，**不是 404**）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/status-logs/get(getStatusLogs)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.getStatusLogs.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.getStatusLogs.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 查询订单双方历史路径轨迹与统计（订单结束后回放用）
     ///
     /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
@@ -16235,6 +26629,338 @@ public enum Operations {
             }
         }
     }
+    /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
+    ///
+    /// - Remark: HTTP `GET /api/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/support/tickets/get(listMine)`.
+    public enum listMine {
+        public static let id: Swift.String = "listMine"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/support/tickets/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/support/tickets/GET/query/page`.
+                public var page: Swift.Int32?
+                /// - Remark: Generated from `#/paths/api/support/tickets/GET/query/size`.
+                public var size: Swift.Int32?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - page:
+                ///   - size:
+                public init(
+                    page: Swift.Int32? = nil,
+                    size: Swift.Int32? = nil
+                ) {
+                    self.page = page
+                    self.size = size
+                }
+            }
+            public var query: Operations.listMine.Input.Query
+            /// - Remark: Generated from `#/paths/api/support/tickets/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.listMine.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.listMine.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.listMine.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.listMine.Input.Query = .init(),
+                headers: Operations.listMine.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/support/tickets/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/support/tickets/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PageSupportTicketResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PageSupportTicketResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.listMine.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.listMine.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/support/tickets/get(listMine)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.listMine.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.listMine.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 提交申诉/工单。**盲人与志愿者都能提**（刻意不限角色 —— 只让盲人提， 等于让志愿者的问题永远没有出口）。
+    ///
+    /// 🚨 **这不是紧急求助入口。** 工单是「事后有异议」，可以慢；「现在有危险」走 `/api/emergency/*`（SOS + 短信 + 客服实时介入）。两条路的时效差着一个数量级 —— **客户端文案不得把用户从 SOS 引到这里**。
+    ///
+    /// `orderId` 可空，但给了就**必须是自己的订单**，否则返 404 —— 不然工单会变成一个「查任意订单号存不存在」的探测接口。
+    ///
+    /// 未关闭工单数上限 `app.support-ticket.max-open-per-user`（默认 5）， 防的是**误触连提**（语音输入下「提交」被识别两遍是真实场景）。 到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/support/tickets/post(create)`.
+    public enum create {
+        public static let id: Swift.String = "create"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/support/tickets/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.create.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.create.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.create.Input.Headers
+            /// - Remark: Generated from `#/paths/api/support/tickets/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/support/tickets/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.SupportTicketRequest)
+            }
+            public var body: Operations.create.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.create.Input.Headers = .init(),
+                body: Operations.create.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/support/tickets/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/support/tickets/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.create.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.create.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Created
+            ///
+            /// - Remark: Generated from `#/paths//api/support/tickets/post(create)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.create.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.create.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// 参数非法，或未关闭工单到顶（errorCode = SUPPORT_TICKET_LIMIT_EXCEEDED）
+            ///
+            /// - Remark: Generated from `#/paths//api/support/tickets/post(create)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.create.Output.BadRequest)
+            /// 参数非法，或未关闭工单到顶（errorCode = SUPPORT_TICKET_LIMIT_EXCEEDED）
+            ///
+            /// - Remark: Generated from `#/paths//api/support/tickets/post(create)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.create.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// orderId 不存在或不是自己的订单
+            ///
+            /// - Remark: Generated from `#/paths//api/support/tickets/post(create)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.create.Output.NotFound)
+            /// orderId 不存在或不是自己的订单
+            ///
+            /// - Remark: Generated from `#/paths//api/support/tickets/post(create)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.create.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 设定用户身份（一次性）
     ///
     /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
@@ -16386,6 +27112,231 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 我的邀请码 + 已邀请/已发奖人数
+    ///
+    /// 邀请码**稳定不变**（不是一次一码），8 位大写字母数字， **排除易混字符 `0 O 1 I L`** —— 第一版走「注册时手填」，不做深链接， 而邀请人多半是**口头念**给对方听的。
+    ///
+    /// ⚠️ **本端点会写库**：邀请码是惰性生成的，第一次调用时才落库。 别按纯读端点做缓存或预取。
+    ///
+    /// **角色：BLIND 或 VOLUNTEER**。盲人也能邀请 —— 关系照记， 只是**邀请盲人不发奖**（决策 14）。
+    ///
+    /// ⚠️ SPEC 写的是「任意已登录」，实现读成「任意已登录的 **App 用户**」： 客服走独立的 `cs_users` 表，**其 id 与 `users.id` 是两个独立自增空间、数值会重叠**， 而 JWT subject 不区分来源。不收紧的话，客服 token 撞上同 id 的真实用户， 会给**别人的账号**惰性生成一个他从没要过的邀请码（这是写操作）。 ⚠️ 尚未设角色的 UNSET 用户拿不到邀请码，需先设角色。
+    ///
+    /// 刻意**不返回被邀请人名单** —— 返回名单等于让任何人拿自己的码反查别人的注册状态。 要看关系明细走 `GET /api/admin/invitations/tree`（CS_ADMIN）。
+    ///
+    /// - Remark: HTTP `GET /api/users/me/invite-code`.
+    /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)`.
+    public enum myInviteCode {
+        public static let id: Swift.String = "myInviteCode"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/users/me/invite-code/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myInviteCode.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myInviteCode.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.myInviteCode.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.myInviteCode.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/users/me/invite-code/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/users/me/invite-code/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.InviteCodeResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.InviteCodeResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.myInviteCode.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.myInviteCode.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 我的邀请码与两个计数
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.myInviteCode.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.myInviteCode.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.myInviteCode.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.myInviteCode.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 角色不是 BLIND / VOLUNTEER（含客服 token 与尚未设角色的 UNSET）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.myInviteCode.Output.Forbidden)
+            /// 角色不是 BLIND / VOLUNTEER（含客服 token 与尚未设角色的 UNSET）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.myInviteCode.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 用户不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.myInviteCode.Output.NotFound)
+            /// 用户不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/users/me/invite-code/get(myInviteCode)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.myInviteCode.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
@@ -18642,6 +29593,599 @@ public enum Operations {
             }
         }
     }
+    /// 「有几位跑者把你设为固定搭档」+ 列表，收藏时间倒序。**仅 VOLUNTEER**。
+    ///
+    /// 这就是「志愿者知情」的形式 —— **拉取式，不推送**。收藏的准入门槛是两人已经一起跑完过 至少一单，所以志愿者本来就认识对方；「有人把你设为固定搭档」是零时效信息， 推一条通知换来的是一个新 eventType、两处模板行和一道漂移门，不成比例。
+    ///
+    /// ⚠️ **我已退出的条目仍然在列表里**，带 `optedOut=true` —— 否则志愿者点完退出， 那个人就从他的列表里消失了，他无从确认自己刚才做了什么。
+    ///
+    /// 姓名一律掩码（`李*`），盲人已注销时 `blindName` 为 `null`。 条目里**没有电话**，与盲人侧同一口径。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/favorites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/favorites/get(list_1)`.
+    public enum list_1 {
+        public static let id: Swift.String = "list_1"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/favorites/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.list_1.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.list_1.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.list_1.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.list_1.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/favorites/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/favorites/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.VolunteerFavoritedByResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.VolunteerFavoritedByResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.list_1.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.list_1.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/favorites/get(list_1)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.list_1.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.list_1.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 志愿者**单方面退出**与某位跑者的固定搭档关系。**仅 VOLUNTEER**。 「告知但不需同意，可单方面退出」——不做双向确认。
+    ///
+    /// 退出后三件事同时生效：**不进固定搭档优先轮、不再获得派单加分、双人火花停止累积**。
+    ///
+    /// 🚨 **打标记，不删行**：那位跑者的固定搭档列表**仍然显示你**，只是 `partnerOptedOut=true`。 删行会让他以为收藏丢了、于是重新收藏一次，把你刚做的退出无声地撤销掉。
+    ///
+    /// 🚨 **恒返 204，不区分「改到了」与「没这一行」**（盲人不存在 / 没收藏我 / 我已经退出过 一律 204）—— 区分开这个端点就成了「拿任意 userId 试一下，看响应差异」的探测器， 与收藏侧那道枚举门同一个道理。顺带幂等：重复点不报错。
+    ///
+    /// 🚨 **退出在本轮是不可撤销的**，也没有「撤销退出」端点。跑者那边重新收藏会拿到 400 + `FAVORITE_VOLUNTEER_OPTED_OUT`，而且他自己取消收藏**也抹不掉**这个标记 （服务端两侧都是打标记不是删行）。
+    ///
+    /// ⚠️ 此处原先写着「真要回来，重新一起跑一单、由对方再收藏一次即可」—— **那句话代码从来没有实现过**（`add()` 只看有没有一起跑完过，不看是不是退出之后跑的）， 于是实际效果是「跑者删掉收藏再点一次就恢复了」。已于 2026-09-14 连同实现一并改正。 恢复路径留给后续的双向同意功能（收藏要对方点头），那时退出与恢复走同一套确认。
+    ///
+    /// - Remark: HTTP `DELETE /api/volunteer/favorites/{blindUserId}`.
+    /// - Remark: Generated from `#/paths//api/volunteer/favorites/{blindUserId}/delete(optOut)`.
+    public enum optOut {
+        public static let id: Swift.String = "optOut"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/favorites/{blindUserId}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/favorites/{blindUserId}/DELETE/path/blindUserId`.
+                public var blindUserId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - blindUserId:
+                public init(blindUserId: Swift.Int64) {
+                    self.blindUserId = blindUserId
+                }
+            }
+            public var path: Operations.optOut.Input.Path
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            public init(path: Operations.optOut.Input.Path) {
+                self.path = path
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// No Content（含「没有这一行」与重复退出）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/favorites/{blindUserId}/delete(optOut)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.optOut.Output.NoContent)
+            /// No Content（含「没有这一行」与重复退出）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/favorites/{blindUserId}/delete(optOut)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.optOut.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// 我和固定搭档的双人火花（志愿者视角）
+    ///
+    /// 与 `GET /api/blind/partners/streaks` 完全同构，只是 `partnerUserId` / `partnerName` 指向盲人一侧（姓名同样掩码）。判定规则、点亮门槛、惰性计算的局限都相同。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/partners/streaks`.
+    /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)`.
+    public enum myStreaksAsVolunteer {
+        public static let id: Swift.String = "myStreaksAsVolunteer"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/partners/streaks/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myStreaksAsVolunteer.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myStreaksAsVolunteer.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.myStreaksAsVolunteer.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.myStreaksAsVolunteer.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/partners/streaks/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/partners/streaks/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PartnerStreakResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PartnerStreakResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.myStreaksAsVolunteer.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.myStreaksAsVolunteer.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 已点亮的火花列表；一条都没有时返回空数组
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.myStreaksAsVolunteer.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.myStreaksAsVolunteer.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.myStreaksAsVolunteer.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.myStreaksAsVolunteer.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非 VOLUNTEER 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.myStreaksAsVolunteer.Output.Forbidden)
+            /// 非 VOLUNTEER 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.myStreaksAsVolunteer.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 我的积分（余额 + 分页流水）
+    ///
+    /// 余额 = 全部流水 `delta` 之和；流水按 `createdAt` 倒序（最近的在前）。
+    ///
+    /// ⚠️ **流水里会出现 `delta = 0` 的行，客户端不要过滤掉它。** 那是「这一单撞了防刷上限、 没有加分」的显式记录，`note` 里写着原因（例：「已达同一对每周上限 30 分，本单不加分」）。 藏起来就回到了「我这单怎么没加分」无从解释的状态 —— 而那正是这套设计要避免的静默错误。 `note` 的文案是这个 0 唯一的解释，读屏会把它念出来，**不要截断、不要只显示 `delta`**。
+    ///
+    /// `delta = 0` 目前有三种原因，都写在 `note` 里：每日上限、同一对每周上限， 以及**零位移**（「本单未记录到有效位移（轨迹 X 米），本单不加分」）。 ⚠️ 零位移那条只在**确实记录到轨迹、且轨迹显示几乎没有移动**时才出现： 拿不到轨迹（未授权定位、App 被切后台、服务端降级 ⇒ 距离为 `null`）照常发分； 轨迹跑到一半断掉（留下几百米）也照常发分 —— 门槛刻意压到「连断掉的轨迹都够不着」 的量级，因为误伤一个真跑了的陪跑员比漏掉一个刷分的人贵得多。 具体数值是服务端配置（`app.incentive.points.min-distance-meters`）， **客户端不要硬编码它**，直接展示 `note`。
+    ///
+    /// 🚨 **积分与「志愿服务时长」是两套数，文案里一次都不能混** （时长在 `GET /api/volunteer/achievements` 的 `totalServiceMinutes`）。 不得互相换算、不得写成「攒积分可折算志愿服务时长」—— 中央网信办 2026-06-19《关于开展网络平台涉志愿服务违规信息专项整治的通知》 第 2 条点名整治此类表述。
+    ///
+    /// 积分**只累计不消耗**，目前没有任何兑换出口。UI 需明确告知「商城开发中」， 不要让用户以为攒了能换东西。积分不可转让、不可提现。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/points`.
+    /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)`.
+    public enum myPoints {
+        public static let id: Swift.String = "myPoints"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/points/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/points/GET/query/page`.
+                public var page: Swift.Int32?
+                /// - Remark: Generated from `#/paths/api/volunteer/points/GET/query/size`.
+                public var size: Swift.Int32?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - page:
+                ///   - size:
+                public init(
+                    page: Swift.Int32? = nil,
+                    size: Swift.Int32? = nil
+                ) {
+                    self.page = page
+                    self.size = size
+                }
+            }
+            public var query: Operations.myPoints.Input.Query
+            /// - Remark: Generated from `#/paths/api/volunteer/points/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myPoints.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.myPoints.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.myPoints.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.myPoints.Input.Query = .init(),
+                headers: Operations.myPoints.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/points/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/points/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.VolunteerPointsResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.VolunteerPointsResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.myPoints.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.myPoints.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.myPoints.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.myPoints.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.myPoints.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.myPoints.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.myPoints.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/points/get(myPoints)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.myPoints.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// - Remark: HTTP `GET /api/volunteer/profile`.
     /// - Remark: Generated from `#/paths//api/volunteer/profile/get(getProfile)`.
     public enum getProfile {
@@ -19199,6 +30743,142 @@ public enum Operations {
             }
         }
     }
+    /// 拒绝人脸认证，转替代认证路径（Step 3 - decline）
+    ///
+    /// 志愿者声明**不同意人脸认证**，转入「身份证二要素核验 + 人工审核」的替代路径。
+    /// 无请求体。依据《人脸识别技术应用安全管理办法》第十条：存在其他非人脸方式的，
+    /// 不得将人脸识别作为唯一验证方式；个人不同意人脸验证的，应当提供其他合理、便捷的方式。
+    ///
+    /// 📱 **客户端必须提供这个入口** —— 隐私政策与用户协议里都写了这条路径存在，
+    /// 用户（和 App 审核员）会照着文本去找。
+    ///
+    /// 调用成功后 `GET /api/volunteer/registration/status` 的
+    /// `stepDetails.faceVerifyStatus` 变为 `DECLINED`，`registrationCompleted` 变为 `true`
+    /// （注册流程走完了），但 `canAcceptOrders` **仍为 false** —— 后半段与人脸路径完全相同：
+    /// `POST /api/volunteer/verification` 上传能证明本人身份的材料 → 管理员人工审核通过
+    /// → `verified=true` 才能接单。
+    ///
+    /// ⚠️ **三种错误情形的状态码不一样**：
+    ///   - 当前不在 `STEP_3_FACE_VERIFY` → **409** `REGISTRATION_STEP_INVALID`
+    ///   - 活体已经通过（不允许降级）→ **409** `REGISTRATION_STEP_INVALID`
+    ///   - 身份证二要素**不是** `APPROVED` → **400** `ID_INFO_INVALID`，
+    ///     此时步骤位已被回退到 `STEP_1_BASIC_INFO`，客户端应回 step1 重填姓名+身份证号
+    ///
+    /// 最后一条比 `/face-verify/init` **更严**：init 只在二要素被明确 `REJECTED` 时才回退，
+    /// decline 要求二要素必须真的 `APPROVED` —— 这条路径的名字就叫「二要素核验 + 人工审核」，
+    /// 少了前半段（活体又被拿掉了），整条路径上没有任何机器核验过这个人是谁。
+    ///
+    /// ⚠️ 幂等性：已经是 `DECLINED` 时重复调用不报错。改主意想做人脸的，直接调
+    /// `/step3/face-verify/init` 即可，本端点不会把人锁死。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/decline`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/decline/post(declineFaceVerify)`.
+    public enum declineFaceVerify {
+        public static let id: Swift.String = "declineFaceVerify"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/registration/step3/face-verify/decline/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.declineFaceVerify.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.declineFaceVerify.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.declineFaceVerify.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.declineFaceVerify.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/registration/step3/face-verify/decline/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/registration/step3/face-verify/decline/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseString)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseString {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.declineFaceVerify.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.declineFaceVerify.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// `data`：提示文案，客户端可直接朗读
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/decline/post(declineFaceVerify)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.declineFaceVerify.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.declineFaceVerify.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 发起动作活体认证（Step 3 - init）
     ///
     /// 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云 InitFaceVerify（SMART 方案）返回 certifyId。客户端使用阿里云原生 App SDK （AliyunFaceAuthFacade.verify(certifyId)）直接完成动作活体，无需打开 URL， 随后轮询 /step3/face-verify/result 获取结果。
@@ -19409,6 +31089,1011 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 培训课程列表（含我的进度与必修完成度）
+    ///
+    /// 志愿者线上培训（迁移 `0043`，2026-09-09 重新上线）。培训 2026-07-29 曾整体下线， 本次回归的形态是「Markdown 图文 + 情景单选题」。
+    ///
+    /// 依据：中央社会工作部《关于志愿者招募和培训的工作指引（试行）》（2025-06-05）—— 「对需要专门知识、技能的志愿服务坚持先培训再上岗」「志愿者在培训合格后参与志愿服务活动」， 且明确认可**线上笔试 + 情景模拟**两种考核形式、要求记录**学习时长**、允许颁发培训证书。
+    ///
+    /// 🚩 **`requiredCompleted` 由后端算，客户端不许自己数课程列表。** 分母是「当前上线的必修课数」，会随课程上下线变化；客户端自己算会在 「新增一门必修课」的那一刻与派单侧分叉 —— 表现是培训页显示已完成、却收不到任何派单， 而这个矛盾没有任何日志能解释。
+    ///
+    /// ⚠️ 它与「能不能接单」**不是同一件事**：还要过资质审核、开着可服务开关、在线。 接单资格的权威来源是 `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` （必修没做完时其中会有 `TRAINING_INCOMPLETE`）。
+    ///
+    /// ⚠️ **路径不在 `/api/volunteer/registration/` 下面**（旧模块曾是）。 刻意换掉：这次培训不进注册流程，走完注册也可能还没培训， `registrationCompleted` 不会等它。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/training/courses`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)`.
+    public enum listCourses {
+        public static let id: Swift.String = "listCourses"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.listCourses.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.listCourses.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.listCourses.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.listCourses.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/training/courses/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseTrainingCourseListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseTrainingCourseListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.listCourses.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.listCourses.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.listCourses.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.listCourses.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.listCourses.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.listCourses.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.listCourses.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/get(listCourses)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.listCourses.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 课程详情（Markdown 正文 + 题目）
+    ///
+    /// 🚨 **响应里没有正确答案，这是刻意的，不是漏字段。** 判卷只在服务端 （`POST /api/volunteer/training/courses/{courseId}/quiz`）。 这些题考的是人身安全处置，能查到答案的考试没有意义。
+    ///
+    /// `content` 是 Markdown。🚩 **客户端请原生渲染，不要塞进 WebView** —— WebView 里 Dynamic Type 和 VoiceOver 都不按系统设置走，而这是无障碍 App。
+    ///
+    /// 课程已下线（`isActive=false`）时返回 404，但该用户已有的进度记录仍然保留。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/training/courses/{courseId}`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)`.
+    public enum courseDetail {
+        public static let id: Swift.String = "courseDetail"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/GET/path/courseId`.
+                public var courseId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - courseId:
+                public init(courseId: Swift.Int64) {
+                    self.courseId = courseId
+                }
+            }
+            public var path: Operations.courseDetail.Input.Path
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.courseDetail.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.courseDetail.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.courseDetail.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.courseDetail.Input.Path,
+                headers: Operations.courseDetail.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseTrainingCourseDetailResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseTrainingCourseDetailResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.courseDetail.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.courseDetail.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.courseDetail.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.courseDetail.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.courseDetail.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.courseDetail.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.courseDetail.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.courseDetail.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 课程不存在或已下线（`RESOURCE_NOT_FOUND`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.courseDetail.Output.NotFound)
+            /// 课程不存在或已下线（`RESOURCE_NOT_FOUND`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/get(courseDetail)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.courseDetail.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 上报学习时长
+    ///
+    /// 🚩 存在的理由是**政策要求记录「学习时长」**（中央社会工作部 2025-06 培训指引原文列举了 「培训日期和学习时长」），不是为了做「最短阅读时间」门槛 —— 那道闸会把考核从「会不会」变成「熬够时间没有」。
+    ///
+    /// ⚠️ **`studiedSeconds` 是本次增量，不是累计值**，后端做加法。 传累计值会让「换一台设备继续学」把时长覆盖成更小的数。
+    ///
+    /// 单次上限 4 小时（14400 秒），超限返回 400 而**不是**静默截断 —— 截断会让一个坏掉的客户端永远悄悄地少记时长，而没人会发现。
+    ///
+    /// 已通过的课照样累加（复习也是学习），不会因为 `status=COMPLETED` 就被拒。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/training/courses/{courseId}/progress`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)`.
+    public enum reportProgress {
+        public static let id: Swift.String = "reportProgress"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/path/courseId`.
+                public var courseId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - courseId:
+                public init(courseId: Swift.Int64) {
+                    self.courseId = courseId
+                }
+            }
+            public var path: Operations.reportProgress.Input.Path
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.reportProgress.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.reportProgress.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.reportProgress.Input.Headers
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.TrainingProgressRequest)
+            }
+            public var body: Operations.reportProgress.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.reportProgress.Input.Path,
+                headers: Operations.reportProgress.Input.Headers = .init(),
+                body: Operations.reportProgress.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/progress/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseString)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseString {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.reportProgress.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.reportProgress.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// `data`：提示文案
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.reportProgress.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.reportProgress.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// studiedSeconds 为负或超过 4 小时（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.reportProgress.Output.BadRequest)
+            /// studiedSeconds 为负或超过 4 小时（`VALIDATION_ERROR`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.reportProgress.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.reportProgress.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.reportProgress.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.reportProgress.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.reportProgress.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 课程不存在或已下线（`RESOURCE_NOT_FOUND`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.reportProgress.Output.NotFound)
+            /// 课程不存在或已下线（`RESOURCE_NOT_FOUND`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/progress/post(reportProgress)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.reportProgress.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 提交考核答案（全对才通过，可无限重考）
+    ///
+    /// 及格线是**全对**：`passed == (correctCount == totalCount)`。 业界锚点其实是 85 分（国内助盲跑团的陪跑员笔试口径），本项目取更严的全对 —— 每道题都是人身安全底线，「对 4/5」意义不大。**可无限重考，不锁定、不冷却。**
+    ///
+    /// **一次交全卷，没有逐题提交。** 逐题提交等于允许「一题一题试到对」， 而及格线是全对 ⇒ 谁都能过，考核直接失效。
+    ///
+    /// ⚠️ 答案必须**一题不缺、也不能多**，`questionId` 都要属于这门课； 少答/多答/混入别的课的题号一律 400。 后端**不做「按能对上的部分判分」** —— 那会让一个漏传了两题的坏客户端 把用户判成不及格，而用户看到的是「你答错了」。
+    ///
+    /// 🚩 **`wrongQuestions` 带每道错题的 `explanation`，请务必展示。** 只给题号的话，用户在「全对才过 + 无限重考」下唯一的策略是改选项猜到过 —— 那样这个模块就从培训退化成一道验证码。
+    ///
+    /// 🚨 通过之后响应里**也不会**给出正确答案：答案一旦下发就能被抓包留存、传给下一个人。
+    ///
+    /// `awardedPoints`：只有**选修课首次通过**才 > 0（分值来自课程配置）。 必修课恒 0 —— 必修是接单门槛，给「达到最低要求」发奖会让积分失去意义。 ⚠️ 客户端**不要**用它判断「是否通过」，必修通过时它也是 0。 重复通过同一门课不重复发分（幂等键 `TRAINING_REWARD:{courseId}:{userId}`）。
+    ///
+    /// `requiredCompleted`：交卷之后必修是否已全部通过。 由 false 变 true 的那一刻意味着派单门槛刚刚解开， 客户端应据此刷新 `GET /api/volunteer/dispatch-summary`。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/training/courses/{courseId}/quiz`.
+    /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)`.
+    public enum submitQuiz {
+        public static let id: Swift.String = "submitQuiz"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/path/courseId`.
+                public var courseId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - courseId:
+                public init(courseId: Swift.Int64) {
+                    self.courseId = courseId
+                }
+            }
+            public var path: Operations.submitQuiz.Input.Path
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.submitQuiz.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.submitQuiz.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.submitQuiz.Input.Headers
+            /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.TrainingQuizSubmitRequest)
+            }
+            public var body: Operations.submitQuiz.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.submitQuiz.Input.Path,
+                headers: Operations.submitQuiz.Input.Headers = .init(),
+                body: Operations.submitQuiz.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/training/courses/{courseId}/quiz/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseTrainingQuizResultResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseTrainingQuizResultResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitQuiz.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitQuiz.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.submitQuiz.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.submitQuiz.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// 答案与题目不匹配（少答/多答/同题多答/题号不属于本课）， 或这门课没有配置任何题目（`BAD_REQUEST`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.submitQuiz.Output.BadRequest)
+            /// 答案与题目不匹配（少答/多答/同题多答/题号不属于本课）， 或这门课没有配置任何题目（`BAD_REQUEST`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.submitQuiz.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.submitQuiz.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.submitQuiz.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.submitQuiz.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.submitQuiz.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 课程不存在或已下线（`RESOURCE_NOT_FOUND`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.submitQuiz.Output.NotFound)
+            /// 课程不存在或已下线（`RESOURCE_NOT_FOUND`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/training/courses/{courseId}/quiz/post(submitQuiz)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.submitQuiz.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
