@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import os
 import SwiftUI
 import UIKit
 
@@ -50,6 +51,24 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         super.init()
         synthesizer.delegate = self
     }
+
+    /// 🔴 **合成器永不释放**。生产里本类是常驻单例，走不到这里；单测里 `let service = VoiceService()`
+    /// 用例一结束就走到，而此时合成器刚 `speak` / `stopSpeaking(.immediate)`。TextToSpeech 之后
+    /// 派到主队列的回调打在已释放对象上（`objc_retain` 野指针），崩在**下一条转主 runloop 的
+    /// 异步用例**头上 —— 2026-10-01 的 #279，崩溃栈里没有这条用例自己的任何一帧。
+    /// 做法同 `RecordingCue`：把「播放中被释放」这个状态消灭掉，而不是去追回调。
+    deinit {
+        synthesizer.delegate = nil
+        Self.retiredSynthesizers.withLock { $0.append(synthesizer) }
+    }
+
+    private static let retiredSynthesizers = OSAllocatedUnfairLock(initialState: [AVSpeechSynthesizer]())
+
+    #if DEBUG
+    static var retiredSynthesizerCountForTesting: Int {
+        retiredSynthesizers.withLock { $0.count }
+    }
+    #endif
 
     // MARK: - Public API
 

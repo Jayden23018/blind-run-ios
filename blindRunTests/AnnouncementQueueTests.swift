@@ -372,4 +372,21 @@ final class AnnouncementQueueTests: XCTestCase {
         )
         service.stop()
     }
+
+    /// 🔴 **#279：`VoiceService` 释放时，它的合成器必须被留住，不能跟着释放。**
+    ///
+    /// 单测里 `let service = VoiceService()` 一出用例就释放，而合成器刚 `speak` / `stopSpeaking`；
+    /// TextToSpeech 之后派到主队列的回调打在已释放对象上，崩在**下一条转主 runloop 的异步用例**
+    /// （真机整批里是 `AppRealtimeCoordinatorTests.testAttach…`，崩溃栈里一帧都不是它的）。
+    /// 崩溃本身无法确定性复现，这里钉的是不变式；验红验绿靠真机整批重复跑（见 PR #279）。
+    func testReleasedVoiceServiceRetiresItsSynthesizerInsteadOfFreeingIt() {
+        let before = VoiceService.retiredSynthesizerCountForTesting
+        autoreleasepool {
+            let service = VoiceService()
+            service.isCallActive = { false }
+            service.speak("你们可能走散了", priority: .alert)
+            service.stop()
+        }
+        XCTAssertEqual(VoiceService.retiredSynthesizerCountForTesting, before + 1)
+    }
 }
