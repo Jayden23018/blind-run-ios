@@ -964,6 +964,72 @@ const cases = [
     newString: 'Text("x")'
   },
 
+  // ---- #274：accessibilityIdentifier 的实参不止「单个字面量」----
+  // 三元里的两支都是真实产出的 id（`FlowV2Components.swift` 的 `isCloud ? … : …`）。
+  // 收集只认「括号里恰好一个字面量」时，三元那一支被判不存在，而方向 B 又会把
+  // 「挪进三元」当成删除。两个方向要一起对。
+  {
+    name: '三元里的字面量算 App 已定义（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Flow.swift':
+        'Text("x").accessibilityIdentifier(isCloud ? "volunteerServiceSOSButton" : "volunteerOrderHelpPill")\n' +
+        // 多放一个直接字面量：matchers 为空时规则整体跳过（见 guard.mjs「一个都没读到」），
+        // 没有它「放行」用例是恒过的，验不了红。
+        'Text("y").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString:
+      'app.buttons["volunteerServiceSOSButton"].tap()\n' +
+      'app.buttons["volunteerOrderHelpPill"].tap()'
+  },
+  {
+    // 放宽后规则不能被架空：三元之外的 id 照样拦。
+    name: '三元收集之外的 identifier 仍然拦',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Flow.swift':
+        'Text("x").accessibilityIdentifier(isCloud ? "volunteerServiceSOSButton" : "volunteerOrderHelpPill")\n' +
+        // 多放一个直接字面量：matchers 为空时规则整体跳过（见 guard.mjs「一个都没读到」），
+        // 没有它「放行」用例是恒过的，验不了红。
+        'Text("y").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'app.buttons["volunteerNoSuchButton"].tap()'
+  },
+  {
+    // 方向 B：id 从直接字面量挪进了另一个文件的三元 —— 那是挪动，不是删除。
+    name: 'App 把 identifier 挪进别处的三元（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Old.swift': 'Text("x").accessibilityIdentifier("movedIntoTernaryButton")\n',
+      'blindRun/New.swift':
+        'Text("x").accessibilityIdentifier(flag ? "movedIntoTernaryButton" : "otherButton")\n',
+      'blindRunUITests/T.swift': 'app.buttons["movedIntoTernaryButton"].tap()\n'
+    },
+    editPath: 'blindRun/Old.swift',
+    oldString: 'Text("x").accessibilityIdentifier("movedIntoTernaryButton")',
+    newString: 'Text("x")'
+  },
+  {
+    // 方向 B：三元收成单支，被丢掉的那一支 UI 测试还在用。
+    name: 'App 三元删掉一支而 UI 测试还在用（拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Flow.swift': 'Text("x").accessibilityIdentifier(flag ? "keptButton" : "droppedButton")\n',
+      'blindRunUITests/T.swift': 'app.buttons["droppedButton"].tap()\n'
+    },
+    editPath: 'blindRun/Flow.swift',
+    oldString: 'Text("x").accessibilityIdentifier(flag ? "keptButton" : "droppedButton")',
+    newString: 'Text("x").accessibilityIdentifier("keptButton")'
+  },
+
   // ---- 规则 8 的注释判定（2026-08-22，与本文件上面那批同一个洞）----
   //
   // 这条规则五处取 identifier 的地方原本都把注释当代码。两个方向的正确行为**相反**，
