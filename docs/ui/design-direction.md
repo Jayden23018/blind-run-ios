@@ -89,6 +89,14 @@
 > 跑步中只补了一个：`AppColors.Flow.statePaused`（跑步页暂停时的头卡底色，与其他状态色同一套半透明白字，对比度用例
 > `FlowDesignSystemTests.testHeroCardTextClearsTheBodyThresholdOnEveryStateColour` 逐色覆盖）。节奏卡**不用**状态色
 > （它不是头卡）：圆点用 `accent` / `blueTint`，信号卡的黄复用 `cta` / `ctaStroke`。
+>
+> **同一套状态色也用在锁屏实时活动卡上**（项目负责人 2026-09-26 拍板），页面底、其他卡片、按钮仍不随状态变色。
+> 锁屏卡那一份在 `blindRunWidget/Shared/GuideRunActivityShared.swift` 的 `LiveActivityStatePalette`
+> （widget target 编译不到 `AppColors`），取暗色档（锁屏上永远深色呈现），与 app 侧同名色同值，
+> `GuideRunActivityTests.testStatePaletteMatchesTheFlowPaletteDarkTones` 逐项对撞。
+> ⚠️ 交付包说 `onHero*` 在所有状态色上都 ≥4.5:1，**实测不成立**：小标题白 80% 在出发蓝上 4.36:1、
+> 汇合琥珀上 4.45:1，`gold` 在出发蓝上 4.32:1，所以 app 与锁屏都改成小标题 90% / 副文 94%，
+> 金色只留给 32pt 的大字（`GuideRunActivityContrastTests` 钉住锁屏小字 ≥4.5:1）。
 
 - 语义色 5 个：`primary` / `destructive` / `warning` / `success` / `textSecondary`，各带亮暗两套。
 - 亮色模式**不用 iOS 系统语义色**（上面那组实测数字就是理由），暗色模式用系统色。

@@ -74,6 +74,8 @@ struct blindRunApp: App {
         AMapManager.configure()
         RuntimeDiagnosticMonitor.shared.start()
         MainRunLoopWatchdog.shared.start()
+        // 锁屏按钮被按下时系统可能冷启动 App 来跑 intent，`App.init` 是最早、也是一定会跑到的那一处。
+        if #available(iOS 16.2, *) { GuideRunActivityController.installIntentHandler() }
         _amapGeocodingService = StateObject(wrappedValue: AMapGeocodingService())
     }
 

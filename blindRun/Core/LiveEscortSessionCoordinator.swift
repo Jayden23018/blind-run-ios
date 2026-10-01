@@ -71,6 +71,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     var trackStatsProvider: (@MainActor @Sendable (Int64) async throws -> TrackStats)?
 
     private var liveActivityPartnerName: String?
+    /// 陪跑员端 v2 跑步卡的「/ 5.00 公里」与进度条。由陪跑员订单页喂进来。
+    private var liveActivityTargetMeters: Int?
     private var lastLiveActivityRefreshAt: Date?
     private var latestTrackStats: TrackStats?
     private var liveActivityRefreshTask: Task<Void, Never>?
@@ -363,6 +365,13 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         syncLiveActivity()
     }
 
+    /// 订单计划距离（陪跑员端跑步卡的目标公里与进度条）。
+    func updateLiveActivityTargetDistance(meters: Int?) {
+        guard liveActivityTargetMeters != meters else { return }
+        liveActivityTargetMeters = meters
+        syncLiveActivity()
+    }
+
     /// 该不该有这张卡、长什么样。`nil` = 不该有，结束掉。
     ///
     /// **抽成纯函数只为可测**：唯一调用点埋在 `@MainActor` + ActivityKit 后面，而这里要守的
@@ -400,7 +409,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             orderID: plan.orderID,
             side: plan.side,
             partnerName: plan.partnerName,
-            stats: latestTrackStats
+            stats: latestTrackStats,
+            targetDistanceMeters: liveActivityTargetMeters
         )
     }
 
@@ -434,6 +444,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         lastLiveActivityRefreshAt = nil
         latestTrackStats = nil
         liveActivityPartnerName = nil
+        liveActivityTargetMeters = nil
         reconcileTask?.cancel()
         reconcileTask = nil
         reportTask?.cancel()
