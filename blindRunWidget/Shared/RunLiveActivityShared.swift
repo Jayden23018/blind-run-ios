@@ -21,9 +21,9 @@ import SwiftUI
 
 /// 这张卡是给谁看的。跑者端多一行顶行与一枚播报按钮，陪跑员端只有三个数字。
 ///
-/// 陪跑员端 `partnerName` 现在恒为 `nil`。2026-09-16 的决定是「不显示对方姓名」；
-/// 2026-09-26 决定源 V11 改为「锁屏只用姓氏」，但后端姓氏字段（BE-2）还没到，
-/// 所以卡上仍不出现名字 —— 有节奏信号时第 1 行写「跑者：刚刚好」而不是掩码名。
+/// 两端 `partnerName` 都是对方**姓氏**（决定源 V11，取代 2026-09-16 的「不显示对方姓名」）：
+/// 陪跑员端取 `blindSurname`，跑者端取 `volunteerSurname`。姓氏缺失时为 `nil`，
+/// 陪跑员端第 1 行写「跑者：刚刚好」而不是掩码名，跑者端不画顶行。
 enum RunLiveActivitySide: String, Codable, Hashable, Sendable {
     case runner
     case volunteer

@@ -918,11 +918,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
         let previousStatus = order?.status
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
-        // 锁屏卡顶行那句「陪跑中 · 张伟」。名字只有这一端拿得到，所以**排在
+        // 锁屏卡顶行那句「陪跑中 · 张」。姓氏只有这一端拿得到，所以**排在
         // `updateOwnedOrder` 之后** —— 换单时它内部会 `clearRuntimeSession()`，
         // 那里要清掉上一单的名字，排在前面会被当场擦掉。
         // 名字住在 `ContentState` 里（不是 `attributes`），所以后到也补得上，见那里的注释。
-        appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.volunteerName?.nilIfBlank)
+        appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.volunteerSurname?.nilIfBlank)
         refreshVolunteerDistance()
         updateRunCountdown(from: previousStatus, to: updated.status)
         if speakChanges, previousStatus != updated.status {

@@ -11,7 +11,7 @@ import XCTest
 /// 1. 取值与 `AppColors.Flow` 分家（widget target 编译不到 `AppColors`，见
 ///    `RunLiveActivityShared.swift` 文件头）；
 /// 2. 锁屏播报的 utterance 与 `VoiceService` 的语速策略分家；
-/// 3. 「只在 `IN_PROGRESS` 出现」「陪跑员端不显示对方姓名」这两条红线被改掉。
+/// 3. 「只在 `IN_PROGRESS` 出现」这条红线被改掉。
 /// 整类 `@available(iOS 16.2, *)`：`ActivityKit` 的类型从 16.2 起才有。
 /// 真机在 16.2 以上，所以这些用例真的会跑 —— **看到 `passed=0` 一律当失败查**，
 /// 那说明整类被系统跳过了，而不是「没有回归」。
@@ -198,21 +198,37 @@ final class RunLiveActivityTests: XCTestCase {
         }
     }
 
-    /// 🔴 **陪跑员端那张卡不显示对方姓名**（项目负责人 2026-09-16 决定）。
-    ///
-    /// 这条同时是本阶段能零接触 `blindRun/Volunteer/**` 的前提：卡片不需要身份信息，
-    /// 也就不需要从陪跑员的 view model 里取任何东西。有人把姓名加回去时这里会红，
-    /// 提醒他那不只是「多显示一行」。
-    func testVolunteerCardNeverCarriesTheCounterpartName() {
+    /// 陪跑员端那张卡带跑者**姓氏**（决定源 V11，取代 2026-09-16「陪跑员端不显示对方姓名」）。
+    /// 传进来什么就带什么 —— 「只传姓氏、不传掩码名」由调用方 `blindSurname` 保证。
+    func testVolunteerCardCarriesTheRunnerSurname() {
         let plan = LiveEscortSessionCoordinator.liveActivityPlan(
             orderID: 42,
             status: .inProgress,
             role: .volunteer,
-            partnerName: "李明"
+            partnerName: "李"
         )
 
         XCTAssertEqual(plan?.side, .volunteer)
+        XCTAssertEqual(plan?.partnerName, "李")
+        XCTAssertEqual(
+            RunLiveActivityCopy.volunteerHeadline(surname: plan?.partnerName, rhythmSignal: "OK", isPaused: false),
+            "陪跑中 · 李：刚刚好"
+        )
+    }
+
+    func testVolunteerCardWithoutSurnameFallsBackToRunnerWord() {
+        let plan = LiveEscortSessionCoordinator.liveActivityPlan(
+            orderID: 42,
+            status: .inProgress,
+            role: .volunteer,
+            partnerName: nil
+        )
+
         XCTAssertNil(plan?.partnerName)
+        XCTAssertEqual(
+            RunLiveActivityCopy.volunteerHeadline(surname: plan?.partnerName, rhythmSignal: "OK", isPaused: false),
+            "陪跑中 · 跑者：刚刚好"
+        )
     }
 
     func testRunnerCardCarriesThePartnerNameForTheHeadline() {
