@@ -7,8 +7,8 @@
 
 ## 2. 朗读用姓氏（PR-B）
 
-- [ ] 2.1 `volunteerNameForSpeech` 优先 `volunteerSurname`
-- [ ] 2.2 用例：有姓氏 / 无姓氏 / 同时存在，并验红
+- [x] 2.1 `volunteerNameForSpeech` 优先 `volunteerSurname`
+- [x] 2.2 用例：有姓氏 / 无姓氏 / 同时存在，并验红
 
 ## 3. 已结束样式（PR-C）
 

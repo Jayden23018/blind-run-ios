@@ -139,6 +139,28 @@ final class BlindHomeCardCopyTests: XCTestCase {
         }
     }
 
+    /// #281：有 `volunteerSurname` 就念姓氏（后端 #452 Q5），而屏上可见的掩码名原样不动。
+    func testSpokenVolunteerNamePrefersTheSurnameButTheVisibleNameStaysMasked() {
+        var order = OrderDetailResponse.preview(volunteerName: "欧阳*")
+        order.volunteerSurname = "欧阳"
+        XCTAssertEqual(order.volunteerNameForSpeech, "欧阳")
+        XCTAssertEqual(order.volunteerName, "欧阳*", "渲染用的原串不许被改写")
+
+        // 姓氏与掩码名首字不同时（极端：复姓取了两字），朗读只认姓氏字段。
+        order.volunteerName = "张*"
+        XCTAssertEqual(order.volunteerNameForSpeech, "欧阳")
+
+        // 姓氏缺失 / 空白：行为与此前完全一致（去星号的掩码名）。
+        order.volunteerSurname = nil
+        XCTAssertEqual(order.volunteerNameForSpeech, "张")
+        order.volunteerSurname = "  "
+        XCTAssertEqual(order.volunteerNameForSpeech, "张")
+
+        // 后端误把掩码串放进姓氏字段时，读屏仍不念「星号」。
+        order.volunteerSurname = "李*"
+        XCTAssertEqual(order.volunteerNameForSpeech, "李")
+    }
+
     /// 没有姓名时回退到既有常量，不另造第二个占位词。
     func testSpokenVolunteerNameFallsBackToTheSharedPlaceholder() {
         XCTAssertEqual(
