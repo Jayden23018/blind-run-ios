@@ -12,6 +12,6 @@
 
 ## 3. 已结束样式（PR-C）
 
-- [ ] 3.1 `GuideRunActivityPresentation` 加 `isEnded`；widget 两处传 `context.activityState == .ended`，ended 不画绳子
-- [ ] 3.2 用例：ended 的按钮、背景、文案、读屏标签；既有用例不变
+- [x] 3.1 `GuideRunActivityPresentation` 按 `phase == .ended` 画已结束样式（`activityState` widget 读不到，改走 `phase`）；ended 不画绳子、无按钮
+- [x] 3.2 用例：ended 的按钮、背景、文案、读屏标签；既有用例不变
 - [ ] 3.3 归档本变更

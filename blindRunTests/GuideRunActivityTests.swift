@@ -86,6 +86,15 @@ final class GuideRunActivityTests: XCTestCase {
         XCTAssertEqual(state.phase, .departed)
     }
 
+    /// 「已结束」标记走 `phase`：widget 读不到 `activityState`（见 `Phase.ended` 的注释）。
+    func testEndedPhaseDecodesAndKeepsTheOtherFieldsOfTheLastState() throws {
+        let state = try decodeLikeTheSystem("""
+        {"phase":"ended","etaMinutes":8,"progress":0.68,"runnerNearMeetingPoint":true}
+        """)
+        XCTAssertEqual(state.phase, .ended)
+        XCTAssertEqual(state.etaMinutes, 8)
+    }
+
     // MARK: - 订单 → 卡片内容
 
     func testEnRouteOrderMapsToTheSameShapeTheBackendPushes() {
@@ -218,6 +227,37 @@ final class GuideRunActivityTests: XCTestCase {
         XCTAssertEqual(view.background, LiveActivityStatePalette.stateArrived)
         XCTAssertEqual(view.actions, [.ringRunner])
         XCTAssertEqual(view.compactTrailing, "已到")
+    }
+
+    /// #281：`end` 推送之后锁屏还要留 5 分钟，不能停在「8 分钟后到」且按钮还能按。
+    func testEndedCardShowsNoStaleEtaNoButtonsAndNoRope() {
+        // 结束时的 content-state 沿用最后一帧：还带着 ETA、跑者在附近、进度。
+        let view = presentation(
+            .init(phase: .ended, etaMinutes: 8, arriveAt: Date(), progress: 0.68,
+                  runnerNearMeetingPoint: true, distanceBucket: "WITHIN_10"),
+            surname: "李"
+        )
+
+        XCTAssertEqual(view.headline, "引导已结束")
+        XCTAssertEqual(view.eyebrow, "助盲跑 · 已结束")
+        XCTAssertEqual(view.compactTrailing, "已结束")
+        XCTAssertTrue(view.actions.isEmpty, "已结束的卡不许还留着「我快到了」之类的按钮")
+        XCTAssertFalse(view.showsRope)
+        XCTAssertNil(view.arriveClock)
+        XCTAssertNil(view.statusLine)
+        XCTAssertNil(view.lateSuffix)
+        XCTAssertEqual(view.background, LiveActivityStatePalette.statePaused)
+        XCTAssertEqual(view.accessibilityLabel, "助盲跑，已结束，引导已结束")
+    }
+
+    func testLiveCardsStillShowTheRope() {
+        for phase in [GuideRunAttributes.ContentState.Phase.departed, .late, .arrived] {
+            XCTAssertTrue(
+                presentation(.init(phase: phase, etaMinutes: 5, arriveAt: nil, progress: 0.5,
+                                   runnerNearMeetingPoint: false, distanceBucket: nil)).showsRope,
+                "\(phase)"
+            )
+        }
     }
 
     func testUnknownDistanceBucketShowsNoStatusLine() {

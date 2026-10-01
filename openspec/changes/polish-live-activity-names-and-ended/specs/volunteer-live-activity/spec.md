@@ -20,8 +20,12 @@ The card SHALL show the counterpart only by surname in short labels, SHALL use "
 ## ADDED Requirements
 
 ### Requirement: Ended departure card
-When the departed/arrived card's `activityState` is `.ended`, it SHALL render on the `statePaused` background with the headline "引导已结束", SHALL offer no buttons, no guide rope, and no arrival time, and its compact trailing text SHALL read "已结束".
+When the departed/arrived card's content-state has `phase = "ended"`, it SHALL render on the `statePaused` background with the headline "引导已结束", SHALL offer no buttons, no guide rope, and no arrival time, and its compact trailing text SHALL read "已结束". The marker is carried in `phase` because `ActivityViewContext` does not expose `activityState` to the widget.
 
 #### Scenario: Backend ends the activity
-- **WHEN** the backend pushes `end` and the card is in the `.ended` state with the last content `phase = departed`
+- **WHEN** the backend pushes `end` whose content-state has `phase = "ended"` and the last known ETA
 - **THEN** the card SHALL NOT show the ETA headline or any action button
+
+#### Scenario: Backend has not adopted the marker yet
+- **WHEN** the `end` push keeps the last `phase` (`departed`, `late` or `arrived`)
+- **THEN** the card SHALL render as before (no ended style) until the system dismisses it

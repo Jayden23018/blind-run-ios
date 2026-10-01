@@ -36,6 +36,11 @@ struct GuideRunAttributes: ActivityAttributes, Hashable {
     /// **响应向开放枚举**：后端加了新值时不许整条更新解码失败（那等于锁屏卡冻住），
     /// 不认识的一律按 `departed` 画 —— 「正在赶去」对任何未知的在途状态都不说错话。
     enum Phase: String, Codable, Hashable {
+        /// 后端 `end` 推送的 `content-state` 带 `"ended"` ⇒ 画「已结束」样式。
+        /// **不能按 `activityState == .ended` 判**：`ActivityViewContext` 只有 `attributes` /
+        /// `state` / `isStale` / `activityID`（iOS 26.2 SDK 的 WidgetKit swiftinterface 核过），
+        /// `activityState` 只在 app 侧的 `Activity<_>` 上，widget 读不到。
+        case ended
         case departed
         case late
         case arrived
@@ -102,6 +107,9 @@ enum GuideRunActivityCopy {
     static let departedWithoutEta = "已出发"
     static let arrivingNow = "马上到"
     static let compactArrived = "已到"
+    static let eyebrowEnded = "助盲跑 · 已结束"
+    static let endedHeadline = "引导已结束"
+    static let compactEnded = "已结束"
     static let almostThere = "我快到了"
     static let waitFiveMinutes = "再等我 5 分钟"
     static let ringRunner = "让跑者的手机响起来"
@@ -171,9 +179,28 @@ struct GuideRunActivityPresentation: Equatable {
     let background: UInt32
     let progress: Double
     let actions: [GuideRunActivityAction]
+    /// 已结束时引导绳不再有意义（人已经不在引导途中），不画。
+    let showsRope: Bool
     let accessibilityLabel: String
 
     init(attributes: GuideRunAttributes, state: GuideRunAttributes.ContentState) {
+        if state.phase == .ended {
+            eyebrow = GuideRunActivityCopy.eyebrowEnded
+            headline = GuideRunActivityCopy.endedHeadline
+            headlineIsLate = false
+            arriveClock = nil
+            lateSuffix = nil
+            statusLine = nil
+            compactTrailing = GuideRunActivityCopy.compactEnded
+            // 与跑步卡「已暂停」同一块灰：已经不更新的卡不该还像在途那样亮着。不新增色。
+            background = LiveActivityStatePalette.statePaused
+            progress = 0.1
+            actions = []
+            showsRope = false
+            accessibilityLabel = "\(eyebrow.replacingOccurrences(of: " · ", with: "，"))，\(headline)"
+            return
+        }
+        showsRope = true
         let isArrived = state.phase == .arrived
         let isLate = state.phase == .late
         eyebrow = isArrived ? GuideRunActivityCopy.eyebrowArrived : GuideRunActivityCopy.eyebrowDeparted
