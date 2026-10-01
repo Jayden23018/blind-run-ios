@@ -132,3 +132,14 @@ The app SHALL answer "播报我的位置" from the device fix first and, when th
 - **WHEN** the volunteer alert has no coordinate or local reverse geocoding fails
 - **THEN** the place line SHALL show the server address or coordinates with the age notice, or "暂时收不到他的位置" when there is neither
 
+### Requirement: Volunteer is spoken by surname
+Every spoken or VoiceOver reference to the volunteer on the runner side SHALL use `volunteerSurname` when present, and SHALL otherwise keep the existing masked-name-without-asterisk fallback. The visible masked name SHALL NOT change.
+
+#### Scenario: Surname present
+- **WHEN** the order has `volunteerName = "张*"` and `volunteerSurname = "欧阳"`
+- **THEN** the spoken name SHALL be "欧阳"
+
+#### Scenario: Surname absent
+- **WHEN** the order has `volunteerName = "张*"` and no `volunteerSurname`
+- **THEN** the spoken name SHALL be "张"
+
