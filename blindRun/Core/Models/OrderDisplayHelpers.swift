@@ -630,8 +630,15 @@ extension OrderDetailResponse {
     ///
     /// 去星号那一步走共享的 `String.unmaskedForSpeech` —— 这条口径在固定搭档列表、
     /// 连续周数条、志愿者端念盲人姓名的那几处都要用，各写一份迟早分叉。
+    ///
+    /// **优先用 `volunteerSurname`**（后端 BE-2，已接单才有；后端 #452 Q5：念姓氏，缺失时才退回）。
+    /// 缺失时仍走上面那条去星号的掩码名 —— 屏上可见的名字不变，所以朗读与可见文字别在
+    /// 「有没有姓氏」上分叉成两个人。姓氏本身也过一遍 `unmaskedForSpeech`：后端若误把掩码串
+    /// 放进姓氏字段，读屏也不会念出「星号」。
     var volunteerNameForSpeech: String {
-        volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+        volunteerSurname?.unmaskedForSpeech.nilIfBlank
+            ?? volunteerName?.unmaskedForSpeech.nilIfBlank
+            ?? PartnerStreakCopy.unknownVolunteerName
     }
 
     /// 跑者姓名的**朗读版**。与 `volunteerNameForSpeech` 完全对称，理由一字不差：
