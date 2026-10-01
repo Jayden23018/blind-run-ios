@@ -6,7 +6,7 @@
 
 - 出发/汇合卡 `runnerSurname` 取 `blindSurname`；两端跑步卡的 `partnerName` 取对方姓氏（陪跑员端取 `blindSurname`、跑者端取 `volunteerSurname`），缺失时不显示名字，不再退回掩码名。
 - 盲人端所有「朗读陪跑员」的通道（`volunteerNameForSpeech`）优先用 `volunteerSurname`；屏上可见的掩码名不变。
-- 出发/汇合卡在 `activityState == .ended` 时画灰底「引导已结束」样式，无按钮、无引导绳。
+- 出发/汇合卡在 content-state `phase == "ended"` 时画灰底「引导已结束」样式，无按钮、无引导绳。（原计划按 `activityState == .ended` 判，但 `ActivityViewContext` 没有这个属性，只能走 content-state；需要后端在 `end` 推送里带 `phase:"ended"`，已在后端开 issue。）
 
 不做：完成页「第 N 次」（等产品确认，#281 第 4 项）；跑步卡的 `isPaused` / `rhythmSignal` 接线。
 

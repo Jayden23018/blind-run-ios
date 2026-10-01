@@ -95,7 +95,7 @@ struct GuideRunLockScreenView: View {
 
     @ViewBuilder
     private var actions: some View {
-        if #available(iOS 17.0, *) {
+        if #available(iOS 17.0, *), !presentation.actions.isEmpty {
             HStack(spacing: 10) {
                 ForEach(presentation.actions, id: \.self) { action in
                     Button(intent: GuideRunActivityIntent(orderID: attributes.orderID, action: action)) {
@@ -156,7 +156,7 @@ private struct GuideRunInfoRows: View {
                         .lineLimit(1)
                 }
                 .frame(minHeight: GuideRunActivityMetrics.ropeHeight)
-            } else {
+            } else if presentation.showsRope {
                 GuideRunRope(progress: presentation.progress, runnerSurname: attributes.runnerSurname)
                     .frame(height: GuideRunActivityMetrics.ropeHeight)
             }

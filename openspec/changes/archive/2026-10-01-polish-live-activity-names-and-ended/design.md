@@ -15,8 +15,10 @@
 - 跑者端锁屏顶行姓氏缺失时整行不出现（沿用 `partnerName == nil` 语义），不退回掩码名。
 - `volunteerNameForSpeech` 一个咽喉点覆盖五处朗读：`volunteerSurname` → 现有去星号掩码名 → 「这位志愿者」。
 - 已结束样式复用 `LiveActivityStatePalette.statePaused`，不新增色。
+- **已结束靠 `ContentState.phase == .ended` 判，不靠 `activityState`**：iOS 26.2 SDK 的 WidgetKit swiftinterface 里 `ActivityViewContext` 只有 `activityID` / `attributes` / `state` / `isStale`，`activityState` 只在 app 侧的 `Activity<_>` 上。后端 `docs/live-activity.md` 与 #281 都写「按 `activityState == .ended` 画」，在 widget 里做不到。`Phase` 本来就是响应向开放枚举，加 `ended` 向前兼容。
 
 ## Risks / Trade-offs
 
 - 升级前起的出发/汇合卡 `attributes` 不可变，认回后姓氏一直为空。
+- 在后端 `end` 推送带 `phase:"ended"` 之前，已结束样式不会出现（iOS 侧是休眠的、无副作用）。
 - 后端若迟迟不下发 `volunteerSurname`，跑者端锁屏顶行整行消失（比显示「张*」更安全）。
