@@ -5,13 +5,14 @@
 # 也不能用生成器的默认值 package —— Xcode 工程不传 -package-name，会报
 # "Decl has a package access level but no -package-name was passed"。
 #
-# filter.paths 只列 App 真正调用的路径（2026-08-05 实测 43 条）。不 filter 的话
-# 产物是 22,015 行 / 1.0MB，其中约 1/3 是 App 从不调用的 admin/ 与 cs/ 客服端；
-# filter 后是 16,162 行 / 788K。
+# filter.paths 只列 App 真正调用的路径。不 filter 的话还会带上 App 从不调用的 admin/ 与 cs/ 客服端。
+# （这里不写条数与产物行数：写死的数字下次补 filter 就过期，要数用 `wc -l Packages/AidRunAPI/Sources/AidRunAPI/*.swift`。）
 #
-# ⚠️ 新接一个后端端点时必须往下面加一行，否则生成的 Client 里没有对应方法。
-#    这件事由 scripts/validate-spec-coverage.mjs 兜底：它会发现前端在调一条
-#    没被生成的路径。别指望记性。
+# ⚠️ 新接一个后端端点时必须往下面加一行，否则生成的 Client 里没有对应方法，
+#    漂移探测器也就看不见这条路径的契约变化。
+#    这件事由 scripts/validate-spec-coverage.mjs 兜底：前端调用的路径只要不在这份
+#    filter 里，它就以非零码退出并逐条列出（#282；此前它只查「路径在契约里存在」，
+#    不查「在不在 filter」，于是 33 条路径漏在外面没人发现）。别指望记性。
 #
 # 已确认排除、不要「顺手补回来」的两条：
 #   /api/blind/location、/api/volunteer/location —— REST 版本从不调用，
@@ -30,10 +31,15 @@ filter:
     - /api/auth/me
     - /api/auth/send-code
     - /api/auth/verify-code
+    - /api/blind/favorite-volunteers
+    - /api/blind/favorite-volunteers/{volunteerId}
+    - /api/blind/partners/streaks
     - /api/blind/profile
     - /api/blind/verify-identity
     - /api/blind/volunteer-location
+    - /api/config/features
     - /api/devices/apns
+    - /api/devices/live-activity-token
     - /api/emergency/active
     - /api/emergency/trigger
     - /api/emergency/{eventId}/cancel
@@ -41,15 +47,19 @@ filter:
     - /api/misc/legal-links
     - /api/notifications/since
     - /api/orders
+    - /api/orders/active
     - /api/orders/available
     - /api/orders/mine
+    - /api/orders/mine/run-records
     - /api/orders/voice/parse
     - /api/orders/voice/parse-slot
     - /api/orders/voice/resolve-address
     - /api/orders/{id}
     - /api/orders/{id}/arrived
     - /api/orders/{id}/cancel
+    - /api/orders/{id}/confirm-departure
     - /api/orders/{id}/en-route
+    - /api/orders/{id}/end-waiting
     - /api/orders/{id}/finish
     # 接单前通话磨合（后端迁移 0031）。四条一起进，缺一条它的 schema 就不会被生成，
     # 而漂移探测器只有拿到完整定义才判得出后端往 `IntroCallView` 加了什么。
@@ -57,12 +67,27 @@ filter:
     - /api/orders/{id}/intro-call/decision
     - /api/orders/{id}/intro-call/notify-incoming
     - /api/orders/{id}/intro-call/unreachable
+    - /api/orders/{id}/keep-rematching
+    - /api/orders/{id}/keep-waiting
+    - /api/orders/{id}/location/address
+    - /api/orders/{id}/pause
+    - /api/orders/{id}/quick-message
     - /api/orders/{id}/respond
+    - /api/orders/{id}/resume
     - /api/orders/{id}/review
+    - /api/orders/{id}/reviews
+    - /api/orders/{id}/rhythm
+    - /api/orders/{id}/ring-runner
+    - /api/orders/{id}/run-record
+    - /api/orders/{id}/run-record/messages
+    - /api/orders/{id}/runner-message
     - /api/orders/{id}/share
     - /api/orders/{id}/start-service
+    - /api/orders/{id}/status-logs
     - /api/orders/{id}/track
+    - /api/support/tickets
     - /api/user/role
+    - /api/users/me/invite-code
     - /api/users/{id}
     - /api/users/{userId}/emergency-contacts
     - /api/users/{userId}/emergency-contacts/{contactId}
@@ -70,10 +95,19 @@ filter:
     - /api/volunteer/achievements
     - /api/volunteer/dispatch-status
     - /api/volunteer/dispatch-summary
+    - /api/volunteer/favorites
+    - /api/volunteer/favorites/{blindUserId}
+    - /api/volunteer/partners/streaks
+    - /api/volunteer/points
     - /api/volunteer/profile
     - /api/volunteer/registration/status
     - /api/volunteer/registration/step1
+    - /api/volunteer/registration/step3/face-verify/decline
     - /api/volunteer/registration/step3/face-verify/init
     - /api/volunteer/registration/step3/face-verify/result
+    - /api/volunteer/training/courses
+    - /api/volunteer/training/courses/{courseId}
+    - /api/volunteer/training/courses/{courseId}/progress
+    - /api/volunteer/training/courses/{courseId}/quiz
     - /api/volunteer/verification
     - /api/volunteer/verification/status

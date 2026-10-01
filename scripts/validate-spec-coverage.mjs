@@ -136,6 +136,42 @@ function readClientPaths(files) {
 /** spec 的 `{orderId}` 与前端的 `{param}` 名字不同，比对前统一。 */
 const eraseParamNames = (p) => p.replace(/\{[^}]*\}/g, '{param}');
 
+// 生成器配置：`filter.paths` 只列 App 调用的路径，**不在里面的路径生成包里就没有**，
+// 漂移探测器（sync-api-client.sh / pre-push「生成代码与契约不同步」）因此看不见它们的契约变化。
+// 配置文件头注释早就写着「新接一个端点必须往 filter 加一行，由本脚本兜底」，但本脚本此前只查
+// 「前端调的路径在契约里存在」、不查「在不在 filter」—— 2026-10-01 实测 33 条路径漏在 filter 外（#282）。
+const generatorConfigPath = path.join(scriptDir, 'openapi', 'openapi-generator-config.yaml');
+
+/** 只解析 `filter:` 下 `paths:` 的 `- /api/...` 行；遇到下一个顶层键就收手（后面的缩进列表不属于 filter）。 */
+function readGeneratorFilterPaths(text) {
+  const result = new Set();
+  let inFilter = false;
+  let inPaths = false;
+  for (const line of text.split('\n')) {
+    if (/^filter:\s*$/.test(line)) {
+      inFilter = true;
+      continue;
+    }
+    if (!inFilter) continue;
+    if (/^\S/.test(line) && !line.startsWith('#')) break;
+    if (/^ {2}paths:\s*$/.test(line)) {
+      inPaths = true;
+      continue;
+    }
+    if (/^ {2}\S/.test(line)) inPaths = false; // filter 下的别的子键（tags / operations 等）
+    const match = line.match(/^\s+-\s+(\/\S+)\s*$/);
+    if (inPaths && match) result.add(eraseParamNames(match[1]));
+  }
+  return result;
+}
+
+/** 前端在调、契约里有、但不在生成器 filter 里的路径。Mock 专用路径不在契约里，天然不会被报。 */
+function findPathsMissingFromGeneratorFilter(clientPathKeys, specPathSet, filterPathSet) {
+  return [...clientPathKeys]
+    .filter((p) => specPathSet.has(eraseParamNames(p)) && !filterPathSet.has(eraseParamNames(p)))
+    .sort();
+}
+
 /**
  * 两个判据的自检。**无条件跑**，不挂在 flag 上 —— 挂了就没人跑，
  * 而这两条正是这个脚本历史上误报的来源。耗时可忽略。
@@ -154,6 +190,39 @@ const eraseParamNames = (p) => p.replace(/\{[^}]*\}/g, '{param}');
       '字符串里的 // 不是注释',
     ],
     [stripLineComment('let s = "a\\"// b" // real'), 'let s = "a\\"// b" ', '转义引号不打断字符串'],
+    [
+      [
+        ...readGeneratorFilterPaths(
+          [
+            'generate:',
+            '  - types',
+            '',
+            '# 顶层注释不打断 filter 段',
+            'filter:',
+            '  paths:',
+            '    # 缩进注释',
+            '    - /api/a',
+            '    - /api/orders/{id}/x   ',
+            '    - /api/users/{userId}/c/{contactId}',
+            'accessModifier: public',
+            '    - /api/after-filter',
+          ].join('\n'),
+        ),
+      ]
+        .sort()
+        .join(','),
+      '/api/a,/api/orders/{param}/x,/api/users/{param}/c/{param}',
+      'filter 解析：跳过注释、参数名归一、顶层键之后的列表不算',
+    ],
+    [
+      findPathsMissingFromGeneratorFilter(
+        ['/api/a', '/api/c', '/api/orders/{param}/x', '/api/mock-only'],
+        new Set(['/api/a', '/api/c', '/api/orders/{param}/x']),
+        new Set(['/api/a', '/api/orders/{param}/x']),
+      ).join(','),
+      '/api/c',
+      '调了且契约有但不在 filter → 报；在 filter 内放行；不在契约里的（Mock 专用）不归这条管',
+    ],
   ];
   for (const [actual, expected, why] of cases) {
     if (actual !== expected) {
@@ -191,6 +260,25 @@ if (unknownToSpec.length > 0) {
   for (const p of unknownToSpec) console.error(`  ${p}  (${clientPaths.get(p)})`);
 }
 
+if (!fs.existsSync(generatorConfigPath)) {
+  console.error(`[spec-coverage] 找不到生成器配置：${generatorConfigPath}`);
+  process.exit(2);
+}
+const filterPaths = readGeneratorFilterPaths(fs.readFileSync(generatorConfigPath, 'utf8'));
+if (filterPaths.size === 0) {
+  console.error(`[spec-coverage] 从 ${generatorConfigPath} 里没解析出任何 filter.paths —— 多半是配置结构变了，请检查本脚本`);
+  process.exit(2);
+}
+const missingFromFilter = findPathsMissingFromGeneratorFilter(clientPaths.keys(), specPaths, filterPaths);
+if (missingFromFilter.length > 0) {
+  console.error(
+    `\n[spec-coverage] ✗ 前端在调、契约里有，但不在生成器 filter.paths 里（${missingFromFilter.length} 条）——这是硬错误：\n` +
+      `  生成包里没有它们，漂移探测器看不见这些路径的契约变化。\n` +
+      `  处理：往 scripts/openapi/openapi-generator-config.yaml 的 filter.paths 加一行，再跑 scripts/sync-api-client.sh`,
+  );
+  for (const p of missingFromFilter) console.error(`  ${p}  (${clientPaths.get(p)})`);
+}
+
 if (unimplemented.length > 0) {
   console.log(`\n[spec-coverage] · spec 有、前端从未调用（${unimplemented.length} 条）——不算失败，但值得扫一眼有没有该用的：`);
   for (const p of unimplemented) console.log(`  ${p}`);
@@ -202,8 +290,8 @@ if (mockOnlyInUse.length > 0) {
   for (const p of mockOnlyInUse) console.log(`  ${p} —— ${MOCK_ONLY_PATHS.get(p)}`);
 }
 
-if (unknownToSpec.length > 0) {
+if (unknownToSpec.length > 0 || missingFromFilter.length > 0) {
   process.exitCode = 1;
 } else {
-  console.log('\n[spec-coverage] 通过：前端调用的每条路径都在契约里');
+  console.log('\n[spec-coverage] 通过：前端调用的每条路径都在契约里，也都在生成器 filter 里');
 }
