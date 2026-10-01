@@ -213,10 +213,12 @@ final class VolunteerHomeViewModel: ObservableObject {
         return isAvailable ? AppColors.warning : AppColors.textSecondary
     }
 
+    /// 只给首屏「需要你处理」用，所以不含「请先开启可服务状态」（理由见 guard 的参数注释）。
     var acceptBlockMessage: String? {
         VolunteerOrderActionGuard.acceptBlockMessage(
             profile: appState?.volunteerProfile,
-            registrationStatus: appState?.volunteerRegistrationStatus
+            registrationStatus: appState?.volunteerRegistrationStatus,
+            requiresDispatchOptIn: false
         )
     }
 

@@ -4,9 +4,13 @@ import SwiftUI
 // MARK: - Volunteer Action Guard
 
 enum VolunteerOrderActionGuard {
+    /// `requiresDispatchOptIn: false` 给首屏「需要你处理」用：可服务状态是志愿者自己拨的，
+    /// 底部那条滑块就是它的开关，关着时再在顶上提醒「请先开启」是在催一件他知道的事。
+    /// 接单 / 有意向这两条动作路径保持默认 `true`，那里拦下来是有用的。
     static func acceptBlockMessage(
         profile: VolunteerProfileResponse?,
-        registrationStatus: VolunteerRegistrationStatus? = nil
+        registrationStatus: VolunteerRegistrationStatus? = nil,
+        requiresDispatchOptIn: Bool = true
     ) -> String? {
         guard let profile, profile.isProfileCompleteForDispatch else {
             return "请先完善志愿者资料"
@@ -26,7 +30,7 @@ enum VolunteerOrderActionGuard {
             return "请等待管理员审核通过"
         }
 
-        guard profile.hasManualDispatchOptIn else {
+        guard !requiresDispatchOptIn || profile.hasManualDispatchOptIn else {
             return "请先开启可服务状态"
         }
 
