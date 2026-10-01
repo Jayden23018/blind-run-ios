@@ -11,8 +11,14 @@
 
 ## 我们现状（文件:行号）
 - 首启页 `blindRun/Core/PrivacyConsentGateView.swift` + `PrivacyConsent.swift:75-97`：6 条要点 + 两个等大按钮 + 两行「全文」入口。**同意/拒绝/不默认勾选/拒绝不退出：已达标，且比行业更照顾读屏。**
-- 差距在「全文」：后端 `app.legal.privacy-policy-url` 默认空（`demo` `application.properties:588-589`），客户端回退到 `LegalFallbackCopy`（`LegalLinksModels.swift:128-229`），页首写着「正式版…正在上线中」。**用户与审核员读到的是过渡稿**。线上实际值本机探测不到（curl 000），待确认。
-- 缺：主体名称与联系方式、保存期限、第三方 SDK 清单（高德地图/阿里云活体/推送等）、撤回同意路径、更新日期/版本号。
+- ⚠️ **本报告初稿（87ebcc0）此处写错了**：初稿说「后端 URL 为空 → 用户读到的是过渡稿」。实际上后端仓库已有**完整的正式隐私政策 v1.2**
+  （`demo/docs/legal/privacy-policy-draft.md`，13 章，含收集清单、第三方接收方表、保存期限、境外传输、AI 服务声明、权利、版本记录），
+  已发布在 <https://jayden23018.github.io/blindrun-legal/>（2026-10-01 实测 200，页首有版本与生效日期），
+  生产已注入两个 `-Dapp.legal.*-url`（后端 `docs/CHANGELOG.md:44`）。**内置过渡稿只在后端不可达或 URL 为空时出现**（`LegalLinksModels.swift:128-229`）。
+  初稿的错误来源：只读了后端 `application.properties` 的**默认值**（空），没查生产覆盖；本机 curl 探测又返回 000，没当场验证就下了结论。
+- 仍成立的真实差距：(1) 首启页只有 6 条摘要 + 两行链接，没有「第三方共享清单」入口（正式政策 §五 有这张表，但首启页不直达）；
+  (2) 外链用 `Link` 跳系统浏览器，GitHub Pages 域名、主体写「个人开发者」，对用户观感偏弱；
+  (3) 若用户看到的是过渡稿，说明那次请求没拿到 legal-links（离线 / 后端不可达 / Mock 构建）——未验证是哪种。
 
 ## 用 Claude Code 生成隐私政策（社区做法）
 - 社区 skill：扫代码里的 SDK / 权限 / 存储 → 出 GDPR/CCPA 草稿并标出需法务复核的条款（mcpmarket「Privacy Policy Generator」、productbuilder.net、developersdigest）。**多数面向 GDPR/CCPA，不是 PIPL。**
