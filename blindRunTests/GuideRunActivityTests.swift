@@ -251,7 +251,7 @@ final class GuideRunActivityTests: XCTestCase {
     }
 
     func testLiveCardsStillShowTheRope() {
-        for phase in [GuideRunAttributes.ContentState.Phase.departed, .late, .arrived] {
+        for phase in [GuideRunAttributes.Phase.departed, .late, .arrived] {
             XCTAssertTrue(
                 presentation(.init(phase: phase, etaMinutes: 5, arriveAt: nil, progress: 0.5,
                                    runnerNearMeetingPoint: false, distanceBucket: nil)).showsRope,
