@@ -773,7 +773,7 @@ extension MockAPIClient {
         // 这里再不认就等于「只取钟点、把日期当没说」，正是 ⓪ 要防的那个静默篡改。
         // 阿拉伯写法也要收：识别器把「第二天」渲染成「第2天」时，只认中文会静默丢掉日期。
         let dayOffset: Int? = transcript.contains("后天") ? 2
-            : transcript.contains("明天") ? 1
+            : transcript.contains("明天") || transcript.contains("明早") || transcript.contains("明晚") ? 1
             : transcript.contains("第二天") || transcript.contains("第2天") ? 1
             : transcript.contains("今天") ? 0
             : nil
@@ -812,8 +812,10 @@ extension MockAPIClient {
         guard var parsed = colonClockTime(in: transcript) ?? spokenClockTime(in: transcript) else {
             return nil
         }
+        // 「明晚」= 明天 + 晚上（后端 #472）：日期与时段写在同一个词里，+12 要单补。
         if parsed.hour < 12,
-           transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚") {
+           transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚")
+            || transcript.contains("明晚") {
             parsed.hour += 12
         }
         return parsed
@@ -888,6 +890,18 @@ extension MockAPIClient {
             let head = String(transcript[transcript.startIndex..<range.lowerBound])
             guard let hour = trailingNumber(in: head, blockingDegreeLeadIn: true),
                   (1...24).contains(hour) else { continue }
+            // 「N点一刻」= :15、「N点三刻」= :45（后端 #472）。「两刻」「十一刻」这类不认的刻数
+            // **整体不匹配**（对应后端 `(?!\d*刻)`），不是只取「N点」—— 此前「八点一刻」就是这样
+            // 被静默读成 08:00，而用户说了 15 分、读回却念整点。`continue` 与后端一样继续找下一个「点」。
+            let afterDot = transcript[range.upperBound...]
+            let quarterDigits = afterDot.prefix(while: { "零一二两三四五六七八九十0123456789".contains($0) })
+            if afterDot.dropFirst(quarterDigits.count).first == "刻" {
+                switch quarterDigits {
+                case "一", "1": return (hour, 15)
+                case "三", "3": return (hour, 45)
+                default: continue
+                }
+            }
             // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
             // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
             // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
@@ -951,10 +965,16 @@ extension MockAPIClient {
     /// Mock 与真实解析器漂移会让开发期调通的向导在真机上走不通，`VoiceOrderWizardTests` 锁了这份对齐。
     /// 顺序有意义：「一个半小时」必须排在「半小时」「一小时」之前，否则会被前缀吃掉。
     static func mockVoiceMinutes(in transcript: String) -> Int? {
+        // 「一个钟」「一个钟头」「一个半钟头」「半个钟头」里的「钟/钟头」就是小时（后端 #472
+        // `HOUR_COLLOQUIAL = (?<=[个半])钟头?`）。只收紧跟「个/半」的：「八点钟」「分钟」不受影响。
+        // 长的在前：「个钟头」不先换，会被「个钟」吃掉一半留下一个「头」。
+        let transcript = ["个钟头", "半钟头", "个钟", "半钟"].reduce(transcript) { text, form in
+            text.replacingOccurrences(of: form, with: String(form.first!) + "小时")
+        }
         if transcript.contains("一个半小时") { return 90 }
         if transcript.contains("一小时二十分钟") { return 80 }
         if transcript.contains("两小时") || transcript.contains("两个小时") { return 120 }
-        if transcript.contains("半小时") { return 30 }
+        if transcript.contains("半小时") || transcript.contains("半个小时") { return 30 }
         if transcript.contains("一小时") || transcript.contains("一个小时") { return 60 }
         if transcript.contains("四十分钟") { return 40 }
         if transcript.contains("二十分钟") { return 20 }

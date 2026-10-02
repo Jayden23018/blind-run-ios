@@ -2154,7 +2154,7 @@ public struct Client: APIProtocol {
     ///
     /// "明天八点从人民广场出发跑一小时，我带导盲犬" 一句话抽必填三槽 + 可选的额外需求。
     ///
-    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 时长超 10~300 分钟）的**必填**槽位，
+    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（默认 7 天）/ 时长超 10~300 分钟）的**必填**槽位，
     /// 客户端就那几项退化回向导逐项追问，不必让用户整句重说；missing 为空时 ttsText 是读回确认文案。
     ///
     /// **额外需求（hasGuideDog / pacePreference / specialNotes）是可选槽位，永不进 missing**：
@@ -2269,6 +2269,7 @@ public struct Client: APIProtocol {
     ///
     /// - Remark: HTTP `POST /api/orders/voice/parse-slot`.
     /// - Remark: Generated from `#/paths//api/orders/voice/parse-slot/post(parseSlot)`.
+    @available(*, deprecated)
     public func parseSlot(_ input: Operations.parseSlot.Input) async throws -> Operations.parseSlot.Output {
         try await client.send(
             input: input,
@@ -2343,6 +2344,7 @@ public struct Client: APIProtocol {
     ///
     /// - Remark: HTTP `POST /api/orders/voice/resolve-address`.
     /// - Remark: Generated from `#/paths//api/orders/voice/resolve-address/post(resolveAddress)`.
+    @available(*, deprecated)
     public func resolveAddress(_ input: Operations.resolveAddress.Input) async throws -> Operations.resolveAddress.Output {
         try await client.send(
             input: input,
