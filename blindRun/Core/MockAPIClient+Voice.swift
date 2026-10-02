@@ -833,9 +833,11 @@ extension MockAPIClient {
         }
         // 「明晚」= 明天 + 晚上（后端 #472）：日期与时段写在同一个词里，+12 要单补 ——
         // 哪些日期词自带「晚上」由 `voiceDateWords` 的 `impliesEvening` 说了算。
+        // 查的是「原话里有没有这样的词」，**不是**「第一个命中的日期词是不是」：「不是明天，是明晚八点」
+        // 里先命中的是「明天」，按后者判会丢掉 +12，静默读成 08:00（差 12 小时）。
         if parsed.hour < 12,
            transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚")
-            || voiceDateWord(in: transcript)?.impliesEvening == true {
+            || voiceDateWords.contains(where: { $0.impliesEvening && transcript.contains($0.form) }) {
             parsed.hour += 12
         }
         return parsed
@@ -974,6 +976,8 @@ extension MockAPIClient {
 
     private static func chineseNumberValue(_ text: String) -> Int? {
         if let arabic = Int(text) { return arabic }
+        // 「零五」= 5（「一小时零五分钟」）。后端先把中文数字归一成阿拉伯数字，「零五」就是「05」。
+        if text.count > 1, text.hasPrefix("零") { return chineseNumberValue(String(text.dropFirst())) }
         let units = ["零": 0, "一": 1, "两": 2, "二": 2, "三": 3, "四": 4,
                      "五": 5, "六": 6, "七": 7, "八": 8, "九": 9]
         if let single = units[text] { return single }
@@ -1050,8 +1054,9 @@ extension MockAPIClient {
         guard let hourRange = transcript.range(of: "小时") else { return 0 }
         let tail = transcript[hourRange.upperBound...]
         let numeral = tail.prefix(while: { numeralCharacters.contains($0) }).prefix(3)
+        // 后端是 `\d{1,2}`：三位数（「一小时100分钟」）不并，退回只算小时。
         guard tail.dropFirst(numeral.count).first == "分",
-              let minutes = chineseNumberValue(String(numeral)) else { return 0 }
+              let minutes = chineseNumberValue(String(numeral)), minutes < 100 else { return 0 }
         return minutes
     }
 
@@ -1059,10 +1064,16 @@ extension MockAPIClient {
     private static let numeralCharacters = "零一二两三四五六七八九十0123456789"
 
     /// 取某个后缀之前紧邻的数字，中文与阿拉伯数字都认。
-    /// 顺序敏感：`["个小时", "小时"]` 里「个小时」必须排前面，否则「1个小时」会在「小时」处
-    /// 往前吃到「个」而取不到数。
+    ///
+    /// 按各后缀**在原话里首次出现的位置**从左到右试，不是按列表顺序 —— 对齐后端正则的最左匹配：
+    /// 「跑两小时，不对，三个小时」后端取最左的 2 小时，按列表顺序先试「个小时」会取到后面的 3。
+    /// 同一处「个小时」的起点在「小时」前面一个字，所以位置序同样保证「1个小时」先于「小时」
+    /// （否则「小时」处往前吃到「个」而取不到数）。
     private static func numberBefore(_ suffixes: [String], in transcript: String) -> Int? {
-        for suffix in suffixes {
+        let leftToRight = suffixes
+            .compactMap { suffix in transcript.range(of: suffix).map { (suffix, $0.lowerBound) } }
+            .sorted { $0.1 < $1.1 }
+        for (suffix, _) in leftToRight {
             if let value = chineseNumber(before: suffix, in: transcript), value > 0 {
                 return value
             }

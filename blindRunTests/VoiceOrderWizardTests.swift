@@ -1738,7 +1738,11 @@ final class VoiceOrderWizardTests: XCTestCase {
         // ② 时长按后端的模式顺序解析：小时后面紧跟的分钟 / 半不能丢。
         let durations: [(String, Int)] = [
             ("跑两小时三十分钟", 150), ("跑1小时30分钟", 90), ("跑一小时十分钟", 70),
-            ("跑一小时半", 90), ("跑两个小时半", 150), ("跑两个半小时", 150)
+            ("跑一小时半", 90), ("跑两个小时半", 150), ("跑两个半小时", 150),
+            // 「零五」= 5；三位数分钟后端 `\d{1,2}` 不并（退回只算小时）。
+            ("跑一小时零五分钟", 65), ("跑一小时100分钟", 60),
+            // 同句两个时长：取最左的（后端正则最左匹配），不是按后缀列表顺序先试「个小时」。
+            ("跑两小时，不对，三个小时", 120), ("跑一小时，不对，两个小时", 60)
         ]
         for (transcript, expected) in durations {
             XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: transcript), expected, "「\(transcript)」")
@@ -1763,6 +1767,12 @@ final class VoiceOrderWizardTests: XCTestCase {
                     "「\(transcript)」后端不认，Mock 不许读成别的钟点"
                 )
             }
+            // 「明晚」的 +12 看的是原话里有没有这个词，不是第一个命中的日期词：
+            // 「不是明天，是明晚八点」先命中「明天」，按后者判会丢 +12 读成 08:00（差 12 小时）。
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceStartTime(in: "不是明天，是明晚八点").map(MockAPIClient.mockBackendLocalDateTime),
+                "2026-07-25T20:00:00"
+            )
             // 日期词表里的「明早 / 明晚」不受影响（上一个用例已钉 十一/八/八点半/一刻）。
             XCTAssertEqual(
                 MockAPIClient.mockVoiceStartTime(in: "明晚十二点").map(MockAPIClient.mockBackendLocalDateTime),
