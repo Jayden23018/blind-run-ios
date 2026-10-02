@@ -1697,6 +1697,35 @@ final class VoiceOrderWizardTests: XCTestCase {
         }
     }
 
+    /// 语料之外的两处回归（2026-10-02 #294 审查）。都是「说了 X，读回念成别的」的静默错读：
+    /// 1. 「明早/明晚」是日期词，紧挨数字的「早/晚」不能当程度副词（「早一点」「晚一点」）拦掉 ——
+    ///    否则「明晚十一点」缩到末位读成 1 点再 +12 = 13:00，「明晚八点」则整句认输。
+    ///    守卫本身（「慢1点」「晚一点跑」不造出时刻）由上面的 none 清单继续钉着。
+    /// 2. 「两个半钟头」归一成「两个半小时」后不能落进「半小时」→ 30，要读成 150。
+    func testDateWordPrefixDoesNotTripTheDegreeGuardAndNHalfHoursKeepsTheIntegerPart() {
+        withCorpusClock {
+            let cases: [(transcript: String, expected: String)] = [
+                ("明晚十一点", "2026-07-25T23:00:00"),
+                ("明早十一点", "2026-07-25T11:00:00"),
+                ("明晚八点", "2026-07-25T20:00:00"),
+                ("明早八点半", "2026-07-25T08:30:00"),
+                ("明晚八点一刻", "2026-07-25T20:15:00")
+            ]
+            for testCase in cases {
+                XCTAssertEqual(
+                    MockAPIClient.mockVoiceStartTime(in: testCase.transcript).map(MockAPIClient.mockBackendLocalDateTime),
+                    testCase.expected,
+                    "「\(testCase.transcript)」（now=\(Self.corpusNow)）应为 \(testCase.expected)"
+                )
+            }
+            // 没有日期词时守卫照旧：「晚一点跑」的「一点」不许被放行成 1 点。
+            XCTAssertNil(MockAPIClient.mockVoiceStartTime(in: "晚一点跑"))
+        }
+        XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑两个半钟头"), 150)
+        XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑3个半小时"), 210)
+        XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑半个钟头"), 30)
+    }
+
     /// ADDRESS 9 条。语料只断言**剥壳抽取**，不断言地理编码结果（语料 `_address_note`）：
     /// 抽出「五角场」而 Mock 的地点表里查不到坐标，正是线上「抽到 span 但正向编码失败」的同形场景。
     func testMockAddressSpanExtractionMatchesTheBackendGoldenCorpus() {

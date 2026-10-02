@@ -927,16 +927,23 @@ extension MockAPIClient {
     ///   只收「慢快早晚」四个字，刻意**不收「多少」**（会误杀「差不多1点」）。
     ///   时长那几个后缀（分钟后 / 小时后）不开，那里没有这个歧义。
     private static func trailingNumber(in head: String, blockingDegreeLeadIn: Bool = false) -> Int? {
-        let digits = head.reversed().prefix(3).reversed().map(String.init)
+        let chars = Array(head)
+        let digits = chars.suffix(3).map(String.init)
         for start in 0..<digits.count {
             let candidate = digits[start...].joined()
             guard let value = chineseNumberValue(candidate) else { continue }
+            // 「明早」「明晚」是日期词，紧挨着数字的「早/晚」属于它，不是程度副词（后端 #472：
+            // 只在没有日期词时才判 `isDegreeLeadIn`）。不豁免的话「明晚十一点」会被守卫挡掉
+            // 「十一」、缩到末位读成 1 点，再补 +12 → 13:00，静默读错小时。
+            let guardIndex = chars.count - digits.count + start - 1
+            let isDateWord = guardIndex >= 1 && chars[guardIndex - 1] == "明"
+                && (chars[guardIndex] == "早" || chars[guardIndex] == "晚")
             // ⚠️「跑1.5小时」不许被读成 5 小时 = 300 分钟。而 300 正好是 `MAX_DURATION_MINUTES`，
             // 范围校验拦不住 —— 用户说 1.5 小时，读回却说 5 小时，是一次**静默篡改**。
             // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:94`）：
             // 只挡「抽错」，不新增「认小数时长」—— 落到追问是诚实的降级。
             if start > 0, digits[start - 1] == "." { continue }
-            if blockingDegreeLeadIn, start > 0, "慢快早晚".contains(digits[start - 1]) { continue }
+            if blockingDegreeLeadIn, start > 0, !isDateWord, "慢快早晚".contains(digits[start - 1]) { continue }
             return value
         }
         return nil
@@ -972,6 +979,9 @@ extension MockAPIClient {
             text.replacingOccurrences(of: form, with: String(form.first!) + "小时")
         }
         if transcript.contains("一个半小时") { return 90 }
+        // 「N个半小时」（后端 `HOUR_HALF_COMPOUND`）。不先判的话「两个半钟头」归一成「两个半小时」后
+        // 会落进下面的 `半小时` → 30 分钟：用户说 2.5 小时、读回念半小时。
+        if let hours = numberBefore(["个半小时"], in: transcript) { return hours * 60 + 30 }
         if transcript.contains("一小时二十分钟") { return 80 }
         if transcript.contains("两小时") || transcript.contains("两个小时") { return 120 }
         if transcript.contains("半小时") || transcript.contains("半个小时") { return 30 }
