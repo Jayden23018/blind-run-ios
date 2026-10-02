@@ -1726,6 +1726,61 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑半个钟头"), 30)
     }
 
+    /// #297：语料没覆盖、但后端有明确行为的三类形状。共同根因是 Mock 把同一份词表 / 判据手抄了多份、
+    /// 数字又只读一半 —— 每一类都挑**一个落在两种实现之间的取值**（旧实现读出另一个值，而不是只多一次追问）。
+    func testMockStaysAlignedWithTheBackendOnShapesTheCorpusDoesNotCover() {
+        // ① 日期词表同源：地址 span 的「像时间」判据要和解析处认同一批日期词。
+        //    「明早」在后端 TIME_LIKE 里，Mock 漏了 → 「明早」被当地名送去地理编码。
+        XCTAssertNil(MockAPIClient.mockVoiceAddressSpan(in: "从明早出发跑一个小时"))
+        XCTAssertNil(MockAPIClient.mockVoiceAddressSpan(in: "从明晚出发跑一个小时"))
+        XCTAssertEqual(MockAPIClient.mockVoiceAddressSpan(in: "从人民广场出发跑一个小时"), "人民广场")
+
+        // ② 时长按后端的模式顺序解析：小时后面紧跟的分钟 / 半不能丢。
+        let durations: [(String, Int)] = [
+            ("跑两小时三十分钟", 150), ("跑1小时30分钟", 90), ("跑一小时十分钟", 70),
+            ("跑一小时半", 90), ("跑两个小时半", 150), ("跑两个半小时", 150),
+            // 「零五」= 5；三位数分钟后端 `\d{1,2}` 不并（退回只算小时）。
+            ("跑一小时零五分钟", 65), ("跑一小时100分钟", 60),
+            // 同句两个时长：取最左的（后端正则最左匹配），不是按后缀列表顺序先试「个小时」。
+            ("跑两小时，不对，三个小时", 120), ("跑一小时，不对，两个小时", 60)
+        ]
+        for (transcript, expected) in durations {
+            XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: transcript), expected, "「\(transcript)」")
+        }
+
+        withCorpusClock {
+            // ②' 「半小时后」前面有「个」或数字时那个「半」属于「N个半」，不是 30 分钟后。
+            //    后端对「一个半小时后」返回 empty（走兜底），Mock 照样不认，而不是读成 30 分钟后。
+            XCTAssertNil(MockAPIClient.mockVoiceStartTime(in: "一个半小时后"))
+            XCTAssertNil(MockAPIClient.mockVoiceStartTime(in: "两个半小时后"))
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceStartTime(in: "半小时后").map(MockAPIClient.mockBackendLocalDateTime),
+                "2026-07-24T10:30:00"
+            )
+
+            // ③ 守卫拒绝的是整个数，不是缩到末位再读：「十一」被拒后不许退成「一」。
+            //    后端不认「今晚/今早」（不在日期词里，「晚/早」按程度副词挡掉）→ empty；
+            //    Mock 只对齐成同样的拒绝，真正支持它是后端功能。
+            for transcript in ["今晚十一点", "今晚11点", "今早十一点", "今晚八点", "晚十一点"] {
+                XCTAssertNil(
+                    MockAPIClient.mockVoiceStartTime(in: transcript),
+                    "「\(transcript)」后端不认，Mock 不许读成别的钟点"
+                )
+            }
+            // 「明晚」的 +12 看的是原话里有没有这个词，不是第一个命中的日期词：
+            // 「不是明天，是明晚八点」先命中「明天」，按后者判会丢 +12 读成 08:00（差 12 小时）。
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceStartTime(in: "不是明天，是明晚八点").map(MockAPIClient.mockBackendLocalDateTime),
+                "2026-07-25T20:00:00"
+            )
+            // 日期词表里的「明早 / 明晚」不受影响（上一个用例已钉 十一/八/八点半/一刻）。
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceStartTime(in: "明晚十二点").map(MockAPIClient.mockBackendLocalDateTime),
+                "2026-07-25T12:00:00"
+            )
+        }
+    }
+
     /// ADDRESS 9 条。语料只断言**剥壳抽取**，不断言地理编码结果（语料 `_address_note`）：
     /// 抽出「五角场」而 Mock 的地点表里查不到坐标，正是线上「抽到 span 但正向编码失败」的同形场景。
     func testMockAddressSpanExtractionMatchesTheBackendGoldenCorpus() {
