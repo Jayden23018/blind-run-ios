@@ -1475,7 +1475,7 @@ final class VoiceOrderWizardTests: XCTestCase {
 
     // MARK: - 与后端黄金语料对齐
 
-    // 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像，**五族 96 条全覆盖**。
+    // 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像，**五族 115 条全覆盖**。
     //
     // 锁的是 **Mock 不许比真实解析器松或紧**：Mock 认得的说法真机上也要认得，Mock 认不得的
     // （语料里 `source: "llm"` 那几条）在开发期就该走到 `needReask` 分支，否则向导的重问路径
@@ -1511,7 +1511,14 @@ final class VoiceOrderWizardTests: XCTestCase {
             // 起终点同现的三条：时长要照常抽出来，不受多出来的那个地点影响。
             ("明天早上8:00从人民广场跑到五角场，跑四十分钟", 40),
             ("明天早上8:00跑到五角场，从人民广场出发，跑四十分钟", 40),
-            ("明天下午三点跑到中山公园，跑半小时", 30)
+            ("明天下午三点跑到中山公园，跑半小时", 30),
+            // 2026-10-02 后端 #472：「半个小时」与口语「钟/钟头」（= 小时）。
+            ("后天早上7:30在阳光棕榈园跑半个小时", 30),
+            ("跑半个小时就行", 30),
+            ("明天早上8:00从人民广场出发跑一个钟", 60),
+            ("明天早上8:00从人民广场出发跑一个钟头", 60),
+            ("跑一个半钟头", 90),
+            ("跑两个钟头", 120)
         ]
 
         for testCase in regexCases {
@@ -1600,7 +1607,14 @@ final class VoiceOrderWizardTests: XCTestCase {
                 // 负向前瞻专门把它从「第 N 天」黑名单里放行出来 —— 放行了却不认，
                 // 就等于「只取钟点、把日期当没说」，正是那条黑名单要防的静默篡改。
                 ("第二天早上八点", "2026-07-25T08:00:00"),
-                ("第二天的九点钟", "2026-07-25T09:00:00")
+                ("第二天的九点钟", "2026-07-25T09:00:00"),
+                // 2026-10-02 后端 #472：「半个小时后」、「明早/明晚」（日期与时段写在一个词里，
+                // 「明晚」的 +12 要单补）、「X点一刻/三刻」（此前被静默读成整点 X:00）。
+                ("半个小时后", "2026-07-24T10:30:00"),
+                ("明早8:00从人民广场出发跑一个小时", "2026-07-25T08:00:00"),
+                ("明晚7:30", "2026-07-25T19:30:00"),
+                ("明天早上八点一刻", "2026-07-25T08:15:00"),
+                ("明天早上八点三刻", "2026-07-25T08:45:00")
             ]
             for testCase in regexCases {
                 let parsed = MockAPIClient.mockVoiceStartTime(in: testCase.transcript)
@@ -1653,7 +1667,10 @@ final class VoiceOrderWizardTests: XCTestCase {
             // 「慢一点」变成「慢1点」正好落进「N点」分支 → 凌晨 1 点。用户根本没提时间，
             // 系统却造出一个能过提前量校验的时刻读给他听，同时「慢一点」还被配速正则认作 EASY
             // —— 同一句话上两条正则打架，时间那条赢了。
-            for transcript in ["跑慢一点", "快一点跑四十分钟", "晚一点跑", "早一点出发"] {
+            //
+            // 「八点两刻」（2026-10-02 后端 #472）是另一种：说了时间、但「两刻」不是合法刻数。
+            // 只取「八点」读成 08:00 是静默篡改，整体不认才对 —— 与上面几条同样断言 nil。
+            for transcript in ["跑慢一点", "快一点跑四十分钟", "晚一点跑", "早一点出发", "明天早上八点两刻"] {
                 XCTAssertNil(
                     MockAPIClient.mockVoiceStartTime(in: transcript),
                     "「\(transcript)」里没有时间表达，不该被解析出时刻"
@@ -1678,6 +1695,35 @@ final class VoiceOrderWizardTests: XCTestCase {
                 "显式说了「今天」就不该滚 —— 那是用户的明确选择，该由提前量校验去拒绝"
             )
         }
+    }
+
+    /// 语料之外的两处回归（2026-10-02 #294 审查）。都是「说了 X，读回念成别的」的静默错读：
+    /// 1. 「明早/明晚」是日期词，紧挨数字的「早/晚」不能当程度副词（「早一点」「晚一点」）拦掉 ——
+    ///    否则「明晚十一点」缩到末位读成 1 点再 +12 = 13:00，「明晚八点」则整句认输。
+    ///    守卫本身（「慢1点」「晚一点跑」不造出时刻）由上面的 none 清单继续钉着。
+    /// 2. 「两个半钟头」归一成「两个半小时」后不能落进「半小时」→ 30，要读成 150。
+    func testDateWordPrefixDoesNotTripTheDegreeGuardAndNHalfHoursKeepsTheIntegerPart() {
+        withCorpusClock {
+            let cases: [(transcript: String, expected: String)] = [
+                ("明晚十一点", "2026-07-25T23:00:00"),
+                ("明早十一点", "2026-07-25T11:00:00"),
+                ("明晚八点", "2026-07-25T20:00:00"),
+                ("明早八点半", "2026-07-25T08:30:00"),
+                ("明晚八点一刻", "2026-07-25T20:15:00")
+            ]
+            for testCase in cases {
+                XCTAssertEqual(
+                    MockAPIClient.mockVoiceStartTime(in: testCase.transcript).map(MockAPIClient.mockBackendLocalDateTime),
+                    testCase.expected,
+                    "「\(testCase.transcript)」（now=\(Self.corpusNow)）应为 \(testCase.expected)"
+                )
+            }
+            // 没有日期词时守卫照旧：「晚一点跑」的「一点」不许被放行成 1 点。
+            XCTAssertNil(MockAPIClient.mockVoiceStartTime(in: "晚一点跑"))
+        }
+        XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑两个半钟头"), 150)
+        XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑3个半小时"), 210)
+        XCTAssertEqual(MockAPIClient.mockVoiceMinutes(in: "跑半个钟头"), 30)
     }
 
     /// ADDRESS 9 条。语料只断言**剥壳抽取**，不断言地理编码结果（语料 `_address_note`）：

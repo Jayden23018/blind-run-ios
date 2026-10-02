@@ -773,7 +773,7 @@ extension MockAPIClient {
         // 这里再不认就等于「只取钟点、把日期当没说」，正是 ⓪ 要防的那个静默篡改。
         // 阿拉伯写法也要收：识别器把「第二天」渲染成「第2天」时，只认中文会静默丢掉日期。
         let dayOffset: Int? = transcript.contains("后天") ? 2
-            : transcript.contains("明天") ? 1
+            : transcript.contains("明天") || transcript.contains("明早") || transcript.contains("明晚") ? 1
             : transcript.contains("第二天") || transcript.contains("第2天") ? 1
             : transcript.contains("今天") ? 0
             : nil
@@ -812,8 +812,10 @@ extension MockAPIClient {
         guard var parsed = colonClockTime(in: transcript) ?? spokenClockTime(in: transcript) else {
             return nil
         }
+        // 「明晚」= 明天 + 晚上（后端 #472）：日期与时段写在同一个词里，+12 要单补。
         if parsed.hour < 12,
-           transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚") {
+           transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚")
+            || transcript.contains("明晚") {
             parsed.hour += 12
         }
         return parsed
@@ -888,6 +890,18 @@ extension MockAPIClient {
             let head = String(transcript[transcript.startIndex..<range.lowerBound])
             guard let hour = trailingNumber(in: head, blockingDegreeLeadIn: true),
                   (1...24).contains(hour) else { continue }
+            // 「N点一刻」= :15、「N点三刻」= :45（后端 #472）。「两刻」「十一刻」这类不认的刻数
+            // **整体不匹配**（对应后端 `(?!\d*刻)`），不是只取「N点」—— 此前「八点一刻」就是这样
+            // 被静默读成 08:00，而用户说了 15 分、读回却念整点。`continue` 与后端一样继续找下一个「点」。
+            let afterDot = transcript[range.upperBound...]
+            let quarterDigits = afterDot.prefix(while: { "零一二两三四五六七八九十0123456789".contains($0) })
+            if afterDot.dropFirst(quarterDigits.count).first == "刻" {
+                switch quarterDigits {
+                case "一", "1": return (hour, 15)
+                case "三", "3": return (hour, 45)
+                default: continue
+                }
+            }
             // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
             // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
             // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
@@ -913,16 +927,23 @@ extension MockAPIClient {
     ///   只收「慢快早晚」四个字，刻意**不收「多少」**（会误杀「差不多1点」）。
     ///   时长那几个后缀（分钟后 / 小时后）不开，那里没有这个歧义。
     private static func trailingNumber(in head: String, blockingDegreeLeadIn: Bool = false) -> Int? {
-        let digits = head.reversed().prefix(3).reversed().map(String.init)
+        let chars = Array(head)
+        let digits = chars.suffix(3).map(String.init)
         for start in 0..<digits.count {
             let candidate = digits[start...].joined()
             guard let value = chineseNumberValue(candidate) else { continue }
+            // 「明早」「明晚」是日期词，紧挨着数字的「早/晚」属于它，不是程度副词（后端 #472：
+            // 只在没有日期词时才判 `isDegreeLeadIn`）。不豁免的话「明晚十一点」会被守卫挡掉
+            // 「十一」、缩到末位读成 1 点，再补 +12 → 13:00，静默读错小时。
+            let guardIndex = chars.count - digits.count + start - 1
+            let isDateWord = guardIndex >= 1 && chars[guardIndex - 1] == "明"
+                && (chars[guardIndex] == "早" || chars[guardIndex] == "晚")
             // ⚠️「跑1.5小时」不许被读成 5 小时 = 300 分钟。而 300 正好是 `MAX_DURATION_MINUTES`，
             // 范围校验拦不住 —— 用户说 1.5 小时，读回却说 5 小时，是一次**静默篡改**。
             // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:94`）：
             // 只挡「抽错」，不新增「认小数时长」—— 落到追问是诚实的降级。
             if start > 0, digits[start - 1] == "." { continue }
-            if blockingDegreeLeadIn, start > 0, "慢快早晚".contains(digits[start - 1]) { continue }
+            if blockingDegreeLeadIn, start > 0, !isDateWord, "慢快早晚".contains(digits[start - 1]) { continue }
             return value
         }
         return nil
@@ -951,10 +972,19 @@ extension MockAPIClient {
     /// Mock 与真实解析器漂移会让开发期调通的向导在真机上走不通，`VoiceOrderWizardTests` 锁了这份对齐。
     /// 顺序有意义：「一个半小时」必须排在「半小时」「一小时」之前，否则会被前缀吃掉。
     static func mockVoiceMinutes(in transcript: String) -> Int? {
+        // 「一个钟」「一个钟头」「一个半钟头」「半个钟头」里的「钟/钟头」就是小时（后端 #472
+        // `HOUR_COLLOQUIAL = (?<=[个半])钟头?`）。只收紧跟「个/半」的：「八点钟」「分钟」不受影响。
+        // 长的在前：「个钟头」不先换，会被「个钟」吃掉一半留下一个「头」。
+        let transcript = ["个钟头", "半钟头", "个钟", "半钟"].reduce(transcript) { text, form in
+            text.replacingOccurrences(of: form, with: String(form.first!) + "小时")
+        }
         if transcript.contains("一个半小时") { return 90 }
+        // 「N个半小时」（后端 `HOUR_HALF_COMPOUND`）。不先判的话「两个半钟头」归一成「两个半小时」后
+        // 会落进下面的 `半小时` → 30 分钟：用户说 2.5 小时、读回念半小时。
+        if let hours = numberBefore(["个半小时"], in: transcript) { return hours * 60 + 30 }
         if transcript.contains("一小时二十分钟") { return 80 }
         if transcript.contains("两小时") || transcript.contains("两个小时") { return 120 }
-        if transcript.contains("半小时") { return 30 }
+        if transcript.contains("半小时") || transcript.contains("半个小时") { return 30 }
         if transcript.contains("一小时") || transcript.contains("一个小时") { return 60 }
         if transcript.contains("四十分钟") { return 40 }
         if transcript.contains("二十分钟") { return 20 }
