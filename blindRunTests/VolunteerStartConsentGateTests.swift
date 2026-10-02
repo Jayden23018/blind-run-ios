@@ -64,6 +64,19 @@ final class VolunteerStartConsentGateTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(service.callCount("orderDetail(orderId:)"), 1, "收到点头后要立刻重拉订单")
     }
 
+    /// 信封不带 `orderId`，所以「别的订单」的点头只能靠「当前不是汇合态」挡掉。
+    /// 判据是**不重拉订单**：该状态下标志本来就被 `didSet` 清成 false，唯一可观察的差别就是有没有去拉。
+    func testConsentNotificationIsIgnoredWhenTheCurrentOrderIsNotArrived() async throws {
+        let (viewModel, service, socket) = makeViewModel(startError: "BLIND_CONFIRMATION_PENDING")
+        viewModel.order = Self.makeOrder(status: .inProgress)
+        XCTAssertEqual(service.callCount("orderDetail(orderId:)"), 0, "前提：configure 路径本身不拉订单")
+
+        socket.simulateIncomingEventForTesting(.notification(Self.consentNotification()))
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(service.callCount("orderDetail(orderId:)"), 0)
+    }
+
     func testWaitingCaptionIsDroppedWhenTheOrderLeavesTheArrivedState() async {
         let (viewModel, _, _) = makeViewModel(startError: "BLIND_CONFIRMATION_PENDING")
         await viewModel.startService()

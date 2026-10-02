@@ -321,7 +321,8 @@ enum ErrorCode: String, Codable, Sendable {
         case .endWaitTooEarly:
             return "还没等满时限。到时间后按钮会换成「结束等待」。"
         case .serviceStartTooEarly:
-            // 不说「到点按钮会亮」：后端没有下发最早可操作时刻，按钮不会自己变。
+            // 不说「到点按钮会亮」：后端没有结构化的最早可操作时刻字段，按钮不会自己变。
+            // （后端 409 的 `message` 里带了具体时刻，但 `APIError.localizedMessage` 识别出错误码后用本地文案，那句被覆盖了。）
             return "还没到可以开始陪跑的时间，请稍后再按。"
         case .blindConfirmationPending:
             return "还需要对方在手机上确认可以开始，请稍等，或打电话请对方确认。"
