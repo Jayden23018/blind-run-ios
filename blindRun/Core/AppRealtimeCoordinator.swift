@@ -439,6 +439,14 @@ final class AppRealtimeCoordinator: ObservableObject {
     var orderLiveUpdatePublisher: AnyPublisher<RealtimeOrderLiveUpdate, Never> {
         orderLiveUpdateSubject.eraseToAnyPublisher()
     }
+    /// 盲人点了「可以开始」（后端 #307 ①）。**不带订单号**：该事件的信封里没有 `orderId`
+    /// （`websocket-protocol.md`，早于 orderId 约定），消费方自己判「当前是不是汇合态」。
+    /// 通知本身照常入队播报，这条只是让页面把「等待对方确认」收回去。
+    private let blindStartConfirmedSubject = PassthroughSubject<Void, Never>()
+    var blindStartConfirmedPublisher: AnyPublisher<Void, Never> {
+        blindStartConfirmedSubject.eraseToAnyPublisher()
+    }
+    static let blindStartConfirmedEventType = "BLIND_START_CONFIRMED"
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
     var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
@@ -881,6 +889,7 @@ final class AppRealtimeCoordinator: ObservableObject {
             requestOrderRefresh(orderId, reason: .statusChanged)
         }
         if Self.refreshOnlyEventTypes.contains(eventType) { return }
+        if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
             routeEscortAlert(message, eventType: eventType)
             return

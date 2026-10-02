@@ -38,6 +38,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     /// 同一次流转不许被提交第二次（`testVolunteerServiceRemainsInteractiveWhenTransitionConfirmationNeverReturns`）。
     /// 走 `.disabled()`：VoiceOver 会念「变暗」，静默 return 在读屏里是一个正常按钮、双击没反应。
     var isPrimaryEnabled: Bool = true
+    /// 「开始跑步」按下后后端答 `BLIND_CONFIRMATION_PENDING`：按钮上方小字换成「等待对方确认」，按钮仍可按。
+    var awaitingBlindConfirmation: Bool = false
     /// 信息卡之后那块「刚才那一下的结果」。**这一页唯一的可见失败面**，少了它失败只剩一句 TTS。
     @ViewBuilder let footer: () -> Footer
 
@@ -473,7 +475,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     private var bottomActions: some View {
         VStack(spacing: 8) {
             if let action = presentation.primaryAction {
-                if let caption = action.caption {
+                let actionCaption = action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation)
+                if let caption = actionCaption {
                     Text(caption)
                         .flowFont(FlowV2Fonts.subhead())
                         .foregroundColor(AppColors.Flow.secondaryText)
@@ -488,7 +491,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     style: action == .alreadyDeparted ? .outlined : .raisedPrimary,
                     isLoading: isPrimaryLoading,
                     isEnabled: isPrimaryEnabled,
-                    accessibilityHint: [action.caption, primaryActionHint(action)]
+                    accessibilityHint: [actionCaption, primaryActionHint(action)]
                         .compactMap { $0 }.joined(separator: "。").nilIfBlank,
                     action: onPrimaryAction
                 )

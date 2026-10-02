@@ -844,6 +844,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 按下「我出发了」成功后订单落到 `DRIVER_EN_ROUTE`，卡就是从这里起的。
     @Published var order: OrderDetailResponse? {
         didSet {
+            // 「等待对方确认」只在汇合态成立：订单离开 `DRIVER_ARRIVED`（开跑 / 取消 / 重派）就作废。
+            if order?.status != .driverArrived { awaitingBlindConfirmation = false }
             guard #available(iOS 16.2, *) else { return }
             // 置 nil 的唯一来源是出发 / 汇合后被重派（`REMATCHING`）—— 那张卡必须跟着结束。
             guard let order else {
@@ -865,6 +867,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published private(set) var blindStats: TrackStats?
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
     @Published private(set) var isAcknowledgingEmergency = false
+    /// 按下「开始跑步」后后端答 409 `BLIND_CONFIRMATION_PENDING`（盲人还没点头，后端 #307 ①）。
+    /// 页面据此把按钮上方小字换成「等待对方确认」；**按钮不置灰**，对方随时可能点。
+    /// 收到 WS `BLIND_START_CONFIRMED`、或订单离开 `DRIVER_ARRIVED` 时清除。
+    @Published private(set) var awaitingBlindConfirmation = false
+    private var blindStartConfirmedCancellable: AnyCancellable?
 
     // 陪跑员订单页 v2（交付包 02 ③④）。
     /// 跑者最近一次位置的精度（米），汇合页方位盘的扇形宽度用它。与 `latestBlindSample` 同生同灭。
@@ -988,6 +995,18 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 .sink { [weak self] update in
                     guard let self, let current = self.order else { return }
                     self.order = current.merging(update)
+                }
+        }
+        // 盲人点了「可以开始」（`BLIND_START_CONFIRMED`）。该事件信封**不带 `orderId`**
+        // （`websocket-protocol.md`，早于 orderId 约定），所以只认「当前这张是汇合态」；
+        // 陪跑员同一时刻只会有一张汇合态订单（`VOLUNTEER_ALREADY_ENGAGED` 时段闸）。
+        if blindStartConfirmedCancellable == nil {
+            blindStartConfirmedCancellable = appState.realtimeCoordinator.blindStartConfirmedPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] in
+                    guard let self, let order = self.order, order.status == .driverArrived else { return }
+                    self.awaitingBlindConfirmation = false
+                    Task { await self.load(orderId: order.orderId, speakChanges: false) }
                 }
         }
         // 走散提示条的驱动（V7：沿用现有告警，阈值不改）。`dropFirst`：订阅时吐出的是旧告警，
@@ -1503,6 +1522,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
             case .serverError, .rateLimited, .unknown, .invalidURL, .missingCredentials:
                 transitionState = .failed(message: error.localizedMessage)
                 errorMessage = error.localizedMessage
+                // 只有 `start-service` 会答这个码。按钮不置灰，换的是按钮上方那行小字。
+                if error.errorCode == .blindConfirmationPending { awaitingBlindConfirmation = true }
                 speechService?.speakError(error.localizedMessage)
             case .unauthorized:
                 transitionState = .failed(message: error.localizedMessage)
@@ -1995,6 +2016,7 @@ struct VolunteerInServiceView: View {
                 // POST 回来了但确认那条 GET 还挂着的那几秒里，同一次流转不许被提交第二次。
                 isPrimaryLoading: viewModel.isPerformingAction,
                 isPrimaryEnabled: !viewModel.isTransitionPending,
+                awaitingBlindConfirmation: viewModel.awaitingBlindConfirmation,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
                 footer: { flowFooter(showsNudgeNotice: meet == nil) }
             )
