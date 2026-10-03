@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_BUNDLE_ID="com.jerry.aidrun"
-UI_TEST_RUNNER_BUNDLE_ID="com.jerry.aidrun.uitests.xctrunner"
+APP_BUNDLE_ID="com.culiu-tech.aidrun1"
+UI_TEST_RUNNER_BUNDLE_ID="com.culiu-tech.aidrun1.uitests.xctrunner"
 
 # pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（AGENTS §9 行级冻结，不许改工程文件），
 # 必须在命令行覆盖。注意：只当环境变量前缀不生效，得作为**构建设置参数**传给 xcodebuild。
@@ -13,13 +13,13 @@ hash_app_state() {
   local destination="$2"
   local transfer_dir
   transfer_dir="$(mktemp -d)"
-  local plist="${transfer_dir}/com.jerry.aidrun.plist"
+  local plist="${transfer_dir}/com.culiu-tech.aidrun1.plist"
 
   if ! xcrun devicectl device copy from \
     --device "${device}" \
     --domain-type appDataContainer \
     --domain-identifier "${APP_BUNDLE_ID}" \
-    --source "Library/Preferences/com.jerry.aidrun.plist" \
+    --source "Library/Preferences/com.culiu-tech.aidrun1.plist" \
     --destination "${plist}" \
     --quiet; then
     printf '%s\n' "APP_STATE_MISSING" | shasum -a 256 | awk '{print $1}' > "${destination}"

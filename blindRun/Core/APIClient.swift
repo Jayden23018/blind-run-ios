@@ -37,7 +37,7 @@ struct NetworkDiagnosticEvent: Sendable, Equatable {
 actor NetworkDiagnosticRecorder {
     static let shared = NetworkDiagnosticRecorder()
 
-    private let logger = Logger(subsystem: "com.jerry.aidrun", category: "network")
+    private let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "network")
     private var events: [NetworkDiagnosticEvent] = []
     private let capacity = 50
 

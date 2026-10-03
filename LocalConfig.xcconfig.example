@@ -11,7 +11,7 @@
 // 获取高德地图 Key:
 // - 前往 https://console.amap.com/
 // - 创建 iOS 应用
-// - 获取 iOS Key（需要填写 Bundle Identifier: com.jerry.aidrun）
+// - 获取 iOS Key（需要填写 Bundle Identifier: com.culiu-tech.aidrun1）
 //
 // CocoaPods 集成说明:
 // - 项目使用 CocoaPods 管理高德 SDK 依赖
