@@ -83,7 +83,9 @@ struct VolunteerRunRecordContent {
             spokenTitle = title
         }
         runnerInitial = name.flatMap(\.first).map(String.init)
-        volunteerInitial = record.volunteerName.flatMap(\.first).map(String.init)
+        // 这一页只给陪跑员本人看，自己那枚写「我」（同 `RopeView`）。取 `volunteerName` 首字时，
+        // 后端默认昵称「用户xxxx」与跑者的「用*****」撞成两个「用」（2026-10-03 试用反馈）。
+        volunteerInitial = "我"
 
         let start = (record.runStartedAt ?? record.service.startedAt)?.backendTimestamp
         subtitle = [start.map(Self.dateTimeFormatter.string(from:)), record.place]

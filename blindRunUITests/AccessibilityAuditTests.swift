@@ -1966,7 +1966,7 @@ final class AccessibilityAuditTests: XCTestCase {
         // 默认 `preseedVolunteerAvailable` 为真，那会渲染成「进入接单」那一枚 —— 要的是关闭态。
         let app = launchVolunteerHome(available: false)
 
-        let slider = app.buttons["向右滑动，开始接单"]
+        let slider = app.buttons["向右滑动，我现在有空陪跑"]
         XCTAssertTrue(
             slider.waitForExistence(timeout: 25),
             "滑动 CTA 在无障碍树里不是按钮 —— 不触碰屏幕的用户没有任何办法开启可服务开关"
@@ -2016,7 +2016,7 @@ final class AccessibilityAuditTests: XCTestCase {
             )
 
         XCTAssertTrue(
-            app.buttons["向右滑动，开始接单"].waitForExistence(timeout: 15),
+            app.buttons["向右滑动，我现在有空陪跑"].waitForExistence(timeout: 15),
             "向左滑没有停止接单"
         )
         XCTAssertEqual(app.alerts.count, 0, "停止接单不得弹任何挽留对话框")

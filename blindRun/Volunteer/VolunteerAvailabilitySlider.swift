@@ -95,7 +95,8 @@ enum VolunteerAvailabilitySlide {
 extension VolunteerAvailabilityCopy {
     /// 未开启时的静止态。是**邀请**不是指令 —— 志愿者是无偿的，命令句式属于 controlling 型激励
     /// （Motivation Crowding，`docs/research/volunteer-home-incentive-layer-20260914.md` §3.2）。
-    static let slideToOpenTitle = "向右滑动，开始接单"
+    /// 2026-10-03 负责人按试用反馈改掉「开始接单」：像外卖派活，少了公益的温度。只改这一句，其余仍叫接单。
+    static let slideToOpenTitle = "向右滑动，我现在有空陪跑"
 
     /// 向右拖过阈值之后。
     static let slideReleaseToOpenTitle = "松手即开启"
