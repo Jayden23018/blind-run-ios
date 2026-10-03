@@ -568,7 +568,8 @@ private struct UnfinishedBookingRow: View {
 
 /// 陪跑员行左侧的路线缩略图。纯 `Path`，不用高德截图（负责人 2026-09-24 拍板，
 /// 依据 `docs/research/amap-snapshot-for-list-thumbnail-20260924.md`）。
-/// 没有点（超过 90 天留存期 / 后端这次没补算）时只画底块，保持各行对齐。
+/// 画不出路线（没有点：超过 90 天留存期 / 后端没补算；或所有点重合：只跑了几秒）时
+/// 画一个跑步图标。只画底块或一个小点看起来像图片加载失败（2026-10-03 试用反馈）。
 struct RunRouteThumbnail: View {
     let points: [RunLatLng]?
 
@@ -576,10 +577,14 @@ struct RunRouteThumbnail: View {
         ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(AppColors.secondaryBackground)
-            if let points, !points.isEmpty {
+            if let points, RunRouteShape.hasExtent(points) {
                 RunRouteShape(points: points)
                     .stroke(AppColors.paceFast, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                     .padding(7)
+            } else {
+                Image(systemName: "figure.run")
+                    .font(.title3)
+                    .foregroundColor(AppColors.textSecondary)
             }
         }
     }
@@ -587,6 +592,21 @@ struct RunRouteThumbnail: View {
 
 nonisolated struct RunRouteShape: Shape {
     let points: [RunLatLng]
+
+    /// 路线外框短于这个长度时不画线：只跑了几秒的单，定位抖动会被 `project` 放大成满格的乱线。
+    static let minimumDrawableSpanMeters = 10.0
+
+    /// 外框（纬向 / 经向取大）够长，才画得出一条有意义的线。
+    static func hasExtent(_ points: [RunLatLng]) -> Bool {
+        let lats = points.map(\.lat)
+        let lngs = points.map(\.lng)
+        guard let minLat = lats.min(), let maxLat = lats.max(),
+              let minLng = lngs.min(), let maxLng = lngs.max() else { return false }
+        let metersPerDegree = 111_000.0
+        let latSpan = (maxLat - minLat) * metersPerDegree
+        let lngSpan = (maxLng - minLng) * metersPerDegree * cos((minLat + maxLat) / 2 * .pi / 180)
+        return max(latSpan, lngSpan) >= minimumDrawableSpanMeters
+    }
 
     func path(in rect: CGRect) -> Path {
         let mapped = Self.project(points, into: rect)

@@ -271,6 +271,17 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertEqual(RunRouteShape.project([], into: rect), [])
     }
 
+    /// 没有点、一个点、只有定位抖动（只跑了几秒）都画不出有意义的线，缩略图改画图标。
+    /// 阈值 10 米：取 5 米（应判否）和 20 米（应判是）两侧，换成「点不重合就画」的实现会在 5 米那条红。
+    func testThumbnailDrawsARouteOnlyWhenItSpansAtLeastTenMetres() {
+        let a = RunLatLng(lat: 22.5, lng: 113.9)
+        XCTAssertFalse(RunRouteShape.hasExtent([]))
+        XCTAssertFalse(RunRouteShape.hasExtent([a]))
+        XCTAssertFalse(RunRouteShape.hasExtent([a, a, a]))
+        XCTAssertFalse(RunRouteShape.hasExtent([a, RunLatLng(lat: 22.5 + 5.0 / 111_000, lng: 113.9)]), "5 米是抖动")
+        XCTAssertTrue(RunRouteShape.hasExtent([a, RunLatLng(lat: 22.5 + 20.0 / 111_000, lng: 113.9)]), "20 米是路线")
+    }
+
     // MARK: - Fixtures
 
     private func makeViewModel(
