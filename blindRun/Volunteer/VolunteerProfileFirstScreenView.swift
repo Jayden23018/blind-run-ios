@@ -369,7 +369,7 @@ struct VolunteerProfileFirstScreen: View {
     ) -> some View {
         let headline = VolunteerProfileHeadline.resolve(
             totalCompleted: achievements.totalCompleted,
-            totalDistanceMeters: achievements.totalDistanceMeters
+            totalServiceMinutes: achievements.totalServiceMinutes
         )
 
         VStack(alignment: .leading, spacing: 14) {
@@ -413,22 +413,22 @@ struct VolunteerProfileFirstScreen: View {
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-            case .completed(let count, let distanceKm):
+            case .completed(let count, let hours):
                 // 数字与量词同一行、量词小一号：主次靠**字号差**拉开，不靠卡片边框
                 // （调研 §2.1，Nike Run Club 的 `20.6` + `5'14"` 是同一形态）。
-                // 有里程时主数字是公里，次数退到下一行；没有里程时主数字仍是次数。
+                // 满 1 小时时主数字是陪伴时长，次数退到下一行；不足时主数字仍是次数。
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(distanceKm ?? Int64(count))")
+                    Text("\(hours ?? Int64(count))")
                         .font(AppFonts.largeTitle())
                         .foregroundColor(AppColors.textPrimary)
-                    Text(distanceKm == nil
+                    Text(hours == nil
                          ? VolunteerProfileCopy.heroUnit
-                         : VolunteerProfileCopy.heroDistanceUnit)
+                         : VolunteerProfileCopy.hoursUnit)
                         .font(AppFonts.body().weight(.semibold))
                         .foregroundColor(AppColors.textPrimary)
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                if distanceKm != nil {
+                if hours != nil {
                     Text(VolunteerProfileCopy.heroRunsDetail(count))
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.textSecondary)
@@ -486,10 +486,11 @@ struct VolunteerProfileFirstScreen: View {
 
     /// 国标星级。门槛由 GB/T 40143—2021 定、不由我们定、也不随用户表现漂移 ——
     /// 这正是它能替代「本月 N/M 次」那种 Moving Target 的原因（调研 §4.2）。
-    /// 文案整段复用成就页那一套，不新写第二份。
+    /// 到了一星以后文案复用成就页那一套；还没到一星时标题、进度、读屏走首屏自己的
+    /// `VolunteerProfileCopy.starCard*`（2026-10-03 试用反馈，成就页不变）。
     ///
     /// 🚩 **整张卡可点，去服务成就页。** 改版前「我的贡献」卡下有一条「查看服务成就 ›」，
-    /// 改版后只剩徽章标题旁那枚小链接，而人会去点的是写着「尚未达到一星」的这张卡本身
+    /// 改版后只剩徽章标题旁那枚小链接，而人会去点的是这张星级卡本身
     /// （真机反馈「以前可以点进去看，现在点不了」）。写法同 `trainingEntry`：
     /// `NavigationLink` 上不套 `.combine`，标签 / identifier 挂在链接本身。
     private func starCard(_ level: VolunteerStarLevelDto) -> some View {
@@ -499,7 +500,7 @@ struct VolunteerProfileFirstScreen: View {
             starCardBody(level)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(VolunteerAchievementsCopy.starAccessibilityLabel(level))
+        .accessibilityLabel(VolunteerProfileCopy.starCardAccessibilityLabel(level))
         .accessibilityHint(VolunteerProfileCopy.badgesLinkHint)
         .accessibilityIdentifier("volunteerProfileStarCard")
     }
@@ -508,7 +509,7 @@ struct VolunteerProfileFirstScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Label(
-                    VolunteerAchievementsCopy.starTitle(current: max(0, level.current ?? 0)),
+                    VolunteerProfileCopy.starCardTitle(level),
                     systemImage: "star.fill"
                 )
                 .font(AppFonts.body().weight(.semibold))
@@ -526,7 +527,7 @@ struct VolunteerProfileFirstScreen: View {
                 .tint(AppColors.warning)
                 .accessibilityHidden(true)
 
-            Text(VolunteerAchievementsCopy.starProgressText(level))
+            Text(VolunteerProfileCopy.starCardProgress(level))
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -618,7 +619,7 @@ struct VolunteerProfileFirstScreen: View {
         case .unlocked(let badge):
             badgeCellBody(
                 symbol: badge.symbolName,
-                caption: badge.displayName,
+                caption: VolunteerProfileBadgeRow.caption(name: badge.displayName),
                 isLocked: false,
                 spoken: VolunteerAchievementsCopy.badgeAccessibilityLabel(badge)
             )
@@ -640,7 +641,7 @@ struct VolunteerProfileFirstScreen: View {
     /// 未解锁那一格用虚线圈，形状差异不依赖色觉。
     private func badgeCellBody(
         symbol: String,
-        caption: String,
+        caption: VolunteerProfileBadgeRow.Caption,
         isLocked: Bool,
         spoken: String
     ) -> some View {
@@ -661,11 +662,18 @@ struct VolunteerProfileFirstScreen: View {
             }
             .frame(width: 48, height: 48)
 
-            Text(caption)
+            Text(caption.title)
                 .font(AppFonts.caption())
                 .foregroundColor(isLocked ? AppColors.textSecondary : AppColors.textPrimary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if let detail = caption.detail {
+                Text(detail)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .accessibilityElement(children: .combine)
