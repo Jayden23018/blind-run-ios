@@ -612,12 +612,13 @@ extension MockAPIClient {
     ///
     /// `\d{1,2}[:：][0-5]\d` 那一段是 2026-08-08 后端 PR #14 补的：只认「点」时，
     /// 「从8:00开始跑」的 span 抽出来是 `8:00`，判不出是时间就当地名送高德了。
-    /// 日期词段取自 `voiceDateWords`，比后端多收「第二天 / 第2天」—— 这个方向是安全的
+    /// 日期词段取自 `voiceDateWords`、时段词段取自 `voicePeriodWords`（后者含后端没有的「傍晚」），
+    /// 比后端多收「第二天 / 第2天」「傍晚」—— 这个方向是安全的
     /// （后端注释：误杀只是多走一次兜底，漏杀会把时间片送去高德）。
     private static let timeLikeRegex = try! Regex(
         "[0-9零一二两三四五六七八九十半]\\s*(?:点|分|小时|分钟)|\\d{1,2}[:：][0-5]\\d"
             + "|" + voiceDateWords.map(\.form).joined(separator: "|")
-            + "|上午|下午|早上|晚上|中午|凌晨"
+            + "|" + voicePeriodWords.map(\.form).joined(separator: "|")
     )
 
     /// 是否携带导盲犬。`nil` = 原话没提，与 `false`（本次明确不带）语义不同 ——
@@ -826,34 +827,56 @@ extension MockAPIClient {
         return nil
     }
 
+    /// 时段词表 —— **唯一来源**（与 `voiceDateWords` 同理）。`clockTime` 的 12 → 24 小时换算和
+    /// `timeLikeRegex` 的时段词都从它派生，加一个时段词只改这一处 —— 不然「凌晨」这类词会在
+    /// 判据与换算里各手抄一份，后端加词时只跟上一处（「明早/明晚」漏进 `timeLikeRegex` 就是这么漂的）。
+    /// 「傍晚」后端没有，Mock 多收（算下午）；方向安全，见 `timeLikeRegex`。
+    private enum VoicePeriod { case morning, noon, afternoon, dawn }
+
+    private static let voicePeriodWords: [(form: String, period: VoicePeriod)] = [
+        ("上午", .morning), ("早上", .morning), ("中午", .noon),
+        ("下午", .afternoon), ("傍晚", .afternoon), ("晚上", .afternoon),
+        ("凌晨", .dawn)
+    ]
+
+    /// 「中午」之后最晚到几点还算下午。对齐后端 `VoiceSlotParser.NOON_LAST_AFTERNOON_HOUR`。
+    private static let noonLastAfternoonHour = 4
+
+    /// 12 小时口语的钟点 → 24 小时制，由时段词决定。对应后端 `VoiceSlotParser.to24Hour`。
+    /// 时段词只决定「几点」，不决定「哪天」。
+    /// - 下午 / 晚上：`<12` 的 +12
+    /// - 中午：一~四点 +12；十 / 十一 / 十二点照旧。不换的话「中午一点」读成凌晨 01:00，
+    ///   值能过提前量校验、读回念得很顺的静默篡改
+    /// - 凌晨：整体不变，**只有 12 点是 0 点**：凌晨十二点 = 次日零点，不是正午
+    private static func to24Hour(_ hour: Int, period: VoicePeriod?) -> Int {
+        switch period {
+        case .afternoon: return hour < 12 ? hour + 12 : hour
+        case .noon: return hour <= noonLastAfternoonHour ? hour + 12 : hour
+        case .dawn: return hour == 12 ? 0 : hour
+        case .morning, nil: return hour
+        }
+    }
+
     /// 「八点半」「下午三点」「8:00」→ 24 小时制时分。时段词负责 12 小时制换算。
     private static func clockTime(in transcript: String) -> (hour: Int, minute: Int)? {
         guard var parsed = colonClockTime(in: transcript) ?? spokenClockTime(in: transcript) else {
             return nil
         }
+        // 原话里**最左**的时段词。
+        var period = voicePeriodWords
+            .compactMap { word in transcript.range(of: word.form).map { ($0.lowerBound, word.period) } }
+            .min { $0.0 < $1.0 }?.1
         // 「明晚」= 明天 + 晚上（后端 #472）：日期与时段写在同一个词里，+12 要单补 ——
         // 哪些日期词自带「晚上」由 `voiceDateWords` 的 `impliesEvening` 说了算。
         // 查的是「原话里有没有这样的词」，**不是**「第一个命中的日期词是不是」：「不是明天，是明晚八点」
         // 里先命中的是「明天」，按后者判会丢掉 +12，静默读成 08:00（差 12 小时）。
-        if parsed.hour < 12,
-           transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚")
-            || voiceDateWords.contains(where: { $0.impliesEvening && transcript.contains($0.form) }) {
-            parsed.hour += 12
+        if period == nil,
+           voiceDateWords.contains(where: { $0.impliesEvening && transcript.contains($0.form) }) {
+            period = .afternoon
         }
-        // 「中午」一~四点是 13~16 点（后端 `NOON_LAST_AFTERNOON_HOUR = 4`）；十 / 十一 / 十二点照旧是正午前后。
-        // 不处理的话「中午一点」读成凌晨 1 点 —— 值能过提前量校验、读回念得很顺的静默篡改。
-        if transcript.contains("中午"), parsed.hour <= noonLastAfternoonHour {
-            parsed.hour += 12
-        }
-        // 「凌晨」整体不变，**只有 12 点是 0 点**：凌晨十二点 = 次日零点，不是正午。
-        if transcript.contains("凌晨"), parsed.hour == 12 {
-            parsed.hour = 0
-        }
+        parsed.hour = to24Hour(parsed.hour, period: period)
         return parsed
     }
-
-    /// 「中午」之后最晚到几点还算下午。对齐后端 `VoiceSlotParser.NOON_LAST_AFTERNOON_HOUR`。
-    private static let noonLastAfternoonHour = 4
 
     /// 冒号钟点：`8:00`、`8：00`、`18:30`。
     ///
