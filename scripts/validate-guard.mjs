@@ -2,10 +2,9 @@
 //
 // scripts/hooks/guard.mjs 的回归测试。
 //
-// 为什么需要它：2026-08-05 把 project.pbxproj 从「整文件冻结」改成了「行级冻结」，
-// 好让 SPM 依赖能加进去，同时把签名团队号永久锁死。这个放宽本身就是风险点 ——
-// 万一哪次改动把行级判断改坏了，工程文件就等于完全敞开，而没有任何东西会报警。
+// 为什么需要它：守卫的每条规则都是「改坏了没有任何东西会报警」的类型，
 // AGENTS.md 第 1 节要求这类事落到机器归宿，这就是那个归宿。
+// （2026-10-03 起 project.pbxproj 已解冻，只剩 Podfile 整文件冻结与内容级规则。）
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -37,28 +36,12 @@ const cases = [
     }
   },
   {
-    name: 'pbxproj 写入签名团队号',
-    expect: 2,
+    // 2026-10-03 解冻（#302）：团队号改为 QW8R457UHN，pbxproj 不再有任何行被拦。
+    name: 'pbxproj 改签名团队号（已解冻，放行）',
+    expect: 0,
     input: {
       tool_name: 'Edit',
-      tool_input: { file_path: PBXPROJ, old_string: 'A', new_string: 'DEVELOPMENT_TEAM = ZW39BS8NXT;' }
-    }
-  },
-  {
-    // 只查 new_string 会漏掉这种：把那 12 行整段删掉，新内容里干干净净。
-    name: 'pbxproj 删掉签名团队行',
-    expect: 2,
-    input: {
-      tool_name: 'Edit',
-      tool_input: { file_path: PBXPROJ, old_string: 'DEVELOPMENT_TEAM = R6PH2TFB3Q;', new_string: '' }
-    }
-  },
-  {
-    name: 'pbxproj 整文件重写（Write 带全文，必然含签名团队号）',
-    expect: 2,
-    input: {
-      tool_name: 'Write',
-      tool_input: { file_path: PBXPROJ, content: '// !$*UTF8*$!\nDEVELOPMENT_TEAM = R6PH2TFB3Q;\n' }
+      tool_input: { file_path: PBXPROJ, old_string: 'DEVELOPMENT_TEAM = R6PH2TFB3Q;', new_string: 'DEVELOPMENT_TEAM = QW8R457UHN;' }
     }
   },
   {

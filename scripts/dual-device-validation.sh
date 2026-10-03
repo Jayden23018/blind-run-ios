@@ -4,7 +4,7 @@ set -euo pipefail
 # 环境变量：
 #   AIDRUN_BLIND_DEVICE_NAME      默认 111
 #   AIDRUN_VOLUNTEER_DEVICE_NAME  默认 iPad Pro (2)
-#   AIDRUN_TEAM                   默认 ZW39BS8NXT
+#   AIDRUN_TEAM                   默认 QW8R457UHN
 #
 # ⚠️ `DEVELOPMENT_TEAM` 必须作为**构建设置参数**传给 xcodebuild，不能只当环境变量前缀 ——
 # 环境变量前缀不生效，报的是 `No Account for Team "R6PH2TFB3Q"`（pbxproj 里写死的那个
@@ -13,7 +13,7 @@ set -euo pipefail
 
 BLIND_DEVICE="${AIDRUN_BLIND_DEVICE_NAME:-111}"
 VOLUNTEER_DEVICE="${AIDRUN_VOLUNTEER_DEVICE_NAME:-iPad Pro (2)}"
-TEAM="${AIDRUN_TEAM:-ZW39BS8NXT}"
+TEAM="${AIDRUN_TEAM:-QW8R457UHN}"
 export AIDRUN_TEAM="$TEAM"   # device-test-safety.sh 是独立进程，靠它读到同一个团队号
 SAFETY_SCRIPT="scripts/device-test-safety.sh"
 STATE_DIR="$(mktemp -d)"

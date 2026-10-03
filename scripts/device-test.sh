@@ -25,12 +25,11 @@ set -uo pipefail
 #                       取自 `xcrun xctrace list devices` 或本脚本失败时打印的 destination 列表。
 #                       格式不对会被下面的 preflight 直接拦住并给出正确取法。
 #   AIDRUN_SCHEME       默认 blindRun
-#   AIDRUN_TEAM         默认 ZW39BS8NXT（工程里写死的 R6PH2TFB3Q 是原开发者的团队，
-#                       用命令行覆盖，不要改 pbxproj）
+#   AIDRUN_TEAM         默认 QW8R457UHN（与 pbxproj 一致；换团队时用命令行覆盖）
 
 DEVICE_ID="${AIDRUN_DEVICE_ID:-00008140-000161D62112801C}"
 SCHEME="${AIDRUN_SCHEME:-blindRun}"
-TEAM="${AIDRUN_TEAM:-ZW39BS8NXT}"
+TEAM="${AIDRUN_TEAM:-QW8R457UHN}"
 WORKSPACE="blindRun.xcworkspace"
 LOG="$(mktemp -t aidrun-device-test)"
 # xcodebuild 要求 -resultBundlePath 指向一个**还不存在**的路径，所以只建父目录。

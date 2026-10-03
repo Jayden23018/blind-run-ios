@@ -4,9 +4,9 @@ set -euo pipefail
 APP_BUNDLE_ID="com.culiu-tech.aidrun1"
 UI_TEST_RUNNER_BUNDLE_ID="com.culiu-tech.aidrun1.uitests.xctrunner"
 
-# pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（AGENTS §9 行级冻结，不许改工程文件），
-# 必须在命令行覆盖。注意：只当环境变量前缀不生效，得作为**构建设置参数**传给 xcodebuild。
-TEAM="${AIDRUN_TEAM:-ZW39BS8NXT}"
+# 团队号与 pbxproj 一致（QW8R457UHN），换团队时在命令行覆盖。
+# 注意：只当环境变量前缀不生效，得作为**构建设置参数**传给 xcodebuild。
+TEAM="${AIDRUN_TEAM:-QW8R457UHN}"
 
 hash_app_state() {
   local device="$1"
