@@ -30,8 +30,26 @@ LOG="$PREPUSH_TMP/gate.log"
 run() {
   echo "[pre-push] $1"
   shift
+  _t0=$SECONDS
   "$@" >"$LOG" 2>&1 || { echo "[pre-push] ✗ 失败："; tail -n 15 "$LOG"; fail=1; }
+  # 逐道耗时：哪道慢一眼可见（2026-10-03 实测整套 2:43，CI 的 specs job 同样内容 36 秒）。
+  [ $((SECONDS - _t0)) -ge 5 ] && echo "[pre-push]   └ $((SECONDS - _t0)) 秒"
 }
+
+# 分档（2026-10-03）：CI 的 specs / build 两个 job 本来就把下面「自测 + swift test + 生成代码比对」
+# 全跑一遍，而 PR 一开 CI 马上跑、1 分钟内出 specs 结论。pre-push 每次 push 都重跑一遍
+# 只是让每个并行会话多等 1–2 分钟，且落后 main 的分支会因后端新增语料而误报红（rebase 后才绿）。
+# 所以默认只跑「改动触及才有意义」的部分：
+#   - 钩子/脚本自测：本次改了 scripts/ .claude/ .github/ 才跑
+#   - swift test + 生成代码比对：本次改了 API 包 / 生成脚本 / openapi 才跑
+#   - 其余（openspec、docs、读后端契约的 4 道门禁）永远跑，几秒钟的事
+# 全量：AIDRUN_PREPUSH_FULL=1 git push
+FULL="${AIDRUN_PREPUSH_FULL:-0}"
+CHANGED="$(git diff --name-only origin/main...HEAD 2>/dev/null || true)"
+# 取不到 diff（离线、没有 origin/main）时按全量跑，宁可慢不可漏。
+[ -z "$CHANGED" ] && FULL=1
+touches() { printf '%s\n' "$CHANGED" | grep -Eq "$1"; }
+TIERED_OUT=0
 
 # 校验脚本存在与否**随分支变化**，而 .git/hooks 不随 `git checkout` 变化。
 # 于是在 A 分支装的钩子，切到还没有那个校验脚本的 B 分支时会让 push 整个失败 ——
@@ -54,18 +72,30 @@ run_node() {
 run "openspec validate --all --strict" openspec validate --all --strict --no-interactive
 run_node "validate-docs" scripts/validate-docs.mjs
 run_node "validate-shell-varnames（变量名后紧跟全角字符的守卫）" scripts/validate-shell-varnames.mjs
-run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
-run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
-run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
-run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-research-log.mjs
-run_node "validate-design-reminder（设计方向提醒钩子自测）" scripts/validate-design-reminder.mjs
-run_node "validate-openspec-reminder（OpenSpec 闭环钩子自测）" scripts/validate-openspec-reminder.mjs
-run_node "validate-shared-checkout-guard（共享 checkout 守卫自测）" scripts/validate-shared-checkout-guard.mjs
-run_node "validate-worktree-localconfig（新 worktree 带 LocalConfig 钩子自测）" scripts/validate-worktree-localconfig.mjs
-run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
-run_node "validate-drift-fields（契约漂移字段归属自测）" scripts/validate-drift-fields.mjs
-run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
-run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
+if [ "$FULL" = "1" ] || touches '^(scripts/|\.claude/|\.github/)'; then
+  run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
+  run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
+  run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
+  run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-research-log.mjs
+  run_node "validate-design-reminder（设计方向提醒钩子自测）" scripts/validate-design-reminder.mjs
+  run_node "validate-openspec-reminder（OpenSpec 闭环钩子自测）" scripts/validate-openspec-reminder.mjs
+  run_node "validate-shared-checkout-guard（共享 checkout 守卫自测）" scripts/validate-shared-checkout-guard.mjs
+  run_node "validate-worktree-localconfig（新 worktree 带 LocalConfig 钩子自测）" scripts/validate-worktree-localconfig.mjs
+  run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
+  run_node "validate-drift-fields（契约漂移字段归属自测）" scripts/validate-drift-fields.mjs
+  run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
+else
+  echo "[pre-push] 跳过钩子/脚本自测：本次未改 scripts/ .claude/ .github/（CI specs job 会跑）"
+  TIERED_OUT=1
+fi
+if [ "$FULL" = "1" ] || touches '^(Packages/AidRunAPI/|scripts/(generate|sync)-api-client|\.claude/openapi/)'; then
+  run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
+  RUN_CLIENT_CHECK=1
+else
+  echo "[pre-push] 跳过 swift test 与生成代码比对：本次未改 API 包（CI build job 会跑）"
+  TIERED_OUT=1
+  RUN_CLIENT_CHECK=0
+fi
 
 # 下面这几道门禁读的后端契约文件（5 份，5 道门禁），
 # **一律取自后端仓库的 origin/main，不是 ../demo 的工作区文件**。
@@ -152,7 +182,9 @@ if [ -f "$SPEC" ]; then
   # 用 status --porcelain 而不是 diff：diff 看不见未跟踪文件，契约新增路径时会漏。
   GEN_DIR="Packages/AidRunAPI/Sources/AidRunAPI"
   echo "[pre-push] 重新生成 API 客户端并比对（契约取自 ${SPEC_SOURCE}）"
-  if scripts/generate-api-client.sh "$SPEC" >"$LOG" 2>&1; then
+  if [ "${RUN_CLIENT_CHECK:-1}" != "1" ]; then
+    echo "[pre-push]   └ 已按分档跳过"
+  elif scripts/generate-api-client.sh "$SPEC" >"$LOG" 2>&1; then
     DIRTY="$(git status --porcelain -- "$GEN_DIR")"
     if [ -n "$DIRTY" ]; then
       if [ "$BACKEND_WORKTREE" = "1" ] || [ -n "${AIDRUN_API_SPEC:-}" ]; then
@@ -219,5 +251,6 @@ if [ "$SKIPPED_GATES" -ne 0 ]; then
   echo "[pre-push] 跑过的都通过了，但**有 $SKIPPED_GATES 道门禁被跳过（见上面的 ⚠）**，别当成都验过了。"
   echo "          读后端契约的门禁被跳过，最常见的原因是 $BACKEND_DIR 不存在或不是后端 checkout；用 AIDRUN_BACKEND_DIR= 指到正确路径。"
 else
-  echo "[pre-push] 全部通过。提醒：编译通过 ≠ 测试通过，真机跑测用 scripts/device-test.sh。"
+  echo "[pre-push] 通过。提醒：编译通过 ≠ 测试通过，真机跑测用 scripts/device-test.sh。"
 fi
+[ "$TIERED_OUT" = "1" ] && echo "[pre-push] 有按分档跳过的项（见上），CI 会补跑；本地要全量：AIDRUN_PREPUSH_FULL=1 git push"
