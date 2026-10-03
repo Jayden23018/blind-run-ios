@@ -185,18 +185,8 @@ const rules = {
 // Podfile 保持整文件冻结：架构排除设置与 pod 列表都在里面，没有安全的局部改法。
 const FROZEN = [/(^|\/)Podfile$/];
 
-// project.pbxproj 自 2026-08-05 起改为行级冻结，不再整文件拦。
-//
-// 核对过 AGENTS.md 第 9 节列的两条理由，只有一条真的落在 pbxproj 里：
-//   · DEVELOPMENT_TEAM = R6PH2TFB3Q（12 处，原开发者的团队号）—— 成立
-//   · 架构排除设置 —— 在 pbxproj 里出现 0 次，它只存在于 Podfile:36
-//
-// 整文件冻结的代价是连加一个 SPM 依赖都做不到，而「临时解锁、改完加回来」
-// 依赖人记得加回来 —— 第 1 节说的就是这种挡不住重复犯错的做法。
-// 行级冻结让保护变成永久的：文件可以改，碰到签名团队号就拦。
-// 架构排除设置不必在这里重复挡，下面那条内容级规则对所有文件都生效。
-const PBXPROJ = /project\.pbxproj$/;
-const PBXPROJ_FROZEN_KEY = /DEVELOPMENT_TEAM/;
+// project.pbxproj 不再冻结：2026-08-05 起行级冻结 DEVELOPMENT_TEAM，2026-10-03 负责人解冻（#302），
+// 12 处团队号改为 QW8R457UHN。架构排除设置不必在这里重复挡，下面那条内容级规则对所有文件都生效。
 
 // 键名拼出来而不是写成字面量 —— 见下面用到它的地方的说明。
 const ARCH_EXCLUSION_KEY = new RegExp(['EXCLUDED', 'ARCHS'].join('_'));
@@ -383,16 +373,6 @@ function main() {
     }
 
     const body = input.content || input.new_string || '';
-
-    // 工程文件是行级冻结：允许加 SPM 依赖之类的段落，但签名团队号一个字都不许碰。
-    // old_string 也要查 —— 只看新内容会漏掉「把那 12 行删掉」这种改法。
-    if (PBXPROJ.test(filePath) && (PBXPROJ_FROZEN_KEY.test(body) || PBXPROJ_FROZEN_KEY.test(input.old_string || ''))) {
-      fail(
-        'frozen-files',
-        `${filePath}\n\n工程文件本身可以改，但这次改动碰到了 DEVELOPMENT_TEAM（AGENTS.md 第 9 节）。\n` +
-          `写死的 R6PH2TFB3Q 是原开发者的团队号。用命令行传 DEVELOPMENT_TEAM=ZW39BS8NXT 覆盖，不要改工程文件。`
-      );
-    }
 
     // 架构排除设置：任何构建相关文件都不许写，它是「模拟器永久不可用」这个事实的载体。
     //
@@ -693,8 +673,8 @@ function main() {
 
     // 7. 脚本里调 xcodebuild 真机动作却没传 DEVELOPMENT_TEAM（2026-08-07）
     //
-    // pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（第 9 节行级冻结，不许改工程文件），
-    // 所以每条打真机的 xcodebuild 都得在命令行覆盖。**只当环境变量前缀不生效** ——
+    // 2026-10-03 前 pbxproj 写死的是原开发者的团队号 R6PH2TFB3Q，当时每条打真机的 xcodebuild 都得在命令行覆盖；
+    // 现已改为 QW8R457UHN（#302），本规则保留作为「显式传团队号」的约定。**只当环境变量前缀不生效** ——
     // `DEVELOPMENT_TEAM=… xcodebuild …` 会被静默忽略，报的是
     // `No Account for Team "R6PH2TFB3Q"` + `No profiles for 'com.jerry.aidrun' were found`，
     // 两条都不提团队号是从哪来的，很容易被当成证书或 provisioning 问题去查。
@@ -725,9 +705,9 @@ function main() {
         'missing-team',
         `${filePath}\n  ${missingTeamCmd.trim().slice(0, 160)}\n\n` +
           `这条 xcodebuild 打的是真机（-destination platform=iOS,name=/id=）却没传 DEVELOPMENT_TEAM。\n` +
-          `pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（AGENTS.md 第 9 节，不许改工程文件），\n` +
+          `约定每条真机 xcodebuild 都显式传团队号（pbxproj 里是 QW8R457UHN，可被覆盖）。\n` +
           `**环境变量前缀不生效**，必须作为构建设置参数传：\n` +
-          `  TEAM="\${AIDRUN_TEAM:-ZW39BS8NXT}"\n` +
+          `  TEAM="\${AIDRUN_TEAM:-QW8R457UHN}"\n` +
           `  xcodebuild … -allowProvisioningUpdates DEVELOPMENT_TEAM="\$TEAM"\n` +
           `照抄 scripts/device-test.sh:25,60。不传的报错是 \`No Account for Team "R6PH2TFB3Q"\`，\n` +
           `字面上不提团队号从哪来，容易被误当成证书或 provisioning 问题查半天。\n` +
