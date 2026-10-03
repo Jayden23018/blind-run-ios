@@ -51,21 +51,21 @@ final class UserDefaultsAppStatePersistence: AppStatePersistence {
 }
 
 enum AppStatePersistenceFactory {
-    static let uiTestSuiteName = "com.jerry.aidrun.ui-tests"
+    static let uiTestSuiteName = "com.culiu-tech.aidrun1.ui-tests"
 
     static func makeDefault(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppStatePersistence {
         if environment["AIDRUN_UI_TEST_RESET_STATE"] == "1" {
             return UserDefaultsAppStatePersistence(suiteName: uiTestSuiteName)
         }
         if environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil {
-            let suite = "com.jerry.aidrun.unit-tests.\(ProcessInfo.processInfo.processIdentifier)"
+            let suite = "com.culiu-tech.aidrun1.unit-tests.\(ProcessInfo.processInfo.processIdentifier)"
             return UserDefaultsAppStatePersistence(suiteName: suite)
         }
         return UserDefaultsAppStatePersistence()
     }
 
     static func makeIsolatedTest(name: String = UUID().uuidString) -> UserDefaultsAppStatePersistence {
-        UserDefaultsAppStatePersistence(suiteName: "com.jerry.aidrun.tests.\(name)")
+        UserDefaultsAppStatePersistence(suiteName: "com.culiu-tech.aidrun1.tests.\(name)")
     }
 }
 
@@ -93,7 +93,7 @@ enum AppStatePersistenceKeys {
 
 /// Keychain 迁移时生产与测试必须继续使用不同 service/access group。
 enum AppCredentialNamespace {
-    static let productionService = "com.jerry.aidrun.credentials"
-    static let unitTestService = "com.jerry.aidrun.credentials.unit-tests"
-    static let uiTestService = "com.jerry.aidrun.credentials.ui-tests"
+    static let productionService = "com.culiu-tech.aidrun1.credentials"
+    static let unitTestService = "com.culiu-tech.aidrun1.credentials.unit-tests"
+    static let uiTestService = "com.culiu-tech.aidrun1.credentials.ui-tests"
 }

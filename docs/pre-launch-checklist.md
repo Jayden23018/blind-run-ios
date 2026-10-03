@@ -154,7 +154,7 @@
   - 组织账号（Organization）：显示公司名，但要先办 **D-U-N-S 编号**，周期**以周计**
   - ⇒ 选哪种要先定（见 §H），因为组织账号的等待期决定整个内测时间表
 - [ ] 🟡 工程文件里写死的 `DEVELOPMENT_TEAM = R6PH2TFB3Q` 是原开发者的团队号，本机签名用 `ZW39BS8NXT`。新账号开好后确认 App Store Connect 记录归属，命令行传 `DEVELOPMENT_TEAM=<新团队号>` 覆盖（**不要改 pbxproj，那是行级冻结项**）。
-- [ ] 🔴 Bundle ID `com.jerry.aidrun` 在目标团队下已注册，且 App Store Connect 里有对应 App 记录。
+- [ ] 🔴 Bundle ID `com.culiu-tech.aidrun1`（2026-10-03 起，Team `QW8R457UHN`）已注册，App Store Connect 记录已建（SKU `aidrun-ios-001`）。⚠️ Widget 需另注册 `com.culiu-tech.aidrun1.LiveActivity` 并建描述文件。
   ⚠️ **建记录之前先定名**：记录建了就不能改，而 `jerry` 是原开发者；这个 ID 09-06 曾报「not available」，
   09-08 起又能用免费团队签了 ⇒ 付费团队下能不能注册只有当场才知道。改名要动 5 个 target 的
   `PRODUCT_BUNDLE_IDENTIFIER`、高德 key、后端 `APNS_TOPIC`。

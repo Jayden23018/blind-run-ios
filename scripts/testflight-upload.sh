@@ -7,6 +7,12 @@
 # 认证：默认用 Xcode → Settings → Accounts 里登录的账号。无头机器改传 App Store Connect API key：
 #   ASC_KEY_PATH=/path/AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=xxxxxxxx-...
 #
+# 手动签名（本人进不了 developer.apple.com、Xcode 自动签名拿不到描述文件时用）：
+#   TEAM_ID=XXXXXXXXXX PROFILE_APP="<主 App 的 App Store 描述文件名>" PROFILE_WIDGET="<Widget 的>" \
+#     scripts/testflight-upload.sh
+#   名字是 .mobileprovision 里的 Name（Xcode → Settings → Accounts → Download Manual Profiles 后可见）。
+#   两个都传才启用；钥匙串里须已有 "Apple Distribution" 证书（P12 导入）。
+#
 # 为什么要有：四件事在 Debug 真机调试里都看不出来，只在送审包上暴露（2026-09-27 核实，
 # 见 docs/review/testflight-readiness-20260927.md）——
 #   1. 高德 key 是占位值 → 地图/定位/检索 SDK 全部失效（本机 LocalConfig 一直是 CHANGE_ME）
@@ -41,8 +47,21 @@ if [[ -n "${ASC_KEY_PATH:-}" ]]; then
   AUTH_ARGS=(-authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
 fi
 
+MANUAL=0
+if [[ -n "${PROFILE_APP:-}" || -n "${PROFILE_WIDGET:-}" ]]; then
+  [[ -n "${PROFILE_APP:-}" && -n "${PROFILE_WIDGET:-}" ]] \
+    || fail "手动签名要同时传 PROFILE_APP 和 PROFILE_WIDGET（主 App 与 Widget 各一个描述文件名）"
+  MANUAL=1
+fi
+
 if [[ $DRY_RUN -eq 1 ]]; then
   SIGN_ARGS=(CODE_SIGNING_ALLOWED=NO)
+elif [[ $MANUAL -eq 1 ]]; then
+  security find-identity -v -p codesigning | grep -q '"Apple Distribution' \
+    || fail "钥匙串里没有 Apple Distribution 证书：先双击导师给的 P12 导入（密码问导师要，别发给别人）"
+  # 两个 target 的描述文件名经变量传进 project.pbxproj 的 Release 配置（AIDRUN_PROFILE_APP / _WIDGET）
+  SIGN_ARGS=(DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution"
+    AIDRUN_PROFILE_APP="$PROFILE_APP" AIDRUN_PROFILE_WIDGET="$PROFILE_WIDGET")
 else
   SIGN_ARGS=(DEVELOPMENT_TEAM="$TEAM_ID" -allowProvisioningUpdates ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"})
 fi
@@ -88,6 +107,18 @@ fi
 
 # ── 4. 导出并上传 ───────────────────────────────────────
 # manageAppVersionAndBuildNumber 默认 YES 会覆盖 set-build-number.sh 算好的号，必须关。
+if [[ $MANUAL -eq 1 ]]; then
+  SIGN_PLIST="  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Apple Distribution</string>
+  <key>provisioningProfiles</key><dict>
+    <key>$(pl "$APP" CFBundleIdentifier)</key><string>${PROFILE_APP}</string>
+    <key>$(pl "$WIDGET" CFBundleIdentifier)</key><string>${PROFILE_WIDGET}</string>
+  </dict>"
+  EXPORT_AUTH=()
+else
+  SIGN_PLIST="  <key>signingStyle</key><string>automatic</string>"
+  EXPORT_AUTH=(-allowProvisioningUpdates ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"})
+fi
 cat > "$OUT/ExportOptions.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -95,16 +126,17 @@ cat > "$OUT/ExportOptions.plist" <<EOF
   <key>method</key><string>app-store-connect</string>
   <key>destination</key><string>upload</string>
   <key>teamID</key><string>${TEAM_ID}</string>
-  <key>signingStyle</key><string>automatic</string>
+${SIGN_PLIST}
   <key>uploadSymbols</key><true/>
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 EOF
+plutil -lint "$OUT/ExportOptions.plist" >/dev/null || fail "ExportOptions.plist 格式不对：$OUT/ExportOptions.plist"
 
 echo "▶ 上传 App Store Connect（日志 $OUT/export.log）"
 set +e
 xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist "$OUT/ExportOptions.plist" \
-  -exportPath "$OUT/export" -allowProvisioningUpdates ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} \
+  -exportPath "$OUT/export" ${EXPORT_AUTH[@]+"${EXPORT_AUTH[@]}"} \
   > "$OUT/export.log" 2>&1
 rc=$?
 set -e

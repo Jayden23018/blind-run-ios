@@ -275,7 +275,7 @@ struct blindRunApp: App {
 final class RuntimeDiagnosticMonitor: NSObject, MXMetricManagerSubscriber {
     static let shared = RuntimeDiagnosticMonitor()
 
-    private let logger = Logger(subsystem: "com.jerry.aidrun", category: "runtime")
+    private let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "runtime")
     private var isStarted = false
 
     func start() {
@@ -308,9 +308,9 @@ final class RuntimeDiagnosticMonitor: NSObject, MXMetricManagerSubscriber {
 final class MainRunLoopWatchdog: @unchecked Sendable {
     nonisolated(unsafe) static let shared = MainRunLoopWatchdog()
 
-    nonisolated(unsafe) private let logger = Logger(subsystem: "com.jerry.aidrun", category: "run-loop")
+    nonisolated(unsafe) private let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "run-loop")
     nonisolated(unsafe) private let stateLock = NSLock()
-    nonisolated(unsafe) private let queue = DispatchQueue(label: "com.jerry.aidrun.run-loop-watchdog", qos: .utility)
+    nonisolated(unsafe) private let queue = DispatchQueue(label: "com.culiu-tech.aidrun1.run-loop-watchdog", qos: .utility)
     nonisolated(unsafe) private var timer: DispatchSourceTimer?
     nonisolated(unsafe) private var lastAcknowledgedAt = ProcessInfo.processInfo.systemUptime
     nonisolated(unsafe) private var stallWasReported = false

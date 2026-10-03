@@ -17,7 +17,7 @@ enum HomeRefreshPhase: Equatable {
 
 enum ClientFlowDiagnostics {
     nonisolated private static let logger = Logger(
-        subsystem: "com.jerry.aidrun",
+        subsystem: "com.culiu-tech.aidrun1",
         category: "client-flow"
     )
     nonisolated private static let lock = NSLock()
@@ -135,7 +135,7 @@ private final class HomeLoadRace: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let logger = Logger(subsystem: "com.jerry.aidrun", category: "home-load")
+    private let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "home-load")
     private let operationName: String
     nonisolated(unsafe) private var isCompleted = false
     nonisolated(unsafe) private var earlyTerminal: HomeLoadTerminal?

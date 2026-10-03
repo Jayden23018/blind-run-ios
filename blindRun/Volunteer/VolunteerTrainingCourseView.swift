@@ -24,7 +24,7 @@ final class VolunteerTrainingCourseViewModel: ObservableObject {
     /// 是否已经进入答题区（正文读完之后才展开，避免一屏塞两件事）。
     @Published var isQuizVisible = false
 
-    private static let logger = Logger(subsystem: "com.jerry.aidrun", category: "training")
+    private static let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "training")
 
     private weak var appState: AppState?
     private let courseId: Int64
