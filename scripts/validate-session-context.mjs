@@ -135,6 +135,19 @@ const cases = [
         : `期望 far 排在 near 之前，实得 ${JSON.stringify(out)}`,
   },
   {
+    // 12 条里只列落后最多的 5 条，其余折成「另 7 条」；条数仍是全量 12，且最近的一条不出现。
+    name: '超过上限只列前 5 条，其余折叠成数量',
+    run: () =>
+      staleUnmergedBranches({
+        refs: Array.from({ length: 12 }, (_, i) => ref(`origin/b${i}`, 1, T + 1 + i)),
+        currentBranch: 'main',
+      }),
+    check: (out) =>
+      out.length === 1 && out[0].includes('12 条') && out[0].includes('另 7 条省略') && out[0].includes('b11(') && !out[0].includes('b0(')
+        ? null
+        : `期望总数 12、只列 5 条并注明另 7 条，实得 ${JSON.stringify(out)}`,
+  },
+  {
     name: 'origin/main 与裸 origin 不算欠账',
     run: () =>
       staleUnmergedBranches({

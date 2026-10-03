@@ -504,6 +504,10 @@ CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑�
   是设计使然的顺序约束）。⛔ 别用 `AIDRUN_SKIP_PREPUSH=1` 绕 —— 那一次跳过全部 5 道门禁。
 - **`JerryZhao-1/blind-run-ios` 只是 `upstream`，不是投递目标**；它配不上 secret，
   **上游 CI 绿 ≠ 契约对过了**。
+- **pre-push 分档（2026-10-03）**：默认只跑 openspec / docs / 读后端的 4 道门禁（几秒）；钩子自测只在改了
+  `scripts/ .claude/ .github/` 时跑，`swift test` 与生成代码比对只在改了 `Packages/AidRunAPI/`、生成脚本时跑 ——
+  其余由 CI 的 specs / build job 补跑（整套本地 2:43，CI specs 同内容 36 秒）。要本地全量：`AIDRUN_PREPUSH_FULL=1 git push`。
+  分档跳过会明说「CI 会补跑」，**不计入**「被跳过的门禁」（那一类仍表示读不到后端）。
 
 **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
 

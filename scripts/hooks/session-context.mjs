@@ -119,6 +119,7 @@ export function localGuardrailWarnings({ prePushInstalled }) {
 // 落后阈值取 30：正常在途分支不会落这么多，落这么多的基本都是被忘了。
 // 不查 PR 状态 —— 那要 `gh` 联网，开场卡住比漏报更糟；这里只负责让分支重新被看见。
 export const STALE_BEHIND_THRESHOLD = 30;
+export const STALE_LIST_LIMIT = 5;
 
 export function staleUnmergedBranches({ refs, currentBranch }) {
   const stale = refs
@@ -127,7 +128,12 @@ export function staleUnmergedBranches({ refs, currentBranch }) {
     .filter((r) => r.ahead > 0 && r.behind > STALE_BEHIND_THRESHOLD)
     .sort((a, b) => b.behind - a.behind);
   if (!stale.length) return [];
-  const detail = stale.map((r) => `${r.name.replace(/^origin\//, '')}(+${r.ahead}/-${r.behind})`).join('、');
+  // 只列最久没跟进的前几条：squash 合并后的旧分支永远 ahead>0，会一次列出几十条（实测 73 条 ≈ 1.3k token/会话）。
+  const detail =
+    stale
+      .slice(0, STALE_LIST_LIMIT)
+      .map((r) => `${r.name.replace(/^origin\//, '')}(+${r.ahead}/-${r.behind})`)
+      .join('、') + (stale.length > STALE_LIST_LIMIT ? `……另 ${stale.length - STALE_LIST_LIMIT} 条省略` : '');
   return [
     `⚠️ ${stale.length} 条远端分支有独有提交却长期没跟进（领先 main 且落后 >${STALE_BEHIND_THRESHOLD}）：${detail}。` +
       '逐条判活：意图已被主线重新落地的判死存档，仍有价值的合 main 后开 PR。别默认它们「已经在某个 PR 里」。',
