@@ -1010,7 +1010,10 @@ final class VoiceOrderWizard: ObservableObject {
             endLongitude: base.endLongitude,
             hasGuideDog: base.hasGuideDog,
             pacePreference: base.pacePreference,
-            specialNotes: base.specialNotes
+            specialNotes: base.specialNotes,
+            // 🔴 必须带：「明天早上」这类半句话通常**没说起点**，正好走进上面这条「补设备位置」的路 ——
+            // 这里漏掉它，后端就收不到半句时间，用户答「九点」会被静默读成今天 9 点（#508）。
+            partialStartTime: base.partialStartTime
         )
     }
 
