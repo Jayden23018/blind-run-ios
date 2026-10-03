@@ -9058,6 +9058,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/pacePreference`.
             public var pacePreference: Components.Schemas.ParseVoiceOrderResponse.pacePreferencePayload?
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/partialStartTime`.
+            public var partialStartTime: Components.Schemas.VoicePartialStartTime?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/plannedStartTime`.
             public var plannedStartTime: Swift.String?
             /// 本次备注 —— 可选槽位，`null` 表示原话没提。
@@ -9290,6 +9292,7 @@ public enum Components {
             ///   - missing: 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长。
             ///   - needReask: 客户端需要再收一次语音。
             ///   - pacePreference: 本次配速偏好 —— 可选槽位，`null` 表示原话没提，下单时不传即回落档案默认配速
+            ///   - partialStartTime:
             ///   - plannedStartTime:
             ///   - specialNotes: 本次备注 —— 可选槽位，`null` 表示原话没提。
             ///   - specialNotesTruncated: 上面那条备注是不是被后端截断过。`false` = 用户说的备注被完整记下。
@@ -9314,6 +9317,7 @@ public enum Components {
                 missing: Components.Schemas.ParseVoiceOrderResponse.missingPayload,
                 needReask: Swift.Bool,
                 pacePreference: Components.Schemas.ParseVoiceOrderResponse.pacePreferencePayload? = nil,
+                partialStartTime: Components.Schemas.VoicePartialStartTime? = nil,
                 plannedStartTime: Swift.String? = nil,
                 specialNotes: Swift.String? = nil,
                 specialNotesTruncated: Swift.Bool? = nil,
@@ -9338,6 +9342,7 @@ public enum Components {
                 self.missing = missing
                 self.needReask = needReask
                 self.pacePreference = pacePreference
+                self.partialStartTime = partialStartTime
                 self.plannedStartTime = plannedStartTime
                 self.specialNotes = specialNotes
                 self.specialNotesTruncated = specialNotesTruncated
@@ -9363,6 +9368,7 @@ public enum Components {
                 case missing
                 case needReask
                 case pacePreference
+                case partialStartTime
                 case plannedStartTime
                 case specialNotes
                 case specialNotesTruncated
@@ -12692,6 +12698,96 @@ public enum Components {
                 case phone
             }
         }
+        /// 开始时间只听到了半句：说了日期或时段、没说几点（「明天早上」「后天」「下午」）。2026-10-03 新增（#501）。
+        /// 此时 `plannedStartTime` 为 null、`missing` 含 `START_TIME`，`ttsText` 是针对缺的那部分的反问（「明天早上几点？」）。
+        /// **客户端把它原样放进下一轮 `current.partialStartTime`**，用户只答「九点」后端就能拼回完整时间；
+        /// 不回传的话，「九点」会被当成今天（已过则明天）的 9 点。两个字段至少一个非 null。
+        ///
+        /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime`.
+        public struct VoicePartialStartTime: Codable, Hashable, Sendable {
+            /// 已算好的日期 `yyyy-MM-dd`（不是「明天」这种相对说法），没说日期时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime/date`.
+            public var date: Swift.String?
+            /// 时段，没说时段时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime/period`.
+            public struct periodPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime/period/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case DAWN = "DAWN"
+                    case MORNING = "MORNING"
+                    case NOON = "NOON"
+                    case AFTERNOON = "AFTERNOON"
+                    case EVENING = "EVENING"
+                    case NIGHT = "NIGHT"
+                }
+                /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime/period/value1`.
+                public var value1: Components.Schemas.VoicePartialStartTime.periodPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime/period/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `periodPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.VoicePartialStartTime.periodPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 时段，没说时段时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/VoicePartialStartTime/period`.
+            public var period: Components.Schemas.VoicePartialStartTime.periodPayload?
+            /// Creates a new `VoicePartialStartTime`.
+            ///
+            /// - Parameters:
+            ///   - date: 已算好的日期 `yyyy-MM-dd`（不是「明天」这种相对说法），没说日期时为 null
+            ///   - period: 时段，没说时段时为 null
+            public init(
+                date: Swift.String? = nil,
+                period: Components.Schemas.VoicePartialStartTime.periodPayload? = nil
+            ) {
+                self.date = date
+                self.period = period
+            }
+            public enum CodingKeys: String, CodingKey {
+                case date
+                case period
+            }
+        }
         /// 上一轮已确认的槽位，一步修正时由客户端回传。服务端不存对话状态，
         /// 「上一轮说到哪了」完全由客户端带回来。字段全部可选：只带已经确认过的那几项即可。
         ///
@@ -12737,6 +12833,8 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/pacePreference`.
             public var pacePreference: Components.Schemas.VoiceSlotSnapshot.pacePreferencePayload?
+            /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/partialStartTime`.
+            public var partialStartTime: Components.Schemas.VoicePartialStartTime?
             /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/plannedStartTime`.
             public var plannedStartTime: Swift.String?
             /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/specialNotes`.
@@ -12753,6 +12851,7 @@ public enum Components {
             ///   - latitude:
             ///   - longitude:
             ///   - pacePreference:
+            ///   - partialStartTime:
             ///   - plannedStartTime:
             ///   - specialNotes:
             public init(
@@ -12765,6 +12864,7 @@ public enum Components {
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
                 pacePreference: Components.Schemas.VoiceSlotSnapshot.pacePreferencePayload? = nil,
+                partialStartTime: Components.Schemas.VoicePartialStartTime? = nil,
                 plannedStartTime: Swift.String? = nil,
                 specialNotes: Swift.String? = nil
             ) {
@@ -12777,6 +12877,7 @@ public enum Components {
                 self.latitude = latitude
                 self.longitude = longitude
                 self.pacePreference = pacePreference
+                self.partialStartTime = partialStartTime
                 self.plannedStartTime = plannedStartTime
                 self.specialNotes = specialNotes
             }
@@ -12790,6 +12891,7 @@ public enum Components {
                 case latitude
                 case longitude
                 case pacePreference
+                case partialStartTime
                 case plannedStartTime
                 case specialNotes
             }

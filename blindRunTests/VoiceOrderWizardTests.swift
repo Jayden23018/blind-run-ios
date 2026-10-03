@@ -311,6 +311,114 @@ final class VoiceOrderWizardTests: XCTestCase {
         )
     }
 
+    // MARK: 半句开始时间 partialStartTime（后端 #501 / 前端 #508）
+
+    private static let halfSaidTomorrowMorning = VoicePartialStartTime(date: "2026-10-05", period: "MORNING")
+
+    /// 契约示例：响应里的 `partialStartTime` 能解出来，并**原样**进下一轮的 `current`。
+    /// 不回传的后果是静默的 —— 用户答「九点」会被读成今天 9 点，而不是「后天 9 点」。
+    func testPartialStartTimeIsDecodedAndEchoedIntoTheNextRoundsCurrent() throws {
+        let json = #"""
+        {"missing":["START_TIME"],"needReask":true,"ttsText":"明天早上几点？",
+         "partialStartTime":{"date":"2026-10-05","period":"MORNING"}}
+        """#
+        let response = try JSONDecoder().decode(ParseVoiceOrderResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.partialStartTime, Self.halfSaidTomorrowMorning)
+        XCTAssertNil(response.plannedStartTime, "半句时间时 plannedStartTime 必为 null")
+
+        let request = ParseVoiceOrderRequest(transcript: "九点", current: response.slotSnapshot)
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        let partial = (body?["current"] as? [String: Any])?["partialStartTime"] as? [String: Any]
+        XCTAssertEqual(partial?["date"] as? String, "2026-10-05")
+        XCTAssertEqual(partial?["period"] as? String, "MORNING")
+    }
+
+    /// `period` 是响应方向的开放枚举：未知值**不许抛、也不许丢**，要原样回传（契约原话）。
+    /// 所以存成字符串 —— 枚举的 `.unknown` 兜底会把原值吞掉，回传就不再是「原样」。
+    func testUnknownPartialPeriodSurvivesDecodingAndIsEchoedUnchanged() throws {
+        let json = #"{"partialStartTime":{"date":null,"period":"TWILIGHT"}}"#
+        let response = try JSONDecoder().decode(ParseVoiceOrderResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.slotSnapshot.partialStartTime?.period, "TWILIGHT")
+        XCTAssertNil(response.slotSnapshot.partialStartTime?.date)
+    }
+
+    /// 没有半句时间（绝大多数轮次）时请求里**不能多出这个键**；两个字段都空的壳子也不发
+    /// （契约：「两个字段至少一个非 null」，空壳发回去可能被后端判校验失败）。
+    func testNoPartialStartTimeMeansNoKeyOnTheWire() throws {
+        let absent = try JSONDecoder().decode(ParseVoiceOrderResponse.self, from: Data("{}".utf8))
+        XCTAssertNil(absent.slotSnapshot.partialStartTime)
+        let hollow = Self.parseResponse(partialStartTime: VoicePartialStartTime(date: nil, period: " "))
+        XCTAssertNil(hollow.slotSnapshot.partialStartTime, "空壳不带")
+
+        let request = ParseVoiceOrderRequest(transcript: "x", current: absent.slotSnapshot)
+        let encoded = try JSONEncoder().encode(request)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("partialStartTime"))
+    }
+
+    /// 消歧轮挑定起点只换起点，**不碰时间**：上一轮留下的半句时间要接着带进下一轮。
+    func testPickingAStartCandidateKeepsThePartialStartTime() {
+        let parsed = Self.parseResponse(
+            missing: [.startTime],
+            candidates: [Self.candidate("万象城"), Self.candidate("万象城", address: "富春路")],
+            partialStartTime: Self.halfSaidTomorrowMorning
+        )
+        let picked = parsed.replacingStartPlace(with: Self.candidate("万象城"))
+        XCTAssertEqual(picked.partialStartTime, Self.halfSaidTomorrowMorning)
+        XCTAssertEqual(picked.slotSnapshot.partialStartTime, Self.halfSaidTomorrowMorning)
+    }
+
+    /// 🔴 最危险的一条路：「明天早上」这类半句话通常**没说起点**，正好走进确认轮「补设备位置」那处
+    /// **手工拼快照**的代码 —— 它漏掉任何字段，字段就在这一轮静默消失。
+    /// `address` 非空证明走的确实是那条补位置的分支。
+    func testPartialStartTimeSurvivesTheDeviceLocationFallbackSnapshot() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            Self.parseResponse(
+                durationMinutes: 60,
+                missing: [.address, .startTime],
+                ttsText: "明天早上几点？",
+                partialStartTime: Self.halfSaidTomorrowMorning
+            ),
+            Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)
+        ]
+        let viewModel = BlindBookingViewModel()
+        viewModel.applyVoiceResolvedStartPlace(
+            address: "上海市黄浦区人民广场 人民大道185号",
+            spokenAddress: "人民广场",
+            latitude: 31.2304,
+            longitude: 121.4737
+        )
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上跑一个小时")
+        await wizard.submitTranscript("九点")
+
+        let current = stub.parseRequests[1].current
+        XCTAssertNotNil(current?.address?.nilIfBlank, "前提：这一轮确实走了「补设备位置」的手工快照")
+        XCTAssertEqual(current?.partialStartTime, Self.halfSaidTomorrowMorning)
+        XCTAssertNil(current?.plannedStartTime, "半句时间不等于时间：plannedStartTime 一个字都不许有")
+    }
+
+    /// 同一条链路，但不经过补位置的分支（响应里已经有起点）。
+    func testPartialStartTimeIsCarriedWhenTheResponseAlreadyHasAStartPlace() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            Self.parseResponse(
+                durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [.startTime],
+                partialStartTime: Self.halfSaidTomorrowMorning
+            ),
+            Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)
+        ]
+        let wizard = makeWizard(stub: stub, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上从人民广场出发跑一个小时")
+        await wizard.submitTranscript("九点")
+
+        XCTAssertEqual(stub.parseRequests[1].current?.partialStartTime, Self.halfSaidTomorrowMorning)
+    }
+
     /// 后端判 `CONFIRM`（「这样就行，直接下单吧」这类本地表接不住的说法）走的是同一条提交路径，
     /// 且**仍然受缺槽位门槛拦着** —— 槽位没齐时一句确认不能派单。
     func testBackendConfirmIntentTakesTheSubmitPathAndStillRespectsTheMissingTimeGate() async {
@@ -1614,7 +1722,20 @@ final class VoiceOrderWizardTests: XCTestCase {
                 ("明早8:00从人民广场出发跑一个小时", "2026-07-25T08:00:00"),
                 ("明晚7:30", "2026-07-25T19:30:00"),
                 ("明天早上八点一刻", "2026-07-25T08:15:00"),
-                ("明天早上八点三刻", "2026-07-25T08:45:00")
+                ("明天早上八点三刻", "2026-07-25T08:45:00"),
+                // 2026-10-03 后端 #501 的时段词修复（语料 `_period_note`）：时段词只决定「几点」，不决定「哪天」。
+                // 「凌晨」此前不在 CLOCK_TIME 的时段词里，「后天凌晨三点」的「后天」被断开、日期当没说 →
+                // 滚到明天 03:00，差一天。中午一~四点 +12，否则「中午一点」读成凌晨 1 点；凌晨十二点 = 0 点。
+                // 其余几条「本来就对，这里只是钉住」。
+                ("今天晚上八点", "2026-07-24T20:00:00"),
+                ("今天早上八点", "2026-07-24T08:00:00"),
+                ("今天中午十二点", "2026-07-24T12:00:00"),
+                ("今天中午一点", "2026-07-24T13:00:00"),
+                ("后天早上八点", "2026-07-26T08:00:00"),
+                ("后天晚上八点", "2026-07-26T20:00:00"),
+                ("后天凌晨三点", "2026-07-26T03:00:00"),
+                ("后天凌晨十二点", "2026-07-26T00:00:00"),
+                ("凌晨三点", "2026-07-25T03:00:00")
             ]
             for testCase in regexCases {
                 let parsed = MockAPIClient.mockVoiceStartTime(in: testCase.transcript)
@@ -1824,7 +1945,9 @@ final class VoiceOrderWizardTests: XCTestCase {
         for transcript in [
             "从明天早上八点开始跑", "从8:00开始跑", "从8：00开始跑",
             "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么",
-            "明天下午三点跑到中山公园，跑半小时"
+            "明天下午三点跑到中山公园，跑半小时",
+            // 壳字「从」后面跟的是「日期词 + 凌晨 + 钟点」：凌晨补进时段词之前，这一段认不出是时间。
+            "从后天凌晨三点开始跑"
         ] {
             XCTAssertNil(
                 MockAPIClient.mockVoiceAddressSpan(in: transcript),
@@ -2879,7 +3002,8 @@ final class VoiceOrderWizardTests: XCTestCase {
         correctionTarget: VoiceCorrectionTarget? = nil,
         correctionUnclear: Bool = false,
         candidates: [AddressCandidate] = [],
-        addressUnresolved: Bool = false
+        addressUnresolved: Bool = false,
+        partialStartTime: VoicePartialStartTime? = nil
     ) -> ParseVoiceOrderResponse {
         ParseVoiceOrderResponse(
             plannedStartTime: plannedStartTime,
@@ -2899,7 +3023,8 @@ final class VoiceOrderWizardTests: XCTestCase {
             correctionTarget: correctionTarget,
             correctionUnclear: correctionUnclear,
             candidates: candidates,
-            addressUnresolved: addressUnresolved
+            addressUnresolved: addressUnresolved,
+            partialStartTime: partialStartTime
         )
     }
 

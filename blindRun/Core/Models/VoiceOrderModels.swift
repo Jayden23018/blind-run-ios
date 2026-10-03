@@ -149,6 +149,32 @@ struct AddressCandidate: Codable, Sendable, Equatable {
     }
 }
 
+/// 开始时间只听到了半句（后端 2026-10-03 新增，#501）：说了日期或时段、没说几点
+/// （「明天早上」「后天」「下午」）。
+///
+/// 此时 `ParseVoiceOrderResponse.plannedStartTime` 为 `nil`、`missing` 含 `.startTime`，
+/// `ttsText` 是针对缺的那部分的反问（「明天早上几点？」）。**客户端把它原样放进下一轮
+/// `current.partialStartTime`**：后端不存对话状态，用户只答「九点」时全靠它拼回完整时间。
+///
+/// 🔴 **不回传的后果是静默的**：「九点」会被当成今天（已过则明天）的 9 点，而不是「后天 9 点」。
+/// 读回会念出日期，但盲人得自己听出那不是他说的那天 —— 与 `plannedStartTime` 被丢同一类缺陷。
+///
+/// `period` 是**响应方向的开放枚举**，契约要求「遇到未知值原样回传或置空，不要报错」。
+/// 所以这里**刻意存成原始字符串**而不是枚举：枚举的 `.unknown` 兜底会把原值丢掉，
+/// 回传时就不再是「原样」了。已知取值：`DAWN` `MORNING` `NOON` `AFTERNOON` `EVENING` `NIGHT`。
+struct VoicePartialStartTime: Codable, Sendable, Equatable {
+    /// 已算好的日期 `yyyy-MM-dd`（不是「明天」这种相对说法）；没说日期时 `nil`。
+    let date: String?
+    /// 时段；没说时段时 `nil`。
+    let period: String?
+
+    /// 契约：「两个字段至少一个非 null」。两个都空的对象发回去可能被后端判成校验失败，
+    /// 而语音是盲人唯一的下单通道 —— 宁可不带，也不要因为一个空壳让整轮请求失败。
+    var isEmpty: Bool {
+        date?.nilIfBlank == nil && period?.nilIfBlank == nil
+    }
+}
+
 /// 上一轮已确认的槽位快照。**服务端不存对话状态**，「上一轮说到哪了」完全由客户端带回来。
 ///
 /// 字段全部可选：只带已经确认过的那几项。后端的合并口径是
@@ -173,6 +199,12 @@ struct VoiceSlotSnapshot: Codable, Sendable, Equatable {
     let hasGuideDog: Bool?
     let pacePreference: PacePreference?
     let specialNotes: String?
+    /// 上一轮只听到半句开始时间时，后端给的那半句（见 `VoicePartialStartTime`）。
+    /// `plannedStartTime` 非 `nil` 时后端忽略它，带了也无害。
+    ///
+    /// `var` + 默认值只是为了让合成的成员初始化器**不强制**既有调用点补这一项；
+    /// 值只从 `ParseVoiceOrderResponse.slotSnapshot` 来，别在别处凭空造。
+    var partialStartTime: VoicePartialStartTime? = nil
 }
 
 /// `POST /api/orders/voice/parse` 的请求体。
@@ -333,6 +365,12 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     /// 会直接误导对方，所以改写过的备注在后端就被丢弃了。
     let specialNotes: String?
 
+    // MARK: 开始时间只说了半句（后端 2026-10-03 新增，#501）
+
+    /// 只听到半句开始时间（「明天早上」「后天」「下午」）时有值，否则 `nil`。
+    /// 回传见 `slotSnapshot`；契约与动机见 `VoicePartialStartTime`。
+    let partialStartTime: VoicePartialStartTime?
+
     /// 终点四项与三个额外槽位默认 `nil`（＝原话没提），让只关心三个必填槽位的调用点不必逐个写 `nil`。
     /// 解码走 `Codable` 合成路径，不受这里的默认值影响。
     init(
@@ -357,7 +395,8 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         correctionTarget: VoiceCorrectionTarget? = nil,
         correctionUnclear: Bool? = nil,
         candidates: [AddressCandidate]? = nil,
-        addressUnresolved: Bool? = nil
+        addressUnresolved: Bool? = nil,
+        partialStartTime: VoicePartialStartTime? = nil
     ) {
         self.plannedStartTime = plannedStartTime
         self.durationMinutes = durationMinutes
@@ -381,6 +420,7 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         self.correctionUnclear = correctionUnclear
         self.candidates = candidates
         self.addressUnresolved = addressUnresolved
+        self.partialStartTime = partialStartTime
     }
 
     /// 起点三项要么全有要么当没抽到 —— 只有地址没有坐标下不了单，只有坐标没有地址读回时没法念。
@@ -451,7 +491,9 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
             correctionUnclear: correctionUnclear,
             candidates: [],
             // 挑定了就等于有坐标了，「说了但没查到」不再成立
-            addressUnresolved: false
+            addressUnresolved: false,
+            // 挑起点不碰时间：上一轮留下的半句时间要接着带进下一轮
+            partialStartTime: partialStartTime
         )
     }
 
@@ -479,7 +521,9 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
             endLongitude: endAddress == nil ? nil : endLongitude,
             hasGuideDog: hasGuideDog,
             pacePreference: pacePreference,
-            specialNotes: specialNotes
+            specialNotes: specialNotes,
+            // 只带「真有内容」的半句时间：空壳不发（见 `VoicePartialStartTime.isEmpty`）
+            partialStartTime: partialStartTime.flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 }

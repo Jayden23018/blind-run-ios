@@ -617,7 +617,7 @@ extension MockAPIClient {
     private static let timeLikeRegex = try! Regex(
         "[0-9零一二两三四五六七八九十半]\\s*(?:点|分|小时|分钟)|\\d{1,2}[:：][0-5]\\d"
             + "|" + voiceDateWords.map(\.form).joined(separator: "|")
-            + "|上午|下午|早上|晚上|中午"
+            + "|上午|下午|早上|晚上|中午|凌晨"
     )
 
     /// 是否携带导盲犬。`nil` = 原话没提，与 `false`（本次明确不带）语义不同 ——
@@ -840,8 +840,20 @@ extension MockAPIClient {
             || voiceDateWords.contains(where: { $0.impliesEvening && transcript.contains($0.form) }) {
             parsed.hour += 12
         }
+        // 「中午」一~四点是 13~16 点（后端 `NOON_LAST_AFTERNOON_HOUR = 4`）；十 / 十一 / 十二点照旧是正午前后。
+        // 不处理的话「中午一点」读成凌晨 1 点 —— 值能过提前量校验、读回念得很顺的静默篡改。
+        if transcript.contains("中午"), parsed.hour <= noonLastAfternoonHour {
+            parsed.hour += 12
+        }
+        // 「凌晨」整体不变，**只有 12 点是 0 点**：凌晨十二点 = 次日零点，不是正午。
+        if transcript.contains("凌晨"), parsed.hour == 12 {
+            parsed.hour = 0
+        }
         return parsed
     }
+
+    /// 「中午」之后最晚到几点还算下午。对齐后端 `VoiceSlotParser.NOON_LAST_AFTERNOON_HOUR`。
+    private static let noonLastAfternoonHour = 4
 
     /// 冒号钟点：`8:00`、`8：00`、`18:30`。
     ///
