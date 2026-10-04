@@ -12,6 +12,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-a11y-voice` | 盲人端 UI、VoiceOver、语音输入/播报、高德地图、定位与坐标系 |
 | `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
+| `aidrun-device-test` | 要在真机跑单测 / UI 测试、`device-test.sh` 报错（签名、`No Account for Team`、code 74、证书不受信任、免费 App 上限），或换了团队 / Mac / 设备 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
 | `openspec-propose` | 要动的功能**行为会变**，而 `openspec/changes/` 下还没有对应变更时 |
 | `openspec-archive-change` | 某个变更的 `tasks.md` 全打勾了 —— 归档是闭环终点，**别停在最后一步** |
