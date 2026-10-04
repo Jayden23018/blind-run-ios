@@ -26,10 +26,21 @@ set -uo pipefail
 #                       格式不对会被下面的 preflight 直接拦住并给出正确取法。
 #   AIDRUN_SCHEME       默认 blindRun
 #   AIDRUN_TEAM         默认 QW8R457UHN（与 pbxproj 一致；换团队时用命令行覆盖）
+#   AIDRUN_BUNDLE_ID_PREFIX  不设 = 用 pbxproj 默认的 com.culiu-tech.aidrun1。
+#                       QW8R457UHN 是**个人类型**账号，加进来的成员（含 Admin）拿不到开发权限，
+#                       只能用自己的免费个人团队跑测（docs/research/individual-team-cannot-sign-for-members-20261004.md）。
+#                       免费团队注册不了别人的 bundle id，所以要连前缀一起换，例如：
+#                         AIDRUN_TEAM=YSSGRV9Z96 AIDRUN_BUNDLE_ID_PREFIX=com.tigerwang.aidrun scripts/device-test.sh ...
+#                       设了它脚本还会清空 CODE_SIGN_ENTITLEMENTS：免费团队不支持推送能力（aps-environment），
+#                       带着它签名直接失败。单测与 UI 测试不依赖推送。
 
 DEVICE_ID="${AIDRUN_DEVICE_ID:-00008140-000161D62112801C}"
 SCHEME="${AIDRUN_SCHEME:-blindRun}"
 TEAM="${AIDRUN_TEAM:-QW8R457UHN}"
+LOCAL_SIGNING_ARGS=()
+if [ -n "${AIDRUN_BUNDLE_ID_PREFIX:-}" ]; then
+  LOCAL_SIGNING_ARGS=("AIDRUN_BUNDLE_ID_PREFIX=${AIDRUN_BUNDLE_ID_PREFIX}" "CODE_SIGN_ENTITLEMENTS=")
+fi
 WORKSPACE="blindRun.xcworkspace"
 LOG="$(mktemp -t aidrun-device-test)"
 # xcodebuild 要求 -resultBundlePath 指向一个**还不存在**的路径，所以只建父目录。
@@ -169,6 +180,7 @@ xcodebuild test \
   -allowProvisioningUpdates \
   -resultBundlePath "$BUNDLE" \
   DEVELOPMENT_TEAM="$TEAM" \
+  ${LOCAL_SIGNING_ARGS[@]+"${LOCAL_SIGNING_ARGS[@]}"} \
   "$@" >"$LOG" 2>&1 &
 XCB_PID=$!
 
