@@ -1,8 +1,11 @@
-# volunteer-profile-first-screen Specification
+## REMOVED Requirements
 
-## Purpose
-TBD - created by archiving change show-volunteer-total-distance. Update Purpose after archive.
-## Requirements
+### Requirement: 首屏主指标优先显示累计公里
+**Reason**: 2026-10-03 负责人按志愿者试用反馈改为陪伴时长。
+**Migration**: 累计公里移到三列统计第一格，见「首屏主指标优先显示陪伴时长」。
+
+## ADDED Requirements
+
 ### Requirement: 首屏主指标优先显示陪伴时长
 志愿者「我」首屏的主指标 SHALL 在陪伴时长向下取整不少于 1 小时时显示小时数，并在其下显示完成次数；否则 SHALL 显示完成次数。系统 SHALL NOT 显示「0 小时」。三列统计第一格 SHALL 显示累计里程，不足 1 公里时 SHALL 显示 `--`；固定搭档为 0 时 SHALL 显示 `--`。
 
@@ -21,4 +24,3 @@ TBD - created by archiving change show-volunteer-total-distance. Update Purpose 
 #### Scenario: 零值不上屏
 - **WHEN** 累计里程不足 1 公里，或没有跑者把志愿者设为固定搭档
 - **THEN** 对应格子显示 `--`，读屏念一句完整的话，不念「0」也不念标点
-

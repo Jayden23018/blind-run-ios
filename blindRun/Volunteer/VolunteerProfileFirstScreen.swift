@@ -25,19 +25,20 @@ import Foundation
 /// Motivation Crowding（`docs/research/volunteer-home-incentive-layer-20260914.md` §3.2），
 /// 我们的志愿者是无偿的，落在挤出风险最高的一侧。
 ///
-/// 已完成时主指标**优先是累计公里**（后端 `totalDistanceMeters`，米，客户端向下取整）。
-/// 🔴 不足 1 公里时**不显示「0 公里」而是回落到次数**：2026-08-14 之前的订单没有里程快照、
-/// 按 0 算，「有完成订单但里程 0」是真实状态，最大最粗的 0 与新人态同理是负激励。
+/// 已完成时主指标**优先是陪伴时长**（后端 `totalServiceMinutes`，客户端向下取整成小时）。
+/// 2026-10-03 负责人按志愿者试用反馈从公里改成时长（替代 #269 的公里主指标）：
+/// 志愿者在乎的是「陪了别人多久」，不是自己跑了多远；公里退到三列统计第一格。
+/// 🔴 不足 1 小时时**不显示「0 小时」而是回落到次数** —— 最大最粗的 0 与新人态同理是负激励。
 enum VolunteerProfileHeadline: Equatable {
     case newcomer
-    /// `distanceKm` 为 `nil` = 没有可显示的里程，主指标用次数。
-    case completed(count: Int, distanceKm: Int64?)
+    /// `hours` 为 `nil` = 不足 1 小时（或缺字段），主指标用次数。
+    case completed(count: Int, hours: Int64?)
 
-    static func resolve(totalCompleted: Int?, totalDistanceMeters: Int64?) -> VolunteerProfileHeadline {
+    static func resolve(totalCompleted: Int?, totalServiceMinutes: Int64?) -> VolunteerProfileHeadline {
         guard let totalCompleted, totalCompleted > 0 else { return .newcomer }
-        // 向下取整：12_999 米是 12 公里。少算而不是多算，与 `VolunteerProfileStats.hours` 同向。
-        let km = max(0, totalDistanceMeters ?? 0) / 1000
-        return .completed(count: totalCompleted, distanceKm: km > 0 ? km : nil)
+        // 向下取整：119 分钟是 1 小时。少算而不是多算，与 `VolunteerProfileStats.distance` 同向。
+        let hours = max(0, totalServiceMinutes ?? 0) / 60
+        return .completed(count: totalCompleted, hours: hours > 0 ? hours : nil)
     }
 
     /// 新人态下**整个影响力区（3 列统计 + 星级进度）都不画**。
@@ -117,33 +118,52 @@ enum VolunteerProfileStats {
     /// 中文跑步产品的统计网格是**数值在上、小标签在下**，与 Strava 的标签在上方向相反
     /// （悦跑圈路段页，调研 §1.5 C1）。中文语境按中文的来。
     ///
-    /// 三格固定顺序：陪伴时长 → 固定搭档 → 评分。前两个是「我付出了多少」，
+    /// 三格固定顺序：累计里程 → 固定搭档 → 评分。前两个是「我付出了多少」，
     /// 第三个是「别人怎么看」，顺序即优先级，读屏按这个顺序念。
+    /// 陪伴时长已是主指标，这里不再重复。
     static func row(
         achievements: VolunteerAchievementsResponse?,
         favoritedByCount: Int
     ) -> [VolunteerProfileStat] {
         [
-            hours(achievements?.totalServiceMinutes),
+            distance(achievements?.totalDistanceMeters),
             partners(favoritedByCount),
             rating(average: achievements?.avgRating, total: achievements?.totalRatings)
         ]
     }
 
-    /// 后端给的是**分钟**，向下取整成小时 —— 51 分钟不是 1 小时。
-    /// 少算而不是多算，与后端 `totalServiceMinutes` 的口径注释同一个方向。
-    static func hours(_ totalServiceMinutes: Int64?) -> VolunteerProfileStat {
-        let hours = max(0, totalServiceMinutes ?? 0) / 60
+    /// 后端给的是**米**，向下取整成公里 —— 12_999 米是 12 公里。
+    /// 🔴 不足 1 公里显示 `--` 而不是「0 公里」：2026-08-14 之前的订单没有里程快照、按 0 算。
+    static func distance(_ totalDistanceMeters: Int64?) -> VolunteerProfileStat {
+        let km = max(0, totalDistanceMeters ?? 0) / 1000
+        guard km > 0 else {
+            return VolunteerProfileStat(
+                value: VolunteerProfileCopy.ratingPlaceholder,
+                unit: nil,
+                caption: VolunteerProfileCopy.distanceCaption,
+                spoken: VolunteerProfileCopy.distanceSpokenWhenEmpty
+            )
+        }
         return VolunteerProfileStat(
-            value: "\(hours)",
-            unit: VolunteerProfileCopy.hoursUnit,
-            caption: VolunteerProfileCopy.hoursCaption,
-            spoken: "\(VolunteerProfileCopy.hoursCaption) \(hours) \(VolunteerProfileCopy.hoursUnit)"
+            value: km.formatted(),
+            unit: VolunteerProfileCopy.distanceUnit,
+            caption: VolunteerProfileCopy.distanceCaption,
+            spoken: "\(VolunteerProfileCopy.distanceCaption) \(km) \(VolunteerProfileCopy.distanceUnit)"
         )
     }
 
+    /// 🔴 0 位时显示 `--` 而不是「0 位」—— 与 `VolunteerHomeIncentiveSummary.hero`
+    /// 「0 位搭档不上屏」同一条判据（`VolunteerHomeIncentive.swift:70`）。
     static func partners(_ count: Int) -> VolunteerProfileStat {
         let safe = max(0, count)
+        guard safe > 0 else {
+            return VolunteerProfileStat(
+                value: VolunteerProfileCopy.ratingPlaceholder,
+                unit: nil,
+                caption: VolunteerProfileCopy.partnersCaption,
+                spoken: VolunteerProfileCopy.partnersSpokenWhenEmpty
+            )
+        }
         return VolunteerProfileStat(
             value: "\(safe)",
             unit: VolunteerProfileCopy.partnersUnit,
@@ -226,20 +246,38 @@ enum VolunteerProfileBadgeRow {
         return cells
     }
 
-    /// 「下一枚」格子上的那行小字：`夜跑守护 3/5`。
+    /// 「下一枚」格子下面的两行小字：`夜跑守护` / `3/5`。
     ///
     /// 🔴 **不写「还差 N 就解锁」** —— `HIGH_RATED` 是「均分 ≥ 4.8 **且** ≥ 10 条评价」的
     /// 双条件，进度条满格也可能没解锁，那句话会变成我们兑现不了的承诺
     /// （理由逐字在 `VolunteerNextBadgeDto` 顶部）。
     ///
     /// 未知 `code` 拿不到量词时只给名字，不拼一个猜的分母。
-    static func nextBadgeCaption(_ next: VolunteerNextBadgeDto) -> String {
+    static func nextBadgeCaption(_ next: VolunteerNextBadgeDto) -> Caption {
         guard let unit = next.progressUnit,
               let target = next.target, target > 0,
               let current = next.current, current >= 0 else {
-            return next.displayName
+            return caption(name: next.displayName)
         }
-        return "\(next.displayName) \(unit.display(current))/\(unit.display(target))"
+        return caption(name: next.displayName, progress: "\(unit.display(current))/\(unit.display(target))")
+    }
+
+    /// 徽章格下面的两行字：上行名字，下行次要信息。
+    struct Caption: Equatable {
+        let title: String
+        let detail: String?
+    }
+
+    /// 后端名字形如「陪跑达人 · 10 次」。挤在一行时，窄格会把它断成「陪跑达人 ·」「10 次」，
+    /// 带进度时更糟（「陪跑达人 · 50 / 次 16/50」，2026-10-03 试用反馈）。
+    /// 所以按「·」拆开：上行「陪跑达人」，下行是进度（下一枚）或「10 次」（已解锁）。
+    /// 有进度时丢掉「50 次」—— 分母 50 已经说了同一件事。
+    static func caption(name: String, progress: String? = nil) -> Caption {
+        let parts = name.split(separator: "·", maxSplits: 1)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard let title = parts.first else { return Caption(title: name, detail: progress) }
+        return Caption(title: title, detail: progress ?? parts.dropFirst().first)
     }
 
     /// 「全部 N 枚 ›」里的 N 是**已解锁的枚数**，不是勋章总数。
@@ -302,9 +340,8 @@ enum VolunteerProfileCopy {
     // 主指标
     static let impactSectionTitle = "我的陪伴"
     static let heroUnit = "次陪跑"
-    static let heroDistanceUnit = "公里"
 
-    /// 主指标是公里时，完成次数退到它下面这一行（三列统计里没有次数，不写就丢了）。
+    /// 主指标是时长时，完成次数退到它下面这一行（三列统计里没有次数，不写就丢了）。
     static func heroRunsDetail(_ count: Int) -> String { "共 \(count) \(heroUnit)" }
 
     /// 新人那句话。陈述现状 + 说清下一步在哪，**不催**。
@@ -315,15 +352,49 @@ enum VolunteerProfileCopy {
         switch headline {
         case .newcomer:
             return "\(impactSectionTitle)。\(newcomerHeadline)。\(newcomerDetail)"
-        case .completed(let count, let distanceKm?):
-            return "\(impactSectionTitle)。累计陪跑 \(distanceKm) \(heroDistanceUnit)，\(heroRunsDetail(count))。"
+        case .completed(let count, let hours?):
+            return "\(impactSectionTitle)。累计陪伴 \(hours) \(hoursUnit)，\(heroRunsDetail(count))。"
         case .completed(let count, nil):
             return "\(impactSectionTitle)。已完成 \(count) \(heroUnit)。"
         }
     }
 
+    // 星级卡（首屏）
+    //
+    // 只改首屏这张卡，成就页沿用 `VolunteerAchievementsCopy.starTitle`。
+    // 还没到一星时，标题直接说还差多少（2026-10-03 试用反馈：「尚未达到」是否定说法），
+    // 进度行就不再重复「还差」。
+    static func starCardTitle(_ level: VolunteerStarLevelDto) -> String {
+        let current = max(0, level.current ?? 0)
+        guard current == 0, let target = level.nextTarget, target > 0 else {
+            return VolunteerAchievementsCopy.starTitle(current: current)
+        }
+        let remaining = max(0, target - max(0, level.currentHours ?? 0))
+        return "距离一星还差 \(remaining) 小时"
+    }
+
+    static func starCardProgress(_ level: VolunteerStarLevelDto) -> String {
+        guard max(0, level.current ?? 0) == 0, let target = level.nextTarget, target > 0 else {
+            return VolunteerAchievementsCopy.starProgressText(level)
+        }
+        return "已累计 \(max(0, level.currentHours ?? 0)) / \(target) 小时"
+    }
+
+    /// 整张卡的读屏标签会盖住子元素，所以要跟屏幕上的标题同口径，不能还念「尚未达到一星」。
+    /// 「3 / 100」念出来是「斜杠」，读屏只说累计小时数。
+    static func starCardAccessibilityLabel(_ level: VolunteerStarLevelDto) -> String {
+        guard max(0, level.current ?? 0) == 0, let target = level.nextTarget, target > 0 else {
+            return VolunteerAchievementsCopy.starAccessibilityLabel(level)
+        }
+        let section = VolunteerAchievementsCopy.starSectionTitle
+        return "\(section)，\(starCardTitle(level))，已累计 \(max(0, level.currentHours ?? 0)) 小时。"
+    }
+
     // 三列统计
-    static let hoursCaption = "陪伴时长"
+    static let distanceCaption = "累计里程"
+    static let distanceUnit = "公里"
+    static let distanceSpokenWhenEmpty = "累计里程暂无记录"
+    static let partnersSpokenWhenEmpty = "还没有跑者把你设为固定搭档"
     static let hoursUnit = "小时"
     static let partnersCaption = "固定搭档"
     static let partnersUnit = "位"

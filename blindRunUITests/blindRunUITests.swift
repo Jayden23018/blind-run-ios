@@ -620,8 +620,8 @@ final class blindRunUITests: XCTestCase {
         // 「没有被自动打开」这条约束没变，判据换成：滑块的无障碍按钮名是**关闭态**那一个。
         //
         // 2026-09-17 滑块改成双向（右开 / 左关）之后状态条也不存在了，两态都是同一条轨道，
-        // 只有无障碍表示的按钮名不同：关闭态「向右滑动，开始接单」/ 开启态「进入接单」。
-        let slider = app.buttons["向右滑动，开始接单"].firstMatch
+        // 只有无障碍表示的按钮名不同：关闭态「向右滑动，我现在有空陪跑」/ 开启态「进入接单」。
+        let slider = app.buttons["向右滑动，我现在有空陪跑"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
         XCTAssertFalse(
             app.buttons["进入接单"].exists,
@@ -898,8 +898,8 @@ final class blindRunUITests: XCTestCase {
             "已开启时滑块的无障碍按钮应当是「进入接单」"
         )
         XCTAssertFalse(
-            app.buttons["向右滑动，开始接单"].firstMatch.exists,
-            "已经开启了还提示「开始接单」，等于告诉志愿者他没开"
+            app.buttons["向右滑动，我现在有空陪跑"].firstMatch.exists,
+            "已经开启了还提示「我现在有空陪跑」，等于告诉志愿者他没开"
         )
         attachScreenshot(named: "volunteer-profile-first-screen", app: app)
 

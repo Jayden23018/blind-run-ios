@@ -89,10 +89,10 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     /// 🔴 新人不显示「0 次陪跑」——一屏上最大最粗的那个数字是 0，那是负激励。
     func testNewcomerNeverShowsAZeroHeroNumber() {
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 0, totalDistanceMeters: nil), .newcomer)
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: nil, totalDistanceMeters: nil), .newcomer)
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: -3, totalDistanceMeters: nil), .newcomer, "负数是脏数据，同样不该上屏")
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 1, totalDistanceMeters: nil), .completed(count: 1, distanceKm: nil))
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 0, totalServiceMinutes: nil), .newcomer)
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: nil, totalServiceMinutes: nil), .newcomer)
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: -3, totalServiceMinutes: nil), .newcomer, "负数是脏数据，同样不该上屏")
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 1, totalServiceMinutes: nil), .completed(count: 1, hours: nil))
 
         let spoken = VolunteerProfileCopy.heroSpoken(.newcomer)
         XCTAssertFalse(spoken.contains("0"), "新人播报里出现了 0：\(spoken)")
@@ -103,7 +103,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     /// 摆出来的信息是「你离得很远」。
     func testNewcomerHidesTheImpactGridAndStarProgress() {
         XCTAssertFalse(VolunteerProfileHeadline.newcomer.showsImpactSections)
-        XCTAssertTrue(VolunteerProfileHeadline.completed(count: 1, distanceKm: nil).showsImpactSections)
+        XCTAssertTrue(VolunteerProfileHeadline.completed(count: 1, hours: nil).showsImpactSections)
     }
 
     /// 🔴 **成就那条请求失败时，不许把老志愿者渲染成新人。**
@@ -134,69 +134,67 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         let realNewcomer = Self.achievements(
             totalCompleted: 0, minutes: 0, avgRating: nil, totalRatings: 0
         )
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: realNewcomer.totalCompleted, totalDistanceMeters: realNewcomer.totalDistanceMeters), .newcomer)
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: realNewcomer.totalCompleted, totalServiceMinutes: realNewcomer.totalServiceMinutes), .newcomer)
 
         // 老志愿者：同样读到了，数字非 0。
         let veteran = Self.achievements(
             totalCompleted: 200, minutes: 60_000, avgRating: 4.9, totalRatings: 180
         )
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: veteran.totalCompleted, totalDistanceMeters: veteran.totalDistanceMeters),
-            .completed(count: 200, distanceKm: nil)
+            VolunteerProfileHeadline.resolve(totalCompleted: veteran.totalCompleted, totalServiceMinutes: veteran.totalServiceMinutes),
+            .completed(count: 200, hours: 1_000)
         )
 
         // 🚩 这一条是本用例的重点：**光看 `summary` 非空分不出上面两种人**。
         // 视图如果按 `summary != nil` 判，`achievementsFailed` 这一档就会走进
-        // `impactContent`，然后 `resolve(totalCompleted: nil, totalDistanceMeters: nil)` 把它变成新人。
+        // `impactContent`，然后 `resolve(totalCompleted: nil, totalServiceMinutes: nil)` 把它变成新人。
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: nil, totalDistanceMeters: nil),
+            VolunteerProfileHeadline.resolve(totalCompleted: nil, totalServiceMinutes: nil),
             .newcomer,
             "nil 落进 .newcomer 是 resolve 的既有行为 —— 正因如此，调用方必须先保证 achievements 非空"
         )
     }
 
-    // MARK: - 主指标：公里（#269）
+    // MARK: - 主指标：陪伴时长（2026-10-03 替代 #269 的公里）
 
-    /// 🔴 向下取整：12_999 米是 12 公里。用例故意取落在「向下取整 / 四舍五入」之间的值 ——
-    /// 取 12_000 或 12_400 的话，四舍五入的实现照样通过，分辨不出口径被改过。
-    func testHeroDistanceFloorsToWholeKilometres() {
+    /// 🔴 向下取整：119 分钟是 1 小时。用例故意取落在「向下取整 / 四舍五入」之间的值 ——
+    /// 取 120 或 130 的话，四舍五入的实现照样通过，分辨不出口径被改过。
+    func testHeroHoursFloorToWholeHours() {
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: 24, totalDistanceMeters: 12_999),
-            .completed(count: 24, distanceKm: 12)
+            VolunteerProfileHeadline.resolve(totalCompleted: 16, totalServiceMinutes: 119),
+            .completed(count: 16, hours: 1)
         )
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: 24, totalDistanceMeters: 1_000),
-            .completed(count: 24, distanceKm: 1)
+            VolunteerProfileHeadline.resolve(totalCompleted: 16, totalServiceMinutes: 239),
+            .completed(count: 16, hours: 3)
         )
     }
 
-    /// 🔴 不足 1 公里 / 缺字段 / 脏数据都回落到次数，**不显示「0 公里」**。
-    /// 2026-08-14 之前的订单没有里程快照，「有完成订单但里程 0」是真实状态。
-    func testHeroFallsBackToRunCountWhenThereIsNoWholeKilometre() {
-        for meters: Int64? in [nil, 0, 999, -5_000] {
+    /// 🔴 不足 1 小时 / 缺字段 / 脏数据都回落到次数，**不显示「0 小时」**。
+    func testHeroFallsBackToRunCountWhenThereIsNoWholeHour() {
+        for minutes: Int64? in [nil, 0, 59, -600] {
             XCTAssertEqual(
-                VolunteerProfileHeadline.resolve(totalCompleted: 24, totalDistanceMeters: meters),
-                .completed(count: 24, distanceKm: nil),
-                "meters=\(String(describing: meters)) 时不该有公里"
+                VolunteerProfileHeadline.resolve(totalCompleted: 24, totalServiceMinutes: minutes),
+                .completed(count: 24, hours: nil),
+                "minutes=\(String(describing: minutes)) 时不该有小时"
             )
         }
     }
 
-    /// 新人态只看完成次数：里程再大也不能把新人变成老志愿者。
-    func testNewcomerIgnoresDistance() {
+    /// 新人态只看完成次数：时长再大也不能把新人变成老志愿者。
+    func testNewcomerIgnoresServiceMinutes() {
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: 0, totalDistanceMeters: 50_000),
+            VolunteerProfileHeadline.resolve(totalCompleted: 0, totalServiceMinutes: 6_000),
             .newcomer
         )
     }
 
-    func testHeroSpokenNamesKilometresAndKeepsTheRunCount() {
-        let withDistance = VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: 12))
-        XCTAssertTrue(withDistance.contains("12 公里"), withDistance)
-        XCTAssertTrue(withDistance.contains("24 次陪跑"), withDistance)
-        // 无里程时与改动前逐字相同。
+    func testHeroSpokenNamesHoursAndKeepsTheRunCount() {
+        let withHours = VolunteerProfileCopy.heroSpoken(.completed(count: 16, hours: 3))
+        XCTAssertEqual(withHours, "我的陪伴。累计陪伴 3 小时，共 16 次陪跑。")
+        // 不足 1 小时时与改动前逐字相同。
         XCTAssertEqual(
-            VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: nil)),
+            VolunteerProfileCopy.heroSpoken(.completed(count: 24, hours: nil)),
             "我的陪伴。已完成 24 次陪跑。"
         )
     }
@@ -217,12 +215,27 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     // MARK: - 三列统计
 
-    /// 时长向下取整：51 分钟不是 1 小时。少算而不是多算，与后端口径同向。
-    func testHoursRoundDownAndClampNegatives() {
-        XCTAssertEqual(VolunteerProfileStats.hours(11_160).value, "186")
-        XCTAssertEqual(VolunteerProfileStats.hours(59).value, "0", "51 分钟不是 1 小时")
-        XCTAssertEqual(VolunteerProfileStats.hours(nil).value, "0")
-        XCTAssertEqual(VolunteerProfileStats.hours(-600).value, "0")
+    /// 里程向下取整：12_999 米是 12 公里（取在「向下取整 / 四舍五入」之间才分得出口径）。
+    /// 🔴 不足 1 公里显示 `--`，念出来不是「破折号」也不是「0 公里」。
+    func testDistanceRoundsDownAndNeverShowsZero() {
+        XCTAssertEqual(VolunteerProfileStats.distance(12_999).value, 12.formatted())
+        for meters: Int64? in [nil, 0, 999, -5_000] {
+            let stat = VolunteerProfileStats.distance(meters)
+            XCTAssertEqual(stat.value, "--", "meters=\(String(describing: meters))")
+            XCTAssertNil(stat.unit)
+            XCTAssertEqual(stat.spoken, VolunteerProfileCopy.distanceSpokenWhenEmpty)
+        }
+    }
+
+    /// 🔴 0 位固定搭档不上屏（同 `VolunteerHomeIncentiveSummary.hero` 的判据）。
+    func testZeroPartnersShowsAPlaceholderInsteadOfZero() {
+        let none = VolunteerProfileStats.partners(0)
+        XCTAssertEqual(none.value, "--")
+        XCTAssertNil(none.unit, "「-- 位」读起来像缺数据")
+        XCTAssertFalse(none.spoken.contains("0"), none.spoken)
+        XCTAssertFalse(none.spoken.contains("-"), none.spoken)
+        XCTAssertEqual(VolunteerProfileStats.partners(-2).value, "--", "负数是脏数据")
+        XCTAssertEqual(VolunteerProfileStats.partners(1).value, "1")
     }
 
     /// 没有评价时屏幕上是 `--`，**念出来不能是「破折号破折号」**。
@@ -244,12 +257,15 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     func testStatsRowIsAlwaysThreeColumnsInAFixedOrder() {
         let row = VolunteerProfileStats.row(
-            achievements: Self.achievements(totalCompleted: 24, minutes: 11_160, avgRating: 4.9, totalRatings: 32),
+            achievements: Self.achievements(
+                totalCompleted: 24, minutes: 11_160, avgRating: 4.9, totalRatings: 32, distanceMeters: 128_400
+            ),
             favoritedByCount: 8
         )
         XCTAssertEqual(row.count, 3)
-        XCTAssertEqual(row.map(\.value), ["186", "8", "4.9"])
-        XCTAssertEqual(row.map(\.caption).first, VolunteerProfileCopy.hoursCaption)
+        // 陪伴时长已是主指标，这一行第一格换成累计里程。
+        XCTAssertEqual(row.map(\.value), ["128", "8", "4.9"])
+        XCTAssertEqual(row.map(\.caption).first, VolunteerProfileCopy.distanceCaption)
         // 固定搭档那格复用既有的完整播报（「有 8 位跑者把你设为固定搭档」）——
         // 「固定搭档 8 位」说不清是谁选了谁。
         XCTAssertEqual(row[1].spoken, VolunteerHomeIncentiveCopy.partnersSpoken(8))
@@ -286,17 +302,58 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     func testNextBadgeCaptionStatesProgressWithoutPromisingUnlock() {
         let hours = VolunteerNextBadgeDto(code: "HOURS_10", name: "十小时陪伴", current: 180, target: 600)
         // `HOURS_*` 的单位是**分钟**，展示要换算成小时。
-        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(hours), "十小时陪伴 3/10")
+        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(hours), .init(title: "十小时陪伴", detail: "3/10"))
 
         let runs = VolunteerNextBadgeDto(code: "RUNS_10", name: "夜跑守护", current: 3, target: 5)
-        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(runs), "夜跑守护 3/5")
+        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(runs), .init(title: "夜跑守护", detail: "3/5"))
 
         // 未知 code 拿不到量词 ⇒ 只给名字，不拼一个猜的分母。
         let unknown = VolunteerNextBadgeDto(code: "MOONWALK", name: "月球漫步", current: 1, target: 9)
-        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(unknown), "月球漫步")
+        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(unknown), .init(title: "月球漫步", detail: nil))
 
         for caption in [VolunteerProfileBadgeRow.nextBadgeCaption(hours), VolunteerProfileBadgeRow.nextBadgeCaption(runs)] {
-            XCTAssertFalse(caption.contains("解锁"), "徽章进度不得承诺解锁：\(caption)")
+            XCTAssertFalse("\(caption.title)\(caption.detail ?? "")".contains("解锁"), "徽章进度不得承诺解锁：\(caption)")
+        }
+    }
+
+    /// 后端名字「陪跑达人 · 10 次」拆成两行：上名字、下「10 次」；带进度时下行是进度。
+    /// 2026-10-03 试用反馈：挤在一行时窄格把它断成「陪跑达人 ·」「10 次」。
+    func testBadgeCaptionSplitsTheQualifierOntoItsOwnLine() {
+        XCTAssertEqual(
+            VolunteerProfileBadgeRow.caption(name: "陪跑达人 · 10 次"),
+            .init(title: "陪跑达人", detail: "10 次")
+        )
+        let next = VolunteerNextBadgeDto(code: "RUNS_50", name: "陪跑达人 · 50 次", current: 16, target: 50)
+        XCTAssertEqual(
+            VolunteerProfileBadgeRow.nextBadgeCaption(next),
+            .init(title: "陪跑达人", detail: "16/50")
+        )
+        XCTAssertEqual(VolunteerProfileBadgeRow.caption(name: "首次陪跑"), .init(title: "首次陪跑", detail: nil))
+    }
+
+    // MARK: - 星级卡
+
+    /// 还没到一星时标题直接说还差多少，进度行不重复「还差」；到了一星以后与成就页同一套文案。
+    func testStarCardTitleSaysHowFarToTheFirstStar() {
+        let none = VolunteerStarLevel.derive(totalServiceMinutes: 239)
+        XCTAssertEqual(VolunteerProfileCopy.starCardTitle(none), "距离一星还差 97 小时")
+        XCTAssertEqual(VolunteerProfileCopy.starCardProgress(none), "已累计 3 / 100 小时")
+
+        let oneStar = VolunteerStarLevel.derive(totalServiceMinutes: 120 * 60)
+        XCTAssertEqual(VolunteerProfileCopy.starCardTitle(oneStar), VolunteerAchievementsCopy.starTitle(current: 1))
+        XCTAssertEqual(VolunteerProfileCopy.starCardProgress(oneStar), VolunteerAchievementsCopy.starProgressText(oneStar))
+
+        // 读屏念的必须和屏幕一致，不能再是成就页那句「尚未达到一星」。
+        let spoken = VolunteerProfileCopy.starCardAccessibilityLabel(none)
+        XCTAssertEqual(spoken, "国标星级，距离一星还差 97 小时，已累计 3 小时。")
+        XCTAssertEqual(
+            VolunteerProfileCopy.starCardAccessibilityLabel(oneStar),
+            VolunteerAchievementsCopy.starAccessibilityLabel(oneStar)
+        )
+        for text in [VolunteerProfileCopy.starCardTitle(none), spoken] {
+            for word in ["证明", "证书", "已认证", "尚未"] {
+                XCTAssertFalse(text.contains(word), "「\(text)」含「\(word)」")
+            }
         }
     }
 
@@ -424,9 +481,14 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerProfileCopy.newcomerHeadline,
             VolunteerProfileCopy.newcomerDetail,
             VolunteerProfileCopy.heroSpoken(.newcomer),
-            VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: nil)),
-            VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: 12)),
-            VolunteerProfileCopy.hoursCaption,
+            VolunteerProfileCopy.heroSpoken(.completed(count: 24, hours: nil)),
+            VolunteerProfileCopy.heroSpoken(.completed(count: 24, hours: 12)),
+            // 星级卡标题「距离一星还差 N 小时」刻意不进这张表：门槛是国标定的固定值，
+            // 「还差」在这里不是压力句式（同下面那条注释）。它的红线在 `testStarCardTitleSaysHowFarToTheFirstStar`。
+            VolunteerProfileCopy.starCardProgress(VolunteerStarLevel.derive(totalServiceMinutes: 180)),
+            VolunteerProfileCopy.distanceCaption,
+            VolunteerProfileCopy.distanceSpokenWhenEmpty,
+            VolunteerProfileCopy.partnersSpokenWhenEmpty,
             VolunteerProfileCopy.partnersCaption,
             VolunteerProfileCopy.ratingCaption,
             VolunteerProfileCopy.ratingSpokenWhenEmpty,
