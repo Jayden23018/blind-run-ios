@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# device-test.sh 在 xcodebuild 之前那几道闸的自测：设备锁（1–3）与工作区完整性（4–5）。
+# device-test.sh 在 xcodebuild 之前那几道闸的自测：设备锁（1–3）、工作区完整性（4–5）、Xcode 图形界面占用（6–7）。
 #
 # 锁存在的理由见 device-test.sh 的「0. 设备互斥」注释：并发跑同一台真机会互相把
 # runner 装掉，两边都报 `Test crashed with signal kill`，与真回归无法区分。
@@ -28,7 +28,7 @@ bad()  { printf '  ❌ %s\n' "$1"; FAIL=$((FAIL + 1)); }
 rm -rf "$LOCK"
 trap 'rm -rf "$LOCK"' EXIT
 
-echo "[validate-device-lock] 1/5 并发的第二次被拦下"
+echo "[validate-device-lock] 1/7 并发的第二次被拦下"
 AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=6 bash "$SCRIPT" >/dev/null 2>&1 &
 HOLDER=$!
 # 等持有者真正建出锁再发第二次，否则测的是「谁先跑到」而不是互斥。
@@ -55,7 +55,7 @@ fi
 kill "$HOLDER" 2>/dev/null
 wait "$HOLDER" 2>/dev/null
 
-echo "[validate-device-lock] 2/5 正常退出会释放锁"
+echo "[validate-device-lock] 2/7 正常退出会释放锁"
 rm -rf "$LOCK"
 AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" >/dev/null 2>&1
 if [ -d "$LOCK" ]; then
@@ -64,7 +64,7 @@ else
   ok "退出时锁已删除"
 fi
 
-echo "[validate-device-lock] 3/5 死锁（持有者已不在）会被自动回收"
+echo "[validate-device-lock] 3/7 死锁（持有者已不在）会被自动回收"
 # 先拿一个确定不存在的 pid：起一个立刻结束的子进程，等它回收掉再借用它的号。
 ( exit 0 ) &
 DEAD_PID=$!
@@ -98,19 +98,49 @@ fi
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/aidrun-device-test-worktree.XXXXXX")"
 trap 'rm -rf "$LOCK" "$SANDBOX"' EXIT
 
-echo "[validate-device-lock] 4/5 缺 LocalConfig.xcconfig 时说清是工作区没初始化"
+echo "[validate-device-lock] 4/7 缺 LocalConfig.xcconfig 时说清是工作区没初始化"
 FOURTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" bash "$SCRIPT_ABS" 2>&1)"
 case "$FOURTH" in
   *"缺少 LocalConfig.xcconfig"*) ok "点名了 LocalConfig.xcconfig" ;;
   *) bad "没点名 LocalConfig.xcconfig，实际输出：$FOURTH" ;;
 esac
 
-echo "[validate-device-lock] 5/5 LocalConfig 有了但缺 Pods/ 时改口"
+echo "[validate-device-lock] 5/7 LocalConfig 有了但缺 Pods/ 时改口"
 : >"$SANDBOX/LocalConfig.xcconfig"
 FIFTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" bash "$SCRIPT_ABS" 2>&1)"
 case "$FIFTH" in
   *"缺少 Pods/"*) ok "改口点名 Pods/ —— 证明第 4 条不是恒失败" ;;
   *) bad "期望点名 Pods/，实际输出：$FIFTH" ;;
+esac
+
+# ---- 6–7：Xcode 图形界面占用（device-test.sh 第 0.6 节）----
+#
+# 造一个名字固定的进程冒充 Xcode（AIDRUN_XCODE_PROCESS_NAME），第 6 条期望被拦、第 7 条带放行开关
+# 期望**不**出现这句 —— 两条对照才证明第 6 条拦的是「Xcode 开着」，而不是工作区里别的缺口。
+# 两条都要先补齐 LocalConfig 与 Pods/，否则会提前死在 0.5 节，测不到 0.6。
+mkdir -p "$SANDBOX/Pods"
+# 名字要短：进程名 macOS 只留 16 字符、Linux 15 字符，超长被截断后 `pgrep -x` 全名匹配不上。
+FAKE_XCODE="fxc$$"
+FAKE_BIN="$SANDBOX/$FAKE_XCODE"
+# 用符号链接不用 cp：macOS 上复制出来的系统 sleep 一启动就被杀（签名校验），进程根本不存在；
+# 符号链接的进程名取链接名（macOS / Linux 都是），`pgrep -x` 能认出来。
+ln -s "$(command -v sleep)" "$FAKE_BIN"
+"$FAKE_BIN" 30 &
+FAKE_PID=$!
+trap 'kill "$FAKE_PID" 2>/dev/null; rm -rf "$LOCK" "$SANDBOX"' EXIT
+
+echo "[validate-device-lock] 6/7 Xcode 开着时在 xcodebuild 之前拦下"
+SIXTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_XCODE_PROCESS_NAME="$FAKE_XCODE" bash "$SCRIPT_ABS" 2>&1)"
+case "$SIXTH" in
+  *"Xcode 图形界面开着"*) ok "点名了 Xcode 图形界面" ;;
+  *) bad "没拦 Xcode，实际输出：$SIXTH" ;;
+esac
+
+echo "[validate-device-lock] 7/7 AIDRUN_ALLOW_XCODE_OPEN=1 时放行"
+SEVENTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_XCODE_PROCESS_NAME="$FAKE_XCODE" AIDRUN_ALLOW_XCODE_OPEN=1 bash "$SCRIPT_ABS" 2>&1)"
+case "$SEVENTH" in
+  *"Xcode 图形界面开着"*) bad "放行开关没生效，实际输出：$SEVENTH" ;;
+  *) ok "放行后不再拦 —— 证明第 6 条不是恒失败" ;;
 esac
 
 echo

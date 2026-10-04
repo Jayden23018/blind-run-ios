@@ -151,6 +151,21 @@ if [ ! -d Pods ]; then
      \"[CP] Check Pods Manifest.lock\" 构建阶段会说清楚，照它说的重跑 pod install。"
 fi
 
+# ---------- 0.6 Xcode 图形界面占用 ----------
+#
+# Xcode.app 开着（尤其运行目标选的就是这台设备）时，UI 测试的 runner 起来 ~18 秒后握手被拒：
+#   [DTXConnection] Connection peer refused channel request for "dtxproxy:XCTestDriverInterface:XCTestManager_IDEInterface"
+#   Exiting due to IDE disconnection.
+# 汇总只剩一句 `exited with code 74 before establishing connection`，看着像「没启动 / 没插线」。
+# 2026-10-04 连挂三次，⌘Q 退出 Xcode 后原样重跑 4/4 通过（其余条件一个没动）。
+# 单测不受影响，但同一次可能混跑 UI 测试，所以一律拦；确需开着时 AIDRUN_ALLOW_XCODE_OPEN=1 放行。
+# 进程名可覆盖只为自测能造出「Xcode 开着」（validate-device-lock.sh 第 6–7 条）。
+XCODE_PROCESS="${AIDRUN_XCODE_PROCESS_NAME:-Xcode}"
+if [ -z "${AIDRUN_ALLOW_XCODE_OPEN:-}" ] && pgrep -x "$XCODE_PROCESS" >/dev/null 2>&1; then
+  die "Xcode 图形界面开着 —— UI 测试的 runner 会在握手时被拒，报 code 74，看起来像没插线。
+     先 ⌘Q 退出 Xcode（关窗口不够）再重跑。确需开着跑：AIDRUN_ALLOW_XCODE_OPEN=1 scripts/device-test.sh ..."
+fi
+
 # ---------- 1. 设备探活 ----------
 say "检查设备连接…"
 DEVICES="$(xcrun devicectl list devices 2>&1 || true)"
