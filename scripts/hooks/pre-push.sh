@@ -84,6 +84,9 @@ if [ "$FULL" = "1" ] || touches '^(scripts/|\.claude/|\.github/)'; then
   run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
   run_node "validate-drift-fields（契约漂移字段归属自测）" scripts/validate-drift-fields.mjs
   run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
+  if [ -f scripts/validate-preflight-watchdog.sh ]; then
+    run "validate-preflight-watchdog（真机看门狗自测）" bash scripts/validate-preflight-watchdog.sh
+  fi
 else
   echo "[pre-push] 跳过钩子/脚本自测：本次未改 scripts/ .claude/ .github/（CI specs job 会跑）"
   TIERED_OUT=1

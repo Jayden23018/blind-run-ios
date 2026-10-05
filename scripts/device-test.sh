@@ -184,7 +184,7 @@ fi
 printf '%s\n' "$DEVICES" | sed 's/^/    /'
 
 say "⚠️  现在请解锁设备并保持屏幕常亮（设置 → 显示与亮度 → 自动锁定 → 永不）。"
-say "    锁屏会让 xcodebuild 静默挂起，本脚本会在 ${PREFLIGHT_TIMEOUT}s 后判定为锁屏失败。"
+say "    锁屏会让 xcodebuild 静默挂起，本脚本在日志停滞 ${PREFLIGHT_TIMEOUT}s 后判定为锁屏失败（编译期间不计时）。"
 
 # ---------- 2. 跑测试，同时盯着锁屏挂起 ----------
 say "开始 xcodebuild test（日志：${LOG}）"
@@ -200,31 +200,24 @@ xcodebuild test \
 XCB_PID=$!
 
 # 只在「还没开始跑用例」的窗口里盯锁屏。一旦有用例产出就说明 preflight 过了。
-ELAPSED=0
-while kill -0 "$XCB_PID" 2>/dev/null; do
-  # 大小写**两种都要认**。2026-09-10 实测这台 Xcode 只产出 `Test Case '`（大写 C），
-  # 于是这条 grep 恒为假、看门狗永远等不到「已经开始跑用例」，全量跑必然在
-  # PREFLIGHT_TIMEOUT 到点时被当成锁屏掐掉（日志里 UI 用例明明在跑，结尾是
-  # `** BUILD INTERRUPTED **`）。定向跑之所以没暴露，是因为它们在超时前整个跑完了 ——
-  # 循环是因进程结束而退出的，不是因为找到了标记。
-  if grep -qE "Test [Cc]ase '" "$LOG" 2>/dev/null; then
-    break
-  fi
-  if grep -qi 'Unlock .* to Continue\|Preflight: Unlock\|device is locked' "$LOG" 2>/dev/null; then
+# 计的是**日志停滞**时间而不是总时间 —— 理由与自测见 scripts/lib/preflight-watchdog.sh。
+# shellcheck source=lib/preflight-watchdog.sh
+. "$(dirname "$0")/lib/preflight-watchdog.sh"
+preflight_watch "$XCB_PID" "$LOG" "$PREFLIGHT_TIMEOUT"
+case $? in
+  2)
     kill "$XCB_PID" 2>/dev/null
     wait "$XCB_PID" 2>/dev/null
     die "设备处于锁屏状态，xcodebuild 会一直等下去。解锁并保持常亮后重跑。"
-  fi
-  sleep 2
-  ELAPSED=$((ELAPSED + 2))
-  if [ "$ELAPSED" -ge "$PREFLIGHT_TIMEOUT" ]; then
+    ;;
+  3)
     kill "$XCB_PID" 2>/dev/null
     wait "$XCB_PID" 2>/dev/null
     printf '%s\n' "$(tail -n 20 "$LOG")" >&2
-    die "${PREFLIGHT_TIMEOUT}s 内一条用例都没开始跑，判定为 preflight 卡住（多半是锁屏或设备掉线）。
+    die "日志连续 ${PREFLIGHT_TIMEOUT}s 没有新输出、也没开始跑用例，判定为 preflight 卡住（多半是锁屏或设备掉线）。
      完整日志：$LOG"
-  fi
-done
+    ;;
+esac
 
 # ---------- 2.5 用例级停滞看门狗 ----------
 #
