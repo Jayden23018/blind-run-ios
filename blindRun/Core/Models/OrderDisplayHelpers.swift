@@ -1053,9 +1053,14 @@ extension String {
     /// 秒以下精度对展示和预约时间都没有意义。**但带时区偏移的串不能这么截**
     /// （`...42.644+08:00` 截完会差好几个小时），所以要求小数点后必须全是数字，
     /// 带偏移的交给调用方的 ISO8601 分支。
+    ///
+    /// 还可能**不带秒**（`2026-10-05T07:00`）：WS 载荷用 Java `LocalDateTime.toString()` 拼，
+    /// 秒与小数秒都为 0 时它会省掉 `:00`。预约时刻几乎都是整分钟，所以 `NEW_ORDER.plannedStart`
+    /// 几乎每条都是这个形状（后端 #542）。
     var backendLocalDate: Date? {
         let formatter = DateFormatter.aidRunBackendLocalDateTime
         if let date = formatter.date(from: self) { return date }
+        if let date = DateFormatter.aidRunBackendLocalDateTimeWithoutSeconds.date(from: self) { return date }
         let parts = split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2, !parts[1].isEmpty, parts[1].allSatisfy(\.isNumber) else { return nil }
         return formatter.date(from: String(parts[0]))
@@ -1111,6 +1116,15 @@ extension DateFormatter {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .aidRunBackend
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+
+    /// 只用于**解析** Java `LocalDateTime.toString()` 在整分钟时省掉秒的形状，生成一律用上面那个。
+    static let aidRunBackendLocalDateTimeWithoutSeconds: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .aidRunBackend
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
         return formatter
     }()
 
