@@ -86,6 +86,9 @@ enum VolunteerOrderFlowCopy {
     static let startRun = "开始跑步"
     /// 主按钮上方那行小字。**逐字取自设计交付文档 v3 §5 的「陪跑员主按钮」列。**
     static let startRunCaption = "见面并握好引导绳后再按"
+    /// 按下「开始跑步」收到 409 `BLIND_CONFIRMATION_PENDING` 后换上的小字（后端 #307 ①）。
+    /// 按钮**不置灰** —— 对方随时可能点，也可能手机没电，宽限期过后可单方面开始。
+    static let startRunAwaitingConfirmation = "等待对方确认"
     static let doneReviewing = "完成"
     static let backToHome = "回到首页"
 
@@ -443,6 +446,12 @@ struct VolunteerOrderFlowPresentation: Equatable {
             case .acceptInvite, .confirmDeparture, .enRoute, .alreadyDeparted, .arrived, .doneReviewing, .backToHome:
                 return nil
             }
+        }
+
+        /// `caption`，但「开始跑步」在等对方确认时换成「等待对方确认」。其余动作与 `caption` 相同。
+        func caption(awaitingBlindConfirmation: Bool) -> String? {
+            if self == .startRun, awaitingBlindConfirmation { return VolunteerOrderFlowCopy.startRunAwaitingConfirmation }
+            return caption
         }
 
         /// SF Symbol。一律 SF Symbols，不移植 HTML 原型里那些手绘 SVG 占位图。
