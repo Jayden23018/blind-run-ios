@@ -518,8 +518,14 @@ final class VoiceOrderWizard: ObservableObject {
         // `START_TIME` 没有这种默认值（`appointmentTime` 的初值是 `Date()`，
         // 而「用户没说过的时间不许当成已确认」是条红线），缺了就是真的缺 —— 后端那句追问
         // 是这一轮唯一能解释「为什么时间没进去」的东西，夜间禁跑那句正是走这条。
+        //
+        // 🚩 **判据是「排第一」，不是「含有」**（后端 #508）：`ttsText` 永远是 `missing` 里**第一个**
+        // 阻断项的追问，而后端的顺序是起点在前。整句只说「明天早上」时 `missing = [ADDRESS, START_TIME]`，
+        // `ttsText` 是起点追问 —— 用「含有」会把它念出来，正好撞上上一段要避免的自相矛盾。
+        // 那一轮不念任何追问：读回结尾自己会说「预约时间还没说」，而确认轮的 `current` 带上设备位置后
+        // 起点不再缺，后端到那时给的才是「明天早上几点？」。
         if let parsed,
-           parsed.missing?.contains(.startTime) == true,
+           parsed.missing?.first == .startTime,
            let reask = parsed.ttsText?.nilIfBlank {
             notice = [reask, notice].compactMap { $0 }.joined()
         }
