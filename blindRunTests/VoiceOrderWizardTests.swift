@@ -452,7 +452,11 @@ final class VoiceOrderWizardTests: XCTestCase {
 
         XCTAssertFalse(wizard.isRunning, "取消就该停下来")
         XCTAssertNil(wizard.createdOrder)
-        XCTAssertNotNil(wizard.fallbackMessage, "看不见屏幕的人需要听到语音已经停了，以及接下来去哪")
+        // 后端 #502：取消停在语音面板，不送去表单，播报不提表单。
+        XCTAssertEqual(wizard.endedMessage, VoiceOrderWizard.cancelledMessage)
+        XCTAssertEqual(wizard.lastSpokenPrompt, "已取消这次语音下单。", "看不见屏幕的人需要听到语音已经停了")
+        XCTAssertNil(wizard.fallbackMessage, "取消不是语音坏了，不切表单")
+        XCTAssertFalse(wizard.endedAfterFailure, "用户刚说了不要，不递「直接下单」")
     }
 
     /// 本地取消词：整串匹配，尾部语气词被 `normalizedCommand` 剥掉。
@@ -496,10 +500,12 @@ final class VoiceOrderWizardTests: XCTestCase {
             XCTAssertFalse(wizard.isRunning, "\(startingStep)：取消就该停下来")
             XCTAssertNil(wizard.createdOrder, "\(startingStep)：取消绝不能提交")
             XCTAssertEqual(stub.paths.count, pathsBefore, "\(startingStep)：取消是本地判定，不走后端：\(stub.paths)")
-            XCTAssertTrue(
-                (wizard.fallbackMessage ?? "").contains(VoiceOrderWizard.cancelledReason),
-                "\(startingStep)：要让看不见屏幕的人听到已取消：\(wizard.fallbackMessage ?? "nil")"
+            XCTAssertEqual(
+                wizard.lastSpokenPrompt, VoiceOrderWizard.cancelledMessage,
+                "\(startingStep)：要让看不见屏幕的人听到已取消，且不提表单"
             )
+            XCTAssertNil(wizard.fallbackMessage, "\(startingStep)：取消不切表单（#502）")
+            XCTAssertNotNil(wizard.endedMessage, "\(startingStep)：停在语音面板的结束态")
         }
     }
 
@@ -2350,7 +2356,7 @@ final class VoiceOrderWizardTests: XCTestCase {
     }
 
     /// 解析活着但连着两轮都抽不到时间，同样要交回表单，而不是第三次说「请说重说」。
-    func testTwoRoundsWithoutAStartTimeFallBackToTheForm() async {
+    func testTwoRoundsWithoutAStartTimeEndOnTheVoiceStageInsteadOfTheForm() async {
         let stub = VoiceOrderAPIClientStub()
         let noTime = ParseVoiceOrderResponse(
             plannedStartTime: nil, durationMinutes: nil, address: nil,
@@ -2368,7 +2374,11 @@ final class VoiceOrderWizardTests: XCTestCase {
         await wizard.submitTranscript("还是没说时间")
 
         XCTAssertFalse(wizard.isRunning, "第二次还抽不到就不能再让人重说了")
-        XCTAssertTrue((wizard.fallbackMessage ?? "").contains("表单"))
+        // 后端 #502：没听清不再送去表单 —— 全盲用户基本不可能用表单下单。
+        XCTAssertNil(wizard.fallbackMessage)
+        XCTAssertEqual(wizard.endedMessage, VoiceOrderWizard.notUnderstoodMessage)
+        XCTAssertEqual(wizard.lastSpokenPrompt, "暂时没听清，你可以稍后再试，或者让身边的人帮忙。")
+        XCTAssertTrue(wizard.endedAfterFailure, "没听清结束才在面板上递「直接下单」")
     }
 
     /// 出口不能宽到把正常流程也带走：中间成功抽到过时间，计数要清零。
@@ -2440,7 +2450,7 @@ final class VoiceOrderWizardTests: XCTestCase {
     }
 
     /// 连续沉默不会无限重问：两次之后交回表单，而不是把人按在麦克风前。
-    func testRepeatedSilenceEventuallyFallsBackToTheForm() async {
+    func testRepeatedSilenceEventuallyEndsOnTheVoiceStage() async {
         let wizard = makeWizard(stub: VoiceOrderAPIClientStub(), startingAt: .freeform)
         let silence = SpeechInputCompletion(
             field: .voiceOrderFreeform,
@@ -2452,9 +2462,92 @@ final class VoiceOrderWizardTests: XCTestCase {
             wizard.handleCompletionForTesting(silence)
         }
 
-        XCTAssertFalse(wizard.isRunning, "连续听不到就该交回表单，不能一直重问")
-        XCTAssertNotNil(wizard.fallbackMessage)
+        XCTAssertFalse(wizard.isRunning, "连续听不到就该停下，不能一直重问")
+        XCTAssertNil(wizard.fallbackMessage, "没听清不送去表单（#502）")
+        XCTAssertEqual(wizard.endedMessage, VoiceOrderWizard.notUnderstoodMessage)
+        XCTAssertTrue(wizard.endedAfterFailure)
         XCTAssertNil(wizard.createdOrder)
+    }
+
+    /// 结束态之后再开一轮，结束态必须清干净 —— 否则界面判「已结束」，又递出上一轮的「直接下单」。
+    /// 走真实的 `start()`（门槛构造同 `testStartProceedsWhenOnlyTheVoiceFilledSlotsAreMissing`）。
+    func testStartingAgainClearsTheEndedState() async {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
+        ])
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
+        XCTAssertTrue(wizard.start(), "前提：门槛已过")
+        let silence = SpeechInputCompletion(
+            field: .voiceOrderFreeform,
+            recognizedText: "",
+            reason: .silenceTimeout(hadDetectedSound: false)
+        )
+        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
+            wizard.handleCompletionForTesting(silence)
+        }
+        XCTAssertTrue(wizard.endedAfterFailure, "前提：没听清进了结束态")
+
+        XCTAssertTrue(wizard.start())
+
+        XCTAssertNil(wizard.endedMessage)
+        XCTAssertFalse(wizard.endedAfterFailure)
+        XCTAssertTrue(wizard.isRunning)
+    }
+
+    /// 识别**起不来**（首次在系统弹窗里拒了语音 / 麦克风权限，回调原因是 `.error`）不是「没听清」：
+    /// 重说多少遍都不会好，满上限后仍交回表单，不停在语音面板（#502 的不变项，审查 A1）。
+    func testRepeatedRecognitionStartFailuresStillFallBackToTheForm() async {
+        let wizard = makeWizard(stub: VoiceOrderAPIClientStub(), startingAt: .freeform)
+        let startFailure = SpeechInputCompletion(
+            field: .voiceOrderFreeform,
+            recognizedText: "",
+            reason: .error
+        )
+
+        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
+            wizard.handleCompletionForTesting(startFailure)
+        }
+
+        XCTAssertFalse(wizard.isRunning)
+        XCTAssertNil(wizard.endedMessage, "识别起不来不该进「没听清」的结束态")
+        XCTAssertFalse(wizard.endedAfterFailure, "不该在一个用不了的语音页上递「直接下单」")
+        XCTAssertTrue((wizard.fallbackMessage ?? "").contains("表单"), "实际：\(wizard.fallbackMessage ?? "nil")")
+    }
+
+    /// 结束态之后再降级，结束态必须清掉 —— 否则界面停在语音面板，播报却说「已切回表单」/ 去补前置项（审查 A2）。
+    /// 用「结束后门槛失效（删光紧急联系人）再重开」触发：不碰真麦克风（真 `SpeechInputService` 会在真机上弹授权框）。
+    func testFallingBackAfterAnEndedSessionLeavesTheEndedState() async {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
+        ])
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
+        XCTAssertTrue(wizard.start(), "前提：门槛已过")
+        let silence = SpeechInputCompletion(
+            field: .voiceOrderFreeform,
+            recognizedText: "",
+            reason: .silenceTimeout(hadDetectedSound: false)
+        )
+        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
+            wizard.handleCompletionForTesting(silence)
+        }
+        XCTAssertNotNil(wizard.endedMessage, "前提：没听清进了结束态")
+
+        appState.updateEmergencyContacts([])
+        XCTAssertNotNil(viewModel.firstMissingGate, "前提：门槛现在失效了")
+
+        XCTAssertFalse(wizard.start())
+
+        XCTAssertNil(wizard.endedMessage, "要去表单补前置项时结束态必须清掉，否则屏幕停在语音面板")
+        XCTAssertFalse(wizard.endedAfterFailure)
+        XCTAssertNotNil(wizard.fallbackMessage)
     }
 
     /// **说了话但抽不出槽位**那条路径不受影响 —— 用户确实说了，用默认值补齐并读回是对的，

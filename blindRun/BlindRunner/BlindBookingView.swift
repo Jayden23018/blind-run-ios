@@ -1039,7 +1039,7 @@ struct BlindBookingView: View {
         // 表单没有消失，它是**降级出路**（语音坏了）也是**隐私出路**（在地铁上不想说出自己在哪，
         // 见 `docs/research/blind-voice-booking-ia-20260805.md` §9.3）。它只是不再与语音同屏共存。
         Group {
-            if voiceWizard.isRunning {
+            if showsVoiceStage {
                 voiceStage
             } else {
                 ScrollView {
@@ -1242,6 +1242,20 @@ struct BlindBookingView: View {
                 VStack(spacing: 16) {
                     voiceStatusBlock
                     voiceOrderRecap
+                    // 没听清而结束时，失败后最省力的出路跟到语音面板上来（原本只在表单态出现）。
+                    if isVoiceSessionEnded {
+                        zeroInputBookingSection
+                        // 直接下单被后端拒（夜间窗口、时段冲突……）时，原因原来只在表单态显示 ——
+                        // 这条入口搬到语音面板上之后，不在这里显示就是「按了没反应」。
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(AppFonts.body())
+                                .foregroundColor(AppColors.destructive)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityLabel(errorMessage)
+                        }
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 24)
@@ -1310,6 +1324,12 @@ struct BlindBookingView: View {
         .cornerRadius(16)
         .contentShape(Rectangle())
         .onTapGesture {
+            if isVoiceSessionEnded {
+                // 直接下单正在提交时不重开：一张单在创建、麦克风又开了，两件事会互相打断。
+                guard !viewModel.isSubmitting else { return }
+                startVoiceWizard()
+                return
+            }
             guard !voiceWizard.isParsing else { return }
             voiceWizard.finishSpeakingOrSkipPrompt()
         }
@@ -1353,12 +1373,14 @@ struct BlindBookingView: View {
     /// 比什么都不说更糟。这与 `.accessibilityAddTraits(isParsing ? [] : .isButton)` 是同一条判据。
     private var voiceStageTapHint: String? {
         if voiceWizard.isParsing { return nil }
+        if isVoiceSessionEnded { return "轻点重新开始说话" }
         return isRecording ? "说完轻点这里" : "轻点开始说话"
     }
 
     private var voiceStageHeadline: String {
         if isRecording { return "正在录音" }
         if voiceWizard.isParsing { return "正在识别" }
+        if isVoiceSessionEnded { return "语音下单已结束" }
         return "请听提示后说话"
     }
 
@@ -1373,11 +1395,13 @@ struct BlindBookingView: View {
 
     private var voiceStageAccessibilityLabel: String {
         if voiceWizard.isParsing { return "正在识别，请稍候" }
+        if isVoiceSessionEnded { return "语音下单已结束，双击重新开始说话" }
         return isRecording ? "正在录音，说完后双击结束" : "双击跳过播报，直接开始说话"
     }
 
     private var voiceStageAccessibilityHint: String {
         if voiceWizard.isParsing { return "" }
+        if isVoiceSessionEnded { return "" }
         return isRecording ? "也可以停顿几秒自动结束" : "也可以听完播报，麦克风会自动打开"
     }
 
@@ -1392,7 +1416,8 @@ struct BlindBookingView: View {
     /// 同一条红线（用户原话：「他也没有经过我的同意」），屏幕这一份不能把它退回去。
     @ViewBuilder
     private var voiceOrderRecap: some View {
-        if voiceWizard.step == .confirm {
+        // 结束态不摆整单：用户刚说了「算了」或者没听清，屏幕上还留一张单会让人以为它还在。
+        if voiceWizard.step == .confirm, voiceWizard.isRunning {
             VStack(spacing: 8) {
                 recapRow("出发", viewModel.resolvedStartLocationDescription.nilIfBlank ?? "当前位置")
                 // 紧跟「出发」，与读回同一个顺序 —— 起终点抽反了要能一眼/一耳看出来。
@@ -1479,7 +1504,8 @@ struct BlindBookingView: View {
 
     /// 零输入下单：不填任何东西，用当前位置和最早可约时间成单。
     ///
-    /// 只在**语音自己放弃之后**出现（`fallbackMessage != nil`）。用户主动按「改用表单」时
+    /// 只在**语音自己放弃之后**出现：降级到表单（`fallbackMessage != nil`），或没听清而停在
+    /// 语音面板（`endedAfterFailure`，#502）。用户主动按「改用表单」时
     /// `fallbackMessage` 是 nil，那是他明说要自己填，不该再塞一个大按钮进去。
     ///
     /// 依据：IA 调研 §6.6 —— 国内产品对「识别不可用」的主流答案不是重试识别，而是**绕过输入**
@@ -1493,7 +1519,7 @@ struct BlindBookingView: View {
     /// `body` 里对它的 `onChange`：前提消失就必须回到第一步，否则用户会看到一个没听过整单播报的
     /// 提交按钮，而两步确认的全部理由就是那句播报。
     private var isZeroInputOfferAvailable: Bool {
-        voiceWizard.fallbackMessage != nil && viewModel.firstMissingGate == nil
+        (voiceWizard.fallbackMessage != nil || voiceWizard.endedAfterFailure) && viewModel.firstMissingGate == nil
     }
 
     @ViewBuilder
@@ -1519,7 +1545,10 @@ struct BlindBookingView: View {
                     // 而它的后果是一张真实订单加一次真实派单。
                     Button("不用了，我自己填") {
                         isZeroInputConfirming = false
-                        speechService.speak("已取消，你可以继续用下面的表单填写。")
+                        // 在语音面板上时下面没有表单，别指一个不存在的地方。
+                        speechService.speak(showsVoiceStage
+                            ? "已取消直接下单。可以轻点上方重新说，或者按「改用表单」自己填。"
+                            : "已取消，你可以继续用下面的表单填写。")
                     }
                     .font(AppFonts.body().weight(.semibold))
                     .foregroundColor(AppColors.textPrimary)
@@ -1528,7 +1557,7 @@ struct BlindBookingView: View {
                     .background(AppColors.secondaryBackground)
                     .cornerRadius(12)
                     .accessibilityLabel("不用了，我自己填")
-                    .accessibilityHint("放弃直接下单，回到表单")
+                    .accessibilityHint(showsVoiceStage ? "放弃直接下单，留在语音页" : "放弃直接下单，回到表单")
                 } else {
                     PrimaryButton("不用填，直接下单") {
                         isZeroInputConfirming = true
@@ -2177,7 +2206,7 @@ struct BlindBookingView: View {
         // 换成语音自己的两个控件，同时解决另一件事 —— 底栏在 `safeAreaInset` 里，整屏点击区盖不到它，
         // 所以「改用表单」这个逃生口在录音和播报期间都点得到。位置固定不随内容滚动，也更利于空间记忆。
         Group {
-            if voiceWizard.isRunning {
+            if showsVoiceStage {
                 voiceControls
             } else {
                 formControls
@@ -2200,7 +2229,17 @@ struct BlindBookingView: View {
     /// 横屏缺的是高度不是宽度，所以挪到侧边：两枚按钮仍竖排、仍固定不随内容滚动。
     /// 表单态不挪 —— 那一态本来就是滚动表单，底栏压不住任何非滚动内容。
     private var placesVoiceControlsBeside: Bool {
-        voiceWizard.isRunning && verticalSizeClass == .compact
+        showsVoiceStage && verticalSizeClass == .compact
+    }
+
+    /// 语音面板在不在屏幕上：向导在跑，或者刚以「取消 / 没听清」结束（后端 #502）。
+    /// 后者**不送去表单** —— 全盲用户基本不可能用表单下单；表单只由「改用表单」显式进入。
+    private var showsVoiceStage: Bool {
+        voiceWizard.isRunning || voiceWizard.endedMessage != nil
+    }
+
+    private var isVoiceSessionEnded: Bool {
+        !voiceWizard.isRunning && voiceWizard.endedMessage != nil
     }
 
     private static let besideVoiceControlsWidth: CGFloat = 240
