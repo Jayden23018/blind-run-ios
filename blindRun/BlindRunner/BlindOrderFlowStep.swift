@@ -468,7 +468,9 @@ struct BlindOrderFlowPresentation: Equatable {
         if order.status.offersVolunteerDistanceToStart, let distanceText {
             parts.append(distanceText)
         }
-        return parts.joined(separator: "　")
+        // 换行而不是全角空格：副标题居中排版，空格正好落在行中间，看起来像一句话断成两截
+        // （2026-10-05 真机截图「出发地点。     距出发地点约 6.4 公里」）。读屏标签里的换行只是一次停顿。
+        return parts.joined(separator: "\n")
     }
 
     /// 信息列表最后一行。

@@ -138,7 +138,7 @@ struct RoleSelectionView: View {
                     Spacer()
                         .frame(height: geometry.safeAreaInsets.top + 60)
 
-                    HighContrastText("请选择您的角色", style: .title)
+                    HighContrastText("请选择你的角色", style: .title)
 
                     Spacer()
                         .frame(height: 20)
@@ -205,7 +205,7 @@ struct RoleSelectionView: View {
             viewModel.configure(with: appState, speechService: speechService)
             // TTS 播报警示语
             // 身份不可逆，盲人用户只靠语音，这句警示必须进播报。
-            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。身份一经选定不可更改，请谨慎选择。" + InviteCodeEntryCopy.speechHint)
+            speechService.speak("请选择你的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。身份一经选定不可更改，请谨慎选择。" + InviteCodeEntryCopy.speechHint)
         }
         .alert("身份已设定", isPresented: $viewModel.showBlockedAlert) {
             Button("确定", role: .cancel) {}

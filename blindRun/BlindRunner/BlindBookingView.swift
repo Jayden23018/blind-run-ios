@@ -1290,14 +1290,18 @@ struct BlindBookingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // 白底实心胶囊、正文字号：原来是 caption 字号的白色细描边，在整块蓝里几乎看不见，
+            // 而它是看得见的用户唯一知道「这一整块能点」的线索（2026-10-05 真机截图评审，两方都点名）。
+            // 字色取面板的蓝 —— 白底上的蓝与蓝底上的白是同一对颜色，对比度不变。
             if let tapHint = voiceStageTapHint {
                 Text(tapHint)
-                    .font(AppFonts.caption())
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .overlay(Capsule().stroke(.white, lineWidth: 1))
-                    .padding(.top, 4)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.voiceStageSurface)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Capsule().fill(.white))
+                    .padding(.top, 8)
             }
         }
         .padding(24)
@@ -2218,7 +2222,7 @@ struct BlindBookingView: View {
             Button("重复一遍") {
                 voiceWizard.repeatCurrentPrompt()
             }
-            .buttonStyle(VoiceStageSecondaryButtonStyle())
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel("重复一遍")
             .accessibilityHint("再念一次刚才的提示")
 
@@ -2226,7 +2230,7 @@ struct BlindBookingView: View {
                 voiceWizard.stop()
                 speechService.speak("已停止语音下单，你可以继续用表单填写。")
             }
-            .buttonStyle(VoiceStageSecondaryButtonStyle())
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel("改用表单")
             .accessibilityHint("停止语音，用屏幕上的输入框继续填写")
             .accessibilityIdentifier("blindBookingStopVoiceButton")
@@ -2303,28 +2307,6 @@ struct BlindBookingView: View {
 }
 
 // MARK: - 语音态底栏按钮样式
-
-/// 语音态那两条次级按钮。抽成 `ButtonStyle` **只因为它俩逐字相同**，不是给别处预留 ——
-/// 第三个调用点出现之前，这个类型不该离开本文件。
-///
-/// `minHeight: 64` 是本项目的触达下限（`aidrun-a11y-voice`），描边而非填充是为了
-/// 让上方那块蓝色实心大屏保持唯一的主操作地位。
-private struct VoiceStageSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.primary)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(AppColors.primary, lineWidth: 2)
-            )
-            // 按下反馈原本由 `Button` 的默认样式提供，换 `ButtonStyle` 会一并接管掉。
-            // 不补这一行，按下去屏幕上什么都不动。
-            .opacity(configuration.isPressed ? 0.55 : 1)
-    }
-}
 
 #if DEBUG
 #Preview {
