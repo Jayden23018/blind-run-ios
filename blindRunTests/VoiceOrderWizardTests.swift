@@ -419,6 +419,53 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertEqual(stub.parseRequests[1].current?.partialStartTime, Self.halfSaidTomorrowMorning)
     }
 
+    /// 后端的 `ttsText` 永远是 `missing` 里**第一个**阻断项的追问，而向导顺序是起点在前（后端 #508）。
+    /// 整句只说「明天早上」、没说起点时 `missing = [ADDRESS, START_TIME]`，`ttsText` 是起点追问 ——
+    /// 念出来之后读回紧接着念「使用设备当前位置」，两句自相矛盾。所以只在开始时间**排第一**时才念。
+    ///
+    /// 两组输入把三种实现分开：「含 START_TIME 就念」在第一组红，「永远不念」在第二组红。
+    func testFreeformReadsTheBackendReaskOnlyWhenStartTimeIsTheFirstMissingSlot() async {
+        let deviceStart = BlindBookingViewModel()
+        deviceStart.applyVoiceResolvedStartPlace(
+            address: "上海市黄浦区人民广场 人民大道185号",
+            spokenAddress: "人民广场",
+            latitude: 31.2304,
+            longitude: 121.4737
+        )
+        let addressFirst = VoiceOrderAPIClientStub()
+        addressFirst.parseOrderResponses = [
+            Self.parseResponse(
+                durationMinutes: 60,
+                missing: [.address, .startTime],
+                ttsText: "没听清出发地点，请再说一次，比如“人民广场”",
+                partialStartTime: Self.halfSaidTomorrowMorning
+            )
+        ]
+        let first = makeWizard(stub: addressFirst, bookingViewModel: deviceStart, startingAt: .freeform)
+        await first.submitTranscript("明天早上跑一个小时")
+        let spokenFirst = first.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spokenFirst.contains("这次的预约是："), "前提：走到了读回：\(spokenFirst)")
+        XCTAssertFalse(spokenFirst.contains("没听清出发地点"), "起点有当前位置兜着，不许再念起点追问：\(spokenFirst)")
+
+        let timeFirst = VoiceOrderAPIClientStub()
+        timeFirst.parseOrderResponses = [
+            Self.parseResponse(
+                durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [.startTime],
+                ttsText: "明天早上几点？",
+                partialStartTime: Self.halfSaidTomorrowMorning
+            )
+        ]
+        // wizard 对表单 view model 是 weak 引用：不自己持有一个，`makeWizard` 临时 new 的那个出函数就没了，
+        // 读回只剩结尾一句（第一次写这条用例时就这么假红过）。
+        let spokenStart = BlindBookingViewModel()
+        let second = makeWizard(stub: timeFirst, bookingViewModel: spokenStart, startingAt: .freeform)
+        await second.submitTranscript("明天早上从人民广场出发跑一个小时")
+        let spokenSecond = second.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spokenSecond.contains("明天早上几点？"), "开始时间排第一时，后端的反问是这一轮唯一的解释：\(spokenSecond)")
+    }
+
     /// 后端判 `CONFIRM`（「这样就行，直接下单吧」这类本地表接不住的说法）走的是同一条提交路径，
     /// 且**仍然受缺槽位门槛拦着** —— 槽位没齐时一句确认不能派单。
     func testBackendConfirmIntentTakesTheSubmitPathAndStillRespectsTheMissingTimeGate() async {
