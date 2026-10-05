@@ -2611,6 +2611,7 @@ public struct Client: APIProtocol {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -2726,7 +2727,8 @@ public struct Client: APIProtocol {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -5568,10 +5570,10 @@ public struct Client: APIProtocol {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///

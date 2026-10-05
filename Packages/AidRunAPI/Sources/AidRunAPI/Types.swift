@@ -438,6 +438,7 @@ public protocol APIProtocol: Sendable {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -452,7 +453,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -880,10 +882,10 @@ public protocol APIProtocol: Sendable {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///
@@ -1896,6 +1898,7 @@ extension APIProtocol {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -1918,7 +1921,8 @@ extension APIProtocol {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -2544,10 +2548,10 @@ extension APIProtocol {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///
@@ -7372,6 +7376,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/actualDurationSeconds`.
             public var actualDurationSeconds: Swift.Int32?
+            /// （2026-10-06 新增，#307）同意闸的宽限终点 = `plannedStart` + `app.order.blind-confirm-grace-minutes`（默认 15 分钟）。 盲人一直没调 `POST /api/orders/{id}/confirm-start` 时，陪跑员从这一刻起可以单方面开始；在此之前陪跑员开始会得到 409 `BLIND_CONFIRMATION_PENDING`（按钮**不要置灰**，提示「等待对方确认」）。 **订单双方都有**，下发状态同 `earliestServiceStartAt`；**盲人已确认后为 `null`**（同意闸不再挡人）。 ⚠️ 别拿它为 `null` 去推断盲人同意过：开跑后和终态下它同样为 `null`
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindConfirmDeadlineAt`.
+            public var blindConfirmDeadlineAt: Swift.String?
             /// 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
             /// 与手机号不同：姓名没有「拨得通」这回事，所以这里就是展示值，不存在明文版本。
             /// 盲人账号注销后 `cascadeDeletePii()` 清空姓名 → null。
@@ -7452,10 +7460,18 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/departReminderAt`.
             public var departReminderAt: Swift.String?
+            /// （2026-10-06 新增，#307）陪跑员**当前这一步**出发动作最早可调的时刻：`SCHEDULED_CONFIRMED` 时是 `POST /api/orders/{id}/confirm-departure`（开跑前 `app.order.departure-confirm-window-minutes`，默认 120 分钟）， `PENDING_ACCEPT` 时是 `POST /api/orders/{id}/en-route`（开跑前 `app.order.en-route-earliest-minutes`，默认 60 分钟）。早于它调用一律 409 `DEPARTURE_TOO_EARLY`。 **只对本单陪跑员、只在这两态下发**，其余为 `null`。 与 `primaryActionUnlockAt` 的区别：那个是「建议亮起主按钮」的时刻（考虑了路上时间，且要有位置记录），本字段是「后端放行」的时刻，恒有值
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestDepartureAt`.
+            public var earliestDepartureAt: Swift.String?
             /// 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= 这一次到达集合点（换过陪跑员的单从新陪跑员到达算）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 阈值由后端配，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestEndWaitAt`.
             public var earliestEndWaitAt: Swift.String?
+            /// （2026-10-06 新增，#307）`POST /api/orders/{id}/start-service` 最早可调的时刻（开跑前 `app.order.start-service-earliest-minutes`，默认 15 分钟）。 早于它调用一律 409 `SERVICE_START_TOO_EARLY`，按钮该置灰、到点再亮。 **订单双方都有**（盲人也能按开始），只在已接单未开跑的 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 下发，其余为 `null`
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestServiceStartAt`.
+            public var earliestServiceStartAt: Swift.String?
             /// 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/endAddress`.
@@ -7876,6 +7892,7 @@ public enum Components {
             ///   - actualAvgPaceSecPerKm: 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
             ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
             ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
+            ///   - blindConfirmDeadlineAt: （2026-10-06 新增，#307）同意闸的宽限终点 = `plannedStart` + `app.order.blind-confirm-grace-minutes`（默认 15 分钟）。 盲人一直没调 `POST /api/orders/{id}/confirm-start` 时，陪跑员从这一刻起可以单方面开始；在此之前陪跑员开始会得到 409 `BLIND_CONFIRMATION_PENDING`（按钮**不要置灰**，提示「等待对方确认」）。 **订单双方都有**，下发状态同 `earliestServiceStartAt`；**盲人已确认后为 `null`**（同意闸不再挡人）。 ⚠️ 别拿它为 `null` 去推断盲人同意过：开跑后和终态下它同样为 `null`
             ///   - blindName: 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
             ///   - blindPhone: 盲人手机号，**明文、可直接拨打**（供志愿者拨号），与 `volunteerPhone` 完全对称 ——
             ///   - blindSurname: （2026-09-26 新增，陪跑员端订单页 v2）跑者**姓氏**（如 `李`、复姓 `欧阳`），给陪跑员端标题 / 短标签 / 锁屏用。 **只在已接单时下发**（`volunteerId` 非 null 时），未接单、跑者没填姓名或已注销为 `null` —— 客户端改说「跑者」。 全名不下发；后端没有性别字段，**不要拼「先生 / 女士」**
@@ -7883,7 +7900,9 @@ public enum Components {
             ///   - completedTogetherCount: 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
             ///   - createdAt:
             ///   - departReminderAt: 「该出发了」提醒（WS `APP_NOTIFICATION` `eventType = DEPART_REMINDER`，HIGH，APNs time-sensitive） 推给陪跑员的时刻 = `suggestedDepartAt` − 5 分钟。页面可据此说「x:xx 会提醒你出发」。下发条件同 `travelMinutes`
+            ///   - earliestDepartureAt: （2026-10-06 新增，#307）陪跑员**当前这一步**出发动作最早可调的时刻：`SCHEDULED_CONFIRMED` 时是 `POST /api/orders/{id}/confirm-departure`（开跑前 `app.order.departure-confirm-window-minutes`，默认 120 分钟）， `PENDING_ACCEPT` 时是 `POST /api/orders/{id}/en-route`（开跑前 `app.order.en-route-earliest-minutes`，默认 60 分钟）。早于它调用一律 409 `DEPARTURE_TOO_EARLY`。 **只对本单陪跑员、只在这两态下发**，其余为 `null`。 与 `primaryActionUnlockAt` 的区别：那个是「建议亮起主按钮」的时刻（考虑了路上时间，且要有位置记录），本字段是「后端放行」的时刻，恒有值
             ///   - earliestEndWaitAt: 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= 这一次到达集合点（换过陪跑员的单从新陪跑员到达算）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 阈值由后端配，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
+            ///   - earliestServiceStartAt: （2026-10-06 新增，#307）`POST /api/orders/{id}/start-service` 最早可调的时刻（开跑前 `app.order.start-service-earliest-minutes`，默认 15 分钟）。 早于它调用一律 409 `SERVICE_START_TOO_EARLY`，按钮该置灰、到点再亮。 **订单双方都有**（盲人也能按开始），只在已接单未开跑的 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 下发，其余为 `null`
             ///   - endAddress: 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
             ///   - endLatitude: 终点纬度。允许「有地址、无坐标」（用户说了地名但查不到坐标）
             ///   - endLongitude: 终点经度
@@ -7929,6 +7948,7 @@ public enum Components {
                 actualAvgPaceSecPerKm: Swift.Int32? = nil,
                 actualDistanceMeters: Swift.Int32? = nil,
                 actualDurationSeconds: Swift.Int32? = nil,
+                blindConfirmDeadlineAt: Swift.String? = nil,
                 blindName: Swift.String? = nil,
                 blindPhone: Swift.String? = nil,
                 blindSurname: Swift.String? = nil,
@@ -7936,7 +7956,9 @@ public enum Components {
                 completedTogetherCount: Swift.Int64? = nil,
                 createdAt: Swift.String,
                 departReminderAt: Swift.String? = nil,
+                earliestDepartureAt: Swift.String? = nil,
                 earliestEndWaitAt: Swift.String? = nil,
+                earliestServiceStartAt: Swift.String? = nil,
                 endAddress: Swift.String? = nil,
                 endLatitude: Swift.Double? = nil,
                 endLongitude: Swift.Double? = nil,
@@ -7982,6 +8004,7 @@ public enum Components {
                 self.actualAvgPaceSecPerKm = actualAvgPaceSecPerKm
                 self.actualDistanceMeters = actualDistanceMeters
                 self.actualDurationSeconds = actualDurationSeconds
+                self.blindConfirmDeadlineAt = blindConfirmDeadlineAt
                 self.blindName = blindName
                 self.blindPhone = blindPhone
                 self.blindSurname = blindSurname
@@ -7989,7 +8012,9 @@ public enum Components {
                 self.completedTogetherCount = completedTogetherCount
                 self.createdAt = createdAt
                 self.departReminderAt = departReminderAt
+                self.earliestDepartureAt = earliestDepartureAt
                 self.earliestEndWaitAt = earliestEndWaitAt
+                self.earliestServiceStartAt = earliestServiceStartAt
                 self.endAddress = endAddress
                 self.endLatitude = endLatitude
                 self.endLongitude = endLongitude
@@ -8036,6 +8061,7 @@ public enum Components {
                 case actualAvgPaceSecPerKm
                 case actualDistanceMeters
                 case actualDurationSeconds
+                case blindConfirmDeadlineAt
                 case blindName
                 case blindPhone
                 case blindSurname
@@ -8043,7 +8069,9 @@ public enum Components {
                 case completedTogetherCount
                 case createdAt
                 case departReminderAt
+                case earliestDepartureAt
                 case earliestEndWaitAt
+                case earliestServiceStartAt
                 case endAddress
                 case endLatitude
                 case endLongitude
@@ -19330,6 +19358,7 @@ public enum Operations {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -19578,7 +19607,8 @@ public enum Operations {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -26087,10 +26117,10 @@ public enum Operations {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///
