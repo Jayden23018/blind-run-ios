@@ -18,9 +18,11 @@ struct BlindRunnerSettingsView: View {
 
     var body: some View {
         List {
-            if isTabRoot, let summary = monthSummary.summaryText() {
+            if isTabRoot, (monthSummary.history?.monthSummary.runs ?? 0) > 0, let summary = monthSummary.summaryText() {
                 // 「我的」页此前是一张纯设置列表（2026-10-05 截图评审：吸引力 2/10）。
                 // 只放跑者自己的一句成绩，不放排名、不放与他人比较（design-direction §1）。
+                // 本月 0 次时**不显示**：页面最顶上一句「10月还没有跑步记录」是在泼冷水，
+                // 而这一页不是记录页，没有「约一次」的出口可以接住它（design-direction §8 第 5 条）。
                 Section {
                     Text(summary)
                         .font(AppFonts.title())
