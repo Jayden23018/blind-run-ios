@@ -2530,6 +2530,10 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output {
@@ -2568,7 +2572,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            Components.Schemas.CancelOrderResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)

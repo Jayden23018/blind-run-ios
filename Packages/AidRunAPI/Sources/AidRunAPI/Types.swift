@@ -414,6 +414,10 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/arrived`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/arrived/post(driverArrived)`.
     func driverArrived(_ input: Operations.driverArrived.Input) async throws -> Operations.driverArrived.Output
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output
@@ -1860,6 +1864,10 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(
@@ -5646,6 +5654,40 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case message
                 case verifyStatus
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CancelOrderResponse`.
+        public struct CancelOrderResponse: Codable, Hashable, Sendable {
+            /// 本次取消是否被记为一次「临时取消」。**以这个字段为准**才能对陪跑员说「已记一次临时取消」，
+            /// 客户端不要自己拿开跑时间去算。
+            ///
+            /// `true` 当且仅当：取消的人是陪跑员，且距开跑**严格小于**窗口
+            /// （`app.order.late-cancel-window-hours`，默认 12 小时；恰好 12 小时不计）。
+            /// 开跑之后才取消（例如陪跑中途）也算「不足窗口」，同样为 `true`。
+            /// 盲人取消恒为 `false`。
+            ///
+            /// 🚩 **只记不罚**：这个计数目前不影响接单、不影响派单、不影响评分。
+            /// 文案只能说「会记一次」，**不要说「3 次」或「14 天」之类的后果** —— 那是不存在的规则。
+            ///
+            /// - Remark: Generated from `#/components/schemas/CancelOrderResponse/countedAsLateCancel`.
+            public var countedAsLateCancel: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/CancelOrderResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `CancelOrderResponse`.
+            ///
+            /// - Parameters:
+            ///   - countedAsLateCancel: 本次取消是否被记为一次「临时取消」。**以这个字段为准**才能对陪跑员说「已记一次临时取消」，
+            ///   - success:
+            public init(
+                countedAsLateCancel: Swift.Bool,
+                success: Swift.Bool
+            ) {
+                self.countedAsLateCancel = countedAsLateCancel
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case countedAsLateCancel
+                case success
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateOrderRequest`.
@@ -19141,6 +19183,10 @@ public enum Operations {
             }
         }
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public enum cancelOrder {
@@ -19189,12 +19235,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/200/content/application\/json`.
-                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    case json(Components.Schemas.CancelOrderResponse)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                    public var json: Components.Schemas.CancelOrderResponse {
                         get throws {
                             switch self {
                             case let .json(body):
