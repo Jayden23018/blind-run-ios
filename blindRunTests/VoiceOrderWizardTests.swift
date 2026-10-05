@@ -2498,6 +2498,58 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertTrue(wizard.isRunning)
     }
 
+    /// 识别**起不来**（首次在系统弹窗里拒了语音 / 麦克风权限，回调原因是 `.error`）不是「没听清」：
+    /// 重说多少遍都不会好，满上限后仍交回表单，不停在语音面板（#502 的不变项，审查 A1）。
+    func testRepeatedRecognitionStartFailuresStillFallBackToTheForm() async {
+        let wizard = makeWizard(stub: VoiceOrderAPIClientStub(), startingAt: .freeform)
+        let startFailure = SpeechInputCompletion(
+            field: .voiceOrderFreeform,
+            recognizedText: "",
+            reason: .error
+        )
+
+        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
+            wizard.handleCompletionForTesting(startFailure)
+        }
+
+        XCTAssertFalse(wizard.isRunning)
+        XCTAssertNil(wizard.endedMessage, "识别起不来不该进「没听清」的结束态")
+        XCTAssertFalse(wizard.endedAfterFailure, "不该在一个用不了的语音页上递「直接下单」")
+        XCTAssertTrue((wizard.fallbackMessage ?? "").contains("表单"), "实际：\(wizard.fallbackMessage ?? "nil")")
+    }
+
+    /// 结束态之后再降级，结束态必须清掉 —— 否则界面停在语音面板，播报却说「已切回表单」/ 去补前置项（审查 A2）。
+    /// 用「结束后门槛失效（删光紧急联系人）再重开」触发：不碰真麦克风（真 `SpeechInputService` 会在真机上弹授权框）。
+    func testFallingBackAfterAnEndedSessionLeavesTheEndedState() async {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
+        ])
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
+        XCTAssertTrue(wizard.start(), "前提：门槛已过")
+        let silence = SpeechInputCompletion(
+            field: .voiceOrderFreeform,
+            recognizedText: "",
+            reason: .silenceTimeout(hadDetectedSound: false)
+        )
+        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
+            wizard.handleCompletionForTesting(silence)
+        }
+        XCTAssertNotNil(wizard.endedMessage, "前提：没听清进了结束态")
+
+        appState.updateEmergencyContacts([])
+        XCTAssertNotNil(viewModel.firstMissingGate, "前提：门槛现在失效了")
+
+        XCTAssertFalse(wizard.start())
+
+        XCTAssertNil(wizard.endedMessage, "要去表单补前置项时结束态必须清掉，否则屏幕停在语音面板")
+        XCTAssertFalse(wizard.endedAfterFailure)
+        XCTAssertNotNil(wizard.fallbackMessage)
+    }
+
     /// **说了话但抽不出槽位**那条路径不受影响 —— 用户确实说了，用默认值补齐并读回是对的，
     /// 他能在读回里听出来。这条钉住上面三条没有把它一起改掉。
     func testSpeakingSomethingUnparseableStillReadsBackInsteadOfReasking() async {

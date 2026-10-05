@@ -144,6 +144,10 @@ final class VoiceOrderWizard: ObservableObject {
     /// 结束态是因为没听清（而不是用户主动取消）。只有这一种才在面板上提供「不用填，直接下单」——
     /// 用户刚说了「算了」，再递一个下单按钮是在跟他唱反调。
     @Published private(set) var endedAfterFailure = false
+    /// 最近一次空结果是「识别没能启动」（`.error`），不是「没听到」。重问满上限时据此分流：
+    /// 识别起不来（首次在系统弹窗里拒了语音 / 麦克风权限就是这条）重说多少遍都不会好，仍交回表单；
+    /// 只是没听清才停在语音面板（#502）。不分流的话，拒了权限的人会听到「暂时没听清」并被留在一个用不了的语音页上。
+    private var lastEmptyCompletionWasStartFailure = false
     /// 最近一次播报的文案，供「重复一次」使用。
     @Published private(set) var lastSpokenPrompt: String?
     /// 边说边更新的识别文本。**只用于屏幕显示，不播报** —— 一边说一边念会和用户自己的声音打架。
@@ -219,6 +223,9 @@ final class VoiceOrderWizard: ObservableObject {
     func start() -> Bool {
         guard let bookingViewModel else { return false }
         if let gate = bookingViewModel.firstMissingGate, gate != .startPoint, gate != .appointmentTime {
+            // 同 `fallBack`：从结束态重开时门槛已失效，要真的换到表单去补前置项。
+            endedMessage = nil
+            endedAfterFailure = false
             fallbackMessage = gate.message
             speak(gate.message)
             return false
@@ -232,6 +239,7 @@ final class VoiceOrderWizard: ObservableObject {
         fallbackMessage = nil
         endedMessage = nil
         endedAfterFailure = false
+        lastEmptyCompletionWasStartFailure = false
         createdOrder = nil
         lastUtterance = nil
         partialTranscript = ""
@@ -410,15 +418,18 @@ final class VoiceOrderWizard: ObservableObject {
             // 沉默的原因绝大多数是**没听见、没听懂、还在想**，而不是「我接受你的默认值」。
             // 而这条路径的下一步就是读回 + 说「确认」成单，把一次没听清放大成一张真实订单。
             //
-            // 现在整句轮和别的轮一样重问，共用 `maximumReasksPerSlot`（两次重问后交回表单）。
+            // 现在整句轮和别的轮一样重问，共用 `maximumReasksPerSlot`（两次重问后结束：
+            // 没听清停在语音面板，识别起不来交回表单，见 `reask`）。
             // 这也与调研 §6.6 一致：识别为空一律重问、上限 3 次，那一节本来就没有给整句开口子。
             //
             // 注意这**不影响**「说了话但抽不出槽位」那条路径 —— 那时 transcript 非空，
             // 走 `parseFreeform` 用默认值补齐并读回，是对的：用户确实说了，他能在读回里听出来。
+            lastEmptyCompletionWasStartFailure = completion.reason == .error
             reask(with: silenceReaskMessage(for: completion.reason))
             return
         }
 
+        lastEmptyCompletionWasStartFailure = false
         parseTask?.cancel()
         parseTask = Task { [weak self] in
             await self?.submitTranscript(transcript)
@@ -1164,7 +1175,11 @@ final class VoiceOrderWizard: ObservableObject {
     private func reask(with message: String) {
         reaskCount += 1
         guard reaskCount < Self.maximumReasksPerSlot else {
-            endSession(.notUnderstood)
+            if lastEmptyCompletionWasStartFailure {
+                fallBack(reason: "语音输入当前不可用")
+            } else {
+                endSession(.notUnderstood)
+            }
             return
         }
         speak(message)
@@ -1189,6 +1204,10 @@ final class VoiceOrderWizard: ObservableObject {
     ///   默认 `false` 时补一个逗号（「连续两次没听到预约时间，已切回表单⋯⋯」）。
     private func fallBack(reason: String, joinsReasonDirectly: Bool = false) {
         isRunning = false
+        // 结束态之后再降级（例如在「语音下单已结束」上轻点重开、而这次识别起不来）：不清掉它，
+        // 界面会停在语音面板，播报却说「已切回表单」—— 屏幕上根本没有表单。
+        endedMessage = nil
+        endedAfterFailure = false
         speechInputService?.stopRecognition()
         let message = joinsReasonDirectly
             ? "\(reason)已切回表单填写，你可以用屏幕上的输入框继续预约。"

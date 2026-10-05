@@ -1245,6 +1245,16 @@ struct BlindBookingView: View {
                     // 没听清而结束时，失败后最省力的出路跟到语音面板上来（原本只在表单态出现）。
                     if isVoiceSessionEnded {
                         zeroInputBookingSection
+                        // 直接下单被后端拒（夜间窗口、时段冲突……）时，原因原来只在表单态显示 ——
+                        // 这条入口搬到语音面板上之后，不在这里显示就是「按了没反应」。
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(AppFonts.body())
+                                .foregroundColor(AppColors.destructive)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityLabel(errorMessage)
+                        }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -1311,6 +1321,8 @@ struct BlindBookingView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if isVoiceSessionEnded {
+                // 直接下单正在提交时不重开：一张单在创建、麦克风又开了，两件事会互相打断。
+                guard !viewModel.isSubmitting else { return }
                 startVoiceWizard()
                 return
             }
@@ -1488,7 +1500,8 @@ struct BlindBookingView: View {
 
     /// 零输入下单：不填任何东西，用当前位置和最早可约时间成单。
     ///
-    /// 只在**语音自己放弃之后**出现（`fallbackMessage != nil`）。用户主动按「改用表单」时
+    /// 只在**语音自己放弃之后**出现：降级到表单（`fallbackMessage != nil`），或没听清而停在
+    /// 语音面板（`endedAfterFailure`，#502）。用户主动按「改用表单」时
     /// `fallbackMessage` 是 nil，那是他明说要自己填，不该再塞一个大按钮进去。
     ///
     /// 依据：IA 调研 §6.6 —— 国内产品对「识别不可用」的主流答案不是重试识别，而是**绕过输入**
@@ -1540,7 +1553,7 @@ struct BlindBookingView: View {
                     .background(AppColors.secondaryBackground)
                     .cornerRadius(12)
                     .accessibilityLabel("不用了，我自己填")
-                    .accessibilityHint("放弃直接下单，回到表单")
+                    .accessibilityHint(showsVoiceStage ? "放弃直接下单，留在语音页" : "放弃直接下单，回到表单")
                 } else {
                     PrimaryButton("不用填，直接下单") {
                         isZeroInputConfirming = true
