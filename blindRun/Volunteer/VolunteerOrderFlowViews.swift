@@ -1711,6 +1711,9 @@ struct VolunteerInServiceView: View {
     @Environment(\.openURL) private var openURL
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
+    /// 完成页的星级进度。进页面才拉、每次都拉：首页那份（`VolunteerHomeIncentiveViewModel`）
+    /// 一个会话只拉一次，此刻还不含刚跑完的这一单。
+    @StateObject private var completionAchievements = VolunteerAchievementsViewModel()
     @State private var showEmergencyConfirm = false
     @State private var showsRunRecord = false
     @State private var activeSheet: VolunteerSheet?
@@ -1996,8 +1999,15 @@ struct VolunteerInServiceView: View {
                 isPrimaryLoading: viewModel.isPerformingAction,
                 isPrimaryEnabled: !viewModel.isTransitionPending,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
-                footer: { flowFooter(showsNudgeNotice: meet == nil) }
+                footer: { flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed) }
             )
+            // 挂在整页上，不挂在星级卡或页脚上：数据没到时那两处都可能是空的，挂在空视图上的
+            // `.task` 永远不会触发（记忆 task-on-empty-view-never-fires）。
+            .task(id: phase == .completed) {
+                guard phase == .completed, completionAchievements.achievements == nil else { return }
+                completionAchievements.configure(appState: appState)
+                await completionAchievements.load()
+            }
         } else {
             fallbackContent
         }
@@ -2171,8 +2181,14 @@ struct VolunteerInServiceView: View {
     /// 信息卡之后、底部操作条之前，位置对应。**少了它，「接单失败」「状态没确认上」
     /// 只剩一句 TTS**，不开读屏的低视力志愿者屏幕上零变化。
     @ViewBuilder
-    private func flowFooter(showsNudgeNotice: Bool) -> some View {
+    private func flowFooter(showsNudgeNotice: Bool, showsStarProgress: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            // 陪跑完成页：刚跑完这一单之后离下一星还差多少（负责人 2026-10-05，真机截图评审里这一屏
+            // 吸引力 3/10、下面 60% 空白）。这是附加信息：拉不到就整块不出现，不挤占「完成」这个出口，
+            // 也不报错 —— 成就页自己有完整的失败态。
+            if showsStarProgress, let level = completionAchievements.achievements?.resolvedStarLevel {
+                VolunteerStarProgressCard(level: level)
+            }
             if showsNudgeNotice, let notice = viewModel.nudgeNotice {
                 Text(notice)
                     .flowFont(FlowFonts.rowValue())
@@ -2444,6 +2460,8 @@ final class VolunteerAchievementsViewModel: ObservableObject {
 struct VolunteerServiceRecognitionView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = VolunteerAchievementsViewModel()
+    /// 无障碍字号档下勋章退回逐行列表：一排四枚在 AX 档必然截断（design-direction §7）。
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ScrollView {
@@ -2497,15 +2515,18 @@ struct VolunteerServiceRecognitionView: View {
             // 所以没人发现。`testVolunteerAchievementsPassesAccessibilityAudit` 现在钉住它。
             Text("\(response.completedCount)")
                 .font(AppFonts.largeTitle())
-                .foregroundColor(AppColors.textPrimary)
+                .foregroundColor(.white)
             Text("已完成的陪跑服务")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(.white)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(12)
+        .padding(20)
+        // 主色实心：这一页是激励页（design-direction §6「明快」档），而它最大的那个数原来压在
+        // 和其余卡片一样的灰底上，整页没有一个视觉重心（2026-10-05 截图评审：「只有一个 1」）。
+        // 白字压主色 = `PrimaryButton` 那一对，对比度已验过；不新增颜色。
+        .background(AppColors.primary)
+        .cornerRadius(16)
         // 合成一个焦点：两行是同一件事的两种说法，分开念会让读屏用户听两遍同一个数。
         .accessibilityElement(children: .combine)
         .accessibilityLabel(VolunteerAchievementsCopy.summarySpeech(response))
@@ -2548,41 +2569,7 @@ struct VolunteerServiceRecognitionView: View {
     /// 够不着一星的 100 小时。合并展示会让志愿者以为拿了最高勋章就能去学校评星，
     /// 到申报时才发现一星都评不上。
     private func starSection(_ level: VolunteerStarLevelDto) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(VolunteerAchievementsCopy.starSectionTitle)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-            Text(VolunteerAchievementsCopy.starSectionStandard)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-            Text(VolunteerAchievementsCopy.starTitle(current: max(0, level.current ?? 0)))
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-
-            // 进度条对 VoiceOver 是空的，所以下面那行文字不是装饰 —— 它是这一栏
-            // 唯一能被读出来的进度信息。两者顺序不能倒，也不能只留进度条。
-            ProgressView(value: starProgress(level))
-                .tint(AppColors.primary)
-                .accessibilityHidden(true)
-
-            Text(VolunteerAchievementsCopy.starProgressText(level))
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(12)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(VolunteerAchievementsCopy.starAccessibilityLabel(level))
-        .accessibilityIdentifier("volunteerStarLevelSection")
-    }
-
-    private func starProgress(_ level: VolunteerStarLevelDto) -> Double {
-        guard let nextTarget = level.nextTarget, nextTarget > 0 else { return 1 }
-        let hours = Double(max(0, level.currentHours ?? 0))
-        return min(1, hours / Double(nextTarget))
+        VolunteerStarProgressCard(level: level)
     }
 
     private func badgeSection(_ response: VolunteerAchievementsResponse) -> some View {
@@ -2601,8 +2588,34 @@ struct VolunteerServiceRecognitionView: View {
             } else {
                 // 主页只露 4 枚，其余收二级页：全铺开会变成一片图标噪音，
                 // 前几枚的意义随之被稀释（抄 Strava 的做法）。
-                ForEach(VolunteerBadgeWall.preview(badges)) { badge in
-                    badgeRow(badge)
+                if dynamicTypeSize.isAccessibilitySize {
+                    ForEach(VolunteerBadgeWall.preview(badges)) { badge in
+                        badgeRow(badge)
+                    }
+                } else {
+                    // 圆形徽章一排，与首页「我的徽章」同一个组件，这里用大号实心版 —— 勋章的
+                    // 视觉分级是 design-direction §1 允许从跑步 App 抄的三样之一。
+                    let preview = VolunteerBadgeWall.preview(badges)
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(preview) { badge in
+                            VolunteerBadgeMedallion(
+                                symbol: badge.symbolName,
+                                title: badge.displayName,
+                                detail: nil,
+                                isLocked: false,
+                                spoken: VolunteerAchievementsCopy.badgeAccessibilityLabel(badge),
+                                diameter: 64,
+                                prominent: true
+                            )
+                        }
+                        // 不足四枚时补空位，让每枚宽度稳定，不被拉成半屏宽（同首页）。
+                        ForEach(preview.count..<VolunteerBadgeWall.previewLimit, id: \.self) { _ in
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .padding(.vertical, 8)
                 }
                 if VolunteerBadgeWall.hasMore(badges) {
                     NavigationLink {
@@ -2703,6 +2716,50 @@ struct VolunteerServiceRecognitionView: View {
     }
 }
 
+/// 国标星级卡：星级、进度条、「还差多少小时」。成就页与陪跑完成页共用（2026-10-05 起）。
+///
+/// 进度条对 VoiceOver 是空的，所以下面那行文字不是装饰 —— 它是这一栏
+/// 唯一能被读出来的进度信息。两者顺序不能倒，也不能只留进度条。
+struct VolunteerStarProgressCard: View {
+    let level: VolunteerStarLevelDto
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(VolunteerAchievementsCopy.starSectionTitle)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+            Text(VolunteerAchievementsCopy.starSectionStandard)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+            Text(VolunteerAchievementsCopy.starTitle(current: max(0, level.current ?? 0)))
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.textPrimary)
+
+            ProgressView(value: Self.progress(level))
+                .tint(AppColors.primary)
+                .accessibilityHidden(true)
+
+            Text(VolunteerAchievementsCopy.starProgressText(level))
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(VolunteerAchievementsCopy.starAccessibilityLabel(level))
+        .accessibilityIdentifier("volunteerStarLevelSection")
+    }
+
+    static func progress(_ level: VolunteerStarLevelDto) -> Double {
+        guard let nextTarget = level.nextTarget, nextTarget > 0 else { return 1 }
+        let hours = Double(max(0, level.currentHours ?? 0))
+        return min(1, hours / Double(nextTarget))
+    }
+}
+
 /// 勋章二级页：解锁超过 4 枚时从成就页 push 进来，这里才铺全部。
 struct VolunteerBadgeWallView: View {
     let badges: [VolunteerBadgeDto]
@@ -2735,9 +2792,38 @@ struct VolunteerSettingsView: View {
     @StateObject private var deletionViewModel = AccountDeletionViewModel()
     @State private var showLogoutConfirm = false
     @State private var showDeletionInitialConfirmation = false
+    @StateObject private var achievements = VolunteerAchievementsViewModel()
+
+    /// 底部「我的」标签的根页为 true：标题叫「我的」、顶上有累计卡。
+    /// 从首页右上角齿轮（标签就叫「设置」）进来时仍是「设置」，免得点「设置」进了一页叫「我的」的。
+    var isTabRoot = false
 
     var body: some View {
         List {
+            if isTabRoot, let response = achievements.achievements {
+                // 「我的」页此前是一张纯设置列表（2026-10-05 截图评审：吸引力 2/10）。
+                // 激励档（design-direction §6「明快」）：自己的累计 + 一个进成就页的入口；不放排名。
+                Section {
+                    NavigationLink {
+                        VolunteerServiceRecognitionView()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(response.completedCount > 0 ? "已完成 \(response.completedCount) 次陪跑" : "还没有完成的陪跑")
+                                .font(AppFonts.title())
+                                .foregroundColor(AppColors.textPrimary)
+                            Text("累计服务 \(max(0, response.totalServiceMinutes ?? 0) / 60) 小时 · 查看服务成就")
+                                .font(AppFonts.body())
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 8)
+                    }
+                    .accessibilityLabel(VolunteerAchievementsCopy.summarySpeech(response))
+                    .accessibilityHint("打开服务成就")
+                    .accessibilityIdentifier("volunteerProfileAchievementsCard")
+                }
+            }
+
             Section {
                 settingsRow("昵称", value: appState.volunteerProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "志愿者")
@@ -2845,7 +2931,12 @@ struct VolunteerSettingsView: View {
             }
 
         }
-        .navigationTitle("设置")
+        .navigationTitle(isTabRoot ? "我的" : "设置")
+        .task {
+            guard isTabRoot else { return }
+            achievements.configure(appState: appState)
+            await achievements.load()
+        }
         .alert("无法删除账户", isPresented: $deletionViewModel.isShowingPreflightBlock) {
             Button("知道了", role: .cancel) {}
         } message: {

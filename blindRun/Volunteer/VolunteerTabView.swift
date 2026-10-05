@@ -75,7 +75,7 @@ struct VolunteerTabView: View {
             .tag(Tab.records)
 
             NavigationStack {
-                VolunteerSettingsView()
+                VolunteerSettingsView(isTabRoot: true)
             }
             .tabItem {
                 Label("我的", systemImage: "person")
