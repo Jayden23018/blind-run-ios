@@ -58,6 +58,9 @@ struct PrimaryButton: View {
 /// 与拨号大按钮抢主次）。
 struct OutlineSecondaryButtonStyle: ButtonStyle {
     var tint: Color = AppColors.primary
+    /// 提交中被 `.disabled` 时要**看得出**按不了：描边与文字一起淡下去。不读它的话，
+    /// 低视力用户看到的按钮与可用时一模一样，只会以为「按了没反应」。
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -72,7 +75,7 @@ struct OutlineSecondaryButtonStyle: ButtonStyle {
             )
             .contentShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
             // 换 `ButtonStyle` 会接管掉默认的按下反馈，不补这一行按下去屏幕上什么都不动。
-            .opacity(configuration.isPressed ? 0.55 : 1)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.55 : 1) : 0.4)
     }
 }
 
