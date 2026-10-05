@@ -1,7 +1,7 @@
 # volunteer-profile-first-screen Specification
 
 ## Purpose
-TBD - created by archiving change show-volunteer-total-distance. Update Purpose after archive.
+定义志愿者「我」首屏的主指标与三列统计怎么取值、怎么显示：陪伴时长满 1 小时才以小时为主指标，否则用完成次数；零值与缺字段显示 `--` 并让读屏念完整的话，不把「0」念给用户。
 ## Requirements
 ### Requirement: 首屏主指标优先显示陪伴时长
 志愿者「我」首屏的主指标 SHALL 在陪伴时长向下取整不少于 1 小时时显示小时数，并在其下显示完成次数；否则 SHALL 显示完成次数。系统 SHALL NOT 显示「0 小时」。三列统计第一格 SHALL 显示累计里程，不足 1 公里时 SHALL 显示 `--`；固定搭档为 0 时 SHALL 显示 `--`。
