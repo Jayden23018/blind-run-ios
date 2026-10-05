@@ -325,7 +325,8 @@ enum ErrorCode: String, Codable, Sendable {
             // （后端 409 的 `message` 里带了具体时刻，但 `APIError.localizedMessage` 识别出错误码后用本地文案，那句被覆盖了。）
             return "还没到可以开始陪跑的时间，请稍后再按。"
         case .blindConfirmationPending:
-            return "还需要对方在手机上确认可以开始，请稍等，或打电话请对方确认。"
+            // 说出跑者那一端的按钮名：两人此刻站在一起，陪跑员可以直接告诉对方按哪个。
+            return "还需要跑者在手机上按「开始跑步」。可以请对方按一下，或稍等再试。"
         }
     }
 

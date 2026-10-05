@@ -196,23 +196,8 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
 
     // MARK: - 主按钮
 
-    /// 🔴 **汇合态的主按钮不是「开始跑步」。**
-    ///
-    /// `POST /api/orders/{id}/start-service` 在后端走
-    /// `loadForVolunteer(orderId, volunteerId, "只有接单的志愿者才能操作")`
-    /// （`OrderLifecycleService.java:155-156`，controller 注释逐字「志愿者确认开始服务」）——
-    /// 盲人调必被拒。摆一个必然失败的按钮，对读屏用户是纯粹的死路。
-    func testMetUpDoesNotOfferStartServiceBecauseOnlyTheVolunteerCanCallIt() {
-        let presentation = make(.driverArrived)
-        XCTAssertFalse(
-            presentation.primaryAction?.title.contains("开始跑步") ?? false,
-            "汇合态给了「开始跑步」，而这个端点只接受志愿者的 token"
-        )
-        // 这一态真正有用的动作是打电话找到人。
-        XCTAssertEqual(presentation.primaryAction, .callVolunteer(title: "打电话给张"))
-        // 而「等志愿者开始」这件事由副标题说（既有的 `arrivedWaitingCopy`）。
-        XCTAssertTrue(presentation.subtitle.contains("请等待志愿者开始服务"))
-    }
+    // 汇合态的主按钮（「开始跑步」，后端 #346 起盲人可调 `/start-service`）见 `BlindStartRunTests`。
+    // 原先这里钉着「汇合态不许给开始跑步」，理由是盲人 token 调不动 —— 那个理由已不成立。
 
     /// 设计稿的匹配态主按钮位是空的 —— 那一态用户没有该做的事。
     func testPendingMatchHasNoPrimaryActionSoWaitingDoesNotLookLikeAChore() {

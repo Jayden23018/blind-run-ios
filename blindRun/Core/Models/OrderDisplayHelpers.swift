@@ -428,8 +428,12 @@ extension RunOrderStatus {
             return "服务已开始，请注意安全。"
         case .driverEnRoute:
             return "志愿者已出发，正在前往出发地点。"
+        // 🔴 不再说「请等待志愿者开始服务」：后端 #346 起盲人也能开始，而且陪跑员那一侧
+        // 要等盲人同意（#307）—— 叫盲人干等，两个人就会互相等。
+        // 也**不说「轻点下方」**：这一句首页与语音状态查询也在用，那里没有那枚按钮。
+        // 订单页上那句带位置的副标题是 `BlindRunCopy.metUpSubtitle`。
         case .driverArrived:
-            return arrivedWaitingCopy
+            return RunOrderStatus.blindRunnerArrivedCopy
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:
@@ -461,8 +465,9 @@ extension RunOrderStatus {
             return "服务已开始，请注意安全。"
         case .driverEnRoute:
             return "志愿者已出发，正在前往出发地点。"
+        // 与 `blindRunnerDescription` 同一句，理由写在那里。
         case .driverArrived:
-            return "志愿者已到达约定地点，等待志愿者开始服务。"
+            return RunOrderStatus.blindRunnerArrivedCopy
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:

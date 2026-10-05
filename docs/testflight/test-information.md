@@ -14,7 +14,7 @@
 | 录屏链接 | ⏳ 按 §3 录完上传后替换 §2.2 里的 `<VIDEO_URL>` |
 | 联系人姓名 / 电话 / 邮箱、Feedback Email | ⏳ 负责人定 |
 | 时区问题 | 🟡 代码已修（formatter 固定按 `Asia/Shanghai` 生成与解析，见 §4 第 1 条，跟踪 [#236](https://github.com/Jayden23018/blind-run-ios/issues/236)），**但要等含该修复的构建上传后才对审核员生效**。在那之前，§2.2 里「把设备时区切到北京」那一段**仍要保留**；新构建上传并验过后可删 |
-| 开跑同意闸 | 🔴 跑者端没有确认开始的按钮，陪跑员只能在开跑 + 15 分钟后开始（§4 第 5 条）。补上之前，§2.2 第 6 步与 §3 的等待段**必须保留** |
+| 开跑同意闸 | 🟡 跑者端汇合屏已加「开始跑步」（feat/blind-start-run-button，2026-10-06），§2.2 第 6 步与 §3 已按新流程改写、不再等「开跑 + 15 分钟」。**只对含这个改动的构建成立**：上传前确认构建号晚于它合并的那次提交，否则审核员按新步骤会被 409 拦住 |
 | iPad | 已定只支持 iPhone（2026-09-30，`TARGETED_DEVICE_FAMILY = 1`）。备注没提 iPad，不用改 |
 
 ## 1. Beta App Description
@@ -99,13 +99,13 @@ BEFORE YOU START (both devices)
 2. Runs cannot overlap 22:00-05:00 China time, which is 07:00-14:00 US Pacific Daylight Time (06:00-13:00 PST after Nov 1). Please book from 13:30 PDT for a start at 14:00 or later.
 3. Allow Location on both devices. Keep the two devices within 5 km of each other; volunteers are matched by distance to the start point.
 
-STEPS (the whole flow takes about 50 minutes, mostly waiting for the start time)
+STEPS (the whole flow takes about 25 minutes, mostly waiting for the start time)
 1. Volunteer device: sign in, swipe the slider right to start taking orders, keep the app open in the foreground.
 2. Runner device: sign in, tap "预约新的陪跑" (book a run). Start point: keep "当前位置" (current location); address search only covers mainland China. Start time: 30-35 minutes from now. Submit with "提交预约".
 3. Volunteer device: an invitation appears, usually within a minute. Tap "接下这次陪跑" (accept).
 4. The first order between two accounts has an "intro call" step. You do NOT need to call. Runner: tap "和这位志愿者通话确认", then "聊过了，合适". Volunteer: tap "合适，接这一单". Please do not dial any number shown; they are test numbers.
 5. Volunteer: tap "我出发了" (on my way), then "我已到达集合点" (arrived). The runner device shows the volunteer's progress.
-6. Volunteer: tap "开始跑步" (start run). In this build it is accepted from 15 minutes AFTER the planned start time; an earlier tap shows a "wait for the other side" message. The runner device then counts down and the run begins.
+6. Runner: once the two of you meet, tap "开始跑步" (start run). It is accepted from 15 minutes BEFORE the planned start time; an earlier tap only reads a "too early" message. Both devices count down three seconds and the run begins. (The volunteer can also tap "开始跑步", but only after the runner has tapped it or after 15 minutes past the planned start.)
 7. Volunteer: long-press "长按 2 秒，结束陪跑" (finish). Both devices show the completed run.
 
 OUTSIDE MAINLAND CHINA
@@ -161,14 +161,13 @@ The help (SOS) button only sends an alert while a run is in progress. The alert 
 | 7 | A | 「合适，接这一单」 | 订单页进入「约好」态 |
 | 8 | A | 「我出发了」 | B 显示「…正在赶来」 |
 | 9 | A | 「我已到达集合点」 | B 显示「…已到达」 |
-| — | | ✂️ **剪掉等待**：一直等到**计划开跑时刻 + 15 分钟**（原因见 §4 第 5 条）。字幕：「此处等待约 N 分钟」 | |
-| 10 | A | 「开始跑步」 | B 播「准备开始」「握好引导绳」三秒倒计时，两端进入跑步中 |
+| — | | ✂️ **剪掉等待**：一直等到**计划开跑时刻前 15 分钟以内**（「开始跑步」的时间闸，见 §4 第 5 条）。字幕：「此处等待约 N 分钟」 | |
+| 10 | B | 「开始跑步」 | 两端播「准备开始」「握好引导绳」三秒倒计时，进入跑步中 |
 | 11 | A、B | 各拍一下跑步中页面，镜头带过求助入口（A 右上角「求助与安全」、B 的「一键求助」）**但不点** | 字幕：「求助仅在跑步中可用，审核时请勿触发」 |
 | 12 | A | 按住「长按 2 秒，结束陪跑」 | 两端都显示「服务已完成」 |
 | 13 | B | 进入跑后记录（「这次跑步」），再回到评价区，可以点「跳过评价并返回首页」 | 结束录屏 |
 
-步骤 10 如果在「开跑 + 15 分钟」之前点，A 会弹「还需要对方在手机上确认可以开始……」，
-这段要剪掉。跑者端确认按钮补上之后，删掉这段等待，并同步改掉 §2.2 第 6 步。
+步骤 10 如果早于「开跑前 15 分钟」点，B 会念「还没到可以开始陪跑的时间，请稍后再按。」，这段要剪掉。
 
 ### 3.3 拍完
 
@@ -196,14 +195,14 @@ The help (SOS) button only sends an alert while a run is in progress. The alert 
 5. **开跑时间闸**：「已出发」最早开跑前 60 分钟，「开始陪跑」最早开跑前 15 分钟
    （后端 `app.order.en-route-earliest-minutes` / `start-service-earliest-minutes`）。
    开跑前 > 240 分钟被接单会进 `SCHEDULED_CONFIRMED`，多一步临期确认 ⇒ 备注里写 30–35 分钟。
-   🔴 **还有一道同意闸，而跑者端没有按钮去过它**：陪跑员调 `/start-service` 时，跑者没确认过
-   （`blindStartConfirmedAt == null`）就回 409 `BLIND_CONFIRMATION_PENDING`，直到 `plannedStartTime + 15 分钟`
-   才放行（后端 `OrderLifecycleService.startService` 约 221–250 行，`app.order.blind-confirm-grace-minutes=15`）。
-   后端已经允许跑者自己调 `/start-service`（等同确认 + 开始），但 iOS 跑者端没有「开始跑步」按钮，
-   全仓也没有调 `/confirm-start` 的地方；`BlindOrderStatusView.swift:956` 的注释仍写着「盲人 token 调不动」，
-   已过期 ⇒ 当前构建里陪跑员最早在**开跑 + 15 分钟**才能开始，下单到开跑至少等 45 分钟。
-   跟踪在 [blind-run-backend#307](https://github.com/Jayden23018/blind-run-backend/issues/307)
-   （iOS 09-24 答复：等后端下发 `earliestServiceStartAt` 等字段后一起接 `confirm-start`）。
+   **还有一道同意闸**：陪跑员调 `/start-service` 时，跑者没确认过（`blindStartConfirmedAt == null`）
+   就回 409 `BLIND_CONFIRMATION_PENDING`，直到 `plannedStartTime + 15 分钟` 才放行
+   （后端 `OrderLifecycleService.startService` 约 221–250 行，`app.order.blind-confirm-grace-minutes=15`）。
+   跑者自己调 `/start-service` 等同确认 + 开始（后端 #346），不过同意闸、只过时间闸。
+   2026-10-06 起跑者端汇合屏的主按钮就是「开始跑步」（`BlindOrderStatusViewModel.startRun`）⇒
+   审核流程改由跑者按，开跑前 15 分钟起可按，下单到开跑约等 15–20 分钟。
+   旧构建（没有这个按钮）里只能由陪跑员在**开跑 + 15 分钟**之后开始。
+   跟踪在 [blind-run-backend#307](https://github.com/Jayden23018/blind-run-backend/issues/307)。
 6. **结束**：`/finish` 没有时间闸；陪跑员在界面上长按 2 秒（`VolunteerOrderFlowViews.swift` 约 3119–3141 行）。
 7. **境外坐标**：`BackendCoordinateNormalizer.wgs84ToGCJ02` 在中国境外原样返回（`blindRun/Map/CoordinateSystem.swift`），
    契约对起点经纬度只有 ±90 / ±180 的范围校验 ⇒ 境外能下单、能按距离派单。

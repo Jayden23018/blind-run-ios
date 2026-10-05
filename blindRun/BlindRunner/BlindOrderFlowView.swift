@@ -586,6 +586,8 @@ struct BlindOrderFlowView<Footer: View>: View {
             return IntroCallCopy.blindEntryAccessibilityHint
         case .keepWaiting:
             return KeepWaitingCopy.accessibilityHint
+        case .startRun:
+            return BlindRunCopy.startRunHint
         case .preparing:
             // 刻意不给提示。`.disabled()` 已经让读屏念「变暗」，再补一句「马上就可以按了」
             // 是在这三秒里往耳朵里多塞一条没有动作可做的信息。

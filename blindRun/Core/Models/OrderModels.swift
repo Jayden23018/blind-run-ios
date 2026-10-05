@@ -248,9 +248,12 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         self == .driverArrived
     }
 
-    var arrivedWaitingCopy: String {
-        "志愿者已到达约定地点，请等待志愿者开始服务。服务开始前不能结束订单。"
-    }
+    /// 盲人端「陪跑员已到达」的通用一句（状态说明、状态播报、语音状态查询共用）。
+    ///
+    /// 原来这里是 `arrivedWaitingCopy`「请等待志愿者开始服务。服务开始前不能结束订单」，
+    /// 两端共用：盲人听到的是「你等着」，陪跑员误点结束时听到的是「请等待志愿者」——
+    /// 对两个人都不对。后端 #346 起两人都能开始，所以拆成两句，各说各的。
+    static let blindRunnerArrivedCopy = "志愿者已到达约定地点。见面后，你或志愿者都可以开始跑步。"
 
     var startServiceBlockedMessage: String {
         switch self {
@@ -267,8 +270,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var finishBlockedMessage: String {
         switch self {
+        // 这一句只给陪跑员听（`VolunteerInServiceViewModel.complete` 的守卫）。
         case .driverArrived:
-            return arrivedWaitingCopy
+            return "还没开始跑步，不能结束陪跑。见面后先按「开始跑步」。"
         case .completed:
             return "服务已完成，不能重复结束。"
         case .cancelled, .noVolunteer:

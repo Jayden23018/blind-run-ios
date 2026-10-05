@@ -201,6 +201,11 @@ extension MockAPIClient {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
+        // 契约（#346）：两端都能开始，先按的生效；「调用时订单已是 `IN_PROGRESS`（另一端先按了）
+        // → 两端都返回 200，不报错」。不照做的话，两人几乎同时按时后按的那一端会念一句报错。
+        if orders[index].status == .inProgress {
+            return actionResponse(for: orders[index], message: "服务已开始")
+        }
         guard orders[index].status == .driverArrived else {
             throw APIError.serverError(ErrorResponse(
                 code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
