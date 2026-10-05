@@ -128,6 +128,24 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/config/features`.
     /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
     func getFeatures(_ input: Operations.getFeatures.Input) async throws -> Operations.getFeatures.Output
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    func getRules(_ input: Operations.getRules.Input) async throws -> Operations.getRules.Output
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
@@ -1457,6 +1475,26 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
     public func getFeatures(headers: Operations.getFeatures.Input.Headers = .init()) async throws -> Operations.getFeatures.Output {
         try await getFeatures(Operations.getFeatures.Input(headers: headers))
+    }
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    public func getRules(headers: Operations.getRules.Input.Headers = .init()) async throws -> Operations.getRules.Output {
+        try await getRules(Operations.getRules.Input(headers: headers))
     }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
@@ -3962,6 +4000,67 @@ public enum Components {
             public init(
                 code: Swift.Int32,
                 data: Components.Schemas.RegistrationStatusResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse`.
+        public struct ApiResponseRuleParamsResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/data`.
+            public var data: Components.Schemas.RuleParamsResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseRuleParamsResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.RuleParamsResponse? = nil,
                 errorCode: Swift.String? = nil,
                 hasMore: Swift.Bool? = nil,
                 message: Swift.String? = nil,
@@ -10220,6 +10319,37 @@ public enum Components {
                 case success
             }
         }
+        /// 规则参数（`GET /api/config/rules` 的 `data`）。
+        /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 客户端不要拿它自己再算一遍
+        /// 「算不算临时取消」「该不该自动打开」。邀请的回复期限**不在这里**，读每条邀请自己的 `expiresAt`。
+        ///
+        /// - Remark: Generated from `#/components/schemas/RuleParamsResponse`.
+        public struct RuleParamsResponse: Codable, Hashable, Sendable {
+            /// 陪跑员「临时取消」的窗口，单位**小时**（`app.order.late-cancel-window-hours`，默认 12）：距开跑不足这么多小时取消，记一次临时取消（只记不罚）。 只用来在取消前提示用户，算不算临时取消以取消接口的返回为准。
+            ///
+            /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/lateCancelWindowHours`.
+            public var lateCancelWindowHours: Swift.Int32?
+            /// 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
+            ///
+            /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/volunteerOrderAutoOpenLeadMinutes`.
+            public var volunteerOrderAutoOpenLeadMinutes: Swift.Int32?
+            /// Creates a new `RuleParamsResponse`.
+            ///
+            /// - Parameters:
+            ///   - lateCancelWindowHours: 陪跑员「临时取消」的窗口，单位**小时**（`app.order.late-cancel-window-hours`，默认 12）：距开跑不足这么多小时取消，记一次临时取消（只记不罚）。 只用来在取消前提示用户，算不算临时取消以取消接口的返回为准。
+            ///   - volunteerOrderAutoOpenLeadMinutes: 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
+            public init(
+                lateCancelWindowHours: Swift.Int32? = nil,
+                volunteerOrderAutoOpenLeadMinutes: Swift.Int32? = nil
+            ) {
+                self.lateCancelWindowHours = lateCancelWindowHours
+                self.volunteerOrderAutoOpenLeadMinutes = volunteerOrderAutoOpenLeadMinutes
+            }
+            public enum CodingKeys: String, CodingKey {
+                case lateCancelWindowHours
+                case volunteerOrderAutoOpenLeadMinutes
+            }
+        }
         /// 与这位跑者上一张有完赛里程的已完成订单比；两边都用订单上的完赛快照 `actualDistanceMeters`（未经本记录的清洗，与 `summary.distanceM` 可能差几十米）
         ///
         /// - Remark: Generated from `#/components/schemas/RunComparison`.
@@ -15609,6 +15739,129 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.ok`.
             /// - SeeAlso: `.ok`.
             public var ok: Operations.getFeatures.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    public enum getRules {
+        public static let id: Swift.String = "getRules"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/config/rules/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getRules.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getRules.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getRules.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.getRules.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/config/rules/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/config/rules/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseRuleParamsResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseRuleParamsResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getRules.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getRules.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getRules.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getRules.Output.Ok {
                 get throws {
                     switch self {
                     case let .ok(response):

@@ -69,11 +69,12 @@ struct VolunteerCancelSheet: View {
 }
 
 #if DEBUG
-#Preview("取消弹层 · 12 小时内") {
+#Preview("取消弹层 · 窗口内") {
     VolunteerCancelSheet(
         copy: VolunteerOrderFlowCopy.cancelSheet(
             for: .pendingAccept,
-            plannedStart: Date().addingTimeInterval(3 * 3600)
+            plannedStart: Date().addingTimeInterval(3 * 3600),
+            lateCancelWindowHours: RuleParams.fallback.lateCancelWindowHours
         ),
         isSubmitting: false,
         onKeep: {},
@@ -85,7 +86,8 @@ struct VolunteerCancelSheet: View {
     VolunteerCancelSheet(
         copy: VolunteerOrderFlowCopy.cancelSheet(
             for: .scheduledConfirmed,
-            plannedStart: Date().addingTimeInterval(72 * 3600)
+            plannedStart: Date().addingTimeInterval(72 * 3600),
+            lateCancelWindowHours: RuleParams.fallback.lateCancelWindowHours
         ),
         isSubmitting: false,
         onKeep: {},

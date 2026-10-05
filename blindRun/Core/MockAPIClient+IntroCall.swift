@@ -209,7 +209,9 @@ extension MockAPIClient {
         return actionResponse(for: orders[index], message: "服务已开始")
     }
 
-    func handleCancel(orderId: Int64) throws -> OrderResponse {
+    /// 契约：响应是裸的 `CancelOrderResponse`（后端 #361）。`countedAsLateCancel` 照后端口径算：
+    /// 陪跑员取消且距开跑**严格小于**窗口（默认 12 小时，开跑之后也算）为 `true`，盲人恒为 `false`。
+    func handleCancel(orderId: Int64) throws -> CancelOrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
@@ -217,10 +219,17 @@ extension MockAPIClient {
             throw APIError.serverError(ErrorResponse(
                 code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许取消"))
         }
+        let countedAsLateCancel = role == .volunteer
+            && Self.isWithinLateCancelWindow(plannedStart: orders[index].plannedStart?.backendTimestamp)
         let nextStatus: RunOrderStatus = role == .volunteer ? .rematching : .cancelled
         orders[index] = updateOrderStatus(orders[index], to: nextStatus)
-        let message = role == .volunteer ? "志愿者已取消，订单重新匹配中" : "订单已取消"
-        return actionResponse(for: orders[index], message: message)
+        return CancelOrderResponse(success: true, countedAsLateCancel: countedAsLateCancel)
+    }
+
+    /// 没有开跑时间的单按「不在窗口内」算 —— Mock 不编一个时间去判罚。
+    private static func isWithinLateCancelWindow(plannedStart: Date?, now: Date = Date()) -> Bool {
+        guard let plannedStart else { return false }
+        return plannedStart.timeIntervalSince(now) < Double(RuleParams.fallback.lateCancelWindowHours) * 3600
     }
 
     /// `PUT /api/orders/{id}/keep-waiting` 与 `/keep-rematching`。

@@ -1259,3 +1259,16 @@ struct VolunteerLocationData: Codable, Sendable {
         return (-90...90).contains(lat) && (-180...180).contains(lng)
     }
 }
+
+/// `POST /api/orders/{id}/cancel` 的响应体（后端 #361）。**裸对象，不在 `{success, data}` 信封里**
+/// （后端 `ResponseEntity.ok(new CancelOrderResponse(true, countedAsLateCancel))`）；
+/// `APIPayloadDecoder` 先试信封、`data` 为空再裸解，所以照常解得出来。
+///
+/// 两个字段都收成可选：缺键时不该让「取消已经成功」这件事变成一个解码错误 ——
+/// 那样陪跑员会听到「操作结果尚未确认」，而订单其实已经退掉了。
+struct CancelOrderResponse: Codable, Sendable, Equatable {
+    let success: Bool?
+    /// 这次取消是否被记为一次「临时取消」。**以它为准**才能说「已记一次」，客户端不自己算。
+    /// 只记不罚：文案里不许出现任何后果。盲人取消恒为 `false`。
+    let countedAsLateCancel: Bool?
+}

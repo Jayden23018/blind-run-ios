@@ -896,6 +896,79 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    public func getRules(_ input: Operations.getRules.Input) async throws -> Operations.getRules.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getRules.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/config/rules",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getRules.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseRuleParamsResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。

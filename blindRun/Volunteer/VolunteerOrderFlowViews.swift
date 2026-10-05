@@ -315,6 +315,8 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     private var realtimeRefreshCancellable: AnyCancellable?
     private var realtimeStatusCancellable: AnyCancellable?
     private var confirmationTask: Task<Void, Never>?
+    /// 取消之后那一句与「已记一次临时取消」的先后（`VolunteerCancelAnnouncement`）。
+    private var cancelAnnouncement = VolunteerCancelAnnouncement()
     private let actionDeadlineNanoseconds: UInt64
     private let confirmationTimeout: TimeInterval
     private let orderLoadTimeout: TimeInterval
@@ -480,8 +482,29 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         guard let order, let appState else { return }
         let orders = appState.orders
         let orderID = order.orderId
-        await submitTransition(target: .rematching, orderID: orderID, appState: appState) {
-            try await orders.cancel(orderId: orderID)
+        await submitTransition(target: .rematching, orderID: orderID, appState: appState) { [weak self] in
+            // 在闭包里而不是调用前 `begin()`：`submitTransition` 遇到重复提交会直接返回、不发请求，
+            // 那时不该把这一单标成「我自己取消的」。
+            await self?.beginCancellation()
+            let response = try await orders.cancel(orderId: orderID)
+            await self?.recordCancelResponse(response)
+        }
+        // 明确失败才复位；结果未知（超时 / 断网）时留着 —— 取消可能已经成功，确认拉取回来还要用它。
+        if case .failed = transitionState {
+            cancelAnnouncement = VolunteerCancelAnnouncement()
+        }
+    }
+
+    func beginCancellation() {
+        cancelAnnouncement.begin()
+    }
+
+    /// 取消响应到了。推送若已先到、取消那一句已在念，「已记一次临时取消」排在它后面补一句。
+    /// 用 `.onDemand` 档：比正在念的那句（`.counterpartAction`）低一档才会排队而不是打断；
+    /// 而它本来就是陪跑员自己按下「仍然取消」的回应。
+    func recordCancelResponse(_ response: CancelOrderResponse) {
+        if let followUp = cancelAnnouncement.recordResponse(response) {
+            speechService?.speak(followUp, priority: .onDemand)
         }
     }
 
@@ -601,7 +624,10 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         let previousStatus = order?.status
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
-        if speakChanges, previousStatus != updated.status {
+        // 要念取消那一句时不念通用状态句：两句都念的话，后一句同档打断前一句，
+        // 陪跑员听到的是半句盲人端文案加一句取消说明。
+        let announcesCancellation = cancelAnnouncement.announcesCancellation(entering: updated.status)
+        if speakChanges, previousStatus != updated.status, !announcesCancellation {
             speechService?.speakStatusChange(updated.status)
         }
         if let target = transitionState.targetStatus,
@@ -616,7 +642,11 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
             appState?.liveEscortCoordinator.clearOwnedOrder()
             didCancelOrder = true
-            speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+            // 只在**进入**这一态时念一次：确认拉取与推送都会走到这里，各念一遍就是两遍。
+            // 跑者取消的 `CANCELLED` 不念这句，由上面的通用状态句说。
+            if announcesCancellation, previousStatus != updated.status {
+                speechService?.speak(cancelAnnouncement.cancellationSentence())
+            }
         }
     }
 }
@@ -916,6 +946,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
     private var realtimeStatusCancellable: AnyCancellable?
     private var peerLocationCancellable: AnyCancellable?
     private var confirmationTask: Task<Void, Never>?
+    /// 取消之后那一句与「已记一次临时取消」的先后（`VolunteerCancelAnnouncement`）。
+    private var cancelAnnouncement = VolunteerCancelAnnouncement()
     private var dispatchSummaryTask: Task<Void, Never>?
     private var peerExpiryTask: Task<Void, Never>?
     private var acceptsPeerLocations = true
@@ -1381,8 +1413,25 @@ final class VolunteerInServiceViewModel: ObservableObject {
         guard let order, let appState else { return }
         let orders = appState.orders
         let orderID = order.orderId
-        await submitTransition(target: .rematching, orderID: orderID, appState: appState) {
-            try await orders.cancel(orderId: orderID)
+        await submitTransition(target: .rematching, orderID: orderID, appState: appState) { [weak self] in
+            // 同 `VolunteerOrderDetailViewModel.cancel`：真发请求时才标「我自己取消的」。
+            await self?.beginCancellation()
+            let response = try await orders.cancel(orderId: orderID)
+            await self?.recordCancelResponse(response)
+        }
+        if case .failed = transitionState {
+            cancelAnnouncement = VolunteerCancelAnnouncement()
+        }
+    }
+
+    func beginCancellation() {
+        cancelAnnouncement.begin()
+    }
+
+    /// 同 `VolunteerOrderDetailViewModel.recordCancelResponse`。
+    func recordCancelResponse(_ response: CancelOrderResponse) {
+        if let followUp = cancelAnnouncement.recordResponse(response) {
+            speechService?.speak(followUp, priority: .onDemand)
         }
     }
 
@@ -1627,7 +1676,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         // 同 `configure`：换单时上面那行会清掉 `didSet` 先写的姓氏。
         appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.blindSurname?.nilIfBlank)
-        if speakChanges, previousStatus != updated.status {
+        // 要念取消那一句时不念通用状态句（理由同 `VolunteerOrderDetailViewModel.apply`）。
+        let announcesCancellation = cancelAnnouncement.announcesCancellation(entering: updated.status)
+        if speakChanges, previousStatus != updated.status, !announcesCancellation {
             speechService?.speakStatusChange(updated.status)
         }
         if let target = transitionState.targetStatus,
@@ -1638,13 +1689,15 @@ final class VolunteerInServiceViewModel: ObservableObject {
             confirmationTask = nil
             errorMessage = nil
         }
-        if updated.status == .rematching {
+        if announcesCancellation {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
             appState?.liveEscortCoordinator.clearOwnedOrder()
             stopPolling()
             didCancelOrder = true
             order = nil
-            speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+            if previousStatus != updated.status {
+                speechService?.speak(cancelAnnouncement.cancellationSentence())
+            }
             return
         }
         if updated.status.isTerminal {
@@ -1827,6 +1880,9 @@ struct VolunteerInServiceView: View {
             viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
             locationService.startUpdating()
             viewModel.startPolling(orderId: orderId)
+            // 取消弹层的窗口小时数读它。从推送直接点进这一页时首页那次可能还没拉过；
+            // 已经拉过就是一次空操作（`loadRuleParamsIfNeeded` 成功后置位）。
+            await appState.loadRuleParamsIfNeeded()
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -2290,7 +2346,8 @@ struct VolunteerInServiceView: View {
     private var cancelSheetCopy: VolunteerOrderFlowCopy.CancelSheetCopy {
         VolunteerOrderFlowCopy.cancelSheet(
             for: viewModel.order?.status,
-            plannedStart: viewModel.order?.plannedStart?.nilIfBlank?.backendTimestamp
+            plannedStart: viewModel.order?.plannedStart?.nilIfBlank?.backendTimestamp,
+            lateCancelWindowHours: appState.ruleParams.lateCancelWindowHours
         )
     }
 

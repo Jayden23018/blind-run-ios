@@ -6423,7 +6423,7 @@ final class blindRunTests: XCTestCase {
             service.arrivedResult = transitionResult
             service.startServiceResult = transitionResult
             service.finishResult = transitionResult
-            service.cancelResult = transitionResult
+            service.cancelResult = transitionResult.map { CancelOrderResponse(success: true, countedAsLateCancel: false) }
             service.respondResult = transitionResult
 
             switch confirmation {

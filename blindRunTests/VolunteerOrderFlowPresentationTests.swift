@@ -542,7 +542,7 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
             XCTAssertEqual(row?.value, VolunteerOrderFlowCopy.releaseOrder, "\(status.rawValue) 的退出行文案不对")
             XCTAssertEqual(row?.action, .releaseOrder)
 
-            let sheet = VolunteerOrderFlowCopy.cancelSheet(for: status, plannedStart: nil)
+            let sheet = VolunteerOrderFlowCopy.cancelSheet(for: status, plannedStart: nil, lateCancelWindowHours: 12)
             XCTAssertTrue(
                 sheet.message.contains("转给其他志愿者"),
                 "\(status.rawValue)：确认层要说清后果 —— 这一单换个人，不是替盲人取消"
@@ -552,29 +552,42 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         }
     }
 
-    /// 🔴 **确认层不许宣布一套后端不存在的处罚规则。**
+    /// 🔴 **确认层只说「会记一次」，不许宣布任何后果。**
     ///
-    /// 设计稿原文里还有「会记一次临时取消」「30 天内满 3 次，接下来 14 天不会收到邀请」，
-    /// 而契约两份文件里 `lateCancel` / `cancellationCount` / 临时取消 / cancelPolicy
-    /// **全部命中 0**，取消端点连请求体都没有。志愿者正要据此决定去不去 —— 说了就是骗他。
-    func testCancelSheetNeverAnnouncesAPenaltyTheBackendDoesNotHave() {
+    /// 后端 #361 起「临时取消」真的会记（`CancelOrderResponse.countedAsLateCancel`），所以窗口内那一段
+    /// 说「会记一次临时取消」。但设计稿原文里的「30 天内满 3 次，接下来 14 天不会收到邀请」后端**没有**：
+    /// 契约原话「只记不罚……不要说『3 次』或『14 天』之类的后果，那是不存在的规则」。
+    func testCancelSheetSaysTheCountButNeverAPenaltyTheBackendDoesNotHave() {
         let soon = VolunteerOrderFlowCopy.cancelSheet(
             for: .pendingAccept,
-            plannedStart: Date().addingTimeInterval(3 * 3600)
+            plannedStart: Date().addingTimeInterval(3 * 3600),
+            lateCancelWindowHours: 12
         )
         let later = VolunteerOrderFlowCopy.cancelSheet(
             for: .pendingAccept,
-            plannedStart: Date().addingTimeInterval(72 * 3600)
+            plannedStart: Date().addingTimeInterval(72 * 3600),
+            lateCancelWindowHours: 12
         )
 
-        XCTAssertNotNil(soon.lateNotice, "距开跑不足 12 小时要多说一句「会马上重新找人」")
+        XCTAssertTrue(soon.lateNotice?.contains("会记一次临时取消") == true, "窗口内要说会记一次")
         XCTAssertNil(later.lateNotice, "还有三天的单不该摆一条催促")
 
         let everything = [soon.title, soon.lateNotice ?? "", soon.message, soon.keep, soon.cancel]
             .joined(separator: " ")
-        for forbidden in ["临时取消", "3 次", "14 天", "不会收到邀请"] {
+        for forbidden in ["3 次", "14 天", "不会收到邀请", "处罚", "影响接单"] {
             XCTAssertFalse(everything.contains(forbidden), "后端没有这条规则，不许写：\(forbidden)")
         }
+    }
+
+    /// 窗口小时数来自后端规则参数：同一张 8 小时后开跑的单，窗口 12 小时要提醒、窗口 6 小时不提醒。
+    /// 只用一个窗口值测不出「其实还写死着 12」。
+    func testCancelSheetWindowFollowsTheServerRule() {
+        let start = Date().addingTimeInterval(8 * 3600)
+        let wide = VolunteerOrderFlowCopy.cancelSheet(for: .pendingAccept, plannedStart: start, lateCancelWindowHours: 12)
+        let narrow = VolunteerOrderFlowCopy.cancelSheet(for: .pendingAccept, plannedStart: start, lateCancelWindowHours: 6)
+        XCTAssertNotNil(wide.lateNotice)
+        XCTAssertNil(narrow.lateNotice, "窗口 6 小时、还有 8 小时开跑，不该提醒")
+        XCTAssertTrue(wide.lateNotice?.contains("12 小时") == true)
     }
 
     // MARK: - 「跑多远 / 配速」的格式化
