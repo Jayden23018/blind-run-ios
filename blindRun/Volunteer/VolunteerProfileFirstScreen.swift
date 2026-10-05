@@ -359,9 +359,9 @@ enum VolunteerProfileCopy {
         }
     }
 
-    // 星级卡（首屏）
+    // 星级卡
     //
-    // 只改首屏这张卡，成就页沿用 `VolunteerAchievementsCopy.starTitle`。
+    // 首屏、成就页、陪跑完成页三处共用这一套（2026-10-06 负责人定统一；此前只有首屏用）。
     // 还没到一星时，标题直接说还差多少（2026-10-03 试用反馈：「尚未达到」是否定说法），
     // 进度行就不再重复「还差」。
     static func starCardTitle(_ level: VolunteerStarLevelDto) -> String {

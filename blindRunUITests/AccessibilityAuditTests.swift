@@ -204,6 +204,9 @@ final class AccessibilityAuditTests: XCTestCase {
         for banned in ["证明", "证书", "已认证"] {
             XCTAssertFalse(spoken.contains(banned), "星级栏念出了违规措辞「\(banned)」：\(spoken)")
         }
+        // Mock 志愿者累计 1 小时、零星：成就页与首屏同一句正向说法（2026-10-06 起三处统一），
+        // 不再念「尚未达到一星」。
+        XCTAssertFalse(spoken.contains("尚未"), "星级栏还在用否定说法：\(spoken)")
     }
 
     // MARK: - 语音态与表单态互斥

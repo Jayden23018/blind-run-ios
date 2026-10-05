@@ -239,6 +239,23 @@ final class LowVisionChannelTests: XCTestCase {
         XCTAssertLessThan(Self.contrastRatio(RunPacePalette.rgb(fraction: 1, isDark: false), 0xFFFFFF), nonTextMinimum)
     }
 
+    /// 登录页「获取验证码」禁用时：`textSecondary` 字压 `systemGray5`（`LoginView`）。
+    ///
+    /// WCAG 对禁用控件不作要求，但这一枚是登录页唯一的按钮：低视力用户读不出它是什么，
+    /// 就不知道「填好手机号它会亮」。原来是白字压 `systemGray4`，只有 1.52:1（下面验红那一条）。
+    /// `systemGray5` 取 iOS 的亮 / 暗取值。
+    func testDisabledLoginButtonLabelStaysReadable() {
+        guard let tone = AppColors.tones.first(where: { $0.name == "textSecondary" })?.tone else {
+            return XCTFail("调色板里没有 textSecondary")
+        }
+        let systemGray5 = (light: UInt32(0xE5E5EA), dark: UInt32(0x2C2C2E))
+        XCTAssertGreaterThanOrEqual(Self.contrastRatio(tone.light, systemGray5.light), Self.minimumContrast)
+        XCTAssertGreaterThanOrEqual(Self.contrastRatio(tone.dark, systemGray5.dark), Self.minimumContrast)
+
+        // 验红：旧写法（白字压亮色 `systemGray4` #D1D1D6）必须算不过。
+        XCTAssertLessThan(Self.contrastRatio(0xFFFFFF, 0xD1D1D6), Self.minimumContrast)
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的

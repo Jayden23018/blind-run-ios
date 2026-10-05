@@ -234,15 +234,18 @@ struct LoginView: View {
                         Button {
                             requestCodeAndPrepareVerificationFocus(using: scrollProxy)
                         } label: {
+                            // 禁用态字色用 `textSecondary` 压 `systemGray5`（亮 5.3:1、暗 6.3:1）。
+                            // 原来是白字压 `systemGray4`，只有 1.52:1 —— 低视力用户读不出这枚按钮是什么，
+                            // 也就不知道「填好手机号它就会亮」（2026-10-05 零上下文评审第 10 条）。
                             Text(viewModel.countdownText)
                                 .font(AppFonts.primaryButton())
-                                .foregroundColor(.white)
+                                .foregroundColor(viewModel.canRequestCode ? .white : AppColors.textSecondary)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 52)
                                 .background(
-                                    (!viewModel.canRequestCode)
-                                        ? Color(.systemGray4)
-                                        : AppColors.primary
+                                    viewModel.canRequestCode
+                                        ? AppColors.primary
+                                        : Color(.systemGray5)
                                 )
                                 .cornerRadius(12)
                         }

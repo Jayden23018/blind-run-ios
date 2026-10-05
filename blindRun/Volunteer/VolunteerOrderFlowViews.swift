@@ -2720,6 +2720,10 @@ struct VolunteerServiceRecognitionView: View {
 ///
 /// 进度条对 VoiceOver 是空的，所以下面那行文字不是装饰 —— 它是这一栏
 /// 唯一能被读出来的进度信息。两者顺序不能倒，也不能只留进度条。
+///
+/// 标题与进度行取首屏星级卡同一套文案（`VolunteerProfileCopy.starCard*`）：
+/// 未达一星时说「距离一星还差 N 小时」而不是「尚未达到一星」（2026-10-03 试用反馈，
+/// 2026-10-06 负责人定三处统一）。一星以上两套文案本来就相同。
 struct VolunteerStarProgressCard: View {
     let level: VolunteerStarLevelDto
 
@@ -2731,15 +2735,16 @@ struct VolunteerStarProgressCard: View {
             Text(VolunteerAchievementsCopy.starSectionStandard)
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
-            Text(VolunteerAchievementsCopy.starTitle(current: max(0, level.current ?? 0)))
+            Text(VolunteerProfileCopy.starCardTitle(level))
                 .font(AppFonts.title())
                 .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
 
             ProgressView(value: Self.progress(level))
                 .tint(AppColors.primary)
                 .accessibilityHidden(true)
 
-            Text(VolunteerAchievementsCopy.starProgressText(level))
+            Text(VolunteerProfileCopy.starCardProgress(level))
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2749,7 +2754,7 @@ struct VolunteerStarProgressCard: View {
         .background(AppColors.secondaryBackground)
         .cornerRadius(12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(VolunteerAchievementsCopy.starAccessibilityLabel(level))
+        .accessibilityLabel(VolunteerProfileCopy.starCardAccessibilityLabel(level))
         .accessibilityIdentifier("volunteerStarLevelSection")
     }
 

@@ -124,19 +124,26 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
         canDispatch == true ? "已上线，等待系统派单" : reasonText
     }
 
+    /// 首屏派单状态卡那一句。`shownElsewhere` 里的原因同一屏已经画成整卡入口
+    /// （培训、资质，判据 `VolunteerProfileTodoGate`），卡里不再说第二遍。
+    ///
+    /// 原因**全部**被别处说过时返回 nil，卡里只剩覆盖范围。没有原因时照旧走
+    /// `dispatchStatusText`（「已上线」或「服务端未返回不可接单原因」）—— 那两句别处都没有。
+    func dispatchStatusText(omitting shownElsewhere: Set<VolunteerDispatchNotAvailableReason>) -> String? {
+        let reasons = notAvailableReasons ?? []
+        guard canDispatch != true, !reasons.isEmpty else { return dispatchStatusText }
+        let remaining = reasons.filter { !shownElsewhere.contains($0) }
+        guard !remaining.isEmpty else { return nil }
+        let recognized = remaining.filter { $0 != .unknown }
+        guard !recognized.isEmpty else {
+            return VolunteerDispatchNotAvailableReason.unknown.displayText
+        }
+        return recognized.map(\.displayText).joined(separator: "、")
+    }
+
     var coverageText: String {
         guard let coverageRadiusKm else { return "覆盖范围待同步" }
         return "当前覆盖约 \(coverageRadiusKm.cleanDisplay) 公里"
-    }
-
-    var ratingText: String {
-        guard let avgRating else { return "--" }
-        return String(format: "%.1f", avgRating)
-    }
-
-    var acceptanceRateText: String {
-        guard let acceptanceRate else { return "--" }
-        return "\(Int((acceptanceRate * 100).rounded()))%"
     }
 }
 

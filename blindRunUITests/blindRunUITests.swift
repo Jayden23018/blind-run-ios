@@ -912,18 +912,17 @@ final class blindRunUITests: XCTestCase {
         // 「回到当前位置」随地图一起删了 —— 它是 identifier 守卫管不到的中文文案，只能在这儿断。
         XCTAssertFalse(app.buttons["回到当前位置"].firstMatch.exists, "地图删除后「回到当前位置」不该还在")
 
-        // 三格：完成 / 评分 / 接单率，现在就在首屏最底部。此前这里断的是「积分」，
-        // 而 `be4e030` 已经把那一格删了 —— 它的值是 `totalCompleted * 100`，后端从来没有积分字段。
-        //
-        // 🔴 `ScrollView` 屏幕外的子视图 `isHittable` 照样为真，但 `LazyVGrid` 的格子屏幕外
-        // **不实例化**，所以必须先滚到它再断言存在（同 `testVolunteerDispatchSummaryTilesSurviveAX5`）。
-        let rate = app.staticTexts["接单率"].firstMatch
+        // 派单状态卡在首屏最底部，只剩状态与覆盖范围（2026-10-06 起）。
+        // 接单率 / 派单·接受·拒绝·超时整组删掉：对无偿志愿者读起来像考核，负责人拍板不挪去别处。
+        let dispatchCard = app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch
         var drags = 0
-        while !rate.exists && drags < 16 {
+        while !dispatchCard.isHittable && drags < 16 {
             app.swipeUp(velocity: .slow)
             drags += 1
         }
-        XCTAssertTrue(rate.exists, "派单统计必须留在首屏（drags=\(drags)）\n\(app.debugDescription)")
+        XCTAssertTrue(dispatchCard.exists, "派单状态卡必须留在首屏（drags=\(drags)）\n\(app.debugDescription)")
+        XCTAssertTrue(dispatchCard.label.contains("公里"), "派单状态卡要说覆盖范围：\(dispatchCard.label)")
+        XCTAssertFalse(app.staticTexts["接单率"].firstMatch.exists, "接单率已删除，不该再出现")
 
         XCTAssertFalse(
             app.descendants(matching: .any)["volunteerHomeMap"].firstMatch.exists,  // guard:allow stale-ui-test-identifier
@@ -1006,10 +1005,13 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
-    /// 派单卡片在 AX5 下仍然三格成行 —— 这是本仓库第一条 Dynamic Type 用例，
+    /// 派单状态卡在 AX5 下仍然渲染、字确实放大了 —— 这是本仓库第一条 Dynamic Type 用例，
     /// 见记忆 `low-vision-visual-channel-unaudited`：字号上限一直没人系统性看过。
+    ///
+    /// 2026-10-06 起卡里没有三格统计了（负责人拍板删掉），用例改断整张卡：覆盖范围那一行
+    /// 在 Mock（培训未完成）下升为正文字号，AX5 下卡高必然远超默认字号的约 50pt。
     @MainActor
-    func testVolunteerDispatchSummaryTilesSurviveAX5() throws {
+    func testVolunteerDispatchSummaryCardSurvivesAX5() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -1018,26 +1020,23 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerAvailable: true,
             contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
         )
-        // 三格统计自 2026-09-15 起就在首屏最底部（工作台那一跳已随二级页一起删掉）。
+        // 派单状态卡自 2026-09-15 起就在首屏最底部（工作台那一跳已随二级页一起删掉）。
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
         XCTAssertTrue(identityRow.waitForExistence(timeout: 15), "AX5 下首屏也要先渲染出来")
 
-        // 三格在 `LazyVGrid` 里，屏幕外**不实例化**（无障碍树里是 `Other {{0,0},{0,0}}`），
-        // 所以必须先滚到它再断言存在 —— `waitForExistence` 等不到，
-        // `scrollElementIntoView` 第一行的 `guard element.exists` 也过不去。
-        // 慢速滚：AX5 下滚动视口很浅而默认速度一次跨度远大于它，采样点会整段跳过格子区。
-        // 上限从 10 提到 24：三格现在住在**整张首屏的最底部**（身份 → 作业区 → 影响力 →
-        // 徽章 → 最近陪跑 → 派单状态），AX5 下这条路比原先那个短短的工作台页长得多。
-        let rate = app.staticTexts["接单率"].firstMatch
+        // 慢速滚：AX5 下滚动视口很浅而默认速度一次跨度远大于它。
+        // 上限 24：卡住在**整张首屏的最底部**（身份 → 作业区 → 影响力 →
+        // 徽章 → 最近陪跑 → 派单状态），AX5 下这条路很长。
+        let dispatchCard = app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch
         var drags = 0
-        while !rate.exists && drags < 24 {
+        while !dispatchCard.isHittable && drags < 24 {
             app.swipeUp(velocity: .slow)
             drags += 1
         }
-        XCTAssertTrue(rate.exists, "Acceptance-rate tile must still render at AX5 (drags=\(drags))\n\(app.debugDescription)")
+        XCTAssertTrue(dispatchCard.exists, "Dispatch summary card must still render at AX5 (drags=\(drags))\n\(app.debugDescription)")
         // 上一版传的是 `...AccessibilityExtraExtraExtraLarge`（不是真的常量名），被静默忽略，
         // 截图与默认字号一模一样却看着像验过了。钉一条断言，别再靠肉眼分辨。
-        XCTAssertGreaterThan(rate.frame.height, 30, "AX5 launch argument did not take effect (height=\(rate.frame.height))")
+        XCTAssertGreaterThan(dispatchCard.frame.height, 80, "AX5 launch argument did not take effect (height=\(dispatchCard.frame.height))")
         attachScreenshot(named: "volunteer-dispatch-summary-ax5", app: app)
     }
 

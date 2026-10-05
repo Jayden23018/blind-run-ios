@@ -2436,9 +2436,14 @@ struct BlindOrderStatusView: View {
                     .cornerRadius(8)
                     .accessibilityLabel("评价内容，选填")
 
-                PrimaryButton("提交评价", isLoading: viewModel.isSubmittingReview) {
+                // 描边次按钮，不用实心 `PrimaryButton`：这一屏底部已经有唯一的实心主按钮「完成」
+                // （设计稿 ④），两枚实心按钮同屏抢主位（2026-10-05 零上下文评审第 2 条）。
+                // 64pt 与整行宽度不变，提交中淡下去并换文案，免得「按了没反应」。
+                Button(viewModel.isSubmittingReview ? "正在提交…" : "提交评价") {
                     Task { await viewModel.submitReview() }
                 }
+                .buttonStyle(OutlineSecondaryButtonStyle())
+                .disabled(viewModel.isSubmittingReview)
                 .accessibilityLabel("提交评价")
                 .accessibilityHint("提交本次服务评分和评价")
 
@@ -2457,9 +2462,11 @@ struct BlindOrderStatusView: View {
             favoriteVolunteerSection(order)
 
             if viewModel.didSubmitReview {
-                PrimaryButton("返回首页") {
+                // 与上面「提交评价」同理：底部「完成」才是实心主按钮。
+                Button("返回首页") {
                     dismiss()
                 }
+                .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityLabel("返回首页")
             }
         }

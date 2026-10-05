@@ -1833,7 +1833,7 @@ struct VolunteerCurrentOrderCard: View {
     }
 }
 
-/// 派单状态卡：覆盖范围 + 完成·评分·接单率 + 派单·接受·拒绝·超时。
+/// 派单状态卡：派单状态一句 + 覆盖范围。
 ///
 /// 🚩 **internal 而不是 private**：唯一的渲染点在 `VolunteerProfileFirstScreen.dispatchSection`
 /// （另一个文件）。它被刻意摆在首屏**最底部**、接替 2026-09-15 删掉的那行工作台入口 ——
@@ -1842,96 +1842,57 @@ struct VolunteerCurrentOrderCard: View {
 ///
 /// 🔴 **卡里不再有「去培训」按钮。** 那个入口以前是这张卡的兄弟节点，小得用户找不到
 /// （原话「一个贼小的去培训，一点都不显眼」），已整体升级成首屏作业区里的整卡入口。
+///
+/// 🔴 **卡里不再有统计**（负责人 2026-10-06）。完成次数、评分在同一屏「我的陪伴」里已有一份；
+/// 接单率与派单 / 接受 / 拒绝 / 超时计数对无偿志愿者读起来像考核，整组删掉，不挪去别处。
+/// 状态句也不重复作业区已经画成整卡的原因（培训、资质）—— 同一屏说两遍「尚未完成必修培训」
+/// 是 2026-10-05 零上下文评审点名的问题。
 struct VolunteerDispatchSummaryCard: View {
     let summary: VolunteerDispatchSummaryResponse
 
-    /// 三格，不是四格。此前第一格是「积分」，值是 `totalCompleted * 100` ——
-    /// 后端从来没有 `pointsBalance` 字段，那个数字只是「完成 N 单」换了个说法，
-    /// 却被命名成一种可累积、可兑换的东西。
-    ///
-    /// ponytail: 删掉后**不补第四格凑数**。`totalDispatched` / `totalDeclined` /
-    /// `totalTimeout` 在下面本来就有一行专门展示，挪上来只是重复。
-    private var metrics: [(String, String)] {
-        [
-            ("完成", "\(summary.completedCount)"),
-            ("评分", summary.ratingText),
-            ("接单率", summary.acceptanceRateText)
-        ]
+    /// 作业区已经各自画成整卡入口的原因，判据与 `VolunteerProfileTodoGate` 一致。
+    static let reasonsShownInTodoSection: Set<VolunteerDispatchNotAvailableReason> = [
+        .trainingIncomplete,
+        .notVerified
+    ]
+
+    private var statusText: String? {
+        summary.dispatchStatusText(omitting: Self.reasonsShownInTodoSection)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
+            if statusText != nil {
                 Image(systemName: summary.canDispatch == true ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                     .font(.title2)
                     .foregroundColor(summary.canDispatch == true ? AppColors.success : AppColors.warning)
                     .accessibilityHidden(true)
+            }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(summary.dispatchStatusText)
+            VStack(alignment: .leading, spacing: 4) {
+                if let statusText {
+                    Text(statusText)
                         .font(AppFonts.body().weight(.bold))
                         .foregroundColor(AppColors.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    Text(summary.coverageText)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
                 }
 
-                Spacer(minLength: 0)
+                Text(summary.coverageText)
+                    .font(statusText == nil ? AppFonts.body() : AppFonts.caption())
+                    .foregroundColor(statusText == nil ? AppColors.textPrimary : AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            // 列数跟着 `metrics` 走，不写字面量 —— `be4e030` 删掉「积分」那格时列数留在 4，
-            // 于是三格挤在左边、右边空一格挂了很久。
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: metrics.count), spacing: 8) {
-                ForEach(metrics, id: \.0) { metric in
-                    VolunteerMetricTile(title: metric.0, value: metric.1)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Text("派单 \(summary.totalDispatched ?? 0)")
-                Text("接受 \(summary.totalAccepted ?? 0)")
-                Text("拒绝 \(summary.totalDeclined ?? 0)")
-                Text("超时 \(summary.totalTimeout ?? 0)")
-            }
-            .font(AppFonts.caption())
-            .foregroundColor(AppColors.textSecondary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
+            Spacer(minLength: 0)
         }
         .padding(14)
         .background(AppColors.secondaryBackground)
         .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .accessibilityElement(children: .combine)
-        // 「积分 N」也从这条 label 里删掉 —— 数字从视觉上消失了，但读屏用户还在听，
-        // 这一处最容易漏。
-        .accessibilityLabel("派单状态：\(summary.dispatchStatusText)，\(summary.coverageText)，完成 \(summary.completedCount) 次，评分 \(summary.ratingText)")
-    }
-}
-
-/// internal 与 `VolunteerDispatchSummaryCard` 同理：它只被那张卡用，而那张卡已经跨文件了。
-struct VolunteerMetricTile: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.headline.weight(.bold))
-                .foregroundColor(AppColors.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Text(title)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(AppColors.background)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile, style: .continuous))
+        .accessibilityLabel(
+            "派单状态：" + [statusText, summary.coverageText].compactMap { $0 }.joined(separator: "，")
+        )
+        .accessibilityIdentifier("volunteerDispatchSummaryCard")
     }
 }
 

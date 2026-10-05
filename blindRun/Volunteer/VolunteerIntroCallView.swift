@@ -202,6 +202,10 @@ struct VolunteerIntroCallView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
 
+                if case .active = viewModel.outcome {
+                    deadlineRow
+                }
+
                 // 复用接单后那块「本单为视障跑者」提示位，不新建组件。
                 // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走
                 // `disclosesBlindRunnerNotesToVolunteer` 闸，通话发生在接单之前。
@@ -267,6 +271,31 @@ struct VolunteerIntroCallView: View {
         .accessibilityIdentifier("volunteerIntroCallHeader")
     }
 
+    /// 这次通话确认的截止时刻，单独一行、正文字号。
+    ///
+    /// 原先是对方卡片最后一行灰色小字、带完整年月日（2026-10-05 零上下文评审：「倒计时埋在灰字里」），
+    /// 而它是这一页唯一有时限的信息 —— 过了窗口这一单就派给下一位。
+    /// 日期写法与邀请页同一个函数（`RunPlanFormat.shortStart`：「今天 23:51」）。
+    /// 只给时刻、不做逐秒倒计时：窗口 20 分钟（后端配置），一个每秒在变的数对读屏是噪音。
+    @ViewBuilder
+    private var deadlineRow: some View {
+        if let windowEndsAt = viewModel.introCall?.windowEndsAt?.nilIfBlank {
+            let when = RunPlanFormat.shortStart(windowEndsAt) ?? windowEndsAt.displayDateTime
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "clock")
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityHidden(true)
+                Text("\(when) 前完成通话确认")
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("请在\(when)前完成这次通话确认")
+            .accessibilityIdentifier("volunteerIntroCallDeadline")
+        }
+    }
+
     /// 对方是谁 + 会用哪个号码打给你。
     ///
     /// 🚨 掩码号只用来**认人**，这里刻意**没有**拨号按钮：号码在这一侧是单向的，
@@ -284,12 +313,6 @@ struct VolunteerIntroCallView: View {
                     .foregroundColor(AppColors.textPrimary)
                 if let masked = introCall.counterpartPhoneMasked?.nilIfBlank {
                     Text("\(masked)　\(IntroCallCopy.volunteerPhoneHint)")
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let windowEndsAt = introCall.windowEndsAt?.nilIfBlank {
-                    Text("请在 \(windowEndsAt.displayDateTime) 前完成这次通话确认")
                         .font(AppFonts.caption())
                         .foregroundColor(AppColors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -321,7 +344,7 @@ struct VolunteerIntroCallView: View {
             }
             if let plannedStart = dispatchOrder?.plannedStart?.nilIfBlank
                 ?? viewModel.introCall?.plannedStartTime?.nilIfBlank {
-                Text("时间：\(plannedStart.displayDateTime)")
+                Text("时间：\(RunPlanFormat.shortStart(plannedStart) ?? plannedStart.displayDateTime)")
             }
             if let distance = dispatchOrder?.distanceKm {
                 Text(String(format: "距离：%.1fkm", distance))
@@ -347,14 +370,17 @@ struct VolunteerIntroCallView: View {
             .accessibilityHint("双方都说合适才算接单")
             .accessibilityIdentifier("volunteerIntroCallAcceptButton")
 
-            secondaryButton(
-                title: IntroCallCopy.volunteerDeclineButtonTitle,
-                hint: "结束这次通话确认，系统会把这一单派给下一位",
-                identifier: "volunteerIntroCallDeclineButton",
-                tint: AppColors.destructive
-            ) {
+            // 描边、主色，不用红：「不合适」是一个正常的选择，不是危险操作
+            // （跑者端「换一位」2026-10-05 同样改掉了红色）。始终画描边，
+            // 只有一行彩色字时它和说明文字长得一样。
+            Button(IntroCallCopy.volunteerDeclineButtonTitle) {
                 Task { await viewModel.submit(.decline) }
             }
+            .buttonStyle(OutlineSecondaryButtonStyle())
+            .disabled(viewModel.isSubmitting)
+            .accessibilityLabel(IntroCallCopy.volunteerDeclineButtonTitle)
+            .accessibilityHint("结束这次通话确认，系统会把这一单派给下一位")
+            .accessibilityIdentifier("volunteerIntroCallDeclineButton")
 
             secondaryButton(
                 title: IntroCallCopy.volunteerUnreachableButtonTitle,
