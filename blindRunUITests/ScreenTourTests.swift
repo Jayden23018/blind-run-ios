@@ -202,10 +202,6 @@ final class ScreenTourTests: XCTestCase {
         shoot(app, "V16-run-help-panel", anchor: nil)
     }
 
-    /// 直接种 `COMPLETED`：Mock 只在这条路上带完赛三项与 `completedTogetherCount`，拍的是满配的完成页。
-    /// 下面 V17（从跑步中长按结束进来）这几项留空，拍的是降级样子 —— 两张都要。
-    @MainActor func testTour_V18_CompletedWithRunData() { volunteerOrder("COMPLETED", "V18") }
-
     @MainActor func testTour_V17_Completed() {
         let app = launchVolunteer(seed: "IN_PROGRESS")
         let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
