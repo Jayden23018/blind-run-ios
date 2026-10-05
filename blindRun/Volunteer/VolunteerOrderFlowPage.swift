@@ -40,6 +40,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var isPrimaryEnabled: Bool = true
     /// 「开始跑步」按下后后端答 `BLIND_CONFIRMATION_PENDING`：按钮上方小字换成「等待对方确认」，按钮仍可按。
     var awaitingBlindConfirmation: Bool = false
+    /// 后端放行时刻给的那句小字（`VolunteerActionGate.caption`），优先于动作自己的那句。
+    var gateCaption: String? = nil
     /// 信息卡之后那块「刚才那一下的结果」。**这一页唯一的可见失败面**，少了它失败只剩一句 TTS。
     @ViewBuilder let footer: () -> Footer
 
@@ -475,7 +477,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     private var bottomActions: some View {
         VStack(spacing: 8) {
             if let action = presentation.primaryAction {
-                let actionCaption = action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation)
+                let actionCaption = gateCaption ?? action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation)
                 if let caption = actionCaption {
                     Text(caption)
                         .flowFont(FlowV2Fonts.subhead())

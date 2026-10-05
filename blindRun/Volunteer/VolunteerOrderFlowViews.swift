@@ -2084,6 +2084,8 @@ struct VolunteerInServiceView: View {
         ), let phase = VolunteerOrderPhase.resolve(order: order, now: now) {
             let direction = meetDirection(order: order, phase: phase)
             let meet = meetPanel(order: order, phase: phase, direction: direction, now: now)
+            // 后端放行时刻（#546）。`now` 来自外层每秒一拍的 `TimelineView`，所以到点按钮自己亮起。
+            let gate = VolunteerActionGate.resolve(action: presentation.primaryAction, order: order, now: now)
             VolunteerOrderFlowPage(
                 presentation: presentation,
                 hero: .make(order: order, phase: phase, now: now, direction: direction?.sector.text, distanceText: distance),
@@ -2099,8 +2101,9 @@ struct VolunteerInServiceView: View {
                 onCloudHelp: { showEmergencyConfirm = true },
                 // POST 回来了但确认那条 GET 还挂着的那几秒里，同一次流转不许被提交第二次。
                 isPrimaryLoading: viewModel.isPerformingAction,
-                isPrimaryEnabled: !viewModel.isTransitionPending,
+                isPrimaryEnabled: !viewModel.isTransitionPending && !gate.isLocked,
                 awaitingBlindConfirmation: viewModel.awaitingBlindConfirmation,
+                gateCaption: gate.caption,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
                 footer: { flowFooter(showsNudgeNotice: meet == nil) }
             )
