@@ -89,6 +89,12 @@ final class VolunteerStartConsentGateTests: XCTestCase {
 
     // MARK: - Fixture
 
+    /// view model 对 `AppState` 是 `weak` 引用（`VolunteerInServiceViewModel.appState`）。
+    /// fixture 里的局部 `AppState` 一出函数就被释放，`startService()` 会在 `guard let appState`
+    /// 处静默返回、一个请求都不发 —— 测试必须自己持有它（记忆
+    /// `location-service-test-seam-and-weak-viewmodel-deps`）。
+    private var retainedAppState: AppState?
+
     private func makeViewModel(
         startError code: String
     ) -> (VolunteerInServiceViewModel, FakeOrderService, WebSocketService) {
@@ -97,6 +103,7 @@ final class VolunteerStartConsentGateTests: XCTestCase {
         service.startServiceResult = .failure(APIError.serverError(ErrorResponse(code: code, message: "后端原文")))
         service.orderDetailResult = .success(order)
         let appState = AppState(orders: service)
+        retainedAppState = appState
         let socket = WebSocketService()
         appState.realtimeCoordinator.attach(to: socket, role: .volunteer)
         let viewModel = VolunteerInServiceViewModel()
