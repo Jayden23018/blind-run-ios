@@ -128,9 +128,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/config/features`.
     /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
     func getFeatures(_ input: Operations.getFeatures.Input) async throws -> Operations.getFeatures.Output
-    /// 上报 APNs device token（iOS 离线推送兜底，B5）
+    /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -151,7 +151,7 @@ public protocol APIProtocol: Sendable {
     /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
     /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
     ///
-    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 请求体复用 `ApnsTokenRequest`，`platform` 只用来决定 token 的格式校验（iOS 要 hex；Android 解绑也要带 `ANDROID`）。
     /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
     ///
     /// - Remark: HTTP `DELETE /api/devices/apns`.
@@ -811,6 +811,7 @@ public protocol APIProtocol: Sendable {
     /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
     /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
     /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// **接收方（订单另一方）已注销账号时返回 409 `RUN_RECORD_RECIPIENT_DELETED`、不入库**（#405）：注销只删发送者自己写的留言，写给已注销者的留言没有人读、也没有任何清理路径。
     /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
@@ -1443,9 +1444,9 @@ extension APIProtocol {
     public func getFeatures(headers: Operations.getFeatures.Input.Headers = .init()) async throws -> Operations.getFeatures.Output {
         try await getFeatures(Operations.getFeatures.Input(headers: headers))
     }
-    /// 上报 APNs device token（iOS 离线推送兜底，B5）
+    /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -1474,7 +1475,7 @@ extension APIProtocol {
     /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
     /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
     ///
-    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 请求体复用 `ApnsTokenRequest`，`platform` 只用来决定 token 的格式校验（iOS 要 hex；Android 解绑也要带 `ANDROID`）。
     /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
     ///
     /// - Remark: HTTP `DELETE /api/devices/apns`.
@@ -2434,6 +2435,7 @@ extension APIProtocol {
     /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
     /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
     /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// **接收方（订单另一方）已注销账号时返回 409 `RUN_RECORD_RECIPIENT_DELETED`、不入库**（#405）：注销只删发送者自己写的留言，写给已注销者的留言没有人读、也没有任何清理路径。
     /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
@@ -4504,19 +4506,19 @@ public enum Components {
         }
         /// - Remark: Generated from `#/components/schemas/ApnsTokenRequest`.
         public struct ApnsTokenRequest: Codable, Hashable, Sendable {
-            /// APNs device token（hex 字符串）
+            /// 推送设备标识。iOS：APNs device token（hex 字符串，32~128 字符）；Android：厂商聚合推送的客户端标识（最长 128 字符，格式不做 hex 限制）
             ///
             /// - Remark: Generated from `#/components/schemas/ApnsTokenRequest/deviceToken`.
             public var deviceToken: Swift.String
-            /// 平台（预留 ANDROID，默认 IOS）
+            /// 平台：`IOS`（默认，旧版 iOS 不带这个字段）或 `ANDROID`。大小写不敏感，其它值返 400。⚠️ DELETE 解绑时 Android 也要带 `ANDROID`：token 格式按平台校验，不带会按 iOS 的 hex 规则判格式。
             ///
             /// - Remark: Generated from `#/components/schemas/ApnsTokenRequest/platform`.
             public var platform: Swift.String?
             /// Creates a new `ApnsTokenRequest`.
             ///
             /// - Parameters:
-            ///   - deviceToken: APNs device token（hex 字符串）
-            ///   - platform: 平台（预留 ANDROID，默认 IOS）
+            ///   - deviceToken: 推送设备标识。iOS：APNs device token（hex 字符串，32~128 字符）；Android：厂商聚合推送的客户端标识（最长 128 字符，格式不做 hex 限制）
+            ///   - platform: 平台：`IOS`（默认，旧版 iOS 不带这个字段）或 `ANDROID`。大小写不敏感，其它值返 400。⚠️ DELETE 解绑时 Android 也要带 `ANDROID`：token 格式按平台校验，不带会按 iOS 的 hex 规则判格式。
             public init(
                 deviceToken: Swift.String,
                 platform: Swift.String? = nil
@@ -12918,7 +12920,7 @@ public enum Components {
             public var nextBadge: Components.Schemas.VolunteerNextBadgeDto?
             /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/starLevel`.
             public var starLevel: Components.Schemas.VolunteerStarLevelDto?
-            /// 累计完成的陪跑次数（订单走到 COMPLETED 才算，接了没跑完不计）
+            /// 累计完成的陪跑次数（订单走到 COMPLETED 且陪跑真的发生过才算：接了没跑完、从未开始陪跑就被自动收单、完赛里程低于积分门槛（默认 50 米，即没有位移）的都不计）
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalCompleted`.
             public var totalCompleted: Swift.Int32?
@@ -12950,7 +12952,7 @@ public enum Components {
             ///   - badges: 已解锁的勋章（未解锁的不出现在列表里）。
             ///   - nextBadge:
             ///   - starLevel:
-            ///   - totalCompleted: 累计完成的陪跑次数（订单走到 COMPLETED 才算，接了没跑完不计）
+            ///   - totalCompleted: 累计完成的陪跑次数（订单走到 COMPLETED 且陪跑真的发生过才算：接了没跑完、从未开始陪跑就被自动收单、完赛里程低于积分门槛（默认 50 米，即没有位移）的都不计）
             ///   - totalDistanceMeters: 累计里程（**米**，与 `actualDistanceMeters` 同单位，取整成公里由客户端做）。**恒非 null**，无数据为 0。
             ///   - totalRatings: 累计收到的评价条数
             ///   - totalServiceMinutes: 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」，减去陪跑员手动暂停的总时长**
@@ -15561,9 +15563,9 @@ public enum Operations {
             }
         }
     }
-    /// 上报 APNs device token（iOS 离线推送兜底，B5）
+    /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -15657,13 +15659,13 @@ public enum Operations {
                 /// Creates a new `BadRequest`.
                 public init() {}
             }
-            /// deviceToken 格式错误
+            /// deviceToken 格式错误 / platform 不认识
             ///
             /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)/responses/400`.
             ///
             /// HTTP response code: `400 badRequest`.
             case badRequest(Operations.registerApnsToken.Output.BadRequest)
-            /// deviceToken 格式错误
+            /// deviceToken 格式错误 / platform 不认识
             ///
             /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)/responses/400`.
             ///
@@ -15805,7 +15807,7 @@ public enum Operations {
     /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
     /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
     ///
-    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 请求体复用 `ApnsTokenRequest`，`platform` 只用来决定 token 的格式校验（iOS 要 hex；Android 解绑也要带 `ANDROID`）。
     /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
     ///
     /// - Remark: HTTP `DELETE /api/devices/apns`.
@@ -15900,13 +15902,13 @@ public enum Operations {
                 /// Creates a new `BadRequest`.
                 public init() {}
             }
-            /// deviceToken 格式错误
+            /// deviceToken 格式错误 / platform 不认识
             ///
             /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/400`.
             ///
             /// HTTP response code: `400 badRequest`.
             case badRequest(Operations.unregisterApnsToken.Output.BadRequest)
-            /// deviceToken 格式错误
+            /// deviceToken 格式错误 / platform 不认识
             ///
             /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/400`.
             ///
@@ -24739,6 +24741,7 @@ public enum Operations {
     /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
     /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
     /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// **接收方（订单另一方）已注销账号时返回 409 `RUN_RECORD_RECIPIENT_DELETED`、不入库**（#405）：注销只删发送者自己写的留言，写给已注销者的留言没有人读、也没有任何清理路径。
     /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
@@ -25061,7 +25064,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 订单还没完成，errorCode `ORDER_STATUS_NOT_ALLOWED`
+            /// 订单还没完成（`ORDER_STATUS_NOT_ALLOWED`）；或对方已注销账号，留言无法送达（`RUN_RECORD_RECIPIENT_DELETED`，2026-10-05 起，#405）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/409`.
             ///
