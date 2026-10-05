@@ -114,10 +114,14 @@ struct BlindIntroCallView: View {
             }
             // 「重复当前状态」在盲人端每一页都在同一个位置。这一页也不例外 ——
             // 它是读屏用户确认「我现在在哪一步」的唯一手段，缺了这一页就成了孤岛。
+            //
+            // 描边而不是实心：这一页的主动作是上面那枚 180pt 的拨号 / 合适按钮，底栏再放一枚实心蓝，
+            // 两个同色同宽的大块在抢「先按哪个」（2026-10-05 真机截图评审）。功能、位置、64pt 都不变。
             .safeAreaInset(edge: .bottom) {
-                PrimaryButton("重复当前状态") {
+                Button("重复当前状态") {
                     viewModel.repeatStatus()
                 }
+                .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityLabel("重复当前状态")
                 .accessibilityHint("点击后重新播报当前订单状态")
                 .accessibilityIdentifier("blindIntroCallRepeatStatusButton")
@@ -348,12 +352,14 @@ struct BlindIntroCallView: View {
         )
     }
 
+    /// 不用红色：「换一位」是平权的退出，不是拒绝谁（`IntroCallCopy.declineButtonTitle` 的注释）；
+    /// 红色在本 App 里专指求助与阻断，用在这里等于替用户说了一句「不行」。
     private var declineButton: some View {
         secondaryButton(
             title: IntroCallCopy.declineButtonTitle,
             hint: IntroCallCopy.declineAccessibilityHint,
             identifier: "blindIntroCallDeclineButton",
-            tint: AppColors.destructive
+            tint: AppColors.primary
         ) {
             Task { await viewModel.submitIntroCallDecision(.decline) }
         }
@@ -404,15 +410,10 @@ struct BlindIntroCallView: View {
         tint: Color,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(tint)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-        }
+        // 始终画描边：只有一行彩色字时它和说明文字长得一样，低视力用户认不出能按。
+        Button(title, action: action)
+        .buttonStyle(OutlineSecondaryButtonStyle(tint: tint))
         .disabled(viewModel.isPerformingAction)
-        .buttonShapeOutlineIfNeeded(color: tint)
         .accessibilityLabel(title)
         .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)

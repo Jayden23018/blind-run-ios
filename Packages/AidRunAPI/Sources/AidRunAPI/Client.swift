@@ -896,9 +896,9 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 上报 APNs device token（iOS 离线推送兜底，B5）
+    /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -989,7 +989,7 @@ public struct Client: APIProtocol {
     /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
     /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
     ///
-    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 请求体复用 `ApnsTokenRequest`，`platform` 只用来决定 token 的格式校验（iOS 要 hex；Android 解绑也要带 `ANDROID`）。
     /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
     ///
     /// - Remark: HTTP `DELETE /api/devices/apns`.
@@ -2530,6 +2530,10 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output {
@@ -2568,7 +2572,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            Components.Schemas.CancelOrderResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -5021,6 +5025,7 @@ public struct Client: APIProtocol {
     /// 订单 `COMPLETED` 之后，订单双方都可以给对方留言，双方可见（D7：与评价的 `commentWithheld` 是两条独立通道）。
     /// 本期只有 `TEXT`（`VOICE` 是 P1，届时新增枚举值与 `audioKey` / `durationSec`）。
     /// `text` 去掉首尾空白后保存，1–200 字。留言随发送者注销删除。
+    /// **接收方（订单另一方）已注销账号时返回 409 `RUN_RECORD_RECIPIENT_DELETED`、不入库**（#405）：注销只删发送者自己写的留言，写给已注销者的留言没有人读、也没有任何清理路径。
     /// 留言出现在 `GET /api/orders/{id}/run-record` 的 `messages` 里，本期**不推送通知**。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/run-record/messages`.
