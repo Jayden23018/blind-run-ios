@@ -888,7 +888,9 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - 每 5 秒轮询
 - PENDING_ACCEPT → DRIVER_EN_ROUTE（志愿者点击已出发）：UI 更新
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED（志愿者点击已到达）：UI 更新
-- PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING：跳转首页并提示系统将为盲人重新匹配
+- PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING：跳转首页并提示「订单已取消，这一单不在你名下了。」；
+  取消响应 `countedAsLateCancel` 为 true 时后面接「已记一次临时取消。」（后端 #361，只记不罚，不说任何后果）。
+  > 🔄 2026-10-06 改口径：原文「提示系统将为盲人重新匹配」在后端重匹次数到上限时不成立（那时订单直接 `CANCELLED`）
 - 志愿者取消成功后不再用志愿者 token 拉取已解除参与关系的订单详情，直接退出服务流并清空本地当前订单
 - DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束陪跑"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，感谢你的陪伴"（不报积分数：每单加几分是后端配置，客户端不编数字）

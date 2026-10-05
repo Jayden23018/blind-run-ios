@@ -508,6 +508,17 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         }
     }
 
+    /// 走 `speakStatusChange(_:text:)`：与首页那条状态订阅共用同一个去重键（两边都订阅了这条推送），
+    /// 也带上这一态的震动。首页先念了的话，这里只补「已记一次临时取消」。
+    private func announceCancellation(entering status: RunOrderStatus) {
+        let speech = speechService
+        if let followUp = cancelAnnouncement.announceCancellation(speak: { sentence in
+            speech?.speakStatusChange(status, text: sentence) ?? false
+        }) {
+            speech?.speak(followUp, priority: .onDemand)
+        }
+    }
+
     func retryTransitionConfirmation() {
         guard let order, let appState, let target = transitionState.targetStatus else { return }
         transitionState = .awaitingConfirmation(target: target)
@@ -645,7 +656,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             // 只在**进入**这一态时念一次：确认拉取与推送都会走到这里，各念一遍就是两遍。
             // 跑者取消的 `CANCELLED` 不念这句，由上面的通用状态句说。
             if announcesCancellation, previousStatus != updated.status {
-                speechService?.speak(cancelAnnouncement.cancellationSentence())
+                announceCancellation(entering: updated.status)
             }
         }
     }
@@ -1435,6 +1446,17 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
+    /// 走 `speakStatusChange(_:text:)`：与首页那条状态订阅共用同一个去重键（两边都订阅了这条推送），
+    /// 也带上这一态的震动。首页先念了的话，这里只补「已记一次临时取消」。
+    private func announceCancellation(entering status: RunOrderStatus) {
+        let speech = speechService
+        if let followUp = cancelAnnouncement.announceCancellation(speak: { sentence in
+            speech?.speakStatusChange(status, text: sentence) ?? false
+        }) {
+            speech?.speak(followUp, priority: .onDemand)
+        }
+    }
+
     /// 结束服务。**没有参数** —— 2026-09-16 之前这里收一个 `summary: String`，
     /// 由一张「服务总结」表单填，而 `POST /api/orders/{id}/finish` 根本没有请求体
     /// （`api_spec.yaml:2110-2129`），那段文字从来没离开过这台手机。
@@ -1696,7 +1718,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             didCancelOrder = true
             order = nil
             if previousStatus != updated.status {
-                speechService?.speak(cancelAnnouncement.cancellationSentence())
+                announceCancellation(entering: updated.status)
             }
             return
         }

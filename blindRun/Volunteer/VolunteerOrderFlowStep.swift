@@ -314,35 +314,45 @@ struct VolunteerCancelAnnouncement: Equatable {
 
     /// 取消那一句。**只说陪跑员自己那一半**：「系统将为跑者重新匹配」在后端重匹次数到上限时不成立
     /// （那时订单直接转 `CANCELLED`，见 `VolunteerHomeViewModel.releaseScheduledOrder` 的注释），
-    /// 而「这一单不在你名下了」两种结局下都为真。
+    /// 而「这一单不在你名下了」两种结局下都为真。首页那条状态订阅念 `REMATCHING` 时也用这一句。
     static let cancelledByVolunteer = "订单已取消，这一单不在你名下了。"
 
-    /// 这次取消是陪跑员自己发起的（按了「仍然取消」）。
-    /// 用来区分 `CANCELLED` 的两种来源：自己取消撞上重匹上限，还是跑者取消 —— 后者要说的是另一件事。
-    private(set) var isSelfInitiated = false
-    /// 取消响应里的 `countedAsLateCancel`。`nil` = 响应还没到。
+    /// 取消响应里的 `countedAsLateCancel`。`nil` = 这次取消的响应还没到（或根本没发起过取消）。
     private(set) var countedAsLateCancel: Bool?
     private(set) var cancellationSpoken = false
     private(set) var lateCancelSpoken = false
 
-    /// 按下「仍然取消」、请求发出之前调。上一次取消留下的状态一并清掉。
+    /// 真发出取消请求时调。上一次取消留下的状态一并清掉。
     mutating func begin() {
         self = VolunteerCancelAnnouncement()
-        isSelfInitiated = true
     }
 
-    /// 这一次状态推进要不要念取消那一句。`REMATCHING` 只可能来自陪跑员这一侧（自己取消，或跨天单闸门到点），
-    /// 都是「这一单不在你名下了」；`CANCELLED` 只在自己发起取消时才是。
+    /// 这一次状态推进要不要念取消那一句。
+    ///
+    /// `REMATCHING` 只可能来自陪跑员这一侧（自己取消，或跨天单闸门到点），都是「这一单不在你名下了」。
+    /// `CANCELLED` **只在自己的取消已被后端确认（响应到了）时**才算 —— 请求还在路上、或结果未知时
+    /// 到达的 `CANCELLED` 更可能是跑者取消的，那一屏要说「不算你的取消」，不能关页说「你取消了」。
+    /// 代价：重匹到上限、且推送先于响应到达的那一次，会先停在「跑者已取消」那一屏。
     func announcesCancellation(entering status: RunOrderStatus) -> Bool {
-        status == .rematching || (status == .cancelled && isSelfInitiated)
+        status == .rematching || (status == .cancelled && countedAsLateCancel != nil)
     }
 
-    /// 订单离开自己名下、要念取消那一句时调。返回整句。
-    mutating func cancellationSentence() -> String {
+    /// 念取消那一句。
+    ///
+    /// - Parameter speak: 真正念的那一下，返回**是否念出**。订单页传 `speakStatusChange(status, text:)`：
+    ///   它与首页那条状态订阅共用同一个去重键，所以两边只会念出一句。
+    /// - Returns: 被去重（首页先念了不带「已记一次」的那句）且这次算临时取消时，要补在后面的那一句；否则 `nil`。
+    mutating func announceCancellation(speak: (String) -> Bool) -> String? {
+        let includesLate = countedAsLateCancel == true
         cancellationSpoken = true
-        guard countedAsLateCancel == true else { return Self.cancelledByVolunteer }
+        let sentence = includesLate ? Self.cancelledByVolunteer + Self.lateCancelRecorded : Self.cancelledByVolunteer
+        if speak(sentence) {
+            lateCancelSpoken = includesLate
+            return nil
+        }
+        guard includesLate else { return nil }
         lateCancelSpoken = true
-        return Self.cancelledByVolunteer + Self.lateCancelRecorded
+        return Self.lateCancelRecorded
     }
 
     /// 取消响应到达时调。返回要**追加**的那一句；`nil` = 不用追加

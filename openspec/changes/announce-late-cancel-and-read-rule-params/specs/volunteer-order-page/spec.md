@@ -19,6 +19,13 @@ When the volunteer cancels an order, the app SHALL decode `CancelOrderResponse` 
 #### Scenario: One sentence when the order leaves the volunteer
 - **WHEN** the volunteer order page or running page applies `REMATCHING` after the volunteer cancelled
 - **THEN** exactly one cancellation sentence SHALL be spoken, without a preceding generic status sentence
+- **AND** when the home screen's status subscription already spoke the cancellation for the same status, the page SHALL NOT speak it again and SHALL only append "已记一次临时取消。" if the cancellation was counted
+- **AND** the cancellation sentence SHALL say "订单已取消，这一单不在你名下了。" and SHALL NOT claim the runner will be rematched
+
+#### Scenario: CANCELLED after the volunteer's own cancellation
+- **WHEN** the volunteer's cancel request has succeeded and the order then becomes `CANCELLED` (the rematch limit was reached)
+- **THEN** the page SHALL announce the volunteer's cancellation and close like for `REMATCHING`
+- **AND** a `CANCELLED` that arrives while the cancel request is still unanswered or its outcome is unknown SHALL be treated as the runner's cancellation
 
 ### Requirement: Rule parameters come from the server
 The app SHALL read `lateCancelWindowHours` and `volunteerOrderAutoOpenLeadMinutes` from `GET /api/config/rules` and SHALL use them only for display and navigation. When the endpoint fails or returns a missing or non-positive value, the app SHALL fall back to 12 hours and 120 minutes.

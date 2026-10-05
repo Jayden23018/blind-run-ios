@@ -8,8 +8,8 @@ import SwiftUI
 /// 而这一屏的默认动作明确是「不取消」——黄色主按钮给「保留这次陪跑」，
 /// 「仍然取消」是底下一行灰字。**不用红色**：实心红在本 App 里只给紧急求助（§1.2）。
 ///
-/// 文案全部来自 `VolunteerOrderFlowCopy.cancelSheet(for:plannedStart:)`，这里一个中文字面量都没有
-/// —— 那一段里写着为什么 12 小时那句话只说「会马上重新找人」、不提任何取消记录。
+/// 文案全部来自 `VolunteerOrderFlowCopy.cancelSheet(for:plannedStart:lateCancelWindowHours:)`，这里一个中文字面量都没有
+/// —— 那一段里写着为什么窗口内那句话只说「会记一次临时取消」、不说任何后果。
 struct VolunteerCancelSheet: View {
     let copy: VolunteerOrderFlowCopy.CancelSheetCopy
     let isSubmitting: Bool

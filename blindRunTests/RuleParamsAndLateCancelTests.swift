@@ -83,42 +83,61 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
         XCTAssertEqual(VolunteerCancelAnnouncement.suffix(for: decoded), "")
     }
 
-    // MARK: - 播报的两种先后
+    // MARK: - 播报的两种先后，以及被首页抢先
 
     /// 响应先到：取消那一句里直接带上「已记一次」，之后不再补。
     func testResponseFirstPutsTheNoticeInsideTheCancellationSentence() {
         var announcement = VolunteerCancelAnnouncement()
         announcement.begin()
         XCTAssertNil(announcement.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: true)))
-        XCTAssertEqual(
-            announcement.cancellationSentence(),
-            VolunteerCancelAnnouncement.cancelledByVolunteer + VolunteerCancelAnnouncement.lateCancelRecorded
-        )
+        var spoken: [String] = []
+        XCTAssertNil(announcement.announceCancellation { spoken.append($0); return true })
+        XCTAssertEqual(spoken, [VolunteerCancelAnnouncement.cancelledByVolunteer + VolunteerCancelAnnouncement.lateCancelRecorded])
     }
 
     /// 推送先到：取消那一句已经念了，响应到达时补一句，且只补一次。
     func testPushFirstAppendsTheNoticeExactlyOnce() {
         var announcement = VolunteerCancelAnnouncement()
         announcement.begin()
-        XCTAssertEqual(announcement.cancellationSentence(), VolunteerCancelAnnouncement.cancelledByVolunteer)
+        var spoken: [String] = []
+        XCTAssertNil(announcement.announceCancellation { spoken.append($0); return true })
+        XCTAssertEqual(spoken, [VolunteerCancelAnnouncement.cancelledByVolunteer])
         let response = CancelOrderResponse(success: true, countedAsLateCancel: true)
         XCTAssertEqual(announcement.recordResponse(response), VolunteerCancelAnnouncement.lateCancelRecorded)
         XCTAssertNil(announcement.recordResponse(response), "同一次取消补了两遍")
     }
 
+    /// 首页那条订阅先念了（去重键已占）：订单页那一句念不出来，只补「已记一次」。
+    func testWhenAnotherSpeakerWonOnlyTheNoticeIsAppended() {
+        var announcement = VolunteerCancelAnnouncement()
+        announcement.begin()
+        _ = announcement.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: true))
+        XCTAssertEqual(announcement.announceCancellation { _ in false }, VolunteerCancelAnnouncement.lateCancelRecorded)
+
+        var notCounted = VolunteerCancelAnnouncement()
+        notCounted.begin()
+        _ = notCounted.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: false))
+        XCTAssertNil(notCounted.announceCancellation { _ in false }, "没记一次时被抢先就什么都不补")
+    }
+
     func testNotCountedNeverMentionsLateCancel() {
         var announcement = VolunteerCancelAnnouncement()
         announcement.begin()
-        XCTAssertEqual(announcement.cancellationSentence(), VolunteerCancelAnnouncement.cancelledByVolunteer)
+        var spoken: [String] = []
+        _ = announcement.announceCancellation { spoken.append($0); return true }
+        XCTAssertEqual(spoken, [VolunteerCancelAnnouncement.cancelledByVolunteer])
         XCTAssertNil(announcement.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: false)))
     }
 
-    /// `CANCELLED` 有两种来源：自己取消撞上重匹上限（要念取消那一句），跑者取消（不念）。
-    func testCancelledIsOnlyAnnouncedAsOwnCancellationWhenSelfInitiated() {
+    /// `CANCELLED` 只有在自己的取消**已被确认**之后才算自己取消的：
+    /// 请求还在路上时到达的 `CANCELLED` 更可能是跑者取消（那一屏要说「不算你的取消」）。
+    func testCancelledCountsAsOwnOnlyAfterTheCancelResponseArrived() {
         var announcement = VolunteerCancelAnnouncement()
-        XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "跑者取消被念成了「你取消了」")
+        XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "没发起过取消")
         XCTAssertTrue(announcement.announcesCancellation(entering: .rematching))
         announcement.begin()
+        XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "请求还在路上就认定是自己取消的")
+        _ = announcement.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: false))
         XCTAssertTrue(announcement.announcesCancellation(entering: .cancelled))
         XCTAssertFalse(announcement.announcesCancellation(entering: .inProgress))
     }
@@ -156,13 +175,57 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
         )
     }
 
+    /// 首页那条状态订阅先念了 `REMATCHING`（两边订阅同一条推送，谁先到没有保证）：
+    /// 订单页不再念第二遍，只把「已记一次临时取消」排在后面补上。
+    func testDetailPageOnlyAppendsTheNoticeWhenTheHomeSpokeFirst() async {
+        let service = FakeOrderService()
+        service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: true))
+        service.orderDetailResult = .success(.preview(orderId: 32, status: .rematching))
+        let appState = AppState(orders: service)
+        appState.currentEnvironment = .mock
+        let speech = SpeechService()
+        let viewModel = VolunteerOrderDetailViewModel()
+        viewModel.configure(with: appState, speechService: speech)
+        viewModel.order = .preview(orderId: 32, status: .pendingAccept)
+        speech.speakStatusChange(.rematching, text: VolunteerCancelAnnouncement.cancelledByVolunteer)
+
+        await viewModel.cancel()
+        await waitUntil(timeout: 10) {
+            speech.spokenHistoryForTesting.contains(VolunteerCancelAnnouncement.lateCancelRecorded)
+        }
+
+        let cancellations = speech.spokenHistoryForTesting.filter { $0.contains("订单已取消") }
+        XCTAssertEqual(cancellations.count, 1, "取消那一句念了两遍：\(speech.spokenHistoryForTesting)")
+        XCTAssertEqual(speech.spokenHistoryForTesting.last, VolunteerCancelAnnouncement.lateCancelRecorded)
+    }
+
+    /// 跑步中页：转 `REMATCHING` 只念一句，不再先念盲人端的「正在确认志愿者状态」。
+    func testRunningPageSpeaksOneSentenceOnRematching() async {
+        let service = FakeOrderService()
+        service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
+        service.orderDetailResult = .success(.preview(orderId: 33, status: .rematching))
+        let appState = AppState(orders: service)
+        appState.currentEnvironment = .mock
+        let speech = SpeechService()
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speech, initialOrder: .preview(orderId: 33, status: .driverEnRoute))
+        speech.resetSpokenHistoryForTesting()
+
+        await viewModel.cancel()
+        await waitUntil { viewModel.didCancelOrder }
+
+        XCTAssertEqual(speech.spokenHistoryForTesting.filter { $0.contains("订单已取消") }, [VolunteerCancelAnnouncement.cancelledByVolunteer])
+        XCTAssertFalse(speech.spokenHistoryForTesting.contains { $0.contains("正在确认志愿者状态") })
+    }
+
     // MARK: - Mock 与契约对齐
 
     func testMockCountsAVolunteerCancelInsideTheWindowOnly() throws {
         let mock = MockAPIClient()
         mock.mockRole = .volunteer
-        let soon = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(3 * 3600))
-        let later = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(72 * 3600))
+        // 11 小时与 13 小时落在 12 小时窗口两侧：用 3 小时 / 72 小时分不出窗口是 12 还是 24。
+        let soon = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(11 * 3600))
+        let later = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(13 * 3600))
         mock.orders = [
             .preview(orderId: 41, status: .pendingAccept, plannedStart: soon),
             .preview(orderId: 42, status: .pendingAccept, plannedStart: later),
