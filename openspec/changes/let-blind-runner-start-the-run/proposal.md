@@ -17,9 +17,15 @@ iOS 盲人端至今两个都没接（`confirm-start` 与盲人 `start-service` �
   沿用既有的三秒倒计时（它挂在状态转移上，不挂在谁按了按钮上）。
 - 409 `SERVICE_START_TOO_EARLY`：只念文案，不在客户端计算最早可开始时刻（后端没下发字段，见后端 #307 ②）。
   `ORDER_STATUS_NOT_ALLOWED`：本地状态已过期，刷新订单而不是重试。
-- 汇合态的状态说明与到达播报去掉「请等待志愿者开始服务」，改为说清两人都能开始；订单页副标题用设计稿原文「见面后，轻点下方开始跑步」。
+- 汇合态的状态说明与到达播报去掉「请等待志愿者开始服务」，改为说清见面后按「开始跑步」出发；订单页副标题用设计稿原文「见面后，轻点下方开始跑步」。
   首页与语音状态查询不在订单页上，不说「轻点下方」。
+- 按下后请求在途期间（含重拉订单），主按钮原位变成不可点的「准备中」并先播一句「正在开始跑步。」——
+  慢网络下按钮外观不变、再按被静默吞掉，对盲人端就是「点了没反应」。
 - 打电话给陪跑员不再占主按钮，仍可从「遇到问题」进入的求助与安全中心拨出（设计稿每屏只有一个主按钮）。
+- 「请等待志愿者开始服务」原是两端共用的一句（`arrivedWaitingCopy`）：陪跑员误点结束时也听到「请等待志愿者」。
+  拆开：盲人端用新的到达句，陪跑员结束守卫用自己的一句。陪跑员页的状态播报整张表仍借用盲人端文案，
+  这是独立问题（另开 issue 修），所以新的到达句写成对两端都为真。
+- 错误码文案：`SERVICE_START_TOO_EARLY` 改说「开始跑步」（按钮名）；`BLIND_CONFIRMATION_PENDING` 说出跑者那一端的按钮名。
 - Mock：订单已是 `IN_PROGRESS` 时 `start-service` 返回成功（契约：「另一端先按了 → 两端都返回 200」）。
 - **不做**：单独的 `confirm-start`「我准备好了」按钮 —— 盲人端只有一个主按钮位，「开始跑步」已包含同意；
   只点头不开跑会让盲人按完还要等陪跑员再按一次。
@@ -27,6 +33,8 @@ iOS 盲人端至今两个都没接（`confirm-start` 与盲人 `start-service` �
 ## Impact
 
 - `blindRun/BlindRunner/BlindOrderFlowStep.swift`、`blindRun/BlindRunner/BlindOrderStatusView.swift`
-- `blindRun/Core/Models/OrderDisplayHelpers.swift`、`blindRun/Voice/SpeechService.swift`（汇合态文案）
+- `blindRun/BlindRunner/BlindOrderFlowView.swift`（读屏提示）
+- `blindRun/Core/Models/OrderDisplayHelpers.swift`、`OrderModels.swift`、`ErrorModels.swift`、`blindRun/Voice/SpeechService.swift`（文案）
+- `docs/02-mvp-scope.md`、`docs/05-page-specs.md`、`docs/09-accessibility-and-voice-guidelines.md`、`docs/testflight/test-information.md`
 - `blindRun/Core/MockAPIClient+IntroCall.swift`
 - 契约：后端 `docs/api_spec.yaml` 的 `/api/orders/{id}/start-service`（#346）与 `/confirm-start`

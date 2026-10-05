@@ -79,6 +79,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// `BlindOrderFlowPresentation.phase(order:countdown:)`。
     @Published private(set) var runCountdown: Int?
 
+    /// 「开始跑步」的请求在途（含成功后重拉订单那一段）。
+    ///
+    /// 存在的理由是一条红线：蜂窝网络慢时这一段可能十几秒，此前按钮外观不变、
+    /// 再按被 guard 静默吞掉 —— 「点了没反应」。在途时主按钮原位变成不可点的「准备中」
+    /// （`BlindOrderFlowPresentation.primaryAction`），成功后与倒计时那三秒是同一个样子，无缝接上。
+    /// 不复用 `isPerformingAction`：那个标记别的动作也在用，混用会让开跑按钮跟着它们变灰。
+    @Published private(set) var isStartingRun = false
+
     private var runCountdownTask: Task<Void, Never>?
 
     /// `/track` 上一次拉的时刻。`nil` = 下一轮立刻拉。
@@ -550,29 +558,32 @@ final class BlindOrderStatusViewModel: ObservableObject {
     ///   另一端先开始了**不会**走到这里：契约规定那种情况两端都回 200。
     /// - 其余：念出来，按钮留着可以再按（接口幂等）。
     func startRun() async {
-        guard let order, let appState, order.status.canStartService, !isPerformingAction else { return }
-        isPerformingAction = true
+        guard let order, let appState, order.status.canStartService, !isStartingRun else { return }
+        isStartingRun = true
+        defer { isStartingRun = false }
         errorMessage = nil
+        // 按下去先给一句：成功之前可能要等网络，而读屏焦点停在按钮上时，按钮文字变了不会自动重读。
+        speechService?.speak(BlindRunCopy.startingAnnouncement)
         do {
             try await appState.orders.startService(orderId: order.orderId)
-            isPerformingAction = false
+            // 重拉在 `isStartingRun` 复位之前做：重拉回来之前订单还是 `DRIVER_ARRIVED`，
+            // 按钮若先恢复成可点，这一段里还能再发一次。
             await loadOrder(orderId: order.orderId, speakChanges: true)
         } catch let error as APIError {
-            isPerformingAction = false
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
             let message = error.localizedMessage
-            errorMessage = message
             speechService?.speakError(message)
             if error.errorCode == .invalidOrderStatus {
                 await loadOrder(orderId: order.orderId, speakChanges: true)
             }
-        } catch {
-            isPerformingAction = false
-            let message = "没能开始跑步，请再按一次。"
+            // 在重拉**之后**设：`loadOrder` 第一步会清空 `errorMessage`（同 `cancelOrder` 的写法）。
             errorMessage = message
+        } catch {
+            let message = BlindRunCopy.startRunFailed
             speechService?.speakError(message)
+            errorMessage = message
         }
     }
 
@@ -1707,7 +1718,8 @@ struct BlindOrderStatusView: View {
             distanceText: viewModel.volunteerDistanceToStartText,
             canKeepWaiting: viewModel.canShowKeepWaiting,
             locationWarning: flowLocationWarning,
-            countdown: viewModel.runCountdown
+            countdown: viewModel.runCountdown,
+            isStartingRun: viewModel.isStartingRun
         )
     }
 
@@ -2414,7 +2426,7 @@ struct BlindOrderStatusView: View {
         switch order.status.blindRunnerRoute {
         case .tracking, .inService, .terminal:
             // 这三条分支此前各渲染一张「标题 + 正文」卡片，正文都与 `statusHeader` 重复：
-            //   · `DRIVER_ARRIVED` 的 `arrivedWaitingCopy` **就是**它的 `blindRunnerDescription`
+            //   · `DRIVER_ARRIVED` 当时的 `arrivedWaitingCopy`（2026-10-06 已删）**就是**它的 `blindRunnerDescription`
             //     （`OrderDisplayHelpers.swift:77` 直接 return 了它）—— 逐字重复
             //   · `IN_PROGRESS` 那句「请与志愿者保持沟通，注意安全。系统会持续同步订单状态，
             //     服务完成后进入评价页面。」33 个字里没有一个能让盲人做出动作：

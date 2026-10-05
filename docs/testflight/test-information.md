@@ -105,7 +105,7 @@ STEPS (the whole flow takes about 25 minutes, mostly waiting for the start time)
 3. Volunteer device: an invitation appears, usually within a minute. Tap "接下这次陪跑" (accept).
 4. The first order between two accounts has an "intro call" step. You do NOT need to call. Runner: tap "和这位志愿者通话确认", then "聊过了，合适". Volunteer: tap "合适，接这一单". Please do not dial any number shown; they are test numbers.
 5. Volunteer: tap "我出发了" (on my way), then "我已到达集合点" (arrived). The runner device shows the volunteer's progress.
-6. Runner: once the two of you meet, tap "开始跑步" (start run). It is accepted from 15 minutes BEFORE the planned start time; an earlier tap only reads a "too early" message. Both devices count down three seconds and the run begins. (The volunteer can also tap "开始跑步", but only after the runner has tapped it or after 15 minutes past the planned start.)
+6. Runner: once the two of you meet, tap "开始跑步" (start run). It is accepted from 15 minutes BEFORE the planned start time; an earlier tap only reads a "too early" message. The runner device counts down three seconds and both devices switch to the running screen.
 7. Volunteer: long-press "长按 2 秒，结束陪跑" (finish). Both devices show the completed run.
 
 OUTSIDE MAINLAND CHINA
@@ -162,12 +162,12 @@ The help (SOS) button only sends an alert while a run is in progress. The alert 
 | 8 | A | 「我出发了」 | B 显示「…正在赶来」 |
 | 9 | A | 「我已到达集合点」 | B 显示「…已到达」 |
 | — | | ✂️ **剪掉等待**：一直等到**计划开跑时刻前 15 分钟以内**（「开始跑步」的时间闸，见 §4 第 5 条）。字幕：「此处等待约 N 分钟」 | |
-| 10 | B | 「开始跑步」 | 两端播「准备开始」「握好引导绳」三秒倒计时，进入跑步中 |
+| 10 | B | 「开始跑步」 | B 播「准备开始」「握好引导绳」三秒倒计时；A 同时切到跑步中页 |
 | 11 | A、B | 各拍一下跑步中页面，镜头带过求助入口（A 右上角「求助与安全」、B 的「一键求助」）**但不点** | 字幕：「求助仅在跑步中可用，审核时请勿触发」 |
 | 12 | A | 按住「长按 2 秒，结束陪跑」 | 两端都显示「服务已完成」 |
 | 13 | B | 进入跑后记录（「这次跑步」），再回到评价区，可以点「跳过评价并返回首页」 | 结束录屏 |
 
-步骤 10 如果早于「开跑前 15 分钟」点，B 会念「还没到可以开始陪跑的时间，请稍后再按。」，这段要剪掉。
+步骤 10 如果早于「开跑前 15 分钟」点，B 会念「还没到可以开始跑步的时间，请稍后再按。」，这段要剪掉。
 
 ### 3.3 拍完
 

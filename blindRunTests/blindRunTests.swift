@@ -3907,7 +3907,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
-            "志愿者已到达，请等待志愿者开始服务。"
+            RunOrderStatus.blindRunnerArrivedCopy
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .pendingAccept),

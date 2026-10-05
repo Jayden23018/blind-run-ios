@@ -39,9 +39,23 @@ The iOS app SHALL enforce the canonical service path `DRIVER_ARRIVED -> IN_PROGR
 - **THEN** the ViewModel action layer SHALL block the request before calling `/api/orders/{id}/finish`
 - **AND** the user SHALL receive a clear error or waiting-state message
 
+### Requirement: Mock and tests mirror the formal lifecycle
+Mock API behavior and automated tests SHALL mirror the formal dispatch lifecycle used by cloud validation.
+
+#### Scenario: Mock starts service from DRIVER_ARRIVED
+- **WHEN** Mock receives `POST /api/orders/{id}/start-service` for an order in `DRIVER_ARRIVED`
+- **THEN** Mock SHALL move the order to `IN_PROGRESS`
+- **AND** Mock SHALL return success without changing the order when it is already `IN_PROGRESS`, because the backend returns 200 to whichever participant presses second
+- **AND** Mock SHALL reject the same endpoint for other order statuses with `INVALID_ORDER_STATUS`
+
+#### Scenario: Mock rejects direct completion from DRIVER_ARRIVED
+- **WHEN** Mock receives `POST /api/orders/{id}/finish` for an order in `DRIVER_ARRIVED`
+- **THEN** Mock SHALL return an invalid-status error
+- **AND** Mock SHALL only allow finish when the order is `IN_PROGRESS`
+
 ## ADDED Requirements
 
-### Requirement: Blind-runner arrival copy states that either participant can start
+### Requirement: Blind-runner arrival copy names the start action
 In `DRIVER_ARRIVED`, blind-runner status copy SHALL NOT tell the blind runner to wait for the volunteer to start service. Copy shown on the order page SHALL point to the "开始跑步" action below; copy spoken or shown outside the order page SHALL NOT refer to an on-screen position.
 
 #### Scenario: Order page arrival subtitle
@@ -50,8 +64,9 @@ In `DRIVER_ARRIVED`, blind-runner status copy SHALL NOT tell the blind runner to
 
 #### Scenario: Arrival announcement outside the order page
 - **WHEN** the home screen or the voice status query describes `DRIVER_ARRIVED`
-- **THEN** the copy SHALL state that the runner or the volunteer can start the run after meeting
+- **THEN** the copy SHALL name the "开始跑步" action without referring to an on-screen position
 - **AND** the copy SHALL NOT contain "轻点下方" or "等待志愿者开始服务"
+- **AND** the copy SHALL stay true when the volunteer page speaks it, so it SHALL NOT claim the volunteer can start without the runner
 
 #### Scenario: Calling the volunteer remains reachable
 - **WHEN** the blind-runner order page renders `DRIVER_ARRIVED`

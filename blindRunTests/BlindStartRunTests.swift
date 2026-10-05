@@ -76,7 +76,7 @@ final class BlindStartRunTests: XCTestCase {
     }
 
     /// 只念文案，不自己算「还差几分钟」—— 后端没下发最早可开始时刻（后端 #307 ②）。
-    func testTooEarlySpeaksTheMappedCopyAndKeepsTheButton() async {
+    func testTooEarlySpeaksTheMappedCopyAndKeepsTheButton() async throws {
         let service = makeOrderService(reloadStatus: .driverArrived)
         service.startServiceResult = .failure(APIError.serverError(
             ErrorResponse(code: "SERVICE_START_TOO_EARLY", message: "最早 10月6日 09:45 可以操作")
@@ -91,7 +91,16 @@ final class BlindStartRunTests: XCTestCase {
         XCTAssertEqual(viewModel.errorMessage, expected)
         XCTAssertEqual(speech.lastSpokenText, expected)
         XCTAssertEqual(viewModel.order?.status, .driverArrived)
-        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertFalse(viewModel.isStartingRun, "失败之后按钮没有恢复成可按")
+        let order = try XCTUnwrap(viewModel.order)
+        XCTAssertEqual(
+            BlindOrderFlowPresentation.make(
+                order: order, distanceText: nil, canKeepWaiting: false,
+                isStartingRun: viewModel.isStartingRun
+            )?.primaryAction,
+            .startRun,
+            "太早被拒之后主按钮必须还是「开始跑步」，到点后还要再按"
+        )
     }
 
     /// 本地状态过期（例如陪跑员刚取消、订单已转 `REMATCHING`）：刷新，不重试。
@@ -108,6 +117,8 @@ final class BlindStartRunTests: XCTestCase {
         XCTAssertEqual(service.callCount("startService(orderId:)"), 1, "被拒后又重试了")
         XCTAssertEqual(service.callCount("orderDetail(orderId:)"), 1, "被拒后没有刷新订单")
         XCTAssertEqual(viewModel.order?.status, .rematching)
+        // `loadOrder` 第一步会清空 `errorMessage`，所以错误要在重拉之后设，否则屏幕上一闪就没了。
+        XCTAssertNotNil(viewModel.errorMessage, "被拒的原因刚显示就被重拉清掉了")
     }
 
     func testOtherStatusesSendNoRequest() async {
@@ -120,6 +131,39 @@ final class BlindStartRunTests: XCTestCase {
 
             XCTAssertEqual(service.callCount("startService(orderId:)"), 0, "\(status) 不该发开跑请求")
         }
+    }
+
+    /// 按下那一刻先念一句：成功之前可能要等网络，读屏焦点停在按钮上时按钮文字变了不会自动重读。
+    func testPressingStartSpeaksImmediatelyBeforeTheServerAnswers() async {
+        let service = makeOrderService(reloadStatus: .inProgress)
+        let speech = SpeechService()
+        let (viewModel, appState) = makeViewModel(service: service, status: .driverArrived, speech: speech)
+        _ = appState
+
+        await viewModel.startRun()
+
+        XCTAssertEqual(speech.spokenHistoryForTesting.first, BlindRunCopy.startingAnnouncement)
+        XCTAssertFalse(viewModel.isStartingRun)
+    }
+
+    /// 请求在途时主按钮原位换成不可点的「准备中」—— 不然慢网络下再按会被静默吞掉。
+    func testPrimaryActionIsDisabledWhileTheStartRequestIsInFlight() {
+        let order = OrderDetailResponse.preview(status: .driverArrived, volunteerName: "张*", volunteerPhone: "13800000001")
+        let presentation = BlindOrderFlowPresentation.make(
+            order: order, distanceText: nil, canKeepWaiting: false, isStartingRun: true
+        )
+        XCTAssertEqual(presentation?.primaryAction, .preparing)
+        XCTAssertEqual(presentation?.primaryAction?.isEnabled, false)
+    }
+
+    /// 主按钮不再是打电话，但打电话没有消失：汇合态的「遇到问题」打开求助中心，
+    /// 号码可拨时那里有「直接拨给陪跑员」。
+    func testCallingTheVolunteerStaysReachableFromTheSafetyHub() {
+        XCTAssertEqual(make(.driverArrived).lastRowTitle, "遇到问题")
+        XCTAssertTrue(
+            BlindActiveRunSafetyHubOption.tiles(volunteerPhone: "13800000001", primaryContact: nil)
+                .contains(.contactVolunteer)
+        )
     }
 
     // MARK: - Mock 与契约对齐

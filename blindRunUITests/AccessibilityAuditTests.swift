@@ -1419,6 +1419,10 @@ final class AccessibilityAuditTests: XCTestCase {
 
         primary.tap()
 
+        // 先是原位的「准备中」（请求在途 + 三秒倒计时）。只等最终文案的话，倒计时被整个跳过也照样通过。
+        let preparing = NSPredicate(format: "label == %@", "准备中")
+        wait(for: [expectation(for: preparing, evaluatedWith: primary)], timeout: 5)
+
         // 倒计时三秒后，主按钮原位换成跑步中的「播报当前数据」。
         let running = NSPredicate(format: "label == %@", "播报当前数据")
         let became = expectation(for: running, evaluatedWith: primary)
