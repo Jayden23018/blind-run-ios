@@ -75,7 +75,7 @@ The iOS blind-runner booking flow SHALL accept the whole booking in a single spo
 - **THEN** the app SHALL re-ask in place and restate the actions that still work without a network, which are confirming and restarting
 - **AND** the spoken reason SHALL NOT claim the app misheard the user, because recognition succeeded and rewording will not help
 - **AND** it SHALL NOT create the order and SHALL NOT advance
-- **AND** repeated failures SHALL fall back to the form with a spoken reason
+- **AND** repeated failures SHALL end the voice session on the voice stage with a spoken reason (see `end-voice-failures-on-voice-stage`)
 
 #### Scenario: Confirm start point
 - **WHEN** the blind runner manually edits the start point
