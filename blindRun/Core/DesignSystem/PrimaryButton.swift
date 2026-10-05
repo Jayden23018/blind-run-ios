@@ -45,6 +45,37 @@ struct PrimaryButton: View {
     }
 }
 
+// MARK: - Outline Secondary Button Style
+
+/// 盲人端的次级按钮：整行、描边、不填充，`minHeight` 同主按钮（64pt）。
+///
+/// 描边而非填充，是为了让同一屏那个实心主操作保持唯一的主次地位；而**始终画出描边**
+/// （不是只在系统「按钮形状」打开时才画）是因为低视力用户靠轮廓认出「这是能按的」——
+/// 只有一行彩色文字时，它和一句说明长得一样。
+///
+/// 原是 `BlindBookingView` 的私有 `VoiceStageSecondaryButtonStyle`，2026-10-05 提出来给
+/// 通话确认页共用（真机截图评审：那一页两枚次按钮只是两行字，「重复当前状态」又是实心蓝、
+/// 与拨号大按钮抢主次）。
+struct OutlineSecondaryButtonStyle: ButtonStyle {
+    var tint: Color = AppColors.primary
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(tint)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: AppTouchTarget.blindPrimary)
+            .background(
+                RoundedRectangle(cornerRadius: AppCornerRadius.medium)
+                    .strokeBorder(tint, lineWidth: 2)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
+            // 换 `ButtonStyle` 会接管掉默认的按下反馈，不补这一行按下去屏幕上什么都不动。
+            .opacity(configuration.isPressed ? 0.55 : 1)
+    }
+}
+
 #Preview {
     VStack(spacing: AppSpacing.large) {
         PrimaryButton("提交预约") {}
