@@ -1933,6 +1933,9 @@ struct BlindOrderStatusView: View {
             Task { await viewModel.keepWaiting() }
         case .startRun:
             Task { await viewModel.startRun() }
+        case .startRunLocked:
+            // 不可按（`.disabled()`），走不到这里。显式分支理由同 `.preparing`。
+            break
         case .announceStats:
             // 与导航栏那枚「重复当前状态」是**同一个函数**：`repeatStatus` 播的就是
             // 状态 + 里程 / 时长 / 配速（用播报口径，不是屏幕上那个 `9'06"`）。

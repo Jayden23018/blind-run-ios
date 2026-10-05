@@ -15,7 +15,9 @@ iOS 盲人端至今两个都没接（`confirm-start` 与盲人 `start-service` �
 
 - 盲人汇合态（`DRIVER_ARRIVED`）的主按钮改为「开始跑步」，调 `POST /api/orders/{id}/start-service`。成功后订单进 `IN_PROGRESS`，
   沿用既有的三秒倒计时（它挂在状态转移上，不挂在谁按了按钮上）。
-- 409 `SERVICE_START_TOO_EARLY`：只念文案，不在客户端计算最早可开始时刻（后端没下发字段，见后端 #307 ②）。
+- 后端 #546（#307 ②）下发 `earliestServiceStartAt`：没到点时「开始跑步」原位不可按，副标题与读屏提示说「9:45 起可以开始跑步」，
+  到点后随 5 秒轮询亮起。字段缺失时不锁，按下由后端判。
+- 409 `SERVICE_START_TOO_EARLY`（字段缺失时才会走到）：只念文案，不拿 `plannedStartTime` 自己减。
   `ORDER_STATUS_NOT_ALLOWED`：本地状态已过期，刷新订单而不是重试。
 - 汇合态的状态说明与到达播报去掉「请等待志愿者开始服务」，改为说清见面后按「开始跑步」出发；订单页副标题用设计稿原文「见面后，轻点下方开始跑步」。
   首页与语音状态查询不在订单页上，不说「轻点下方」。

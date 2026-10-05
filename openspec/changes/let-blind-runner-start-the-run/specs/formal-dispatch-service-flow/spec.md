@@ -17,10 +17,16 @@ The iOS app SHALL enforce the canonical service path `DRIVER_ARRIVED -> IN_PROGR
 - **AND** a successful response SHALL reload the order so the existing three-second countdown starts from the `DRIVER_ARRIVED -> IN_PROGRESS` transition
 - **AND** the app SHALL NOT call `POST /api/orders/{id}/confirm-start` separately, because the backend records the blind runner's consent when the blind runner starts service
 
+#### Scenario: Start is locked until the server-given time
+- **WHEN** the order detail carries `earliestServiceStartAt` and the current time is before it
+- **THEN** the "开始跑步" action SHALL stay in place but be disabled
+- **AND** its accessibility hint and the subtitle SHALL state the clock time from which it can be pressed
+- **AND** it SHALL become enabled after that time without user action
+
 #### Scenario: Blind runner starts too early
-- **WHEN** the blind runner taps "开始跑步" and the backend returns 409 `SERVICE_START_TOO_EARLY`
+- **WHEN** `earliestServiceStartAt` is absent and the blind runner taps "开始跑步" and the backend returns 409 `SERVICE_START_TOO_EARLY`
 - **THEN** the app SHALL show and speak the mapped error copy
-- **AND** the app SHALL NOT compute an earliest start time on the client
+- **AND** the app SHALL NOT compute an earliest start time from `plannedStartTime` on the client
 
 #### Scenario: The other participant already started
 - **WHEN** the blind runner taps "开始跑步" after the volunteer already started service

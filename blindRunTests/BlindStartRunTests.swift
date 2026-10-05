@@ -32,6 +32,47 @@ final class BlindStartRunTests: XCTestCase {
         )
     }
 
+    // MARK: - 到点才亮（后端 #546 的 earliestServiceStartAt）
+
+    /// 还没到最早可开始时刻：同一个按钮、不可按，副标题与读屏提示说出几点可以按。
+    /// 用两个时刻分别落在 `now` 两侧来测 —— 只测一侧分不出「判据写反了」与「根本没判」。
+    func testStartRunIsLockedUntilTheServerGivenTimeAndSaysWhen() throws {
+        let now = Date()
+        let opens = now.addingTimeInterval(20 * 60)
+        var order = OrderDetailResponse.preview(status: .driverArrived, volunteerName: "张*", volunteerPhone: "13800000001")
+        order.earliestServiceStartAt = DateFormatter.aidRunBackendLocalDateTime.string(from: opens)
+        let clock = DateFormatter.aidRunDisplayClock.string(from: try XCTUnwrap(order.earliestServiceStartAt?.backendTimestamp))
+
+        let locked = try XCTUnwrap(BlindOrderFlowPresentation.make(order: order, distanceText: nil, canKeepWaiting: false, now: now))
+        XCTAssertEqual(locked.primaryAction, .startRunLocked(opensAt: clock))
+        XCTAssertEqual(locked.primaryAction?.title, "开始跑步", "锁住时按钮名不变，位置不变")
+        XCTAssertEqual(locked.primaryAction?.isEnabled, false)
+        XCTAssertTrue(locked.subtitle.contains("\(clock) 起可以开始跑步"), "实际：\(locked.subtitle)")
+
+        let open = try XCTUnwrap(BlindOrderFlowPresentation.make(
+            order: order, distanceText: nil, canKeepWaiting: false, now: opens.addingTimeInterval(1)
+        ))
+        XCTAssertEqual(open.primaryAction, .startRun, "到点之后没有亮起来")
+        XCTAssertTrue(open.subtitle.contains(BlindRunCopy.metUpSubtitle))
+    }
+
+    /// 字段没下发时不锁：由后端判，按下去最多听到一句「还没到时间」。锁住而后端其实放行，才是更糟的那种。
+    func testStartRunIsNotLockedWhenTheServerGivesNoTime() {
+        let order = OrderDetailResponse.preview(status: .driverArrived, volunteerName: "张*", volunteerPhone: "13800000001")
+        XCTAssertNil(order.earliestServiceStartAt)
+        XCTAssertEqual(
+            BlindOrderFlowPresentation.make(order: order, distanceText: nil, canKeepWaiting: false)?.primaryAction,
+            .startRun
+        )
+    }
+
+    /// 状态推送换状态时这个字段要带过去，否则推送与重拉之间那几秒按钮会闪成可按。
+    func testReplacingStatusKeepsTheEarliestStartTime() {
+        var order = OrderDetailResponse.preview(status: .driverEnRoute)
+        order.earliestServiceStartAt = "2026-10-06T09:45:00"
+        XCTAssertEqual(order.replacingStatus(with: .driverArrived).earliestServiceStartAt, "2026-10-06T09:45:00")
+    }
+
     // MARK: - 文案
 
     func testMetUpSubtitlePointsToTheButtonBelow() {

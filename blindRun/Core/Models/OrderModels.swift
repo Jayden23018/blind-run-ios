@@ -504,6 +504,10 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     var runnerAtMeetingPoint: Bool?
     /// 最早可以「结束等待」的时刻。只在 `DRIVER_ARRIVED` 下发。
     var earliestEndWaitAt: String?
+    /// `POST /start-service` 最早可调的时刻（后端 #307 ② / #546，默认开跑前 15 分钟）。早于它调一律
+    /// 409 `SERVICE_START_TOO_EARLY`，契约要求「按钮该置灰、到点再亮」。**订单双方都有**，
+    /// 只在已接单未开跑的四态下发，其余 `null`。`null` 时不锁按钮（由后端判）。
+    var earliestServiceStartAt: String?
     /// 查看者和这位跑者一起跑完过几单。**本单已完成则已包含本单**（完成页直接用，不 +1）。
     /// `0` = 第一次一起跑，`nil` = 没下发，两者说的话不同。
     var completedTogetherCount: Int?
@@ -578,6 +582,7 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             meet: meet,
             runnerAtMeetingPoint: runnerAtMeetingPoint,
             earliestEndWaitAt: earliestEndWaitAt,
+            earliestServiceStartAt: earliestServiceStartAt,
             completedTogetherCount: completedTogetherCount,
             guidePreferenceText: guidePreferenceText,
             messageToVolunteer: messageToVolunteer,
