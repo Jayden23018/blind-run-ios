@@ -7460,6 +7460,80 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 待回复的派单邀请 + 连续拒绝次数（VOLUNTEER）
+    ///
+    /// 杀 App、冷启动、WS 没连上、「收到推送 → 锁屏 → 十秒后打开」时，用它把 `NEW_ORDER` 邀请拉回来。
+    /// **建议冷启动和从后台回前台各调一次**；WS 重连后也该调一次，补上断线期间错过的邀请。
+    ///
+    /// - 只返回**自己的**、状态 `PENDING` 且 `expiresAt` 还没到的邀请，按 `expiresAt` 升序。
+    ///   拒绝 / 有意向 / 已接单 / 已撤回 / 已过期的不返回。
+    /// - 每一项 = `NEW_ORDER` 载荷的全部字段 + `sentAt`；**没有任何手机号，不含 specialNotes / routeNotes**。
+    /// - `distanceKm` 用陪跑员**当前位置**算；位置未知时为 `null`（不是 0 公里）。
+    /// - `consecutiveDeclineCount` 的口径见响应字段说明（拒绝 / 过期 +1，接单 / 有意向清零，撤回不计）。
+    /// - 只读：调用本接口不会改变任何状态。邀请能不能接最终以 `POST /api/orders/{id}/respond` 为准。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/pending-invites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)`.
+    public func getPendingInvites(_ input: Operations.getPendingInvites.Input) async throws -> Operations.getPendingInvites.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getPendingInvites.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/pending-invites",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getPendingInvites.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.PendingInvitesResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 我的积分（余额 + 分页流水）
     ///
     /// 余额 = 全部流水 `delta` 之和；流水按 `createdAt` 倒序（最近的在前）。

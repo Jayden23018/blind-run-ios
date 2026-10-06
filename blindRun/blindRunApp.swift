@@ -117,6 +117,9 @@ struct blindRunApp: App {
                         // （AppRealtimeCoordinator.swift:1046-1055），错过的通知就永远补不回来。
                         // 补读没有服务端游标，`after` 完全由客户端给，重复调用只会被 `missed:{id}` 去重。
                         Task { await appState.catchUpMissedNotifications() }
+                        // 同一个理由：邀请撤回只走 WS、不能补读，锁屏期间的新邀请只有 APNs。
+                        // 契约要求回前台对一次待回复列表（只对陪跑员，函数里判）。
+                        Task { await appState.restorePendingInvites() }
                     }
                 }
         }

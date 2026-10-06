@@ -99,6 +99,7 @@ filter:
     - /api/volunteer/favorites
     - /api/volunteer/favorites/{blindUserId}
     - /api/volunteer/partners/streaks
+    - /api/volunteer/pending-invites
     - /api/volunteer/points
     - /api/volunteer/profile
     - /api/volunteer/registration/status
