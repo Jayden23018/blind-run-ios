@@ -229,10 +229,18 @@ struct FlowRunnerCard: View {
     var preferenceText: String?
     /// v3 的结构化引导习惯，`preferenceText` 为空时的回退。也为空则整段不显示。
     var fallbackHabits: [String] = []
+    /// 卡片画的是谁。默认跑者（陪跑员端）；盲人端订单页传「陪跑员」（#349）——
+    /// 拿不到姓名时头像里的字与读屏兜底都从这里取，并且读屏前缀它，否则盲人只听到一个姓。
+    var role: String = "跑者"
 
     private var spokenName: String {
         let spoken = name.unmaskedForSpeech
-        return spoken.isEmpty ? "跑者" : spoken
+        return spoken.isEmpty ? role : spoken
+    }
+
+    /// 陪跑员端沿用原样（只念名字）；其他角色在名字前加角色名：「陪跑员张」。
+    private var spokenIdentity: String {
+        role == "跑者" || spokenName == role ? spokenName : role + spokenName
     }
 
     private var countText: String? {
@@ -301,16 +309,19 @@ struct FlowRunnerCard: View {
                 diameter: FlowMetrics.v2ListAvatarDiameter,
                 background: AppColors.Flow.blueTint,
                 foreground: AppColors.Flow.onBlueTint,
-                placeholder: "跑"
+                placeholder: String(role.prefix(1))
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .flowFont(FlowV2Fonts.headline())
                     .foregroundColor(AppColors.Flow.primaryText)
-                Text(detail)
-                    .flowFont(FlowV2Fonts.subhead())
-                    .foregroundColor(AppColors.Flow.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                // 空串不画：盲人端陪跑员还没有陪跑次数时 detail 为空，画出来是一行空白。
+                if !detail.isEmpty {
+                    Text(detail)
+                        .flowFont(FlowV2Fonts.subhead())
+                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let countText {
@@ -319,7 +330,7 @@ struct FlowRunnerCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            [spokenName, detail.replacingOccurrences(of: " · ", with: "，"), countText.map { "你们\($0)" }]
+            [spokenIdentity, detail.replacingOccurrences(of: " · ", with: "，").nilIfBlank, countText.map { "你们\($0)" }]
                 .compactMap { $0 }
                 .joined(separator: "，")
         )
