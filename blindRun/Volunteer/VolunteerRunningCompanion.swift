@@ -40,6 +40,11 @@ enum VolunteerRunCopy {
     static func pauseRowTitle(_ name: String) -> String { "\(name)需要停下来" }
     /// 不写「并告知客服」：暂停后通知客服是后端的事（V8），客户端核实不了（同 `pausedBody`）。
     static let pauseRowSubtitle = "暂停计时，暂停期间不计志愿时长"
+    /// 走散时让跑者手机响（后端 #445 起跑步中可按，推翻 DECISIONS-v2 V5 / V12 的「跑步中响铃不做」）。
+    static func ringRowTitle(_ name: String) -> String { "让\(name)的手机响起来" }
+    /// 只说这一按是做什么的，不说「对方会听到」：送没送到看接口的 `delivered`，没送到另有提示。
+    static let ringRowSubtitle = "走散时用 · 请对方原地停下，你循着铃声找过去"
+    static let ringingRowTitle = "正在响铃…"
     static let supportRowTitle = "联系客服"
     /// 「不是紧急求助」打头：它和紧急按钮并排，工单不是即时通道（同 `SupportTicketCopy.notice` 的顾虑）。
     static let supportRowSubtitle = "不是紧急求助 · 提交后客服会尽快联系你"
@@ -56,7 +61,7 @@ enum VolunteerRunCopy {
     static let dismiss = "没事了，继续跑"
 
     static let navButtonLabel = "求助与安全"
-    static let navButtonHint = "打开求助面板：暂停、联系客服或紧急求助"
+    static let navButtonHint = "打开求助面板：暂停、让对方手机响、联系客服或紧急求助"
 }
 
 // MARK: - 节奏卡
@@ -330,7 +335,10 @@ struct VolunteerRunHelpPanel: View {
     let isPaused: Bool
     let isTogglingPause: Bool
     let supportState: VolunteerSupportRequestState
+    /// 后端 `ringingUntil`。之前这一行不可点（同汇合期的响铃按钮）。
+    let ringingUntil: Date?
     let onPause: () -> Void
+    let onRing: () -> Void
     let onContactSupport: () -> Void
     let onEmergency: () -> Void
 
@@ -364,6 +372,7 @@ struct VolunteerRunHelpPanel: View {
                         onPause()
                     }
                 }
+                ringRow
                 supportRow
                 emergencyButton
                     .padding(.top, 4)
@@ -387,6 +396,24 @@ struct VolunteerRunHelpPanel: View {
             onEmergency()
         }
         .accessibilityIdentifier("volunteerRunHelpPanel")
+    }
+
+    /// 按下先收起面板：陪跑员接下来要抬头找人，回执（「正在响」/「对方可能没收到」）落在跑步页上。
+    private var ringRow: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let isRinging = (ringingUntil ?? .distantPast) > context.date
+            row(
+                systemImage: "bell.and.waves.left.and.right.fill",
+                title: isRinging ? VolunteerRunCopy.ringingRowTitle : VolunteerRunCopy.ringRowTitle(runnerName),
+                subtitle: VolunteerRunCopy.ringRowSubtitle,
+                isBusy: false,
+                isEnabled: !isRinging,
+                identifier: "volunteerRunHelpRing"
+            ) {
+                dismiss()
+                onRing()
+            }
+        }
     }
 
     private var supportRow: some View {

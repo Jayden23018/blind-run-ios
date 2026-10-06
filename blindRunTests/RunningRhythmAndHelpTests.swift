@@ -303,6 +303,53 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         XCTAssertEqual(String(decoding: data, as: UTF8.self), #"{"signal":"FASTER"}"#)
     }
 
+    // MARK: - 走散响铃（后端 #445 / iOS #565）
+
+    private func ringResponse(delivered: Bool) -> OrderNudgeResponse {
+        OrderNudgeResponse(
+            success: true,
+            orderId: 7,
+            ringingUntil: formatter.string(from: Date().addingTimeInterval(10)),
+            delivered: delivered
+        )
+    }
+
+    func testRingFromTheRunPanelSaysOnThePageWhenItWasNotDelivered() async throws {
+        let service = FakeOrderService()
+        service.ringRunnerResult = .success(ringResponse(delivered: false))
+        let appState = AppState(orders: service)
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: try inProgress(run: nil))
+
+        await viewModel.ringRunner()
+
+        XCTAssertEqual(service.callCount("ringRunner(orderId:)"), 1)
+        XCTAssertEqual(viewModel.nudgeNotice, "对方可能没收到，可以打电话。")
+        XCTAssertNotNil(viewModel.ringingUntil, "面板那一行要靠它显示「正在响铃…」")
+    }
+
+    /// 汇合期那句回执不许带进跑步中；同一状态内的刷新则不清（否则 5 秒轮询一拍就把它抹掉）。
+    func testRingReceiptIsClearedOnStatusChangeButSurvivesARefreshInTheSameStatus() async throws {
+        let service = FakeOrderService()
+        service.ringRunnerResult = .success(ringResponse(delivered: false))
+        let running = try inProgress(run: nil)
+        let arrived = running.replacingStatus(with: .driverArrived)
+        service.orderDetailResults = [.success(arrived), .success(running)]
+        let appState = AppState(orders: service)
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: arrived)
+
+        await viewModel.ringRunner()
+        XCTAssertNotNil(viewModel.nudgeNotice)
+
+        await viewModel.load(orderId: 7, speakChanges: false)
+        XCTAssertNotNil(viewModel.nudgeNotice, "同一状态的刷新把回执清掉了")
+
+        await viewModel.load(orderId: 7, speakChanges: false)
+        XCTAssertEqual(viewModel.order?.status, .inProgress)
+        XCTAssertNil(viewModel.nudgeNotice, "开跑后还挂着汇合期的「对方可能没收到」")
+    }
+
     // MARK: - 电量
 
     func testBatteryLevelIsOmittedWhenUnknown() throws {

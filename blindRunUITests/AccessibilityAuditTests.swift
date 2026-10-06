@@ -486,6 +486,20 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(overlay.waitForNonExistence(timeout: 20), "过了 until 还在响")
     }
 
+    /// 陪跑中走散（`RUNNER_RING_LOST`，#565）：同一张遮罩，话换成「请原地停下」。
+    /// 落到横幅的旧实现在第一条断言上红（遮罩根本不出来）。
+    @MainActor
+    func testLostRunnerRingOverlaySaysStopWhereYouAre() throws {
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "lost"], tapsAfterLaunch: false)
+        let overlay = runnerRingOverlay(app)
+        XCTAssertTrue(overlay.waitForExistence(timeout: 20), "注入了 RUNNER_RING_LOST，遮罩没出来")
+        XCTAssertTrue(overlay.label.hasPrefix("你的陪跑员在找你，请原地停下"), overlay.label)
+        XCTAssertFalse(overlay.label.contains("到了"), "走散时念「陪跑员到了」是错的：\(overlay.label)")
+
+        overlay.tap()
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 5), "点了遮罩，响铃没停")
+    }
+
     // MARK: - 记录 tab（OpenSpec `add-run-record-history-tab`）
 
     /// 记录页要拍的数据：Mock 的已完成单 #2（本月）+ 一张已取消单（`AIDRUN_UI_TEST_SEED_HISTORY`）。
@@ -1531,6 +1545,10 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(panel.waitForExistence(timeout: 5), "跑步中「求助」没有打开求助面板")
         XCTAssertTrue(app.descendants(matching: .any)["volunteerRunHelpPause"].firstMatch.exists, "缺「需要停下来」")
         XCTAssertTrue(app.descendants(matching: .any)["volunteerRunHelpSupport"].firstMatch.exists, "缺「联系客服」")
+        // 后端 #445 起跑步中可按（#565，DECISIONS-v2 V5 已改）。
+        let ring = app.descendants(matching: .any)["volunteerRunHelpRing"].firstMatch
+        XCTAssertTrue(ring.exists, "缺「让对方的手机响起来」")
+        XCTAssertTrue(ring.label.contains("的手机响起来"), ring.label)
 
         let emergency = app.descendants(matching: .any)["volunteerRunHelpEmergency"].firstMatch
         XCTAssertTrue(emergency.waitForExistence(timeout: 5))

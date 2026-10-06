@@ -894,7 +894,7 @@ final class AppRealtimeCoordinator: ObservableObject {
             routeEscortAlert(message, eventType: eventType)
             return
         }
-        if eventType == "RUNNER_RING", routeRunnerRing(message) { return }
+        if RunnerRingRequest.Kind(eventType: eventType) != nil, routeRunnerRing(message) { return }
         if let kind = Self.emergencyKind(forEventType: eventType) {
             routeEmergencyNotification(message, kind: kind)
             return
@@ -919,7 +919,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         enqueue(notification, type: message.type)
     }
 
-    /// `RUNNER_RING` 走响铃，不进横幅（响铃遮罩自己会念那一句，进横幅就念两遍）。
+    /// `RUNNER_RING` / `RUNNER_RING_LOST` 走响铃，不进横幅（响铃遮罩自己会念那一句，进横幅就念两遍）。
     /// 返回 `false` = 这一条响不了（非盲人端、缺 `until`、已过点），调用方按普通通知念一次。
     /// 同一条重复投递按 `messageId` 丢掉，复用横幅那套去重窗口。
     private func routeRunnerRing(_ message: WSAppNotification) -> Bool {

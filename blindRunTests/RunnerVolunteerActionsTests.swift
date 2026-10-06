@@ -13,7 +13,9 @@ final class RunnerVolunteerActionsTests: XCTestCase {
     private let sentAt = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func ring(
+        eventType: String = "RUNNER_RING",
         messageId: String? = "ring-1",
+        body: String = "你的陪跑员到了，正在找你",
         ttsText: String? = "你的陪跑员到了，正在找你",
         until: String?
     ) -> WSAppNotification {
@@ -21,9 +23,9 @@ final class RunnerVolunteerActionsTests: XCTestCase {
             type: WSMessageType.appNotification.rawValue,
             eventId: nil,
             messageId: messageId,
-            eventType: "RUNNER_RING",
+            eventType: eventType,
             title: nil,
-            body: "你的陪跑员到了，正在找你",
+            body: body,
             ttsText: ttsText,
             priority: "HIGH",
             timestamp: formatter.string(from: sentAt),
@@ -153,6 +155,68 @@ final class RunnerVolunteerActionsTests: XCTestCase {
         service.simulateIncomingEventForTesting(.notification(ring(until: until(after: 10))))
         await Task.yield()
         XCTAssertNil(coordinator.runnerRing)
+    }
+
+    // MARK: - 陪跑中走散（`RUNNER_RING_LOST`，后端 #445 / iOS #565）
+
+    private func lostRing(ttsText: String? = "你的陪跑员在找你，请原地停下", until: String?) -> WSAppNotification {
+        ring(eventType: "RUNNER_RING_LOST", messageId: "lost-1", body: "你的陪跑员在找你，请原地停下", ttsText: ttsText, until: until)
+    }
+
+    /// 两句话不能混用（契约原话）。只认 `RUNNER_RING` 的实现在这里拿到 nil。
+    func testLostRingRingsWithItsOwnWordsAndNeverSaysArrived() throws {
+        let request = try XCTUnwrap(RunnerRingRequest.make(from: lostRing(ttsText: nil, until: until(after: 10)), receivedAt: sentAt))
+        XCTAssertEqual(request.kind, .lost)
+        XCTAssertEqual(request.speechText, "你的陪跑员在找你，请原地停下")
+        // 正文与 ttsText 都缺时用本地兜底，兜底同样按种类取。
+        let bare = try XCTUnwrap(RunnerRingRequest.make(
+            from: ring(eventType: "RUNNER_RING_LOST", body: "", ttsText: nil, until: until(after: 10)), receivedAt: sentAt
+        ))
+        XCTAssertEqual(bare.speechText, RunnerRingCopy.lostFallbackSpeech)
+        for text in [
+            RunnerRingCopy.title(.lost),
+            RunnerRingCopy.detail(.lost),
+            RunnerRingCopy.accessibilityLabel(.lost),
+        ] {
+            XCTAssertFalse(text.contains("到了"), text)
+        }
+        XCTAssertTrue(RunnerRingCopy.accessibilityLabel(.lost).hasPrefix("你的陪跑员在找你，请原地停下"))
+
+        let arrived = try XCTUnwrap(RunnerRingRequest.make(from: ring(ttsText: nil, until: until(after: 10)), receivedAt: sentAt))
+        XCTAssertEqual(arrived.kind, .arrived)
+        XCTAssertEqual(arrived.speechText, "你的陪跑员到了，正在找你")
+    }
+
+    /// 带 `until` 的别的事件不响：判据是 eventType，不是「信封里有没有 until」。
+    func testOnlyTheTwoRingEventTypesRing() {
+        XCTAssertNil(RunnerRingRequest.make(from: ring(eventType: "QUICK_MESSAGE_ALMOST_THERE", until: until(after: 10)), receivedAt: sentAt))
+        XCTAssertNil(RunnerRingRequest.Kind(eventType: "RUNNER_RING_FOUND"))
+        XCTAssertEqual(RunnerRingRequest.Kind(eventType: "runner_ring_lost"), .lost)
+    }
+
+    func testLostRingGoesToTheRingerNotTheBanner() async {
+        let coordinator = AppRealtimeCoordinator(now: { [sentAt] in sentAt }, notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+
+        service.simulateIncomingEventForTesting(.notification(lostRing(until: until(after: 10))))
+        await Task.yield()
+
+        XCTAssertEqual(coordinator.runnerRing?.id, "lost-1")
+        XCTAssertEqual(coordinator.runnerRing?.kind, .lost)
+        XCTAssertNil(coordinator.currentNotification, "落到横幅 = 只念一次、不响 —— 这正是 #565 报的缺陷")
+    }
+
+    func testUnringableLostRingFallsBackToASpokenNotification() async {
+        let coordinator = AppRealtimeCoordinator(now: { [sentAt] in sentAt }, notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+
+        service.simulateIncomingEventForTesting(.notification(lostRing(until: nil)))
+        await Task.yield()
+
+        XCTAssertNil(coordinator.runnerRing)
+        XCTAssertEqual(coordinator.currentNotification?.speechText, "你的陪跑员在找你，请原地停下")
     }
 
     // MARK: - 迟到与快捷消息
