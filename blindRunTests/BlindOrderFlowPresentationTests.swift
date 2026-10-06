@@ -115,9 +115,12 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
     /// 那些串上记着一串不许说的东西：通话态不提「第几位」（无声拒绝）、远期预约不提
     /// 临期闸门、**不写具体提前量**（那是后端配置，写死就是编一个数字念给盲人听）。
     /// 设计稿的副标题恰好违反最后一条 —— 它写「请提前 10 分钟到达」。
+    ///
+    /// 汇合态不在这里：那一屏下方就是「开始跑步」，副标题用设计稿那句带位置的话
+    /// （`BlindRunCopy.metUpSubtitle`，见 `BlindStartRunTests.testMetUpSubtitlePointsToTheButtonBelow`）。
     func testSubtitleReusesTheExistingStatusCopyInsteadOfInventingOne() {
         for status in [RunOrderStatus.pendingMatch, .pendingIntroCall, .scheduledConfirmed,
-                       .pendingAccept, .driverEnRoute, .driverArrived, .rematching] {
+                       .pendingAccept, .driverEnRoute, .rematching] {
             XCTAssertTrue(
                 make(status).subtitle.hasPrefix(status.blindRunnerDescription),
                 "\(status) 的副标题没有以既有状态说明开头"
@@ -243,14 +246,18 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
     /// （`api_spec.yaml:6421` 逐字「要么是能直接拨通的号码，要么是 `null`，永远不会是掩码串」）。
     /// 所以第二行喂的是一个后端保证不会下发的值 —— 留着它是**纵深防御**，
     /// 防的是哪天有人把 `counterpartPhoneMasked` 之类的字段接到这里来。
+    ///
+    /// 用出发态而不是汇合态测：后端 #346 起汇合态主按钮是「开始跑步」、不依赖号码
+    /// （`BlindStartRunTests.testMetUpPrimaryActionDoesNotDependOnAPhoneNumber`），
+    /// 出发态仍是「打电话」，这道闸在那里继续生效。
     func testCallButtonDisappearsWhenThereIsNoDialableNumber() {
-        XCTAssertNil(make(.driverArrived, volunteerPhone: nil).primaryAction)
-        XCTAssertNil(make(.driverArrived, volunteerPhone: "138****1234").primaryAction)
+        XCTAssertNil(make(.driverEnRoute, volunteerPhone: nil).primaryAction)
+        XCTAssertNil(make(.driverEnRoute, volunteerPhone: "138****1234").primaryAction)
         // 一个数字都没有的串同样不给按钮 —— 这是 `telURL` 原本就有的那道闸。
-        XCTAssertNil(make(.driverArrived, volunteerPhone: "未填写").primaryAction)
-        XCTAssertNotNil(make(.driverArrived, volunteerPhone: "13800000001").primaryAction)
+        XCTAssertNil(make(.driverEnRoute, volunteerPhone: "未填写").primaryAction)
+        XCTAssertNotNil(make(.driverEnRoute, volunteerPhone: "13800000001").primaryAction)
         // 带空格/横线的明文号**必须照样能拨** —— 掩码闸不能顺手把格式化字符也拦掉。
-        XCTAssertNotNil(make(.driverArrived, volunteerPhone: "138 0000 0001").primaryAction)
+        XCTAssertNotNil(make(.driverEnRoute, volunteerPhone: "138 0000 0001").primaryAction)
     }
 
     // MARK: - 警示行
