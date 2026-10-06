@@ -130,6 +130,9 @@ struct blindRunApp: App {
                         Task { await appState.catchUpMissedNotifications() }
                         // 契约：回到前台时检查 access 是否过了半衰期，过了就续（#391）。
                         Task { await appState.renewSessionIfDue() }
+                        // 同一个理由：邀请撤回只走 WS、不能补读，锁屏期间的新邀请只有 APNs。
+                        // 契约要求回前台对一次待回复列表（只对陪跑员，函数里判）。
+                        Task { await appState.restorePendingInvites() }
                     }
                 }
         }
