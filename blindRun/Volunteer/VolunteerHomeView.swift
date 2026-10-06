@@ -245,7 +245,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         activeOrder: OrderDetailResponse?,
         scheduledOrders: [OrderDetailResponse],
         now: Date = Date(),
-        leadMinutes: Int = AppConstants.Timing.volunteerOrderAutoOpenLeadMinutes
+        leadMinutes: Int
     ) -> OrderDetailResponse? {
         if let activeOrder { return activeOrder }
         let lead = TimeInterval(leadMinutes * 60)
@@ -976,7 +976,13 @@ final class VolunteerHomeViewModel: ObservableObject {
                     self.appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
                     self.appState?.liveEscortCoordinator.clearOwnedOrder()
                 }
-                self.speechService?.speakStatusChange(updated.status)
+                // `REMATCHING` 用陪跑员这一侧的那句（通用表里是盲人端文案，见 iOS #333），
+                // 且与订单页共用去重键：两边都订阅了这条推送，只该念出一句。
+                if updated.status == .rematching {
+                    self.speechService?.speakStatusChange(.rematching, text: VolunteerCancelAnnouncement.cancelledByVolunteer)
+                } else {
+                    self.speechService?.speakStatusChange(updated.status)
+                }
                 self.dispatchSummaryErrorMessage = nil
                 if let summary = self.dispatchSummary {
                     self.dispatchLoadState = .loaded(summary)
@@ -992,6 +998,11 @@ final class VolunteerHomeViewModel: ObservableObject {
             return
         }
         ClientFlowDiagnostics.record(event: "started", operation: "volunteer-home-refresh")
+        // 规则参数（自动打开订单页的提前量、取消弹层的窗口）并行拉，**不等它**：
+        // 它挂住时不该把整个首页拖住（URLSession 超时 15 秒）。
+        // ponytail: 首次冷启动若规则晚于派单摘要回来，那一次的自动打开按默认 120 分钟判
+        // （与后端默认值相同）；要严格按下发值，得把 `resolveLaunchRouteIfNeeded` 改成规则到达后再判一次。
+        Task { await appState.loadRuleParamsIfNeeded() }
         let requestID = UUID()
         activeRequestID = requestID
         refreshPhase = .refreshing(requestID: requestID)
@@ -1256,6 +1267,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             successSpeech: "已确认，到时间请按约定前往。"
         ) { orders in
             try await orders.confirmDeparture(orderId: orderID)
+            return nil
         }
         guard confirmed else { return }
         // 带上手里这份详情当初值，服务页就不必空着等第一次 GET 回来。
@@ -1273,26 +1285,30 @@ final class VolunteerHomeViewModel: ObservableObject {
         // 置 `CANCELLED` 而不是重派（`OrderLifecycleService`），那时这句话就是假的。
         // 只说他自己那一半 —— 那一半永远为真。
         _ = await submitScheduled(orderID: orderID, successSpeech: "已经告诉系统你去不了，这一单不在你名下了。") { orders in
-            try await orders.cancel(orderId: orderID)
+            // 「已记一次临时取消」以响应为准（后端 #361）。这条路径没有 WebSocket 抢先播报，直接接在成功那一句后面。
+            VolunteerCancelAnnouncement.suffix(for: try await orders.cancel(orderId: orderID))
         }
     }
 
     /// 两个动作共用的提交路径。返回**这次提交是不是真的成功了**（调用方据此决定要不要导航）。
     ///
     /// 成功与 409 都从列表移除：两种情况下这一单都不再是「待你确认的预约」。
+    ///
+    /// `operation` 返回接在 `successSpeech` 后面的一句（`nil` / 空串 = 不接），
+    /// 用于只有响应才知道的事 —— 目前只有「已记一次临时取消」。
     private func submitScheduled(
         orderID: Int64,
         successSpeech: String,
-        operation: @escaping (any OrderServing) async throws -> Void
+        operation: @escaping (any OrderServing) async throws -> String?
     ) async -> Bool {
         guard submittingScheduledOrderID == nil, let appState else { return false }
         submittingScheduledOrderID = orderID
         scheduledOrdersMessage = nil
         defer { submittingScheduledOrderID = nil }
         do {
-            try await operation(appState.orders)
+            let followUp = try await operation(appState.orders) ?? ""
             scheduledOrders.removeAll { $0.orderId == orderID }
-            speechService?.speak(successSpeech)
+            speechService?.speak(successSpeech + followUp)
             return true
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return false }
@@ -1493,7 +1509,9 @@ final class VolunteerHomeViewModel: ObservableObject {
               invites.allSatisfy(\.isAwaitingReply),
               let order = Self.launchOrderToOpen(
                   activeOrder: activeOrder,
-                  scheduledOrders: scheduledOrders
+                  scheduledOrders: scheduledOrders,
+                  // 后端下发（`GET /api/config/rules`），拉不到时是默认 120 分钟。
+                  leadMinutes: (appState?.ruleParams ?? .fallback).volunteerOrderAutoOpenLeadMinutes
               ) else { return }
         didResolveLaunchRoute = true
         // 带上手里这份详情当初值，订单页就不必空着等第一次 GET 回来。

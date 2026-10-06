@@ -38,6 +38,7 @@ filter:
     - /api/blind/verify-identity
     - /api/blind/volunteer-location
     - /api/config/features
+    - /api/config/rules
     - /api/devices/apns
     - /api/devices/live-activity-token
     - /api/emergency/active

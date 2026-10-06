@@ -196,7 +196,8 @@ final class ScheduledOrderTests: XCTestCase {
         let picked = VolunteerHomeViewModel.launchOrderToOpen(
             activeOrder: Self.makeOrder(id: 1, status: .inProgress, startingIn: nil, now: now),
             scheduledOrders: [Self.makeOrder(id: 2, status: .scheduledConfirmed, startingIn: 30 * 60, now: now)],
-            now: now
+            now: now,
+            leadMinutes: 120
         )
 
         XCTAssertEqual(picked?.orderId, 1, "人正在陪跑，打开 App 该回到那一单")
@@ -212,12 +213,12 @@ final class ScheduledOrderTests: XCTestCase {
         let outside = Self.makeOrder(id: 12, status: .scheduledConfirmed, startingIn: 121 * 60, now: now)
 
         XCTAssertEqual(
-            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [inside], now: now)?.orderId,
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [inside], now: now, leadMinutes: 120)?.orderId,
             11,
             "距开跑 1 小时 59 分，打开 App 该直接进订单页"
         )
         XCTAssertNil(
-            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [outside], now: now),
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [outside], now: now, leadMinutes: 120),
             "距开跑 2 小时 01 分还早，把人直接推进订单页等于抢走了主页"
         )
     }
@@ -231,7 +232,7 @@ final class ScheduledOrderTests: XCTestCase {
         let overdue = Self.makeOrder(id: 13, status: .scheduledConfirmed, startingIn: -20 * 60, now: now)
 
         XCTAssertEqual(
-            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [overdue], now: now)?.orderId,
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [overdue], now: now, leadMinutes: 120)?.orderId,
             13,
             "开跑时间已经过了 20 分钟，这一单比任何还没到点的都更该打开"
         )
@@ -245,7 +246,7 @@ final class ScheduledOrderTests: XCTestCase {
         let broken = Self.makeOrder(id: 14, status: .scheduledConfirmed, startingIn: nil, now: Date())
 
         XCTAssertNil(
-            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [broken]),
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [broken], leadMinutes: 120),
             "开跑时间是 nil 还照样打开，等于凭时间以外的东西猜"
         )
     }

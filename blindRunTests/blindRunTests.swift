@@ -5742,7 +5742,10 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(didConfirmCancellation)
         XCTAssertNil(viewModel.order)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "订单已取消，系统将为盲人重新匹配。")
+        // 开跑之后才取消，Mock 按后端口径记一次临时取消，所以那一句后面可能还接着「已记一次」。
+        let spoken = speechService.lastSpokenText ?? ""
+        XCTAssertTrue(spoken.hasPrefix(VolunteerCancelAnnouncement.cancelledByVolunteer), "实际：\(spoken)")
+        XCTAssertFalse(spoken.contains("重新匹配"), "重匹到上限时这半句不成立")
     }
 
     func testVolunteerTravelStageUsesDepartureCopyBeforeArrival() {
@@ -6422,7 +6425,7 @@ final class blindRunTests: XCTestCase {
             service.arrivedResult = transitionResult
             service.startServiceResult = transitionResult
             service.finishResult = transitionResult
-            service.cancelResult = transitionResult
+            service.cancelResult = transitionResult.map { CancelOrderResponse(success: true, countedAsLateCancel: false) }
             service.respondResult = transitionResult
 
             switch confirmation {

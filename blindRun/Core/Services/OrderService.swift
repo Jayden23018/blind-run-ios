@@ -55,7 +55,9 @@ protocol OrderServing: Sendable {
     func volunteerOrders(status: RunOrderStatus) async throws -> PagedOrderResponse
 
     // 状态流转
-    func cancel(orderId: Int64) async throws
+    /// 盲人端不需要响应体，所以 `@discardableResult`；陪跑员端读 `countedAsLateCancel`。
+    @discardableResult
+    func cancel(orderId: Int64) async throws -> CancelOrderResponse
     func respond(orderId: Int64, action: OrderRespondAction) async throws
     func enRoute(orderId: Int64) async throws
     func arrived(orderId: Int64) async throws
@@ -151,8 +153,9 @@ struct OrderService: OrderServing {
         )
     }
 
-    func cancel(orderId: Int64) async throws {
-        let _: EmptyResponse = try await transport.send(OrderEndpoint.cancel(orderId: orderId).request)
+    @discardableResult
+    func cancel(orderId: Int64) async throws -> CancelOrderResponse {
+        try await transport.send(OrderEndpoint.cancel(orderId: orderId).request)
     }
 
     func respond(orderId: Int64, action: OrderRespondAction) async throws {
