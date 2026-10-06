@@ -53,8 +53,11 @@ enum VolunteerAvailabilitySlotSummary {
     /// 一行最多列几段，多出来的并成「等 N 段」。
     static let inlineLimit = 2
 
-    static func text(for slots: [VolunteerAvailableTimeSlot]) -> String? {
-        let parts = slots.compactMap(phrase(for:))
+    static func text(
+        for slots: [VolunteerAvailableTimeSlot],
+        today: String = VolunteerAvailableTimeSlot.todayString()
+    ) -> String? {
+        let parts = slots.filter { !$0.isExpired(today: today) }.compactMap(phrase(for:))
         guard !parts.isEmpty else { return nil }
         guard parts.count > inlineLimit else { return parts.joined(separator: "、") }
         let head = parts.prefix(inlineLimit).joined(separator: "、")
@@ -62,9 +65,23 @@ enum VolunteerAvailabilitySlotSummary {
     }
 
     /// 「周三晚」。星期或开始时间缺一个就整段跳过 —— 一句「周三」或者一句「晚」都不是信息。
+    /// 一次性时段说日期「10月3日早」：说成「周六早」等于告诉他每周六都会被邀请。
     static func phrase(for slot: VolunteerAvailableTimeSlot) -> String? {
-        guard let day = weekdayName(slot.dayOfWeek), let period = period(slot.startTime) else { return nil }
+        guard let day = dayName(for: slot), let period = period(slot.startTime) else { return nil }
         return day + period
+    }
+
+    /// 一次性时段 →「10月3日」，每周时段 →「周六」。**先看 `date`**（契约：一次性时段也带 `dayOfWeek`）。
+    static func dayName(for slot: VolunteerAvailableTimeSlot) -> String? {
+        if let date = slot.date?.nilIfBlank { return dateName(date) }
+        return weekdayName(slot.dayOfWeek)
+    }
+
+    /// `"2026-10-03"` → 「10月3日」。认不出返回 nil，同 `period` 的理由。
+    static func dateName(_ raw: String) -> String? {
+        let parts = raw.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, (1...12).contains(parts[1]), (1...31).contains(parts[2]) else { return nil }
+        return "\(parts[1])月\(parts[2])日"
     }
 
     static func weekdayName(_ raw: String?) -> String? {
@@ -103,7 +120,7 @@ enum VolunteerAvailabilitySlotSummary {
 
     /// 完整写法「周三 19:30 – 21:00」，给空闲时间编辑页与读屏用。
     static func fullText(for slot: VolunteerAvailableTimeSlot) -> String? {
-        guard let day = weekdayName(slot.dayOfWeek) else { return nil }
+        guard let day = dayName(for: slot) else { return nil }
         let start = clock(slot.startTime)
         let end = clock(slot.endTime)
         guard let start, let end else { return day }
