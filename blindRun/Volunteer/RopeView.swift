@@ -21,7 +21,11 @@ enum RopeState: Equatable {
     indirect case cancelled(after: RopeState)
 
     /// 读屏标签。交付包 03：「第 N 步，共 4 步，{状态}」，出发中再加「还有 N 分钟到」。
-    func accessibilityLabel(remainingMinutes: Int? = nil) -> String {
+    ///
+    /// 跑者视角（盲人端订单页，#349）换一套说法：同一根绳子，陪跑员那头是「正在赶去」，
+    /// 跑者这头是「陪跑员正在赶来」。照搬陪跑员口吻会让盲人听成是自己在赶路。
+    func accessibilityLabel(remainingMinutes: Int? = nil, perspective: RopePerspective = .volunteer) -> String {
+        if perspective == .runner { return runnerAccessibilityLabel }
         switch self {
         case .invited: return "第 1 步，共 4 步，邀请，还没约好"
         case .agreed: return "第 2 步，共 4 步，已约好"
@@ -34,6 +38,26 @@ enum RopeState: Equatable {
         case .cancelled: return "这次陪跑已取消"
         }
     }
+
+    /// 跑者视角。第 1 格叫「匹配」（盲人端四步的第 1 步，`BlindOrderFlowStep.matching`）。
+    /// 出发中**不念分钟数**：后端只给本单陪跑员下发 `eta`，盲人 token 恒为 null。
+    private var runnerAccessibilityLabel: String {
+        switch self {
+        case .invited: return "第 1 步，共 4 步，匹配中，还没约好"
+        case .agreed: return "第 2 步，共 4 步，已约好"
+        case .departed: return "第 3 步，共 4 步，陪跑员正在赶来"
+        case .arrived: return "第 4 步，共 4 步，陪跑员已到达"
+        case .together: return "第 4 步，共 4 步，已汇合"
+        case .cancelled: return "这次陪跑已取消"
+        }
+    }
+}
+
+/// 引导绳从谁的角度画。几何两边相同（陪跑员从左往右靠近、跑者停在集合点），
+/// 不同的只有读屏说法、跑者头像上的字、以及「还没约好」时哪一头是空心。
+enum RopePerspective: Equatable {
+    case volunteer
+    case runner
 }
 
 /// 一个状态下引导绳的全部几何与样式。单位是 342×56 坐标系里的 pt。
@@ -184,6 +208,8 @@ struct RopeView: View {
     var runnerName: String?
     /// 出发中追加到读屏标签里的「还有 N 分钟到」。
     var remainingMinutes: Int?
+    /// 盲人端订单页传 `.runner`：跑者头像写「我」、`volunteerInitial` 由调用方传陪跑员姓氏。
+    var perspective: RopePerspective = .volunteer
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 「邀请 → 约好」时实线从左往右画出（交付包 03 §二第一行，easeInOut 0.6 秒）。
@@ -193,7 +219,14 @@ struct RopeView: View {
     private var geometry: RopeGeometry { .make(for: state) }
 
     private var runnerInitial: String {
-        runnerName?.unmaskedForSpeech.first.map(String.init) ?? "跑"
+        if perspective == .runner { return "我" }
+        return runnerName?.unmaskedForSpeech.first.map(String.init) ?? "跑"
+    }
+
+    /// 「还没约好」画成空心的是**对方**：陪跑员视角是跑者，跑者视角是还没匹配到的陪跑员。
+    /// 把「我」画成空心虚线，等于告诉盲人他自己还不确定。
+    private var hollowsVolunteer: Bool {
+        perspective == .runner && geometry.runnerStyle == .hollow
     }
 
     /// 交付包 03 §二：默认 spring；出发中 ETA 更新（出发 → 出发）是 easeOut 0.6 秒；
@@ -215,8 +248,8 @@ struct RopeView: View {
         .aspectRatio(RopeGeometry.width / RopeGeometry.height, contentMode: .fit)
         .animation(animation, value: geometry)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(state.accessibilityLabel(remainingMinutes: remainingMinutes))
-        .accessibilityIdentifier("volunteerOrderRope")
+        .accessibilityLabel(state.accessibilityLabel(remainingMinutes: remainingMinutes, perspective: perspective))
+        .modifier(RopeIdentifier(perspective: perspective))
         .onAppear { lastState = state }
         .onChange(of: state) { newState in
             defer { lastState = newState }
@@ -259,7 +292,7 @@ struct RopeView: View {
                     .transition(reduceMotion ? .opacity : .scale(scale: 0.8).combined(with: .opacity))
             }
 
-            runnerAvatar(style: g.runnerStyle, radius: r, scale: s)
+            runnerAvatar(style: hollowsVolunteer ? .solid : g.runnerStyle, radius: r, scale: s)
                 .position(x: g.runnerX * s, y: 28 * s)
 
             if g.showsVolunteerHalo {
@@ -270,23 +303,33 @@ struct RopeView: View {
                     .flowLoopingPulse(period: 2.0, from: 0.22, to: 0, scaleFrom: 22 / 28, scaleTo: 1)
                     .position(x: g.volunteerX * s, y: 28 * s)
             }
-            avatar(initial: volunteerInitial, fill: colors.volunteer, text: colors.volunteerInitial, radius: r, scale: s)
-                .position(x: g.volunteerX * s, y: 28 * s)
+            Group {
+                if hollowsVolunteer {
+                    hollowAvatar(initial: volunteerInitial, radius: r, scale: s)
+                } else {
+                    avatar(initial: volunteerInitial, fill: colors.volunteer, text: colors.volunteerInitial, radius: r, scale: s)
+                }
+            }
+            .position(x: g.volunteerX * s, y: 28 * s)
         }
+    }
+
+    private func hollowAvatar(initial: String, radius r: CGFloat, scale s: CGFloat) -> some View {
+        Text(initial)
+            .font(.system(size: 17 * s, weight: .bold))
+            .foregroundColor(colors.hollowInitial)
+            .frame(width: 2 * r - 2 * s, height: 2 * r - 2 * s)
+            .background(Circle().fill(colors.hollowFill))
+            .overlay(
+                Circle().strokeBorder(colors.hollowStroke, style: StrokeStyle(lineWidth: 2 * s, dash: [3 * s, 3 * s]))
+            )
     }
 
     @ViewBuilder
     private func runnerAvatar(style: RopeGeometry.RunnerStyle, radius r: CGFloat, scale s: CGFloat) -> some View {
         switch style {
         case .hollow:
-            Text(runnerInitial)
-                .font(.system(size: 17 * s, weight: .bold))
-                .foregroundColor(colors.hollowInitial)
-                .frame(width: 2 * r - 2 * s, height: 2 * r - 2 * s)
-                .background(Circle().fill(colors.hollowFill))
-                .overlay(
-                    Circle().strokeBorder(colors.hollowStroke, style: StrokeStyle(lineWidth: 2 * s, dash: [3 * s, 3 * s]))
-                )
+            hollowAvatar(initial: runnerInitial, radius: r, scale: s)
         case .solid:
             avatar(initial: runnerInitial, fill: colors.runner, text: .white, stroke: colors.runnerStroke, radius: r, scale: s)
         case .greyed:
@@ -327,6 +370,19 @@ struct RopeView: View {
         switch theme {
         case .onHero(let stateColor): return .onHero(stateColor)
         case .light: return .light
+        }
+    }
+}
+
+/// 两端各一个 identifier。写成字面量分支而不是参数：`guard.mjs` 的 `stale-ui-test-identifier`
+/// 只认字面量调用形式（理由同 `OrderFlowBottomActions.Owner`）。
+private struct RopeIdentifier: ViewModifier {
+    let perspective: RopePerspective
+
+    func body(content: Content) -> some View {
+        switch perspective {
+        case .volunteer: content.accessibilityIdentifier("volunteerOrderRope")
+        case .runner: content.accessibilityIdentifier("blindOrderFlowRope")
         }
     }
 }

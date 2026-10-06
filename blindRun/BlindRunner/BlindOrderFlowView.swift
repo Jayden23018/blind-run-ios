@@ -1,16 +1,14 @@
 import SwiftUI
 
-/// 头像那一路变形的 geometry id。
-///
-/// 放在文件作用域而不是 `BlindOrderFlowView` 里：那个类型对 `Footer` 泛型，
-/// 而 Swift 不允许泛型类型有 static 存储属性。
-private let blindOrderFlowAvatarGeometryID = "blindOrderFlowVolunteerAvatar"
-
 // MARK: - 订单页五幕的共用骨架
 
-/// 匹配 / 约好 / 出发 / 汇合 / 倒计时 / 跑步中共用的**同一个**骨架：
-/// 进度条（跑步中折叠成一行）→ 视觉区 → 状态标题副标题（跑步中换成三个数字）
-/// → 信息列表（跑步中移除）→ 底部两个按钮。
+/// 匹配 / 约好 / 出发 / 汇合 / 倒计时 / 跑步中共用的**同一个**页面。
+///
+/// 🔄 2026-10-06（#349）跑步前四屏 + 倒计时改用陪跑员订单页 v2 的版式：
+/// 浅色头卡（小标题 + 引导绳 + 大字 + 副文）→ 陪跑员卡 → 集合地点行 → 信息卡 → 底部两个按钮。
+/// 四格进度条去掉，「第 N 步，共 4 步」由引导绳的读屏标签承担（`RopeState`，跑者视角）。
+/// 头卡内容由 `BlindOrderHero` 算，它只从 `BlindOrderFlowPresentation` 派生，不新造判定。
+/// 负责人同日拍板的三条不变：底部「求助与安全」不挪到右上角、头卡用浅色、跑步中仍原地变形。
 ///
 /// **每一块的位置都不变**，只换内容；而**主按钮的位置一格不动，只换文字与图标**。
 /// 这是设计稿最核心的一条：视障用户靠位置记忆操作，而改版前每个状态是独立页面 ——
@@ -18,11 +16,13 @@ private let blindOrderFlowAvatarGeometryID = "blindOrderFlowVolunteerAvatar"
 /// 单页原地更新让焦点保持不动，只播报变化。
 ///
 /// 2026-09-16 把 `IN_PROGRESS` 也收进来（原先是一整屏独立的深底执行屏）。
-/// 变形的三条动效都在这里：进度条上折 / 头像 ⌀92 →  ⌀28 同一个视图在动 / 信息卡下沉淡出。
+/// 开跑那一刻：头卡、陪跑员卡、地点行、信息卡整块换成跑步卡（顶行「陪跑中 · 张伟」+ 三个数字），
+/// 同一页、同一条动画，焦点不跳顶。v1 那条头像 ⌀92 → ⌀28 的 `matchedGeometryEffect`
+/// 随 v1 视觉区一起去掉了 —— v2 头卡里没有那枚大头像可以缩。
 ///
-/// 2026-09-17 外壳（可滚动卡片列 + 贴底操作区）搬进 `OrderFlowScaffold`，与陪跑员端共用 ——
-/// 两端的四步进度条只有第 1 步文案不同，底部版位完全一致（设计交付文档 v3 §9）。
-/// 这一页保留的是**跑者端独有**的部分：头像变形、倒计时、跑步中那三个数字、定位新鲜度行。
+/// 外壳（可滚动卡片列 + 贴底操作区）是 `OrderFlowScaffold`。陪跑员端 v2 已改用自己的页面，
+/// 现在只有这一页在用它；底栏「主按钮 + 求助与安全」两个版位保持不变。
+/// 这一页保留的是**跑者端独有**的部分：倒计时、跑步中那三个数字、定位新鲜度行。
 struct BlindOrderFlowView<Footer: View>: View {
     let presentation: BlindOrderFlowPresentation
     let order: OrderDetailResponse
@@ -56,24 +56,28 @@ struct BlindOrderFlowView<Footer: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// 头像那一路变形的 geometry 命名空间。⌀92 与 ⌀28 是**同一个视图在动**。
-    @Namespace private var avatarTransition
+    /// 头卡。跑步中 / 已完成是 `nil`（那两幕画跑步卡）。
+    private var hero: BlindOrderHero? {
+        BlindOrderHero.make(presentation: presentation, order: order)
+    }
 
     var body: some View {
-        // 布局骨架取 main 上抽出来的 `OrderFlowScaffold`（陪跑员端 PR #155 起与跑者端共用），
-        // 判据取本轮的 `showsRunCard` —— 两边改的不是同一件事，合并时两个都要留。
         OrderFlowScaffold(bottom: bottomActions) {
-            statusCard
-            // 信息卡整块下沉淡出并收到 0 —— 跑起来之后「陪跑员是谁、几点、在哪集合」
-            // 全部已经是过去时，留在屏幕上只是读屏要多滑四次的内容。
-            // 已完成同理，且它把「陪跑员是谁」以一行的形式留在了状态卡里。
-            if !presentation.phase.showsRunCard {
+            if presentation.phase.showsRunCard {
+                runCard
+            } else {
+                if let hero { heroCard(hero) }
+                volunteerCard
+                placeCard
+                // 跑起来之后这几块整块下沉淡出 —— 「陪跑员是谁、几点、在哪集合」
+                // 全部已经是过去时，留在屏幕上只是读屏要多滑几次的内容。
+                // 已完成同理，且它把「陪跑员是谁」以一行的形式留在了跑步卡里。
                 infoCard
             }
             footer()
         }
-        // 整段变形由同一条动画驱动：进度条上折、头像缩移、信息卡下沉、主体拉高
-        // 必须同时发生（设计稿 §Interactions 第 2 条），各自挂各自的动画会散成四拍。
+        // 整段变形由同一条动画驱动：头卡换成跑步卡、下面几块下沉、主体拉高
+        // 必须同时发生（设计稿 §Interactions 第 2 条），各自挂各自的动画会散成几拍。
         //
         // 挂在骨架外面与挂在它内部的 `VStack` 上等价（修饰符向下传播），
         // 而 `phase` 是跑者端独有的维度，不该进共用骨架的参数表。
@@ -88,38 +92,152 @@ struct BlindOrderFlowView<Footer: View>: View {
     /// 也就是说「淡入淡出」到不了，只能得到一次更短的位移 —— 而晕动症用户要躲的正是位移。
     /// 换更短的时长是在把违规做得不那么明显，不是在修它。
     ///
-    /// 头像那条 `matchedGeometryEffect` 同样一并不挂（见 `matchedAvatarGeometry`）。
     /// **但倒计时保留** —— 它是信息不是装饰：三个数字仍然一拍一拍出现（由那 1 秒的
     /// 节拍驱动，不由动画驱动），只是不再回弹。
     private var transitionAnimation: Animation? {
         reduceMotion ? nil : .easeOut(duration: BlindRunTransition.duration)
     }
 
-    // MARK: - 状态卡
+    // MARK: - 头卡（跑步前四屏 + 倒计时）
 
-    private var statusCard: some View {
+    /// 浅色头卡（负责人 2026-10-06）。读屏顺序：引导绳（「第 N 步，共 4 步」，接替 v1 进度条）
+    /// → 头卡正文（这一页最重要的那个元素）。
+    private func heroCard(_ hero: BlindOrderHero) -> some View {
+        FlowHeroCard(style: .light) {
+            // 小标题画在绳子上面（与陪跑员端同一个排法），但**不单独进读屏** ——
+            // 它已经是正文合成标签的第一句，单独一站会被念两遍。
+            Text(hero.eyebrow)
+                .flowFont(FlowV2Fonts.subhead(bold: true))
+                .foregroundColor(AppColors.Flow.accent)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
+            RopeView(
+                state: hero.rope,
+                theme: .light,
+                volunteerInitial: volunteerInitial,
+                perspective: .runner
+            )
+            heroBody(hero)
+        }
+    }
+
+    private func heroBody(_ hero: BlindOrderHero) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let number = hero.number {
+                heroNumber(number, unit: hero.unit, beat: hero.countdownBeat)
+            }
+            if let headline = hero.headline {
+                // AX5 下会长到一百多 pt，必须允许换行 —— `lineLimit(1)` 等于把这一屏最重要的一行裁掉。
+                Text(headline)
+                    .flowFont(FlowV2Fonts.title())
+                    .foregroundColor(AppColors.Flow.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(hero.lines, id: \.self) { line in
+                Text(line)
+                    .flowFont(FlowV2Fonts.callout())
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // 只在异常时出现。正常状态**不显示任何「定位正常」之类的反向提示**。
+            if let warning = hero.warning {
+                Text(warning)
+                    .flowFont(FlowV2Fonts.callout(bold: true))
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 🔴 正文合成**一个**元素，而且是这一页最重要的那个。
+        // 拆开的后果是读屏用户要滑几次才听全「现在是什么情况」。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(hero.accessibilityLabel)
+        .accessibilityIdentifier("blindOrderFlowStatusCard")
+    }
+
+    /// 主角数字。约好态是开跑钟点，倒计时是「3」「2」「1」。
+    ///
+    /// 倒计时每拍换一个数字 ⇒ `id` 变 ⇒ 这个视图被换掉一次 ⇒ `transition` 重新播一次回弹。
+    /// 「减弱动态效果」下换成纯淡入淡出：不缩放、不位移，**但三个数字照样一拍一拍出现**。
+    @ViewBuilder
+    private func heroNumber(_ number: String, unit: String?, beat: Int?) -> some View {
+        let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(number).flowHeroNumber(beat == nil ? FlowV2Fonts.heroM : FlowV2Fonts.heroXL)
+            if let unit {
+                Text(unit).flowFont(FlowV2Fonts.heroUnit())
+            }
+        }
+        .foregroundColor(beat == nil ? AppColors.Flow.primaryText : AppColors.Flow.accent)
+
+        if let beat {
+            row
+                .id(beat)
+                .animation(
+                    reduceMotion ? nil : .spring(response: BlindRunCountdown.bounceResponse, dampingFraction: 0.55),
+                    value: beat
+                )
+                .transition(reduceMotion ? .opacity : .scale(scale: BlindRunCountdown.bounceScale).combined(with: .opacity))
+        } else {
+            row
+        }
+    }
+
+    /// 引导绳上陪跑员头像里的字：姓氏（去掩码），拿不到时写「陪」。
+    private var volunteerInitial: String {
+        order.volunteerName?.unmaskedForSpeech.first.map(String.init) ?? "陪"
+    }
+
+    // MARK: - 陪跑员卡 / 集合地点
+
+    /// 与陪跑员端「跑者卡」同一个组件，换成陪跑员视角（`role: "陪跑员"`）。
+    /// 还没有陪跑员（匹配中、通话磨合中 `order.volunteer` 恒为 null）时整块不画 ——
+    /// 头卡已经在说「正在匹配」，再画一张「正在匹配」的卡只是多一站读屏。
+    ///
+    /// ⚠️ 设计稿 v1 这里是「张伟，已认证」。**「已认证」不显示** ——
+    /// 订单详情里没有这个字段（契约里 0 命中）。无字段却印「已认证」是伪造信任标识。
+    @ViewBuilder
+    private var volunteerCard: some View {
+        if hasVolunteer {
+            FlowRunnerCard(
+                name: volunteerDisplayName,
+                detail: order.volunteerExperienceText ?? "",
+                role: "陪跑员"
+            )
+        }
+    }
+
+    /// 能打开地图时画成 v2 的地点行；否则退回信息卡里一条不可点的行（见 `infoCard`）。
+    ///
+    /// ⚠️ 截至 #349，订单页唯一的调用点（`BlindOrderStatusView`）**恒传 `nil`** —— 盲人端还没有
+    /// 「打开地图」这个动作，所以真机上集合地点是信息卡里那一行。给盲人端加地图入口是另一个需求。
+    /// Preview 也传 `nil`，否则截图评审看到的是一个生产里不存在的版式。
+    @ViewBuilder
+    private var placeCard: some View {
+        if let onOpenStartPlace {
+            FlowPlaceRow(
+                systemImage: "mappin",
+                title: placeText,
+                accessibilityPrefix: "集合地点",
+                action: onOpenStartPlace
+            )
+            .accessibilityIdentifier("blindOrderFlowPlaceRow")
+        }
+    }
+
+    // MARK: - 跑步卡（跑步中 / 已完成）
+
+    private var runCard: some View {
         FlowCard {
             VStack(spacing: 0) {
-                // 进度条向上折叠（高度 → 0、透明度 → 0），「陪跑中 · 张伟」在原位展开。
-                if presentation.phase.showsRunCard {
-                    partnerRow
-                } else {
-                    FlowStepper(
-                        currentStep: presentation.step.rawValue,
-                        titles: BlindOrderFlowStep.allTitles
-                    )
-                }
+                partnerRow
                 FlowSeparator()
-                if presentation.phase.showsRunCard {
-                    BlindActiveRunView(stats: stats, paceLabel: paceLabel)
-                    // ④ 比 ③ 多这一行「陪跑员 张伟」（设计稿 §4）。跑动中不显示 ——
-                    // 那一刻人就在身边，而这一行会把三个数字往上挤。
-                    if presentation.phase == .finished {
-                        FlowSeparator()
-                        partnerSummaryRow
-                    }
-                } else {
-                    heroSection
+                BlindActiveRunView(stats: stats, paceLabel: paceLabel)
+                // ④ 比 ③ 多这一行「陪跑员 张伟」（设计稿 §4）。跑动中不显示 ——
+                // 那一刻人就在身边，而这一行会把三个数字往上挤。
+                if presentation.phase == .finished {
+                    FlowSeparator()
+                    partnerSummaryRow
                 }
             }
         }
@@ -157,13 +275,11 @@ struct BlindOrderFlowView<Footer: View>: View {
     /// 合成一个会让「定位信号弱」被埋在一句长话的尾巴上。
     private var partnerRow: some View {
         HStack(spacing: 10) {
-            matchedAvatarGeometry(
-                FlowAvatar(
-                    name: order.volunteerName,
-                    diameter: FlowMetrics.partnerAvatarDiameter,
-                    background: AppColors.Flow.avatarBackground,
-                    foreground: AppColors.Flow.avatarInitial
-                )
+            FlowAvatar(
+                name: order.volunteerName,
+                diameter: FlowMetrics.partnerAvatarDiameter,
+                background: AppColors.Flow.avatarBackground,
+                foreground: AppColors.Flow.avatarInitial
             )
             Text(presentation.title)
                 .flowFont(FlowFonts.partnerHeadline())
@@ -213,212 +329,19 @@ struct BlindOrderFlowView<Footer: View>: View {
         .accessibilityIdentifier("blindOrderFlowLocationFreshness")
     }
 
-    /// 头像从视觉区中央 ⌀92 缩小移到顶行左上 ⌀28 —— **同一个视图在动**，不是交叉淡入淡出。
-    ///
-    /// 「减弱动态效果」打开时**不挂这个修饰符**：挂着它就必然产生位移与缩放，
-    /// 而那正是这个设置要消掉的东西。此时两枚头像各自淡入淡出，位置照常正确。
-    @ViewBuilder
-    private func matchedAvatarGeometry<V: View>(_ view: V) -> some View {
-        if reduceMotion {
-            view
-        } else {
-            view.matchedGeometryEffect(id: blindOrderFlowAvatarGeometryID, in: avatarTransition)
-        }
-    }
-
-    private var heroSection: some View {
-        VStack(spacing: 0) {
-            visualArea
-            Text(presentation.title)
-                .flowFont(FlowFonts.statusTitle(), monospacedDigit: true)
-                .foregroundColor(AppColors.Flow.primaryText)
-                .multilineTextAlignment(.center)
-                // 34pt 在 AX5 下会长到一百多 pt，必须允许换行 ——
-                // `lineLimit(1)` 在这里等于把这一屏最重要的一行裁掉。
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, FlowMetrics.statusTitleTopSpacing)
-
-            Text(presentation.subtitle)
-                .flowFont(FlowFonts.statusSubtitle())
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
-
-            // 只在异常时出现。正常状态**不显示任何「定位正常」之类的反向提示** ——
-            // 那种提示对读屏用户是每次进页面都要滑过去的一条无信息内容。
-            if let warning = presentation.warning {
-                Text(warning)
-                    .flowFont(FlowFonts.rowDetail())
-                    .foregroundColor(AppColors.destructive)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 8)
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 16)
-        .frame(maxWidth: .infinity)
-        // 🔴 标题 + 副标题（+ 警示）合成**一个**元素，而且是这一页最重要的那个。
-        // 拆开的后果是读屏用户要滑两三次才听全「现在是什么情况」。
-        // 视觉区在里面，但它 `accessibilityHidden`，不参与合成。
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(statusAccessibilityLabel)
-        .accessibilityIdentifier("blindOrderFlowStatusCard")
-    }
-
-    /// 跑步中那一幕 `subtitle` 是空串，`joined` 会拼出一个多余的句号让读屏念一次停顿，
-    /// 所以先滤空。**不要写成 `title + "。" + subtitle`** —— 那正是漏掉这一步的写法。
-    private var statusAccessibilityLabel: String {
-        var parts = [presentation.title, presentation.subtitle]
-        if let warning = presentation.warning { parts.append(warning) }
-        return parts.filter { !$0.isEmpty }.joined(separator: "。")
-    }
-
-    // MARK: - 视觉区（纯装饰，对读屏隐藏）
-
-    /// 124×124 的方形区域。四态换内容但**尺寸不变** —— 骨架固定这条就落在这里：
-    /// 下面的标题不会因为上面换了一种图形而上下跳。
-    private var visualArea: some View {
-        ZStack {
-            switch presentation.visual {
-            case .radar:
-                radar
-            case .avatar:
-                avatar
-            case .avatarWithProgressRing:
-                avatar
-                progressRing
-            case .avatarWithSuccessBadge:
-                avatar
-                successBadge
-            case .countdown(let beat):
-                countdownCircle(beat)
-            // 跑步中这一幕整个 `heroSection` 都不渲染（`statusCard` 直接换成三个数字），
-            // 所以这里走不到。**留一个显式分支而不是 `default`** —— 加 `Visual` 时
-            // 编译器会逼一次决策，而 `default` 会把新形态默默画成空白。
-            case .runMetrics:
-                EmptyView()
-            }
-        }
-        .frame(width: FlowMetrics.visualSide, height: FlowMetrics.visualSide)
-        // 整块纯装饰：状态信息在标题与副标题里有完整文字版。
-        // 装饰内容的标准处理就是对辅助技术隐藏 —— 读屏用户 0 次多余划动就够到状态。
-        .accessibilityHidden(true)
-    }
-
-    private var radar: some View {
-        ZStack {
-            Circle()
-                .fill(AppColors.Flow.radarOuter)
-                .overlay(Circle().strokeBorder(AppColors.Flow.radarOuterStroke, lineWidth: 1.5))
-            Circle()
-                .fill(AppColors.Flow.radarInner)
-                .overlay(Circle().strokeBorder(AppColors.Flow.radarInnerStroke, lineWidth: 1.5))
-                .frame(width: 84, height: 84)
-            Circle()
-                .fill(AppColors.Flow.accent)
-                .frame(width: 52, height: 52)
-            Image(systemName: "figure.run")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(.white)
-            // 旋转的那圈弧线在阶段 4 接（连同「减弱动态效果」的降级）。
-            // 现在画成静态的一段弧：**不留空** —— 空着的话匹配态的视觉区只有三个同心圆，
-            // 与「正在找人」这件事没有任何视觉关联。
-            Circle()
-                .trim(from: 0, to: 0.17)
-                .stroke(AppColors.Flow.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-    }
-
-    private var avatar: some View {
-        matchedAvatarGeometry(
-            FlowAvatar(
-                name: order.volunteerName,
-                diameter: FlowMetrics.avatarDiameter,
-                background: AppColors.Flow.avatarBackground,
-                foreground: AppColors.Flow.avatarInitial
-            )
-        )
-    }
-
-    /// 倒计时：头像圆**原位**变品牌蓝实心底 + 白色数字，每拍从 1.25 倍回弹到 1 倍。
-    ///
-    /// 挂同一个 geometry id，所以说「开始」那一刻在动的仍然是这一个圆 —— 它缩到顶行
-    /// 变成 ⌀28 的小头像，中间没有任何交叉淡入淡出。
-    ///
-    /// 🚩 **对读屏隐藏**（整个 `visualArea` 是隐藏的）。数字走 announcement 通道播报，
-    /// 不插入遍历顺序、不移动焦点 —— 焦点在这三秒里必须待在原处，
-    /// 这正是「原地变形而不是跳页」要保住的东西。
-    private func countdownCircle(_ beat: Int) -> some View {
-        matchedAvatarGeometry(
-            Text("\(beat)")
-                .flowFont(FlowFonts.countdownNumber(), monospacedDigit: true)
-                .foregroundColor(.white)
-                .frame(width: FlowMetrics.avatarDiameter, height: FlowMetrics.avatarDiameter)
-                .background(AppColors.Flow.accent, in: Circle())
-        )
-        // 每拍换一个数字 ⇒ `id` 变 ⇒ 这个视图被换掉一次 ⇒ `transition` 重新播一次回弹。
-        // 「减弱动态效果」下换成纯淡入淡出：不缩放、不位移，**但三个数字照样一拍一拍出现**
-        // （倒计时是信息不是装饰，见 `transitionAnimation` 的注释）。
-        .id(beat)
-        .animation(
-            reduceMotion ? nil : .spring(response: BlindRunCountdown.bounceResponse, dampingFraction: 0.55),
-            value: beat
-        )
-        .transition(reduceMotion ? .opacity : .scale(scale: BlindRunCountdown.bounceScale).combined(with: .opacity))
-    }
-
-    /// 出发态头像外圈那道进度环。
-    ///
-    /// ⚠️ **进度值是固定的 0.35，不是算出来的。** 没有 ETA 也没有「总距离」这个基准
-    /// （后端契约里都没有），任何「按距离算百分比」都要先编一个起始距离。
-    /// 画成固定一段是诚实的：它表达「在路上」，不表达「走了多少」。
-    /// 阶段 4 接动画时也只做「出现时扫出来」，不做「按进度增长」。
-    private var progressRing: some View {
-        ZStack {
-            Circle()
-                .stroke(AppColors.Flow.radarOuterStroke, lineWidth: FlowMetrics.progressRingWidth)
-            Circle()
-                .trim(from: 0, to: 0.35)
-                .stroke(
-                    AppColors.Flow.accent,
-                    style: StrokeStyle(lineWidth: FlowMetrics.progressRingWidth, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-        }
-    }
-
-    private var successBadge: some View {
-        Image(systemName: "checkmark")
-            .font(.system(size: 17, weight: .heavy))
-            .foregroundColor(.white)
-            .frame(width: FlowMetrics.successBadgeDiameter, height: FlowMetrics.successBadgeDiameter)
-            .background(AppColors.Flow.successBadge, in: Circle())
-            .overlay(
-                Circle().strokeBorder(AppColors.Flow.surface, lineWidth: FlowMetrics.successBadgeRingWidth)
-            )
-            .frame(
-                width: FlowMetrics.visualSide,
-                height: FlowMetrics.visualSide,
-                alignment: .bottomTrailing
-            )
-            .offset(x: -8, y: -8)
-    }
-
     // MARK: - 信息列表
 
+    /// 陪跑员与可点的集合地点已经上移成独立的卡（`volunteerCard` / `placeCard`），这里只剩：
+    /// 时间（读屏念完整日期，头卡小标题只有「明天早上」）、拿不到地点时的兜底行、留言、最后一行。
     private var infoCard: some View {
         FlowCard {
             VStack(spacing: 0) {
-                volunteerRow
-                FlowSeparator()
                 timeRow
                 FlowSeparator()
-                placeRow
-                FlowSeparator()
+                if onOpenStartPlace == nil {
+                    placeRow
+                    FlowSeparator()
+                }
                 if let onEditRunnerMessage {
                     runnerMessageRow(onEditRunnerMessage)
                     FlowSeparator()
@@ -428,53 +351,11 @@ struct BlindOrderFlowView<Footer: View>: View {
         }
     }
 
-    /// 陪跑员行：姓名 + 经验，两行值合成一句读屏文本。
-    ///
-    /// 姓名**视觉上保留掩码**（`张*`）、**朗读去掉星号** —— 后端的姓名始终带掩码，
-    /// 原样交给 VoiceOver 会念成「张星号」，而这个 App 的读屏是外放的。
-    private var volunteerRow: some View {
-        FlowInfoRow(
-            label: "陪跑员",
-            accessibilityLabel: volunteerAccessibilityLabel,
-            minHeight: FlowMetrics.volunteerRowMinHeight
-        ) {
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(volunteerDisplayName)
-                    .flowFont(FlowFonts.rowValueEmphasized())
-                    .foregroundColor(AppColors.Flow.primaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.trailing)
-                if let experience = order.volunteerExperienceText {
-                    Text(experience)
-                        .flowFont(FlowFonts.rowDetail(), monospacedDigit: true)
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if !hasVolunteer {
-                    Text("匹配成功后显示陪跑经验")
-                        .flowFont(FlowFonts.rowDetail())
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
     private var hasVolunteer: Bool { order.volunteerName?.nilIfBlank != nil }
 
+    /// 姓名**视觉上保留掩码**（`张*`）、**朗读去掉星号**（`FlowRunnerCard` 内部走 `unmaskedForSpeech`）。
     private var volunteerDisplayName: String {
-        guard hasVolunteer else { return "正在匹配" }
-        return order.volunteerName ?? ""
-    }
-
-    /// ⚠️ 设计稿这里是「张伟，已认证」。**「已认证」不显示** ——
-    /// 订单详情里没有这个字段（契约里 0 命中）。无字段却印「已认证」是伪造信任标识，
-    /// 而这恰恰是盲人决定要不要把自己交给一个陌生人时唯一能依据的东西。
-    /// 已投 handoff 请后端补。
-    private var volunteerAccessibilityLabel: String {
-        guard hasVolunteer else { return "陪跑员，正在匹配，匹配成功后显示陪跑经验" }
-        var label = "陪跑员\(order.volunteerNameForSpeech)"
-        if let experience = order.volunteerExperienceText { label += "，\(experience)" }
-        return label
+        order.volunteerName ?? ""
     }
 
     private var timeRow: some View {
@@ -692,7 +573,8 @@ private struct BlindOrderFlowPreview: View {
                 order: order,
                 stats: stats,
                 isLocationFresh: isLocationFresh,
-                onOpenStartPlace: {},
+                // 与生产调用点一致（见 `placeCard`）。
+                onOpenStartPlace: nil,
                 onLastRowTapped: {},
                 onPrimaryAction: {},
                 onOpenSafetyHub: {},

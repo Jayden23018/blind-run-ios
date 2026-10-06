@@ -2,10 +2,12 @@ import SwiftUI
 
 // MARK: - 订单页两端共用的外壳
 
-/// 跑者端与陪跑员端订单页**同一个**外壳：可滚动的卡片列 + 贴底的操作区。
+/// 订单页外壳：可滚动的卡片列 + 贴底的操作区。
 ///
-/// 设计交付文档 v3 §9《组件复用映射》要求两端组件同构 —— 四步进度条只有第 1 步文案不同
-/// （「匹配」/「邀请」），底部版位完全一致。所以外壳抽在这里，两端各自只提供**内容**。
+/// 设计交付文档 v3 §9《组件复用映射》要求两端组件同构，所以外壳抽在这里。
+/// 🔄 陪跑员端 2026-09-26 起改用 v2 自己的页面（`VolunteerOrderFlowPage`），这里现在只有跑者端在用；
+/// 2026-10-06（#349）跑者端换 v2 版式时，卡片间距与左右边距随之对齐 v2（`v2SectionGap` / `v2ScreenPadding`），
+/// 底栏「主按钮 + 求助与安全」两个版位不动（负责人：求助留在底部）。
 ///
 /// **不抽进来的东西**：跑者端的头像变形（`matchedGeometryEffect`）、倒计时、跑步中那三个数字、
 /// 定位新鲜度行。它们在陪跑员端前三态没有对应物 —— 搬进来就是给一个实现造抽象，
@@ -22,10 +24,10 @@ struct OrderFlowScaffold<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: FlowMetrics.v2SectionGap) {
                     content()
                 }
-                .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
+                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
                 .readableContentColumn()
