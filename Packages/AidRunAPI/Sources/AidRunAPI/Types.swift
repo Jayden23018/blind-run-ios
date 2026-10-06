@@ -5499,7 +5499,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/name`.
-            public var name: Swift.String?
+            public var name: Swift.String
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/runningPace`.
             public var runningPace: Swift.String?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/specialNeeds`.
@@ -5541,7 +5541,7 @@ public enum Components {
                 defaultPace: Components.Schemas.BlindProfileUpdateRequest.defaultPacePayload? = nil,
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDog: Swift.Bool? = nil,
-                name: Swift.String? = nil,
+                name: Swift.String,
                 runningPace: Swift.String? = nil,
                 specialNeeds: Swift.String? = nil,
                 tetherPreference: Components.Schemas.BlindProfileUpdateRequest.tetherPreferencePayload? = nil,
@@ -5572,17 +5572,17 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest`.
         public struct BlindVerifyRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest/idCardName`.
-            public var idCardName: Swift.String?
+            public var idCardName: Swift.String
             /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest/idCardNumber`.
-            public var idCardNumber: Swift.String?
+            public var idCardNumber: Swift.String
             /// Creates a new `BlindVerifyRequest`.
             ///
             /// - Parameters:
             ///   - idCardName:
             ///   - idCardNumber:
             public init(
-                idCardName: Swift.String? = nil,
-                idCardNumber: Swift.String? = nil
+                idCardName: Swift.String,
+                idCardNumber: Swift.String
             ) {
                 self.idCardName = idCardName
                 self.idCardNumber = idCardNumber
@@ -7170,7 +7170,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/orderId`.
             public var orderId: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/pushToken`.
-            public var pushToken: Swift.String?
+            public var pushToken: Swift.String
             /// Creates a new `LiveActivityTokenRequest`.
             ///
             /// - Parameters:
@@ -7178,7 +7178,7 @@ public enum Components {
             ///   - pushToken:
             public init(
                 orderId: Swift.Int64,
-                pushToken: Swift.String? = nil
+                pushToken: Swift.String
             ) {
                 self.orderId = orderId
                 self.pushToken = pushToken
@@ -11594,12 +11594,12 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/SendCodeRequest`.
         public struct SendCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SendCodeRequest/phone`.
-            public var phone: Swift.String?
+            public var phone: Swift.String
             /// Creates a new `SendCodeRequest`.
             ///
             /// - Parameters:
             ///   - phone:
-            public init(phone: Swift.String? = nil) {
+            public init(phone: Swift.String) {
                 self.phone = phone
             }
             public enum CodingKeys: String, CodingKey {
@@ -12462,7 +12462,7 @@ public enum Components {
             /// 选中的选项标识，取自课程详情的 `options[].id`
             ///
             /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/optionId`.
-            public var optionId: Swift.String?
+            public var optionId: Swift.String
             /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/questionId`.
             public var questionId: Swift.Int64
             /// Creates a new `TrainingQuizAnswer`.
@@ -12471,7 +12471,7 @@ public enum Components {
             ///   - optionId: 选中的选项标识，取自课程详情的 `options[].id`
             ///   - questionId:
             public init(
-                optionId: Swift.String? = nil,
+                optionId: Swift.String,
                 questionId: Swift.Int64
             ) {
                 self.optionId = optionId
@@ -12560,12 +12560,12 @@ public enum Components {
             /// 逐题作答，顺序无关（后端按 questionId 匹配）
             ///
             /// - Remark: Generated from `#/components/schemas/TrainingQuizSubmitRequest/answers`.
-            public var answers: [Components.Schemas.TrainingQuizAnswer]?
+            public var answers: [Components.Schemas.TrainingQuizAnswer]
             /// Creates a new `TrainingQuizSubmitRequest`.
             ///
             /// - Parameters:
             ///   - answers: 逐题作答，顺序无关（后端按 questionId 匹配）
-            public init(answers: [Components.Schemas.TrainingQuizAnswer]? = nil) {
+            public init(answers: [Components.Schemas.TrainingQuizAnswer]) {
                 self.answers = answers
             }
             public enum CodingKeys: String, CodingKey {
@@ -12758,17 +12758,17 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest`.
         public struct VerifyCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest/code`.
-            public var code: Swift.String?
+            public var code: Swift.String
             /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest/phone`.
-            public var phone: Swift.String?
+            public var phone: Swift.String
             /// Creates a new `VerifyCodeRequest`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - phone:
             public init(
-                code: Swift.String? = nil,
-                phone: Swift.String? = nil
+                code: Swift.String,
+                phone: Swift.String
             ) {
                 self.code = code
                 self.phone = phone
@@ -13069,7 +13069,7 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot`.
         public struct VolunteerAvailableTimeSlot: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/dayOfWeek`.
-            public var dayOfWeek: Swift.String?
+            public var dayOfWeek: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/endTime`.
             public var endTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/startTime`.
@@ -13081,7 +13081,7 @@ public enum Components {
             ///   - endTime:
             ///   - startTime:
             public init(
-                dayOfWeek: Swift.String? = nil,
+                dayOfWeek: Swift.String,
                 endTime: Swift.String,
                 startTime: Swift.String
             ) {
@@ -13920,9 +13920,8 @@ public enum Components {
         /// ⚠️ 2026-09-25 起（#350）`availableTimeSlots` 不传不再清空。此前不传也会删掉全部时段、照样返回 200，
         /// 而时间重叠是派单的硬过滤 ⇒ 志愿者会静默收不到派单。
         ///
-        /// ⚠️ `name` 必填（DTO `@NotBlank`，不传返回 400），但**刻意不写进 `required` 数组**：
-        /// oasdiff 契约门把「请求字段变必填」判为破坏性变更（`request-property-became-required`），
-        /// 而服务端行为从来就是必填，改的只是文档 —— 为此绕门不值得，也免得 iOS 生成代码的签名跟着变。
+        /// `name` 必填（DTO `@NotBlank`，不传返回 400）。2026-10-06 升 springdoc 2.9.1 后契约如实标进 `required`
+        /// （此前刻意不标，理由是 oasdiff 门与 iOS 生成代码签名；已核 iOS App 代码未使用生成客户端，oasdiff 那条按豁免流程登记）。
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest`.
         public struct VolunteerProfileUpdateRequest: Codable, Hashable, Sendable {
@@ -13937,7 +13936,7 @@ public enum Components {
             /// 必填（不传或空白返回 400），见 schema 描述里的说明
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/name`.
-            public var name: Swift.String?
+            public var name: Swift.String
             /// 可适应的配速档位。不传 = 保留原值
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/paceRange`.
@@ -13967,7 +13966,7 @@ public enum Components {
             public init(
                 acceptsGuideDog: Swift.Bool? = nil,
                 availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]? = nil,
-                name: Swift.String? = nil,
+                name: Swift.String,
                 paceRange: Components.Schemas.VolunteerProfileUpdateRequest.paceRangePayload? = nil,
                 wantsDispatch: Swift.Bool? = nil
             ) {
