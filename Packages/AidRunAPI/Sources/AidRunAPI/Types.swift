@@ -13206,6 +13206,18 @@ public enum Components {
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot`.
         public struct VolunteerAvailableTimeSlot: Codable, Hashable, Sendable {
+            /// 只在这一天有空（`yyyy-MM-dd`）；不传 / `null` = 每周重复。给了它，`dayOfWeek` 必须是这一天的星期几。
+            /// 一次性时段是**叠加**的：只放宽、不收紧 —— 一条每周时段都没填的志愿者仍然是「随时可接」，
+            /// 只加了一个一次性时段不会变成「只有那天才接」。
+            /// 过期的一次性时段后端**不清理**（匹配时按日期自然失效），客户端列表里自己过滤；
+            /// 整体替换 `PUT /api/volunteer/profile` 时别把过期项再传回来。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/date`.
+            public var date: Swift.String?
+            /// 星期几（`MONDAY`…`SUNDAY`），必填。每周重复的时段就是重复的那天；
+            /// 一次性时段（给了 `date`）时必须是 `date` 那天的星期几，对不上返回 400。
+            /// 响应里一次性时段也带它，所以读响应时必须先看 `date` 是否非空，别只认 `dayOfWeek`。
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/dayOfWeek`.
             public var dayOfWeek: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/endTime`.
@@ -13215,19 +13227,23 @@ public enum Components {
             /// Creates a new `VolunteerAvailableTimeSlot`.
             ///
             /// - Parameters:
-            ///   - dayOfWeek:
+            ///   - date: 只在这一天有空（`yyyy-MM-dd`）；不传 / `null` = 每周重复。给了它，`dayOfWeek` 必须是这一天的星期几。
+            ///   - dayOfWeek: 星期几（`MONDAY`…`SUNDAY`），必填。每周重复的时段就是重复的那天；
             ///   - endTime:
             ///   - startTime:
             public init(
+                date: Swift.String? = nil,
                 dayOfWeek: Swift.String,
                 endTime: Swift.String,
                 startTime: Swift.String
             ) {
+                self.date = date
                 self.dayOfWeek = dayOfWeek
                 self.endTime = endTime
                 self.startTime = startTime
             }
             public enum CodingKeys: String, CodingKey {
+                case date
                 case dayOfWeek
                 case endTime
                 case startTime
