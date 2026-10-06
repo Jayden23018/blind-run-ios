@@ -305,7 +305,11 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/active`.
     /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)`.
     func activeOrder(_ input: Operations.activeOrder.Input) async throws -> Operations.activeOrder.Output
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
@@ -1699,7 +1703,11 @@ extension APIProtocol {
     public func activeOrder(headers: Operations.activeOrder.Input.Headers = .init()) async throws -> Operations.activeOrder.Output {
         try await activeOrder(Operations.activeOrder.Input(headers: headers))
     }
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
@@ -13177,6 +13185,8 @@ public enum Components {
                 case name
             }
         }
+        /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
+        ///
         /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder`.
         public struct VolunteerDispatchActiveOrder: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/acceptedAt`.
@@ -13321,6 +13331,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/acceptanceRate`.
             public var acceptanceRate: Swift.Double?
+            /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/activeOrders`.
             public var activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]?
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/availableTimeSlots`.
@@ -13399,7 +13411,7 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - acceptanceRate: 接单率 0.0-1.0（null=无派单记录）
-            ///   - activeOrders:
+            ///   - activeOrders: 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
             ///   - availableTimeSlots:
             ///   - avgRating: 平均评分 1.0-5.0（null=无评价）
             ///   - canDispatch: 系统判定当前是否可被派单
@@ -18054,7 +18066,11 @@ public enum Operations {
             }
         }
     }
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
