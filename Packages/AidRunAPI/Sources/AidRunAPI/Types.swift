@@ -766,16 +766,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/rhythm`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)`.
     func sendRhythmSignal(_ input: Operations.sendRhythmSignal.Input) async throws -> Operations.sendRhythmSignal.Output
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -2384,16 +2388,20 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -5499,7 +5507,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/name`.
-            public var name: Swift.String?
+            public var name: Swift.String
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/runningPace`.
             public var runningPace: Swift.String?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/specialNeeds`.
@@ -5541,7 +5549,7 @@ public enum Components {
                 defaultPace: Components.Schemas.BlindProfileUpdateRequest.defaultPacePayload? = nil,
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDog: Swift.Bool? = nil,
-                name: Swift.String? = nil,
+                name: Swift.String,
                 runningPace: Swift.String? = nil,
                 specialNeeds: Swift.String? = nil,
                 tetherPreference: Components.Schemas.BlindProfileUpdateRequest.tetherPreferencePayload? = nil,
@@ -5572,17 +5580,17 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest`.
         public struct BlindVerifyRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest/idCardName`.
-            public var idCardName: Swift.String?
+            public var idCardName: Swift.String
             /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest/idCardNumber`.
-            public var idCardNumber: Swift.String?
+            public var idCardNumber: Swift.String
             /// Creates a new `BlindVerifyRequest`.
             ///
             /// - Parameters:
             ///   - idCardName:
             ///   - idCardNumber:
             public init(
-                idCardName: Swift.String? = nil,
-                idCardNumber: Swift.String? = nil
+                idCardName: Swift.String,
+                idCardNumber: Swift.String
             ) {
                 self.idCardName = idCardName
                 self.idCardNumber = idCardNumber
@@ -7170,7 +7178,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/orderId`.
             public var orderId: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/pushToken`.
-            public var pushToken: Swift.String?
+            public var pushToken: Swift.String
             /// Creates a new `LiveActivityTokenRequest`.
             ///
             /// - Parameters:
@@ -7178,7 +7186,7 @@ public enum Components {
             ///   - pushToken:
             public init(
                 orderId: Swift.Int64,
-                pushToken: Swift.String? = nil
+                pushToken: Swift.String
             ) {
                 self.orderId = orderId
                 self.pushToken = pushToken
@@ -11594,12 +11602,12 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/SendCodeRequest`.
         public struct SendCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SendCodeRequest/phone`.
-            public var phone: Swift.String?
+            public var phone: Swift.String
             /// Creates a new `SendCodeRequest`.
             ///
             /// - Parameters:
             ///   - phone:
-            public init(phone: Swift.String? = nil) {
+            public init(phone: Swift.String) {
                 self.phone = phone
             }
             public enum CodingKeys: String, CodingKey {
@@ -12462,7 +12470,7 @@ public enum Components {
             /// 选中的选项标识，取自课程详情的 `options[].id`
             ///
             /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/optionId`.
-            public var optionId: Swift.String?
+            public var optionId: Swift.String
             /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/questionId`.
             public var questionId: Swift.Int64
             /// Creates a new `TrainingQuizAnswer`.
@@ -12471,7 +12479,7 @@ public enum Components {
             ///   - optionId: 选中的选项标识，取自课程详情的 `options[].id`
             ///   - questionId:
             public init(
-                optionId: Swift.String? = nil,
+                optionId: Swift.String,
                 questionId: Swift.Int64
             ) {
                 self.optionId = optionId
@@ -12560,12 +12568,12 @@ public enum Components {
             /// 逐题作答，顺序无关（后端按 questionId 匹配）
             ///
             /// - Remark: Generated from `#/components/schemas/TrainingQuizSubmitRequest/answers`.
-            public var answers: [Components.Schemas.TrainingQuizAnswer]?
+            public var answers: [Components.Schemas.TrainingQuizAnswer]
             /// Creates a new `TrainingQuizSubmitRequest`.
             ///
             /// - Parameters:
             ///   - answers: 逐题作答，顺序无关（后端按 questionId 匹配）
-            public init(answers: [Components.Schemas.TrainingQuizAnswer]? = nil) {
+            public init(answers: [Components.Schemas.TrainingQuizAnswer]) {
                 self.answers = answers
             }
             public enum CodingKeys: String, CodingKey {
@@ -12758,17 +12766,17 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest`.
         public struct VerifyCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest/code`.
-            public var code: Swift.String?
+            public var code: Swift.String
             /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest/phone`.
-            public var phone: Swift.String?
+            public var phone: Swift.String
             /// Creates a new `VerifyCodeRequest`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - phone:
             public init(
-                code: Swift.String? = nil,
-                phone: Swift.String? = nil
+                code: Swift.String,
+                phone: Swift.String
             ) {
                 self.code = code
                 self.phone = phone
@@ -13069,7 +13077,7 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot`.
         public struct VolunteerAvailableTimeSlot: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/dayOfWeek`.
-            public var dayOfWeek: Swift.String?
+            public var dayOfWeek: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/endTime`.
             public var endTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/startTime`.
@@ -13081,7 +13089,7 @@ public enum Components {
             ///   - endTime:
             ///   - startTime:
             public init(
-                dayOfWeek: Swift.String? = nil,
+                dayOfWeek: Swift.String,
                 endTime: Swift.String,
                 startTime: Swift.String
             ) {
@@ -13920,9 +13928,8 @@ public enum Components {
         /// ⚠️ 2026-09-25 起（#350）`availableTimeSlots` 不传不再清空。此前不传也会删掉全部时段、照样返回 200，
         /// 而时间重叠是派单的硬过滤 ⇒ 志愿者会静默收不到派单。
         ///
-        /// ⚠️ `name` 必填（DTO `@NotBlank`，不传返回 400），但**刻意不写进 `required` 数组**：
-        /// oasdiff 契约门把「请求字段变必填」判为破坏性变更（`request-property-became-required`），
-        /// 而服务端行为从来就是必填，改的只是文档 —— 为此绕门不值得，也免得 iOS 生成代码的签名跟着变。
+        /// `name` 必填（DTO `@NotBlank`，不传返回 400）。2026-10-06 升 springdoc 2.9.1 后契约如实标进 `required`
+        /// （此前刻意不标，理由是 oasdiff 门与 iOS 生成代码签名；已核 iOS App 代码未使用生成客户端，oasdiff 那条按豁免流程登记）。
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest`.
         public struct VolunteerProfileUpdateRequest: Codable, Hashable, Sendable {
@@ -13937,7 +13944,7 @@ public enum Components {
             /// 必填（不传或空白返回 400），见 schema 描述里的说明
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/name`.
-            public var name: Swift.String?
+            public var name: Swift.String
             /// 可适应的配速档位。不传 = 保留原值
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/paceRange`.
@@ -13967,7 +13974,7 @@ public enum Components {
             public init(
                 acceptsGuideDog: Swift.Bool? = nil,
                 availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]? = nil,
-                name: Swift.String? = nil,
+                name: Swift.String,
                 paceRange: Components.Schemas.VolunteerProfileUpdateRequest.paceRangePayload? = nil,
                 wantsDispatch: Swift.Bool? = nil
             ) {
@@ -24172,16 +24179,20 @@ public enum Operations {
             }
         }
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -24393,7 +24404,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 订单不在已到达（`ORDER_STATUS_NOT_ALLOWED`）
+            /// 订单不在已到达或陪跑中（`ORDER_STATUS_NOT_ALLOWED`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/409`.
             ///
