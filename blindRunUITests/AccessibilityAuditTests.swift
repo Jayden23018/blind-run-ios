@@ -1785,9 +1785,14 @@ final class AccessibilityAuditTests: XCTestCase {
         // 滚到栏后面的卡片被整个挡住，可审计仍按它的坐标取像素 —— 取到的全是栏的底色，于是判「对比度不足」
         // （2026-09-27 真机：「跑者还没有发来节奏」那张卡，元素截图里只有栏的分隔线）。
         // 判据是几何不是文案：**整个落在栏上沿以下**的元素才放过，露出一截的照样审。
+        // 2026-10-06（#349）盲人订单页的底栏同理：「求助与安全」那条是不透明栏，横屏下 v2 头卡把副文与信息卡
+        // 推到它后面，元素截图里只有栏的红边与粉底（「系统正在派单，请稍候。」「时间」两条）。
         let occludingBarTop: CGFloat? = {
-            let bar = app.descendants(matching: .any)["volunteerRunningBottomBar"].firstMatch
-            return bar.exists ? bar.frame.minY : nil
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar"] {
+                let bar = app.descendants(matching: .any)[id].firstMatch
+                if bar.exists { return bar.frame.minY }
+            }
+            return nil
         }()
         try app.performAccessibilityAudit(
             for: [

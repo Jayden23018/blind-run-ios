@@ -316,7 +316,12 @@ struct RopeView: View {
 
     private func hollowAvatar(initial: String, radius r: CGFloat, scale s: CGFloat) -> some View {
         Text(initial)
-            .font(.system(size: 17 * s, weight: .bold))
+            // 跟随 Dynamic Type（同 `FlowAvatar`）；圆的直径由绳子几何定死，大字号下靠
+            // `minimumScaleFactor` 缩回圆里。写死 `.system(size:)` 会被无障碍审计判「改不了字号」——
+            // 读屏隐藏的字照样被审计（2026-10-06 盲人订单页横屏审计红出来的）。
+            .flowFont(size: 17 * s, weight: .bold, relativeTo: .footnote)
+            .minimumScaleFactor(0.4)
+            .lineLimit(1)
             .foregroundColor(colors.hollowInitial)
             .frame(width: 2 * r - 2 * s, height: 2 * r - 2 * s)
             .background(Circle().fill(colors.hollowFill))
@@ -343,7 +348,12 @@ struct RopeView: View {
         initial: String, fill: Color, text: Color, stroke: Color? = nil, radius r: CGFloat, scale s: CGFloat
     ) -> some View {
         Text(initial)
-            .font(.system(size: 17 * s, weight: .bold))
+            // 跟随 Dynamic Type（同 `FlowAvatar`）；圆的直径由绳子几何定死，大字号下靠
+            // `minimumScaleFactor` 缩回圆里。写死 `.system(size:)` 会被无障碍审计判「改不了字号」——
+            // 读屏隐藏的字照样被审计（2026-10-06 盲人订单页横屏审计红出来的）。
+            .flowFont(size: 17 * s, weight: .bold, relativeTo: .footnote)
+            .minimumScaleFactor(0.4)
+            .lineLimit(1)
             .foregroundColor(text)
             .frame(width: 2 * r, height: 2 * r)
             .background(Circle().fill(fill))

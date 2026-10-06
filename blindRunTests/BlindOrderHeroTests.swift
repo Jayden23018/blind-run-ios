@@ -7,6 +7,11 @@ import XCTest
 /// 只验**哪句话放到了哪个位置、绳子画到第几格、读屏念什么** —— 这些放错了屏幕上不报任何错。
 final class BlindOrderHeroTests: XCTestCase {
 
+    /// 「拿不到开跑时间」。**不能传 `nil`**：`OrderDetailResponse.preview` 把 `nil` 补成「明天 7:00」
+    /// （`OrderDetailResponse+Preview.swift:54`），第一次真机跑这三条就是因此假设落空而红的。
+    /// 空串原样保留，`backendTimestamp` 解析不出 ⇒ 走「没有时间」那一支，与后端给了空值时同一条路。
+    private static let noStart = ""
+
     /// 固定在上午 8 点：「明天」+「早上」两段都能落在确定的取值上。
     private var now: Date {
         Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 6, hour: 8))!
@@ -51,7 +56,7 @@ final class BlindOrderHeroTests: XCTestCase {
     }
 
     func testBookedOrderWithoutStartFallsBackToThePresentationTitle() throws {
-        let (hero, presentation) = hero(.pendingAccept, plannedStart: nil)
+        let (hero, presentation) = hero(.pendingAccept, plannedStart: Self.noStart)
         let result = try XCTUnwrap(hero)
 
         XCTAssertNil(result.number, "拿不到时间不摆占位时间")
@@ -62,7 +67,7 @@ final class BlindOrderHeroTests: XCTestCase {
     // MARK: - 其余三格：presentation 的标题当主角，开跑时刻进小标题
 
     func testMatchingUsesTheInvitedRopeAndThePresentationTitle() throws {
-        let (hero, presentation) = hero(.pendingMatch, volunteerName: nil)
+        let (hero, presentation) = hero(.pendingMatch, plannedStart: Self.noStart, volunteerName: nil)
         let result = try XCTUnwrap(hero)
 
         XCTAssertEqual(result.rope, .invited)
@@ -104,7 +109,7 @@ final class BlindOrderHeroTests: XCTestCase {
 
     /// 三个数字走 announcement 通道。进了合成标签，焦点所在元素就会每秒换一次内容。
     func testCountdownShowsTheBeatButDoesNotSpeakIt() throws {
-        let result = try XCTUnwrap(hero(.inProgress, countdown: 3).0)
+        let result = try XCTUnwrap(hero(.inProgress, plannedStart: Self.noStart, countdown: 3).0)
 
         XCTAssertEqual(result.number, "3")
         XCTAssertEqual(result.countdownBeat, 3)

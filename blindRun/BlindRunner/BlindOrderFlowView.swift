@@ -117,6 +117,11 @@ struct BlindOrderFlowView<Footer: View>: View {
                 volunteerInitial: volunteerInitial,
                 perspective: .runner
             )
+            // 限宽：绳子按 342×56 等比铺满容器，横屏下会长成占满整张头卡的大图，
+            // 把正文挤到滚动区底边以外（2026-10-06 横屏审计因此判「正在匹配陪跑员」对比度不足 ——
+            // 取到的是被切开的半行字）。竖屏容器本来就比这个窄，不受影响。
+            .frame(maxWidth: RopeGeometry.width * 1.2)
+            .frame(maxWidth: .infinity)
             heroBody(hero)
         }
     }
