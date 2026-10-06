@@ -10,4 +10,4 @@
 
 - [x] 2.1 `build-for-testing` 编译通过；`openspec validate --all --strict`。
 - [x] 2.2 真机跑 `BlindOrderHeroTests`、`BlindOrderFlowPresentationTests`、`BlindRunPhaseTests` 与订单页相关 UI 用例（负责人：改完一起测）。
-- [ ] 2.3 真机目视四屏 + 倒计时 + 跑步中，含 AX5 与深色。
+- [x] 2.3 真机目视四屏 + 倒计时 + 跑步中，含 AX5 与深色。
