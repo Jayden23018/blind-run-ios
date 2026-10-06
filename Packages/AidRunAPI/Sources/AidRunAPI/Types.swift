@@ -766,16 +766,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/rhythm`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)`.
     func sendRhythmSignal(_ input: Operations.sendRhythmSignal.Input) async throws -> Operations.sendRhythmSignal.Output
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -2384,16 +2388,20 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -24171,16 +24179,20 @@ public enum Operations {
             }
         }
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -24392,7 +24404,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 订单不在已到达（`ORDER_STATUS_NOT_ALLOWED`）
+            /// 订单不在已到达或陪跑中（`ORDER_STATUS_NOT_ALLOWED`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/409`.
             ///
