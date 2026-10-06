@@ -269,6 +269,18 @@ const cases = [
       return out.includes('FAIL=0') ? null : `读不到契约不该判 push 失败：\n${out}`;
     },
   },
+  {
+    // 2026-10-06：末行写成 `[ "$TIERED_OUT" = "1" ] && echo …`，全量模式（不分档）下条件不成立，
+    // 脚本以 1 结束 ⇒ 门禁全过、推送仍被中止，git 只说一句 failed to push some refs。
+    // 只在改到 scripts/ 或 .claude/ 的分支上出现（那时才走全量），所以平时撞不到。
+    name: 'pre-push 正文的最后一条命令必须是 `exit 0`（不能让一个尾随的条件判断决定退出码）',
+    check: () => {
+      const body = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'hooks', 'pre-push.sh'), 'utf8');
+      const lines = body.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+      const last = lines[lines.length - 1];
+      return last === 'exit 0' ? null : `最后一条有效命令是：${last}`;
+    },
+  },
 ];
 
 let failed = 0;

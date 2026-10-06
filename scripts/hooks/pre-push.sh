@@ -253,4 +253,10 @@ if [ "$SKIPPED_GATES" -ne 0 ]; then
 else
   echo "[pre-push] 通过。提醒：编译通过 ≠ 测试通过，真机跑测用 scripts/device-test.sh。"
 fi
-[ "$TIERED_OUT" = "1" ] && echo "[pre-push] 有按分档跳过的项（见上），CI 会补跑；本地要全量：AIDRUN_PREPUSH_FULL=1 git push"
+# 🔴 写成 `if` 而不是 `[ … ] && echo`：后者在条件不成立时以 1 结束，而它是脚本最后一条命令，
+# 于是**全量模式（不分档）下门禁全过、推送仍被中止**，git 只说一句 failed to push some refs。
+# 2026-10-06 改到 scripts/ 的分支因此推不上去。末尾显式 exit 0，免得以后再在后面追加一行条件判断。
+if [ "$TIERED_OUT" = "1" ]; then
+  echo "[pre-push] 有按分档跳过的项（见上），CI 会补跑；本地要全量：AIDRUN_PREPUSH_FULL=1 git push"
+fi
+exit 0
