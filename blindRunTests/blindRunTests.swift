@@ -3907,7 +3907,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
-            "志愿者已到达，请等待志愿者开始服务。"
+            RunOrderStatus.blindRunnerArrivedCopy
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .pendingAccept),
@@ -5090,10 +5090,9 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertFalse(RunOrderStatus.driverArrived.canFinishService)
         XCTAssertTrue(RunOrderStatus.inProgress.canFinishService)
-        XCTAssertEqual(
-            RunOrderStatus.driverArrived.finishBlockedMessage,
-            RunOrderStatus.driverArrived.arrivedWaitingCopy
-        )
+        // 这一句只给陪跑员听：不许再说「请等待志愿者」（原先与盲人端共用一句）。
+        XCTAssertTrue(RunOrderStatus.driverArrived.finishBlockedMessage.contains("开始跑步"))
+        XCTAssertFalse(RunOrderStatus.driverArrived.finishBlockedMessage.contains("等待志愿者"))
     }
 
     func testVolunteerAcceptGuardRequiresCompleteProfile() {
@@ -5289,8 +5288,8 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.complete()
 
-        XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.driverArrived.arrivedWaitingCopy)
-        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.arrivedWaitingCopy)
+        XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.driverArrived.finishBlockedMessage)
+        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.finishBlockedMessage)
     }
 
     func testVolunteerInServiceStartsServiceFromDriverArrived() async throws {

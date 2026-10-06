@@ -320,12 +320,9 @@ final class BlindRunPhaseTests: XCTestCase {
     /// 那一幕的底部就从两个按钮变成一个，「求助与安全」整块上移约 76pt ——
     /// 而视障用户靠的就是那块的物理位置。
     ///
-    /// ⚠️ 已知缺口（**不是这次改出来的**）：① 汇合的主按钮是「打电话给张伟」，
-    /// 拿不到可拨号码时这一格是空的。后端契约保证 `volunteerPhone`
-    /// 「要么能直接拨通，要么是 `null`，永远不会是掩码串」，而 `DRIVER_ARRIVED`
-    /// 在 `allowsCounterpartCall()` 里判 true ⇒ 实际路径上恒有号码。真为 null 时
-    /// 版位会空 —— 记在这里，等 §2-H（后端放开盲人 token 调 `/start-service`）
-    /// 一并解决：那时 ① 的主按钮变成恒存在的「开始跑步」，缺口自然消失。
+    /// 原先记着一个缺口：① 汇合的主按钮是「打电话给张伟」，号码为 null 时这一格是空的。
+    /// 2026-10-06 起 ① 的主按钮是不依赖号码的「开始跑步」（后端 #346），缺口已收口；
+    /// 号码为 null 的那一种由 `BlindStartRunTests.testMetUpPrimaryActionDoesNotDependOnAPhoneNumber` 钉着。
     func testTheMainButtonSlotIsFilledInAllThreeScenes() {
         let scenes: [(String, BlindOrderFlowPresentation)] = [
             ("① 汇合", make(.driverArrived)),

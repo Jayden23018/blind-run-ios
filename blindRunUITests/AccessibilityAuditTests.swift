@@ -1391,6 +1391,48 @@ final class AccessibilityAuditTests: XCTestCase {
         dismiss.tap()
     }
 
+    /// 汇合态的主按钮是「开始跑步」，按下去真的开跑（后端 #346：盲人按下 = 同意 + 开始）。
+    ///
+    /// 单测（`BlindStartRunTests`）钉的是「按钮是什么」与 view model 发不发请求；
+    /// 这一条钉的是**中间那根线**：按钮 → `handleFlowPrimaryAction` → `startRun` →
+    /// 订单推进到 `IN_PROGRESS` → 倒计时 → 主按钮原位换成「播报当前数据」。
+    /// 任何一环没接上，屏幕上的表现都是「点了没反应」—— 对盲人端那就是事故。
+    ///
+    /// 点之前先确认按钮在屏内、可点：底部常驻的「求助与安全」就在它正下方，
+    /// 点偏了会弹出求助层（记忆 `ui-test-tap-lands-on-persistent-sos-bar`）。
+    @MainActor
+    func testBlindRunnerCanStartTheRunFromTheArrivalScreen() throws {
+        let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "DRIVER_ARRIVED")
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+
+        let primary = app.descendants(matching: .any)["blindOrderFlowPrimaryButton"].firstMatch
+        XCTAssertTrue(primary.waitForExistence(timeout: 15), "汇合态没有主按钮")
+        XCTAssertEqual(primary.label, "开始跑步", "汇合态的主按钮不是「开始跑步」")
+        XCTAssertGreaterThanOrEqual(
+            primary.frame.height, Self.minimumBlindPrimaryButtonHeight,
+            "盲人端主动作触达高度不得低于 64pt"
+        )
+        XCTAssertLessThanOrEqual(primary.frame.maxY, app.frame.maxY, "主按钮要下滑才够得到")
+        XCTAssertTrue(primary.isHittable, "主按钮被盖住了，点下去会落到别的东西上")
+
+        primary.tap()
+
+        // 先是原位的「准备中」（请求在途 + 三秒倒计时）。只等最终文案的话，倒计时被整个跳过也照样通过。
+        let preparing = NSPredicate(format: "label == %@", "准备中")
+        wait(for: [expectation(for: preparing, evaluatedWith: primary)], timeout: 5)
+
+        // 倒计时三秒后，主按钮原位换成跑步中的「播报当前数据」。
+        let running = NSPredicate(format: "label == %@", "播报当前数据")
+        let became = expectation(for: running, evaluatedWith: primary)
+        wait(for: [became], timeout: 15)
+        XCTAssertFalse(
+            app.staticTexts["紧急呼叫"].exists,
+            "点开始跑步却弹出了紧急呼叫 —— 点击落在了求助条上"
+        )
+    }
+
     /// 求助中心（屏 2）打开后，**读屏第一个念到的必须是「一键求助」**。
     ///
     /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠的是**声明顺序**

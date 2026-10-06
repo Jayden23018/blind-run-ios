@@ -79,6 +79,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// `BlindOrderFlowPresentation.phase(order:countdown:)`。
     @Published private(set) var runCountdown: Int?
 
+    /// 「开始跑步」的请求在途（含成功后重拉订单那一段）。
+    ///
+    /// 存在的理由是一条红线：蜂窝网络慢时这一段可能十几秒，此前按钮外观不变、
+    /// 再按被 guard 静默吞掉 —— 「点了没反应」。在途时主按钮原位变成不可点的「准备中」
+    /// （`BlindOrderFlowPresentation.primaryAction`），成功后与倒计时那三秒是同一个样子，无缝接上。
+    /// 不复用 `isPerformingAction`：那个标记别的动作也在用，混用会让开跑按钮跟着它们变灰。
+    @Published private(set) var isStartingRun = false
+
     private var runCountdownTask: Task<Void, Never>?
 
     /// `/track` 上一次拉的时刻。`nil` = 下一轮立刻拉。
@@ -535,6 +543,50 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    /// 汇合态的「开始跑步」：`POST /start-service`，盲人按下 = 同意 + 开始（后端 #346）。
+    ///
+    /// 成功后**只重拉订单**，不在这里起倒计时：倒计时挂在 `DRIVER_ARRIVED → IN_PROGRESS`
+    /// 这次转移上（`updateRunCountdown`），陪跑员先按时走的也是同一条路。两处各起一次
+    /// 会在「两人几乎同时按」时数两遍。
+    ///
+    /// 不单独调 `/confirm-start`：开始本身就记下了盲人的同意（契约写 `blindStartConfirmedAt`）。
+    ///
+    /// 错误分三种，处理不同：
+    /// - `SERVICE_START_TOO_EARLY`：念映射文案，不在客户端算「还差几分钟」——
+    ///   后端没下发最早可开始时刻（后端 #307 ②），自己减就是把阈值抄一份。
+    /// - `ORDER_STATUS_NOT_ALLOWED`：本地状态过期（例如陪跑员刚取消），刷新而不是重试。
+    ///   另一端先开始了**不会**走到这里：契约规定那种情况两端都回 200。
+    /// - 其余：念出来，按钮留着可以再按（接口幂等）。
+    func startRun() async {
+        guard let order, let appState, order.status.canStartService, !isStartingRun else { return }
+        isStartingRun = true
+        defer { isStartingRun = false }
+        errorMessage = nil
+        // 按下去先给一句：成功之前可能要等网络，而读屏焦点停在按钮上时，按钮文字变了不会自动重读。
+        speechService?.speak(BlindRunCopy.startingAnnouncement)
+        do {
+            try await appState.orders.startService(orderId: order.orderId)
+            // 重拉在 `isStartingRun` 复位之前做：重拉回来之前订单还是 `DRIVER_ARRIVED`，
+            // 按钮若先恢复成可点，这一段里还能再发一次。
+            await loadOrder(orderId: order.orderId, speakChanges: true)
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            let message = error.localizedMessage
+            speechService?.speakError(message)
+            if error.errorCode == .invalidOrderStatus {
+                await loadOrder(orderId: order.orderId, speakChanges: true)
+            }
+            // 在重拉**之后**设：`loadOrder` 第一步会清空 `errorMessage`（同 `cancelOrder` 的写法）。
+            errorMessage = message
+        } catch {
+            let message = BlindRunCopy.startRunFailed
+            speechService?.speakError(message)
+            errorMessage = message
+        }
+    }
+
     func cancelOrder() async {
         guard let order, let appState else { return }
         guard order.status.canBlindRunnerCancel else {
@@ -950,13 +1002,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     /// 汇合 → 跑步中那三秒倒计时。
     ///
-    /// 🔴 **触发点是「志愿者把状态推到了 `IN_PROGRESS`」，不是盲人按了什么。**
-    /// 设计稿写的是「任一端按下开始跑步（双方都能按，先按的生效）」，而后端
-    /// `OrderLifecycleService.startService` 走的是 `loadForVolunteer(...)`，盲人 token
-    /// 一律被判 `NOT_ORDER_PARTICIPANT`（403）—— 盲人端根本调不动 `/start-service`。
-    /// 所以这一端没有「开始跑步」按钮（① 汇合的主按钮仍是「打电话给张伟」），
-    /// 倒计时改挂在状态推进上。**已投 handoff 请后端放开盲人 token**；放开之后
-    /// 只需在 ① 加一枚按钮调 `orders.startService`，这里一行都不用改。
+    /// 🔴 **触发点是「状态推到了 `IN_PROGRESS`」，不是谁按了什么。**
+    /// 设计稿写的是「任一端按下开始跑步（双方都能按，先按的生效）」：盲人自己按
+    /// （`startRun`，后端 #346 起盲人 token 可调 `/start-service`）与陪跑员先按，
+    /// 落到这里的都是同一次状态转移 —— 所以倒计时只在这一处起，两种路径不会各数一遍。
     ///
     /// 两条边界都要守住，而且方向相反：
     /// - `previousStatus == nil` ⇒ **冷启动进来时已经在跑了**，不倒数。中途进页面的人
@@ -1669,7 +1718,8 @@ struct BlindOrderStatusView: View {
             distanceText: viewModel.volunteerDistanceToStartText,
             canKeepWaiting: viewModel.canShowKeepWaiting,
             locationWarning: flowLocationWarning,
-            countdown: viewModel.runCountdown
+            countdown: viewModel.runCountdown,
+            isStartingRun: viewModel.isStartingRun
         )
     }
 
@@ -1881,6 +1931,11 @@ struct BlindOrderStatusView: View {
             introCallPresentation.isShowing = true
         case .keepWaiting:
             Task { await viewModel.keepWaiting() }
+        case .startRun:
+            Task { await viewModel.startRun() }
+        case .startRunLocked:
+            // 不可按（`.disabled()`），走不到这里。显式分支理由同 `.preparing`。
+            break
         case .announceStats:
             // 与导航栏那枚「重复当前状态」是**同一个函数**：`repeatStatus` 播的就是
             // 状态 + 里程 / 时长 / 配速（用播报口径，不是屏幕上那个 `9'06"`）。
@@ -2374,7 +2429,7 @@ struct BlindOrderStatusView: View {
         switch order.status.blindRunnerRoute {
         case .tracking, .inService, .terminal:
             // 这三条分支此前各渲染一张「标题 + 正文」卡片，正文都与 `statusHeader` 重复：
-            //   · `DRIVER_ARRIVED` 的 `arrivedWaitingCopy` **就是**它的 `blindRunnerDescription`
+            //   · `DRIVER_ARRIVED` 当时的 `arrivedWaitingCopy`（2026-10-06 已删）**就是**它的 `blindRunnerDescription`
             //     （`OrderDisplayHelpers.swift:77` 直接 return 了它）—— 逐字重复
             //   · `IN_PROGRESS` 那句「请与志愿者保持沟通，注意安全。系统会持续同步订单状态，
             //     服务完成后进入评价页面。」33 个字里没有一个能让盲人做出动作：
