@@ -340,9 +340,16 @@ final class IncentiveAdoptionTests: XCTestCase {
     }
 
     /// 退出的二次确认必须把后果写进正文 —— 后端点名要求不要只做「确定 / 取消」。
-    func testOptOutConfirmationSpellsOutTheConsequence() {
-        XCTAssertTrue(PartnerStreakCopy.optOutConfirmMessage.contains("不再被优先派给"))
-        XCTAssertTrue(PartnerStreakCopy.optOutConfirmMessage.contains("重新一起跑一单"))
+    /// 退出本轮不可撤销（契约），#327 之前的正文承诺「重新一起跑一单才能恢复」，后端从没实现。
+    func testOptOutConfirmationSpellsOutTheConsequenceAndNeverPromisesAWayBack() {
+        let message = PartnerStreakCopy.optOutConfirmMessage
+        XCTAssertTrue(message.contains("无法撤销"))
+        XCTAssertTrue(message.contains("固定搭档"), "后果①：不进固定搭档那一轮")
+        XCTAssertTrue(message.contains("加分"), "后果②：不再获得派单加分")
+        XCTAssertTrue(message.contains("停止累积"), "后果③：连续记录停止")
+        XCTAssertFalse(message.contains("恢复"), message)
+        XCTAssertFalse(message.contains("重新一起跑"), message)
+        XCTAssertNotEqual(PartnerStreakCopy.optOutCancel, "取消")
     }
 
     /// 开关**开着**时，空态说的是火花怎么来的（一起跑完订单就会结算），
@@ -403,7 +410,8 @@ final class IncentiveAdoptionTests: XCTestCase {
         let copies = [
             PartnerStreakCopy.favoriteExplanation,
             PartnerStreakCopy.favoriteAdded("张*"),
-            PartnerStreakCopy.addFavoriteTitle("张*")
+            PartnerStreakCopy.addFavoriteTitle("张*"),
+            PartnerStreakCopy.optOutConfirmMessage
         ]
         for copy in copies {
             XCTAssertFalse(copy.contains("优先派"), "不得承诺优先派单：\(copy)")

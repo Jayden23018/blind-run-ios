@@ -437,11 +437,16 @@ enum PartnerStreakCopy {
     static let optOutConfirmTitle = "退出固定搭档？"
 
     /// 🔴 后端点名要求：**不要只做一个「确定/取消」弹窗**，后果要写进正文，
-    /// 而且必须是读屏能念清楚的一整句。退出是单方面且当前不可撤销的。
-    static let optOutConfirmMessage = "退出后你将不再被优先派给这位跑者，且需要重新一起跑一单才能恢复。"
+    /// 而且必须是读屏能念清楚的一整句。
+    ///
+    /// 三个后果逐条对应契约 `DELETE /api/volunteer/favorites/{blindUserId}`：不进固定搭档优先轮、
+    /// 不再获得派单加分、双人火花停止累积。**本轮不可撤销**，也没有「再跑一单就恢复」的路径
+    /// （#327：原文这么承诺过，后端从没实现）。不写「优先派」：收藏只是加分，不是承诺（同 `favoriteExplanation`）。
+    static let optOutConfirmMessage = "退出后无法撤销。系统派这位跑者的订单时，不再把你当作固定搭档先问你，也不再给你加分；你们连续一起跑步的记录会停止累积。"
 
     static let optOutConfirmAction = "确认退出"
-    static let optOutCancel = "取消"
+    /// 不写「取消」：在讲「退出」的弹窗里它有两种读法，读屏尤其分不清（同取消收藏那一处的「保留收藏」）。
+    static let optOutCancel = "先不退出"
 
     static func optOutButtonTitle(_ name: String) -> String {
         "\(optOutButtonTitlePrefix)\(name)\(optOutButtonTitleSuffix)"
