@@ -218,6 +218,36 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
         XCTAssertFalse(speech.spokenHistoryForTesting.contains { $0.contains("正在确认志愿者状态") })
     }
 
+    // MARK: - 陪跑员端自己的状态播报（#333）
+
+    /// 陪跑员端每一句都是对陪跑员说的：不出现盲人端那种第三人称「志愿者……」。
+    /// 借用盲人端表的旧实现在 `.driverEnRoute` 上念「志愿者已出发」。
+    func testVolunteerAnnouncementsNeverTalkAboutTheVolunteerInTheThirdPerson() {
+        for status in RunOrderStatus.allCases + [.unknown] {
+            let text = status.volunteerAnnouncement
+            XCTAssertFalse(text.isEmpty, "\(status)")
+            XCTAssertFalse(text.contains("志愿者"), "\(status)：\(text)")
+            XCTAssertNotEqual(text, SpeechService.statusAnnouncement(for: status), "\(status) 仍借用盲人端那句")
+        }
+    }
+
+    /// 跑步中页：跑者取消 ⇒ 只念带「不算你的取消」那一整句，不先念通用的「这一单已取消」再被切断。
+    func testRunningPageSpeaksOneSentenceWhenTheRunnerCancels() async {
+        let service = FakeOrderService()
+        service.orderDetailResult = .success(.preview(orderId: 34, status: .cancelled))
+        let appState = AppState(orders: service)
+        appState.currentEnvironment = .mock
+        let speech = SpeechService()
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speech, initialOrder: .preview(orderId: 34, status: .driverArrived))
+        speech.resetSpokenHistoryForTesting()
+
+        await viewModel.load(orderId: 34, speakChanges: true)
+
+        XCTAssertEqual(speech.spokenHistoryForTesting.count, 1, "\(speech.spokenHistoryForTesting)")
+        XCTAssertTrue(speech.spokenHistoryForTesting.first?.contains("不算你的取消") == true, "\(speech.spokenHistoryForTesting)")
+    }
+
     // MARK: - Mock 与契约对齐
 
     func testMockCountsAVolunteerCancelInsideTheWindowOnly() throws {

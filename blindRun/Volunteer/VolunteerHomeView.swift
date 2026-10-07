@@ -976,13 +976,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                     self.appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
                     self.appState?.liveEscortCoordinator.clearOwnedOrder()
                 }
-                // `REMATCHING` 用陪跑员这一侧的那句（通用表里是盲人端文案，见 iOS #333），
+                // 陪跑员这一侧的那张表（#333；`REMATCHING` 那句与订单页相同），
                 // 且与订单页共用去重键：两边都订阅了这条推送，只该念出一句。
-                if updated.status == .rematching {
-                    self.speechService?.speakStatusChange(.rematching, text: VolunteerCancelAnnouncement.cancelledByVolunteer)
-                } else {
-                    self.speechService?.speakStatusChange(updated.status)
-                }
+                self.speechService?.speakStatusChange(updated.status, text: updated.status.volunteerAnnouncement)
                 self.dispatchSummaryErrorMessage = nil
                 if let summary = self.dispatchSummary {
                     self.dispatchLoadState = .loaded(summary)
