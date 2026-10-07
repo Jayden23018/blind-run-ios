@@ -128,6 +128,24 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/config/features`.
     /// - Remark: Generated from `#/paths//api/config/features/get(getFeatures)`.
     func getFeatures(_ input: Operations.getFeatures.Input) async throws -> Operations.getFeatures.Output
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    func getRules(_ input: Operations.getRules.Input) async throws -> Operations.getRules.Output
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
@@ -305,7 +323,11 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/active`.
     /// - Remark: Generated from `#/paths//api/orders/active/get(activeOrder)`.
     func activeOrder(_ input: Operations.activeOrder.Input) async throws -> Operations.activeOrder.Output
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
@@ -414,6 +436,10 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/arrived`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/arrived/post(driverArrived)`.
     func driverArrived(_ input: Operations.driverArrived.Input) async throws -> Operations.driverArrived.Output
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output
@@ -434,6 +460,7 @@ public protocol APIProtocol: Sendable {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -448,7 +475,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -756,16 +784,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/rhythm`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/rhythm/post(sendRhythmSignal)`.
     func sendRhythmSignal(_ input: Operations.sendRhythmSignal.Input) async throws -> Operations.sendRhythmSignal.Output
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -876,10 +908,10 @@ public protocol APIProtocol: Sendable {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///
@@ -1444,6 +1476,26 @@ extension APIProtocol {
     public func getFeatures(headers: Operations.getFeatures.Input.Headers = .init()) async throws -> Operations.getFeatures.Output {
         try await getFeatures(Operations.getFeatures.Input(headers: headers))
     }
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    public func getRules(headers: Operations.getRules.Input.Headers = .init()) async throws -> Operations.getRules.Output {
+        try await getRules(Operations.getRules.Input(headers: headers))
+    }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
@@ -1693,7 +1745,11 @@ extension APIProtocol {
     public func activeOrder(headers: Operations.activeOrder.Input.Headers = .init()) async throws -> Operations.activeOrder.Output {
         try await activeOrder(Operations.activeOrder.Input(headers: headers))
     }
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
@@ -1860,6 +1916,10 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(
@@ -1888,6 +1948,7 @@ extension APIProtocol {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -1910,7 +1971,8 @@ extension APIProtocol {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -2364,16 +2426,20 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -2536,10 +2602,10 @@ extension APIProtocol {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///
@@ -3934,6 +4000,67 @@ public enum Components {
             public init(
                 code: Swift.Int32,
                 data: Components.Schemas.RegistrationStatusResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse`.
+        public struct ApiResponseRuleParamsResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/data`.
+            public var data: Components.Schemas.RuleParamsResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseRuleParamsResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseRuleParamsResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.RuleParamsResponse? = nil,
                 errorCode: Swift.String? = nil,
                 hasMore: Swift.Bool? = nil,
                 message: Swift.String? = nil,
@@ -5479,7 +5606,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/name`.
-            public var name: Swift.String?
+            public var name: Swift.String
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/runningPace`.
             public var runningPace: Swift.String?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/specialNeeds`.
@@ -5521,7 +5648,7 @@ public enum Components {
                 defaultPace: Components.Schemas.BlindProfileUpdateRequest.defaultPacePayload? = nil,
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDog: Swift.Bool? = nil,
-                name: Swift.String? = nil,
+                name: Swift.String,
                 runningPace: Swift.String? = nil,
                 specialNeeds: Swift.String? = nil,
                 tetherPreference: Components.Schemas.BlindProfileUpdateRequest.tetherPreferencePayload? = nil,
@@ -5552,17 +5679,17 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest`.
         public struct BlindVerifyRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest/idCardName`.
-            public var idCardName: Swift.String?
+            public var idCardName: Swift.String
             /// - Remark: Generated from `#/components/schemas/BlindVerifyRequest/idCardNumber`.
-            public var idCardNumber: Swift.String?
+            public var idCardNumber: Swift.String
             /// Creates a new `BlindVerifyRequest`.
             ///
             /// - Parameters:
             ///   - idCardName:
             ///   - idCardNumber:
             public init(
-                idCardName: Swift.String? = nil,
-                idCardNumber: Swift.String? = nil
+                idCardName: Swift.String,
+                idCardNumber: Swift.String
             ) {
                 self.idCardName = idCardName
                 self.idCardNumber = idCardNumber
@@ -5646,6 +5773,40 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case message
                 case verifyStatus
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CancelOrderResponse`.
+        public struct CancelOrderResponse: Codable, Hashable, Sendable {
+            /// 本次取消是否被记为一次「临时取消」。**以这个字段为准**才能对陪跑员说「已记一次临时取消」，
+            /// 客户端不要自己拿开跑时间去算。
+            ///
+            /// `true` 当且仅当：取消的人是陪跑员，且距开跑**严格小于**窗口
+            /// （`app.order.late-cancel-window-hours`，默认 12 小时；恰好 12 小时不计）。
+            /// 开跑之后才取消（例如陪跑中途）也算「不足窗口」，同样为 `true`。
+            /// 盲人取消恒为 `false`。
+            ///
+            /// 🚩 **只记不罚**：这个计数目前不影响接单、不影响派单、不影响评分。
+            /// 文案只能说「会记一次」，**不要说「3 次」或「14 天」之类的后果** —— 那是不存在的规则。
+            ///
+            /// - Remark: Generated from `#/components/schemas/CancelOrderResponse/countedAsLateCancel`.
+            public var countedAsLateCancel: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/CancelOrderResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `CancelOrderResponse`.
+            ///
+            /// - Parameters:
+            ///   - countedAsLateCancel: 本次取消是否被记为一次「临时取消」。**以这个字段为准**才能对陪跑员说「已记一次临时取消」，
+            ///   - success:
+            public init(
+                countedAsLateCancel: Swift.Bool,
+                success: Swift.Bool
+            ) {
+                self.countedAsLateCancel = countedAsLateCancel
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case countedAsLateCancel
+                case success
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateOrderRequest`.
@@ -7116,7 +7277,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/orderId`.
             public var orderId: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/LiveActivityTokenRequest/pushToken`.
-            public var pushToken: Swift.String?
+            public var pushToken: Swift.String
             /// Creates a new `LiveActivityTokenRequest`.
             ///
             /// - Parameters:
@@ -7124,7 +7285,7 @@ public enum Components {
             ///   - pushToken:
             public init(
                 orderId: Swift.Int64,
-                pushToken: Swift.String? = nil
+                pushToken: Swift.String
             ) {
                 self.orderId = orderId
                 self.pushToken = pushToken
@@ -7330,6 +7491,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/actualDurationSeconds`.
             public var actualDurationSeconds: Swift.Int32?
+            /// （2026-10-06 新增，#307）同意闸的宽限终点 = `plannedStart` + `app.order.blind-confirm-grace-minutes`（默认 15 分钟）。 盲人一直没调 `POST /api/orders/{id}/confirm-start` 时，陪跑员从这一刻起可以单方面开始；在此之前陪跑员开始会得到 409 `BLIND_CONFIRMATION_PENDING`（按钮**不要置灰**，提示「等待对方确认」）。 **订单双方都有**，下发状态同 `earliestServiceStartAt`；**盲人已确认后为 `null`**（同意闸不再挡人）。 ⚠️ 别拿它为 `null` 去推断盲人同意过：开跑后和终态下它同样为 `null`
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindConfirmDeadlineAt`.
+            public var blindConfirmDeadlineAt: Swift.String?
             /// 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
             /// 与手机号不同：姓名没有「拨得通」这回事，所以这里就是展示值，不存在明文版本。
             /// 盲人账号注销后 `cascadeDeletePii()` 清空姓名 → null。
@@ -7410,10 +7575,18 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/departReminderAt`.
             public var departReminderAt: Swift.String?
+            /// （2026-10-06 新增，#307）陪跑员**当前这一步**出发动作最早可调的时刻：`SCHEDULED_CONFIRMED` 时是 `POST /api/orders/{id}/confirm-departure`（开跑前 `app.order.departure-confirm-window-minutes`，默认 120 分钟）， `PENDING_ACCEPT` 时是 `POST /api/orders/{id}/en-route`（开跑前 `app.order.en-route-earliest-minutes`，默认 60 分钟）。早于它调用一律 409 `DEPARTURE_TOO_EARLY`。 **只对本单陪跑员、只在这两态下发**，其余为 `null`。 与 `primaryActionUnlockAt` 的区别：那个是「建议亮起主按钮」的时刻（考虑了路上时间，且要有位置记录），本字段是「后端放行」的时刻，恒有值
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestDepartureAt`.
+            public var earliestDepartureAt: Swift.String?
             /// 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= 这一次到达集合点（换过陪跑员的单从新陪跑员到达算）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 阈值由后端配，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestEndWaitAt`.
             public var earliestEndWaitAt: Swift.String?
+            /// （2026-10-06 新增，#307）`POST /api/orders/{id}/start-service` 最早可调的时刻（开跑前 `app.order.start-service-earliest-minutes`，默认 15 分钟）。 早于它调用一律 409 `SERVICE_START_TOO_EARLY`，按钮该置灰、到点再亮。 **订单双方都有**（盲人也能按开始），只在已接单未开跑的 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 下发，其余为 `null`
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestServiceStartAt`.
+            public var earliestServiceStartAt: Swift.String?
             /// 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/endAddress`.
@@ -7834,6 +8007,7 @@ public enum Components {
             ///   - actualAvgPaceSecPerKm: 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
             ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
             ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
+            ///   - blindConfirmDeadlineAt: （2026-10-06 新增，#307）同意闸的宽限终点 = `plannedStart` + `app.order.blind-confirm-grace-minutes`（默认 15 分钟）。 盲人一直没调 `POST /api/orders/{id}/confirm-start` 时，陪跑员从这一刻起可以单方面开始；在此之前陪跑员开始会得到 409 `BLIND_CONFIRMATION_PENDING`（按钮**不要置灰**，提示「等待对方确认」）。 **订单双方都有**，下发状态同 `earliestServiceStartAt`；**盲人已确认后为 `null`**（同意闸不再挡人）。 ⚠️ 别拿它为 `null` 去推断盲人同意过：开跑后和终态下它同样为 `null`
             ///   - blindName: 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
             ///   - blindPhone: 盲人手机号，**明文、可直接拨打**（供志愿者拨号），与 `volunteerPhone` 完全对称 ——
             ///   - blindSurname: （2026-09-26 新增，陪跑员端订单页 v2）跑者**姓氏**（如 `李`、复姓 `欧阳`），给陪跑员端标题 / 短标签 / 锁屏用。 **只在已接单时下发**（`volunteerId` 非 null 时），未接单、跑者没填姓名或已注销为 `null` —— 客户端改说「跑者」。 全名不下发；后端没有性别字段，**不要拼「先生 / 女士」**
@@ -7841,7 +8015,9 @@ public enum Components {
             ///   - completedTogetherCount: 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
             ///   - createdAt:
             ///   - departReminderAt: 「该出发了」提醒（WS `APP_NOTIFICATION` `eventType = DEPART_REMINDER`，HIGH，APNs time-sensitive） 推给陪跑员的时刻 = `suggestedDepartAt` − 5 分钟。页面可据此说「x:xx 会提醒你出发」。下发条件同 `travelMinutes`
+            ///   - earliestDepartureAt: （2026-10-06 新增，#307）陪跑员**当前这一步**出发动作最早可调的时刻：`SCHEDULED_CONFIRMED` 时是 `POST /api/orders/{id}/confirm-departure`（开跑前 `app.order.departure-confirm-window-minutes`，默认 120 分钟）， `PENDING_ACCEPT` 时是 `POST /api/orders/{id}/en-route`（开跑前 `app.order.en-route-earliest-minutes`，默认 60 分钟）。早于它调用一律 409 `DEPARTURE_TOO_EARLY`。 **只对本单陪跑员、只在这两态下发**，其余为 `null`。 与 `primaryActionUnlockAt` 的区别：那个是「建议亮起主按钮」的时刻（考虑了路上时间，且要有位置记录），本字段是「后端放行」的时刻，恒有值
             ///   - earliestEndWaitAt: 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= 这一次到达集合点（换过陪跑员的单从新陪跑员到达算）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 阈值由后端配，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
+            ///   - earliestServiceStartAt: （2026-10-06 新增，#307）`POST /api/orders/{id}/start-service` 最早可调的时刻（开跑前 `app.order.start-service-earliest-minutes`，默认 15 分钟）。 早于它调用一律 409 `SERVICE_START_TOO_EARLY`，按钮该置灰、到点再亮。 **订单双方都有**（盲人也能按开始），只在已接单未开跑的 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 下发，其余为 `null`
             ///   - endAddress: 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
             ///   - endLatitude: 终点纬度。允许「有地址、无坐标」（用户说了地名但查不到坐标）
             ///   - endLongitude: 终点经度
@@ -7887,6 +8063,7 @@ public enum Components {
                 actualAvgPaceSecPerKm: Swift.Int32? = nil,
                 actualDistanceMeters: Swift.Int32? = nil,
                 actualDurationSeconds: Swift.Int32? = nil,
+                blindConfirmDeadlineAt: Swift.String? = nil,
                 blindName: Swift.String? = nil,
                 blindPhone: Swift.String? = nil,
                 blindSurname: Swift.String? = nil,
@@ -7894,7 +8071,9 @@ public enum Components {
                 completedTogetherCount: Swift.Int64? = nil,
                 createdAt: Swift.String,
                 departReminderAt: Swift.String? = nil,
+                earliestDepartureAt: Swift.String? = nil,
                 earliestEndWaitAt: Swift.String? = nil,
+                earliestServiceStartAt: Swift.String? = nil,
                 endAddress: Swift.String? = nil,
                 endLatitude: Swift.Double? = nil,
                 endLongitude: Swift.Double? = nil,
@@ -7940,6 +8119,7 @@ public enum Components {
                 self.actualAvgPaceSecPerKm = actualAvgPaceSecPerKm
                 self.actualDistanceMeters = actualDistanceMeters
                 self.actualDurationSeconds = actualDurationSeconds
+                self.blindConfirmDeadlineAt = blindConfirmDeadlineAt
                 self.blindName = blindName
                 self.blindPhone = blindPhone
                 self.blindSurname = blindSurname
@@ -7947,7 +8127,9 @@ public enum Components {
                 self.completedTogetherCount = completedTogetherCount
                 self.createdAt = createdAt
                 self.departReminderAt = departReminderAt
+                self.earliestDepartureAt = earliestDepartureAt
                 self.earliestEndWaitAt = earliestEndWaitAt
+                self.earliestServiceStartAt = earliestServiceStartAt
                 self.endAddress = endAddress
                 self.endLatitude = endLatitude
                 self.endLongitude = endLongitude
@@ -7994,6 +8176,7 @@ public enum Components {
                 case actualAvgPaceSecPerKm
                 case actualDistanceMeters
                 case actualDurationSeconds
+                case blindConfirmDeadlineAt
                 case blindName
                 case blindPhone
                 case blindSurname
@@ -8001,7 +8184,9 @@ public enum Components {
                 case completedTogetherCount
                 case createdAt
                 case departReminderAt
+                case earliestDepartureAt
                 case earliestEndWaitAt
+                case earliestServiceStartAt
                 case endAddress
                 case endLatitude
                 case endLongitude
@@ -10134,6 +10319,37 @@ public enum Components {
                 case success
             }
         }
+        /// 规则参数（`GET /api/config/rules` 的 `data`）。
+        /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 客户端不要拿它自己再算一遍
+        /// 「算不算临时取消」「该不该自动打开」。邀请的回复期限**不在这里**，读每条邀请自己的 `expiresAt`。
+        ///
+        /// - Remark: Generated from `#/components/schemas/RuleParamsResponse`.
+        public struct RuleParamsResponse: Codable, Hashable, Sendable {
+            /// 陪跑员「临时取消」的窗口，单位**小时**（`app.order.late-cancel-window-hours`，默认 12）：距开跑不足这么多小时取消，记一次临时取消（只记不罚）。 只用来在取消前提示用户，算不算临时取消以取消接口的返回为准。
+            ///
+            /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/lateCancelWindowHours`.
+            public var lateCancelWindowHours: Swift.Int32?
+            /// 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
+            ///
+            /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/volunteerOrderAutoOpenLeadMinutes`.
+            public var volunteerOrderAutoOpenLeadMinutes: Swift.Int32?
+            /// Creates a new `RuleParamsResponse`.
+            ///
+            /// - Parameters:
+            ///   - lateCancelWindowHours: 陪跑员「临时取消」的窗口，单位**小时**（`app.order.late-cancel-window-hours`，默认 12）：距开跑不足这么多小时取消，记一次临时取消（只记不罚）。 只用来在取消前提示用户，算不算临时取消以取消接口的返回为准。
+            ///   - volunteerOrderAutoOpenLeadMinutes: 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
+            public init(
+                lateCancelWindowHours: Swift.Int32? = nil,
+                volunteerOrderAutoOpenLeadMinutes: Swift.Int32? = nil
+            ) {
+                self.lateCancelWindowHours = lateCancelWindowHours
+                self.volunteerOrderAutoOpenLeadMinutes = volunteerOrderAutoOpenLeadMinutes
+            }
+            public enum CodingKeys: String, CodingKey {
+                case lateCancelWindowHours
+                case volunteerOrderAutoOpenLeadMinutes
+            }
+        }
         /// 与这位跑者上一张有完赛里程的已完成订单比；两边都用订单上的完赛快照 `actualDistanceMeters`（未经本记录的清洗，与 `summary.distanceM` 可能差几十米）
         ///
         /// - Remark: Generated from `#/components/schemas/RunComparison`.
@@ -11516,12 +11732,12 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/SendCodeRequest`.
         public struct SendCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SendCodeRequest/phone`.
-            public var phone: Swift.String?
+            public var phone: Swift.String
             /// Creates a new `SendCodeRequest`.
             ///
             /// - Parameters:
             ///   - phone:
-            public init(phone: Swift.String? = nil) {
+            public init(phone: Swift.String) {
                 self.phone = phone
             }
             public enum CodingKeys: String, CodingKey {
@@ -12384,7 +12600,7 @@ public enum Components {
             /// 选中的选项标识，取自课程详情的 `options[].id`
             ///
             /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/optionId`.
-            public var optionId: Swift.String?
+            public var optionId: Swift.String
             /// - Remark: Generated from `#/components/schemas/TrainingQuizAnswer/questionId`.
             public var questionId: Swift.Int64
             /// Creates a new `TrainingQuizAnswer`.
@@ -12393,7 +12609,7 @@ public enum Components {
             ///   - optionId: 选中的选项标识，取自课程详情的 `options[].id`
             ///   - questionId:
             public init(
-                optionId: Swift.String? = nil,
+                optionId: Swift.String,
                 questionId: Swift.Int64
             ) {
                 self.optionId = optionId
@@ -12482,12 +12698,12 @@ public enum Components {
             /// 逐题作答，顺序无关（后端按 questionId 匹配）
             ///
             /// - Remark: Generated from `#/components/schemas/TrainingQuizSubmitRequest/answers`.
-            public var answers: [Components.Schemas.TrainingQuizAnswer]?
+            public var answers: [Components.Schemas.TrainingQuizAnswer]
             /// Creates a new `TrainingQuizSubmitRequest`.
             ///
             /// - Parameters:
             ///   - answers: 逐题作答，顺序无关（后端按 questionId 匹配）
-            public init(answers: [Components.Schemas.TrainingQuizAnswer]? = nil) {
+            public init(answers: [Components.Schemas.TrainingQuizAnswer]) {
                 self.answers = answers
             }
             public enum CodingKeys: String, CodingKey {
@@ -12680,17 +12896,17 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest`.
         public struct VerifyCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest/code`.
-            public var code: Swift.String?
+            public var code: Swift.String
             /// - Remark: Generated from `#/components/schemas/VerifyCodeRequest/phone`.
-            public var phone: Swift.String?
+            public var phone: Swift.String
             /// Creates a new `VerifyCodeRequest`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - phone:
             public init(
-                code: Swift.String? = nil,
-                phone: Swift.String? = nil
+                code: Swift.String,
+                phone: Swift.String
             ) {
                 self.code = code
                 self.phone = phone
@@ -12990,8 +13206,20 @@ public enum Components {
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot`.
         public struct VolunteerAvailableTimeSlot: Codable, Hashable, Sendable {
+            /// 只在这一天有空（`yyyy-MM-dd`）；不传 / `null` = 每周重复。给了它，`dayOfWeek` 必须是这一天的星期几。
+            /// 一次性时段是**叠加**的：只放宽、不收紧 —— 一条每周时段都没填的志愿者仍然是「随时可接」，
+            /// 只加了一个一次性时段不会变成「只有那天才接」。
+            /// 过期的一次性时段后端**不清理**（匹配时按日期自然失效），客户端列表里自己过滤；
+            /// 整体替换 `PUT /api/volunteer/profile` 时别把过期项再传回来。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/date`.
+            public var date: Swift.String?
+            /// 星期几（`MONDAY`…`SUNDAY`），必填。每周重复的时段就是重复的那天；
+            /// 一次性时段（给了 `date`）时必须是 `date` 那天的星期几，对不上返回 400。
+            /// 响应里一次性时段也带它，所以读响应时必须先看 `date` 是否非空，别只认 `dayOfWeek`。
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/dayOfWeek`.
-            public var dayOfWeek: Swift.String?
+            public var dayOfWeek: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/endTime`.
             public var endTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot/startTime`.
@@ -12999,19 +13227,23 @@ public enum Components {
             /// Creates a new `VolunteerAvailableTimeSlot`.
             ///
             /// - Parameters:
-            ///   - dayOfWeek:
+            ///   - date: 只在这一天有空（`yyyy-MM-dd`）；不传 / `null` = 每周重复。给了它，`dayOfWeek` 必须是这一天的星期几。
+            ///   - dayOfWeek: 星期几（`MONDAY`…`SUNDAY`），必填。每周重复的时段就是重复的那天；
             ///   - endTime:
             ///   - startTime:
             public init(
-                dayOfWeek: Swift.String? = nil,
+                date: Swift.String? = nil,
+                dayOfWeek: Swift.String,
                 endTime: Swift.String,
                 startTime: Swift.String
             ) {
+                self.date = date
                 self.dayOfWeek = dayOfWeek
                 self.endTime = endTime
                 self.startTime = startTime
             }
             public enum CodingKeys: String, CodingKey {
+                case date
                 case dayOfWeek
                 case endTime
                 case startTime
@@ -13107,6 +13339,8 @@ public enum Components {
                 case name
             }
         }
+        /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
+        ///
         /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder`.
         public struct VolunteerDispatchActiveOrder: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/acceptedAt`.
@@ -13251,6 +13485,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/acceptanceRate`.
             public var acceptanceRate: Swift.Double?
+            /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/activeOrders`.
             public var activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]?
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/availableTimeSlots`.
@@ -13329,7 +13565,7 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - acceptanceRate: 接单率 0.0-1.0（null=无派单记录）
-            ///   - activeOrders:
+            ///   - activeOrders: 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
             ///   - availableTimeSlots:
             ///   - avgRating: 平均评分 1.0-5.0（null=无评价）
             ///   - canDispatch: 系统判定当前是否可被派单
@@ -13838,9 +14074,8 @@ public enum Components {
         /// ⚠️ 2026-09-25 起（#350）`availableTimeSlots` 不传不再清空。此前不传也会删掉全部时段、照样返回 200，
         /// 而时间重叠是派单的硬过滤 ⇒ 志愿者会静默收不到派单。
         ///
-        /// ⚠️ `name` 必填（DTO `@NotBlank`，不传返回 400），但**刻意不写进 `required` 数组**：
-        /// oasdiff 契约门把「请求字段变必填」判为破坏性变更（`request-property-became-required`），
-        /// 而服务端行为从来就是必填，改的只是文档 —— 为此绕门不值得，也免得 iOS 生成代码的签名跟着变。
+        /// `name` 必填（DTO `@NotBlank`，不传返回 400）。2026-10-06 升 springdoc 2.9.1 后契约如实标进 `required`
+        /// （此前刻意不标，理由是 oasdiff 门与 iOS 生成代码签名；已核 iOS App 代码未使用生成客户端，oasdiff 那条按豁免流程登记）。
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest`.
         public struct VolunteerProfileUpdateRequest: Codable, Hashable, Sendable {
@@ -13855,7 +14090,7 @@ public enum Components {
             /// 必填（不传或空白返回 400），见 schema 描述里的说明
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/name`.
-            public var name: Swift.String?
+            public var name: Swift.String
             /// 可适应的配速档位。不传 = 保留原值
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/paceRange`.
@@ -13885,7 +14120,7 @@ public enum Components {
             public init(
                 acceptsGuideDog: Swift.Bool? = nil,
                 availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]? = nil,
-                name: Swift.String? = nil,
+                name: Swift.String,
                 paceRange: Components.Schemas.VolunteerProfileUpdateRequest.paceRangePayload? = nil,
                 wantsDispatch: Swift.Bool? = nil
             ) {
@@ -15520,6 +15755,129 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.ok`.
             /// - SeeAlso: `.ok`.
             public var ok: Operations.getFeatures.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    public enum getRules {
+        public static let id: Swift.String = "getRules"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/config/rules/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getRules.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getRules.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getRules.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.getRules.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/config/rules/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/config/rules/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseRuleParamsResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseRuleParamsResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getRules.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getRules.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getRules.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getRules.Output.Ok {
                 get throws {
                     switch self {
                     case let .ok(response):
@@ -17984,7 +18342,11 @@ public enum Operations {
             }
         }
     }
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
@@ -19141,6 +19503,10 @@ public enum Operations {
             }
         }
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public enum cancelOrder {
@@ -19189,12 +19555,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/200/content/application\/json`.
-                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    case json(Components.Schemas.CancelOrderResponse)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                    public var json: Components.Schemas.CancelOrderResponse {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -19284,6 +19650,7 @@ public enum Operations {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -19532,7 +19899,8 @@ public enum Operations {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -24080,16 +24448,20 @@ public enum Operations {
             }
         }
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -24301,7 +24673,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 订单不在已到达（`ORDER_STATUS_NOT_ALLOWED`）
+            /// 订单不在已到达或陪跑中（`ORDER_STATUS_NOT_ALLOWED`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/ring-runner/post(ringRunner)/responses/409`.
             ///
@@ -26041,10 +26413,10 @@ public enum Operations {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///

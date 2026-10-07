@@ -155,6 +155,12 @@ enum ErrorCode: String, Codable, Sendable {
     case departureTooEarly = "DEPARTURE_TOO_EARLY"
     // `END_WAIT_TOO_EARLY`：到达后还没等满 `app.order.arrival-wait-timeout-minutes`。
     case endWaitTooEarly = "END_WAIT_TOO_EARLY"
+    // 「开始陪跑」的两道 409（后端 #307 ①，迁移 0046），客户端要**分开处理**：
+    // `SERVICE_START_TOO_EARLY`：距约定开跑还有超过 `start-service-earliest-minutes`，纯时间问题。
+    case serviceStartTooEarly = "SERVICE_START_TOO_EARLY"
+    // `BLIND_CONFIRMATION_PENDING`：盲人还没点头。⚠️ 不是死锁（约定开跑 + 宽限后可单方面开始），
+    // 页面据此显示「等待对方确认」，**不置灰按钮** —— 对方随时可能点。
+    case blindConfirmationPending = "BLIND_CONFIRMATION_PENDING"
 
     var localizedMessage: String {
         switch self {
@@ -314,6 +320,13 @@ enum ErrorCode: String, Codable, Sendable {
             return "现在出发还太早。到时间后「我出发了」会亮起来。"
         case .endWaitTooEarly:
             return "还没等满时限。到时间后按钮会换成「结束等待」。"
+        case .serviceStartTooEarly:
+            // 不说「到点按钮会亮」：后端没有结构化的最早可操作时刻字段，按钮不会自己变。
+            // （后端 409 的 `message` 里带了具体时刻，但 `APIError.localizedMessage` 识别出错误码后用本地文案，那句被覆盖了。）
+            return "还没到可以开始跑步的时间，请稍后再按。"
+        case .blindConfirmationPending:
+            // 说出跑者那一端的按钮名：两人此刻站在一起，陪跑员可以直接告诉对方按哪个。
+            return "还需要跑者在手机上按「开始跑步」。可以请对方按一下，或稍等再试。"
         }
     }
 

@@ -177,3 +177,70 @@ On the meet panel, the app SHALL NOT draw the direction dial when no relative di
 - **WHEN** the order is `DRIVER_ARRIVED` and the relative direction to the runner is unknown
 - **THEN** the direction dial SHALL NOT be shown and the ring button SHALL be the first action in the meet section
 
+### Requirement: Starting the run waits for the runner's consent without disabling the button
+When the volunteer presses the start-run button and the server answers `BLIND_CONFIRMATION_PENDING`, the page SHALL show "waiting for the other person to confirm" above the button and SHALL keep the button pressable. When the server answers `SERVICE_START_TOO_EARLY`, the page SHALL speak the time-not-reached message and SHALL NOT compute an earliest time itself.
+
+#### Scenario: Runner has not confirmed yet
+- **WHEN** the volunteer presses start-run and the server answers `BLIND_CONFIRMATION_PENDING`
+- **THEN** the caption above the button SHALL read "等待对方确认"
+- **AND** the button SHALL remain enabled so the volunteer can press it again
+
+#### Scenario: Too early
+- **WHEN** the server answers `SERVICE_START_TOO_EARLY`
+- **THEN** the page SHALL speak the localized message
+- **AND** the "waiting for confirmation" caption SHALL NOT be shown
+
+### Requirement: The runner's consent notification refreshes the arrived page
+When the `BLIND_START_CONFIRMED` notification arrives while the current order is in the arrived state, the page SHALL clear the "waiting for confirmation" caption and SHALL re-fetch the order. The notification carries no order id, so it SHALL be ignored when the current order is not in the arrived state.
+
+#### Scenario: Consent arrives while arrived
+- **WHEN** `BLIND_START_CONFIRMED` arrives and the order is `DRIVER_ARRIVED`
+- **THEN** the caption SHALL return to its normal text and the order SHALL be re-fetched
+
+#### Scenario: Consent arrives on a different state
+- **WHEN** `BLIND_START_CONFIRMED` arrives and the order is not `DRIVER_ARRIVED`
+- **THEN** nothing SHALL change on the page
+
+### Requirement: Late cancellation is announced only when the server counts it
+When the volunteer cancels an order, the app SHALL decode `CancelOrderResponse` and SHALL say "已记一次临时取消。" only when `countedAsLateCancel` is `true`. The app SHALL NOT compute this on the client and SHALL NOT mention any consequence of the count.
+
+#### Scenario: Counted cancellation
+- **WHEN** the volunteer cancels and the response has `countedAsLateCancel: true`
+- **THEN** the cancellation announcement SHALL end with "已记一次临时取消。"
+
+#### Scenario: Not counted
+- **WHEN** the response has `countedAsLateCancel: false` or omits it
+- **THEN** the announcement SHALL NOT mention a late cancellation
+
+#### Scenario: Status push arrives before the cancel response
+- **WHEN** the `REMATCHING` status is applied and announced before the cancel response arrives
+- **AND** the response then has `countedAsLateCancel: true`
+- **THEN** "已记一次临时取消。" SHALL be queued after the announcement already playing, not interrupt it
+
+#### Scenario: One sentence when the order leaves the volunteer
+- **WHEN** the volunteer order page or running page applies `REMATCHING` after the volunteer cancelled
+- **THEN** exactly one cancellation sentence SHALL be spoken, without a preceding generic status sentence
+- **AND** when the home screen's status subscription already spoke the cancellation for the same status, the page SHALL NOT speak it again and SHALL only append "已记一次临时取消。" if the cancellation was counted
+- **AND** the cancellation sentence SHALL say "订单已取消，这一单不在你名下了。" and SHALL NOT claim the runner will be rematched
+
+#### Scenario: CANCELLED after the volunteer's own cancellation
+- **WHEN** the volunteer's cancel request has succeeded and the order then becomes `CANCELLED` (the rematch limit was reached)
+- **THEN** the page SHALL announce the volunteer's cancellation and close like for `REMATCHING`
+- **AND** a `CANCELLED` that arrives while the cancel request is still unanswered or its outcome is unknown SHALL be treated as the runner's cancellation
+
+### Requirement: Rule parameters come from the server
+The app SHALL read `lateCancelWindowHours` and `volunteerOrderAutoOpenLeadMinutes` from `GET /api/config/rules` and SHALL use them only for display and navigation. When the endpoint fails or returns a missing or non-positive value, the app SHALL fall back to 12 hours and 120 minutes.
+
+#### Scenario: Server window is used in the cancel sheet
+- **WHEN** the rules response has `lateCancelWindowHours: 6` and the run starts in 8 hours
+- **THEN** the cancel sheet SHALL NOT show the late-cancel notice
+
+#### Scenario: Late-cancel notice states only the count
+- **WHEN** the run starts within the window
+- **THEN** the cancel sheet notice SHALL say that cancelling now counts once as a late cancellation
+- **AND** it SHALL NOT mention any penalty, threshold, or suspension
+
+#### Scenario: Fallback when rules are unavailable
+- **WHEN** `GET /api/config/rules` fails
+- **THEN** the cancel sheet SHALL use 12 hours and the auto-open lead SHALL be 120 minutes
+

@@ -337,8 +337,9 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
             return "志愿者已接单，请前往或等待在预约出发地点。"
         case .driverEnRoute:
             return "志愿者已出发，正在前往出发地点。"
+        // 与 `RunOrderStatus.blindRunnerAnnouncement` 同一句（不再叫盲人等对方开始，见那里）。
         case .driverArrived:
-            return "志愿者已到达，请等待志愿者开始服务。"
+            return RunOrderStatus.blindRunnerArrivedCopy
         case .inProgress:
             return "服务已开始，请注意安全。"
         case .completed:

@@ -126,6 +126,11 @@ jobs:
       - name: validate device-test preflight（设备锁 + 工作区完整性）
         run: scripts/validate-device-lock.sh
 
+      # 「还没开始跑用例」那个窗口的看门狗。它按总时间计时的那一版会把**正在编译**的
+      # xcodebuild 当成锁屏掐掉（2026-10-05 两次）；纯 bash，不碰真机，CI 跑得了。
+      - name: validate device-test preflight watchdog（日志停滞才计时）
+        run: scripts/validate-preflight-watchdog.sh
+
       # 契约漂移闸的「新字段接没接上」判据。它给的是绿灯，坏掉不报错、只会安静放过缺口 ——
       # 已经这样假绿过两次（按裸字段名全局搜，命中了无关模型上的同名字段）。
       - name: validate drift-fields gate

@@ -58,6 +58,66 @@ final class VolunteerAvailabilityScheduleSaveTests: XCTestCase {
         XCTAssertNil(client.lastProfileUpdate, "非法区间不该被发到后端")
         XCTAssertEqual(viewModel.errorMessage, VolunteerAvailabilityScheduleEditing.invalidRangeMessage)
     }
+
+    // MARK: - 一次性时段（后端 #564 / iOS #353）
+
+    /// 读进来再整体 PUT 回去，一次性时段的 `date` 必须原样带回；过期的不许带回。
+    /// 模型不认识 `date` 的旧实现会把 10-10 那段发成一条每周六的时段 —— 静默改数据。
+    func testOneOffSlotKeepsItsDateAndExpiredOnesAreDroppedOnSave() async throws {
+        let client = ProfileUpdateSpy()
+        let appState = AppState(apiClient: client, tokenStore: ScheduleInMemoryTokenStore())
+        appState.updateVolunteerProfile(
+            VolunteerProfileResponse(
+                name: "张伟",
+                availableTimeSlots: [
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "07:00:00", endTime: "09:00:00"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "18:00:00", endTime: "20:00:00", date: "2026-10-10"),
+                    // 今天这一天的不算过期（后端按日期自然失效）。
+                    VolunteerAvailableTimeSlot(dayOfWeek: "WEDNESDAY", startTime: "06:00:00", endTime: "07:00:00", date: "2026-10-07"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "THURSDAY", startTime: "07:00:00", endTime: "09:00:00", date: "2026-10-01"),
+                ]
+            )
+        )
+        client.response = VolunteerProfileResponse(name: "张伟")
+
+        let viewModel = VolunteerAvailabilityScheduleViewModel(today: { "2026-10-07" })
+        viewModel.configure(with: appState)
+        XCTAssertEqual(viewModel.slots.count, 3, "过期的一次性时段不该出现在列表里")
+        XCTAssertEqual(viewModel.slots.map(\.dayText), ["周六", "仅 10月10日（周六）", "仅 10月7日（周三）"])
+        await viewModel.save()
+
+        let sent = try XCTUnwrap(client.lastProfileUpdate?.availableTimeSlots)
+        XCTAssertEqual(sent.map(\.date), [nil, "2026-10-10", "2026-10-07"])
+        XCTAssertEqual(sent.map(\.dayOfWeek), ["SATURDAY", "SATURDAY", "WEDNESDAY"])
+
+        // 每周时段的请求体不带 `date` 键（与改动前逐字相同）；一次性的带。
+        let json = String(decoding: try JSONEncoder().encode(sent), as: UTF8.self)
+        XCTAssertEqual(json.components(separatedBy: "\"date\"").count - 1, 2, json)
+        XCTAssertTrue(json.contains(#""date":"2026-10-10""#), json)
+    }
+
+    func testResponseDateDecodesAndExpiryIsByCalendarDay() throws {
+        let slot = try JSONDecoder().decode(
+            VolunteerAvailableTimeSlot.self,
+            from: Data(#"{"dayOfWeek":"SATURDAY","date":"2026-10-03","startTime":"07:00:00","endTime":"09:00:00"}"#.utf8)
+        )
+        XCTAssertEqual(slot.date, "2026-10-03")
+        XCTAssertFalse(slot.isExpired(today: "2026-10-03"))
+        XCTAssertTrue(slot.isExpired(today: "2026-10-04"))
+        let weekly = VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "07:00:00", endTime: "09:00:00")
+        XCTAssertFalse(weekly.isExpired(today: "2099-01-01"), "每周时段永不过期")
+    }
+
+    /// 接单主页那一行：一次性的说日期，不说「周六」（说「周六早」= 告诉他每周六都会被邀请）。
+    func testSummaryNamesTheDateForOneOffSlotsAndSkipsExpiredOnes() {
+        let slots = [
+            VolunteerAvailableTimeSlot(dayOfWeek: "THURSDAY", startTime: "07:00:00", endTime: "09:00:00", date: "2026-10-01"),
+            VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "07:00:00", endTime: "09:00:00", date: "2026-10-10"),
+            VolunteerAvailableTimeSlot(dayOfWeek: "WEDNESDAY", startTime: "19:00:00", endTime: "21:00:00"),
+        ]
+        XCTAssertEqual(VolunteerAvailabilitySlotSummary.text(for: slots, today: "2026-10-07"), "10月10日早、周三晚")
+        XCTAssertEqual(VolunteerAvailabilitySlotSummary.fullText(for: slots[1]), "10月10日 07:00 – 09:00")
+    }
 }
 
 // MARK: - 替身

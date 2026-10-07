@@ -265,7 +265,7 @@ Recommended status announcements:
 - `PENDING_MATCH`: “订单提交成功，系统正在为你派单。”
 - `PENDING_ACCEPT`: “志愿者已接单。请在{预约时间}前往或等待在出发地点：{出发地点}。志愿者出发后会继续通知你。”
 - `DRIVER_EN_ROUTE`: “志愿者已出发，正在前往出发地点。”
-- `DRIVER_ARRIVED`: “志愿者已到达，请等待志愿者开始服务。”
+- `DRIVER_ARRIVED`: “志愿者已到达约定地点。见面后，在订单页按「开始跑步」出发。”（订单页副标题另用“见面后，轻点下方开始跑步”——只有那一屏下方有按钮）
 - `IN_PROGRESS`: “服务已开始，请注意安全。”
 - `COMPLETED`: “服务已完成，感谢使用助盲跑。”
 - `CANCELLED`: “本次预约已取消。”

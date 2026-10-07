@@ -3907,7 +3907,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
-            "志愿者已到达，请等待志愿者开始服务。"
+            RunOrderStatus.blindRunnerArrivedCopy
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .pendingAccept),
@@ -5090,10 +5090,9 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertFalse(RunOrderStatus.driverArrived.canFinishService)
         XCTAssertTrue(RunOrderStatus.inProgress.canFinishService)
-        XCTAssertEqual(
-            RunOrderStatus.driverArrived.finishBlockedMessage,
-            RunOrderStatus.driverArrived.arrivedWaitingCopy
-        )
+        // 这一句只给陪跑员听：不许再说「请等待志愿者」（原先与盲人端共用一句）。
+        XCTAssertTrue(RunOrderStatus.driverArrived.finishBlockedMessage.contains("开始跑步"))
+        XCTAssertFalse(RunOrderStatus.driverArrived.finishBlockedMessage.contains("等待志愿者"))
     }
 
     func testVolunteerAcceptGuardRequiresCompleteProfile() {
@@ -5289,8 +5288,8 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.complete()
 
-        XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.driverArrived.arrivedWaitingCopy)
-        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.arrivedWaitingCopy)
+        XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.driverArrived.finishBlockedMessage)
+        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.finishBlockedMessage)
     }
 
     func testVolunteerInServiceStartsServiceFromDriverArrived() async throws {
@@ -5743,7 +5742,10 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(didConfirmCancellation)
         XCTAssertNil(viewModel.order)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "订单已取消，系统将为盲人重新匹配。")
+        // 开跑之后才取消，Mock 按后端口径记一次临时取消，所以那一句后面可能还接着「已记一次」。
+        let spoken = speechService.lastSpokenText ?? ""
+        XCTAssertTrue(spoken.hasPrefix(VolunteerCancelAnnouncement.cancelledByVolunteer), "实际：\(spoken)")
+        XCTAssertFalse(spoken.contains("重新匹配"), "重匹到上限时这半句不成立")
     }
 
     func testVolunteerTravelStageUsesDepartureCopyBeforeArrival() {
@@ -6423,7 +6425,7 @@ final class blindRunTests: XCTestCase {
             service.arrivedResult = transitionResult
             service.startServiceResult = transitionResult
             service.finishResult = transitionResult
-            service.cancelResult = transitionResult
+            service.cancelResult = transitionResult.map { CancelOrderResponse(success: true, countedAsLateCancel: false) }
             service.respondResult = transitionResult
 
             switch confirmation {

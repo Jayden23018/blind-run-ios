@@ -697,6 +697,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
+        // 规则参数（`GET /api/config/rules`）。需登录、不限角色。返回契约里的默认值
+        // （`RuleParamsResponse` 的 `example`），与客户端的回退值相同 —— Mock 里两条路走出来的行为一样，
+        // 拿不到时那条由 `RuleParamsAndLateCancelTests` 覆盖。
+        if path == "/api/config/rules" && method == .get {
+            guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+            return RuleParamsResponse(lateCancelWindowHours: 12, volunteerOrderAutoOpenLeadMinutes: 120)
+        }
+
         // 陪跑员锁屏卡的推送 token。Mock 只收下不做事 —— 进程内没有 APNs 可推。
         if path == "/api/devices/live-activity-token" && method == .post {
             guard mockToken != nil else { throw APIError.unauthorized }

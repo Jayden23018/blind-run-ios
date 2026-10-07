@@ -57,7 +57,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     /// 每收到一条邀请都会拉一次，让既有的一批派单用例各补一行打桩是纯噪音，
     /// 而「补不到」本来就是这条路径的合法降级（志愿者没上报位置 / 资质未审核都返空数组）。
     var availableOrdersResult: Result<[AvailableOrderResponse], Error> = .success([])
-    var cancelResult: Result<Void, Error> = .failure(NotStubbed(method: "cancel"))
+    var cancelResult: Result<CancelOrderResponse, Error> = .failure(NotStubbed(method: "cancel"))
     var respondResult: Result<Void, Error> = .failure(NotStubbed(method: "respond"))
     var enRouteResult: Result<Void, Error> = .failure(NotStubbed(method: "enRoute"))
     var arrivedResult: Result<Void, Error> = .failure(NotStubbed(method: "arrived"))
@@ -157,7 +157,8 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         return try availableOrdersResult.get()
     }
 
-    func cancel(orderId: Int64) async throws {
+    @discardableResult
+    func cancel(orderId: Int64) async throws -> CancelOrderResponse {
         record()
         lastOrderId = orderId
         return try cancelResult.get()

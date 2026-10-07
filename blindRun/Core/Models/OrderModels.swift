@@ -248,9 +248,18 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         self == .driverArrived
     }
 
-    var arrivedWaitingCopy: String {
-        "志愿者已到达约定地点，请等待志愿者开始服务。服务开始前不能结束订单。"
-    }
+    /// 盲人端「陪跑员已到达」的通用一句（状态说明、状态播报、语音状态查询共用）。
+    ///
+    /// 原来这里是 `arrivedWaitingCopy`「请等待志愿者开始服务。服务开始前不能结束订单」：
+    /// 盲人听到的是「你等着」，陪跑员误点结束时听到的是「请等待志愿者」—— 对两个人都不对。
+    /// 后端 #346 起盲人按「开始跑步」就开跑；陪跑员先按会被同意闸拦下（#307），直到跑者也按过。
+    ///
+    /// 🔴 **这一句眼下也会被陪跑员端念到**：陪跑员页的 `speakStatusChange(_:)` 走的是
+    /// `SpeechService.statusAnnouncement`，那张表是盲人端的。所以措辞必须对两个人都为真 ——
+    /// 「按开始跑步出发」对陪跑员也成立（他按了而跑者没按时会听到让跑者按的那句）；
+    /// 不写「你或志愿者都可以开始」，那半句在同意闸下对陪跑员不成立。
+    /// 不写「轻点下方」：首页与语音状态查询也用这一句，那里没有那枚按钮。
+    static let blindRunnerArrivedCopy = "志愿者已到达约定地点。见面后，在订单页按「开始跑步」出发。"
 
     var startServiceBlockedMessage: String {
         switch self {
@@ -267,8 +276,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var finishBlockedMessage: String {
         switch self {
+        // 这一句只给陪跑员听（`VolunteerInServiceViewModel.complete` 的守卫）。
         case .driverArrived:
-            return arrivedWaitingCopy
+            return "还没开始跑步，不能结束陪跑。见面后先按「开始跑步」。"
         case .completed:
             return "服务已完成，不能重复结束。"
         case .cancelled, .noVolunteer:
@@ -494,6 +504,10 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     var runnerAtMeetingPoint: Bool?
     /// 最早可以「结束等待」的时刻。只在 `DRIVER_ARRIVED` 下发。
     var earliestEndWaitAt: String?
+    /// `POST /start-service` 最早可调的时刻（后端 #307 ② / #546，默认开跑前 15 分钟）。早于它调一律
+    /// 409 `SERVICE_START_TOO_EARLY`，契约要求「按钮该置灰、到点再亮」。**订单双方都有**，
+    /// 只在已接单未开跑的四态下发，其余 `null`。`null` 时不锁按钮（由后端判）。
+    var earliestServiceStartAt: String?
     /// 查看者和这位跑者一起跑完过几单。**本单已完成则已包含本单**（完成页直接用，不 +1）。
     /// `0` = 第一次一起跑，`nil` = 没下发，两者说的话不同。
     var completedTogetherCount: Int?
@@ -568,6 +582,7 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             meet: meet,
             runnerAtMeetingPoint: runnerAtMeetingPoint,
             earliestEndWaitAt: earliestEndWaitAt,
+            earliestServiceStartAt: earliestServiceStartAt,
             completedTogetherCount: completedTogetherCount,
             guidePreferenceText: guidePreferenceText,
             messageToVolunteer: messageToVolunteer,
@@ -1258,4 +1273,17 @@ struct VolunteerLocationData: Codable, Sendable {
         guard let lat, let lng else { return false }
         return (-90...90).contains(lat) && (-180...180).contains(lng)
     }
+}
+
+/// `POST /api/orders/{id}/cancel` 的响应体（后端 #361）。**裸对象，不在 `{success, data}` 信封里**
+/// （后端 `ResponseEntity.ok(new CancelOrderResponse(true, countedAsLateCancel))`）；
+/// `APIPayloadDecoder` 先试信封、`data` 为空再裸解，所以照常解得出来。
+///
+/// 两个字段都收成可选：缺键时不该让「取消已经成功」这件事变成一个解码错误 ——
+/// 那样陪跑员会听到「操作结果尚未确认」，而订单其实已经退掉了。
+struct CancelOrderResponse: Codable, Sendable, Equatable {
+    let success: Bool?
+    /// 这次取消是否被记为一次「临时取消」。**以它为准**才能说「已记一次」，客户端不自己算。
+    /// 只记不罚：文案里不许出现任何后果。盲人取消恒为 `false`。
+    let countedAsLateCancel: Bool?
 }

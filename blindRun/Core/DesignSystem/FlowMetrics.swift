@@ -392,8 +392,9 @@ extension View {
 
 // MARK: - 陪跑员订单页 v2 字号（交付包 zhumangpao-handoff/01「字体」）
 
-/// v2 的字号表。与上面 `FlowFonts` 分开放是因为两者的调用方不重叠 ——
-/// 这一组只给陪跑员订单页 v2，盲人端一律不用（它们的字号与层级是另一套设计判断）。
+/// v2 的字号表。与上面 `FlowFonts` 分开放：这一组是 v2 订单页版式的字号。
+/// 🔄 2026-10-06（#349）起盲人端订单页跑步前四屏也用它（负责人要求两端订单页统一成 v2 版式）；
+/// 盲人端的首页、跑步中、已完成仍是 `FlowFonts` 那一套。
 enum FlowV2Fonts {
     typealias Spec = (CGFloat, Font.Weight, Font.TextStyle)
 

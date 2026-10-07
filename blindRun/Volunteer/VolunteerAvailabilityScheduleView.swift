@@ -50,6 +50,11 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
     var weekday: String
     var startMinutes: Int
     var endMinutes: Int
+    /// 一次性时段的日期（`yyyy-MM-dd`），`nil` = 每周重复。**必须原样带回去**（#353）：
+    /// 丢了它，这一段保存后就变成每周重复。有日期时星期不许改 —— 两者对不上后端回 400。
+    var date: String?
+
+    var isOneOff: Bool { date != nil }
 
     var isValid: Bool {
         VolunteerAvailabilityScheduleEditing.isValid(startMinutes: startMinutes, endMinutes: endMinutes)
@@ -59,7 +64,8 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
         VolunteerAvailableTimeSlot(
             dayOfWeek: weekday,
             startTime: VolunteerAvailabilityScheduleEditing.raw(fromMinutes: startMinutes),
-            endTime: VolunteerAvailabilityScheduleEditing.raw(fromMinutes: endMinutes)
+            endTime: VolunteerAvailabilityScheduleEditing.raw(fromMinutes: endMinutes),
+            date: date
         )
     }
 
@@ -74,12 +80,21 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
         self.weekday = weekday
         self.startMinutes = start
         self.endMinutes = end
+        self.date = slot.date?.nilIfBlank
     }
 
-    init(weekday: String, startMinutes: Int, endMinutes: Int) {
+    init(weekday: String, startMinutes: Int, endMinutes: Int, date: String? = nil) {
         self.weekday = weekday
         self.startMinutes = startMinutes
         self.endMinutes = endMinutes
+        self.date = date
+    }
+
+    /// 列表与编辑页上的「哪一天」：每周的说「周六」，一次性的说「仅 10月3日（周六）」。
+    var dayText: String {
+        let weekdayName = VolunteerAvailabilitySlotSummary.weekdayName(weekday) ?? weekday
+        guard let date, let dateName = VolunteerAvailabilitySlotSummary.dateName(date) else { return weekdayName }
+        return "仅 \(dateName)（\(weekdayName)）"
     }
 
     /// 新增时编辑页**预选**的值：周六 07:00–09:00。取周末早晨是因为它是助盲跑最常见的时段
@@ -101,10 +116,20 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
 
     private weak var appState: AppState?
 
+    private let today: () -> String
+
+    init(today: @escaping () -> String = { VolunteerAvailableTimeSlot.todayString() }) {
+        self.today = today
+    }
+
+    /// 过期的一次性时段不进列表（契约：后端不清理，客户端自己过滤），也就不会被下一次保存带回去。
     func configure(with appState: AppState) {
         guard self.appState !== appState else { return }
         self.appState = appState
-        slots = (appState.volunteerProfile?.availableTimeSlots ?? []).compactMap(VolunteerAvailabilityDraftSlot.init)
+        let today = self.today()
+        slots = (appState.volunteerProfile?.availableTimeSlots ?? [])
+            .filter { !$0.isExpired(today: today) }
+            .compactMap(VolunteerAvailabilityDraftSlot.init)
     }
 
     func add(_ slot: VolunteerAvailabilityDraftSlot) {
@@ -141,9 +166,11 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
         isSaving = true
         errorMessage = nil
         let existing = appState.volunteerProfile
+        // 页面开着跨过零点时，打开时还有效的一次性时段可能刚过期 —— 保存时再滤一次。
+        let today = self.today()
         let request = VolunteerProfileUpdateRequest(
             name: existing?.name,
-            availableTimeSlots: slots.map(\.payload),
+            availableTimeSlots: slots.map(\.payload).filter { !$0.isExpired(today: today) },
             acceptsGuideDog: existing?.acceptsGuideDog,
             paceRange: existing?.paceRange
         )
@@ -185,7 +212,7 @@ struct VolunteerAvailabilityScheduleView: View {
                         editingSlot = slot
                     } label: {
                         HStack {
-                            Text(VolunteerAvailabilitySlotSummary.weekdayName(slot.weekday) ?? slot.weekday)
+                            Text(slot.dayText)
                                 .foregroundColor(AppColors.textPrimary)
                             Spacer()
                             Text(rangeText(slot))
@@ -266,8 +293,7 @@ struct VolunteerAvailabilityScheduleView: View {
     }
 
     private func announcement(_ slot: VolunteerAvailabilityDraftSlot) -> String {
-        let day = VolunteerAvailabilitySlotSummary.weekdayName(slot.weekday) ?? slot.weekday
-        return "\(day)，\(rangeText(slot))"
+        "\(slot.dayText)，\(rangeText(slot))"
     }
 }
 
@@ -293,9 +319,14 @@ private struct VolunteerAvailabilitySlotEditor: View {
 
     var body: some View {
         Form {
-            Picker("星期", selection: $draft.weekday) {
-                ForEach(VolunteerAvailabilityScheduleEditing.weekdays, id: \.self) { day in
-                    Text(VolunteerAvailabilitySlotSummary.weekdayName(day) ?? day).tag(day)
+            if draft.isOneOff {
+                // 一次性时段的星期由日期决定，改了就和日期对不上（后端 400）。只读一行。
+                LabeledContent("日期", value: draft.dayText)
+            } else {
+                Picker("星期", selection: $draft.weekday) {
+                    ForEach(VolunteerAvailabilityScheduleEditing.weekdays, id: \.self) { day in
+                        Text(VolunteerAvailabilitySlotSummary.weekdayName(day) ?? day).tag(day)
+                    }
                 }
             }
             minutePicker("开始", minutes: $draft.startMinutes)

@@ -896,6 +896,79 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 读取规则参数
+    ///
+    /// 2026-10-06 新增（#356，派单与邀请模型 SPEC 的 PR-5）。客户端用它拿**用来显示或跳转的数**，
+    /// 不再各自写死一份镜像常量（此前 iOS 把「开跑前 120 分钟自动打开订单」写死在客户端里，
+    /// 后端想调就得等发版）。
+    ///
+    /// 🚨 **这里的数只用来显示或跳转，判定结果仍由后端给** —— 「算不算临时取消」「该不该自动
+    /// 打开」都以后端返回的字段为准，客户端不要拿这里的数自己再算一遍。
+    ///
+    /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
+    /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
+    /// 未登录的人用不上，所以也不放进 permitAll。
+    ///
+    /// - Remark: HTTP `GET /api/config/rules`.
+    /// - Remark: Generated from `#/paths//api/config/rules/get(getRules)`.
+    public func getRules(_ input: Operations.getRules.Input) async throws -> Operations.getRules.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getRules.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/config/rules",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getRules.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseRuleParamsResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
     /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
@@ -1891,7 +1964,11 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// **此刻派给我、还能回复的单**（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// 🚩 2026-10-06 起（#392）范围与 `GET /api/volunteer/pending-invites` 是**同一个谓词**：手上有这一单 `PENDING`、
+    /// 未过期、当前代次的邀请，且订单仍在派单中。此前这里列的是附近所有待派单（含已被接走的 `PENDING_ACCEPT`），
+    /// 而那些单一张都接不了（`ORDER_DISPATCH_MISMATCH`）。列表里的每一单都能直接回复；
+    /// 需要完整的邀请信息（`inviteId`、`expiresAt`）请用 `pending-invites`。
     /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
     /// - Remark: HTTP `GET /api/orders/available`.
@@ -2530,6 +2607,10 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 角色：`BLIND`（本单下单人）或 `VOLUNTEER`（本单接单人）。盲人取消 → `CANCELLED`；陪跑员取消 → `REMATCHING`（重新匹配）。
+    ///
+    /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output {
@@ -2568,7 +2649,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            Components.Schemas.CancelOrderResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -2607,6 +2688,7 @@ public struct Client: APIProtocol {
     /// 触发确认请求的通知是 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED`（HIGH，会补发 APNs），
     /// 默认在距开跑 `app.order.departure-confirm-window-minutes`（120 分钟）时下发 ——
     /// **那条通知与本端点是一对，客户端别只接一个**。
+    /// 本端点最早可调的时刻见订单详情的 `earliestDepartureAt`（`SCHEDULED_CONFIRMED` 态下就是它，#307）。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/confirm-departure`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/confirm-departure/post(confirmDeparture)`.
@@ -2722,7 +2804,8 @@ public struct Client: APIProtocol {
     ///
     /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
     /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 客户端按订单详情的 `earliestDepartureAt`（`PENDING_ACCEPT` 态下就是本端点的放行时刻，#307）决定按钮何时可用，
+    /// **别自己拿 `plannedStartTime` 去减，也不要靠 409 试探** ——
     /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
     /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
     ///
@@ -4736,16 +4819,20 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 陪跑员在出发点让跑者手机响铃
+    /// 陪跑员让跑者手机响铃（汇合期找人 / 陪跑中走散找人）
     ///
-    /// （2026-09-26 新增，陪跑员端订单页 v2）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可按。
-    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`，`eventType=RUNNER_RING`，
+    /// （2026-09-26 新增，陪跑员端订单页 v2；2026-10-06 起陪跑中也可按，#445）角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；
+    /// 在 `DRIVER_ARRIVED`（汇合期）与 `IN_PROGRESS`（陪跑中走散）可按。
+    /// 视障跑者没法主动找人，但能被声音找到。盲人收到 WS `APP_NOTIFICATION`：汇合期 `eventType=RUNNER_RING`
+    /// （「你的陪跑员到了，正在找你」），陪跑中 `eventType=RUNNER_RING_LOST`（「你的陪跑员在找你，请原地停下」，
+    /// 两句话不能混用 —— 跑步中听到「陪跑员到了」是错的），其余行为两者完全一致。
     /// 信封另带 `orderId` 与 `until`（ISO 本地时间，= `ringingUntil`）；盲人端应以最大媒体音量放提示音并朗读 `ttsText`，
     /// 循环到 `until`，任意操作即停。priority 为 HIGH，每次都同时发 APNs（`interruption-level=time-sensitive`），
     /// App 在前台时可以不弹横幅。同时写 `notification_logs`。
     ///
     /// 守卫顺序：归属（403）→ 状态（409）→ 限流（429）。被拒的请求**不占**限流配额。
     /// 限流两道，都按订单（重派换人后从头算）：两次之间至少 10 秒（`Retry-After: 10`）；每单最多 20 次，第 21 次起 429。
+    /// **两个阶段各算各的**（汇合期按满 20 次，跑步中仍有自己的 20 次）。
     /// 先判间隔再计数，10 秒内连按不消耗那 20 次。Redis 不可用时两道都放行。
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/ring-runner`.
@@ -5564,10 +5651,10 @@ public struct Client: APIProtocol {
     ///
     /// | errorCode | 含义 | 客户端该怎么做 |
     /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到订单详情的 `earliestServiceStartAt` 再亮 |
     /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
     ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟`（订单详情的 `blindConfirmDeadlineAt`）之后即使盲人没确认也放行
     /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
     /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
     ///

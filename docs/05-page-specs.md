@@ -424,7 +424,8 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
   - PENDING_MATCH：动画旋转圆圈 + "系统正在为你派单，请稍候"
   - PENDING_ACCEPT：志愿者卡片 + "待出发"，提示按预约时间前往或等待在出发地点
   - DRIVER_EN_ROUTE：志愿者卡片 + "志愿者已出发，正在前往出发地点"
-  - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点，等待志愿者开始服务"
+  - DRIVER_ARRIVED：志愿者卡片 + "见面后，轻点下方开始跑步"，主按钮「开始跑步」（调 `POST /api/orders/{id}/start-service`，盲人按下 = 同意 + 开始，后端 #346；两端都能按，先按的生效）。打电话给志愿者从「遇到问题」进入的求助与安全中心拨出
+    > 🔄 2026-10-06 改口径：原文是「等待志愿者开始服务」。后端 #307 加了同意闸后，盲人被动等待会让两人互相等，陪跑员只能等到开跑 + 15 分钟强制开始
 - 订单信息卡片（出发地点、预约时间、可选项）
 - 志愿者距离（收到位置且订单有出发坐标时）：显示"志愿者距出发地点约 X"，来源为志愿者最新 WebSocket 位置到订单出发坐标
 - "继续等待"主按钮（**只在 REMATCHING 显示**）：与"打电话给志愿者"共用状态卡下方的主动作版位，两者状态集互斥
@@ -888,7 +889,9 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - 每 5 秒轮询
 - PENDING_ACCEPT → DRIVER_EN_ROUTE（志愿者点击已出发）：UI 更新
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED（志愿者点击已到达）：UI 更新
-- PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING：跳转首页并提示系统将为盲人重新匹配
+- PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING：跳转首页并提示「订单已取消，这一单不在你名下了。」；
+  取消响应 `countedAsLateCancel` 为 true 时后面接「已记一次临时取消。」（后端 #361，只记不罚，不说任何后果）。
+  > 🔄 2026-10-06 改口径：原文「提示系统将为盲人重新匹配」在后端重匹次数到上限时不成立（那时订单直接 `CANCELLED`）
 - 志愿者取消成功后不再用志愿者 token 拉取已解除参与关系的订单详情，直接退出服务流并清空本地当前订单
 - DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束陪跑"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，感谢你的陪伴"（不报积分数：每单加几分是后端配置，客户端不编数字）

@@ -86,6 +86,9 @@ enum VolunteerOrderFlowCopy {
     static let startRun = "开始跑步"
     /// 主按钮上方那行小字。**逐字取自设计交付文档 v3 §5 的「陪跑员主按钮」列。**
     static let startRunCaption = "见面并握好引导绳后再按"
+    /// 按下「开始跑步」收到 409 `BLIND_CONFIRMATION_PENDING` 后换上的小字（后端 #307 ①）。
+    /// 按钮**不置灰** —— 对方随时可能点，也可能手机没电，宽限期过后可单方面开始。
+    static let startRunAwaitingConfirmation = "等待对方确认"
     static let doneReviewing = "完成"
     static let backToHome = "回到首页"
 
@@ -244,21 +247,30 @@ enum VolunteerOrderFlowCopy {
     /// 但弹层里那句「系统会马上为李明重新找人」已经把真实后果说清楚了，
     /// 再造一套只有本 App 用的词反而让人猜。项目负责人 2026-09-17 拍板按设计稿。
     ///
-    /// 🔴 **12 小时那一段只说「会马上重新找人」，不提任何取消记录。**
-    /// 设计稿原文还有「会记一次临时取消」「30 天内满 3 次，接下来 14 天不会收到邀请」——
-    /// 后端**零实现**：`api_spec.yaml` 与 `websocket-protocol.md` 里
-    /// `lateCancel` / `cancellationCount` / 临时取消 / cancelPolicy 全部命中 0，
-    /// 取消端点本身连请求体都没有。向志愿者宣布一套不存在的处罚规则，
-    /// 而他正要据此决定去不去，比不说更糟。已投 handoff。
+    /// 🔄 **窗口内那一段：说「会记一次临时取消」，不说任何后果**（2026-10-06 改口径）。
+    /// 设计稿原文还有「30 天内满 3 次，接下来 14 天不会收到邀请」—— 那一半后端**没有**：
+    /// 契约 `CancelOrderResponse.countedAsLateCancel` 写明「只记不罚……不要说『3 次』或『14 天』之类的后果，
+    /// 那是不存在的规则」。向志愿者宣布一套不存在的处罚，而他正要据此决定去不去，比不说更糟。
+    /// 「会记一次」这半句此前也被删了，理由是后端零实现；后端 #361 起有了，所以加回来。
+    ///
+    /// 这里是**取消前的预告**，用规则参数里的窗口判（契约：「只用来在取消前提示用户」）；
+    /// 真记没记以取消响应为准，见 `VolunteerCancelAnnouncement`。
+    ///
+    /// - Parameter lateCancelWindowHours: 取自 `AppState.ruleParams`（`GET /api/config/rules`）。
+    ///   **不给默认值**：给了默认值，调用点漏传时就静默退回写死的 12，正是这次要去掉的东西。
     static func cancelSheet(
         for status: RunOrderStatus?,
         plannedStart: Date?,
+        lateCancelWindowHours: Int,
         now: Date = Date()
     ) -> CancelSheetCopy {
-        CancelSheetCopy(
+        let isLate = isWithinLateCancelWindow(
+            plannedStart: plannedStart, windowHours: lateCancelWindowHours, now: now
+        )
+        return CancelSheetCopy(
             title: "取消这次陪跑？",
-            lateNotice: isWithinLateCancelWindow(plannedStart: plannedStart, now: now)
-                ? "离开始不到 \(lateCancelWindowHours) 小时。现在取消，系统会马上为跑者重新找人。"
+            lateNotice: isLate
+                ? "离开始不到 \(lateCancelWindowHours) 小时。现在取消会记一次临时取消，系统会马上为跑者重新找人。"
                 : nil,
             message: status == .scheduledConfirmed || status == .pendingAccept || status == .driverEnRoute
                 ? "这一单会转给其他志愿者，之后不一定还能接回来。"
@@ -268,28 +280,94 @@ enum VolunteerOrderFlowCopy {
         )
     }
 
-    /// ⚠️ **这个 12 是客户端的，不是后端配置。** 设计交付文档 v3 §10 明写「规则参数后端可配置，
-    /// 前端不写死」，而后端至今没有这个参数 —— 契约里搜不到任何取消政策。
-    /// 它只决定「多不多显示一句话」，不参与任何判罚，所以暂时留在客户端是安全的；
-    /// 后端一旦给出配置就改读配置。已投 handoff。
-    static let lateCancelWindowHours = 12
-
-    private static func isWithinLateCancelWindow(plannedStart: Date?, now: Date) -> Bool {
+    private static func isWithinLateCancelWindow(plannedStart: Date?, windowHours: Int, now: Date) -> Bool {
         guard let plannedStart else { return false }
         let remaining = plannedStart.timeIntervalSince(now)
-        // 已经过了开跑时间也算「不足 12 小时」—— 那一刻盲人多半已经在集合点了。
-        return remaining < Double(lateCancelWindowHours) * 3600
+        // 已经过了开跑时间也算「不足窗口」—— 与后端口径一致（契约：「开跑之后才取消也算」）。
+        return remaining < Double(windowHours) * 3600
     }
 
     struct CancelSheetCopy: Equatable {
         let title: String
-        /// 距开跑不足 12 小时时多出来的那一段。`nil` = 不显示。
+        /// 距开跑不足窗口（规则参数，默认 12 小时）时多出来的那一段。`nil` = 不显示。
         let lateNotice: String?
         let message: String
         /// 黄色主按钮**是「保留」**：这一屏的默认动作是不取消。
         let keep: String
         /// 灰色文字按钮。**不用红色** —— 红在本 App 里只给紧急求助（设计交付文档 v3 §1.2）。
         let cancel: String
+    }
+}
+
+// MARK: - 取消之后那一句
+
+/// 陪跑员取消成功后念的那一句，以及「已记一次临时取消」怎么接上去（后端 #361）。
+///
+/// 难点在**先后顺序不固定**：订单转 `REMATCHING` 的 WebSocket 推送常常比取消接口的响应先到。
+/// - 响应先到：取消那一句里直接带上「已记一次临时取消。」；
+/// - 推送先到：取消那一句已经在念了，响应到达时把「已记一次临时取消。」**排在后面**补一句，
+///   不打断前一句（同档 `speak` 会把正在念的那句从半句切断）。
+///
+/// 抽成纯值类型是为了让两种顺序各有一条用例 —— 真机上哪种先到取决于网络，碰不出来。
+struct VolunteerCancelAnnouncement: Equatable {
+    static let lateCancelRecorded = "已记一次临时取消。"
+
+    /// 取消那一句。**只说陪跑员自己那一半**：「系统将为跑者重新匹配」在后端重匹次数到上限时不成立
+    /// （那时订单直接转 `CANCELLED`，见 `VolunteerHomeViewModel.releaseScheduledOrder` 的注释），
+    /// 而「这一单不在你名下了」两种结局下都为真。首页那条状态订阅念 `REMATCHING` 时也用这一句。
+    static let cancelledByVolunteer = "订单已取消，这一单不在你名下了。"
+
+    /// 取消响应里的 `countedAsLateCancel`。`nil` = 这次取消的响应还没到（或根本没发起过取消）。
+    private(set) var countedAsLateCancel: Bool?
+    private(set) var cancellationSpoken = false
+    private(set) var lateCancelSpoken = false
+
+    /// 真发出取消请求时调。上一次取消留下的状态一并清掉。
+    mutating func begin() {
+        self = VolunteerCancelAnnouncement()
+    }
+
+    /// 这一次状态推进要不要念取消那一句。
+    ///
+    /// `REMATCHING` 只可能来自陪跑员这一侧（自己取消，或跨天单闸门到点），都是「这一单不在你名下了」。
+    /// `CANCELLED` **只在自己的取消已被后端确认（响应到了）时**才算 —— 请求还在路上、或结果未知时
+    /// 到达的 `CANCELLED` 更可能是跑者取消的，那一屏要说「不算你的取消」，不能关页说「你取消了」。
+    /// 代价：重匹到上限、且推送先于响应到达的那一次，会先停在「跑者已取消」那一屏。
+    func announcesCancellation(entering status: RunOrderStatus) -> Bool {
+        status == .rematching || (status == .cancelled && countedAsLateCancel != nil)
+    }
+
+    /// 念取消那一句。
+    ///
+    /// - Parameter speak: 真正念的那一下，返回**是否念出**。订单页传 `speakStatusChange(status, text:)`：
+    ///   它与首页那条状态订阅共用同一个去重键，所以两边只会念出一句。
+    /// - Returns: 被去重（首页先念了不带「已记一次」的那句）且这次算临时取消时，要补在后面的那一句；否则 `nil`。
+    mutating func announceCancellation(speak: (String) -> Bool) -> String? {
+        let includesLate = countedAsLateCancel == true
+        cancellationSpoken = true
+        let sentence = includesLate ? Self.cancelledByVolunteer + Self.lateCancelRecorded : Self.cancelledByVolunteer
+        if speak(sentence) {
+            lateCancelSpoken = includesLate
+            return nil
+        }
+        guard includesLate else { return nil }
+        lateCancelSpoken = true
+        return Self.lateCancelRecorded
+    }
+
+    /// 取消响应到达时调。返回要**追加**的那一句；`nil` = 不用追加
+    /// （没被记、或取消那一句还没念 —— 那时它会自己带上）。
+    mutating func recordResponse(_ response: CancelOrderResponse) -> String? {
+        let counted = response.countedAsLateCancel == true
+        countedAsLateCancel = counted
+        guard counted, cancellationSpoken, !lateCancelSpoken else { return nil }
+        lateCancelSpoken = true
+        return Self.lateCancelRecorded
+    }
+
+    /// 同步的取消路径（没有 WebSocket 竞争，例如首页「我去不了」）：成功那一句后面要不要接这一句。
+    static func suffix(for response: CancelOrderResponse) -> String {
+        response.countedAsLateCancel == true ? lateCancelRecorded : ""
     }
 }
 
@@ -443,6 +521,12 @@ struct VolunteerOrderFlowPresentation: Equatable {
             case .acceptInvite, .confirmDeparture, .enRoute, .alreadyDeparted, .arrived, .doneReviewing, .backToHome:
                 return nil
             }
+        }
+
+        /// `caption`，但「开始跑步」在等对方确认时换成「等待对方确认」。其余动作与 `caption` 相同。
+        func caption(awaitingBlindConfirmation: Bool) -> String? {
+            if self == .startRun, awaitingBlindConfirmation { return VolunteerOrderFlowCopy.startRunAwaitingConfirmation }
+            return caption
         }
 
         /// SF Symbol。一律 SF Symbols，不移植 HTML 原型里那些手绘 SVG 占位图。

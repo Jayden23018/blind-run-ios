@@ -314,6 +314,25 @@ struct VolunteerAvailableTimeSlot: Codable, Sendable {
     let dayOfWeek: String?
     let startTime: String?
     let endTime: String?
+    /// 一次性时段：只在这一天（`yyyy-MM-dd`）；`nil` = 每周重复（后端 #564）。
+    ///
+    /// 🔴 **读的时候先看它，别只认 `dayOfWeek`** —— 一次性时段在响应里也带 `dayOfWeek`。
+    /// 模型不认识它的版本，读进来再整体 PUT 回去，会把一次性时段静默改成每周重复（#353）。
+    /// `nil` 编码时不写键，每周时段的请求体与以前逐字相同。
+    var date: String? = nil
+
+    /// 一次性时段且日期早于今天。后端不清理过期项（匹配时按日期自然失效），
+    /// 契约要求列表自己过滤、整体 PUT 时别再传回去。
+    /// `today` 是本机日历的 `yyyy-MM-dd`；字符串比较即日期比较（定长、零填充）。
+    func isExpired(today: String = VolunteerAvailableTimeSlot.todayString()) -> Bool {
+        guard let date = date?.nilIfBlank else { return false }
+        return date < today
+    }
+
+    static func todayString(now: Date = Date(), calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: now)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
 }
 
 struct VolunteerProfileUpdateRequest: Codable, Sendable {

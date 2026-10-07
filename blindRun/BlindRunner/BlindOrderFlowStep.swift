@@ -157,6 +157,21 @@ enum BlindRunCopy {
     static let finishedButtonTitle = "完成"
     static let finishedButtonHint = "返回首页"
 
+    /// ① 汇合的主按钮（设计稿状态清单 §1）。与陪跑员端 `VolunteerOrderFlowCopy.startRun` 同一个词：
+    /// 两人站在一起时会互相说「你按开始跑步」，两端叫法不同就对不上。
+    static let startRunButtonTitle = "开始跑步"
+    /// ① 汇合的副标题（设计稿逐字）。「轻点下方」只在订单页成立，所以它不进
+    /// `RunOrderStatus.blindRunnerDescription` —— 那一句首页与语音状态查询也在用。
+    static let metUpSubtitle = "见面后，轻点下方开始跑步"
+    /// 按下去不能撤回（倒计时那三秒按钮不可点），所以提示要先说清会发生什么。
+    static let startRunHint = "按下后倒数三秒开始，陪跑员那边会同时开始"
+    /// 按下「开始跑步」那一刻播的一句。成功之前可能要等网络，这一句让人知道按到了。
+    static let startingAnnouncement = "正在开始跑步。"
+    /// 还没到 `earliestServiceStartAt` 时的副标题与读屏提示。
+    static func metUpLockedSubtitle(opensAt: String) -> String { "见面后，\(opensAt) 起可以开始跑步" }
+    static func startRunLockedHint(opensAt: String) -> String { "\(opensAt) 起可以按" }
+    static let startRunFailed = "没能开始跑步，请再按一次。"
+
     static let countdownTitle = "准备开始"
     static let countdownSubtitle = "握好引导绳"
     static let countdownButtonTitle = "准备中"
@@ -263,7 +278,14 @@ struct BlindOrderFlowPresentation: Equatable {
         /// （后端 N62 把 `rematchNotifyAt` 计进了 `dispatchDeadline`），删了只剩一个
         /// 30 分钟窗口就转 `NO_VOLUNTEER` 终态，而重新下单又要求 ≥30 分钟提前量。
         case keepWaiting(title: String)
-        /// 倒计时那三秒。**位置不动、只换文字**，且不可点。
+        /// 汇合态：开始跑步。调 `POST /start-service`，盲人按下 = 同意 + 开始（后端 #346）。
+        case startRun
+        /// 汇合态但还没到 `earliestServiceStartAt`：同一个按钮、同一个位置，不可按，
+        /// 读屏提示说几点可以按（`opensAt` 是「9:45」这样的钟点）。契约原话「按钮该置灰、到点再亮」——
+        /// 不锁的话盲人按下只会听到一句「还没到时间」，而那句话说不出还要等多久。
+        case startRunLocked(opensAt: String)
+        /// 倒计时那三秒，以及按下「开始跑步」后请求在途那一段（`isStartingRun`）。
+        /// **位置不动、只换文字**，且不可点。
         case preparing
         /// 跑步中的主按钮。按下去播里程 / 时长 / 配速。
         ///
@@ -283,6 +305,7 @@ struct BlindOrderFlowPresentation: Equatable {
             switch self {
             case .callVolunteer(let title), .openIntroCall(let title), .keepWaiting(let title):
                 return title
+            case .startRun, .startRunLocked: return BlindRunCopy.startRunButtonTitle
             case .preparing: return BlindRunCopy.countdownButtonTitle
             case .announceStats: return BlindRunCopy.announceStatsButtonTitle
             case .done: return BlindRunCopy.finishedButtonTitle
@@ -296,6 +319,7 @@ struct BlindOrderFlowPresentation: Equatable {
             case .callVolunteer: return "phone.fill"
             case .openIntroCall: return "phone.bubble.left.fill"
             case .keepWaiting: return nil
+            case .startRun, .startRunLocked: return "figure.run"
             // 倒计时那三秒刻意**不给图标**：换图标会让按钮内容宽度变一次，
             // 而这一屏的全部承诺是「主按钮位置一格不动」。
             case .preparing: return nil
@@ -308,8 +332,10 @@ struct BlindOrderFlowPresentation: Equatable {
 
         /// `false` ⇒ 视图走 `.disabled()`，读屏会念「变暗」。
         var isEnabled: Bool {
-            if case .preparing = self { return false }
-            return true
+            switch self {
+            case .preparing, .startRunLocked: return false
+            default: return true
+            }
         }
     }
 
@@ -325,6 +351,7 @@ struct BlindOrderFlowPresentation: Equatable {
     ///     **相位由它 + 订单状态共同派生，不从外面整个传进来** —— 传一个完整的 `phase`
     ///     等于允许调用方传出「订单还在 `DRIVER_ARRIVED` 而相位已经是 `.running`」这种
     ///     不存在的组合，而那会渲染出一屏没有数据来源的三个数字。
+    ///   - isStartingRun: 汇合态按下「开始跑步」后请求在途。来自 view model，理由同 `countdown`。
     ///   - now: 算「已等待」用。走参数是为了让跨小时那条边界能被单测钉住。
     static func make(
         order: OrderDetailResponse,
@@ -332,6 +359,7 @@ struct BlindOrderFlowPresentation: Equatable {
         canKeepWaiting: Bool,
         locationWarning: String? = nil,
         countdown: Int? = nil,
+        isStartingRun: Bool = false,
         now: Date = Date()
     ) -> BlindOrderFlowPresentation? {
         guard let step = order.status.blindOrderFlowStep else { return nil }
@@ -393,7 +421,9 @@ struct BlindOrderFlowPresentation: Equatable {
                 title: title(order: order, step: step, name: name, hasVolunteerName: hasVolunteerName),
                 subtitle: subtitle(order: order, distanceText: distanceText, now: now),
                 lastRowTitle: lastRowTitle(order: order),
-                primaryAction: primaryAction(order: order, name: name, canKeepWaiting: canKeepWaiting),
+                primaryAction: primaryAction(
+                    order: order, name: name, canKeepWaiting: canKeepWaiting, isStartingRun: isStartingRun, now: now
+                ),
                 warning: locationWarning
             )
         }
@@ -401,8 +431,8 @@ struct BlindOrderFlowPresentation: Equatable {
 
     /// 相位 = 订单状态 + 本地倒计时。
     ///
-    /// 倒计时只在 `IN_PROGRESS` 有意义：它是**志愿者按下开始之后**那三秒
-    /// （盲人 token 调不了 `/start-service`，见 `BlindOrderStatusViewModel.startRunCountdown`），
+    /// 倒计时只在 `IN_PROGRESS` 有意义：它是**任一端按下开始之后**那三秒
+    /// （挂在状态转移上，见 `BlindOrderStatusViewModel.startRunCountdown`），
     /// 所以状态已经推过来了、三个数字也已经开始有值了，只是还没上屏。
     /// 别的状态下即使外面传了 `countdown` 也一律忽略 —— 在「正在匹配」那一屏上倒数三秒
     /// 是在向盲人承诺一件不会发生的事。
@@ -461,7 +491,17 @@ struct BlindOrderFlowPresentation: Equatable {
         distanceText: String?,
         now: Date
     ) -> String {
-        var parts = [order.status.blindRunnerDescription]
+        // 汇合态在订单页上用设计稿那句带位置的话（`BlindRunCopy.metUpSubtitle`）：
+        // 这一屏下方就是「开始跑步」。通用那句（`blindRunnerDescription`）不说位置，
+        // 因为首页与语音状态查询也在用它。
+        let description: String
+        if order.status == .driverArrived {
+            description = startRunOpensAt(order: order, now: now).map(BlindRunCopy.metUpLockedSubtitle(opensAt:))
+                ?? BlindRunCopy.metUpSubtitle
+        } else {
+            description = order.status.blindRunnerDescription
+        }
+        var parts = [description]
         if let waited = order.blindRunnerWaitedText(now: now) {
             parts.append(waited)
         }
@@ -488,14 +528,37 @@ struct BlindOrderFlowPresentation: Equatable {
         return order.status.blindOrderFlowStep == .matching ? "取消匹配" : "取消预约"
     }
 
+    /// 还没到 `earliestServiceStartAt` 就返回那个钟点（「9:45」），否则 `nil`。
+    /// 字段缺失或解析不出时返回 `nil` —— 不锁按钮，由后端判（按下去最多听到一句「还没到时间」）。
+    /// 到点之后靠订单页每 5 秒一次的轮询重算，所以按钮最多晚 5 秒亮起。
+    private static func startRunOpensAt(order: OrderDetailResponse, now: Date) -> String? {
+        guard let earliest = order.earliestServiceStartAt?.nilIfBlank?.backendTimestamp, now < earliest else {
+            return nil
+        }
+        return DateFormatter.aidRunDisplayClock.string(from: earliest)
+    }
+
     private static func primaryAction(
         order: OrderDetailResponse,
         name: String,
-        canKeepWaiting: Bool
+        canKeepWaiting: Bool,
+        isStartingRun: Bool,
+        now: Date
     ) -> PrimaryAction? {
         // 通话磨合最优先：那一态唯一该做的事就是打这通电话。
         if order.status == .pendingIntroCall {
             return .openIntroCall(title: IntroCallCopy.blindEntryButtonTitle)
+        }
+        // 汇合态：开始跑步（设计稿状态清单 §1；v3「双方都能按，先按的生效」）。
+        // 判在打电话前面：这一态仍有号码可拨，但一屏只有一个主按钮，而这一刻该做的事是开始。
+        // 打电话没有消失 —— 「遇到问题」打开的求助与安全中心里有「联系陪跑员」。
+        // 不依赖号码，所以号码为 null 时版位也不再空着（`BlindRunPhaseTests` 记过的缺口）。
+        // 请求在途时原位换成不可点的「准备中」（与倒计时那三秒同一个样子）：
+        // 不变灰的话，慢网络下再按会被静默吞掉 —— 对盲人端那就是「点了没反应」。
+        if order.status.canStartService {
+            if isStartingRun { return .preparing }
+            if let opensAt = startRunOpensAt(order: order, now: now) { return .startRunLocked(opensAt: opensAt) }
+            return .startRun
         }
         // 判据是「拼不拼得出 tel: URL」而不是「字符串非空」：掩码串 `138****1234`
         // 会被 `telURL` 的掩码闸拦掉（不拦则拼成 `tel://1381234`，一个可能真打给别人的号码）。

@@ -28,6 +28,7 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     var deleteAccountResult: Result<DeleteAccountResponse, Error> = .failure(NotStubbed(method: "deleteAccount"))
     var legalLinksResult: Result<LegalLinksResponse, Error> = .failure(NotStubbed(method: "legalLinks"))
     var featureFlagsResult: Result<FeatureFlagsResponse, Error> = .failure(NotStubbed(method: "featureFlags"))
+    var ruleParamsResult: Result<RuleParamsResponse, Error> = .failure(NotStubbed(method: "ruleParams"))
     var missedNotificationsResult: Result<MissedNotificationPage, Error> = .failure(NotStubbed(method: "missedNotifications"))
     var accountDeletionOrderPreflightResult: Result<PagedOrderResponse, Error> = .failure(NotStubbed(method: "accountDeletionOrderPreflight"))
     var registerDeviceTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "registerDeviceToken"))
@@ -81,6 +82,11 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     func featureFlags() async throws -> FeatureFlagsResponse {
         record()
         return try featureFlagsResult.get()
+    }
+
+    func ruleParams() async throws -> RuleParamsResponse {
+        record()
+        return try ruleParamsResult.get()
     }
 
     func missedNotifications(after: String) async throws -> MissedNotificationPage {

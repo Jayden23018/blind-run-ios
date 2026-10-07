@@ -86,6 +86,9 @@ defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier | grep -E 'team
 | `maximum number of installed apps using a free developer profile` | 第三节：问用户后卸载旧的免费 App |
 | `exited with code 74 before establishing connection` | 先 `pgrep -x Xcode`；开着就请用户 ⌘Q。再回原始日志 grep `refused\|Exiting due`。都不是再查 USB（`transportType` 要是 `wired`） |
 | `设备处于锁屏状态` | 用户解锁，并把自动锁定设成「永不」 |
+| `日志连续 Ns 没有新输出、也没开始跑用例` | 编译期间不计时（2026-10-05 起），所以这一句**就是**卡住：看 `devicectl` 的 `transportType` 是不是 `wired`、手机解没解锁 |
+| `Failed to create directory on device … runtime profiles`（bundle id 是默认的 `com.culiu-tech…` 也照样） | **原样复跑一次**。刚换过前缀 / 刚重签后常见，复跑就过；不是前缀没生效，别改脚本 |
+| `认证已取消。Canceled by user.`（runner 已起，带 pid） | 手机上弹了**锁屏密码认证框**没人点。先确认 设置 → 开发者 → UI 自动化 打开，再让用户盯着手机在启动后输密码 |
 | `Unable to find a destination matching` | 第一节第 2 条：设备断开或 UDID 不对 |
 | `Timed out while enabling automation mode` | 原样复跑**一次**；第二次还是同一句就停，请用户去开 UI Automation 开关 |
 

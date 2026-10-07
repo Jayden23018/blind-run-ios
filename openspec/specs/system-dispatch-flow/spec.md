@@ -1,7 +1,7 @@
 # system-dispatch-flow Specification
 
 ## Purpose
-TBD - created by archiving change adopt-system-dispatch-flow. Update Purpose after archive.
+Define how the iOS volunteer side receives work through backend system dispatch instead of a public order pool: the home screen renders the dispatch summary, the availability control only opts in or out of new dispatches, and an already accepted order stays usable regardless of that switch.
 ## Requirements
 ### Requirement: Volunteer home uses system dispatch summary
 The iOS volunteer home screen SHALL use backend dispatch summary data as its primary source of truth and SHALL NOT present a public order pool or volunteer self-selection list as the primary experience.
