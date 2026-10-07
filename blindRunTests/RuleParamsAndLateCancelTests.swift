@@ -227,6 +227,8 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
             let text = status.volunteerAnnouncement
             XCTAssertFalse(text.isEmpty, "\(status)")
             XCTAssertFalse(text.contains("志愿者"), "\(status)：\(text)")
+            // `.unknown` 两端都是中性的「订单状态有更新…」，对谁都成立，共用是对的。
+            guard status != .unknown else { continue }
             XCTAssertNotEqual(text, SpeechService.statusAnnouncement(for: status), "\(status) 仍借用盲人端那句")
         }
     }
