@@ -85,7 +85,10 @@ final class BlindEscortPreferencesTests: XCTestCase {
 
     // MARK: - 拒绝 = 显式 NOT_SPECIFIED（后端迁移 0056，backend#326）
 
-    /// 用户在同意页明确拒绝 ⇒ 视力状况显式传 `NOT_SPECIFIED`；导盲犬契约里没有「未提供」，仍缺席。
+    /// 用户在同意页明确拒绝 ⇒ 视力状况显式传 `NOT_SPECIFIED`，导盲犬显式传 `false`。
+    ///
+    /// 导盲犬原先是缺席（「契约里没有未提供」），后果是服务端旧的 `true` 一直留着：
+    /// 志愿者接单前看得到、派单按它筛人。负责人 2026-10-07 定改为显式 `false`（#352，安卓 #91）。
     ///
     /// **验红方式**：把 `makeProfileUpdateRequest` 里拒绝分支改回 `nil`，这条必须失败。
     func testDecliningVisionConsentSendsNotSpecified() {
@@ -100,7 +103,7 @@ final class BlindEscortPreferencesTests: XCTestCase {
         let request = viewModel.makeProfileUpdateRequest()
 
         XCTAssertEqual(request.visionLevel, "NOT_SPECIFIED")
-        XCTAssertNil(request.hasGuideDog, "导盲犬没有「未提供」取值，没同意就缺席")
+        XCTAssertEqual(request.hasGuideDog, false, "拒绝时不清导盲犬，服务端旧的 true 会一直留着")
     }
 
     /// 「从没被问过」≠「拒绝」：新设备同意记录不在，一律传 `NOT_SPECIFIED` 会把后端已存的
@@ -240,5 +243,111 @@ final class BlindEscortPreferencesTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: - 撤回同意（#352，安卓 #91 同步）
+
+    private func makeSavingViewModel(
+        client: ProfileSaveSpy
+    ) -> (BlindRunnerProfileViewModel, AppState) {
+        let appState = AppState(apiClient: client, persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        let viewModel = makeViewModel(appState: appState)
+        viewModel.acceptVisionConsent()
+        viewModel.visionLevel = .lowVision
+        viewModel.hasGuideDog = true
+        return (viewModel, appState)
+    }
+
+    private func hasStoredConsent(_ appState: AppState) -> Bool {
+        PrivacyConsentStore(persistence: appState.persistence).hasConsented(to: .blindVisionProfile, scope: .device)
+    }
+
+    private func waitUntil(timeout: TimeInterval = 3, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    /// 撤回 ⇒ 立刻保存一次，请求带 `NOT_SPECIFIED` + `false`；**保存成功后**才删本机同意记录。
+    func testWithdrawingSavesAtOnceAndRevokesOnlyAfterTheSaveSucceeds() async throws {
+        let client = ProfileSaveSpy()
+        client.result = .success(BlindProfileResponse(name: "测试昵称", visionLevel: "NOT_SPECIFIED", hasGuideDog: false))
+        let (viewModel, appState) = makeSavingViewModel(client: client)
+        XCTAssertTrue(hasStoredConsent(appState), "前提：已同意")
+
+        viewModel.withdrawVisionConsent()
+        XCTAssertFalse(viewModel.hasVisionConsent, "按下就要收起两项")
+
+        await waitUntil { viewModel.visionConsentWithdrawnNotice != nil || viewModel.errorMessage != nil }
+        let sent = try XCTUnwrap(client.lastUpdate, "撤回没有立刻保存")
+        XCTAssertEqual(sent.visionLevel, "NOT_SPECIFIED")
+        XCTAssertEqual(sent.hasGuideDog, false)
+        XCTAssertFalse(hasStoredConsent(appState), "保存成功后本机同意记录必须删掉")
+        XCTAssertEqual(viewModel.visionConsentWithdrawnNotice, VisionConsentWithdrawalCopy.succeeded)
+        XCTAssertFalse(viewModel.isVisionConsentWithdrawalPending)
+    }
+
+    /// 保存失败：同意记录**不删**，说清要再按一次（首次引导态按钮叫「完成」）；下一次保存仍是撤回。
+    func testFailedWithdrawalKeepsTheConsentRecordAndAsksToSaveAgain() async {
+        let client = ProfileSaveSpy()
+        client.result = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
+        let (viewModel, appState) = makeSavingViewModel(client: client)
+
+        viewModel.withdrawVisionConsent()
+        await waitUntil { viewModel.errorMessage != nil }
+
+        XCTAssertEqual(viewModel.errorMessage, VisionConsentWithdrawalCopy.failed(saveButtonTitle: "完成"))
+        XCTAssertTrue(hasStoredConsent(appState), "没存上就删记录：两边说的是两件事")
+        XCTAssertTrue(viewModel.isVisionConsentWithdrawalPending)
+        let retry = viewModel.makeProfileUpdateRequest()
+        XCTAssertEqual(retry.visionLevel, "NOT_SPECIFIED")
+        XCTAssertEqual(retry.hasGuideDog, false)
+    }
+
+    /// 撤回还没存上时又重新同意 ⇒ 那次撤回作废，保存的是用户这次选的值。
+    func testReconsentingWhileAWithdrawalIsPendingVoidsIt() async {
+        let client = ProfileSaveSpy()
+        client.result = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
+        let (viewModel, _) = makeSavingViewModel(client: client)
+        viewModel.withdrawVisionConsent()
+        await waitUntil { viewModel.errorMessage != nil }
+
+        viewModel.acceptVisionConsent()
+        viewModel.visionLevel = .totalBlind
+        viewModel.hasGuideDog = true
+
+        XCTAssertFalse(viewModel.isVisionConsentWithdrawalPending)
+        let request = viewModel.makeProfileUpdateRequest()
+        XCTAssertEqual(request.visionLevel, VisionLevel.totalBlind.rawValue)
+        XCTAssertEqual(request.hasGuideDog, true)
+    }
+}
+
+/// 只接 `PUT /api/blind/profile` 那一下。
+private final class ProfileSaveSpy: APIClientProtocol, @unchecked Sendable {
+    var result: Result<BlindProfileResponse, Error> = .failure(APIError.unknown(statusCode: -1))
+    private(set) var lastUpdate: BlindProfileUpdateRequest?
+
+    func request<T: Decodable>(
+        method: HTTPMethod,
+        path: String,
+        query: [String: String]?,
+        body: (any Encodable & Sendable)?,
+        requiresAuth: Bool
+    ) async throws -> T {
+        if let update = body as? BlindProfileUpdateRequest { lastUpdate = update }
+        guard let typed = try result.get() as? T else { throw APIError.unknown(statusCode: -1) }
+        return typed
+    }
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        fields: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T {
+        throw APIError.unknown(statusCode: -1)
     }
 }
