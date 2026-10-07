@@ -2460,14 +2460,8 @@ struct BlindOrderStatusView: View {
                     .foregroundColor(AppColors.textSecondary)
                     .accessibilityLabel("感谢反馈，可以返回首页")
             } else {
-                Picker("评分", selection: $viewModel.reviewRating) {
-                    ForEach(1...5, id: \.self) { value in
-                        Text("\(value) 星").tag(value)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("服务评分")
-                .accessibilityHint("选择一到五星评分")
+                // 2026-10-07：五档文字 + 跑步小人，评「这次陪跑」不评人。提交的仍是 1–5。
+                RunExperienceRatingPicker(rating: $viewModel.reviewRating)
 
                 TextEditor(text: $viewModel.reviewComment)
                     .frame(minHeight: 96)
