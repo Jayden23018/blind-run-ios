@@ -1,0 +1,95 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><link rel="stylesheet" href="common.css">
+<style>
+.hello{display:flex;justify-content:space-between;align-items:center;padding:6px 20px 14px}
+.hello h2{font-size:30px;font-weight:800}
+.big{font-size:52px;font-weight:800;letter-spacing:-.5px;line-height:1.05}
+.place{font-size:18px;color:var(--onNavy3);font-weight:600}
+.book{margin:14px 16px 0;height:92px;border-radius:20px;background:#DDE8FC;display:flex;align-items:center;gap:16px;padding:0 20px;font-size:22px;font-weight:800;color:#15224A}
+.plus{width:52px;height:52px;border-radius:26px;background:var(--accent);color:#fff;font-size:32px;font-weight:500;display:flex;align-items:center;justify-content:center}
+.title{font-size:30px;font-weight:800;line-height:1.2}
+.metric{display:flex;gap:0;margin-top:14px;border-top:1px solid rgba(255,255,255,.35);padding-top:14px}
+.metric div{flex:1}
+.metric b{font-size:34px;font-weight:800;display:block}
+.metric span{font-size:16px;opacity:.94}
+.gps{display:inline-flex;align-items:center;gap:6px;font-size:16px;font-weight:700;margin-top:12px;background:rgba(255,255,255,.14);padding:6px 12px;border-radius:14px}
+.rate{display:flex;justify-content:space-between;padding:6px 16px 18px}
+.rate div{width:58px;height:64px;border-radius:14px;background:var(--surface);border:1.5px solid var(--ghost);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--ink2)}
+.rate div.sel{border-color:var(--accent);background:var(--blueTint);color:#1F47AD}
+.rate i{font-style:normal;font-size:22px}
+</style></head><body>
+<h1 class="dir">方向 A ·「同一根绳」</h1>
+<p class="dirsub">与陪跑员端 v2 一体：彩色头卡按订单状态变色，「我 — 陈」引导绳贯穿全程；黄色唯一主按钮；浅红「求助与安全」常驻在每一屏底部（含首页）。</p>
+<div class="row">
+
+<!-- 1 首页 -->
+<div><div class="phone">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="hello"><h2>你好，李明</h2><div class="circ" style="width:56px;height:56px;border-radius:28px"><svg class="svg" width="26" height="26" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="#2A5BD7"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" stroke="#2A5BD7" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div></div>
+ <div class="hero" style="background:var(--navy)">
+  <div class="eyebrow" style="color:var(--onNavy2)">下一次陪跑 · 已约好</div>
+  <div class="big" style="margin-top:8px">明天 7:00</div>
+  <div class="rope"><div class="node me">我</div><div class="line dash"></div><div class="node vol" style="color:var(--navy)">陈</div></div>
+  <div class="place">朝阳公园南门 · 陈陪你跑</div>
+ </div>
+ <div class="book"><div class="plus">+</div>预约新的陪跑</div>
+ <div class="bottom" style="padding-bottom:12px"><div class="help"><svg width="20" height="22" viewBox="0 0 20 22"><path d="M10 1l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V4l8-3z" fill="none" stroke="#B42318" stroke-width="2.2"/></svg>求助与安全</div></div>
+ <div class="tabs"><div class="on"><i>⌂</i>首页</div><div><i>✦</i>星火</div><div><i>☰</i>记录</div><div><i>●</i>我的</div></div>
+ <div class="hi"></div>
+</div><div class="cap">① 首页（已有预约）</div></div>
+
+<!-- 2 汇合 -->
+<div><div class="phone">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="nav"><div class="circ" style="font-size:30px;font-weight:600;padding-bottom:4px">‹</div><div class="t">陪跑订单</div><div class="circ"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="#2A5BD7"/><path d="M16 8.5a5 5 0 010 7" stroke="#2A5BD7" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div></div>
+ <div class="hero" style="background:var(--arrived)">
+  <div class="eyebrow">汇合 · 第 4 步，共 4 步</div>
+  <div class="rope" style="justify-content:center;gap:0"><div class="node me">我</div><div class="line" style="flex:none;width:60px;background:var(--gold)"></div><div class="node vol" style="color:var(--arrived);box-shadow:0 0 0 5px rgba(255,217,120,.55)">陈</div></div>
+  <div class="title">陈到了，在南门等你</div>
+ </div>
+ <div class="card">
+  <div class="kv"><span>陪跑员</span><span>陈* · 陪跑 32 次</span></div>
+  <div class="kv"><span>集合地点</span><span>朝阳公园南门</span></div>
+  <div class="kv"><span>时间</span><span>今天 7:00–8:00</span></div>
+ </div>
+ <div class="bottom">
+  <div class="cta"><svg width="26" height="26" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="#111A2E"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="#111A2E" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>开始跑步</div>
+  <div class="help"><svg width="20" height="22" viewBox="0 0 20 22"><path d="M10 1l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V4l8-3z" fill="none" stroke="#B42318" stroke-width="2.2"/></svg>求助与安全</div>
+ </div>
+ <div class="hi"></div>
+</div><div class="cap">② 汇合 → 开始跑步</div></div>
+
+<!-- 3 跑步中 -->
+<div><div class="phone">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="nav"><div style="width:48px"></div><div class="t">陪跑中</div><div style="width:48px"></div></div>
+ <div class="hero" style="background:var(--running);padding-bottom:24px">
+  <div class="eyebrow">陪跑中 · 和陈一起</div>
+  <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px"><span style="font-size:96px;font-weight:800;letter-spacing:-2px;line-height:1">2.40</span><span style="font-size:24px;font-weight:800">公里</span></div>
+  <div class="metric"><div><b>18:32</b><span>用时</span></div><div><b>7′43″</b><span>每公里配速</span></div></div>
+  <div class="gps">● 定位正常</div>
+ </div>
+ <div class="bottom">
+  <div class="cta" style="height:150px;font-size:26px;flex-direction:column;gap:6px"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="#111A2E"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" stroke="#111A2E" stroke-width="2" fill="none" stroke-linecap="round"/></svg>听当前状态</div>
+  <div class="help"><svg width="20" height="22" viewBox="0 0 20 22"><path d="M10 1l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V4l8-3z" fill="none" stroke="#B42318" stroke-width="2.2"/></svg>求助与安全</div>
+ </div>
+ <div class="hi"></div>
+</div><div class="cap">③ 跑步中（无标签栏、无节奏按钮）</div></div>
+
+<!-- 4 完成 -->
+<div><div class="phone">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="nav"><div style="width:48px"></div><div class="t">陪跑完成</div><div style="width:48px"></div></div>
+ <div class="hero" style="background:var(--done)">
+  <div class="eyebrow">已完成 · 和陈一起</div>
+  <div class="rope" style="justify-content:center"><div class="node me">我</div><div class="line" style="flex:none;width:40px;background:var(--gold)"></div><div class="node vol" style="color:var(--done)">陈</div></div>
+  <div style="display:flex;gap:28px;align-items:baseline"><div><span style="font-size:56px;font-weight:800">5.20</span> <span style="font-size:20px;font-weight:800">公里</span></div><div><span style="font-size:40px;font-weight:800">42</span> <span style="font-size:20px;font-weight:800">分钟</span></div></div>
+ </div>
+ <div class="card" style="margin-top:14px">
+  <div style="font-size:20px;font-weight:800;padding:18px 20px 12px">这次陪跑怎么样</div>
+  <div class="rate"><div><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="currentColor"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>很差</div><div><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="currentColor"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>较差</div><div><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="currentColor"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>一般</div><div><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="currentColor"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>顺利</div><div class="sel"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="currentColor"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>很顺利</div></div>
+ </div>
+ <div class="bottom"><div class="cta">完成</div></div>
+ <div class="hi"></div>
+</div><div class="cap">④ 完成 + 评这次陪跑</div></div>
+
+</div></body></html>
