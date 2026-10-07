@@ -5420,7 +5420,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(viewModel.isPerformingAction)
         XCTAssertEqual(
             speechService.lastSpokenText,
-            SpeechService.statusAnnouncement(for: .driverEnRoute)
+            RunOrderStatus.driverEnRoute.volunteerAnnouncement
         )
         client.releaseSuspendedRequests()
     }
