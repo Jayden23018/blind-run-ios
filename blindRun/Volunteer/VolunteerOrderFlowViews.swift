@@ -1695,6 +1695,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
             handleSignalArrival(signal, order: updated, now: now)
         }
         order = updated
+        // 响铃 / 快捷消息的回执只说上一状态里那一次按下；跑步页也渲染它，状态一变就清，
+        // 免得汇合期那句「对方可能没收到」挂到跑步中。它从不随状态切换一起写，清了不会吞掉新报的话。
+        if let previousStatus, previousStatus != updated.status { nudgeNotice = nil }
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         // 同 `configure`：换单时上面那行会清掉 `didSet` 先写的姓氏。
         appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.blindSurname?.nilIfBlank)
@@ -1980,7 +1983,9 @@ struct VolunteerInServiceView: View {
                         isPaused: order.isRunPaused,
                         isTogglingPause: viewModel.isTogglingPause,
                         supportState: viewModel.supportRequestState,
+                        ringingUntil: viewModel.ringingUntil,
                         onPause: { Task { await viewModel.pauseRun() } },
+                        onRing: { Task { await viewModel.ringRunner() } },
                         onContactSupport: { Task { await viewModel.requestSupportCallback() } },
                         onEmergency: {
                             Task {
@@ -2060,7 +2065,8 @@ struct VolunteerInServiceView: View {
                 onResume: { Task { await viewModel.resumeRun() } }
             ) {
                 emergencySection(for: order)
-                flowFooter(showsNudgeNotice: false)
+                // 跑步中求助面板能按「让对方手机响」（后端 #445），失败或没送到要看得见。
+                flowFooter(showsNudgeNotice: true)
             }
         }
     }

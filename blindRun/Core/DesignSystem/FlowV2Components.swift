@@ -53,7 +53,7 @@ struct FlowTextButton: View {
 /// 按下去去哪由调用方决定（`VolunteerOrderSOSMode`）：这个组件只负责「在那里、看得见、按得到」。
 ///
 /// `isCloud`（只在跑步中）换的是**读屏提示与 identifier**：跑步中这一枚打开求助面板
-/// （暂停 / 联系客服 / 紧急求助，`VolunteerRunHelpPanel`），标签同样是「求助与安全」，提示说清面板里有什么；
+/// （暂停 / 让对方手机响 / 联系客服 / 紧急求助，`VolunteerRunHelpPanel`），标签同样是「求助与安全」，提示说清面板里有什么；
 /// identifier 沿用 #219 的 `volunteerServiceSOSButton`，守着求助位置的两条 UI 用例不用换判据。
 /// 可见文字两种模式都是「求助」。`isBusy` = 求助正在发送，转圈并禁用，防止连按发出第二次。
 struct FlowHelpPill: View {

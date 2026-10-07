@@ -88,8 +88,8 @@ struct BlindRunnerTabView: View {
         .accessibilityHidden(ringController.active != nil)
         .background(HostedContainersAccessibilityHider(isHidden: ringController.active != nil))
         .overlay {
-            if ringController.active != nil {
-                RunnerRingOverlay(onStop: { ringController.stop() })
+            if let ring = ringController.active {
+                RunnerRingOverlay(kind: ring.kind, onStop: { ringController.stop() })
             }
         }
         .onAppear { configureRingController() }
@@ -127,21 +127,23 @@ struct BlindRunnerTabView: View {
     #if DEBUG
     private static var didSimulateRunnerRing = false
 
-    /// UI 测试与真机人耳验证用：启动后注入一条 10 秒的 `RUNNER_RING`，不用另找一台陪跑员手机。
+    /// UI 测试与真机人耳验证用：启动后注入一条 10 秒的响铃，不用另找一台陪跑员手机。
+    /// `1` = 汇合期 `RUNNER_RING`，`lost` = 陪跑中走散 `RUNNER_RING_LOST`。
     private func simulateRunnerRingForUITestIfNeeded() {
-        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUNNER_RING"] == "1",
-              !Self.didSimulateRunnerRing else { return }
+        let flag = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUNNER_RING"]
+        guard flag == "1" || flag == "lost", !Self.didSimulateRunnerRing else { return }
         Self.didSimulateRunnerRing = true
+        let kind: RunnerRingRequest.Kind = flag == "lost" ? .lost : .arrived
         let formatter = DateFormatter.aidRunBackendLocalDateTime
         let sentAt = Date()
         appState.realtimeCoordinator.simulateIncomingEventForTesting(.notification(WSAppNotification(
             type: WSMessageType.appNotification.rawValue,
             eventId: nil,
             messageId: UUID().uuidString,
-            eventType: "RUNNER_RING",
+            eventType: kind == .lost ? "RUNNER_RING_LOST" : "RUNNER_RING",
             title: nil,
-            body: RunnerRingCopy.fallbackSpeech,
-            ttsText: RunnerRingCopy.fallbackSpeech,
+            body: RunnerRingCopy.fallbackSpeech(kind),
+            ttsText: RunnerRingCopy.fallbackSpeech(kind),
             priority: "HIGH",
             timestamp: formatter.string(from: sentAt),
             orderId: 1,

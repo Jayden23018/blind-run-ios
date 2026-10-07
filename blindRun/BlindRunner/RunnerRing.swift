@@ -10,21 +10,64 @@ import UIKit
 /// 后端推 `APP_NOTIFICATION`（`eventType=RUNNER_RING`），信封多带一个 `until`
 /// （`websocket-protocol.md` §2.2 / `api_spec.yaml` `ring-runner`）。
 /// 跑者这边：先念一句，再循环响铃到 `until`，任意操作即停。
+///
+/// 陪跑中走散时陪跑员按同一个接口，后端改推 `RUNNER_RING_LOST`（#445）。两者行为完全一致，
+/// **只有话不同**：跑步中听到「陪跑员到了」是错的（契约原话：两句话不能混用）。
 enum RunnerRingCopy {
     static let fallbackSpeech = "你的陪跑员到了，正在找你"
     static let title = "你的陪跑员到了"
     static let detail = "手机正在响，陪跑员会循着声音找到你。"
-    static let stopTitle = "停止响铃"
     static let accessibilityLabel = "你的陪跑员到了，手机正在响。停止响铃"
+
+    static let lostFallbackSpeech = "你的陪跑员在找你，请原地停下"
+    static let lostTitle = "请原地停下"
+    static let lostDetail = "你的陪跑员在找你。手机正在响，陪跑员会循着声音找到你。"
+    static let lostAccessibilityLabel = "你的陪跑员在找你，请原地停下。手机正在响。停止响铃"
+
+    static let stopTitle = "停止响铃"
     static let accessibilityHint = "双击屏幕任意位置停止响铃"
+
+    static func fallbackSpeech(_ kind: RunnerRingRequest.Kind) -> String {
+        kind == .lost ? lostFallbackSpeech : fallbackSpeech
+    }
+
+    static func title(_ kind: RunnerRingRequest.Kind) -> String {
+        kind == .lost ? lostTitle : title
+    }
+
+    static func detail(_ kind: RunnerRingRequest.Kind) -> String {
+        kind == .lost ? lostDetail : detail
+    }
+
+    static func accessibilityLabel(_ kind: RunnerRingRequest.Kind) -> String {
+        kind == .lost ? lostAccessibilityLabel : accessibilityLabel
+    }
 }
 
 /// 一次响铃。只由 `make(from:receivedAt:)` 产生 —— 能不能响的判据全在那里。
 struct RunnerRingRequest: Equatable, Sendable {
+    /// 哪一种找人。只由 eventType 决定，正文改字不影响分支。
+    enum Kind: Equatable, Sendable {
+        /// 汇合期，`RUNNER_RING`。
+        case arrived
+        /// 陪跑中走散，`RUNNER_RING_LOST`。
+        case lost
+
+        /// `nil` = 不是响铃事件。
+        init?(eventType: String) {
+            switch eventType.uppercased() {
+            case "RUNNER_RING": self = .arrived
+            case "RUNNER_RING_LOST": self = .lost
+            default: return nil
+            }
+        }
+    }
+
     let id: String
     let orderId: Int64?
     let speechText: String
     let endsAt: Date
+    var kind: Kind = .arrived
 
     /// 响铃时长上限。后端是「受理 + 10 秒」，这里只防异常值把手机响上几分钟。
     static let maximumDuration: TimeInterval = 30
@@ -34,20 +77,23 @@ struct RunnerRingRequest: Equatable, Sendable {
     /// 时长优先用 `until − timestamp`：两者都是**服务端时钟**，本机时钟偏几秒不影响。
     /// 差值不在 `(0, 60]` 里（`timestamp` 缺失、带了别的时区）才退回 `until − 本机 now`。
     static func make(from message: WSAppNotification, receivedAt: Date) -> RunnerRingRequest? {
-        guard let rawUntil = message.until?.nilIfBlank, let until = rawUntil.backendTimestamp else { return nil }
+        guard let kind = Kind(eventType: message.eventType),
+              let rawUntil = message.until?.nilIfBlank,
+              let until = rawUntil.backendTimestamp else { return nil }
         var duration = message.timestamp?.backendTimestamp.map { until.timeIntervalSince($0) } ?? -1
         if duration <= 0 || duration > 60 {
             duration = until.timeIntervalSince(receivedAt)
         }
         duration = min(duration, maximumDuration)
         guard duration > 0 else { return nil }
-        let text = message.ttsText?.nilIfBlank ?? message.body.nilIfBlank ?? RunnerRingCopy.fallbackSpeech
+        let text = message.ttsText?.nilIfBlank ?? message.body.nilIfBlank ?? RunnerRingCopy.fallbackSpeech(kind)
         return RunnerRingRequest(
             id: message.messageId?.nilIfBlank ?? "\(message.orderId ?? 0)-\(rawUntil)",
             orderId: message.orderId,
             // 外放朗读，掩码姓名里的星号不许念出来（`unmaskedForSpeech`）。
             speechText: text.unmaskedForSpeech,
-            endsAt: receivedAt.addingTimeInterval(duration)
+            endsAt: receivedAt.addingTimeInterval(duration),
+            kind: kind
         )
     }
 }
@@ -182,6 +228,7 @@ final class RunnerRingController: ObservableObject {
 /// 🔴 magic tap 必须挂在这一层：`BlindRunnerTabView` 的 TabView 上 magic tap = 求助，
 /// 这里不接住的话，读屏用户想停铃会弹出求助确认。
 struct RunnerRingOverlay: View {
+    let kind: RunnerRingRequest.Kind
     let onStop: () -> Void
 
     var body: some View {
@@ -190,12 +237,12 @@ struct RunnerRingOverlay: View {
                 Image(systemName: "bell.and.waves.left.and.right.fill")
                     .font(.system(size: 56))
                     .foregroundColor(AppColors.primary)
-                Text(RunnerRingCopy.title)
+                Text(RunnerRingCopy.title(kind))
                     .font(AppFonts.largeTitle())
                     .foregroundColor(AppColors.textPrimary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(RunnerRingCopy.detail)
+                Text(RunnerRingCopy.detail(kind))
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
                     .multilineTextAlignment(.center)
@@ -212,7 +259,7 @@ struct RunnerRingOverlay: View {
         .onTapGesture(perform: onStop)
         // 整屏一个元素：读屏焦点落在哪都能双击停。
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(RunnerRingCopy.accessibilityLabel)
+        .accessibilityLabel(RunnerRingCopy.accessibilityLabel(kind))
         .accessibilityHint(RunnerRingCopy.accessibilityHint)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(.default, onStop)
