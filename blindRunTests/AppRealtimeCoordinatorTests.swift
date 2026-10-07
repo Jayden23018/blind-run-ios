@@ -315,6 +315,55 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         )
     }
 
+    // MARK: - 后端返回了客户端不认识的新状态（#329，安卓 #106 同源）
+
+    /// 已知非终态 + 新鲜的未知状态 ⇒ 采纳。旧实现在档位闸上判陈旧，订单页停在「正在匹配」。
+    func testFreshUnknownStatusReplacesAKnownNonTerminalOne() {
+        var reconciler = OrderStatusReconciler()
+        reconciler.register(orderID: 42, status: .pendingMatch)
+        let request = reconciler.requestToken(orderID: 42)
+
+        XCTAssertEqual(
+            reconciler.reconcileREST(orderID: 42, candidate: .unknown, token: request),
+            .applied(.unknown)
+        )
+        XCTAssertEqual(reconciler.currentStatus(orderID: 42), .unknown)
+
+        // 下一个认识的状态把页面救回来。
+        XCTAssertEqual(
+            reconciler.reconcileREST(orderID: 42, candidate: .pendingAccept, token: reconciler.requestToken(orderID: 42)),
+            .applied(.pendingAccept)
+        )
+    }
+
+    /// 令牌落后（请求发出后状态已经被推送推进过）的未知状态是迟到响应，照旧拒。
+    func testLateUnknownStatusIsStillRejectedAsStale() {
+        var reconciler = OrderStatusReconciler()
+        reconciler.register(orderID: 42, status: .pendingAccept)
+        let request = reconciler.requestToken(orderID: 42)
+        XCTAssertEqual(
+            reconciler.reconcileRealtime(orderID: 42, fromStatus: .pendingAccept, toStatus: .driverEnRoute),
+            .applied(.driverEnRoute)
+        )
+
+        XCTAssertEqual(
+            reconciler.reconcileREST(orderID: 42, candidate: .unknown, token: request),
+            .rejectedStale(current: .driverEnRoute, candidate: .unknown)
+        )
+    }
+
+    /// 终态之后不会再有新状态：未知值不许把「已完成」页换成只读的未知页。
+    func testUnknownStatusCannotReplaceATerminalOne() {
+        var reconciler = OrderStatusReconciler()
+        reconciler.register(orderID: 42, status: .completed)
+        let request = reconciler.requestToken(orderID: 42)
+
+        XCTAssertEqual(
+            reconciler.reconcileREST(orderID: 42, candidate: .unknown, token: request),
+            .rejectedStale(current: .completed, candidate: .unknown)
+        )
+    }
+
     func testReconcilerAcceptsLegalForwardRESTAndRejectsWrongOrderToken() {
         var reconciler = OrderStatusReconciler()
         reconciler.register(orderID: 42, status: .pendingAccept)

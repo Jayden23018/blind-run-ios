@@ -127,6 +127,17 @@ struct OrderStatusReconciler {
             return .applied(candidate)
         }
         if candidate == current.status { return .duplicate(candidate) }
+        // 后端返回了客户端不认识的新状态（#329，安卓 #106 同源）。它没有档位、也没有迁移表可查，
+        // 下面的档位闸会把它当成「倒退」丢掉，订单页就停在旧状态、旧按钮还亮着。
+        // 令牌没落后、当前不是终态 ⇒ 采纳，落到只读的「状态未知」页；迟到的响应或终态之后照旧拒。
+        // 下一个认识的状态会把页面救回来（`.unknown` 的后继一律放行，见 `isDirectlyFollowed`）。
+        if candidate == .unknown {
+            guard token.generation >= current.generation, !current.status.isTerminal else {
+                return .rejectedStale(current: current.status, candidate: candidate)
+            }
+            entries[orderID] = Entry(status: candidate, generation: current.generation &+ 1)
+            return .applied(candidate)
+        }
         if current.status.lifecycleRank > candidate.lifecycleRank,
            !candidate.isTerminal,
            candidate != .rematching {
@@ -207,8 +218,8 @@ private extension RunOrderStatus {
         case .completed, .cancelled, .noVolunteer:
             return false
         // 未知态没有任何可信的后继约束，一律放行，让下一个认识的状态把界面救回来。
-        // 反方向不通：`.unknown` 不在 `allCases` 里，`canReach` 的遍历永远到不了它，
-        // 所以一个未知的候选状态也顶不掉已经确定的状态。
+        // 反方向：`.unknown` 不在 `allCases` 里，`canReach` 的遍历永远到不了它 ——
+        // 「已知 → 未知」不走这张表，由 `reconcileREST` 开头那条专门的分支判（#329）。
         case .unknown:
             return true
         }
