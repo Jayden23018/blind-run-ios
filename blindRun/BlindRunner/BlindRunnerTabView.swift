@@ -154,7 +154,7 @@ struct BlindRunnerTabView: View {
 
     private var profileTab: some View {
         NavigationStack {
-            BlindRunnerSettingsView()
+            BlindRunnerSettingsView(isTabRoot: true)
         }
         // 与改版前首页同一个结构、同一个组件、同一条判据。挂 `safeAreaInset` 而不是塞进
         // `List` 的某一行：那条列表有十来行，紧急入口排在中间等于要先滚动才摸得到。

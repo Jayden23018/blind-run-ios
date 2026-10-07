@@ -241,9 +241,14 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             if meet.canEndWait {
                 WaitRing(waitedSeconds: WaitRing.defaultFullSeconds)
             } else {
-                DirectionDial(relativeDegrees: meet.relativeDegrees, sectorWidth: meet.sectorWidth)
-                    // 出发 → 汇合：方位盘从 0.9 倍缩放并淡入（03 §二）。
-                    .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
+                // 没有方向（太远 / 位置未知 / 拿不到朝向）就不画方位盘：一个 50% 透明的空圆占掉约 1/4 屏，
+                // 却什么也不指（负责人 2026-10-05）。「让手机响起来」随之上移成第一个动作；
+                // 拿到方向后方位盘按原来的过渡淡入。
+                if let degrees = meet.relativeDegrees {
+                    DirectionDial(relativeDegrees: degrees, sectorWidth: meet.sectorWidth)
+                        // 出发 → 汇合：方位盘从 0.9 倍缩放并淡入（03 §二）。
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
+                }
                 if let remaining = meet.endWaitRemainingSeconds, remaining > 0 {
                     Text("再等 \(Int((Double(remaining) / 60).rounded(.up))) 分钟可以结束等待")
                         .flowFont(FlowV2Fonts.subhead())

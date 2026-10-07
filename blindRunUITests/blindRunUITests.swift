@@ -151,7 +151,8 @@ final class blindRunUITests: XCTestCase {
             "切 tab 的触点落到了「我的」底部那条求助条上，弹出了本地拨号确认单"
         )
 
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+        // 2026-10-05 起标签根页标题叫「我的」（只有从首页齿轮进来的那一页仍叫「设置」）。
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -1957,7 +1958,8 @@ final class blindRunUITests: XCTestCase {
     }
 
     /// 打开设置。**两端通用** —— 陪跑员端 2026-09-17 也有了标签栏（设计交付 v3 §4.1），
-    /// 两边的第三个标签都叫「我的」、里面都是一页 `navigationTitle("设置")`。
+    /// 两边的第三个标签都叫「我的」、里面都是同一张设置列表。
+    /// 2026-10-05 起标签根页的标题也叫「我的」（顶上多一张个人卡）；从陪跑员首页齿轮进去的那一页仍叫「设置」。
     ///
     /// 🔄 **2026-09-16 起走「我的」tab，不再是首页右上角的悬浮齿轮。**
     /// 盲人端的齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）；
@@ -1972,7 +1974,7 @@ final class blindRunUITests: XCTestCase {
         let profileTab = tabBar.buttons["我的"]
         XCTAssertTrue(profileTab.exists || profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
         profileTab.tap()
-        let settingsBar = app.navigationBars["设置"]
+        let settingsBar = app.navigationBars["我的"]
         XCTAssertTrue(
             settingsBar.exists || settingsBar.waitForExistence(timeout: 10),
             "「我的」tab 里没有设置页"

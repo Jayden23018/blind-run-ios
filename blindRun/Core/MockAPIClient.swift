@@ -1185,7 +1185,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 // 造一份所有状态都有里程的假数据，等于让已完成屏的降级路径永远走不到。
                 actualDistanceMeters: activeOrderStatus == .completed ? 5120 : nil,
                 actualDurationSeconds: activeOrderStatus == .completed ? 2360 : nil,
-                actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil
+                actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil,
+                // 与完赛三项同一条规则：只在 `COMPLETED` 有值（后端「本单已完成则已包含本单」）。
+                // 不给它，种成 `COMPLETED` 的完成页标题恒为降级的「你和李明跑完了」，
+                // 「第 N 次一起跑」那条主路径在 Mock 里永远走不到。
+                completedTogetherCount: activeOrderStatus == .completed ? 3 : nil
             ),
             OrderDetailResponse(
                 orderId: 2,
