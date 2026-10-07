@@ -928,8 +928,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
     static let quickMessageCooldown: TimeInterval = 60
 
     // 跑步中（DECISIONS-v2 V4–V8，`VolunteerRunningCompanion.swift`）。
-    /// 信号卡变黄到这一刻为止。只有非「刚刚好」的新信号才设。
-    @Published private(set) var signalHighlightUntil: Date?
     /// 最近一次**本单**走散告警（`ESCORT_DISTANCE_ALERT`）的收到时刻。提示条按它显示 60 秒。
     @Published private(set) var separationAlertAt: Date?
     /// 本机定位精度差于 50 米的起始时刻。
@@ -1234,22 +1232,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func observeOwnLocationAccuracy(_ accuracy: Double?, now: Date = Date()) {
         let next = VolunteerRunTip.weakSince(previous: weakLocationSince, accuracy: accuracy, now: now)
         if next != weakLocationSince { weakLocationSince = next }
-    }
-
-    /// 新节奏信号到达：非「刚刚好」两次 `.medium`（间隔 0.15 秒）+ 变黄 8 秒；「刚刚好」只震一次。
-    /// VoiceOver 播报一次；耳机语音播报开着时朗读（08 §三）。
-    private func handleSignalArrival(_ signal: RunRhythmSignal, order: OrderDetailResponse, now: Date) {
-        guard let text = signal.title else { return }
-        let name = order.runnerShortName
-        HapticFeedback.play(.medium)
-        if signal != .ok {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { HapticFeedback.play(.medium) }
-            signalHighlightUntil = now.addingTimeInterval(VolunteerRhythmCardPresentation.highlightDuration)
-        }
-        UIAccessibility.post(notification: .announcement, argument: VolunteerRunCopy.signalTitle(name, text))
-        if voiceBroadcastEnabled() {
-            speechService?.speak(VolunteerRunCopy.spokenSignal(name, text))
-        }
     }
 
     func enRoute() async {
@@ -1690,10 +1672,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
-        let now = Date()
-        if let signal = RunSignalArrival.detect(previous: order, updated: updated, now: now) {
-            handleSignalArrival(signal, order: updated, now: now)
-        }
         order = updated
         // 响铃 / 快捷消息的回执只说上一状态里那一次按下；跑步页也渲染它，状态一变就清，
         // 免得汇合期那句「对方可能没收到」挂到跑步中。它从不随状态切换一起写，清了不会吞掉新报的话。
@@ -2049,12 +2027,6 @@ struct VolunteerInServiceView: View {
                 // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
                 onFinish: { Task { await viewModel.complete() } },
                 onCancel: { activeSheet = .cancelOrder },
-                rhythm: .make(
-                    run: order.run,
-                    name: order.runnerShortName,
-                    highlightUntil: viewModel.signalHighlightUntil,
-                    now: context.date
-                ),
                 tip: VolunteerRunTip.resolve(
                     separationAlertAt: viewModel.separationAlertAt,
                     runnerBatteryLow: order.run?.runnerBatteryLow == true,

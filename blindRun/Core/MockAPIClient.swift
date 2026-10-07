@@ -557,9 +557,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if path.hasSuffix("/end-waiting") && method == .post {
                 return try handleEndWaiting(orderId: orderId)
             }
-            if path.hasSuffix("/rhythm") && method == .post {
-                return try handleRhythm(orderId: orderId, body: body)
-            }
             if path.hasSuffix("/pause") && method == .post {
                 return try handleSetRunPaused(orderId: orderId, paused: true)
             }

@@ -2,7 +2,8 @@ import CoreLocation
 import XCTest
 @testable import blindRun
 
-/// 跑步中节奏信号 / 暂停 / 提示条 / 求助面板 / 电量（OpenSpec `add-running-rhythm-pause-and-help-panel`）。
+/// 跑步中暂停 / 提示条 / 求助面板 / 电量（OpenSpec `add-running-rhythm-pause-and-help-panel`）。
+/// 节奏信号的用例 2026-10-07 随功能删除（`redesign-blind-runner-screens-a`），解码降级那条保留：后端仍会下发 `lastSignal`。
 /// 手势、触感、真实朗读只能真机验；这里钉的是它们之前的每一个判定。
 @MainActor
 final class RunningRhythmAndHelpTests: XCTestCase {
@@ -51,60 +52,6 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         XCTAssertEqual(replaced.run, detail.run)
         XCTAssertEqual(replaced.blindSurname, "李")
         XCTAssertEqual(replaced.volunteerSurname, "张")
-    }
-
-    // MARK: - 节奏卡
-
-    func testRhythmCardWithoutAnySignalSaysSo() {
-        let card = VolunteerRhythmCardPresentation.make(run: nil, name: "李", highlightUntil: nil, now: now)
-        XCTAssertEqual(card.style, .empty)
-        XCTAssertEqual(card.title, "李还没有发来节奏")
-        XCTAssertNil(card.trailing)
-    }
-
-    func testRhythmCardTurnsStaleJustAfterFiveMinutes() {
-        let fresh = VolunteerRhythmCardPresentation.make(
-            run: RunView(lastSignal: .slower, lastSignalAt: stamp(299)), name: "李", highlightUntil: nil, now: now
-        )
-        XCTAssertEqual(fresh.style, .fresh)
-        XCTAssertEqual(fresh.label, "李的节奏")
-        XCTAssertEqual(fresh.title, "稍慢一点")
-        XCTAssertEqual(fresh.trailing, "4 分钟前")
-
-        let stale = VolunteerRhythmCardPresentation.make(
-            run: RunView(lastSignal: .slower, lastSignalAt: stamp(301)), name: "李", highlightUntil: nil, now: now
-        )
-        XCTAssertEqual(stale.style, .stale)
-        XCTAssertEqual(stale.label, "上次反馈")
-    }
-
-    func testSignalCardShowsOnlyForEightSecondsAndNeverForOK() {
-        let run = RunView(lastSignal: .slower, lastSignalAt: stamp(1))
-        let during = VolunteerRhythmCardPresentation.make(run: run, name: "李", highlightUntil: now.addingTimeInterval(0.5), now: now)
-        XCTAssertEqual(during.style, .signal(.slower))
-        XCTAssertEqual(during.title, "李：稍慢一点")
-
-        let after = VolunteerRhythmCardPresentation.make(run: run, name: "李", highlightUntil: now, now: now)
-        XCTAssertEqual(after.style, .fresh)
-
-        let ok = VolunteerRhythmCardPresentation.make(
-            run: RunView(lastSignal: .ok, lastSignalAt: stamp(1)), name: "李", highlightUntil: now.addingTimeInterval(5), now: now
-        )
-        XCTAssertEqual(ok.style, .fresh, "「刚刚好」不变黄")
-    }
-
-    // MARK: - 信号到达判定
-
-    func testArrivalFiresOnlyForANewFreshSignalAfterTheFirstLoad() throws {
-        let before = try inProgress(run: RunView(lastSignal: .ok, lastSignalAt: stamp(120)))
-        let arrived = try inProgress(run: RunView(lastSignal: .slower, lastSignalAt: stamp(29)))
-
-        XCTAssertNil(RunSignalArrival.detect(previous: nil, updated: arrived, now: now), "首次加载只显示不提醒")
-        XCTAssertEqual(RunSignalArrival.detect(previous: before, updated: arrived, now: now), .slower)
-        XCTAssertNil(RunSignalArrival.detect(previous: arrived, updated: arrived, now: now), "同一条不重复提醒")
-
-        let late = try inProgress(run: RunView(lastSignal: .slower, lastSignalAt: stamp(31)))
-        XCTAssertNil(RunSignalArrival.detect(previous: before, updated: late, now: now), "切回前台补拉到的旧信号不是「刚刚」")
     }
 
     // MARK: - 提示条
@@ -252,55 +199,6 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         enabled = false
         viewModel.announceKilometerIfNeeded(TrackStats(distanceMeters: 3_010, durationSeconds: 1_300, avgPaceSecPerKm: 432))
         XCTAssertEqual(speech.lastSpokenText, "2 公里，用时 15 分 0 秒", "开关关着不念")
-    }
-
-    // MARK: - 跑者端
-
-    func testRunnerRhythmSuccessSpeaksWhatWasSent() async throws {
-        let service = FakeOrderService()
-        service.rhythmResult = .success(RhythmSignalResponse(delivered: true))
-        let appState = AppState(orders: service)
-        let viewModel = RunnerRhythmViewModel()
-        var spoken: [String] = []
-
-        await viewModel.send(.slower, orderId: 7, appState: appState, speak: { spoken.append($0) }, speakError: { spoken.append($0) })
-
-        XCTAssertEqual(service.lastRhythmSignal, .slower)
-        XCTAssertEqual(spoken, ["已告诉陪跑员：稍慢一点"])
-        XCTAssertEqual(viewModel.notice?.isProblem, false)
-    }
-
-    func testRunnerRhythmNotDeliveredIsNotSpokenAsSuccess() async throws {
-        let service = FakeOrderService()
-        service.rhythmResult = .success(RhythmSignalResponse(delivered: false))
-        let appState = AppState(orders: service)
-        let viewModel = RunnerRhythmViewModel()
-        var spoken: [String] = []
-
-        await viewModel.send(.slower, orderId: 7, appState: appState, speak: { spoken.append($0) }, speakError: { spoken.append($0) })
-
-        XCTAssertEqual(spoken, ["陪跑员可能没收到，可以直接跟对方说"])
-        XCTAssertEqual(viewModel.notice?.isProblem, true)
-    }
-
-    func testRunnerRhythmRateLimitIsVisibleAndAudible() async throws {
-        let service = FakeOrderService()
-        service.rhythmResult = .failure(APIError.rateLimited(RateLimitInfo(message: "too many", retryAfterSeconds: 10)))
-        let appState = AppState(orders: service)
-        let viewModel = RunnerRhythmViewModel()
-        var spoken: [String] = []
-
-        await viewModel.send(.faster, orderId: 7, appState: appState, speak: { spoken.append($0) }, speakError: { spoken.append($0) })
-
-        XCTAssertEqual(spoken, ["刚发过，稍等再按"])
-        XCTAssertEqual(viewModel.notice?.text, "刚发过，稍等再按")
-        XCTAssertEqual(viewModel.notice?.isProblem, true)
-        XCTAssertNil(viewModel.sending)
-    }
-
-    func testRhythmRequestEncodesTheContractValue() throws {
-        let data = try JSONEncoder().encode(RunRhythmRequest(signal: .faster))
-        XCTAssertEqual(String(decoding: data, as: UTF8.self), #"{"signal":"FASTER"}"#)
     }
 
     // MARK: - 走散响铃（后端 #445 / iOS #565）

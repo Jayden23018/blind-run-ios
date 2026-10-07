@@ -231,10 +231,17 @@ struct RopeView: View {
 
     /// 交付包 03 §二：默认 spring；出发中 ETA 更新（出发 → 出发）是 easeOut 0.6 秒；
     /// 「减弱动态效果」下只做 0.2 秒淡入淡出、直接跳到终态（§四）。
+    ///
+    /// 2026-10-07 阻尼 0.85 → 0.6（负责人：绳子要「有点弹性和重力效果」，OpenSpec
+    /// `redesign-blind-runner-screens-a`）：状态切换时下垂量与两端位置都会过冲一点再落定，
+    /// 像真的绳子被拉了一下。两端共用这一处，陪跑员端同步变化。
+    /// **只在状态切换时晃**，静止时不摆动 —— 盲人端禁止非用户触发的常驻动效（`design-direction.md` §7）。
+    static let springDamping: Double = 0.6
+
     private var animation: Animation {
         if reduceMotion { return .easeInOut(duration: 0.2) }
         if case .departed = state, case .departed? = lastState { return .easeOut(duration: 0.6) }
-        return .spring(response: 0.5, dampingFraction: 0.85)
+        return .spring(response: 0.5, dampingFraction: Self.springDamping)
     }
 
     var body: some View {

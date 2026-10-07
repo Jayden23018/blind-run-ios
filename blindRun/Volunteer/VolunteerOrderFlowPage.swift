@@ -701,8 +701,7 @@ struct VolunteerRunningPage<Footer: View>: View {
     /// 画布 ⑤ 没画这个入口，但旧页面有、`AGENTS.md` §5 允许，删掉的话唯一的退出就只剩
     /// 「结束陪跑」—— 那会把没跑完的一单记成完成、并计入志愿时长。
     let onCancel: () -> Void
-    /// FE-3：节奏卡、本变更的提示（走散 / 电量低 / 定位弱）、暂停与继续。
-    let rhythm: VolunteerRhythmCardPresentation
+    /// FE-3：提示（走散 / 电量低 / 定位弱）、暂停与继续。节奏卡 2026-10-07 删除。
     let tip: VolunteerRunTip?
     let isTogglingPause: Bool
     let onResume: () -> Void
@@ -758,8 +757,7 @@ struct VolunteerRunningPage<Footer: View>: View {
                     case .none:
                         EmptyView()
                     }
-                    VolunteerRhythmCard(presentation: rhythm)
-                    VolunteerRunVoiceToggle(name: order.runnerShortName)
+                    VolunteerRunVoiceToggle()
                     footer()
                 }
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding)

@@ -9,8 +9,7 @@ import Foundation
 /// `BlindOrderFlowPresentation`（那边的每条文案都记着不许说的东西，50 多条用例钉着），
 /// 这里只决定「哪句放在小标题、哪句放大字、绳子画到哪一格」。
 ///
-/// 两条刻意的不同：
-/// - **浅色头卡**（负责人 10-06）。陪跑员端的彩色状态底不搬过来。
+/// 一条刻意的不同：
 /// - **出发屏没有「N 分钟后到」**：后端只给本单陪跑员下发 `eta`
 ///   （`OrderDetailAssembler.java:317-318`，`isEscortedBy(order, viewerId)`），盲人 token 恒为 null。
 struct BlindOrderHero: Equatable {
@@ -26,6 +25,9 @@ struct BlindOrderHero: Equatable {
     /// 红字警示（定位信号弱等）。只在异常时有。
     var warning: String?
     var rope: RopeState
+    /// 头卡底色。2026-10-07 负责人推翻 10-06「浅色头卡」，改为与陪跑员端同一套状态色
+    /// （OpenSpec `redesign-blind-runner-screens-a`）。匹配中还没有陪跑员，仍是白卡。
+    var tone: BlindHeroTone = .light
     /// 倒计时那一拍。非 nil 时视图给大数字加回弹，读屏标签**不念这个数** ——
     /// 三个数字走 announcement 通道播报（`BlindOrderStatusViewModel.startRunCountdown`），
     /// 再进标签就是每秒换一次焦点元素的内容。
@@ -65,6 +67,7 @@ struct BlindOrderHero: Equatable {
                 lines: lines,
                 warning: presentation.warning,
                 rope: .arrived,
+                tone: .arrived,
                 countdownBeat: beat
             )
         case .beforeRun:
@@ -77,7 +80,7 @@ struct BlindOrderHero: Equatable {
             // 拿不到时间就退回 presentation 的标题（状态名），**不摆占位时间**。
             guard let start else {
                 return Self(eyebrow: "已约好", headline: presentation.title, lines: lines,
-                            warning: presentation.warning, rope: .agreed)
+                            warning: presentation.warning, rope: .agreed, tone: .agreed)
             }
             return Self(
                 eyebrow: "已约好 · " + VolunteerOrderTimeCopy.dayPart(start, now: now),
@@ -85,7 +88,8 @@ struct BlindOrderHero: Equatable {
                 unit: "开跑",
                 lines: lines,
                 warning: presentation.warning,
-                rope: .agreed
+                rope: .agreed,
+                tone: .agreed
             )
         case .matching:
             return Self(eyebrow: startEyebrow(start, now: now) ?? "匹配中", headline: presentation.title,
@@ -94,10 +98,11 @@ struct BlindOrderHero: Equatable {
             // 进度固定一段，**不是算出来的**：盲人 token 拿不到 `eta.progress`。
             // 与 v1 那道固定 0.35 的进度环同一个意思 —— 表达「在路上」，不表达「走了多少」。
             return Self(eyebrow: startEyebrow(start, now: now) ?? "正在赶来", headline: presentation.title,
-                        lines: lines, warning: presentation.warning, rope: .departed(progress: departedRopeProgress))
+                        lines: lines, warning: presentation.warning, rope: .departed(progress: departedRopeProgress),
+                        tone: .departed)
         case .metUp:
             return Self(eyebrow: startEyebrow(start, now: now) ?? "已汇合", headline: presentation.title,
-                        lines: lines, warning: presentation.warning, rope: .arrived)
+                        lines: lines, warning: presentation.warning, rope: .arrived, tone: .arrived)
         }
     }
 
@@ -110,4 +115,17 @@ struct BlindOrderHero: Equatable {
         guard let start else { return nil }
         return "\(VolunteerOrderTimeCopy.dayPart(start, now: now)) \(VolunteerOrderTimeCopy.clock(start)) 开跑"
     }
+}
+
+/// 盲人订单页头卡的底色档。模型不引入 SwiftUI，颜色映射在视图里（`BlindOrderFlowView`）。
+///
+/// 跑步中 / 已完成也在这里：那两幕的头卡由跑步卡承担，但用同一套色。
+enum BlindHeroTone: Equatable {
+    /// 白卡：匹配中（还没有陪跑员，`RopeState.invited`）。
+    case light
+    case agreed
+    case departed
+    case arrived
+    case running
+    case done
 }
