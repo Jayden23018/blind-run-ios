@@ -15,7 +15,9 @@ PASS=0
 FAIL=0
 ok()  { printf '  ✅ %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  ❌ %s\n' "$1"; FAIL=$((FAIL + 1)); }
-LOG="$(mktemp -t aidrun-watchdog)"
+# 显式模板：GNU mktemp（Linux CI）要求模板里有 XXXXXX，BSD 的 `-t 前缀` 写法在 CI 上直接失败、
+# 拿到空路径后每条用例都报 `: No such file or directory`，看起来像看门狗坏了（PR #323 首次 CI）。
+LOG="$(mktemp "${TMPDIR:-/tmp}/aidrun-watchdog.XXXXXX")" || { echo "[validate-preflight-watchdog] mktemp 失败" >&2; exit 1; }
 trap 'rm -f "$LOG"' EXIT
 
 echo "[validate-preflight-watchdog] 1/3 编译期间持续有输出，不算卡住"
