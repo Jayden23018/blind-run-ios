@@ -25,20 +25,21 @@ import Foundation
 /// Motivation Crowding（`docs/research/volunteer-home-incentive-layer-20260914.md` §3.2），
 /// 我们的志愿者是无偿的，落在挤出风险最高的一侧。
 ///
-/// 已完成时主指标**优先是陪伴时长**（后端 `totalServiceMinutes`，客户端向下取整成小时）。
+/// 已完成时主指标**优先是陪伴时长**（后端 `totalServiceMinutes`）。
 /// 2026-10-03 负责人按志愿者试用反馈从公里改成时长（替代 #269 的公里主指标）：
 /// 志愿者在乎的是「陪了别人多久」，不是自己跑了多远；公里退到三列统计第一格。
-/// 🔴 不足 1 小时时**不显示「0 小时」而是回落到次数** —— 最大最粗的 0 与新人态同理是负激励。
+/// 2026-10-06 负责人拍板（#351，安卓 #196 同步）：写成「X 小时 Y 分钟」，不足 1 小时只写分钟，
+/// 整点只写小时 —— 此前按整小时向下取整，服务 4 分钟的人看到的是次数、服务 119 分钟的看到「1 小时」。
+/// 🔴 时长为 0（或缺字段）才回落到次数，**不显示「0 分钟」/「0 小时」** —— 最大最粗的 0 是负激励。
 enum VolunteerProfileHeadline: Equatable {
     case newcomer
-    /// `hours` 为 `nil` = 不足 1 小时（或缺字段），主指标用次数。
-    case completed(count: Int, hours: Int64?)
+    /// `minutes` 为 `nil` = 时长为 0（或缺字段），主指标用次数。
+    case completed(count: Int, minutes: Int64?)
 
     static func resolve(totalCompleted: Int?, totalServiceMinutes: Int64?) -> VolunteerProfileHeadline {
         guard let totalCompleted, totalCompleted > 0 else { return .newcomer }
-        // 向下取整：119 分钟是 1 小时。少算而不是多算，与 `VolunteerProfileStats.distance` 同向。
-        let hours = max(0, totalServiceMinutes ?? 0) / 60
-        return .completed(count: totalCompleted, hours: hours > 0 ? hours : nil)
+        let minutes = max(0, totalServiceMinutes ?? 0)
+        return .completed(count: totalCompleted, minutes: minutes > 0 ? minutes : nil)
     }
 
     /// 新人态下**整个影响力区（3 列统计 + 星级进度）都不画**。
@@ -352,8 +353,8 @@ enum VolunteerProfileCopy {
         switch headline {
         case .newcomer:
             return "\(impactSectionTitle)。\(newcomerHeadline)。\(newcomerDetail)"
-        case .completed(let count, let hours?):
-            return "\(impactSectionTitle)。累计陪伴 \(hours) \(hoursUnit)，\(heroRunsDetail(count))。"
+        case .completed(let count, let minutes?):
+            return "\(impactSectionTitle)。累计陪伴 \(RunRecordHistoryViewModel.serviceDuration(minutes))，\(heroRunsDetail(count))。"
         case .completed(let count, nil):
             return "\(impactSectionTitle)。已完成 \(count) \(heroUnit)。"
         }
@@ -396,6 +397,19 @@ enum VolunteerProfileCopy {
     static let distanceSpokenWhenEmpty = "累计里程暂无记录"
     static let partnersSpokenWhenEmpty = "还没有跑者把你设为固定搭档"
     static let hoursUnit = "小时"
+    static let minutesUnit = "分钟"
+
+    /// 主数字按组拆开：每组「大数字 + 小量词」，与 `RunRecordHistoryViewModel.serviceDuration` 同一口径
+    /// （`125` → `[("2","小时"),("5","分钟")]`，`4` → `[("4","分钟")]`，`120` → `[("2","小时")]`）。
+    static func heroDurationParts(_ minutes: Int64) -> [(value: String, unit: String)] {
+        let safe = max(0, minutes)
+        let hours = safe / 60
+        let rest = safe % 60
+        var parts: [(value: String, unit: String)] = []
+        if hours > 0 { parts.append(("\(hours)", hoursUnit)) }
+        if rest > 0 || hours == 0 { parts.append(("\(rest)", minutesUnit)) }
+        return parts
+    }
     static let partnersCaption = "固定搭档"
     static let partnersUnit = "位"
     static let ratingCaption = "评分"

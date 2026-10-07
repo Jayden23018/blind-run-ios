@@ -413,22 +413,18 @@ struct VolunteerProfileFirstScreen: View {
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-            case .completed(let count, let hours):
+            case .completed(let count, let minutes):
                 // 数字与量词同一行、量词小一号：主次靠**字号差**拉开，不靠卡片边框
                 // （调研 §2.1，Nike Run Club 的 `20.6` + `5'14"` 是同一形态）。
-                // 满 1 小时时主数字是陪伴时长，次数退到下一行；不足时主数字仍是次数。
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(hours ?? Int64(count))")
-                        .font(AppFonts.largeTitle())
-                        .foregroundColor(AppColors.textPrimary)
-                    Text(hours == nil
-                         ? VolunteerProfileCopy.heroUnit
-                         : VolunteerProfileCopy.hoursUnit)
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                }
+                // 有时长时主数字是陪伴时长（「2 小时 5 分钟」两组），次数退到下一行；时长为 0 时主数字仍是次数。
+                // 拼成**一个** `Text`：四段放进 HStack 在最大字号下会被挤压截断，拼接的 Text 会自己换行。
+                heroNumber(
+                    minutes.map(VolunteerProfileCopy.heroDurationParts)
+                        ?? [(value: "\(count)", unit: VolunteerProfileCopy.heroUnit)]
+                )
+                .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-                if hours != nil {
+                if minutes != nil {
                     Text(VolunteerProfileCopy.heroRunsDetail(count))
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.textSecondary)
@@ -440,6 +436,15 @@ struct VolunteerProfileFirstScreen: View {
         // 主数字和它的说明是同一件事的两种说法，分开念会让读屏用户听两遍同一个数。
         .accessibilityElement(children: .combine)
         .accessibilityLabel(VolunteerProfileCopy.heroSpoken(headline))
+    }
+
+    /// 「2 小时 5 分钟」：数字大号、量词小一号，组与组之间、数字与量词之间各一个空格。
+    private func heroNumber(_ parts: [(value: String, unit: String)]) -> Text {
+        parts.enumerated().reduce(Text("")) { text, item in
+            text
+                + Text(item.offset == 0 ? item.element.value : " \(item.element.value)").font(AppFonts.largeTitle())
+                + Text(" \(item.element.unit)").font(AppFonts.body().weight(.semibold))
+        }
     }
 
     /// 3 列统计。**数值在上、小标签在下** —— 中文跑步产品（悦跑圈）是这个方向，
