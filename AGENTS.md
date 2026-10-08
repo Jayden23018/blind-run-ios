@@ -43,7 +43,7 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 并按正在改的文件名从 `docs/ui/mockups/INDEX.md` 贴出对应行；
 自测 `scripts/validate-design-reminder.mjs`，CI 与 pre-push 都跑），走的是 §1.3。
 
-**`CONTEXT.md`（仓库根）—— 领域词 ↔ 模块名对照表。在写下「这个功能仓库里没有」之前必读一次，
+**`GLOSSARY.md`（仓库根）—— 领域词 ↔ 模块名对照表。在写下「这个功能仓库里没有」之前必读一次，
 换一组同义词再搜。** 它是 §1.4 的语义认知归档（配套记忆 `synonym-mismatch-fakes-a-missing-feature`）：
 「注销」vs「删除账户」这一次错开，让一个功能齐全的模块被判成「需从头做」，checklist 作者与模型先后中招两次。
 抓不成静态守卫 —— 机器分不出「搜不到」和「不存在」。
