@@ -1341,6 +1341,8 @@ public struct Client: APIProtocol {
     ///
     /// 角色：`BLIND` 或 `VOLUNTEER`（陪跑中的志愿者可代盲人触发）。
     ///
+    /// **`orderId` 只有在陪跑区间才算数**（2026-10-07，#582）：订单状态须为 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。 志愿者带其它状态的订单号（已完成、已取消、还没出发的预约单等）一律 403 `NOT_ORDER_PARTICIPANT`； **盲人本人**带这类订单号不会被拒，而是按**独立 SOS** 处理（事件不挂该订单、不通知该订单的志愿者），所以客户端缓存里留着旧订单号也不会影响求救。 订单校验排在冷却占位之前（#579）：`orderId` 不存在（400）/ 非参与者（403）的请求**不占**冷却位，去掉 `orderId` 立刻重发不会被 429。
+    ///
     /// **事件永远挂在受助者身上**：传了 `orderId` 时受助者 = 该订单的盲人， 志愿者代触发只体现在 `triggerType=VOLUNTEER_BUTTON`，升级查的是盲人的紧急联系人。
     ///
     /// **触发即升级**：紧急联系人在本请求内就被通知（异步发短信），不再等志愿者响应 30 秒； 若订单有志愿者且触发者不是他，会并行推 `EMERGENCY_VOLUNTEER_ALERT` 给他。
@@ -6678,10 +6680,13 @@ public struct Client: APIProtocol {
     /// 避免把展示层的脱敏串写回服务端。
     /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
     /// 联系人不存在返回 404。
+    /// `isPrimary` 不传（`null`）表示不改，保留原值。2026-10-07 前该字段的初值是 `false`，「没传」被当成「传了 false」，
+    /// 只改姓名就会把主联系人降级（#581）。
     /// `isPrimary = true` 时原子清除原主联系人标记。
-    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时，服务端自动把该用户剩余联系人中的第一个提为主联系人
-    /// （对齐 `deleteContact` 的补偿逻辑），保持「有且仅有 1 个 primary」不变量，不会出现 0 个 primary 的中间态
-    /// （2026-07-30 修复，此前会静默产生 0 个 primary）。
+    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时：还有别的联系人，服务端自动把剩余联系人中的第一个提为主联系人
+    /// （对齐 `deleteContact` 的补偿逻辑）；已经只剩这 1 个联系人、没人可补位，返回 400 `CONTACT_PRIMARY_REQUIRED`
+    /// （2026-10-07 前这种情况静默成功并留下 0 个主联系人，与此处「不会出现 0 个 primary」的说法矛盾）。
+    /// 因此「有且仅有 1 个 primary」的不变量在 PUT 之后始终成立。
     /// `phone` 非空时必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`。
     ///
     /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}`.
