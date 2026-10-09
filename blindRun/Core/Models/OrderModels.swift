@@ -508,6 +508,13 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// 409 `SERVICE_START_TOO_EARLY`，契约要求「按钮该置灰、到点再亮」。**订单双方都有**，
     /// 只在已接单未开跑的四态下发，其余 `null`。`null` 时不锁按钮（由后端判）。
     var earliestServiceStartAt: String?
+    /// 陪跑员**当前这一步**出发动作最早可调的时刻（后端 #546）：`SCHEDULED_CONFIRMED` 时管「确认还去」，
+    /// `PENDING_ACCEPT` 时管「我出发了」。早于它一律 409 `DEPARTURE_TOO_EARLY`。只对本单陪跑员、只在这两态下发。
+    /// 与 `primaryActionUnlockAt` 不是一回事：那个是「建议亮起」（考虑了路上时间），这个是「后端放行」。
+    var earliestDepartureAt: String?
+    /// 同意闸的宽限终点（= 开跑 + 15 分钟，后端 #546）。跑者还没按「开始跑步」时非空；
+    /// 陪跑员从这一刻起可以单方面开始。⚠️ 契约：为 `null` **不能**推断跑者同意过（开跑后、终态也是 `null`）。
+    var blindConfirmDeadlineAt: String?
     /// 查看者和这位跑者一起跑完过几单。**本单已完成则已包含本单**（完成页直接用，不 +1）。
     /// `0` = 第一次一起跑，`nil` = 没下发，两者说的话不同。
     var completedTogetherCount: Int?
@@ -583,6 +590,8 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             runnerAtMeetingPoint: runnerAtMeetingPoint,
             earliestEndWaitAt: earliestEndWaitAt,
             earliestServiceStartAt: earliestServiceStartAt,
+            earliestDepartureAt: earliestDepartureAt,
+            blindConfirmDeadlineAt: blindConfirmDeadlineAt,
             completedTogetherCount: completedTogetherCount,
             guidePreferenceText: guidePreferenceText,
             messageToVolunteer: messageToVolunteer,

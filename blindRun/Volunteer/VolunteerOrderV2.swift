@@ -79,6 +79,55 @@ enum VolunteerOrderPhase: Equatable {
     }
 }
 
+// MARK: 后端放行时刻（后端 #546）
+
+/// 主按钮此刻能不能按，以及按钮上方那行小字。由「当前主按钮 + 后端给的时刻 + 现在」推出，**不存**。
+///
+/// 存在的理由：三道时间闸与同意闸此前只有按下去才知道 —— 按钮亮着、一按 409，
+/// 而对听不见屏幕的人「按了没反应」和「按钮不在」分不出来（后端 #307 的原话）。
+/// 后端 #546 起把放行时刻放进订单详情，客户端照它锁按钮，**不拿 `plannedStartTime` 自己减**。
+struct VolunteerActionGate: Equatable {
+    /// `true` = 按钮原位不可按（`.disabled()`，读屏念「变暗」，提示里说几点可以按）。
+    let isLocked: Bool
+    /// 替换按钮上方小字。`nil` = 用动作自己的那句。
+    let caption: String?
+
+    static let open = Self(isLocked: false, caption: nil)
+
+    static func resolve(
+        action: VolunteerOrderFlowPresentation.PrimaryAction?,
+        order: OrderDetailResponse,
+        now: Date
+    ) -> Self {
+        switch action {
+        case .confirmDeparture, .enRoute, .alreadyDeparted:
+            guard let opens = future(order.earliestDepartureAt, now: now) else { return .open }
+            return Self(isLocked: true, caption: VolunteerOrderFlowCopy.actionOpensAt(VolunteerOrderTimeCopy.clock(opens)))
+        case .startRun:
+            if let opens = future(order.earliestServiceStartAt, now: now) {
+                return Self(isLocked: true, caption: VolunteerOrderFlowCopy.actionOpensAt(VolunteerOrderTimeCopy.clock(opens)))
+            }
+            // 同意闸**不锁**（契约：「按钮不要置灰，提示等待对方确认」—— 跑者随时可能按）。
+            // 只是先把话说在前面，不再等按了 409 才知道。
+            if let deadline = future(order.blindConfirmDeadlineAt, now: now) {
+                return Self(
+                    isLocked: false,
+                    caption: VolunteerOrderFlowCopy.awaitingRunnerStart(canStartAlone: VolunteerOrderTimeCopy.clock(deadline))
+                )
+            }
+            return .open
+        case .acceptInvite, .arrived, .endWaiting, .doneReviewing, .backToHome, .none:
+            return .open
+        }
+    }
+
+    /// 字段缺失、解析不出、或已经过了 ⇒ `nil`（不锁，由后端判）。
+    private static func future(_ raw: String?, now: Date) -> Date? {
+        guard let date = raw?.nilIfBlank?.backendTimestamp, now < date else { return nil }
+        return date
+    }
+}
+
 // MARK: 时间文案
 
 enum VolunteerOrderTimeCopy {

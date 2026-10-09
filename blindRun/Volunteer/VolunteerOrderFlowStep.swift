@@ -84,6 +84,12 @@ enum VolunteerOrderFlowCopy {
     static let endWaitingCaption = "结束后不算你的取消，时长不计入"
     static let arrived = "我已到达集合点"
     static let startRun = "开始跑步"
+    /// 还没到后端放行时刻（后端 #546）。按钮原位不可按，这一句同时进读屏提示。
+    static func actionOpensAt(_ clock: String) -> String { "\(clock) 起可以按" }
+    /// 跑者还没按「开始跑步」（同意闸，后端 #307）。按钮不锁：跑者随时可能按。
+    static func awaitingRunnerStart(canStartAlone clock: String) -> String {
+        "跑者还没按开始跑步。\(clock) 起你也可以直接开始"
+    }
     /// 主按钮上方那行小字。**逐字取自设计交付文档 v3 §5 的「陪跑员主按钮」列。**
     static let startRunCaption = "见面并握好引导绳后再按"
     /// 按下「开始跑步」收到 409 `BLIND_CONFIRMATION_PENDING` 后换上的小字（后端 #307 ①）。
