@@ -2326,7 +2326,7 @@ struct VolunteerInServiceView: View {
         ) {
             activeSheet = .navigation(request)
         } else {
-            let message = "不支持导航，等待后端补齐坐标"
+            let message = "这一单还没有集合点坐标"
             viewModel.errorMessage = message
             speechService.speakError(message)
         }
