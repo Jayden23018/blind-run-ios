@@ -39,6 +39,9 @@ protocol OrderServing: Sendable {
     /// 两者都落在同一条降级上 —— 补不到就那一行不渲染。
     func availableOrders() async throws -> [AvailableOrderResponse]
 
+    /// 待回复邀请的快照（后端 #366）。**列表是快照**：能不能接最终以 `/respond` 为准。
+    func pendingInvites() async throws -> PendingInvitesResponse
+
     /// 志愿者手上**接下来要去的**那几单，按状态取一档。
     ///
     /// 🚩 **为什么不复用 `dispatchSummary()`**：后端 `VolunteerService.loadActiveOrders` 的白名单只有
@@ -139,6 +142,10 @@ struct OrderService: OrderServing {
 
     func availableOrders() async throws -> [AvailableOrderResponse] {
         try await transport.send(OrderEndpoint.available.request)
+    }
+
+    func pendingInvites() async throws -> PendingInvitesResponse {
+        try await transport.send(OrderEndpoint.pendingInvites.request)
     }
 
     /// 🚨 **query 必须走 `send(_:query:)`，绝不能拼进路径字面量**，两个理由各自都足以致命：

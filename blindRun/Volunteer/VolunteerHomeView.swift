@@ -145,11 +145,15 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var realtimeDispatchCancellable: AnyCancellable?
     private var realtimeRecoveryCancellable: AnyCancellable?
     private var realtimeStatusCancellable: AnyCancellable?
+    private var inviteWithdrawalCancellable: AnyCancellable?
+    private var inviteSnapshotCancellable: AnyCancellable?
     /// 一条 ticker 刷**整队**邀请的剩余秒数。**不是每条一个** —— 每条一个的话
     /// 队列增删时要各自建/撤，而它们刷新的是同一个时钟。
     private var countdownTask: Task<Void, Never>?
     /// 「这次去不了」的 5 秒延时发送（§4.4.3 的撤销窗口）。
     private var pendingDeclineTask: Task<Void, Never>?
+    /// 撤销窗口里的那张邀请被撤回 / 判失效了：撤销时以这个结果恢复（`nil` = 没有）。
+    private var pendingDeclineInvalidation: VolunteerInviteState.Outcome?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
     private let declineStreak: VolunteerDeclineStreak
     /// 撤销窗口的长度（设计交付 v3 §10「撤销『去不了』时长 = 5 秒」）。
@@ -313,7 +317,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     #if DEBUG
-    private static func uiTestSeedInvite(orderId: Int64, now: Date) -> WSNewOrder {
+    /// 非 private：Mock 的待回复列表要返回同样的几张（`MockAPIClient.uiTestSeededPendingInvites`），
+    /// 否则首页一对账就会把种下的邀请判成失效。
+    static func uiTestSeedInvite(orderId: Int64, now: Date) -> WSNewOrder {
         WSNewOrder(
             type: "NEW_ORDER",
             timestamp: nil,
@@ -461,7 +467,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 // `INTRO_CALL_REQUIRED` 时会自己改口重发一次），这里只是记结果。
                 // 判据用 `effectiveAction` 而不是入参 `action`：改过口之后这一单没接成。
                 let acceptedOrderId = effectiveAction == .accept ? order.orderId : nil
-                appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
+                appState.realtimeCoordinator.clearDispatch(orderID: order.orderId, inviteID: order.inviteId)
 
                 // 🔴 **结果先落在卡上，再去刷新 —— 顺序不能反。**
                 // `refreshAfterDispatchResponse` 里会走一遍 `apply(summary:)`，而那里面有
@@ -527,6 +533,23 @@ final class VolunteerHomeViewModel: ObservableObject {
                         allowsIntroCallUpgrade: false
                     )
                     return
+                }
+                // 邀请已经不在了（后端 #371）：被同批别人抢先 → 409 `ORDER_ALREADY_ACCEPTED`；
+                // 已过期（哪怕过期扫描还没跑到它）→ 409 `ORDER_DISPATCH_MISMATCH`。
+                // 卡片原地变「已失效」并说原因，而不是念一句报错、把一个必定失败的按钮留在原处。
+                switch error.errorCode {
+                case .orderAlreadyAccepted:
+                    invalidateInvite(
+                        orderID: order.orderId, inviteID: order.inviteId, outcome: .withdrawn(.taken), userInitiated: true
+                    )
+                    return
+                case .orderDispatchMismatch:
+                    invalidateInvite(
+                        orderID: order.orderId, inviteID: order.inviteId, outcome: .expired, userInitiated: true
+                    )
+                    return
+                default:
+                    break
                 }
                 needsCertificateUpload = error.errorCode == .volunteerNotApproved
                 errorMessage = error.localizedMessage
@@ -647,8 +670,10 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 而协调器那边一出结果就把它移走了。直接赋值会让「已约好」那张卡当场消失，
     /// 正是 §4.4.3 点名不要的「关掉再弹一个新的」。
     private func syncInvites(with prompts: [RealtimeDispatchPrompt]) {
-        let known = Set(invites.map(\.id))
-        for prompt in prompts where !known.contains(prompt.order.orderId) {
+        // 按**邀请身份**判认不认识（后端 #371）：同一张单的新邀请（新 `inviteId`）不能因为 `orderId` 见过就被跳过。
+        for prompt in prompts where !invites.contains(where: {
+            $0.id == prompt.order.orderId && !AppRealtimeCoordinator.isDifferentInvite($0.order, prompt.order)
+        }) {
             enqueue(
                 order: prompt.order,
                 receivedAt: prompt.receivedAt,
@@ -671,7 +696,16 @@ final class VolunteerHomeViewModel: ObservableObject {
         presentation: VolunteerInvitePresentation? = nil,
         announces: Bool = true
     ) {
-        guard !invites.contains(where: { $0.id == order.orderId }) else { return }
+        if let index = invites.firstIndex(where: { $0.id == order.orderId }) {
+            // 同一张单已经有一张卡：同一张邀请就不进第二条。**不同的一张**（新 `inviteId`，后端 #371：
+            // 撤回之后那轮通话没打成，会给你同一张单发新邀请）替掉旧卡 —— 旧卡可能已经失效，也可能
+            // 撤回推送还没到（断线期间被撤回、重连对账先把新的那张灌进来）；同一张单同一时刻只有一张邀请有效，
+            // 而新来的那张就是。只有「已接下」的卡不替（那时后端不会再发这张单的邀请）。
+            // 直接改数组而不走 `removeInvite`：后者会顺手清协调器，而协调器里那条正是这张新邀请。
+            guard AppRealtimeCoordinator.isDifferentInvite(invites[index].order, order),
+                  invites[index].outcome != .accepted else { return }
+            invites.remove(at: index)
+        }
         let remaining = max(0, Int(ceil(expiresAt.timeIntervalSinceNow)))
         guard remaining > 0 else { return }
         let mode = presentation ?? VolunteerInvitePresentation.resolve(
@@ -717,7 +751,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     // 三条通道各说一遍同一件事 —— 震动对听觉被占用的人、
                     // 提示音对没看屏幕的人、播报对读屏用户。
                     VolunteerInviteCue.play()
-                    self?.speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+                    self?.speechService?.speak("新的陪跑邀请，\(VolunteerOrderFlowCopy.replyCountdown(seconds: remaining))")
                 }
             } else if mode.showsBanner {
                 vocalization = { [weak self] in
@@ -768,6 +802,65 @@ final class VolunteerHomeViewModel: ObservableObject {
         currentInviteID = orderID
     }
 
+    /// 一张还在等回复的邀请失效了（撤回推送 / 快照里已没有 / 「接下」被 409 拒）。
+    ///
+    /// 规则与本地过期（`tickInvites`）一致：**正在看的那一张**原地变「已失效」并念出原因
+    /// （§4.4.3，后端原话「卡片上会留着一个点了必定失败的按钮」不行）；其余的静默移除 ——
+    /// 给一张他从没看过的卡再弹一次「已失效」是纯噪音。
+    ///
+    /// - Parameter userInitiated: 是他刚按了「接下」才知道的（409）。那时**无论卡片开没开着**都要原地变化并念出来 ——
+    ///   他按了，就得有回应；静默移除就是「点了没反应」。
+    private func invalidateInvite(
+        orderID: Int64,
+        inviteID: Int64?,
+        outcome: VolunteerInviteState.Outcome,
+        userInitiated: Bool = false
+    ) {
+        // 撤销窗口里的那张不在 `invites` 里：记下来，撤销时以「已失效」恢复，而不是复活一个必定 409 的按钮（审查 A5）。
+        if let declined = pendingDecline, declined.matches(orderID: orderID, inviteID: inviteID) {
+            pendingDeclineInvalidation = outcome
+            return
+        }
+        guard let index = invites.firstIndex(where: { $0.matches(orderID: orderID, inviteID: inviteID) }),
+              invites[index].isAwaitingReply else {
+            // 他刚按了「接下」，而卡片已经因为撤回推送被收走了：仍然要回应他，否则就是「点了没反应」（审查 B2）。
+            if userInitiated {
+                speechService?.speak("\(VolunteerInviteCopy.expiredTitle)，\(VolunteerInviteCopy.invalidatedDetail(outcome))")
+            }
+            return
+        }
+        guard userInitiated || (invites[index].id == currentInviteID && isInviteSheetPresented) else {
+            removeInvite(orderID: orderID)
+            return
+        }
+        currentInviteID = orderID
+        invites[index].outcome = outcome
+        appState?.realtimeCoordinator.clearDispatch(
+            orderID: orderID,
+            inviteID: invites[index].order.inviteId,
+            retiredUntil: invites[index].expiresAt
+        )
+        speechService?.speak("\(VolunteerInviteCopy.expiredTitle)，\(VolunteerInviteCopy.invalidatedDetail(outcome))")
+    }
+
+    /// 与服务端待回复快照对账（后端 #366）。只看**请求发出之前**就到手的卡：请求在路上时到的新邀请不在快照里。
+    private func reconcileInvites(with snapshot: RealtimePendingInviteSnapshot) {
+        let stale = invites.filter { invite in
+            invite.isAwaitingReply
+                && invite.receivedAt < snapshot.requestedAt
+                && !snapshot.contains(orderID: invite.id, inviteID: invite.order.inviteId)
+        }
+        for invite in stale {
+            invalidateInvite(orderID: invite.id, inviteID: invite.order.inviteId, outcome: .withdrawn(.noLongerPending))
+        }
+        // 撤销窗口里那张不在 `invites` 里，同样要对：快照里没有它 ⇒ 撤销时以「已失效」恢复。
+        if let declined = pendingDecline,
+           declined.receivedAt < snapshot.requestedAt,
+           !snapshot.contains(orderID: declined.id, inviteID: declined.order.inviteId) {
+            pendingDeclineInvalidation = .withdrawn(.noLongerPending)
+        }
+    }
+
     /// 从队列移走一条。
     ///
     /// 🔴 **同时把协调器那一份也清掉，这一行不能挪到调用方。** `syncInvites` 是「只增不减」的
@@ -776,7 +869,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 收成一处是因为调用点有五个（回复成功、结果卡收起、去不了、过期、登出），
     /// 而「忘了清协调器」在任何一处都是同一个 bug。
     private func removeInvite(orderID: Int64) {
-        appState?.realtimeCoordinator.clearDispatch(orderID: orderID)
+        // 带上邀请身份与原期限：只清同一张，并让协调器记下「已了结」—— 撤销窗口里的一次对账
+        // 不会再把它灌回来（审查 A3），同一张单的新邀请也不会被顺手删掉（A2）。
+        let card = invites.first { $0.id == orderID }
+        appState?.realtimeCoordinator.clearDispatch(
+            orderID: orderID,
+            inviteID: card?.order.inviteId,
+            retiredUntil: card?.expiresAt
+        )
         invites.removeAll { $0.id == orderID }
         if currentInviteID == orderID { currentInviteID = invites.first?.id }
         // 横幅指的就是这一条时一起收掉 —— 留着的话它会在这条邀请已经过期 / 已经回复之后
@@ -831,7 +931,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         // 正在看的那一条过期了就留在原地变「已失效」（§4.4.3 最后一行）；
         // 其余过期的静默移除 —— 给一张他从没看过的卡再弹一次「已失效」是纯噪音。
         let staleIDs = invites
-            .filter { $0.outcome == .expired && $0.id != currentInviteID }
+            .filter { $0.outcome?.isInvalidated == true && $0.id != currentInviteID }
             .map(\.id)
         for id in staleIDs { removeInvite(orderID: id) }
         // 队列里只剩结果卡（已约好 / 已失效）时也停：它们没有任何还在走的数字，
@@ -859,6 +959,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         flushPendingDecline()
         removeInvite(orderID: orderID)
         pendingDecline = invite
+        pendingDeclineInvalidation = nil
         // 卡片收起那一刻屏幕上只剩一条 toast，而看不见屏幕的人需要知道两件事：
         // 回复出去了、还能反悔。秒数取配置值，不写字面量 —— 两处各写一个 5 必然分叉。
         speechService?.speak("\(VolunteerInviteCopy.declineToastText)，\(Int(declineUndoWindow))秒内可以撤销")
@@ -880,19 +981,29 @@ final class VolunteerHomeViewModel: ObservableObject {
         let remaining = max(0, Int(ceil(invite.expiresAt.timeIntervalSinceNow)))
         var restored = invite
         restored.remainingSeconds = remaining
-        restored.outcome = remaining == 0 ? .expired : nil
+        // 窗口里被撤回 / 判失效的，以那个结果恢复（审查 A5）—— 复活一个「接下」按钮就是让他去撞 409。
+        restored.outcome = pendingDeclineInvalidation ?? (remaining == 0 ? .expired : nil)
+        pendingDeclineInvalidation = nil
+        // 同一张单不许出现两张卡（`id` 重复会让 `ForEach` 与按 id 查找都出错）。
+        invites.removeAll { $0.id == restored.id }
         invites.append(restored)
         invites.sort { $0.expiresAt < $1.expiresAt }
         currentInviteID = restored.id
         isInviteSheetPresented = true
         startInviteTicker()
-        // 撤销窗口里倒计时没停，所以「放回来了」和「放回来但已经过期了」是两句不同的话。
+        // 撤销窗口里倒计时没停，所以「放回来了」和「放回来但已经失效了」是两句不同的话。
         // 只说「已撤销」而屏幕上是一张灰卡，对看不见屏幕的人就是一次白跑。
-        speechService?.speak(
-            restored.outcome == .expired
-                ? "已撤销，不过这个邀请已经过期了"
-                : "已撤销，邀请回来了"
-        )
+        if case .withdrawn = restored.outcome {
+            speechService?.speak(
+                "已撤销，不过\(VolunteerInviteCopy.expiredTitle)，\(VolunteerInviteCopy.invalidatedDetail(restored.outcome!))"
+            )
+        } else {
+            speechService?.speak(
+                restored.outcome == .expired
+                    ? "已撤销，不过这个邀请已经过期了"
+                    : "已撤销，邀请回来了"
+            )
+        }
     }
 
     /// 窗口到点（或被下一次「去不了」挤掉）：真的把 `DECLINE` 发出去。
@@ -901,10 +1012,16 @@ final class VolunteerHomeViewModel: ObservableObject {
         pendingDeclineTask = nil
         guard let invite = pendingDecline else { return }
         pendingDecline = nil
+        let invalidation = pendingDeclineInvalidation
+        pendingDeclineInvalidation = nil
+        // 窗口里已经被撤回：后端那张邀请已经不在了，再发 `DECLINE` 只会 409；撤回也不计入连续拒绝（后端口径）。
+        if case .withdrawn = invalidation { return }
         declineStreak.recordDecline()
         objectWillChange.send()
         guard let appState else { return }
-        appState.realtimeCoordinator.clearDispatch(orderID: invite.id)
+        appState.realtimeCoordinator.clearDispatch(
+            orderID: invite.id, inviteID: invite.order.inviteId, retiredUntil: invite.expiresAt
+        )
         Task {
             // 失败**不弹给用户**：他已经表达完意图、卡片早就收起了，而后端超时会兜住同一个结果。
             // 这一刻弹「操作失败」只会让他以为自己还得再点一次。
@@ -952,6 +1069,20 @@ final class VolunteerHomeViewModel: ObservableObject {
             .sink { [weak self] prompts in
                 self?.syncInvites(with: prompts)
             }
+        inviteWithdrawalCancellable = appState.realtimeCoordinator.inviteWithdrawalPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] withdrawal in
+                self?.invalidateInvite(
+                    orderID: withdrawal.orderId,
+                    inviteID: withdrawal.inviteId,
+                    outcome: .withdrawn(withdrawal.reason)
+                )
+            }
+        inviteSnapshotCancellable = appState.realtimeCoordinator.pendingInviteSnapshotPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshot in
+                self?.reconcileInvites(with: snapshot)
+            }
         realtimeRecoveryCancellable = appState.realtimeCoordinator.recoveryPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] signal in
@@ -998,6 +1129,8 @@ final class VolunteerHomeViewModel: ObservableObject {
             return
         }
         ClientFlowDiagnostics.record(event: "started", operation: "volunteer-home-refresh")
+        // 冷启动与下拉刷新各对一次待回复邀请（后端 #366）。并行发、不等它：首页不该被它拖住。
+        Task { await appState.restorePendingInvites() }
         // 规则参数（自动打开订单页的提前量、取消弹层的窗口）并行拉，**不等它**：
         // 它挂住时不该把整个首页拖住（URLSession 超时 15 秒）。
         // ponytail: 首次冷启动若规则晚于派单摘要回来，那一次的自动打开按默认 120 分钟判
@@ -1629,6 +1762,8 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private func recoverDispatchReadinessAfterReconnect() {
         guard isSceneActive else { return }
+        // 断线期间的撤回推送补不回来，重连后以服务端待回复列表为准（契约）。
+        if let appState { Task { await appState.restorePendingInvites() } }
         delayedSummaryRefreshTask?.cancel()
         delayedSummaryRefreshTask = Task { [weak self] in
             guard let self else { return }

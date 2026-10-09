@@ -1134,6 +1134,21 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/volunteer/partners/streaks`.
     /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)`.
     func myStreaksAsVolunteer(_ input: Operations.myStreaksAsVolunteer.Input) async throws -> Operations.myStreaksAsVolunteer.Output
+    /// 待回复的派单邀请 + 连续拒绝次数（VOLUNTEER）
+    ///
+    /// 杀 App、冷启动、WS 没连上、「收到推送 → 锁屏 → 十秒后打开」时，用它把 `NEW_ORDER` 邀请拉回来。
+    /// **建议冷启动和从后台回前台各调一次**；WS 重连后也该调一次，补上断线期间错过的邀请。
+    ///
+    /// - 只返回**自己的**、状态 `PENDING` 且 `expiresAt` 还没到的邀请，按 `expiresAt` 升序。
+    ///   拒绝 / 有意向 / 已接单 / 已撤回 / 已过期的不返回。
+    /// - 每一项 = `NEW_ORDER` 载荷的全部字段 + `sentAt`；**没有任何手机号，不含 specialNotes / routeNotes**。
+    /// - `distanceKm` 用陪跑员**当前位置**算；位置未知时为 `null`（不是 0 公里）。
+    /// - `consecutiveDeclineCount` 的口径见响应字段说明（拒绝 / 过期 +1，接单 / 有意向清零，撤回不计）。
+    /// - 只读：调用本接口不会改变任何状态。邀请能不能接最终以 `POST /api/orders/{id}/respond` 为准。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/pending-invites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)`.
+    func getPendingInvites(_ input: Operations.getPendingInvites.Input) async throws -> Operations.getPendingInvites.Output
     /// 我的积分（余额 + 分页流水）
     ///
     /// 余额 = 全部流水 `delta` 之和；流水按 `createdAt` 倒序（最近的在前）。
@@ -2960,6 +2975,23 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//api/volunteer/partners/streaks/get(myStreaksAsVolunteer)`.
     public func myStreaksAsVolunteer(headers: Operations.myStreaksAsVolunteer.Input.Headers = .init()) async throws -> Operations.myStreaksAsVolunteer.Output {
         try await myStreaksAsVolunteer(Operations.myStreaksAsVolunteer.Input(headers: headers))
+    }
+    /// 待回复的派单邀请 + 连续拒绝次数（VOLUNTEER）
+    ///
+    /// 杀 App、冷启动、WS 没连上、「收到推送 → 锁屏 → 十秒后打开」时，用它把 `NEW_ORDER` 邀请拉回来。
+    /// **建议冷启动和从后台回前台各调一次**；WS 重连后也该调一次，补上断线期间错过的邀请。
+    ///
+    /// - 只返回**自己的**、状态 `PENDING` 且 `expiresAt` 还没到的邀请，按 `expiresAt` 升序。
+    ///   拒绝 / 有意向 / 已接单 / 已撤回 / 已过期的不返回。
+    /// - 每一项 = `NEW_ORDER` 载荷的全部字段 + `sentAt`；**没有任何手机号，不含 specialNotes / routeNotes**。
+    /// - `distanceKm` 用陪跑员**当前位置**算；位置未知时为 `null`（不是 0 公里）。
+    /// - `consecutiveDeclineCount` 的口径见响应字段说明（拒绝 / 过期 +1，接单 / 有意向清零，撤回不计）。
+    /// - 只读：调用本接口不会改变任何状态。邀请能不能接最终以 `POST /api/orders/{id}/respond` 为准。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/pending-invites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)`.
+    public func getPendingInvites(headers: Operations.getPendingInvites.Input.Headers = .init()) async throws -> Operations.getPendingInvites.Output {
+        try await getPendingInvites(Operations.getPendingInvites.Input(headers: headers))
     }
     /// 我的积分（余额 + 分页流水）
     ///
@@ -9640,6 +9672,527 @@ public enum Components {
                 case lastCreditedWeek
                 case partnerName
                 case partnerUserId
+            }
+        }
+        /// 一条待回复的派单邀请。字段 = WS `NEW_ORDER` 载荷的全部业务字段 + `sentAt`（WS 里没有）。
+        /// **没有任何手机号，不含 specialNotes / routeNotes**：这份数据发给还没接单、可能最终拒单的陪跑员，
+        /// 要拨号走接单之后的订单详情。
+        ///
+        /// **可空的字段（null = 后端没给，不是「没有」）**：与 WS 的「有值才放」口径一致 —— WS 里这些键直接缺席，
+        /// 这里是 `null`。例外：`requiresIntroCall` 与 `completedTogetherCount` 永远有值（缺了客户端不知道该发什么 / 分不清「没一起跑过」和「没给」）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/PendingInviteItem`.
+        public struct PendingInviteItem: Codable, Hashable, Sendable {
+            /// 盲人姓名，**已掩码**（保留首字，如 `张*`）。没有名字时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/blindName`.
+            public var blindName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/chatPreference`.
+            public struct chatPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/chatPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PREFER_CHAT = "PREFER_CHAT"
+                    case PREFER_QUIET = "PREFER_QUIET"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/chatPreference/value1`.
+                public var value1: Components.Schemas.PendingInviteItem.chatPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/chatPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `chatPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.PendingInviteItem.chatPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/chatPreference`.
+            public var chatPreference: Components.Schemas.PendingInviteItem.chatPreferencePayload?
+            /// 和这位盲人**一起跑完过**几单（`COMPLETED`，接了又取消的不算）。**`0` 照常下发** =「第一次一起跑」，
+            /// 和「没给」要在卡片上说不同的话，所以永远有值。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/completedTogetherCount`.
+            public var completedTogetherCount: Swift.Int64
+            /// `expiresAt − sentAt` 的秒数（旧客户端画进度条用）。**不是**「从现在起还剩多少秒」
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/dispatchTimeoutSeconds`.
+            public var dispatchTimeoutSeconds: Swift.Int64
+            /// 陪跑员**当前位置**到起点的距离（公里，保留 1 位小数）。
+            /// 🚨 **null = 后端此刻不知道你在哪**（位置已过期且兜底也查不到），**不是 0 公里**。
+            /// null 时不要显示距离，更不要显示「距你 0 公里」。WS 推送那一路没有这个例外（取不到时仍给 0），
+            /// 所以以这里为准刷新卡片上的距离。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/distanceKm`.
+            public var distanceKm: Swift.Double?
+            /// 预计时长（分钟）
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/expectedDurationMinutes`.
+            public var expectedDurationMinutes: Swift.Int32?
+            /// **回复期限的权威时刻**（整秒，无时区）。过了它接单会得到 409 `ORDER_DISPATCH_MISMATCH`，
+            /// 所以本接口已经不再返回过了这个时刻的邀请。客户端倒计时请读它，别读 `dispatchTimeoutSeconds`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/expiresAt`.
+            public var expiresAt: Swift.String
+            /// 本次是否带导盲犬。**只有 `true` 或 null**：不带时 WS 里这个键直接缺席，这里是 null，两者都等于「没说带」
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/hasGuideDog`.
+            public var hasGuideDog: Swift.Bool?
+            /// 邀请 ID。`POST /api/orders/{id}/respond` 不需要它；`INVITE_WITHDRAWN` 推送靠它认出是哪张卡片要移除。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/inviteId`.
+            public var inviteId: Swift.Int64
+            /// 订单 ID
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/orderId`.
+            public var orderId: Swift.Int64
+            /// 配速区间上限（最慢），秒/公里
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/paceMaxSecondsPerKm`.
+            public var paceMaxSecondsPerKm: Swift.Int32?
+            /// 配速区间下限（最快），秒/公里，与 `paceMaxSecondsPerKm` 成对出现
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/paceMinSecondsPerKm`.
+            public var paceMinSecondsPerKm: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/pacePreference`.
+            public struct pacePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/pacePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/pacePreference/value1`.
+                public var value1: Components.Schemas.PendingInviteItem.pacePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/pacePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `pacePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.PendingInviteItem.pacePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/pacePreference`.
+            public var pacePreference: Components.Schemas.PendingInviteItem.pacePreferencePayload?
+            /// 计划里程（米）
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/plannedDistanceMeters`.
+            public var plannedDistanceMeters: Swift.Int32?
+            /// 计划结束时刻（无时区）
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/plannedEnd`.
+            public var plannedEnd: Swift.String
+            /// 计划开始时刻（无时区）
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/plannedStart`.
+            public var plannedStart: Swift.String
+            /// 恒为 `HIGH`，与 WS `NEW_ORDER` 一致（响应向开放枚举，客户端必须容忍新值）
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/priority`.
+            public var priority: Swift.String
+            /// 🚨 **这一单要不要先通电话**，客户端按它决定 `/respond` 发哪个 action：
+            /// `true` → `INTERESTED`，`false` → `ACCEPT`。发错会被回 409 `INTRO_CALL_REQUIRED`。
+            /// 与接单守卫、`GET /api/orders/available` 用同一对判断。永远有值。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/requiresIntroCall`.
+            public var requiresIntroCall: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/routePreference`.
+            public struct routePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/routePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PARK_TRAIL = "PARK_TRAIL"
+                    case STREET = "STREET"
+                    case TRACK = "TRACK"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/routePreference/value1`.
+                public var value1: Components.Schemas.PendingInviteItem.routePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/routePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `routePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.PendingInviteItem.routePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/routePreference`.
+            public var routePreference: Components.Schemas.PendingInviteItem.routePreferencePayload?
+            /// 邀请发出的时刻（LocalDateTime，无时区）。WS 的 `NEW_ORDER` 没有这个字段
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/sentAt`.
+            public var sentAt: Swift.String
+            /// 起跑点文字地址
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/startAddress`.
+            public var startAddress: Swift.String?
+            /// 起跑点纬度
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/startLatitude`.
+            public var startLatitude: Swift.Double?
+            /// 起跑点经度
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/startLongitude`.
+            public var startLongitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference`.
+            public struct tetherPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TETHER_ROPE = "TETHER_ROPE"
+                    case ARM_HOLD = "ARM_HOLD"
+                    case VERBAL_ONLY = "VERBAL_ONLY"
+                }
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference/value1`.
+                public var value1: Components.Schemas.PendingInviteItem.tetherPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `tetherPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.PendingInviteItem.tetherPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference`.
+            public var tetherPreference: Components.Schemas.PendingInviteItem.tetherPreferencePayload?
+            /// 盲人视障程度。盲人档案缺失时为 null，**别脑补成全盲**
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/visionLevel`.
+            public struct visionLevelPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/visionLevel/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TOTAL_BLIND = "TOTAL_BLIND"
+                    case LOW_VISION = "LOW_VISION"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
+                }
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/visionLevel/value1`.
+                public var value1: Components.Schemas.PendingInviteItem.visionLevelPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/PendingInviteItem/visionLevel/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `visionLevelPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.PendingInviteItem.visionLevelPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 盲人视障程度。盲人档案缺失时为 null，**别脑补成全盲**
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/visionLevel`.
+            public var visionLevel: Components.Schemas.PendingInviteItem.visionLevelPayload?
+            /// Creates a new `PendingInviteItem`.
+            ///
+            /// - Parameters:
+            ///   - blindName: 盲人姓名，**已掩码**（保留首字，如 `张*`）。没有名字时为 null
+            ///   - chatPreference:
+            ///   - completedTogetherCount: 和这位盲人**一起跑完过**几单（`COMPLETED`，接了又取消的不算）。**`0` 照常下发** =「第一次一起跑」，
+            ///   - dispatchTimeoutSeconds: `expiresAt − sentAt` 的秒数（旧客户端画进度条用）。**不是**「从现在起还剩多少秒」
+            ///   - distanceKm: 陪跑员**当前位置**到起点的距离（公里，保留 1 位小数）。
+            ///   - expectedDurationMinutes: 预计时长（分钟）
+            ///   - expiresAt: **回复期限的权威时刻**（整秒，无时区）。过了它接单会得到 409 `ORDER_DISPATCH_MISMATCH`，
+            ///   - hasGuideDog: 本次是否带导盲犬。**只有 `true` 或 null**：不带时 WS 里这个键直接缺席，这里是 null，两者都等于「没说带」
+            ///   - inviteId: 邀请 ID。`POST /api/orders/{id}/respond` 不需要它；`INVITE_WITHDRAWN` 推送靠它认出是哪张卡片要移除。
+            ///   - orderId: 订单 ID
+            ///   - paceMaxSecondsPerKm: 配速区间上限（最慢），秒/公里
+            ///   - paceMinSecondsPerKm: 配速区间下限（最快），秒/公里，与 `paceMaxSecondsPerKm` 成对出现
+            ///   - pacePreference:
+            ///   - plannedDistanceMeters: 计划里程（米）
+            ///   - plannedEnd: 计划结束时刻（无时区）
+            ///   - plannedStart: 计划开始时刻（无时区）
+            ///   - priority: 恒为 `HIGH`，与 WS `NEW_ORDER` 一致（响应向开放枚举，客户端必须容忍新值）
+            ///   - requiresIntroCall: 🚨 **这一单要不要先通电话**，客户端按它决定 `/respond` 发哪个 action：
+            ///   - routePreference:
+            ///   - sentAt: 邀请发出的时刻（LocalDateTime，无时区）。WS 的 `NEW_ORDER` 没有这个字段
+            ///   - startAddress: 起跑点文字地址
+            ///   - startLatitude: 起跑点纬度
+            ///   - startLongitude: 起跑点经度
+            ///   - tetherPreference:
+            ///   - visionLevel: 盲人视障程度。盲人档案缺失时为 null，**别脑补成全盲**
+            public init(
+                blindName: Swift.String? = nil,
+                chatPreference: Components.Schemas.PendingInviteItem.chatPreferencePayload? = nil,
+                completedTogetherCount: Swift.Int64,
+                dispatchTimeoutSeconds: Swift.Int64,
+                distanceKm: Swift.Double? = nil,
+                expectedDurationMinutes: Swift.Int32? = nil,
+                expiresAt: Swift.String,
+                hasGuideDog: Swift.Bool? = nil,
+                inviteId: Swift.Int64,
+                orderId: Swift.Int64,
+                paceMaxSecondsPerKm: Swift.Int32? = nil,
+                paceMinSecondsPerKm: Swift.Int32? = nil,
+                pacePreference: Components.Schemas.PendingInviteItem.pacePreferencePayload? = nil,
+                plannedDistanceMeters: Swift.Int32? = nil,
+                plannedEnd: Swift.String,
+                plannedStart: Swift.String,
+                priority: Swift.String,
+                requiresIntroCall: Swift.Bool,
+                routePreference: Components.Schemas.PendingInviteItem.routePreferencePayload? = nil,
+                sentAt: Swift.String,
+                startAddress: Swift.String? = nil,
+                startLatitude: Swift.Double? = nil,
+                startLongitude: Swift.Double? = nil,
+                tetherPreference: Components.Schemas.PendingInviteItem.tetherPreferencePayload? = nil,
+                visionLevel: Components.Schemas.PendingInviteItem.visionLevelPayload? = nil
+            ) {
+                self.blindName = blindName
+                self.chatPreference = chatPreference
+                self.completedTogetherCount = completedTogetherCount
+                self.dispatchTimeoutSeconds = dispatchTimeoutSeconds
+                self.distanceKm = distanceKm
+                self.expectedDurationMinutes = expectedDurationMinutes
+                self.expiresAt = expiresAt
+                self.hasGuideDog = hasGuideDog
+                self.inviteId = inviteId
+                self.orderId = orderId
+                self.paceMaxSecondsPerKm = paceMaxSecondsPerKm
+                self.paceMinSecondsPerKm = paceMinSecondsPerKm
+                self.pacePreference = pacePreference
+                self.plannedDistanceMeters = plannedDistanceMeters
+                self.plannedEnd = plannedEnd
+                self.plannedStart = plannedStart
+                self.priority = priority
+                self.requiresIntroCall = requiresIntroCall
+                self.routePreference = routePreference
+                self.sentAt = sentAt
+                self.startAddress = startAddress
+                self.startLatitude = startLatitude
+                self.startLongitude = startLongitude
+                self.tetherPreference = tetherPreference
+                self.visionLevel = visionLevel
+            }
+            public enum CodingKeys: String, CodingKey {
+                case blindName
+                case chatPreference
+                case completedTogetherCount
+                case dispatchTimeoutSeconds
+                case distanceKm
+                case expectedDurationMinutes
+                case expiresAt
+                case hasGuideDog
+                case inviteId
+                case orderId
+                case paceMaxSecondsPerKm
+                case paceMinSecondsPerKm
+                case pacePreference
+                case plannedDistanceMeters
+                case plannedEnd
+                case plannedStart
+                case priority
+                case requiresIntroCall
+                case routePreference
+                case sentAt
+                case startAddress
+                case startLatitude
+                case startLongitude
+                case tetherPreference
+                case visionLevel
+            }
+        }
+        /// 陪跑员手上此刻**还能接单**的邀请 + 连续拒绝次数。用途：杀 App、冷启动、WS 没连上、
+        /// 「收到推送 → 锁屏 → 十秒后打开」时把邀请拉回来。**建议冷启动和从后台回前台各调一次。**
+        /// 只读，调用本接口不会改变任何状态（不会消耗邀请、不会清零计数）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/PendingInvitesResponse`.
+        public struct PendingInvitesResponse: Codable, Hashable, Sendable {
+            /// 连续拒绝次数（#365）：**拒绝（DECLINE）或邀请过期都 +1；接单或表示有意向清零；被撤回的邀请不计**。
+            /// 只记不罚，不进派单评分。「问过一次就不再问」由客户端自己存（例如本地记下上次询问时的计数，
+            /// 计数再涨 3 才问下一次），后端不提供 ack 端点。没有志愿者档案时为 0。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInvitesResponse/consecutiveDeclineCount`.
+            public var consecutiveDeclineCount: Swift.Int32
+            /// 待回复的邀请，**按 `expiresAt` 升序**（最先到期的在最前）。只包含：自己的、状态 `PENDING`、
+            /// `expiresAt` 还没到、订单仍在派单中的邀请；拒绝 / 有意向 / 已接单 / 已撤回 / 已过期的都不在里面。没有时为空数组。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInvitesResponse/invites`.
+            public var invites: [Components.Schemas.PendingInviteItem]
+            /// Creates a new `PendingInvitesResponse`.
+            ///
+            /// - Parameters:
+            ///   - consecutiveDeclineCount: 连续拒绝次数（#365）：**拒绝（DECLINE）或邀请过期都 +1；接单或表示有意向清零；被撤回的邀请不计**。
+            ///   - invites: 待回复的邀请，**按 `expiresAt` 升序**（最先到期的在最前）。只包含：自己的、状态 `PENDING`、
+            public init(
+                consecutiveDeclineCount: Swift.Int32,
+                invites: [Components.Schemas.PendingInviteItem]
+            ) {
+                self.consecutiveDeclineCount = consecutiveDeclineCount
+                self.invites = invites
+            }
+            public enum CodingKeys: String, CodingKey {
+                case consecutiveDeclineCount
+                case invites
             }
         }
         /// - Remark: Generated from `#/components/schemas/PointTransactionResponse`.
@@ -30432,6 +30985,196 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.forbidden`.
             /// - SeeAlso: `.forbidden`.
             public var forbidden: Operations.myStreaksAsVolunteer.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 待回复的派单邀请 + 连续拒绝次数（VOLUNTEER）
+    ///
+    /// 杀 App、冷启动、WS 没连上、「收到推送 → 锁屏 → 十秒后打开」时，用它把 `NEW_ORDER` 邀请拉回来。
+    /// **建议冷启动和从后台回前台各调一次**；WS 重连后也该调一次，补上断线期间错过的邀请。
+    ///
+    /// - 只返回**自己的**、状态 `PENDING` 且 `expiresAt` 还没到的邀请，按 `expiresAt` 升序。
+    ///   拒绝 / 有意向 / 已接单 / 已撤回 / 已过期的不返回。
+    /// - 每一项 = `NEW_ORDER` 载荷的全部字段 + `sentAt`；**没有任何手机号，不含 specialNotes / routeNotes**。
+    /// - `distanceKm` 用陪跑员**当前位置**算；位置未知时为 `null`（不是 0 公里）。
+    /// - `consecutiveDeclineCount` 的口径见响应字段说明（拒绝 / 过期 +1，接单 / 有意向清零，撤回不计）。
+    /// - 只读：调用本接口不会改变任何状态。邀请能不能接最终以 `POST /api/orders/{id}/respond` 为准。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/pending-invites`.
+    /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)`.
+    public enum getPendingInvites {
+        public static let id: Swift.String = "getPendingInvites"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/pending-invites/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getPendingInvites.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getPendingInvites.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getPendingInvites.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.getPendingInvites.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/pending-invites/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/pending-invites/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PendingInvitesResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PendingInvitesResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getPendingInvites.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getPendingInvites.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getPendingInvites.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getPendingInvites.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.getPendingInvites.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.getPendingInvites.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getPendingInvites.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/pending-invites/get(getPendingInvites)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getPendingInvites.Output.Forbidden {
                 get throws {
                     switch self {
                     case let .forbidden(response):

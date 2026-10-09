@@ -30,6 +30,7 @@ final class OrderEndpointTests: XCTestCase {
             (.startLiveShare(orderId: 42), .post, "/api/orders/42/share"),
             (.stopLiveShare(orderId: 42), .delete, "/api/orders/42/share"),
             (.volunteerLocation, .get, "/api/blind/volunteer-location"),
+            (.pendingInvites, .get, "/api/volunteer/pending-invites"),
             (.dispatchSummary, .get, "/api/volunteer/dispatch-summary"),
             (.dispatchStatus, .put, "/api/volunteer/dispatch-status"),
         ]
@@ -84,7 +85,7 @@ final class OrderEndpointTests: XCTestCase {
             .enRoute(orderId: 1), .arrived(orderId: 1), .startService(orderId: 1),
             .finish(orderId: 1), .review(orderId: 1), .reviews(orderId: 1),
             .statusLogs(orderId: 1), .startLiveShare(orderId: 1), .stopLiveShare(orderId: 1),
-            .volunteerLocation, .dispatchSummary, .dispatchStatus,
+            .volunteerLocation, .dispatchSummary, .dispatchStatus, .pendingInvites,
             .keepWaiting(.keepWaiting, orderId: 1), .introCall(.view, orderId: 1),
         ]
         for endpoint in endpoints {

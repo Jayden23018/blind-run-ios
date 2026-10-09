@@ -306,6 +306,27 @@ struct RealtimeOrderRefreshRequest: Sendable {
     let reason: Reason
 }
 
+struct RealtimeInviteWithdrawal: Equatable, Sendable {
+    let orderId: Int64
+    /// `nil` = 推送没带 / 是按快照判的，那时只按 `orderId` 认。
+    let inviteId: Int64?
+    let reason: InviteWithdrawReason
+}
+
+struct RealtimePendingInviteSnapshot: Sendable {
+    let invites: [WSNewOrder]
+    /// 请求发出的时刻。只有比它更早收到的邀请才能按「快照里没有」判失效。
+    let requestedAt: Date
+
+    /// 这张卡在快照里还算不算待回复。
+    func contains(orderID: Int64, inviteID: Int64?) -> Bool {
+        invites.contains { invite in
+            invite.orderId == orderID
+                && (inviteID == nil || invite.inviteId == nil || invite.inviteId == inviteID)
+        }
+    }
+}
+
 struct RealtimeDispatchPrompt: Sendable {
     let order: WSNewOrder
     let receivedAt: Date
@@ -458,6 +479,18 @@ final class AppRealtimeCoordinator: ObservableObject {
         blindStartConfirmedSubject.eraseToAnyPublisher()
     }
     static let blindStartConfirmedEventType = "BLIND_START_CONFIRMED"
+    /// 一张还没回复的邀请失效了（撤回推送，或待回复快照里已经没有它）。
+    /// 协调器自己的队列已经移走它；首页那张卡要不要原地变「已失效」由首页决定（它手里有「正在看哪一张」）。
+    private let inviteWithdrawalSubject = PassthroughSubject<RealtimeInviteWithdrawal, Never>()
+    var inviteWithdrawalPublisher: AnyPublisher<RealtimeInviteWithdrawal, Never> {
+        inviteWithdrawalSubject.eraseToAnyPublisher()
+    }
+    /// 一次待回复快照到了。首页拿它对**自己手里的卡**对账 —— 协调器的队列在断线重连时会被清空，
+    /// 而首页的卡还在，只在这里对账的话，离线期间被接走的那张卡会一直挂着一个点了必定 409 的按钮。
+    private let pendingInviteSnapshotSubject = PassthroughSubject<RealtimePendingInviteSnapshot, Never>()
+    var pendingInviteSnapshotPublisher: AnyPublisher<RealtimePendingInviteSnapshot, Never> {
+        pendingInviteSnapshotSubject.eraseToAnyPublisher()
+    }
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
     var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
@@ -473,6 +506,20 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 每条派单各自的到期任务。**按 orderId 分开存**：一个共享的 task 只能跟住最后一条，
     /// 其余的到期之后会永远留在队列里（而它们已经被后端转给别人了）。
     private var dispatchExpiryTasks: [Int64: Task<Void, Never>] = [:]
+    /// 本地已经了结的邀请（回复过、收起、撤回、失效），记到它原本的回复期限为止。
+    ///
+    /// 存在的理由：「本地已经回复、后端还没收到」这段时间里（「去不了」有 5 秒撤销窗口才真正发出），
+    /// 待回复快照里仍有这一张。没有这份记录，回前台 / 重连的一次对账就会把它当成新邀请灌回来 ——
+    /// 卡片重新弹出，撤销时同一张单还会出现两张卡。撤回同理：早于撤回发出的快照回来时还带着它。
+    private var retiredInvites: [RetiredInviteKey: Date] = [:]
+    /// 没有期限可参照时的保留时长 = 最长的回复窗口（后端 60 分钟档）。
+    private static let retiredInviteFallbackLifetime: TimeInterval = 60 * 60
+
+    private struct RetiredInviteKey: Hashable {
+        let orderID: Int64
+        /// `nil` = 老服务端 / 测试种子，没有邀请身份：同一张单的任何邀请都算它。
+        let inviteID: Int64?
+    }
     private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
     private var orderRefreshRetryCounts: [Int64: Int] = [:]
     private var queuedNotifications: [RealtimeForegroundNotification] = []
@@ -648,9 +695,44 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
     }
 
-    func clearDispatch(orderID: Int64) {
-        dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
-        pendingDispatches.removeAll { $0.order.orderId == orderID }
+    /// 首页了结一张邀请（回复、收起、失效）时调。**只清同一张**：同一张单可能已经有一张新邀请（新 `inviteId`）
+    /// 进了队列，按 `orderId` 整单清会把它一起删掉 —— 而首页按「已了结」不会再把它补回来，就是丢单。
+    ///
+    /// - Parameters:
+    ///   - inviteID: `nil` = 不知道是哪一张（老服务端），按 `orderId` 清。
+    ///   - retiredUntil: 这张邀请原本的期限。到期之前快照里再出现它也不收（见 `retiredInvites`）。
+    func clearDispatch(orderID: Int64, inviteID: Int64? = nil, retiredUntil: Date? = nil) {
+        let matches: (RealtimeDispatchPrompt) -> Bool = { prompt in
+            prompt.order.orderId == orderID
+                && (inviteID == nil || prompt.order.inviteId == nil || prompt.order.inviteId == inviteID)
+        }
+        let removed = pendingDispatches.first(where: matches)
+        if removed != nil {
+            dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
+            pendingDispatches.removeAll(where: matches)
+        }
+        retire(
+            orderID: orderID,
+            inviteID: inviteID ?? removed?.order.inviteId,
+            until: retiredUntil ?? removed?.expiresAt
+        )
+    }
+
+    private func retire(orderID: Int64, inviteID: Int64?, until: Date?) {
+        let current = now()
+        retiredInvites = retiredInvites.filter { $0.value > current }
+        retiredInvites[RetiredInviteKey(orderID: orderID, inviteID: inviteID)] =
+            until ?? current.addingTimeInterval(Self.retiredInviteFallbackLifetime)
+    }
+
+    /// 这张邀请是不是本地已经了结过。期限过了的记录不算。
+    private func isRetired(_ message: WSNewOrder) -> Bool {
+        let current = now()
+        return retiredInvites.contains { key, until in
+            until > current
+                && key.orderID == message.orderId
+                && (key.inviteID == nil || message.inviteId == nil || key.inviteID == message.inviteId)
+        }
     }
 
     func markDispatchPresented(orderID: Int64) {
@@ -771,6 +853,8 @@ final class AppRealtimeCoordinator: ObservableObject {
             orderLiveUpdateSubject.send(.eta(orderId: message.orderId, message.eta))
         case .meetDistanceBucket(let message):
             orderLiveUpdateSubject.send(.meet(orderId: message.orderId, message.meet))
+        case .inviteWithdrawn(let message):
+            withdrawDispatch(orderID: message.orderId, inviteID: message.inviteId, reason: message.withdrawReason)
         case .pong, .unknown:
             break
         }
@@ -808,15 +892,24 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     private func retainDispatch(_ message: WSNewOrder) {
         guard attachedRole == nil || attachedRole == .volunteer else { return }
-        // 同一单重发（后端重试 / 断线重连补推）不进第二条。判据是 orderId 而不是整条消息相等：
+        guard !isRetired(message) else { return }
+        // 同一张邀请重发（后端重试 / 快照与推送都带着它）不进第二条。判据是邀请身份而不是整条消息相等：
         // 重发的 `timestamp` 会变，按值去重等于去不掉。
-        guard !pendingDispatches.contains(where: { $0.order.orderId == message.orderId }) else { return }
+        // 🚩 **身份是 `inviteId`**（后端 #371）：同一张单撤回后可能发来**新的**一张邀请，
+        // 那时旧的那条（若还在）让位给新的，而不是把新的当重复丢掉。
+        if let index = pendingDispatches.firstIndex(where: { $0.order.orderId == message.orderId }) {
+            guard Self.isDifferentInvite(pendingDispatches[index].order, message) else { return }
+            dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
+            pendingDispatches.remove(at: index)
+        }
         guard pendingDispatches.count < Self.maxPendingDispatches else { return }
         let receivedAt = now()
-        let timeout = max(0, message.dispatchTimeoutSeconds ?? 30)
-        let sentAt = Self.parseISO8601(message.timestamp) ?? receivedAt
-        let expiresAt = sentAt.addingTimeInterval(TimeInterval(timeout))
-        guard expiresAt > receivedAt else { return }
+        let expiresAt = Self.dispatchExpiry(message, receivedAt: receivedAt)
+        guard expiresAt > receivedAt else {
+            // 到手时就已过期：后端的期限比本机时钟早（时钟误差、或推送在路上太久）。不静默 —— 留一条诊断。
+            ClientFlowDiagnostics.record(event: "dropped-expired", operation: "dispatch-retain")
+            return
+        }
         pendingDispatches.append(
             RealtimeDispatchPrompt(order: message, receivedAt: receivedAt, expiresAt: expiresAt)
         )
@@ -830,13 +923,78 @@ final class AppRealtimeCoordinator: ObservableObject {
             dispatchDiagnostic = diagnostic.advancing(to: .retained, recordedAt: receivedAt)
         }
         dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
+        let inviteID = message.inviteId
         dispatchExpiryTasks[message.orderId] = Task { [weak self] in
             let nanos = UInt64(max(0, expiresAt.timeIntervalSince(receivedAt)) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
             guard !Task.isCancelled, let self else { return }
             self.dispatchExpiryTasks.removeValue(forKey: message.orderId)
-            self.pendingDispatches.removeAll { $0.order.orderId == message.orderId }
+            self.pendingDispatches.removeAll { $0.order.orderId == message.orderId && $0.order.inviteId == inviteID }
         }
+    }
+
+    /// 回复期限。**以 `expiresAt` 为准**（契约：「权威字段……不要自己拿 `dispatchTimeoutSeconds` 加当前时间推」）；
+    /// 老服务端没有它时才退回「发出时刻 + 秒数」；两样都没有时按 30 秒（旧行为）。
+    ///
+    /// ⚠️ 读 `expiresAt` 意味着倒计时跟着手机时钟走（拿后端的绝对时刻与本机现在比）。期限是 15 / 60 分钟，
+    /// 联网手机的时钟误差在秒级，可以接受；而 REST 快照恢复回来的邀请也只有这一个绝对时刻可用。
+    static func dispatchExpiry(_ message: WSNewOrder, receivedAt: Date) -> Date {
+        if let server = message.expiresAt?.nilIfBlank?.backendTimestamp { return server }
+        // 两样都没有时沿用旧行为的 30 秒（串行派单时代的默认窗口），而不是整条丢掉。
+        let timeout = message.dispatchTimeoutSeconds ?? 30
+        let sentAt = parseISO8601(message.timestamp) ?? receivedAt
+        return sentAt.addingTimeInterval(TimeInterval(max(0, timeout)))
+    }
+
+    /// 两条消息是不是**不同的两张**邀请。任一边没有 `inviteId`（老服务端）时按同一张算，退回按 `orderId` 去重。
+    nonisolated static func isDifferentInvite(_ existing: WSNewOrder, _ incoming: WSNewOrder) -> Bool {
+        guard let old = existing.inviteId, let new = incoming.inviteId else { return false }
+        return old != new
+    }
+
+    /// 撤回一张邀请：从队列里移走（**只移走同一张**），并告诉首页。
+    ///
+    /// 推送里的 `inviteId` 与队列里那张对不上时不动队列 —— 那是同一张单更早一张邀请的迟到撤回，
+    /// 队列里的是新的那张。首页那边照样收到事件，由它按同一条规则自己判。
+    private func withdrawDispatch(orderID: Int64, inviteID: Int64?, reason: InviteWithdrawReason) {
+        let matches: (RealtimeDispatchPrompt) -> Bool = { prompt in
+            prompt.order.orderId == orderID
+                && (inviteID == nil || prompt.order.inviteId == nil || prompt.order.inviteId == inviteID)
+        }
+        let removed = pendingDispatches.first(where: matches)
+        if removed != nil {
+            dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
+            pendingDispatches.removeAll(where: matches)
+        }
+        // 早于这条撤回发出的那次快照回来时还带着它 —— 记下来，别让它被灌回来。
+        retire(orderID: orderID, inviteID: inviteID ?? removed?.order.inviteId, until: removed?.expiresAt)
+        inviteWithdrawalSubject.send(RealtimeInviteWithdrawal(orderId: orderID, inviteId: inviteID, reason: reason))
+    }
+
+    /// 与服务端的待回复列表对账（`GET /api/volunteer/pending-invites`，后端 #366）。
+    ///
+    /// 为什么需要：撤回只走 WS、不能重连补读；锁屏 / 杀 App / 断网期间收到的新邀请也只有 APNs。
+    /// 契约：「冷启动、从后台回前台、WS 重连成功后，各调一次」。
+    ///
+    /// - 快照里有、队列里没有的 ⇒ 补进来（期限读 `expiresAt`）。
+    /// - 队列里有、快照里没有的 ⇒ 移走。**只移请求发出之前就在队列里的**（`receivedAt < requestedAt`）：
+    ///   请求在路上时推送来的新邀请不在这份快照里，移走它就是丢单。
+    /// - 快照整份发给首页，首页对自己手里的卡做同样的判断并决定原地变「已失效」还是静默移除。
+    func reconcilePendingInvites(_ invites: [WSNewOrder], requestedAt: Date) {
+        guard attachedRole == nil || attachedRole == .volunteer else { return }
+        let snapshot = RealtimePendingInviteSnapshot(invites: invites, requestedAt: requestedAt)
+        let stale = pendingDispatches.filter { prompt in
+            prompt.receivedAt < requestedAt
+                && !snapshot.contains(orderID: prompt.order.orderId, inviteID: prompt.order.inviteId)
+        }
+        for prompt in stale {
+            dispatchExpiryTasks.removeValue(forKey: prompt.order.orderId)?.cancel()
+            pendingDispatches.removeAll { $0.order.orderId == prompt.order.orderId }
+        }
+        for invite in invites {
+            retainDispatch(invite)
+        }
+        pendingInviteSnapshotSubject.send(snapshot)
     }
 
     /// REST 兜底拿到的对方位置。**只入库，不发布。**
@@ -1370,6 +1528,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         for task in peerPublishTasks.values { task.cancel() }
         notificationTask = nil
         dispatchExpiryTasks = [:]
+        retiredInvites = [:]
         orderRefreshRetryTasks = [:]
         orderRefreshRetryCounts = [:]
         pendingOrderRefreshIDs = []

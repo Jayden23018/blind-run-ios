@@ -252,6 +252,31 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     }
     #endif
 
+    /// 种子期限的基准：进程启动那一刻（与首页种下邀请的时刻只差几毫秒）。**不能每次请求现取 `Date()`**：
+    /// 那样同一张种子每次都拿到一个新的 120 秒窗口，过期或回复过之后下一次对账又以新邀请复活 ——
+    /// 而真实后端只返回「还没过期、还在等回复」的邀请。
+    private static let uiTestSeedEpoch = Date()
+
+    /// 与 `VolunteerHomeViewModel.seedInvitesForUITestsIfNeeded` 同一个开关、同一批 id、同一个期限算法。
+    /// 已过期的不返回（契约口径）；回复过的由协调器的「已了结」记录挡住，不在这里模拟。
+    private static func uiTestSeededPendingInvites(now: Date = Date()) -> [WSNewOrder] {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["AIDRUN_UI_TEST_RESET_STATE"] == "1",
+              let raw = environment["AIDRUN_UI_TEST_SEED_INVITES"],
+              let count = Int(raw), count > 0 else { return [] }
+        return (0..<count).compactMap { index in
+            let expiresAt = uiTestSeedEpoch.addingTimeInterval(TimeInterval(120 + index * 30))
+            guard expiresAt > now else { return nil }
+            var invite = VolunteerHomeViewModel.uiTestSeedInvite(orderId: Int64(9_000 + index), now: uiTestSeedEpoch)
+            invite.expiresAt = DateFormatter.aidRunBackendLocalDateTime.string(from: expiresAt)
+            return invite
+        }
+        #else
+        return []
+        #endif
+    }
+
     func upload<T: Decodable>(
         path: String,
         query: [String: String]?,
@@ -695,6 +720,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 favoriteDispatchRoundEnabled: !allOff,
                 invitationRewardEnabled: !allOff
             )
+        }
+
+        // 待回复邀请（`GET /api/volunteer/pending-invites`，后端 #366）。**裸对象**，不套信封。
+        // Mock 没有派单链路，所以默认是空列表；UI 测试种了邀请时返回同样的那几张 ——
+        // 种子只进首页、不进这里的话，首页一对账就会把它们全判成失效（真实后端不会这样自相矛盾）。
+        if path == "/api/volunteer/pending-invites" && method == .get {
+            guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+            return PendingInvitesResponse(consecutiveDeclineCount: 0, invites: Self.uiTestSeededPendingInvites())
         }
 
         // 规则参数（`GET /api/config/rules`）。需登录、不限角色。返回契约里的默认值

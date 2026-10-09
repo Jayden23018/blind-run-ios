@@ -1054,8 +1054,11 @@ final class blindRunTests: XCTestCase {
         //
         // 🚩 **等一拍再断言**：提示音与播报刻意让出了弹卡那一帧（见 `enqueue` 里那段注释），
         // 所以它们落在下一个 runloop 上。同步断言会偶发地读到还没写进去的值。
+        //
+        // 播报与卡片共用 `VolunteerOrderFlowCopy.replyCountdown`（后端 #371 分批派单后期限是
+        // 60 / 15 分钟，按秒念会念出「3599 秒」）。这里的单子只给 30 秒，所以仍按秒说。
         let didSpeak = await waitUntil {
-            speechService.lastSpokenText == "新的陪跑邀请，请在30秒内回复"
+            speechService.lastSpokenText == "新的陪跑邀请，还剩 30 秒回复"
         }
         XCTAssertTrue(didSpeak, "播报没发出来，实际是 \(speechService.lastSpokenText ?? "nil")")
     }
