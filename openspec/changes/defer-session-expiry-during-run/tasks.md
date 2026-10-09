@@ -6,7 +6,7 @@
 ## 2. 暂缓期间
 
 - [x] 2.1 两端订单页停止轮询
-- [x] 2.2 求助入口切本地拨号（新增 `EmergencyCallContext.sessionExpiredDuringRun`），协调器兜底落 `.unsentSessionExpired`
+- [x] 2.2 跑者端求助入口切本地拨号（新档 `BlindHomeSOSMode.localCallSessionExpired` + `EmergencyCallContext.runnerSessionExpired`），协调器兜底落 `.unsentSessionExpired`（两端都生效）
 - [x] 2.3 `ContentView` 横幅与播报（跑者 / 陪跑员两套文案）
 
 ## 3. 验证

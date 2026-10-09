@@ -19,10 +19,13 @@
 2. **结束暂缓**：`AppState` 订阅 `liveEscortCoordinator.$activeStatus`（离开 `.inProgress` 即结束）与 `realtimeCoordinator.statusUpdatePublisher`
    （本单 `fromStatus == .inProgress` 且 `toStatus != .inProgress` 即结束）；`BlindRunnerHomeView` 在 `path` 不再含订单页时调 `endDeferredSessionExpiry()`；
    横幅按钮同样调它。陪跑员端没有统一的导航路径，不做「离开页面」这一条 —— 陪跑员结束陪跑本身就要先重新登录（`finish` 需要有效凭证），横幅按钮就是出口。
-3. **停轮询**：两端订单页 `shouldContinuePolling` 加 `!isSessionExpiryDeferred`。
+3. **停轮询**：跑者订单页 `shouldContinuePolling` 加 `isSessionExpiryDeferred` 判断；陪跑员订单页在轮询循环里同样判断后退出。
 4. **求助两层**：
-   - 入口：`BlindHomeSOSMode.resolve` / `VolunteerOrderSOSMode.resolve` 增加 `isSessionExpired` 参数（默认 false），为 true 时返回本地拨号；
-     本地拨号弹窗新增场景 `EmergencyCallContext.sessionExpiredDuringRun`，文案不说「当前没有进行中的陪跑」，而说登录已过期、App 不会代你发送求助。
+   - 入口（跑者端）：`BlindHomeSOSMode.resolve` 增加 `isSessionExpired` 参数（默认 false），跑步中为 true 时返回新档 `.localCallSessionExpired`。
+     单独一档而不是并进 `.localCall`：那一档的每句文案（求助中心副标题、降级说明、读屏提示、拨号弹窗）都默认「陪跑还没开始」。
+     拨号弹窗新增场景 `EmergencyCallContext.runnerSessionExpired`，模式到场景的映射收进 `EmergencyCallContext.runner(for:)` 一处（原先两处三元表达式，加档时会静默归错）。
+   - 陪跑员端不改入口：跑步中的求助在 `VolunteerRunHelpPanel` 里，只有云端按钮。给它加本地拨号要么改面板（`VolunteerRunningCompanion.swift`，PR #370 正在大改），
+     要么在关 sheet 的同时弹拨号框（SwiftUI 时序不稳，真机验不了）。本次只靠下面的兜底，失败文案直接说「请直接拨打120或110」。列为后续项。
    - 兜底：`EmergencyCoordinator.blocksCloudSOSForExpiredSession`，由 `AppState` 在进入暂缓时打开；`trigger` 在资格复核之后、取定位之前检查，落到新失败态 `.unsentSessionExpired`。
 5. **告知**：`ContentView` 照 `liveEscortHealthBanner` 的写法，再挂一条横幅并 `onReceive` 播报。补念限频 30 秒（`AppState.deferredExpiryReminderInterval`）。
 
