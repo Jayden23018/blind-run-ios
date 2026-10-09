@@ -72,7 +72,7 @@
 | 订单状态机 | `AGENTS.md` §5；`docs/04-user-flows-and-state-machine.md`（427 行） | 11 个状态与流转表原样适用；**禁用旧词**（`submitted` `accepted` `matching` 等） |
 | 真实响应样本 | `blindRunTests/Fixtures/*.json`，14 个（如 `BlindProfileResponse__self.json`） | 直接当 MockWebServer 的线上格式用例（安卓 `CLAUDE.md` 已要求「过 Retrofit 的类型必须有线上格式用例」） |
 | 行为规格 | `openspec/specs/`（18 个能力）、`openspec/changes/archive/`（28 个已归档）、`openspec/changes/`（23 个**未归档、进行中**） | 先看已归档与 specs 里有没有同一能力；进行中的变更说明 iOS 还没定稿，别迁移半成品 |
-| 领域词表 | `CONTEXT.md` | 「注销」vs「删除账户」之类同义词；写下「iOS 没有这个功能」之前先查 |
+| 领域词表 | `GLOSSARY.md` | 「注销」vs「删除账户」之类同义词；写下「iOS 没有这个功能」之前先查 |
 | 规则技能 | `.claude/skills/aidrun-auth`、`aidrun-a11y-voice`、`aidrun-error-codes`、`aidrun-contract-sync`、`aidrun-ship-check` | 读 `SKILL.md` 当规则用；与 iOS 专有 API 相关的段落跳过 |
 | 色值与间距 | `blindRun/Core/DesignSystem/AppColors.swift` `FlowPalette.swift` `AppSpacing.swift` `FlowMetrics.swift` | 安卓 `#32` 已经迁完并有 WCAG 对比度单测，**不要重做**；改任何取值先跑 `./gradlew testDebugUnitTest --tests 'com.jerry.aidrun.ui.*'` |
 | 文案 | `SafetyModule.swift` 里的 `EmergencySafetyCopy`；`BlindOrderFlowStep.swift` 里的 `BlindRunCopy` | **求助二次确认文案逐字锁定**，见 `AGENTS.md` §6，原样搬 |
