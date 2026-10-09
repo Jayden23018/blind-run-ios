@@ -309,6 +309,31 @@ enum VolunteerOrderFlowCopy {
 ///   不打断前一句（同档 `speak` 会把正在念的那句从半句切断）。
 ///
 /// 抽成纯值类型是为了让两种顺序各有一条用例 —— 真机上哪种先到取决于网络，碰不出来。
+extension RunOrderStatus {
+    /// 陪跑员端的状态变化播报（#333）。此前三处调用点走的是 `SpeechService.statusAnnouncement`，
+    /// 那张表是对盲人说的：陪跑员按完「出发」听到「志愿者已出发」，转 `REMATCHING` 先听到「正在确认志愿者状态」。
+    ///
+    /// 穷举 switch：后端加状态时编译器逼一次决策。只描述状态，**不点按钮名**（按钮会改名，播报不该跟着漂）。
+    var volunteerAnnouncement: String {
+        switch self {
+        case .pendingMatch: return "这一单在重新找陪跑员。"
+        case .pendingIntroCall: return "请先和跑者通个电话，双方都觉得合适再接单。"
+        case .scheduledConfirmed: return "已经约好。出发前请确认你还会去。"
+        case .pendingAccept: return "已接单，到时间请出发去约定地点。"
+        case .driverEnRoute: return "你已出发，正在前往约定地点。"
+        case .driverArrived: return "你已到达约定地点。见到跑者、握好引导绳后再开始跑步。"
+        case .inProgress: return "陪跑已开始，请注意安全。"
+        case .completed: return "陪跑完成，谢谢你。"
+        // 中性：跑者取消、结束等待、系统取消都会落这一态。跑者取消时订单页另念带「不算你的取消」的整句。
+        case .cancelled: return "这一单已取消。"
+        // `REMATCHING` 只可能来自陪跑员这一侧，与首页、订单页取消那一句相同。
+        case .rematching: return VolunteerCancelAnnouncement.cancelledByVolunteer
+        case .noVolunteer: return "这一单已结束。"
+        case .unknown: return "订单状态有更新，请刷新页面或稍后重试。"
+        }
+    }
+}
+
 struct VolunteerCancelAnnouncement: Equatable {
     static let lateCancelRecorded = "已记一次临时取消。"
 
