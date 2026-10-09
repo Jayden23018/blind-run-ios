@@ -1347,12 +1347,13 @@ final class VolunteerInServiceViewModel: ObservableObject {
             didEndWaiting = true
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
             // 409 `END_WAIT_TOO_EARLY`：手上的 `earliestEndWaitAt` 过期了，刷一次让主按钮换回去。
+            // 先刷新再报（同 `submitTransition` 的冲突分支）。
             if case .serverError(let response) = error, response.errorCode == .endWaitTooEarly {
                 await load(orderId: order.orderId, speakChanges: false)
             }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
         } catch {
             errorMessage = "结束等待失败，请重试。"
             speechService?.speakError("结束等待失败，请重试。")
@@ -1585,11 +1586,12 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 && statusConflictMessage != nil:
                 // 走到这里说明订单已经不在本次动作的前置状态上了。**同时刷新一次订单**：
                 // 只播一句「已经转走了」而屏幕还停在旧状态，等于让志愿者对着一个已经不成立的界面。
+                // 先刷新再报：刷新把状态推进时 `apply` 会清错误，反过来写会把这句吞掉。
                 let message = statusConflictMessage ?? error.localizedMessage
                 transitionState = .failed(message: message)
+                await load(orderId: orderID, speakChanges: false)
                 errorMessage = message
                 speechService?.speakError(message)
-                await load(orderId: orderID, speakChanges: false)
             case .serverError, .rateLimited, .unknown, .invalidURL, .missingCredentials:
                 transitionState = .failed(message: error.localizedMessage)
                 errorMessage = error.localizedMessage
@@ -1695,9 +1697,16 @@ final class VolunteerInServiceViewModel: ObservableObject {
             handleSignalArrival(signal, order: updated, now: now)
         }
         order = updated
-        // 响铃 / 快捷消息的回执只说上一状态里那一次按下；跑步页也渲染它，状态一变就清，
-        // 免得汇合期那句「对方可能没收到」挂到跑步中。它从不随状态切换一起写，清了不会吞掉新报的话。
-        if let previousStatus, previousStatus != updated.status { nudgeNotice = nil }
+        // 状态一变就清掉两样只属于上一状态的东西：
+        // - 响铃 / 快捷消息的回执：跑步页也渲染它，免得汇合期那句「对方可能没收到」挂到跑步中。
+        //   它从不随状态切换一起写，清了不会吞掉新报的话。
+        // - 错误（#347：跑者按了开始、订单进了跑步中，页面还挂着「还需要跑者按开始跑步」）。
+        //   **反过来要求**：先报错再刷新的分支必须改成先刷新再报，否则刷新带来的状态变化会把刚报的那句清掉
+        //   （见 `submitTransition` / `endWaiting`）。
+        if let previousStatus, previousStatus != updated.status {
+            nudgeNotice = nil
+            errorMessage = nil
+        }
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         // 同 `configure`：换单时上面那行会清掉 `didSet` 先写的姓氏。
         appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.blindSurname?.nilIfBlank)

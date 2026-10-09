@@ -111,6 +111,43 @@ final class VolunteerStartConsentGateTests: XCTestCase {
         return (viewModel, service, socket)
     }
 
+    // MARK: - 上一状态的错误不跟进下一状态（#347，安卓 #191 同源）
+
+    /// 陪跑员先按开始 → 409「还需要跑者按开始」；随后跑者按了，订单进跑步中 —— 那句话已与事实相反。
+    func testErrorFromThePreviousStatusIsClearedWhenThePeerMovesTheOrder() async {
+        let (viewModel, service, _) = makeViewModel(startError: "BLIND_CONFIRMATION_PENDING")
+        await viewModel.startService()
+        XCTAssertNotNil(viewModel.errorMessage, "前提：409 先挂上了错误")
+
+        // 同一状态的刷新（5 秒轮询）不清：否则错误一闪就没。
+        service.orderDetailResult = .success(Self.makeOrder(status: .driverArrived))
+        await viewModel.load(orderId: 4_307, speakChanges: false)
+        XCTAssertNotNil(viewModel.errorMessage, "同一状态的刷新把错误清掉了")
+
+        service.orderDetailResult = .success(Self.makeOrder(status: .inProgress))
+        await viewModel.load(orderId: 4_307, speakChanges: false)
+        XCTAssertEqual(viewModel.order?.status, .inProgress)
+        XCTAssertNil(viewModel.errorMessage, "跑步中还挂着汇合态的错误")
+    }
+
+    /// 状态冲突分支「报错 + 刷新」：刷新把状态推进了，那句说明也必须留下（先刷新再报）。
+    func testStatusConflictExplanationSurvivesTheRefreshThatMovedTheOrder() async {
+        let service = FakeOrderService()
+        service.confirmDepartureResult = .failure(APIError.serverError(
+            ErrorResponse(code: "ORDER_STATUS_NOT_ALLOWED", message: "后端原文")
+        ))
+        service.orderDetailResult = .success(Self.makeOrder(status: .pendingAccept))
+        let appState = AppState(orders: service)
+        retainedAppState = appState
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: Self.makeOrder(status: .scheduledConfirmed))
+
+        await viewModel.confirmDeparture()
+
+        XCTAssertEqual(viewModel.order?.status, .pendingAccept)
+        XCTAssertEqual(viewModel.errorMessage, "这一单的状态已经变了，不用再确认。")
+    }
+
     /// 信封**不带** `orderId`（`websocket-protocol.md`：这条是 2026-09-18 的事件，早于 orderId 约定）。
     private static func consentNotification() -> WSAppNotification {
         WSAppNotification(
