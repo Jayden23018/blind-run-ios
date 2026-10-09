@@ -803,6 +803,48 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertEqual(service.calls.count, afterFirstRound, "全都成功了就不该再打一轮")
     }
 
+    // MARK: - 跑完一单后补拉（#335，安卓 #170 同源）
+
+    @MainActor
+    private func refreshKey(completed: Int, ratings: Int) throws -> VolunteerHomeIncentiveViewModel.RefreshKey? {
+        VolunteerHomeIncentiveViewModel.RefreshKey(try JSONDecoder().decode(
+            VolunteerDispatchSummaryResponse.self,
+            from: Data(#"{"totalCompleted":\#(completed),"totalRatings":\#(ratings)}"#.utf8)
+        ))
+    }
+
+    /// 摘要版本不变（5 秒轮询的常态）不打；跑完一单（`totalCompleted` 变了）补拉一轮。
+    /// 旧实现每会话只加载一次，最后一条断言红：跑完一单影响力区还是「还没有完成的陪跑」。
+    @MainActor
+    func testHomeIncentiveRefetchesOnceWhenACompletedRunBumpsTheSummary() async throws {
+        let service = FakeIncentiveService()
+        service.volunteerFavoritedByResult = .success([])
+        service.volunteerAchievementsResult = .success(
+            try JSONDecoder().decode(VolunteerAchievementsResponse.self, from: Data(#"{"totalCompleted":0,"badges":[]}"#.utf8))
+        )
+        service.volunteerPartnerStreaksResult = .success([])
+        let appState = AppState(incentive: service)
+        let viewModel = VolunteerHomeIncentiveViewModel()
+        viewModel.configure(appState: appState)
+
+        // 摘要还没到：不记版本。否则它第一次到达会被当成「变了」，冷启动白拉一遍。
+        await viewModel.summaryVersionChanged(nil)
+        await viewModel.loadIfNeeded()
+        let afterFirstRound = service.calls.count
+        XCTAssertGreaterThan(afterFirstRound, 0)
+
+        await viewModel.summaryVersionChanged(try refreshKey(completed: 0, ratings: 0))
+        XCTAssertEqual(service.calls.count, afterFirstRound, "第一个版本只记下，首次加载已经做过了")
+        await viewModel.summaryVersionChanged(try refreshKey(completed: 0, ratings: 0))
+        XCTAssertEqual(service.calls.count, afterFirstRound, "版本没变（轮询常态）不许打 achievements")
+
+        await viewModel.summaryVersionChanged(try refreshKey(completed: 1, ratings: 0))
+        XCTAssertEqual(service.calls.count, afterFirstRound * 2, "跑完一单后没有补拉，影响力区停在旧数")
+
+        await viewModel.summaryVersionChanged(try refreshKey(completed: 1, ratings: 1))
+        XCTAssertEqual(service.calls.count, afterFirstRound * 3, "收到一条评价后没有补拉")
+    }
+
     /// 火花开关拿不到（`nil`）时**照常发请求**。
     ///
     /// 落到 false 就是替后端断言「功能没开」—— `FeatureFlagsResponse` 顶部点名不许做。

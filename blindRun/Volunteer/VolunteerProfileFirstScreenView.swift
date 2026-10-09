@@ -74,6 +74,11 @@ struct VolunteerProfileFirstScreen: View {
             incentive.configure(appState: appState)
             await incentive.loadIfNeeded()
         }
+        // 跑完一单 / 收到评价后影响力区补拉一次（#335）。挂在同一棵永远非空的子树上，理由同上。
+        .task(id: VolunteerHomeIncentiveViewModel.RefreshKey(viewModel.dispatchSummary)) {
+            incentive.configure(appState: appState)
+            await incentive.summaryVersionChanged(VolunteerHomeIncentiveViewModel.RefreshKey(viewModel.dispatchSummary))
+        }
     }
 
     // MARK: - 身份行
