@@ -242,4 +242,9 @@ struct PrivacyConsentStore {
     func recordConsent(to purpose: PrivacyConsentPurpose, scope: PrivacyConsentScope) {
         persistence.set(true, forKey: Self.storageKey(purpose: purpose, scope: scope))
     }
+
+    /// 撤回同意。只删当前告知版本那一条（旧版本的记录本来就不算数）。
+    func revokeConsent(to purpose: PrivacyConsentPurpose, scope: PrivacyConsentScope) {
+        persistence.removeObject(forKey: Self.storageKey(purpose: purpose, scope: scope))
+    }
 }

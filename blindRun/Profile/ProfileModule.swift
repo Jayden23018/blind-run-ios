@@ -1,6 +1,19 @@
 import Combine
 import SwiftUI
 
+// MARK: - 撤回视力同意的文案
+
+/// 撤回「视力状况 + 导盲犬」同意（#352）。**与安卓 #91 逐字一致**，负责人 2026-10-07 同意。
+enum VisionConsentWithdrawalCopy {
+    static let buttonTitle = "撤回同意，不再提供这两项"
+    static let accessibilityLabel = "撤回同意，不再提供视力状况和导盲犬。按下后立刻从你的资料里清掉这两项，以后想填可以再同意"
+    static let succeeded = "已撤回。视力状况和导盲犬已从你的资料里清掉，以后想填可以再点「填写视力状况」。"
+
+    static func failed(saveButtonTitle: String) -> String {
+        "撤回还没有保存成功，请再点一次「\(saveButtonTitle)」。"
+    }
+}
+
 // MARK: - Blind Runner Profile ViewModel
 
 @MainActor
@@ -42,6 +55,16 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 「从没被问过」（新设备 / 重装后同意记录不在）不是拒绝，那时不带键让后端保留原值，
     /// 否则会把已存的 `LOW_VISION` 悄悄覆盖成「未提供」。
     @Published private(set) var hasDeclinedVisionConsent = false
+
+    /// 撤回同意已按下、还没保存成功（#352，安卓 #91 同步）。
+    ///
+    /// 为真时界面已把两项收起（`hasVisionConsent` 置 false），请求体显式传 `NOT_SPECIFIED` + `false`；
+    /// **本机同意记录要等保存成功才删** —— 保存失败时删了，下次进来既没有同意也没清掉服务端的值，
+    /// 两边说的是两件事。待保存期间重新同意 ⇒ 这次撤回作废（`acceptVisionConsent`）。
+    @Published private(set) var isVisionConsentWithdrawalPending = false
+
+    /// 撤回成功后那一句（同时上屏和朗读）。
+    @Published private(set) var visionConsentWithdrawnNotice: String?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -91,10 +114,24 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         consentStore?.recordConsent(to: .blindVisionProfile, scope: consentScope)
         hasVisionConsent = true
         hasDeclinedVisionConsent = false
+        isVisionConsentWithdrawalPending = false
+        visionConsentWithdrawnNotice = nil
     }
 
     func declineVisionConsent() {
         hasDeclinedVisionConsent = true
+    }
+
+    /// 撤回「视力状况 + 导盲犬」的同意：界面立刻收起，并**立刻整表单保存**一次。
+    /// 保存中不响应（`isLoading`），免得两次请求的先后决定最终结果。
+    func withdrawVisionConsent() {
+        guard hasVisionConsent, !isLoading else { return }
+        hasVisionConsent = false
+        isVisionConsentWithdrawalPending = true
+        visionConsentWithdrawnNotice = nil
+        visionLevel = nil
+        hasGuideDog = false
+        submit()
     }
 
     #if DEBUG
@@ -147,15 +184,19 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             specialNeeds: specialNeeds.nilIfBlank,
             // 🔴 **没取得单独同意就绝不传「默认值」。**
             // 传 `TOTAL_BLIND` 或 `false` 会把「用户没说」伪造成「用户说了」。
-            // 三种情形：同意 → 用户选的值（没选 = 不带键）；本次明确拒绝 → 显式传 `NOT_SPECIFIED`
-            // （后端迁移 0056，backend#326）；从没被问过 → 不带键，后端保留原值。
-            // `hasGuideDog` 契约里没有「未提供」取值，所以没同意仍是不带键。
+            // 三种情形：同意 → 用户选的值（没选 = 不带键）；本次明确拒绝 / 撤回待保存 → 显式传
+            // `NOT_SPECIFIED` + 导盲犬 `false`（后端迁移 0056，backend#326；导盲犬见下）；
+            // 从没被问过 → 两个键都不带，后端保留原值。
             // 用例 `BlindEscortPreferencesTests.testProfileUpdateOmitsVisionFieldsWithoutConsent` /
             // `testDecliningVisionConsentSendsNotSpecified` 钉住。
+            // 撤回待保存 / 本次明确拒绝时，导盲犬显式传 `false`（#352）：原先不带键，服务端旧的 `true`
+            // 一直留着 —— 志愿者接单前看得到，派单也按它筛人，而用户以为自己已经不提供了。
             visionLevel: hasVisionConsent
                 ? visionLevel?.rawValue
-                : (hasDeclinedVisionConsent ? VisionLevel.notSpecified.rawValue : nil),
-            hasGuideDog: hasVisionConsent ? hasGuideDog : nil,
+                : (hasDeclinedVisionConsent || isVisionConsentWithdrawalPending ? VisionLevel.notSpecified.rawValue : nil),
+            hasGuideDog: hasVisionConsent
+                ? hasGuideDog
+                : (hasDeclinedVisionConsent || isVisionConsentWithdrawalPending ? false : nil),
             // 引导方式不在同意门后面 —— 它不敏感，而且它是拒绝了敏感项的用户
             // 唯一还能给志愿者的准备依据。挪到门后面会让「可拒绝」变成空话。
             tetherPreference: tetherPreference?.rawValue,
@@ -169,23 +210,38 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     private func saveProfile(appState: AppState) async {
         isLoading = true
         errorMessage = nil
+        // 请求发出那一刻是不是在撤回 —— 结果回来时据它决定删不删同意记录。
+        let withdrawing = isVisionConsentWithdrawalPending
 
         do {
             let profile = try await appState.profile.updateBlindProfile(makeProfileUpdateRequest())
             appState.updateBlindProfile(profile)
             isLoading = false
+            if withdrawing, isVisionConsentWithdrawalPending {
+                consentStore?.revokeConsent(to: .blindVisionProfile, scope: consentScope)
+                isVisionConsentWithdrawalPending = false
+                visionConsentWithdrawnNotice = VisionConsentWithdrawalCopy.succeeded
+                speechService?.speak(VisionConsentWithdrawalCopy.succeeded)
+            }
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            reportSaveFailure(error.localizedMessage, withdrawing: withdrawing)
         } catch {
             isLoading = false
-            errorMessage = "保存失败，请重试"
-            speechService?.speakError("保存失败，请重试")
+            reportSaveFailure("保存失败，请重试", withdrawing: withdrawing)
         }
+    }
+
+    /// 撤回那一次没存上：同意记录不删，说清要再按一次保存（按钮名在首次引导态是「完成」）。
+    private func reportSaveFailure(_ message: String, withdrawing: Bool) {
+        let text = withdrawing
+            ? VisionConsentWithdrawalCopy.failed(saveButtonTitle: isEditing ? "保存" : "完成")
+            : message
+        errorMessage = text
+        speechService?.speakError(text)
     }
 }
 
@@ -486,6 +542,22 @@ struct BlindRunnerProfileView: View {
                     .accessibilityLabel("平时使用导盲犬，选填")
                     .accessibilityHint("开启后，只会给你派接受与导盲犬同行的志愿者")
                     .accessibilityIdentifier("blindProfileHasGuideDogToggle")
+
+                // 同意要能撤回（PIPL 第十五条）。按下立刻保存，不等底部那枚「保存」（#352）。
+                Button {
+                    visionConsentDeclineNotice = nil
+                    viewModel.withdrawVisionConsent()
+                } label: {
+                    Text(VisionConsentWithdrawalCopy.buttonTitle)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .background(AppColors.secondaryBackground)
+                        .cornerRadius(12)
+                }
+                .disabled(viewModel.isLoading)
+                .accessibilityLabel(VisionConsentWithdrawalCopy.accessibilityLabel)
+                .accessibilityIdentifier("blindProfileVisionConsentWithdraw")
             } else {
                 Text("这两项属于敏感个人信息，填之前我们会先单独问你一次。")
                     .font(AppFonts.caption())
@@ -501,9 +573,21 @@ struct BlindRunnerProfileView: View {
                         .background(AppColors.secondaryBackground)
                         .cornerRadius(12)
                 }
+                // 撤回正在保存时不许重新打开同意页：结果回来前重新同意，最终状态取决于两件事谁先完成。
+                .disabled(viewModel.isLoading)
                 .accessibilityLabel("填写视力状况")
                 .accessibilityHint("视力状况和导盲犬属于敏感个人信息，点开后会先告知再由你决定填不填")
                 .accessibilityIdentifier("blindProfileVisionConsentDisclosure")
+            }
+
+            if let notice = viewModel.visionConsentWithdrawnNotice {
+                // 同拒绝那一句：必须上屏，不能只播报。
+                Text(notice)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(notice)
+                    .accessibilityIdentifier("blindProfileVisionConsentWithdrawnNotice")
             }
 
             if let notice = visionConsentDeclineNotice {
