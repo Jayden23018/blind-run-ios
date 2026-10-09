@@ -2,7 +2,7 @@
 
 ### Requirement: 首启告知点名高德 SDK
 
-首启告知 SHALL 有一条独立的告知说明地图、定位和地址搜索由高德开放平台 SDK（北京高德图强科技有限公司）提供及其收集与发送，文本与安卓逐字一致；首启摘要 SHALL 点名高德。告知 MUST NOT 出现「不卖给第三方」（改为「不出售给任何人」）。告知内容变化 SHALL 使 `disclosureVersion` +1。
+首启告知 SHALL 有一条独立的告知说明地图、定位和地址搜索由高德开放平台 SDK（北京高德图强科技有限公司）提供及其收集与发送，收集项 SHALL 按高德 iOS 合包条目写，MUST NOT 出现 iOS 条目里没有的「Wi-Fi」「基站」；首启摘要 SHALL 点名高德。告知 MUST NOT 出现「不卖给第三方」（改为「不出售给任何人」）。告知内容变化 SHALL 使 `disclosureVersion` +1。
 
 #### Scenario: 老用户冷启动
 - **WHEN** 已同意 v2 首启告知的用户升级后冷启动

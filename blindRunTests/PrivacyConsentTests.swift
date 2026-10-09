@@ -263,7 +263,9 @@ final class PrivacyConsentTests: XCTestCase {
     /// 隐私政策有「第三方 SDK」一节，高德与阿里云的隐私政策链接都**可点**（高德合规方案原话「透出且用户可点击」）。
     func testLaunchDisclosureNamesAMapAndThePolicyLinksBothSDKPolicies() throws {
         let disclosures = PrivacyConsentPurpose.appLaunch.disclosures
-        XCTAssertTrue(disclosures.contains { $0.hasPrefix("地图、定位和地址搜索由高德开放平台 SDK（北京高德图强科技有限公司）提供。") })
+        let amapDisclosure = try XCTUnwrap(disclosures.first { $0.hasPrefix("地图、定位和地址搜索由高德开放平台 SDK（北京高德图强科技有限公司）提供。") })
+        // 2026-10-09 负责人定：iOS 按高德 iOS 条目写，不照抄安卓那句的「Wi-Fi、基站」。
+        XCTAssertFalse(amapDisclosure.contains("Wi-Fi") || amapDisclosure.contains("WiFi") || amapDisclosure.contains("基站"), amapDisclosure)
         XCTAssertTrue(disclosures.contains { $0.contains("不出售给任何人") })
         XCTAssertFalse(disclosures.joined().contains("不卖给第三方"), "上一条刚说第三方 SDK 会收集，这句读起来自相矛盾")
         let summary = try XCTUnwrap(PrivacyConsentPurpose.appLaunch.launchSummary)
@@ -299,9 +301,10 @@ final class PrivacyConsentTests: XCTestCase {
             // 2026-09-30 指纹变了**且版本号 1 → 2**，这次是「行为变了」那一档：跑后运动记录开始采集
             // 步数 / 步频 / 爬升高度（新的一类信息，随位置上传），旧同意没有覆盖到。
             // v1 从未对外分发，+1 不会拦住任何真实老用户。
-            // 2026-10-07 指纹变了**且版本号 2 → 3**，「行为变了」那一档：新的接收方高德 SDK（#355，与安卓 #54 逐字一致）。
+            // 2026-10-07 指纹变了**且版本号 2 → 3**，「行为变了」那一档：新的接收方高德 SDK（#355，来自安卓 #54）。
             // 同批「不卖给第三方」→「不出售给任何人」属换说法，跟着这次一起进指纹。
-            .appLaunch: (3, 527_488_023),
+            // 2026-10-09 高德那句改按 iOS 条目写（去掉安卓合包才有的 Wi-Fi、基站），v3 未发布，版本号不再 +1。
+            .appLaunch: (3, 247_631_154),
             // 2026-09-10 指纹又变了而版本号仍不动，同样是**有意的**：
             // 第 4 条里把「视力状况」加进敏感信息那一句。这两个字段的收集、用途、接收方、
             // 保留规则一个字节都没改（iOS 侧此前压根没有采集入口，值来自后端建档默认值），
