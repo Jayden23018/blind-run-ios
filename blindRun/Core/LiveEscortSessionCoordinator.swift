@@ -19,7 +19,7 @@ enum LiveEscortHealthState: Equatable, Sendable {
         case .permissionRequired: return "定位权限已关闭，同行位置与路线记录已暂停，请前往系统设置开启。"
         // 先说后果（求助发不出去），再说怎么办。「如果弹出提示」是因为系统可能不弹（App 在后台时）。
         case .preciseLocationOff:
-            return "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里：紧急求助会因此发不出去，陪跑员看到的你的位置也不准。"
+            return "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里：紧急求助会因此发不出去，陪跑员也可能看不到你的准确位置。"
                 + "如果弹出提示请选允许，或到系统设置里为助盲跑打开「精确位置」。"
         case .networkDisconnected: return "网络连接已中断，同行位置将在重连后自动恢复。"
         case .active(let background) where background:
@@ -339,14 +339,15 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             setHealthState(.permissionRequired)
             return
         }
-        // 排在网络与样本档位之前：模糊位置下样本最旧可能 20 分钟才来一个，
+        // 网络断开排在前面：那时同行位置整个停了，比「位置不准」更要紧。
+        guard webSocketService?.connectionState == .connected else {
+            setHealthState(.networkDisconnected)
+            return
+        }
+        // 排在样本档位之前：模糊位置下样本最旧可能 20 分钟才来一个，
         // 否则会落到「设备位置暂时不可用」，把真正的原因（一个开关）盖住，用户只会去换地方。
         if role == .blind, locationService?.isPreciseLocationOff == true {
             setHealthState(.preciseLocationOff)
-            return
-        }
-        guard webSocketService?.connectionState == .connected else {
-            setHealthState(.networkDisconnected)
             return
         }
         // 样本年龄闸在 `latestEscortBackendSample` 里，所以「样本停更超过 60 秒」和

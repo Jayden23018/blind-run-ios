@@ -24,10 +24,10 @@ final class PreciseLocationGateTests: XCTestCase {
 
     /// 边界取在阈值两侧：50 米整不算差，50.5 米算差；精度未知不算差（没有依据就不说「不准」）。
     func testWeakAccuracyIsStrictlyAboveTheThreshold() {
-        XCTAssertNil(LocationAccuracyPolicy.weakAccuracyMeters(of: Self.sample(accuracy: 50)))
-        XCTAssertEqual(LocationAccuracyPolicy.weakAccuracyMeters(of: Self.sample(accuracy: 50.5)), 50.5)
-        XCTAssertNil(LocationAccuracyPolicy.weakAccuracyMeters(of: Self.sample(accuracy: nil)))
-        XCTAssertNil(LocationAccuracyPolicy.weakAccuracyMeters(of: nil))
+        XCTAssertNil(LocationAccuracyPolicy.metersIfWeak(Self.sample(accuracy: 50)))
+        XCTAssertEqual(LocationAccuracyPolicy.metersIfWeak(Self.sample(accuracy: 50.5)), 50.5)
+        XCTAssertNil(LocationAccuracyPolicy.metersIfWeak(Self.sample(accuracy: nil)))
+        XCTAssertNil(LocationAccuracyPolicy.metersIfWeak(nil))
     }
 
     // MARK: - 云端求助
@@ -162,11 +162,11 @@ final class PreciseLocationGateTests: XCTestCase {
     /// 只有「已发出或即将发出」才谈得上所附位置的误差。
     func testOnlySentStatesCarryTheSubmittedLocation() {
         let carrying: [EmergencySOSState] = [
-            .countingDown(secondsRemaining: 3), .submitting, .acknowledged(.pending),
+            .countingDown(secondsRemaining: 3), .acknowledged(.pending),
             .acknowledged(.contactNotified), .contactSmsDelivered, .contactNotifyFailed
         ]
         let notCarrying: [EmergencySOSState] = [
-            .idle, .locating, .unsentNoLocation(.preciseLocationOff), .failed("网络异常"),
+            .idle, .locating, .submitting, .unsentNoLocation(.preciseLocationOff), .failed("网络异常"),
             .cooldown(retryAfterSeconds: 30), .cancelledByOwner, .withdrawnBeforeSending,
             .withdrawFailed(nil), .acknowledged(.resolved), .acknowledged(.cancelled)
         ]
@@ -176,7 +176,7 @@ final class PreciseLocationGateTests: XCTestCase {
 
     // MARK: - 下单起点
 
-    /// 精确位置关闭：设备位置拿得到，但不许当出发点；进页只自动申请一次，按钮可以再申请。
+    /// 精确位置关闭：设备位置拿得到，但不许当出发点；进页**不**自动弹系统框（会打断语音向导开场），只由按钮申请。
     func testPreciseLocationOffKeepsCurrentLocationOutOfTheStartPoint() async {
         let location = Self.locationService(accuracy: 5000)
         location.simulatePreciseLocationOffForTesting()
@@ -188,10 +188,15 @@ final class PreciseLocationGateTests: XCTestCase {
         XCTAssertNil(viewModel.currentResolvedPlace)
         XCTAssertNil(viewModel.resolvedStartPlace, "区域代表点不是出发点")
         XCTAssertEqual(viewModel.firstMissingGate, .startPoint)
-        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.bookingStartPoint], "本页只自动申请一次")
+        XCTAssertTrue(location.temporaryPreciseLocationRequestsForTesting.isEmpty, "刷新当前位置不自动弹系统框")
 
         viewModel.requestTemporaryPreciseLocation()
-        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting.count, 2, "用户按按钮就再申请")
+        viewModel.requestTemporaryPreciseLocation()
+        XCTAssertEqual(
+            location.temporaryPreciseLocationRequestsForTesting,
+            [.bookingStartPoint, .bookingStartPoint],
+            "用户每按一次按钮就申请一次"
+        )
 
         // 手动选的地点照常可用 —— 拦的是设备来源，不是下单。
         let manual = ResolvedPlace(
@@ -232,6 +237,9 @@ final class PreciseLocationGateTests: XCTestCase {
     }
 
     /// 精确授权下 65 米：当前位置照用，卡片提示核对并念一次；30 米不提示。
+    ///
+    /// 念由提示的 `onAppear` 触发（这里直接调那个入口）；`refreshCurrentLocation` 自己不念 ——
+    /// 它与语音向导开场并发，自己念会把向导提示切断。
     func testLowAccuracyCurrentLocationAsksToVerifyTheAddressOnce() async {
         for (accuracy, expectsNotice) in [(65.0, true), (30.0, false)] {
             let location = Self.locationService(accuracy: accuracy)
@@ -240,6 +248,11 @@ final class PreciseLocationGateTests: XCTestCase {
             let viewModel = Self.makeBookingViewModel(locationService: location, speechService: speech)
 
             await viewModel.refreshCurrentLocation()
+            XCTAssertFalse(
+                speech.spokenHistoryForTesting.contains { $0.contains("误差") },
+                "刷新本身不念，免得撞上语音向导开场"
+            )
+            viewModel.announceWeakStartPointAccuracyIfNeeded()
 
             XCTAssertEqual(viewModel.resolvedStartPlace?.source, .deviceLocation, "精度差不是拦截理由")
             XCTAssertEqual(viewModel.startPointAccuracyNotice != nil, expectsNotice, "\(accuracy) 米")
@@ -253,8 +266,27 @@ final class PreciseLocationGateTests: XCTestCase {
             XCTAssertEqual(spokenCount(), 1, "屏幕与耳朵读同一句：\(speech.spokenHistoryForTesting)")
 
             await viewModel.refreshCurrentLocation()
+            viewModel.announceWeakStartPointAccuracyIfNeeded()
             XCTAssertEqual(spokenCount(), 1, "本页只念一次")
         }
+    }
+
+    /// 出发点是用户自己选的地点时，「请核对上面的地址」一个字也不念 —— 屏幕上也没有这句。
+    func testLowAccuracyIsNotAnnouncedWhenTheStartPointWasChosenManually() async {
+        let location = Self.locationService(accuracy: 65)
+        location.simulatePreciseLocationOffForTesting(false)
+        let speech = SpeechService()
+        let viewModel = Self.makeBookingViewModel(locationService: location, speechService: speech)
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
+            latitude: 31.2304, longitude: 121.4737, source: .manual
+        )
+
+        await viewModel.refreshCurrentLocation()
+        viewModel.announceWeakStartPointAccuracyIfNeeded()
+
+        XCTAssertNil(viewModel.startPointAccuracyNotice)
+        XCTAssertFalse(speech.spokenHistoryForTesting.contains { $0.contains("误差") })
     }
 
     // MARK: - 陪跑中
@@ -283,6 +315,19 @@ final class PreciseLocationGateTests: XCTestCase {
         location.simulatePreciseLocationOffForTesting(false)
         let recovered = await Self.waitUntil { coordinator.healthState == .active(background: true) }
         XCTAssertTrue(recovered, "允许之后应恢复：\(coordinator.healthState)")
+        coordinator.reset()
+    }
+
+    /// 网络断开时同行位置整个停了，比「位置不准」更要紧：横幅先说断网。
+    func testNetworkDisconnectOutranksThePreciseLocationBanner() async {
+        let location = Self.locationService(accuracy: 5000)
+        location.simulatePreciseLocationOffForTesting()
+        let coordinator = Self.makeEscortCoordinator(role: .blind, location: location, connected: false)
+
+        coordinator.updateOwnedOrder(orderID: 81, status: .inProgress)
+        let settled = await Self.waitUntil { coordinator.healthState == .networkDisconnected }
+
+        XCTAssertTrue(settled, "健康提示：\(coordinator.healthState)")
         coordinator.reset()
     }
 
@@ -338,14 +383,18 @@ final class PreciseLocationGateTests: XCTestCase {
         return viewModel
     }
 
-    private static func makeEscortCoordinator(role: UserRole, location: LocationService) -> LiveEscortSessionCoordinator {
+    private static func makeEscortCoordinator(
+        role: UserRole,
+        location: LocationService,
+        connected: Bool = true
+    ) -> LiveEscortSessionCoordinator {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: AppRealtimeCoordinator(),
             reportInterval: 0.05,
             sendLocation: { _, _, _ in }
         )
         let service = WebSocketService()
-        service.simulateConnectionStateForTesting(.connected)
+        service.simulateConnectionStateForTesting(connected ? .connected : .disconnected)
         coordinator.configure(identityKey: "account:\(role):token", role: role, webSocketService: service)
         coordinator.attachLocationService(location)
         return coordinator

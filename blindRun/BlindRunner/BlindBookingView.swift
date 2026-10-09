@@ -201,7 +201,6 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var currentResolvedPlace: ResolvedPlace?
     /// `currentResolvedPlace` 那次解析所用定位样本的精度，只在差于 50 米时有值（#373）。
     @Published private(set) var currentLocationAccuracyMeters: Double?
-    private var hasRequestedTemporaryPreciseLocation = false
     private var hasAnnouncedWeakStartPointAccuracy = false
     /// 本次预约的终点。**只有语音会写它** —— 表单向导没有终点输入，产品上终点是纯可选槽位，
     /// 而在表单里再加一段 POI 搜索 + 候选列表，对看不见屏幕的人是又一段同样长的交互。
@@ -738,13 +737,11 @@ final class BlindBookingViewModel: ObservableObject {
         guard !locationService.isPreciseLocationOff else {
             // 同上：降级告知由 `locationDegradationNotice` 整段承担，这里不再写一句。
             // 清掉旧的解析结果 —— 用户中途关掉精确位置时，屏幕上不该还挂着上一次的「当前位置」。
+            // **不在这里自动弹临时精确位置的系统框**，只由告知里那枚按钮触发：进页这一刻语音向导正在开场
+            // （`onAppear` 里与本方法并发），系统框会抢走读屏焦点、打断向导 —— 与求助路径不自动弹是同一个理由。
             currentResolvedPlace = nil
             currentLocationAccuracyMeters = nil
             placeMessage = nil
-            if !hasRequestedTemporaryPreciseLocation {
-                hasRequestedTemporaryPreciseLocation = true
-                locationService.requestTemporaryPreciseLocation(for: .bookingStartPoint)
-            }
             return
         }
 
@@ -752,8 +749,7 @@ final class BlindBookingViewModel: ObservableObject {
         // 记下这次解析用的那个样本的精度，而不是渲染时再去读 —— 卡片上的提示说的是「这个地址」的误差。
         currentLocationAccuracyMeters = locationService.isUsingDemoFallback
             ? nil
-            : LocationAccuracyPolicy.weakAccuracyMeters(of: locationService.latestDeviceSample)
-        announceWeakStartPointAccuracyIfNeeded()
+            : LocationAccuracyPolicy.metersIfWeak(locationService.latestDeviceSample)
         let fallbackPlace = ResolvedPlace(
             id: locationService.isUsingDemoFallback ? "demo-current" : "device-current",
             title: locationService.isUsingDemoFallback ? "当前位置（演示坐标）" : "当前位置",
@@ -785,16 +781,20 @@ final class BlindBookingViewModel: ObservableObject {
         placeMessage = resolvedPlace == nil ? placeSearchProvider.lastErrorMessage : nil
     }
 
-    /// 降级告知里「临时开启精确位置」按钮。用户主动按的，所以不受「本页只自动申请一次」限制。
+    /// 降级告知里「临时开启精确位置」按钮。这是申请临时精确位置的唯一入口（不在进页时自动弹）。
     func requestTemporaryPreciseLocation() {
         locationService?.requestTemporaryPreciseLocation(for: .bookingStartPoint)
     }
 
     /// 本页只念一次：精度在 50 米上下来回跳时，每次刷新都念会把用户淹没。
-    private func announceWeakStartPointAccuracyIfNeeded() {
-        guard !hasAnnouncedWeakStartPointAccuracy, let meters = currentLocationAccuracyMeters else { return }
+    ///
+    /// 由卡片上那句提示的 `onAppear` 调，**不在 `refreshCurrentLocation` 里念**：后者与语音向导开场并发，
+    /// 后到的一句会把向导提示从半句切断。语音态下表单整段不渲染，提示出现时向导一定不在说话。
+    /// 判据读 `startPointAccuracyNotice`（与屏幕同一个值）：出发点不是当前位置时一个字也不念。
+    func announceWeakStartPointAccuracyIfNeeded() {
+        guard !hasAnnouncedWeakStartPointAccuracy, let notice = startPointAccuracyNotice else { return }
         hasAnnouncedWeakStartPointAccuracy = true
-        speechService?.speak(Self.weakStartPointAccuracyNotice(meters: meters))
+        speechService?.speak(notice)
     }
 
     func refreshCurrentLocationIfNeeded() async {
@@ -1932,7 +1932,7 @@ struct BlindBookingView: View {
                         .accessibilityLabel(locationService.isUsingDemoFallback ? "使用演示坐标，适合模拟器测试" : "已使用设备当前位置和高德地址作为出发点")
                 }
 
-                // 精确授权下精度差于 50 米（#373）。朗读在 view model 里只做一次，这里只负责可见。
+                // 精确授权下精度差于 50 米（#373）。出现时念一次（本页只一次，去重在 view model）。
                 if let accuracyNotice = viewModel.startPointAccuracyNotice {
                     Text(accuracyNotice)
                         .font(AppFonts.body())
@@ -1940,6 +1940,7 @@ struct BlindBookingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(accuracyNotice)
                         .accessibilityIdentifier("bookingStartPointAccuracyNotice")
+                        .onAppear { viewModel.announceWeakStartPointAccuracyIfNeeded() }
                 }
             }
         }

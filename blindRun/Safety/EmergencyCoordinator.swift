@@ -177,11 +177,12 @@ enum EmergencySOSState: Equatable {
     /// 这一刻求助是否「已发出或即将发出」—— 只有这些状态下说「所附位置误差约 N 米」才有意义。
     var carriesSubmittedLocation: Bool {
         switch self {
-        case .countingDown, .submitting, .contactSmsDelivered, .contactNotifyFailed:
+        case .countingDown, .contactSmsDelivered, .contactNotifyFailed:
             return true
         case .acknowledged(let status):
             return !status.isTerminal
-        case .idle, .locating, .unsentNoLocation, .failed, .cooldown,
+        // `.submitting`：误差在事件落地（`activeEvent` 写入）之后才记，提交中恒无值，列进来是死分支。
+        case .idle, .locating, .submitting, .unsentNoLocation, .failed, .cooldown,
              .cancelledByOwner, .withdrawnBeforeSending, .withdrawFailed:
             return false
         }
@@ -712,7 +713,7 @@ final class EmergencyCoordinator: ObservableObject {
             orderID: order.orderId,
             userID: userID,
             safety: safety,
-            locationAccuracyMeters: LocationAccuracyPolicy.weakAccuracyMeters(of: coordinate)
+            locationAccuracyMeters: LocationAccuracyPolicy.metersIfWeak(coordinate)
         )
     }
 
