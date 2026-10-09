@@ -295,7 +295,7 @@ final class PreciseLocationGateTests: XCTestCase {
     func testBlindEscortRequestsPreciseLocationPerPhaseAndShowsTheHealthBanner() async {
         let location = Self.locationService(accuracy: 5000)
         location.simulatePreciseLocationOffForTesting()
-        let coordinator = Self.makeEscortCoordinator(role: .blind, location: location)
+        let (coordinator, service) = Self.makeEscortCoordinator(role: .blind, location: location)
 
         coordinator.updateOwnedOrder(orderID: 79, status: .driverEnRoute)
         let showedBanner = await Self.waitUntil { coordinator.healthState == .preciseLocationOff }
@@ -316,26 +316,28 @@ final class PreciseLocationGateTests: XCTestCase {
         let recovered = await Self.waitUntil { coordinator.healthState == .active(background: true) }
         XCTAssertTrue(recovered, "允许之后应恢复：\(coordinator.healthState)")
         coordinator.reset()
+        withExtendedLifetime(service) {}
     }
 
     /// 网络断开时同行位置整个停了，比「位置不准」更要紧：横幅先说断网。
     func testNetworkDisconnectOutranksThePreciseLocationBanner() async {
         let location = Self.locationService(accuracy: 5000)
         location.simulatePreciseLocationOffForTesting()
-        let coordinator = Self.makeEscortCoordinator(role: .blind, location: location, connected: false)
+        let (coordinator, service) = Self.makeEscortCoordinator(role: .blind, location: location, connected: false)
 
         coordinator.updateOwnedOrder(orderID: 81, status: .inProgress)
         let settled = await Self.waitUntil { coordinator.healthState == .networkDisconnected }
 
         XCTAssertTrue(settled, "健康提示：\(coordinator.healthState)")
         coordinator.reset()
+        withExtendedLifetime(service) {}
     }
 
     /// 陪跑员端不进这一档、不弹系统框（#373 只管盲人端）。
     func testVolunteerEscortIgnoresPreciseLocation() async {
         let location = Self.locationService(accuracy: 5000)
         location.simulatePreciseLocationOffForTesting()
-        let coordinator = Self.makeEscortCoordinator(role: .volunteer, location: location)
+        let (coordinator, service) = Self.makeEscortCoordinator(role: .volunteer, location: location)
 
         coordinator.updateOwnedOrder(orderID: 80, status: .inProgress)
         let settled = await Self.waitUntil { coordinator.healthState == .active(background: true) }
@@ -343,6 +345,7 @@ final class PreciseLocationGateTests: XCTestCase {
         XCTAssertTrue(settled, "健康提示：\(coordinator.healthState)")
         XCTAssertTrue(location.temporaryPreciseLocationRequestsForTesting.isEmpty)
         coordinator.reset()
+        withExtendedLifetime(service) {}
     }
 
     // MARK: - Helpers
@@ -383,11 +386,13 @@ final class PreciseLocationGateTests: XCTestCase {
         return viewModel
     }
 
+    /// 返回的 `WebSocketService` **必须由调用方攥着**：协调器对它是 `weak`，不攥着出函数即释放，
+    /// 健康状态恒为 `networkDisconnected`、断网那条用例也会假绿（记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
     private static func makeEscortCoordinator(
         role: UserRole,
         location: LocationService,
         connected: Bool = true
-    ) -> LiveEscortSessionCoordinator {
+    ) -> (LiveEscortSessionCoordinator, WebSocketService) {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: AppRealtimeCoordinator(),
             reportInterval: 0.05,
@@ -397,7 +402,7 @@ final class PreciseLocationGateTests: XCTestCase {
         service.simulateConnectionStateForTesting(connected ? .connected : .disconnected)
         coordinator.configure(identityKey: "account:\(role):token", role: role, webSocketService: service)
         coordinator.attachLocationService(location)
-        return coordinator
+        return (coordinator, service)
     }
 
     /// 轮询到条件成立或超时。`{ false }` 当作「等一小段」用。
