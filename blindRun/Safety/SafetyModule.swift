@@ -196,7 +196,21 @@ enum EmergencySafetyCopy {
             return "求助未发出：App 没有定位权限。请在设置中允许定位后重试，或直接拨打110。"
         case .locationUnavailable, .timeout, .none:
             return "求助未发出：当前无法获取你的位置，可能在室内或信号被遮挡。请到室外开阔处重试，或直接拨打110。"
+        // 换个地方重试没用 —— 开关不变，拿到的永远是区域代表点。所以先给能立刻做的（拨号），
+        // 再说怎么根治。120 排在前面的理由同 `homeCallMedicalTitle`：跑步中最可能的是急救。
+        case .preciseLocationOff:
+            return "求助未发出：本 App 的「精确位置」已关闭，只能拿到大致位置，可能偏差几公里。"
+                + "请直接拨打120或110；跑完后可在系统设置里为助盲跑打开「精确位置」。"
         }
+    }
+
+    /// 精确授权下、所发坐标精度差于 `LocationAccuracyPolicy.weakAccuracyMeters` 时，附在
+    /// 「已发出或即将发出」的状态文案后面（`EmergencyCoordinator.statusMessage`）。
+    ///
+    /// 照发而不拦，是因为这是真实位置、只是有误差（室内 Wi-Fi 定位常见 65 米）；
+    /// 求助请求体没有精度字段，家属和客服看不到这个误差 —— 所以必须让本人知道、自己补一通电话。
+    static func impreciseLocationNote(meters: Double) -> String {
+        "求助附带的位置误差约 \(Int(meters.rounded())) 米，可能不准，请同时直接拨打120或110说清你在哪。"
     }
 
     static func failure(_ reason: String?) -> String {
@@ -911,7 +925,7 @@ struct BlindHomeSOSBar: View {
             }
 
             // 只有云端求助才有状态可播报；本地拨号不产生任何后端状态。
-            if mode == .cloudTrigger, let message = coordinator.state.message {
+            if mode == .cloudTrigger, let message = coordinator.statusMessage {
                 EmergencyStatusNotice(
                     message: message,
                     isFailure: coordinator.state.isFailure

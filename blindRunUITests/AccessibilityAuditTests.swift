@@ -1677,6 +1677,57 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// #373：「精确位置」关闭时，出发地点区块是降级告知而不是「当前位置」卡片，
+    /// 并且「临时开启精确位置」「去设置打开精确位置」两枚按钮都在、按得到。
+    ///
+    /// 单测只钉得住文案常量与 view model；这两枚按钮是 spec 明文要求的入口，
+    /// 视图分支（`offersTemporaryPreciseLocation`）被改回默认值时只有这条会红。
+    @MainActor
+    func testBookingWithPreciseLocationOffOffersTemporaryPreciseLocationAndSettings() throws {
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_PRECISE_LOCATION_OFF": "1"])
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+        XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
+        // 语音态下表单整段不渲染，先走逃生口改用表单。
+        let stopVoice = app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch
+        if stopVoice.exists { stopVoice.tap() }
+
+        // 改用表单后会落在最后一步「确认并提交」，出发地点区块在第 1 步 —— 按「上一步」退回去。
+        let notice = app.descendants(matching: .any)["bookingLocationDegradationNotice"].firstMatch
+        let previous = app.buttons["上一步"].firstMatch
+        var backs = 0
+        while !notice.waitForExistence(timeout: 3) && previous.exists && backs < 4 {
+            previous.tap()
+            backs += 1
+        }
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "精确位置关闭时缺少降级告知（按了 \(backs) 次上一步）")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "精确位置")).firstMatch.exists,
+            "告知里没说是「精确位置」关了"
+        )
+        XCTAssertFalse(app.staticTexts["默认出发点"].exists, "区域代表点不许以「当前位置」卡片的形态出现")
+
+        let temporary = app.buttons["bookingRequestTemporaryPreciseLocationButton"].firstMatch
+        let settings = app.buttons["去设置打开精确位置"].firstMatch
+        for (button, name) in [(temporary, "临时开启精确位置"), (settings, "去设置打开精确位置")] {
+            // 按「上一步」退回第 1 步时滚动位置可能停在下方（真机量到告知在可视区上方，y < 0），
+            // 所以按元素在哪一侧决定往哪划。
+            var swipes = 0
+            while button.exists && !button.isHittable && swipes < 4 {
+                if button.frame.minY < app.frame.midY { app.swipeDown() } else { app.swipeUp() }
+                swipes += 1
+            }
+            XCTAssertTrue(button.exists, "缺少「\(name)」按钮")
+            XCTAssertTrue(button.isHittable, "「\(name)」在树里但按不到")
+            XCTAssertGreaterThanOrEqual(
+                button.frame.height,
+                Self.minimumBlindPrimaryButtonHeight,
+                "「\(name)」只有 \(button.frame.height)pt，低于盲人端 64pt 触达下限"
+            )
+        }
+    }
+
     /// 订单状态页横屏。这一页横屏最吃亏：状态卡 + 同行地图（此前写死 180pt）+ 生命周期
     /// 全排在一列里，而横屏可用高度只有约 390pt。
     @MainActor

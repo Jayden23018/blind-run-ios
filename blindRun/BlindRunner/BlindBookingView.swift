@@ -199,6 +199,9 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var placeSearchResults: [ResolvedPlace] = []
     @Published var selectedStartPlace: ResolvedPlace?
     @Published var currentResolvedPlace: ResolvedPlace?
+    /// `currentResolvedPlace` 那次解析所用定位样本的精度，只在差于 50 米时有值（#373）。
+    @Published private(set) var currentLocationAccuracyMeters: Double?
+    private var hasAnnouncedWeakStartPointAccuracy = false
     /// 本次预约的终点。**只有语音会写它** —— 表单向导没有终点输入，产品上终点是纯可选槽位，
     /// 而在表单里再加一段 POI 搜索 + 候选列表，对看不见屏幕的人是又一段同样长的交互。
     ///
@@ -374,8 +377,32 @@ final class BlindBookingViewModel: ObservableObject {
     ///
     /// 2026-09-08 之前这里是个实例属性，**没有任何 View 消费**（视图自己写了一遍
     /// `if locationService.isDenied`）—— 于是单测断的是一条不出货的分支。
-    static func locationDegradationNotice(isDenied: Bool) -> String? {
-        isDenied ? locationDeniedNotice : nil
+    static func locationDegradationNotice(isDenied: Bool, isPreciseLocationOff: Bool = false) -> String? {
+        if isDenied { return locationDeniedNotice }
+        return isPreciseLocationOff ? preciseLocationOffNotice : nil
+    }
+
+    /// 「精确位置」关闭（#373）。与 `locationDeniedNotice` 同一套两句结构：还能怎么下单 + 关着会失去什么。
+    ///
+    /// 与被拒的差别是**当前位置拿得到、但不能用**：系统给的是区域代表点（约 5 公里），
+    /// 把它当出发点 = 陪跑员去几公里外接人。所以这一档不显示「当前位置」卡片，`resolvedStartPlace` 也不认设备来源。
+    static let preciseLocationOffNotice =
+        "「精确位置」已关闭，系统只给大致位置，可能偏差几公里，所以不能用当前位置作为出发地点。"
+        + "可以直接搜索地点或选常用地点作为出发地点，预约照常提交；也可以临时开启精确位置。"
+        + "但陪跑过程中，紧急求助会因为拿不到准确位置发不出去，建议在系统设置里为助盲跑打开「精确位置」。"
+
+    /// 精确授权下，当前位置的精度差于 `LocationAccuracyPolicy.weakAccuracyMeters`（室内 Wi-Fi 定位常见 65 米）。
+    /// 照用，但要请用户核对 —— 下单页会把逆地理得到的地址念出来，这句话让他知道该认真听那一句。
+    static func weakStartPointAccuracyNotice(meters: Double) -> String {
+        "当前定位精度较低（误差约 \(Int(meters.rounded())) 米），出发地点可能有偏差。请核对上面的地址，或直接搜索出发地点。"
+    }
+
+    /// 当前位置卡片上那句核对提示。只在出发点确实来自当前位置时出现。
+    var startPointAccuracyNotice: String? {
+        guard selectedStartPlace == nil,
+              resolvedStartPlace?.source == .deviceLocation,
+              let meters = currentLocationAccuracyMeters else { return nil }
+        return Self.weakStartPointAccuracyNotice(meters: meters)
     }
 
     static let locationDeniedNotice =
@@ -624,6 +651,8 @@ final class BlindBookingViewModel: ObservableObject {
         if let selectedStartPlace {
             return selectedStartPlace
         }
+        // 「精确位置」关闭：设备来源一律不当出发点（#373），只认用户自己选的地点。
+        guard locationService?.isPreciseLocationOff != true else { return nil }
         if let currentResolvedPlace {
             return currentResolvedPlace
         }
@@ -705,8 +734,22 @@ final class BlindBookingViewModel: ObservableObject {
             placeMessage = nil
             return
         }
+        guard !locationService.isPreciseLocationOff else {
+            // 同上：降级告知由 `locationDegradationNotice` 整段承担，这里不再写一句。
+            // 清掉旧的解析结果 —— 用户中途关掉精确位置时，屏幕上不该还挂着上一次的「当前位置」。
+            // **不在这里自动弹临时精确位置的系统框**，只由告知里那枚按钮触发：进页这一刻语音向导正在开场
+            // （`onAppear` 里与本方法并发），系统框会抢走读屏焦点、打断向导 —— 与求助路径不自动弹是同一个理由。
+            currentResolvedPlace = nil
+            currentLocationAccuracyMeters = nil
+            placeMessage = nil
+            return
+        }
 
         let coordinate = bookingCoordinate(from: locationService)
+        // 记下这次解析用的那个样本的精度，而不是渲染时再去读 —— 卡片上的提示说的是「这个地址」的误差。
+        currentLocationAccuracyMeters = locationService.isUsingDemoFallback
+            ? nil
+            : LocationAccuracyPolicy.metersIfWeak(locationService.latestDeviceSample)
         let fallbackPlace = ResolvedPlace(
             id: locationService.isUsingDemoFallback ? "demo-current" : "device-current",
             title: locationService.isUsingDemoFallback ? "当前位置（演示坐标）" : "当前位置",
@@ -736,6 +779,22 @@ final class BlindBookingViewModel: ObservableObject {
         }
         isResolvingStartLocation = false
         placeMessage = resolvedPlace == nil ? placeSearchProvider.lastErrorMessage : nil
+    }
+
+    /// 降级告知里「临时开启精确位置」按钮。这是申请临时精确位置的唯一入口（不在进页时自动弹）。
+    func requestTemporaryPreciseLocation() {
+        locationService?.requestTemporaryPreciseLocation(for: .bookingStartPoint)
+    }
+
+    /// 本页只念一次：精度在 50 米上下来回跳时，每次刷新都念会把用户淹没。
+    ///
+    /// 由卡片上那句提示的 `onAppear` 调，**不在 `refreshCurrentLocation` 里念**：后者与语音向导开场并发，
+    /// 后到的一句会把向导提示从半句切断。语音态下表单整段不渲染，提示出现时向导一定不在说话。
+    /// 判据读 `startPointAccuracyNotice`（与屏幕同一个值）：出发点不是当前位置时一个字也不念。
+    func announceWeakStartPointAccuracyIfNeeded() {
+        guard !hasAnnouncedWeakStartPointAccuracy, let notice = startPointAccuracyNotice else { return }
+        hasAnnouncedWeakStartPointAccuracy = true
+        speechService?.speak(notice)
     }
 
     func refreshCurrentLocationIfNeeded() async {
@@ -1122,6 +1181,10 @@ struct BlindBookingView: View {
         .onDisappear {
             // 页面离开就停录音：麦克风不该在用户看不见的地方继续开着。
             voiceWizard.stop()
+        }
+        // 用户在系统弹窗里允许了临时精确位置：不等下一个坐标，立刻按新的授权重新解析（#373）。
+        .onChange(of: locationService.accuracyAuthorization) { _ in
+            Task { await viewModel.refreshCurrentLocationIfNeeded() }
         }
         .onChange(of: locationService.currentLocation) { _ in
             Task { await viewModel.refreshCurrentLocationIfNeeded() }
@@ -1689,9 +1752,11 @@ struct BlindBookingView: View {
             // 2026-08-18 之前这里是 `if/else`，被拒时整段被权限提示顶掉，等于关掉定位就没法下单，
             // 违反 Apple 5.1.1(iv)。理由全文见 `BlindBookingGate`。
             if let notice = BlindBookingViewModel.locationDegradationNotice(
-                isDenied: locationService.isDenied
+                isDenied: locationService.isDenied,
+                isPreciseLocationOff: locationService.isPreciseLocationOff
             ) {
-                locationDegradationView(notice: notice)
+                // 被拒时没有临时授权可申请（那要先有定位权限），只给「去设置」。
+                locationDegradationView(notice: notice, offersTemporaryPreciseLocation: !locationService.isDenied)
             } else {
                 currentLocationCard
             }
@@ -1866,6 +1931,17 @@ struct BlindBookingView: View {
                         .foregroundColor(AppColors.textSecondary)
                         .accessibilityLabel(locationService.isUsingDemoFallback ? "使用演示坐标，适合模拟器测试" : "已使用设备当前位置和高德地址作为出发点")
                 }
+
+                // 精确授权下精度差于 50 米（#373）。出现时念一次（本页只一次，去重在 view model）。
+                if let accuracyNotice = viewModel.startPointAccuracyNotice {
+                    Text(accuracyNotice)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(accuracyNotice)
+                        .accessibilityIdentifier("bookingStartPointAccuracyNotice")
+                        .onAppear { viewModel.announceWeakStartPointAccuracyIfNeeded() }
+                }
             }
         }
         .padding()
@@ -1963,31 +2039,61 @@ struct BlindBookingView: View {
     /// 文案从 `BlindBookingViewModel.locationDegradationNotice(isDenied:)` 传进来，
     /// 屏幕、`accessibilityLabel`、`speak` 三处读的是同一个入参 —— 三处各自去取一次常量的话，
     /// 「屏幕与耳朵读同一份文案」就只是巧合，没有任何东西拦得住其中一处改掉。
-    private func locationDegradationView(notice: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    ///
+    /// `offersTemporaryPreciseLocation`：「精确位置」关闭那一档（#373）多一个按钮，申请临时精确位置。
+    /// 两个按钮竖直堆叠、整行铺满（盲人端次级操作不并排）。
+    private func locationDegradationView(notice: String, offersTemporaryPreciseLocation: Bool = false) -> some View {
+        let settingsTitle = offersTemporaryPreciseLocation ? "去设置打开精确位置" : "去设置开启定位"
+        return VStack(alignment: .leading, spacing: 12) {
             Text(notice)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.warning)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(notice)
 
-            Button("去设置开启定位") {
+            // 🔴 `frame` 挂在 label 里面：挂在 Button 外面只撑大布局、不撑大可点区域 ——
+            // 真机量到的是 34.7pt（2026-10-09，#373 的 UI 用例），低于盲人端 64pt 下限。
+            if offersTemporaryPreciseLocation {
+                Button {
+                    viewModel.requestTemporaryPreciseLocation()
+                } label: {
+                    Text("临时开启精确位置")
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("临时开启精确位置")
+                .accessibilityHint("如果弹出系统提示，选允许后就能用当前位置作为出发地点；不开启也可以继续手动搜索")
+                .accessibilityIdentifier("bookingRequestTemporaryPreciseLocationButton")
+            }
+
+            Button {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url) // guard:allow raw-open-url 系统设置，不是拨号
                 }
+            } label: {
+                Text(settingsTitle)
+                    .frame(maxWidth: .infinity, minHeight: 64)
             }
             .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
-            .accessibilityLabel("去设置开启定位")
-            .accessibilityHint("打开系统设置以开启定位权限；不开启也可以继续手动搜索出发地点")
+            .accessibilityLabel(settingsTitle)
+            .accessibilityHint(
+                offersTemporaryPreciseLocation
+                    ? "打开系统设置，在定位里为助盲跑打开精确位置；不开启也可以继续手动搜索出发地点"
+                    : "打开系统设置以开启定位权限；不开启也可以继续手动搜索出发地点"
+            )
         }
         .padding()
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+        // `.contain`：不配它，容器的 identifier 会盖掉两枚按钮各自的 identifier（真机层级里三个元素同名）。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bookingLocationDegradationNotice")
         .onAppear {
             speechService.speak(notice)
+        }
+        // 被拒 ⇄ 精确位置关闭之间切换时视图身份不变、`onAppear` 不再触发；换了文案要重念。
+        .onChange(of: notice) { newNotice in
+            speechService.speak(newNotice)
         }
     }
 

@@ -134,7 +134,7 @@ struct BlindRunSafetyResultSection: View {
         // 三块同时为空时整个 `VStack` 不占高度，所以不需要外面再包一层条件 ——
         // 正常状态下这一段在屏幕上什么都不是。
         VStack(spacing: 10) {
-            if let message = coordinator.state.message {
+            if let message = coordinator.statusMessage {
                 EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
             }
 
