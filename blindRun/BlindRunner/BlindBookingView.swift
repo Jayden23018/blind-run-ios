@@ -1022,6 +1022,10 @@ struct BlindBookingView: View {
     @State private var isZeroInputConfirming = false
     /// 第一次用语音下单前的单独同意页（转写文字交给第三方大模型，#374）。
     @State private var showsVoiceConsent = false
+    /// 这一次进入下单页后用户拒绝过同意。只拦 `onAppear` 的**自动**启动：同意页关闭后若下单页又触发
+    /// 一次 `onAppear`，没有它就会再弹一次 —— 对刚拒绝的人那是劝返，也可能是循环。
+    /// 用户自己再点语音按钮 / Magic Tap 不受影响，那是他主动再次发起。
+    @State private var declinedVoiceConsentThisVisit = false
     /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
     /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
     let startsWithVoice: Bool
@@ -1115,7 +1119,7 @@ struct BlindBookingView: View {
             )
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
-            } else if startsWithVoice, !voiceWizard.isRunning {
+            } else if startsWithVoice, !voiceWizard.isRunning, !declinedVoiceConsentThisVisit {
                 startVoiceWizard()
             } else {
                 viewModel.announceEntryGateIfNeeded()
@@ -1229,12 +1233,14 @@ struct BlindBookingView: View {
                 purpose: .voiceOrderThirdPartyLLM,
                 onAgree: {
                     appState.recordVoiceOrderConsent()
+                    declinedVoiceConsentThisVisit = false
                     showsVoiceConsent = false
                     // 先掐掉还没念完的告知朗读：向导起步要等当前播报落定才开麦，不掐就白等那段长文本。
                     speechService.stop()
                     startVoiceWizard()
                 },
                 onDecline: {
+                    declinedVoiceConsentThisVisit = true
                     showsVoiceConsent = false
                     speechService.stop()
                     speechService.speak(PrivacyConsentPurpose.voiceOrderThirdPartyLLM.declinedFeedback)
