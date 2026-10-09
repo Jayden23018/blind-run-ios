@@ -1693,8 +1693,15 @@ final class AccessibilityAuditTests: XCTestCase {
         let stopVoice = app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch
         if stopVoice.exists { stopVoice.tap() }
 
+        // 改用表单后会落在最后一步「确认并提交」，出发地点区块在第 1 步 —— 按「上一步」退回去。
         let notice = app.descendants(matching: .any)["bookingLocationDegradationNotice"].firstMatch
-        XCTAssertTrue(notice.waitForExistence(timeout: 15), "精确位置关闭时缺少降级告知")
+        let previous = app.buttons["上一步"].firstMatch
+        var backs = 0
+        while !notice.waitForExistence(timeout: 3) && previous.exists && backs < 4 {
+            previous.tap()
+            backs += 1
+        }
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "精确位置关闭时缺少降级告知（按了 \(backs) 次上一步）")
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "精确位置")).firstMatch.exists,
             "告知里没说是「精确位置」关了"
