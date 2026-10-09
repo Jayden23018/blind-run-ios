@@ -156,7 +156,7 @@ enum EmergencySafetyCopy {
         case .cancelledByOwner:
             return cancelledTitle
         // 一个字节都没发出去的三种，加上倒计时内撤回（事件落过库，但求助从未发出）。
-        case .unsentNoLocation, .failed, .cooldown, .withdrawnBeforeSending:
+        case .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown, .withdrawnBeforeSending:
             return unsentTitle
         // 撤回失败：服务端倒计时还在走，发没发出不知道 —— 两个完成时都不许用。
         case .withdrawFailed:
@@ -198,6 +198,10 @@ enum EmergencySafetyCopy {
             return "求助未发出：当前无法获取你的位置，可能在室内或信号被遮挡。请到室外开阔处重试，或直接拨打110。"
         }
     }
+
+    /// 跑步中登录已过期、云端求助被拦（#376）。第一句「未发出」；第二句是 `AGENTS.md` §6 要求必须说清的那句。
+    /// 不说「请重试」：凭证不会自己好，重试只会再听一遍同样的话。
+    static let sessionExpiredUnsent = "求助未发出：登录已过期，App 不会代你发送求助。请直接拨打120或110。"
 
     static func failure(_ reason: String?) -> String {
         let detail = reason?.trimmed.isEmpty == false ? reason!.trimmed : "网络异常"
@@ -415,6 +419,12 @@ enum EmergencySafetyCopy {
     static let cloudFailedCallAccessibilityHint =
         "求助没有发出去。点击后由你选择拨打紧急联系人或110，App 不会代你发送求助。"
 
+    /// 跑步中登录已过期（#376）。不复用 `homeCallDialogMessage`：「当前没有进行中的陪跑」此刻是假的。
+    static let sessionExpiredCallDialogMessage =
+        "登录已过期，云端求助发不出去，App 不会代你发送求助。请选择要拨打的号码。"
+    static let sessionExpiredCallAccessibilityHint =
+        "登录已过期。点击后由你选择拨打紧急联系人、120或110，App 不会代你发送求助。"
+
     static let cloudFailedCallDialogMessage =
         "求助没有发出去，App 不会代你发送求助。请选择要拨打的号码。"
 
@@ -461,10 +471,14 @@ enum EmergencySafetyCopy {
     /// 这一档要回答的是同一个问题的另一个答案：他刚离开的那一页还在不在。
     static let hubSubtitleBeforeTheRun = "这一单还没开始陪跑"
 
+    /// 跑步中登录已过期（#376）。不说「跑步仍在记录」—— 凭证过期后还在不在记，取决于 WebSocket 断没断，App 说不准。
+    static let hubSubtitleSessionExpired = "登录已过期"
+
     static func hubSubtitle(for mode: BlindHomeSOSMode) -> String {
         switch mode {
         case .cloudTrigger: return hubSubtitle
         case .localCall: return hubSubtitleBeforeTheRun
+        case .localCallSessionExpired: return hubSubtitleSessionExpired
         }
     }
 
@@ -477,7 +491,8 @@ enum EmergencySafetyCopy {
 
     static func hubDismissTitle(for mode: BlindHomeSOSMode) -> String {
         switch mode {
-        case .cloudTrigger: return hubDismissTitle
+        // 登录过期那一档仍在跑步中，退回去看到的还是跑步页。
+        case .cloudTrigger, .localCallSessionExpired: return hubDismissTitle
         case .localCall: return hubDismissTitleBeforeTheRun
         }
     }
@@ -485,7 +500,7 @@ enum EmergencySafetyCopy {
     /// 收起按钮的 hint。与标题同理，两档指向的页面不是同一个。
     static func hubDismissHint(for mode: BlindHomeSOSMode) -> String {
         switch mode {
-        case .cloudTrigger: return "收起求助中心，回到跑步页面"
+        case .cloudTrigger, .localCallSessionExpired: return "收起求助中心，回到跑步页面"
         case .localCall: return "收起求助中心，回到订单页面"
         }
     }
@@ -518,6 +533,18 @@ enum EmergencySafetyCopy {
     /// 所以那四态的底部整条降级为**本地拨号**，与首页/「我的」tab 那条求助条同一条判据
     /// （`BlindHomeSOSMode.resolve`）、同一套弹窗（`emergencyCallOptionsDialog`）。
     static let hubLocalCallNotice = "陪跑还没开始，下方的紧急呼叫只会直接拨号，App 不会代你发送求助。"
+
+    /// 跑步中登录已过期（#376）。不能复用上一句：「陪跑还没开始」此刻是假的。
+    static let hubSessionExpiredNotice = "登录已过期，云端求助发不出去。下方的紧急呼叫只会直接拨号，App 不会代你发送求助。"
+
+    /// 本地拨号那一档底部按钮下面那句说明，按档位取。云端档没有这一句。
+    static func hubLocalCallNotice(for mode: BlindHomeSOSMode) -> String? {
+        switch mode {
+        case .cloudTrigger: return nil
+        case .localCall: return hubLocalCallNotice
+        case .localCallSessionExpired: return hubSessionExpiredNotice
+        }
+    }
 
     /// 「把这次行程告诉家人」那一格。
     ///
@@ -750,12 +777,26 @@ enum EmergencyCallContext {
     ///
     /// 不复用 `homeIdle`：那句「当前没有进行中的陪跑」对一个正骑车赶去集合点的陪跑员不成立。
     case volunteerBeforeRun
+    /// 跑者端，跑步中登录已过期（#376，`BlindHomeSOSMode.localCallSessionExpired`）。
+    case runnerSessionExpired
+
+    /// 跑者端求助模式 → 拨号弹窗该用哪一句。**两个入口（「我的」tab 求助条、订单页求助中心）都走这里**，
+    /// 此前各写一个三元表达式 `== .cloudTrigger ? .cloudFailed : .homeIdle` —— 加一档模式时
+    /// 三元表达式不会报错，只会把新的一档静默归到「当前没有进行中的陪跑」。
+    static func runner(for mode: BlindHomeSOSMode) -> EmergencyCallContext {
+        switch mode {
+        case .cloudTrigger: return .cloudFailed
+        case .localCall: return .homeIdle
+        case .localCallSessionExpired: return .runnerSessionExpired
+        }
+    }
 
     var dialogMessage: String {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallDialogMessage
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallDialogMessage
+        case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallDialogMessage
         }
     }
 
@@ -764,6 +805,7 @@ enum EmergencyCallContext {
         case .homeIdle: return EmergencySafetyCopy.homeCallAccessibilityHint
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallAccessibilityHint
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallAccessibilityHint
+        case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallAccessibilityHint
         }
     }
 
@@ -871,17 +913,24 @@ enum BlindHomeSOSMode: Equatable {
     case cloudTrigger
     /// 其余任何状态：本地拨号，绝不调 `POST /api/emergency/trigger`。
     case localCall
+    /// `IN_PROGRESS`，但登录已过期（#376，`AppState.isSessionExpiryDeferred`）：本地拨号。
+    /// 单独一档而不是并进 `.localCall`：那一档的每一句文案都默认「陪跑还没开始」，此刻是假的。
+    case localCallSessionExpired
 
     /// 判据复用 `canTriggerEmergency(as:)` —— 与 `EmergencyCoordinator.trigger` 发送前的复核
     /// 是同一个，免得两处对「什么算可以发起云端求助」各有一套理解而慢慢漂开。
     ///
     /// 独立成静态方法而不是写在 View 里，是为了能被单测直接钉住：真机 UI 测试通道
     /// 目前起不来（code 74），把这条安全判据只放在 UI 断言里等于没有覆盖。
-    static func resolve(order: OrderDetailResponse?, role: UserRole?) -> BlindHomeSOSMode {
+    static func resolve(
+        order: OrderDetailResponse?,
+        role: UserRole?,
+        isSessionExpired: Bool = false
+    ) -> BlindHomeSOSMode {
         guard let order, let role, order.status.canTriggerEmergency(as: role) else {
             return .localCall
         }
-        return .cloudTrigger
+        return isSessionExpired ? .localCallSessionExpired : .cloudTrigger
     }
 }
 
@@ -904,10 +953,10 @@ struct BlindHomeSOSBar: View {
             switch mode {
             case .cloudTrigger:
                 EmergencyActionButton(isLoading: coordinator.state.isBusy, action: action)
-            case .localCall:
+            case .localCall, .localCallSessionExpired:
                 PrimaryButton(EmergencySafetyCopy.homeCallTitle, isDestructive: true, action: action)
                     .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
-                    .accessibilityHint(EmergencySafetyCopy.homeCallAccessibilityHint)
+                    .accessibilityHint(EmergencyCallContext.runner(for: mode).accessibilityHint)
             }
 
             // 只有云端求助才有状态可播报；本地拨号不产生任何后端状态。

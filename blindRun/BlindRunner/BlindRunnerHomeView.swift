@@ -538,6 +538,14 @@ struct BlindRunnerHomeView: View {
         path.isEmpty && viewModel.owesStatusAnnouncement
     }
 
+    /// 导航栈里还有没有订单页。跑步中登录过期的暂缓（#376）在它翻成 false 时结束。
+    private var isShowingOrderStatus: Bool {
+        path.contains { route in
+            if case .orderStatus = route { return true }
+            return false
+        }
+    }
+
     // 🗑 **装饰地图已从首页移除**（`mapBackgroundLayer` / `mapVisualHeight` / `mapRevealHeight`
     // 三者一并删除）。它是 `allowsHitTesting(false)` + `isDecorative` 的纯装饰层，
     // 信息在 `locationSummarySection` 里有文字版 —— 而设计稿把首页收成「问候 + 订单卡 +
@@ -641,6 +649,13 @@ struct BlindRunnerHomeView: View {
             .onChange(of: shouldSettleHomeAnnouncement) { shouldSettle in
                 guard shouldSettle else { return }
                 viewModel.announceStatusIfOwed()
+            }
+            // #376：跑步中登录过期、暂缓退出 —— 跑者从订单页返回首页时结束暂缓，按原逻辑登出。
+            // 🔴 判「离开订单页」看导航路径，**不看订单页的 `onDisappear`**：订单页上挂着求助倒计时等
+            // 全屏遮罩，遮罩弹出时底下页面的 `onDisappear` 可能触发 —— 那样一按求助就被登出。
+            .onChange(of: isShowingOrderStatus) { isShowing in
+                guard !isShowing else { return }
+                appState.endDeferredSessionExpiry()
             }
             // 🗑「取消订单」的确认弹窗已从首页移除。设计稿把首页收成两块，取消属于低频的
             // 破坏性操作，归宿是订单页信息列表的最后一行（`AGENTS.md` §5 的可取消状态不变，

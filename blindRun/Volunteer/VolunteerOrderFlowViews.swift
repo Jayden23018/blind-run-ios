@@ -1084,6 +1084,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 if self?.order?.status.isTerminal == true {
                     return
                 }
+                // 跑步中登录已过期（#376）：拿着过期凭证轮询只会每 5 秒再收一次 401。
+                // 暂缓结束就是登出，这个页面随之销毁，不需要恢复轮询。
+                if self?.appState?.isSessionExpiryDeferred == true {
+                    return
+                }
             }
         }
     }

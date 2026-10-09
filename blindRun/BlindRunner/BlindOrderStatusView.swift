@@ -884,6 +884,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
     }
 
     private var shouldContinuePolling: Bool {
+        // 跑步中登录已过期（#376）：拿着过期凭证轮询只会每 5 秒再收一次 401。
+        // 暂缓结束就是登出，这个页面随之销毁，所以这里不需要「恢复轮询」的那一半。
+        if appState?.isSessionExpiryDeferred == true { return false }
         guard let order else { return true }
         return order.status.shouldPoll
     }
@@ -1899,9 +1902,16 @@ struct BlindOrderStatusView: View {
     /// 本地拨号弹窗的第一句该说哪一种。判据与 `BlindRunnerTabView.callContext` 逐字相同：
     /// 云端那条路此刻通不通，就决定了「刚才那一下到底发生了什么」是哪个答案。
     private var emergencyCallContext: EmergencyCallContext {
-        BlindHomeSOSMode.resolve(order: viewModel.order, role: appState.activeRole) == .cloudTrigger
-            ? .cloudFailed
-            : .homeIdle
+        EmergencyCallContext.runner(for: sosMode)
+    }
+
+    /// 求助中心底部那条走云端还是本地拨号。跑步中登录已过期（#376）落本地拨号那一档。
+    private var sosMode: BlindHomeSOSMode {
+        BlindHomeSOSMode.resolve(
+            order: viewModel.order,
+            role: appState.activeRole,
+            isSessionExpired: appState.isSessionExpiryDeferred
+        )
     }
 
     /// 求助中心那一格按下去：起分享还是停分享。
@@ -2205,7 +2215,7 @@ struct BlindOrderStatusView: View {
         // （详见 `EmergencySafetyCopy.hubLocalCallNotice`）。
         .blindActiveRunSafetyHubSheet(
             isPresented: $showSafetyHub,
-            mode: BlindHomeSOSMode.resolve(order: viewModel.order, role: appState.activeRole),
+            mode: sosMode,
             primaryContact: appState.primaryEmergencyContact,
             volunteerPhone: viewModel.order?.volunteerPhone,
             locationError: locationService.locationError,
