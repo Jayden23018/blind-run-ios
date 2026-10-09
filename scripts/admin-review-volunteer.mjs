@@ -126,6 +126,11 @@ async function main() {
   if (!['id', 'cert', 'both'].includes(reviewKind)) {
     throw new Error('AIDRUN_ADMIN_REVIEW_KIND must be id, cert, or both');
   }
+  // 缺审核对象时别先拿管理员账号登录一次再报错。
+  if (!explicitUserId && !reviewPhone) {
+    usage();
+    throw new Error('Missing AIDRUN_ADMIN_REVIEW_USER_ID or AIDRUN_ADMIN_REVIEW_PHONE');
+  }
   const token = await login();
   const userId = await resolveUserId(token);
   if (reviewKind === 'id' || reviewKind === 'both') {

@@ -39,7 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE_URL = 'http://47.114.113.171';
+const BASE_URL = 'https://47.114.113.171';
 const OUT_DIR = path.resolve(import.meta.dirname, '../blindRunTests/Fixtures');
 
 const BLIND_PHONE = process.env.AIDRUN_FIXTURE_BLIND_PHONE;
