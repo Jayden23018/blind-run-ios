@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 import Security
 
 /// 访问令牌读写抽象。
@@ -20,21 +21,44 @@ protocol TokenStoring: AnyObject {
 
 /// 用 Keychain 保存 JWT 访问令牌。
 ///
-/// accessibility 固定为 `kSecAttrAccessibleAfterFirstUnlock`：陪跑过程中 App 会在后台甚至锁屏状态下
-/// 读取 Token 去建立 WebSocket 连接和上报位置。若用 `kSecAttrAccessibleWhenUnlocked`，锁屏时读不到
-/// Token，后台续跑会静默失效而不报错。`AfterFirstUnlock` 表示设备开机后首次解锁过即可读取，
+/// accessibility 固定为 `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`：陪跑过程中 App 会在后台
+/// 甚至锁屏状态下读取 Token 去建立 WebSocket 连接和上报位置。若用 `kSecAttrAccessibleWhenUnlocked`，
+/// 锁屏时读不到 Token，后台续跑会静默失效而不报错。`AfterFirstUnlock` 表示设备开机后首次解锁过即可读取，
 /// 且不随 iCloud 同步（未设置 `kSecAttrSynchronizable`，默认不同步）。
+/// `ThisDeviceOnly` 再加一道：条目不进加密备份的可迁移部分，恢复到另一台手机时不会带过去，
+/// 否则备份里的有效 JWT 能在别的设备上直接当登录态用。
 ///
 /// service 由 `AppCredentialNamespace` 提供：生产、UI 测试、单元测试必须落在不同 service，
 /// 否则测试会读写到真实用户的凭据。
 final class KeychainTokenStore: TokenStoring {
     static let shared = KeychainTokenStore()
 
+    /// 写入条目时使用的 accessibility。单独成常量，是为了让测试能直接断言取值。
+    static let accessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
+    private static let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "keychain")
+
     private let service: String
     private let account = "accessToken"
+    private let itemAdd: (CFDictionary) -> OSStatus
+    private let onWriteFailure: (OSStatus) -> Void
 
-    init(service: String = AppCredentialNamespace.productionService) {
+    /// - Parameters:
+    ///   - itemAdd: 真正落盘的那一步。生产为 `SecItemAdd`；测试注入替身来制造写入失败。
+    ///   - onWriteFailure: 写入失败的留痕出口。默认写系统日志；测试注入闭包来断言它被调用。
+    init(
+        service: String = AppCredentialNamespace.productionService,
+        itemAdd: ((CFDictionary) -> OSStatus)? = nil,
+        onWriteFailure: ((OSStatus) -> Void)? = nil
+    ) {
         self.service = service
+        self.itemAdd = itemAdd ?? { SecItemAdd($0, nil) }
+        self.onWriteFailure = onWriteFailure ?? KeychainTokenStore.logWriteFailure
+    }
+
+    /// 日志只记状态码，**不得**带 Token。状态码含义见 `SecBase.h`（如 -34018 缺 entitlement、-25308 设备锁屏）。
+    private static func logWriteFailure(_ status: OSStatus) {
+        logger.error("Keychain 写入 Token 失败 status=\(status, privacy: .public)")
     }
 
     private var baseQuery: [String: Any] {
@@ -45,14 +69,24 @@ final class KeychainTokenStore: TokenStoring {
         ]
     }
 
+    /// `SecItemAdd` 的完整属性表。拆出来是为了让测试不碰真实 Keychain 也能核对写入的内容。
+    func addAttributes(for data: Data) -> [String: Any] {
+        var attributes = baseQuery
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = Self.accessibility
+        return attributes
+    }
+
     func save(_ token: String) {
         guard let data = token.data(using: .utf8) else { return }
         // 先删再写：避免同一条目已存在时 SecItemAdd 返回 errSecDuplicateItem。
         _ = SecItemDelete(baseQuery as CFDictionary)
-        var attributes = baseQuery
-        attributes[kSecValueData as String] = data
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        _ = SecItemAdd(attributes as CFDictionary, nil)
+        let status = itemAdd(addAttributes(for: data) as CFDictionary)
+        // 写入失败时旧条目已被上一行删掉，用户下次冷启动会被要求重新登录；
+        // 这里至少留下状态码，别让它静默发生。
+        if status != errSecSuccess {
+            onWriteFailure(status)
+        }
     }
 
     func read() -> String? {
