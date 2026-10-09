@@ -585,6 +585,9 @@ final class AccessibilityAuditTests: XCTestCase {
         let map = app.descendants(matching: .any)["runRecordMapDescription"].firstMatch
         XCTAssertTrue(map.exists, "地图的整体描述不在")
         XCTAssertTrue(map.label.contains("路线地图"), "地图描述：\(map.label)")
+        // 原型 data-vo：颜色的意思与最快的一公里（阶段 7 补）。
+        XCTAssertTrue(map.label.contains("颜色表示配速，蓝色快，黄色慢"), "地图描述：\(map.label)")
+        XCTAssertTrue(map.label.contains("第2公里最快"), "地图描述：\(map.label)")
         XCTAssertTrue(app.descendants(matching: .any)["runRecordDistance"].firstMatch.label.contains("3.2 公里"))
         let service = app.descendants(matching: .any)["runRecordServiceRow"].firstMatch
         XCTAssertTrue(service.exists, "志愿服务行不在")
@@ -872,6 +875,71 @@ final class AccessibilityAuditTests: XCTestCase {
                 app.terminate()
             }
         }
+    }
+
+    // MARK: 跑后记录无障碍走查（阶段 7）
+
+    /// HANDOFF 第 7 节：四个界面上读屏念到的每一句都不带掩码星号（外放的读屏会念成「陈星号」）；
+    /// 跑者页屏幕与读屏都不出现 `6'15"`（HANDOFF 5.3）。
+    /// 扫的是整棵树而不是逐个元素断言：新加的元素漏了星号，不用有人想起来补断言也会红。
+    @MainActor
+    func testRunRecordScreensNeverSpeakMaskStarsAndRunnerNeverShowsPrimePace() throws {
+        var app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "陪跑记录")
+        assertNothingSpokenCarriesAMask(app, screen: "陪跑员记录 tab", swipes: 2)
+        app.terminate()
+
+        app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openVolunteerRunRecordDetail(app)
+        assertNothingSpokenCarriesAMask(app, screen: "陪跑员详情", swipes: 8)
+        app.terminate()
+
+        app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "跑步记录")
+        assertNothingSpokenCarriesAMask(app, screen: "跑者记录 tab", swipes: 2)
+        app.terminate()
+
+        app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        _ = openRunnerRunRecordDetail(app)
+        // 讲述的文字稿点开才在树里，一并扫。
+        let listen = app.buttons["runnerRunRecordListen"]
+        if listen.isHittable { listen.tap(); listen.tap() }
+        assertNothingSpokenCarriesAMask(app, screen: "跑者详情", swipes: 8)
+        for _ in 0..<8 { app.swipeDown() }
+        var primes: [String] = []
+        for page in 0...8 {
+            if page > 0 { app.swipeUp() }
+            // 这一条连屏幕上的字一起查（被合并进父元素的也算），所以不按「读屏叶子」剪枝。
+            primes += strings(in: try app.snapshot(), spokenOnly: false).filter { text in
+                text.contains { "'\"′″’”".contains($0) }
+            }
+        }
+        XCTAssertTrue(primes.isEmpty, "跑者页出现了撇号配速：\(Set(primes))")
+    }
+
+    @MainActor
+    private func assertNothingSpokenCarriesAMask(_ app: XCUIApplication, screen: String, swipes: Int) {
+        var leaks: Set<String> = []
+        for page in 0...swipes {
+            if page > 0 { app.swipeUp() }
+            guard let snapshot = try? app.snapshot() else { continue }
+            leaks.formUnion(strings(in: snapshot, spokenOnly: true).filter { $0.contains("*") || $0.contains("＊") })
+        }
+        XCTAssertTrue(leaks.isEmpty, "\(screen)：读屏会念出掩码星号：\(leaks)")
+    }
+
+    /// 取快照里的 label / value。`spokenOnly` 时近似读屏看到的：一个带 label 的非静态文本元素
+    /// （按钮、`.ignore` 合并出来的元素）只念它自己的 label，不往里看 —— XCUITest 看得见被合并的子文字，
+    /// 读屏看不见（记忆 list-rows-false-dynamic-type-audit）。导航栏本身不念，只念栏里的元素。
+    private func strings(in snapshot: XCUIElementSnapshot, spokenOnly: Bool) -> [String] {
+        var found = [snapshot.label]
+        if let value = snapshot.value as? String { found.append(value) }
+        // 导航栏元素的 label / identifier 是 `navigationTitle` 原串，读屏不停在栏上。
+        if spokenOnly && snapshot.elementType == .navigationBar { found = [] }
+        let mergesChildren = spokenOnly && !snapshot.label.isEmpty
+            && snapshot.elementType != .staticText && snapshot.elementType != .navigationBar
+        if mergesChildren { return found.filter { !$0.isEmpty } }
+        return (found + snapshot.children.flatMap { strings(in: $0, spokenOnly: spokenOnly) }).filter { !$0.isEmpty }
     }
 
     @MainActor
