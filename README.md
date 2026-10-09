@@ -48,7 +48,7 @@ scripts/dual-device-validation.sh
 ```
 
 Cloud E2E checks depend on the external service being available and may create/cancel test orders.
-Administrator volunteer review for test accounts can be performed with `scripts/admin-review-volunteer.mjs` using `AIDRUN_ADMIN_USERNAME`, `AIDRUN_ADMIN_PASSWORD`, and either `AIDRUN_ADMIN_REVIEW_USER_ID` or `AIDRUN_ADMIN_REVIEW_PHONE`. The long-lived test admin account is `admin` / `admin123`. The administrator review UI is a later standalone web management surface; do not add an administrator role or review page to the iOS user app in this change.
+Administrator volunteer review for test accounts can be performed with `scripts/admin-review-volunteer.mjs` using `AIDRUN_ADMIN_USERNAME`, `AIDRUN_ADMIN_PASSWORD`, and either `AIDRUN_ADMIN_REVIEW_USER_ID` or `AIDRUN_ADMIN_REVIEW_PHONE`. Ask the backend owner for the credentials; this repository is public and does not store them (see `docs/test-accounts.md`). The administrator review UI is a later standalone web management surface; do not add an administrator role or review page to the iOS user app in this change.
 
 ## Contracts
 
