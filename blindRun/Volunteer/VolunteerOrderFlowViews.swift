@@ -1076,6 +1076,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
         appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
+            // 暂缓中（#376）连第一次也不拉，理由同跑者订单页。
+            guard self?.appState?.isSessionExpiryDeferred != true else { return }
             await self?.load(orderId: orderId, speakChanges: true)
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(AppConstants.Timing.orderPollingInterval * 1_000_000_000))

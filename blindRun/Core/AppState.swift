@@ -205,8 +205,17 @@ final class AppState: ObservableObject {
     /// 不补念就是「点了没反应」；每次都念又会在连按时把人淹没。
     static let deferredExpiryReminderInterval: TimeInterval = 30
 
+    #if DEBUG
     /// 限频用的时钟。单测换成可拨的钟，免得为了 30 秒真睡 30 秒。
-    var sessionClock: () -> Date = { Date() }
+    var sessionClockForTesting: (() -> Date)?
+    #endif
+
+    private var sessionNow: Date {
+        #if DEBUG
+        if let sessionClockForTesting { return sessionClockForTesting() }
+        #endif
+        return Date()
+    }
 
     // MARK: - Legal Links
 
@@ -568,17 +577,23 @@ final class AppState: ObservableObject {
         // 跑步中登录过期的暂缓（#376）在本单离开 `IN_PROGRESS` 时结束。两路来源都要听：
         // 订单页 / 首页写进来的本地记录，以及实时推送 —— 暂缓期间 HTTP 都是 401，
         // 跑完这件事往往只能从推送里知道。
+        //
+        // 🔴 **登出放到下一拍，不在订阅回调里同步做。** 这两个回调都在发布方的调用栈中途：
+        // `$activeStatus` 是在 `activeStatus` 的 setter 还没返回时发的，同步清会话会经
+        // `liveEscortCoordinator.reset` 再写一次 `activeStatus`（对同一个 `@Published` 的重入写）；
+        // 推送那条在 `AppRealtimeCoordinator.route()` 中途，清完会话它还会接着往下写本单的刷新请求。
         liveEscortCoordinator.$activeStatus
             .sink { [weak self] status in
                 guard let self, self.sessionExpiryDeferral != nil, status != .inProgress else { return }
-                self.endDeferredSessionExpiry()
+                Task { @MainActor [weak self] in self?.endDeferredSessionExpiry() }
             }
             .store(in: &cancellables)
         realtimeCoordinator.statusUpdatePublisher
             .sink { [weak self] update in
                 guard let self, self.sessionExpiryDeferral != nil,
+                      update.orderId == self.liveEscortCoordinator.activeOrderID,
                       update.fromStatus == .inProgress, update.toStatus != .inProgress else { return }
-                self.endDeferredSessionExpiry()
+                Task { @MainActor [weak self] in self?.endDeferredSessionExpiry() }
             }
             .store(in: &cancellables)
 
@@ -896,7 +911,7 @@ final class AppState: ObservableObject {
     func handleAuthenticatedAPIError(_ error: APIError) -> Bool {
         guard case .unauthorized = error else { return false }
         if var deferral = sessionExpiryDeferral {
-            let now = sessionClock()
+            let now = sessionNow
             if now.timeIntervalSince(deferral.lastAnnouncedAt) >= Self.deferredExpiryReminderInterval {
                 deferral.announcementSerial += 1
                 deferral.lastAnnouncedAt = now
@@ -913,7 +928,7 @@ final class AppState: ObservableObject {
         sessionExpiryDeferral = SessionExpiryDeferral(
             role: activeRole,
             announcementSerial: 1,
-            lastAnnouncedAt: sessionClock()
+            lastAnnouncedAt: sessionNow
         )
         emergencyCoordinator.blockCloudSOSForExpiredSession()
         return true

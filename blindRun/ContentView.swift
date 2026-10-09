@@ -459,7 +459,13 @@ struct ContentView: View {
         // 跑步中登录过期、暂缓退出（#376）。进入时念横幅全文，之后限频补念短句（序号由 `AppState` 递增）。
         .onReceive(appState.$sessionExpiryDeferral) { deferral in
             guard sessionExpiryAnnouncementGate.accepts(deferral?.announcementSerial) else { return }
-            if let deferral { speechService.speak(deferral.spokenMessage, priority: .emergency) }
+            // 第一句是「云端求助发不出去」，走最高档；补念只是「这个操作做不了」，不该切断别的播报。
+            if let deferral {
+                speechService.speak(
+                    deferral.spokenMessage,
+                    priority: deferral.announcementSerial <= 1 ? .emergency : .counterpartAction
+                )
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let deferral = appState.sessionExpiryDeferral {

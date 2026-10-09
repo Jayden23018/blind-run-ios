@@ -17,9 +17,10 @@
 1. **判据集中在 `AppState.handleAuthenticatedAPIError`**：`.unauthorized` 且 `liveEscortCoordinator.activeStatus == .inProgress` → 暂缓；已在暂缓中 → 限频补念；否则照旧 `expireSession()`。
    暂缓状态 `@Published sessionExpiryDeferral: SessionExpiryDeferral?`（带角色与播报序号），清会话时归零。
 2. **结束暂缓**：`AppState` 订阅 `liveEscortCoordinator.$activeStatus`（离开 `.inProgress` 即结束）与 `realtimeCoordinator.statusUpdatePublisher`
-   （本单 `fromStatus == .inProgress` 且 `toStatus != .inProgress` 即结束）；`BlindRunnerHomeView` 在 `path` 不再含订单页时调 `endDeferredSessionExpiry()`；
+   （本单 —— 订单号等于 `activeOrderID` —— `fromStatus == .inProgress` 且 `toStatus != .inProgress` 即结束）。
+   两条订阅都把登出放到下一拍（`Task { @MainActor }`）：回调发生在发布方调用栈中途，同步清会话会重入写同一个 `@Published`；`BlindRunnerHomeView` 在 `path` 不再含订单页时调 `endDeferredSessionExpiry()`；
    横幅按钮同样调它。陪跑员端没有统一的导航路径，不做「离开页面」这一条 —— 陪跑员结束陪跑本身就要先重新登录（`finish` 需要有效凭证），横幅按钮就是出口。
-3. **停轮询**：跑者订单页 `shouldContinuePolling` 加 `isSessionExpiryDeferred` 判断；陪跑员订单页在轮询循环里同样判断后退出。
+3. **停轮询**：两端订单页启动轮询时若已暂缓连第一次也不拉（全屏遮罩收起会重新 `onAppear`）；跑者 `shouldContinuePolling`、陪跑员轮询循环里同样判断后退出。
 4. **求助两层**：
    - 入口（跑者端）：`BlindHomeSOSMode.resolve` 增加 `isSessionExpired` 参数（默认 false），跑步中为 true 时返回新档 `.localCallSessionExpired`。
      单独一档而不是并进 `.localCall`：那一档的每句文案（求助中心副标题、降级说明、读屏提示、拨号弹窗）都默认「陪跑还没开始」。

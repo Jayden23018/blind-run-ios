@@ -317,6 +317,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
         appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
+            // 暂缓中（#376）连第一次也不拉：全屏遮罩收起时 `onAppear` 会再进这里，拉了必然 401。
+            guard self?.appState?.isSessionExpiryDeferred != true else { return }
             await self?.loadOrder(orderId: orderId, speakChanges: true)
 
             while !Task.isCancelled {

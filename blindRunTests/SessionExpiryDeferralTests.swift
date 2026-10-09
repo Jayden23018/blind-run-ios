@@ -80,7 +80,7 @@ final class SessionExpiryDeferralTests: XCTestCase {
     func testRepeatedUnauthorizedIsRemindedAtMostEveryThirtySeconds() {
         let appState = Self.loggedInAppState(role: .blind)
         var now = Date(timeIntervalSince1970: 1_000)
-        appState.sessionClock = { now }
+        appState.sessionClockForTesting = { now }
         appState.liveEscortCoordinator.updateOwnedOrder(orderID: 42, status: .inProgress)
 
         appState.handleAuthenticatedAPIError(.unauthorized)
@@ -99,12 +99,15 @@ final class SessionExpiryDeferralTests: XCTestCase {
 
     // MARK: - 结束暂缓
 
-    func testDeferralEndsWhenTheOwnedOrderLeavesInProgress() {
+    /// 登出放在下一拍（订阅回调在 `activeStatus` 的 setter 中途，同步清会话是重入写），所以这里要等。
+    func testDeferralEndsWhenTheOwnedOrderLeavesInProgress() async {
         let appState = Self.deferredAppState()
 
         appState.liveEscortCoordinator.updateOwnedOrder(orderID: 42, status: .completed)
+        XCTAssertEqual(appState.accessToken, "token-7", "回调里不同步登出")
+        let loggedOut = await Self.waitUntil { appState.accessToken == nil }
 
-        XCTAssertNil(appState.accessToken, "跑完就按原逻辑登出")
+        XCTAssertTrue(loggedOut, "跑完就按原逻辑登出")
         XCTAssertFalse(appState.isSessionExpiryDeferred)
         XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
     }
@@ -116,20 +119,11 @@ final class SessionExpiryDeferralTests: XCTestCase {
         appState.realtimeCoordinator.attach(to: service, role: .blind)
         appState.realtimeCoordinator.registerActiveOrder(42, status: .inProgress)
 
-        service.simulateIncomingEventForTesting(.orderStatusChanged(WSOrderStatusChanged(
-            type: WSMessageType.orderStatusChanged.rawValue,
-            orderId: 42,
-            fromStatus: "IN_PROGRESS",
-            toStatus: "COMPLETED",
-            message: nil,
-            ttsText: nil,
-            priority: "NORMAL",
-            timestamp: "2026-10-09T08:00:00Z"
-        )))
-        await Task.yield()
+        service.simulateIncomingEventForTesting(.orderStatusChanged(Self.statusEvent(orderID: 42)))
+        let loggedOut = await Self.waitUntil { appState.accessToken == nil }
 
+        XCTAssertTrue(loggedOut, "推送说跑完了就登出")
         XCTAssertEqual(appState.liveEscortCoordinator.activeStatus, nil, "会话清掉后订单记录随之归零")
-        XCTAssertNil(appState.accessToken, "推送说跑完了就登出")
         XCTAssertFalse(appState.isSessionExpiryDeferred)
     }
 
@@ -145,6 +139,42 @@ final class SessionExpiryDeferralTests: XCTestCase {
         XCTAssertFalse(appState.isSessionExpiryDeferred)
         XCTAssertFalse(appState.emergencyCoordinator.blocksCloudSOSForExpiredSession, "会话边界把求助闸复位")
         XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
+    }
+
+    /// 别的单（例如历史页打开的旧单）的推送不许把正在跑步的人登出。
+    func testAPushForAnotherOrderDoesNotEndTheDeferral() async {
+        let appState = Self.deferredAppState()
+        let service = WebSocketService()
+        appState.realtimeCoordinator.attach(to: service, role: .blind)
+        appState.realtimeCoordinator.registerActiveOrder(42, status: .inProgress)
+        appState.realtimeCoordinator.registerActiveOrder(99, status: .inProgress)
+
+        service.simulateIncomingEventForTesting(.orderStatusChanged(Self.statusEvent(orderID: 99)))
+        _ = await Self.waitUntil(timeout: 0.3) { false }
+
+        XCTAssertEqual(appState.accessToken, "token-7")
+        XCTAssertTrue(appState.isSessionExpiryDeferred)
+    }
+
+    // MARK: - 停轮询
+
+    /// 暂缓中订单页连第一次也不拉；对照组（没暂缓）照常拉 —— 只断「没拉」的话，一个从不拉的实现也会绿。
+    func testOrderPageDoesNotPollWhileTheSessionExpiryIsDeferred() async {
+        for deferred in [true, false] {
+            let service = FakeOrderService()
+            service.orderDetailResult = .success(OrderDetailResponse.preview(orderId: 42, status: .inProgress))
+            let appState = Self.loggedInAppState(role: .blind, orders: service)
+            appState.liveEscortCoordinator.updateOwnedOrder(orderID: 42, status: .inProgress)
+            if deferred { appState.handleAuthenticatedAPIError(.unauthorized) }
+            let viewModel = BlindOrderStatusViewModel()
+            viewModel.configure(appState: appState, speechService: SpeechService())
+
+            viewModel.startPolling(orderId: 42)
+            let fetched = await Self.waitUntil(timeout: 1) { service.calls.contains { $0.hasPrefix("orderDetail") } }
+            viewModel.stopPolling()
+
+            XCTAssertEqual(fetched, !deferred, deferred ? "暂缓中不许拉订单" : "对照：没暂缓时照常拉")
+        }
     }
 
     func testEndingWithoutADeferralDoesNothing() {
@@ -224,8 +254,9 @@ final class SessionExpiryDeferralTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private static func loggedInAppState(role: UserRole) -> AppState {
+    private static func loggedInAppState(role: UserRole, orders: (any OrderServing)? = nil) -> AppState {
         let appState = AppState(
+            orders: orders,
             persistence: AppStatePersistenceFactory.makeIsolatedTest(),
             tokenStore: InMemoryTokenStore()
         )
@@ -242,6 +273,28 @@ final class SessionExpiryDeferralTests: XCTestCase {
         appState.handleAuthenticatedAPIError(.unauthorized)
         XCTAssertTrue(appState.isSessionExpiryDeferred, "前提：已进入暂缓")
         return appState
+    }
+
+    private static func statusEvent(orderID: Int64) -> WSOrderStatusChanged {
+        WSOrderStatusChanged(
+            type: WSMessageType.orderStatusChanged.rawValue,
+            orderId: orderID,
+            fromStatus: "IN_PROGRESS",
+            toStatus: "COMPLETED",
+            message: nil,
+            ttsText: nil,
+            priority: "NORMAL",
+            timestamp: "2026-10-09T08:00:00Z"
+        )
+    }
+
+    private static func waitUntil(timeout: TimeInterval = 1, _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return condition()
     }
 
     private static func makeOrder(status: RunOrderStatus) -> OrderDetailResponse {
