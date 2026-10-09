@@ -67,6 +67,106 @@ final class KeychainTokenStoreTests: XCTestCase {
         XCTAssertNil(store.read())
     }
 
+    // MARK: - accessibility：仅限本机 + 锁屏后仍可读
+
+    /// 记录 `SecItemAdd` 收到的属性表与失败回调，供下面几条用例断言。
+    private final class WriteRecorder {
+        var attributes: [String: Any]?
+        var failures: [OSStatus] = []
+    }
+
+    private func makeStore(addResult: OSStatus, recorder: WriteRecorder) -> KeychainTokenStore {
+        KeychainTokenStore(
+            service: AppCredentialNamespace.unitTestService,
+            itemAdd: { attributes in
+                recorder.attributes = attributes as? [String: Any]
+                return addResult
+            },
+            onWriteFailure: { recorder.failures.append($0) }
+        )
+    }
+
+    /// 不碰真实 Keychain：核对交给 `SecItemAdd` 的属性表。
+    /// 旧实现写的是 `kSecAttrAccessibleAfterFirstUnlock`（取值 "ck"），新实现是 "cku"，两者字符串不等，
+    /// 所以改回旧常量这条会红。
+    func testSaveAsksKeychainForAfterFirstUnlockThisDeviceOnly() {
+        let recorder = WriteRecorder()
+        let store = makeStore(addResult: errSecSuccess, recorder: recorder)
+
+        store.save("device-bound-token")
+
+        let accessible = recorder.attributes?[kSecAttrAccessible as String] as? String
+        XCTAssertEqual(
+            accessible,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String,
+            "Token 必须是 ThisDeviceOnly，否则会随加密备份恢复到别的手机"
+        )
+        XCTAssertNotEqual(
+            accessible,
+            kSecAttrAccessibleAfterFirstUnlock as String,
+            "不得退回会被备份迁移的旧常量"
+        )
+        XCTAssertNotEqual(
+            accessible,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
+            "不得用锁屏后读不到的 WhenUnlocked*：后台定位与 WebSocket 需要锁屏后仍能读 Token"
+        )
+        XCTAssertNil(
+            recorder.attributes?[kSecAttrSynchronizable as String],
+            "不得设置 iCloud 同步"
+        )
+    }
+
+    /// 真实 Keychain 读回：核对条目**实际存下的** accessibility，而不是我们传了什么。
+    func testStoredItemReallyCarriesThisDeviceOnlyAccessibility() throws {
+        let store = makeKeychainStore()
+        store.delete()
+        store.save("keychain-token")
+        try XCTSkipIf(store.read() == nil, "当前测试环境无 Keychain 访问权限")
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: AppCredentialNamespace.unitTestService,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &item), errSecSuccess)
+        let attributes = item as? [String: Any]
+
+        XCTAssertEqual(
+            attributes?[kSecAttrAccessible as String] as? String,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+        )
+    }
+
+    // MARK: - 写入失败不得静默
+
+    func testFailedKeychainWriteIsReportedWithStatusAndLeavesNoToken() {
+        let recorder = WriteRecorder()
+        let store = makeStore(addResult: errSecInteractionNotAllowed, recorder: recorder)
+        store.delete()
+
+        store.save("will-not-be-stored")
+
+        XCTAssertEqual(
+            recorder.failures,
+            [errSecInteractionNotAllowed],
+            "SecItemAdd 失败必须带着状态码走到留痕出口，不能被吞掉"
+        )
+        XCTAssertNil(store.read(), "写入失败后不应读到 Token（旧条目已在写入前删除）")
+    }
+
+    /// 防止「无论成败都报失败」的错误实现也能通过上一条。
+    func testSuccessfulKeychainWriteReportsNoFailure() {
+        let recorder = WriteRecorder()
+        let store = makeStore(addResult: errSecSuccess, recorder: recorder)
+
+        store.save("stored-token")
+
+        XCTAssertTrue(recorder.failures.isEmpty, "写入成功不得误报失败")
+    }
+
     func testProductionAndTestServicesAreDistinct() {
         XCTAssertNotEqual(AppCredentialNamespace.productionService, AppCredentialNamespace.unitTestService)
         XCTAssertNotEqual(AppCredentialNamespace.productionService, AppCredentialNamespace.uiTestService)

@@ -51,6 +51,6 @@
 ## Open Questions
 
 - `需要人工确认`：外部后端完成状态原子写入的部署时间，以及遗留账号能否通过真实派单接口开启服务。
-- 2026-07-18 实测：`13360846885` 先调用 `send-code` 后使用 `000000` 仍返回 `INVALID_VERIFICATION_CODE`；在后端恢复固定测试码策略或提供当次短信码前，无法读取该账号的权威派单字段，不能关闭上述确认项。
-- 同日使用标准账号 `13800000002` 验证探针：初始摘要为 `OFFLINE/canDispatch=false`，WebSocket 建连并上报位置后 2 秒内稳定为 `canDispatch=true`、`isOnline=true`、`coverageRadiusKm=10`。因此云端正常账号的派单就绪传播链路可用，首页延迟重查是必要修复。
+- 2026-07-18 实测：某志愿者账号先调用 `send-code` 后使用 `000000` 仍返回 `INVALID_VERIFICATION_CODE`；在后端恢复固定测试码策略或提供当次短信码前，无法读取该账号的权威派单字段，不能关闭上述确认项。
+- 同日使用预置志愿者主号验证探针：初始摘要为 `OFFLINE/canDispatch=false`，WebSocket 建连并上报位置后 2 秒内稳定为 `canDispatch=true`、`isOnline=true`、`coverageRadiusKm=10`。因此云端正常账号的派单就绪传播链路可用，首页延迟重查是必要修复。
 - 双真机验证：`111` 与 `iPad Pro (2)` 的完整 `blindRunTests` 均为 208 passed、1 skipped、0 failed；新增的空原因、原因映射和权威摘要刷新测试在两台设备均通过。

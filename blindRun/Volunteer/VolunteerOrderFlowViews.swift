@@ -2622,7 +2622,8 @@ struct VolunteerServiceRecognitionView: View {
     /// 累计服务时长与评分都是后端真值，如实展示；没有评价时显示 `--` 而不是编一个数。
     private func statsRow(_ response: VolunteerAchievementsResponse) -> some View {
         HStack(spacing: 12) {
-            statTile("累计服务", "\(max(0, response.totalServiceMinutes ?? 0) / 60) 小时")
+            // 「X 小时 Y 分钟」（#351）：按整小时向下取整时，服务 4 分钟的人看到的是「0 小时」。
+            statTile("累计服务", RunRecordHistoryViewModel.serviceDuration(max(0, response.totalServiceMinutes ?? 0)))
             statTile(
                 "评分",
                 response.avgRating.map { String(format: "%.1f", $0) } ?? "--",

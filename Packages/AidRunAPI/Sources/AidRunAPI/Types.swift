@@ -211,6 +211,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// 角色：`BLIND` 或 `VOLUNTEER`（陪跑中的志愿者可代盲人触发）。
     ///
+    /// **`orderId` 只有在陪跑区间才算数**（2026-10-07，#582）：订单状态须为 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。 志愿者带其它状态的订单号（已完成、已取消、还没出发的预约单等）一律 403 `NOT_ORDER_PARTICIPANT`； **盲人本人**带这类订单号不会被拒，而是按**独立 SOS** 处理（事件不挂该订单、不通知该订单的志愿者），所以客户端缓存里留着旧订单号也不会影响求救。 订单校验排在冷却占位之前（#579）：`orderId` 不存在（400）/ 非参与者（403）的请求**不占**冷却位，去掉 `orderId` 立刻重发不会被 429。
+    ///
     /// **事件永远挂在受助者身上**：传了 `orderId` 时受助者 = 该订单的盲人， 志愿者代触发只体现在 `triggerType=VOLUNTEER_BUTTON`，升级查的是盲人的紧急联系人。
     ///
     /// **触发即升级**：紧急联系人在本请求内就被通知（异步发短信），不再等志愿者响应 30 秒； 若订单有志愿者且触发者不是他，会并行推 `EMERGENCY_VOLUNTEER_ALERT` 给他。
@@ -1037,12 +1039,15 @@ public protocol APIProtocol: Sendable {
     ///
     /// **PATCH 语义**：请求体中为 `null` 的字段保留原值。客户端在用户未修改电话时应省略 `phone`，
     /// 避免把展示层的脱敏串写回服务端。
-    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
-    /// 联系人不存在返回 404。
+    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403）。联系人不存在、或不属于该用户，一律 404
+    /// （2026-10 起；此前后者是 403，两种响应不同等于泄露「这个 id 存在、属于别人」）。
+    /// `isPrimary` 不传（`null`）表示不改，保留原值。2026-10-07 前该字段的初值是 `false`，「没传」被当成「传了 false」，
+    /// 只改姓名就会把主联系人降级（#581）。
     /// `isPrimary = true` 时原子清除原主联系人标记。
-    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时，服务端自动把该用户剩余联系人中的第一个提为主联系人
-    /// （对齐 `deleteContact` 的补偿逻辑），保持「有且仅有 1 个 primary」不变量，不会出现 0 个 primary 的中间态
-    /// （2026-07-30 修复，此前会静默产生 0 个 primary）。
+    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时：还有别的联系人，服务端自动把剩余联系人中的第一个提为主联系人
+    /// （对齐 `deleteContact` 的补偿逻辑）；已经只剩这 1 个联系人、没人可补位，返回 400 `CONTACT_PRIMARY_REQUIRED`
+    /// （2026-10-07 前这种情况静默成功并留下 0 个主联系人，与此处「不会出现 0 个 primary」的说法矛盾）。
+    /// 因此「有且仅有 1 个 primary」的不变量在 PUT 之后始终成立。
     /// `phone` 非空时必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`。
     ///
     /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}`.
@@ -1586,6 +1591,8 @@ extension APIProtocol {
     /// 触发紧急求助
     ///
     /// 角色：`BLIND` 或 `VOLUNTEER`（陪跑中的志愿者可代盲人触发）。
+    ///
+    /// **`orderId` 只有在陪跑区间才算数**（2026-10-07，#582）：订单状态须为 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。 志愿者带其它状态的订单号（已完成、已取消、还没出发的预约单等）一律 403 `NOT_ORDER_PARTICIPANT`； **盲人本人**带这类订单号不会被拒，而是按**独立 SOS** 处理（事件不挂该订单、不通知该订单的志愿者），所以客户端缓存里留着旧订单号也不会影响求救。 订单校验排在冷却占位之前（#579）：`orderId` 不存在（400）/ 非参与者（403）的请求**不占**冷却位，去掉 `orderId` 立刻重发不会被 429。
     ///
     /// **事件永远挂在受助者身上**：传了 `orderId` 时受助者 = 该订单的盲人， 志愿者代触发只体现在 `triggerType=VOLUNTEER_BUTTON`，升级查的是盲人的紧急联系人。
     ///
@@ -2815,12 +2822,15 @@ extension APIProtocol {
     ///
     /// **PATCH 语义**：请求体中为 `null` 的字段保留原值。客户端在用户未修改电话时应省略 `phone`，
     /// 避免把展示层的脱敏串写回服务端。
-    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
-    /// 联系人不存在返回 404。
+    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403）。联系人不存在、或不属于该用户，一律 404
+    /// （2026-10 起；此前后者是 403，两种响应不同等于泄露「这个 id 存在、属于别人」）。
+    /// `isPrimary` 不传（`null`）表示不改，保留原值。2026-10-07 前该字段的初值是 `false`，「没传」被当成「传了 false」，
+    /// 只改姓名就会把主联系人降级（#581）。
     /// `isPrimary = true` 时原子清除原主联系人标记。
-    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时，服务端自动把该用户剩余联系人中的第一个提为主联系人
-    /// （对齐 `deleteContact` 的补偿逻辑），保持「有且仅有 1 个 primary」不变量，不会出现 0 个 primary 的中间态
-    /// （2026-07-30 修复，此前会静默产生 0 个 primary）。
+    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时：还有别的联系人，服务端自动把剩余联系人中的第一个提为主联系人
+    /// （对齐 `deleteContact` 的补偿逻辑）；已经只剩这 1 个联系人、没人可补位，返回 400 `CONTACT_PRIMARY_REQUIRED`
+    /// （2026-10-07 前这种情况静默成功并留下 0 个主联系人，与此处「不会出现 0 个 primary」的说法矛盾）。
+    /// 因此「有且仅有 1 个 primary」的不变量在 PUT 之后始终成立。
     /// `phone` 非空时必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`。
     ///
     /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}`.
@@ -6144,7 +6154,9 @@ public enum Components {
         ///
         /// - Remark: Generated from `#/components/schemas/EmergencyContactRequest`.
         public struct EmergencyContactRequest: Codable, Hashable, Sendable {
-            /// 传 true 时原子清除原主联系人标记；新增第一个联系人时服务端强制为 true
+            /// 传 true 时原子清除原主联系人标记；新增第一个联系人时服务端强制为 true。
+            /// PUT 不传（`null`）表示不改，保留原值；传 false 且该联系人是主联系人时，还有别的联系人则自动提一个接任，
+            /// 只剩这 1 个联系人则返回 400 `CONTACT_PRIMARY_REQUIRED`。POST 不传视为 false。
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyContactRequest/isPrimary`.
             public var isPrimary: Swift.Bool?
@@ -6159,7 +6171,7 @@ public enum Components {
             /// Creates a new `EmergencyContactRequest`.
             ///
             /// - Parameters:
-            ///   - isPrimary: 传 true 时原子清除原主联系人标记；新增第一个联系人时服务端强制为 true
+            ///   - isPrimary: 传 true 时原子清除原主联系人标记；新增第一个联系人时服务端强制为 true。
             ///   - name:
             ///   - phone: 非空时必须匹配大陆手机号格式（2026-07-30 新增，此前仅校验长度），null 视为「未传」，PATCH 语义下放行
             ///   - relationship:
@@ -6228,6 +6240,80 @@ public enum Components {
         }
         /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse`.
         public struct EmergencyEventResponse: Codable, Hashable, Sendable {
+            /// 家属求救短信**最近一次**发送的投递状态（#621，2026-10 起）。**只有** `GET /api/cs/emergency-events` 与 `GET /api/cs/emergency-events/since` 填它，其余端点恒为 null。
+            ///
+            /// - `FAILED`：同步发送失败，或运营商回执确认失败 —— **客服应立即电话联系家属**（号码见 `GET /api/cs/emergency-events/{eventId}/contacts`）。
+            /// - `SENT`：已提交运营商，回执还没到。
+            /// - `DELIVERED`：运营商回执确认已送达。
+            /// - null：这起事件没有发过家属短信（无紧急联系人，或还在倒计时）。
+            ///
+            /// 「最近一次」：客服点「重发家属短信」会产生新的一次发送，它成功之后这里随之变成 `SENT` / `DELIVERED`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/contactSmsStatus`.
+            public struct contactSmsStatusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/contactSmsStatus/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PENDING = "PENDING"
+                    case SENT = "SENT"
+                    case DELIVERED = "DELIVERED"
+                    case FAILED = "FAILED"
+                }
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/contactSmsStatus/value1`.
+                public var value1: Components.Schemas.EmergencyEventResponse.contactSmsStatusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/contactSmsStatus/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `contactSmsStatusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.EmergencyEventResponse.contactSmsStatusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 家属求救短信**最近一次**发送的投递状态（#621，2026-10 起）。**只有** `GET /api/cs/emergency-events` 与 `GET /api/cs/emergency-events/since` 填它，其余端点恒为 null。
+            ///
+            /// - `FAILED`：同步发送失败，或运营商回执确认失败 —— **客服应立即电话联系家属**（号码见 `GET /api/cs/emergency-events/{eventId}/contacts`）。
+            /// - `SENT`：已提交运营商，回执还没到。
+            /// - `DELIVERED`：运营商回执确认已送达。
+            /// - null：这起事件没有发过家属短信（无紧急联系人，或还在倒计时）。
+            ///
+            /// 「最近一次」：客服点「重发家属短信」会产生新的一次发送，它成功之后这里随之变成 `SENT` / `DELIVERED`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/contactSmsStatus`.
+            public var contactSmsStatus: Components.Schemas.EmergencyEventResponse.contactSmsStatusPayload?
             /// 倒计时截止时刻（用户看到的那个，不含服务端宽限）；非 `COUNTDOWN` 状态时为 null。
             ///
             /// 🔴 **断线重连恢复必须用它。** `status=COUNTDOWN` 却没有截止时刻时， 客户端只能自己从 N 开始数（会产生「屏幕还在倒数、求助已经发出」）， 或者显示一个没有进度的「正在求助中」—— 而 `COUNTDOWN` 恰恰是唯一还能反悔的状态。
@@ -6238,14 +6324,20 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csAcceptedAt`.
             public var csAcceptedAt: Swift.String?
-            /// 客服的内部处置记录。⚠️ **志愿者调 `/api/emergency/active` 时恒为 null** —— 他读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
+            /// 客服的内部处置记录。⚠️ **`/api/emergency/active` 一律为 null**（2026-10 起盲人本人也不给，#654）—— 志愿者读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csNotes`.
             public var csNotes: Swift.String?
-            /// ⚠️ **志愿者调 `/api/emergency/active` 时恒为 null**（见 csNotes）
+            /// ⚠️ **`/api/emergency/active` 一律为 null**（盲人与志愿者都不给，见 csNotes）
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csUserId`.
             public var csUserId: Swift.Int64?
+            /// `true` = 上面这组位置（`hasGpsLocation` / `gpsLat` / `gpsLng`）是**陪跑员自己的**坐标，不是受助者的（2026-10 起，#654）。
+            /// 只在志愿者代按求助、而跑者手机没有位置快照（WS 断开或 30 秒没上报）时为 true。
+            /// 志愿者多半就在跑者身边，所以照给；但走散后代按时它可能离受助者很远，客服端必须把它标明成「陪跑员位置」。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/gpsIsVolunteerLocation`.
+            public var gpsIsVolunteerLocation: Swift.Bool?
             /// 坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null。 （2026-09-26 起）**跑者位置优先**：陪跑员代按求助时，这里是触发那一刻跑者手机最新上报的位置（服务端快照）， 不再是陪跑员自己的位置；跑者自己按 / 走散自动触发时仍是请求里的坐标（本就来自跑者手机），请求没带坐标时退回快照
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/gpsLat`.
@@ -6399,10 +6491,12 @@ public enum Components {
             /// Creates a new `EmergencyEventResponse`.
             ///
             /// - Parameters:
+            ///   - contactSmsStatus: 家属求救短信**最近一次**发送的投递状态（#621，2026-10 起）。**只有** `GET /api/cs/emergency-events` 与 `GET /api/cs/emergency-events/since` 填它，其余端点恒为 null。
             ///   - countdownEndsAt: 倒计时截止时刻（用户看到的那个，不含服务端宽限）；非 `COUNTDOWN` 状态时为 null。
             ///   - csAcceptedAt: 客服**首次**接手本事件的时刻（#320）。🔴 **没有客服接手过时必为 null** —— 客户端只能在它非 null 时显示「客服已接入」，**不要**用 `status == CS_HANDLING` 推断 （客服接手后再「通知家属」会把 status 改回 `CONTACT_NOTIFIED`，而接手这件事仍然发生过）。 只给时间不给客服身份。⚠️ 目前只有 `GET /api/emergency/active` 填它，其余端点恒为 null。 实时推送见 WS `EMERGENCY_CS_ACCEPTED`。
-            ///   - csNotes: 客服的内部处置记录。⚠️ **志愿者调 `/api/emergency/active` 时恒为 null** —— 他读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
-            ///   - csUserId: ⚠️ **志愿者调 `/api/emergency/active` 时恒为 null**（见 csNotes）
+            ///   - csNotes: 客服的内部处置记录。⚠️ **`/api/emergency/active` 一律为 null**（2026-10 起盲人本人也不给，#654）—— 志愿者读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
+            ///   - csUserId: ⚠️ **`/api/emergency/active` 一律为 null**（盲人与志愿者都不给，见 csNotes）
+            ///   - gpsIsVolunteerLocation: `true` = 上面这组位置（`hasGpsLocation` / `gpsLat` / `gpsLng`）是**陪跑员自己的**坐标，不是受助者的（2026-10 起，#654）。
             ///   - gpsLat: 坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null。 （2026-09-26 起）**跑者位置优先**：陪跑员代按求助时，这里是触发那一刻跑者手机最新上报的位置（服务端快照）， 不再是陪跑员自己的位置；跑者自己按 / 走散自动触发时仍是请求里的坐标（本就来自跑者手机），请求没带坐标时退回快照
             ///   - gpsLng:
             ///   - hasGpsLocation: 是否有可用位置（跑者位置快照或请求坐标任一存在），口径同 `gpsLat`
@@ -6418,10 +6512,12 @@ public enum Components {
             ///   - volunteerNotifiedAt:
             ///   - volunteerTimeoutAt: 置 null 表示该超时已处理过或志愿者已响应
             public init(
+                contactSmsStatus: Components.Schemas.EmergencyEventResponse.contactSmsStatusPayload? = nil,
                 countdownEndsAt: Swift.String? = nil,
                 csAcceptedAt: Swift.String? = nil,
                 csNotes: Swift.String? = nil,
                 csUserId: Swift.Int64? = nil,
+                gpsIsVolunteerLocation: Swift.Bool? = nil,
                 gpsLat: Swift.Double? = nil,
                 gpsLng: Swift.Double? = nil,
                 hasGpsLocation: Swift.Bool? = nil,
@@ -6437,10 +6533,12 @@ public enum Components {
                 volunteerNotifiedAt: Swift.String? = nil,
                 volunteerTimeoutAt: Swift.String? = nil
             ) {
+                self.contactSmsStatus = contactSmsStatus
                 self.countdownEndsAt = countdownEndsAt
                 self.csAcceptedAt = csAcceptedAt
                 self.csNotes = csNotes
                 self.csUserId = csUserId
+                self.gpsIsVolunteerLocation = gpsIsVolunteerLocation
                 self.gpsLat = gpsLat
                 self.gpsLng = gpsLng
                 self.hasGpsLocation = hasGpsLocation
@@ -6457,10 +6555,12 @@ public enum Components {
                 self.volunteerTimeoutAt = volunteerTimeoutAt
             }
             public enum CodingKeys: String, CodingKey {
+                case contactSmsStatus
                 case countdownEndsAt
                 case csAcceptedAt
                 case csNotes
                 case csUserId
+                case gpsIsVolunteerLocation
                 case gpsLat
                 case gpsLng
                 case hasGpsLocation
@@ -7762,7 +7862,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareActive`.
             public var shareActive: Swift.Bool?
-            /// 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
+            /// 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。 订单进终态后该值会被收紧：完成 → 缩短到「完成时刻 + ttl」；取消 / 无人接单 → 链接直接撤销（`shareActive` 变 false）。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareExpiresAt`.
             public var shareExpiresAt: Swift.String?
@@ -8040,7 +8140,7 @@ public enum Components {
             ///   - run:
             ///   - runnerAtMeetingPoint: 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
             ///   - shareActive: 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
-            ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
+            ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。 订单进终态后该值会被收紧：完成 → 缩短到「完成时刻 + ttl」；取消 / 无人接单 → 链接直接撤销（`shareActive` 变 false）。
             ///   - specialNotes:
             ///   - startAddress:
             ///   - startLatitude:
@@ -8748,13 +8848,15 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/ParseSlotRequest/field`.
             public var field: Components.Schemas.ParseSlotRequest.fieldPayload
+            /// ASR 转录文本。没有长度上限、不会因为长而返 400；超过 500 字时整句按没听清处理（#614）
+            ///
             /// - Remark: Generated from `#/components/schemas/ParseSlotRequest/transcript`.
             public var transcript: Swift.String
             /// Creates a new `ParseSlotRequest`.
             ///
             /// - Parameters:
             ///   - field: ⚠️ 本端点只接受 START_TIME / DURATION，传 ADDRESS 返 400
-            ///   - transcript:
+            ///   - transcript: ASR 转录文本。没有长度上限、不会因为长而返 400；超过 500 字时整句按没听清处理（#614）
             public init(
                 field: Components.Schemas.ParseSlotRequest.fieldPayload,
                 transcript: Swift.String
@@ -8826,6 +8928,8 @@ public enum Components {
             /// ⚠️ 但超过 200 字时后端**不会调大模型**（直接降级走纯正则）。对整句 `/parse` 的影响是
             /// **终点解析不出来**（终点没有正则实现），起点/时间/时长照常。正常语音下单远达不到
             /// （我们最长的回归语料 22 字），但「把多轮转录拼起来再发」的客户端会踩到。
+            ///
+            /// 超过 500 字时连正则也不跑、也不查地名，直接返回「没听清」（`needReask=true`，仍是 200，不返 400）。
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderRequest/transcript`.
             public var transcript: Swift.String
@@ -9962,6 +10066,8 @@ public enum Components {
             /// ⚠️ 但超过 200 字时后端**不会调大模型**（直接降级走纯正则）。对整句 `/parse` 的影响是
             /// **终点解析不出来**（终点没有正则实现），起点/时间/时长照常。正常语音下单远达不到
             /// （我们最长的回归语料 22 字），但「把多轮转录拼起来再发」的客户端会踩到。
+            ///
+            /// 超过 500 字时连正则也不跑、也不查地名，直接返回「没听清」（`needReask=true`，仍是 200，不返 400）。
             ///
             /// - Remark: Generated from `#/components/schemas/ResolveAddressRequest/transcript`.
             public var transcript: Swift.String
@@ -13202,7 +13308,7 @@ public enum Components {
                 case totalServiceMinutes
             }
         }
-        /// 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）
+        /// 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）。最多 100 条，超过返回 400
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerAvailableTimeSlot`.
         public struct VolunteerAvailableTimeSlot: Codable, Hashable, Sendable {
@@ -13511,7 +13617,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/isOnline`.
             public var isOnline: Swift.Bool?
-            /// 当前是否在可服务时段内（仅 UI 提示，不阻断接单）
+            /// 当前是否在可服务时段内（仅 UI 提示，不阻断接单）。没填每周时段 = 随时可接，此时恒为 true（与派单口径一致）
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/isWithinServiceTime`.
             public var isWithinServiceTime: Swift.Bool?
@@ -13572,7 +13678,7 @@ public enum Components {
             ///   - coverageRadiusKm: 可接单覆盖圆半径（km，当前固定 10）
             ///   - introCallOrderId: 此刻正在通话磨合的那一单（`PENDING_INTRO_CALL`），没有则 null（绝大多数时候）。 存在的唯一理由是**冷启动恢复**：这一态 `order.volunteer` 还是 null， `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回 —— 志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。 拿到这个 id 后调 `GET /api/orders/{id}/intro-call` 取全部通话页数据。 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单， 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
             ///   - isOnline: WebSocket 在线状态
-            ///   - isWithinServiceTime: 当前是否在可服务时段内（仅 UI 提示，不阻断接单）
+            ///   - isWithinServiceTime: 当前是否在可服务时段内（仅 UI 提示，不阻断接单）。没填每周时段 = 随时可接，此时恒为 true（与派单口径一致）
             ///   - lastLat: 最近位置纬度（离线时为 null）
             ///   - lastLng: 最近位置经度（离线时为 null）
             ///   - lastLocationAt: 最近位置更新时间（离线时为 null）
@@ -14083,7 +14189,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/acceptsGuideDog`.
             public var acceptsGuideDog: Swift.Bool?
-            /// 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）
+            /// 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）。最多 100 条，超过返回 400
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/availableTimeSlots`.
             public var availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]?
@@ -14113,7 +14219,7 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - acceptsGuideDog: 是否接受携带导盲犬的订单。不传 = 保留原值
-            ///   - availableTimeSlots: 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）
+            ///   - availableTimeSlots: 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）。最多 100 条，超过返回 400
             ///   - name: 必填（不传或空白返回 400），见 schema 描述里的说明
             ///   - paceRange: 可适应的配速档位。不传 = 保留原值
             ///   - wantsDispatch: 是否开启接单。不传 = 保留原值；`false` 时仍可浏览订单，但不能接单
@@ -15520,6 +15626,57 @@ public enum Operations {
                     }
                 }
             }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/blind/verify-identity/POST/responses/429/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/blind/verify-identity/POST/responses/429/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.verifyIdentity.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.verifyIdentity.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// 今日身份核验次数已用完（每人每天 10 次，通过与未通过都计；厂商不可用的 503 不计），`Retry-After` 为到次日零点的秒数
+            ///
+            /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.verifyIdentity.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.verifyIdentity.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             /// Undocumented response.
             ///
             /// A response with a code that is not documented in the OpenAPI document.
@@ -16821,6 +16978,8 @@ public enum Operations {
     ///
     /// 角色：`BLIND` 或 `VOLUNTEER`（陪跑中的志愿者可代盲人触发）。
     ///
+    /// **`orderId` 只有在陪跑区间才算数**（2026-10-07，#582）：订单状态须为 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。 志愿者带其它状态的订单号（已完成、已取消、还没出发的预约单等）一律 403 `NOT_ORDER_PARTICIPANT`； **盲人本人**带这类订单号不会被拒，而是按**独立 SOS** 处理（事件不挂该订单、不通知该订单的志愿者），所以客户端缓存里留着旧订单号也不会影响求救。 订单校验排在冷却占位之前（#579）：`orderId` 不存在（400）/ 非参与者（403）的请求**不占**冷却位，去掉 `orderId` 立刻重发不会被 429。
+    ///
     /// **事件永远挂在受助者身上**：传了 `orderId` 时受助者 = 该订单的盲人， 志愿者代触发只体现在 `triggerType=VOLUNTEER_BUTTON`，升级查的是盲人的紧急联系人。
     ///
     /// **触发即升级**：紧急联系人在本请求内就被通知（异步发短信），不再等志愿者响应 30 秒； 若订单有志愿者且触发者不是他，会并行推 `EMERGENCY_VOLUNTEER_ALERT` 给他。
@@ -16960,13 +17119,13 @@ public enum Operations {
                 /// Creates a new `Forbidden`.
                 public init() {}
             }
-            /// `NOT_ORDER_PARTICIPANT`（传了别人的订单）；角色非 BLIND/VOLUNTEER 时为 SecurityConfig 直接拒绝
+            /// `NOT_ORDER_PARTICIPANT`（传了别人的订单；或志愿者带了不在陪跑区间的订单）；角色非 BLIND/VOLUNTEER 时为 SecurityConfig 直接拒绝
             ///
             /// - Remark: Generated from `#/paths//api/emergency/trigger/post(triggerEmergency)/responses/403`.
             ///
             /// HTTP response code: `403 forbidden`.
             case forbidden(Operations.triggerEmergency.Output.Forbidden)
-            /// `NOT_ORDER_PARTICIPANT`（传了别人的订单）；角色非 BLIND/VOLUNTEER 时为 SecurityConfig 直接拒绝
+            /// `NOT_ORDER_PARTICIPANT`（传了别人的订单；或志愿者带了不在陪跑区间的订单）；角色非 BLIND/VOLUNTEER 时为 SecurityConfig 直接拒绝
             ///
             /// - Remark: Generated from `#/paths//api/emergency/trigger/post(triggerEmergency)/responses/403`.
             ///
@@ -17175,13 +17334,13 @@ public enum Operations {
                 /// Creates a new `Forbidden`.
                 public init() {}
             }
-            /// `EMERGENCY_NOT_OWNER` —— 只能撤销自己的紧急求助
+            /// `EMERGENCY_NOT_OWNER` —— 只能撤销自己的紧急求助（事件不存在也是这个响应，不区分）
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancel)/responses/403`.
             ///
             /// HTTP response code: `403 forbidden`.
             case forbidden(Operations.cancel.Output.Forbidden)
-            /// `EMERGENCY_NOT_OWNER` —— 只能撤销自己的紧急求助
+            /// `EMERGENCY_NOT_OWNER` —— 只能撤销自己的紧急求助（事件不存在也是这个响应，不区分）
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancel)/responses/403`.
             ///
@@ -17400,13 +17559,13 @@ public enum Operations {
                 /// Creates a new `Forbidden`.
                 public init() {}
             }
-            /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`（传了 FALSE_ALARM）/ `NOT_ORDER_PARTICIPANT`（不是该订单的志愿者）
+            /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`（传了 FALSE_ALARM）/ `NOT_ORDER_PARTICIPANT`（不是该订单的志愿者，或事件不存在 —— 两者同一个响应）
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/volunteer-response/put(volunteerResponse)/responses/403`.
             ///
             /// HTTP response code: `403 forbidden`.
             case forbidden(Operations.volunteerResponse.Output.Forbidden)
-            /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`（传了 FALSE_ALARM）/ `NOT_ORDER_PARTICIPANT`（不是该订单的志愿者）
+            /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`（传了 FALSE_ALARM）/ `NOT_ORDER_PARTICIPANT`（不是该订单的志愿者，或事件不存在 —— 两者同一个响应）
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/volunteer-response/put(volunteerResponse)/responses/403`.
             ///
@@ -28672,12 +28831,15 @@ public enum Operations {
     ///
     /// **PATCH 语义**：请求体中为 `null` 的字段保留原值。客户端在用户未修改电话时应省略 `phone`，
     /// 避免把展示层的脱敏串写回服务端。
-    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
-    /// 联系人不存在返回 404。
+    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403）。联系人不存在、或不属于该用户，一律 404
+    /// （2026-10 起；此前后者是 403，两种响应不同等于泄露「这个 id 存在、属于别人」）。
+    /// `isPrimary` 不传（`null`）表示不改，保留原值。2026-10-07 前该字段的初值是 `false`，「没传」被当成「传了 false」，
+    /// 只改姓名就会把主联系人降级（#581）。
     /// `isPrimary = true` 时原子清除原主联系人标记。
-    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时，服务端自动把该用户剩余联系人中的第一个提为主联系人
-    /// （对齐 `deleteContact` 的补偿逻辑），保持「有且仅有 1 个 primary」不变量，不会出现 0 个 primary 的中间态
-    /// （2026-07-30 修复，此前会静默产生 0 个 primary）。
+    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时：还有别的联系人，服务端自动把剩余联系人中的第一个提为主联系人
+    /// （对齐 `deleteContact` 的补偿逻辑）；已经只剩这 1 个联系人、没人可补位，返回 400 `CONTACT_PRIMARY_REQUIRED`
+    /// （2026-10-07 前这种情况静默成功并留下 0 个主联系人，与此处「不会出现 0 个 primary」的说法矛盾）。
+    /// 因此「有且仅有 1 个 primary」的不变量在 PUT 之后始终成立。
     /// `phone` 非空时必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`。
     ///
     /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}`.
@@ -28819,7 +28981,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 电话格式不合法（VALIDATION_ERROR，2026-07-30 新增手机号正则后才可能出现）
+            /// 电话格式不合法（VALIDATION_ERROR，2026-07-30 新增手机号正则后才可能出现），或只剩 1 个联系人时取消其主联系人身份（CONTACT_PRIMARY_REQUIRED）
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/put(updateContact)/responses/400`.
             ///
@@ -28870,7 +29032,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// JWT 用户与路径 userId 不一致、角色不是 BLIND，或联系人不属于该用户
+            /// JWT 用户与路径 userId 不一致，或角色不是 BLIND
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/put(updateContact)/responses/403`.
             ///
@@ -28921,7 +29083,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 联系人不存在
+            /// 联系人不存在，或不属于该用户（两者同一个响应，不区分 —— L26）
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/put(updateContact)/responses/404`.
             ///
@@ -29163,7 +29325,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// JWT 用户与路径 userId 不一致、角色不是 BLIND，或联系人不属于该用户
+            /// JWT 用户与路径 userId 不一致，或角色不是 BLIND
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/delete(deleteContact)/responses/403`.
             ///
@@ -29214,7 +29376,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 联系人不存在
+            /// 联系人不存在，或不属于该用户（两者同一个响应，不区分 —— L26）
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/delete(deleteContact)/responses/404`.
             ///
@@ -29404,7 +29566,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// JWT 用户与路径 userId 不一致、角色不是 BLIND，或联系人不属于该用户
+            /// JWT 用户与路径 userId 不一致，或角色不是 BLIND
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/set-primary/put(setPrimary)/responses/403`.
             ///
@@ -29455,7 +29617,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 联系人不存在
+            /// 联系人不存在，或不属于该用户（两者同一个响应，不区分 —— L26）
             ///
             /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/set-primary/put(setPrimary)/responses/404`.
             ///
@@ -31188,6 +31350,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/registration/step1/POST/responses/429/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/registration/step1/POST/responses/429/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitBasicInfo.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitBasicInfo.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// 今日身份核验次数已用完（每人每天 10 次，通过与未通过都计；厂商不可用的 503 不计），`Retry-After` 为到次日零点的秒数
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/registration/step1/post(submitBasicInfo)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.submitBasicInfo.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.submitBasicInfo.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
                             response: self
                         )
                     }
