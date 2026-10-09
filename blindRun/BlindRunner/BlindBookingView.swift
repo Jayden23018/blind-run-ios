@@ -2051,26 +2051,30 @@ struct BlindBookingView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(notice)
 
+            // 🔴 `frame` 挂在 label 里面：挂在 Button 外面只撑大布局、不撑大可点区域 ——
+            // 真机量到的是 34.7pt（2026-10-09，#373 的 UI 用例），低于盲人端 64pt 下限。
             if offersTemporaryPreciseLocation {
-                Button("临时开启精确位置") {
+                Button {
                     viewModel.requestTemporaryPreciseLocation()
+                } label: {
+                    Text("临时开启精确位置")
+                        .frame(maxWidth: .infinity, minHeight: 64)
                 }
                 .buttonStyle(.borderedProminent)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
                 .accessibilityLabel("临时开启精确位置")
                 .accessibilityHint("如果弹出系统提示，选允许后就能用当前位置作为出发地点；不开启也可以继续手动搜索")
                 .accessibilityIdentifier("bookingRequestTemporaryPreciseLocationButton")
             }
 
-            Button(settingsTitle) {
+            Button {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url) // guard:allow raw-open-url 系统设置，不是拨号
                 }
+            } label: {
+                Text(settingsTitle)
+                    .frame(maxWidth: .infinity, minHeight: 64)
             }
             .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
             .accessibilityLabel(settingsTitle)
             .accessibilityHint(
                 offersTemporaryPreciseLocation
@@ -2081,6 +2085,8 @@ struct BlindBookingView: View {
         .padding()
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+        // `.contain`：不配它，容器的 identifier 会盖掉两枚按钮各自的 identifier（真机层级里三个元素同名）。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bookingLocationDegradationNotice")
         .onAppear {
             speechService.speak(notice)

@@ -1711,9 +1711,11 @@ final class AccessibilityAuditTests: XCTestCase {
         let temporary = app.buttons["bookingRequestTemporaryPreciseLocationButton"].firstMatch
         let settings = app.buttons["去设置打开精确位置"].firstMatch
         for (button, name) in [(temporary, "临时开启精确位置"), (settings, "去设置打开精确位置")] {
+            // 按「上一步」退回第 1 步时滚动位置可能停在下方（真机量到告知在可视区上方，y < 0），
+            // 所以按元素在哪一侧决定往哪划。
             var swipes = 0
-            while !(button.exists && button.isHittable) && swipes < 3 {
-                app.swipeUp()
+            while button.exists && !button.isHittable && swipes < 4 {
+                if button.frame.minY < app.frame.midY { app.swipeDown() } else { app.swipeUp() }
                 swipes += 1
             }
             XCTAssertTrue(button.exists, "缺少「\(name)」按钮")
