@@ -182,7 +182,11 @@ struct BlindRunnerTabView: View {
     // MARK: - 求助判定（与改版前逐字相同）
 
     private var sosMode: BlindHomeSOSMode {
-        BlindHomeSOSMode.resolve(order: homeViewModel.activeOrder, role: appState.activeRole)
+        BlindHomeSOSMode.resolve(
+            order: homeViewModel.activeOrder,
+            role: appState.activeRole,
+            isSessionExpired: appState.isSessionExpiryDeferred
+        )
     }
 
     private var primaryEmergencyContact: EmergencyContactResponse? {
@@ -190,9 +194,10 @@ struct BlindRunnerTabView: View {
     }
 
     /// 同一个拨号弹窗有两个入口，第一句不同：`.localCall` 那档是「当前没有进行中的陪跑」，
-    /// 而云端求助失败后按进来时陪跑正在进行，那句话是错的。
+    /// 而云端求助失败后按进来时陪跑正在进行，那句话是错的。跑步中登录过期（#376）又是另一句。
+    /// 映射只在 `EmergencyCallContext.runner(for:)` 一处。
     private var callContext: EmergencyCallContext {
-        sosMode == .cloudTrigger ? .cloudFailed : .homeIdle
+        EmergencyCallContext.runner(for: sosMode)
     }
 
     /// 求助入口的统一分流。magic tap 与「我的」tab 底部那条求助条走同一个入口。
@@ -217,7 +222,7 @@ struct BlindRunnerTabView: View {
         switch sosMode {
         case .cloudTrigger:
             showEmergencyConfirmation = true
-        case .localCall:
+        case .localCall, .localCallSessionExpired:
             showCallOptions = true
         }
     }

@@ -1076,12 +1076,19 @@ final class VolunteerInServiceViewModel: ObservableObject {
         appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
+            // 暂缓中（#376）连第一次也不拉，理由同跑者订单页。
+            guard self?.appState?.isSessionExpiryDeferred != true else { return }
             await self?.load(orderId: orderId, speakChanges: true)
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(AppConstants.Timing.orderPollingInterval * 1_000_000_000))
                 if Task.isCancelled { return }
                 await self?.load(orderId: orderId, speakChanges: true)
                 if self?.order?.status.isTerminal == true {
+                    return
+                }
+                // 跑步中登录已过期（#376）：拿着过期凭证轮询只会每 5 秒再收一次 401。
+                // 暂缓结束就是登出，这个页面随之销毁，不需要恢复轮询。
+                if self?.appState?.isSessionExpiryDeferred == true {
                     return
                 }
             }

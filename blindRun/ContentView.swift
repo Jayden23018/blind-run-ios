@@ -242,6 +242,8 @@ struct ContentView: View {
     @StateObject private var rootRouter = ContentRootRouter()
     @State private var notificationAnnouncementGate = CurrentValueReplayGate<UUID>()
     @State private var healthAnnouncementGate = CurrentValueReplayGate<LiveEscortHealthState>()
+    /// 按 `SessionExpiryDeferral.announcementSerial` 去重，理由同上。
+    @State private var sessionExpiryAnnouncementGate = CurrentValueReplayGate<Int?>()
     private let locationReportTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
     private var rootRoutingKey: String {
         let restoration: String
@@ -350,6 +352,13 @@ struct ContentView: View {
                 routedContent
             }
         }
+        // 跑步中登录过期的提示（#376）由各跑步页底栏里的 `SessionExpiryNotice` 渲染，这里只把数据往下传。
+        // 环境值能穿过 UIKit 承载的 `TabView` / `NavigationStack`，`safeAreaInset` 不能（见下方 Mock 横幅的注释）。
+        .environment(\.sessionExpiryNotice, appState.sessionExpiryDeferral.map { deferral in
+            SessionExpiryNoticeContext(deferral: deferral) { [weak appState] in
+                appState?.endDeferredSessionExpiry()
+            }
+        })
         #if DEBUG
         // Mock 横幅：`.overlay` + 钉进状态栏那一条，**不是** `.safeAreaInset`。
         //
@@ -452,6 +461,17 @@ struct ContentView: View {
             // so retain the last handled value in view state across subscriptions.
             guard healthAnnouncementGate.accepts(state) else { return }
             if let message = state.userMessage { speechService.speak(message) }
+        }
+        // 跑步中登录过期、暂缓退出（#376）。进入时念横幅全文，之后限频补念短句（序号由 `AppState` 递增）。
+        .onReceive(appState.$sessionExpiryDeferral) { deferral in
+            guard sessionExpiryAnnouncementGate.accepts(deferral?.announcementSerial) else { return }
+            // 第一句是「云端求助发不出去」，走最高档；补念只是「这个操作做不了」，不该切断别的播报。
+            if let deferral {
+                speechService.speak(
+                    deferral.spokenMessage,
+                    priority: deferral.announcementSerial <= 1 ? .emergency : .counterpartAction
+                )
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let message = appState.liveEscortCoordinator.healthState.userMessage {
