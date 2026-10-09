@@ -35,6 +35,15 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     /// （拒绝视力状况，靠引导方式仍能完成引导）⇒ 打包反而不满足那条豁免。
     /// 调研见 `docs/research/vision-level-collection-ui-20260910.md` §4.2。
     case blindVisionProfile
+    /// 语音下单前：说的话转成文字后，由后端交给第三方大模型（阿里云通义千问）理解。
+    ///
+    /// App Store 审核指南 5.1.2(i) 要求与第三方共享个人数据前清楚告知并**事先取得明确许可**，
+    /// 原文特意写了 "including with third-party AI"（Jayden23018/blind-run-ios#374，上线前审计 M4）。
+    /// 按**账号**记，理由同 `blindVisionProfile`：同一台手机换人用不是罕见场景。
+    ///
+    /// 只盖 `POST /api/orders/voice/parse` 这一条链路。拒绝之后下单照旧可以手动填写 ——
+    /// 「不同意就用不了」不是一个合格的单独同意，所以出路必须是真的（见 `declinedFeedback`）。
+    case voiceOrderThirdPartyLLM
 
     /// 告知内容的版本。版本号进存储 key，+1 之后旧记录自然失效、用户会被重新问一次。
     ///
@@ -58,10 +67,11 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     /// （`CURRENT_PROJECT_VERSION` 至今为 1，没有上传过 TestFlight），所以回退零影响。
     var disclosureVersion: Int {
         switch self {
-        case .appLaunch: return 3
+        case .appLaunch: return 4
         case .blindIdentity: return 1
         case .volunteerIdentity: return 1
         case .blindVisionProfile: return 1
+        case .voiceOrderThirdPartyLLM: return 1
         }
     }
 
@@ -75,6 +85,8 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             return "提交实名信息前，请先确认"
         case .blindVisionProfile:
             return "填写视力状况前，请先确认"
+        case .voiceOrderThirdPartyLLM:
+            return "语音下单前，请先确认"
         }
     }
 
@@ -86,7 +98,10 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             return [
                 "登录用你的手机号。视障跑者预约前要先实名认证，会收集姓名和身份证号；志愿者还要提供证件照并做一次人脸核验。",
                 "陪跑服务进行中会持续获取你的位置，用来把双方位置显示给对方、记录这次的路线；锁屏后仍在定位。",
-                "语音下单会录下你说的话并转成文字，只用于识别这一单的内容。",
+                // 2026-10-10 补上第三方大模型（#374）。**+1 `disclosureVersion`（3 → 4）**：新的接收方 ——
+                // 此前只说「只用于识别这一单」，而转写文字实际由后端交给阿里云通义千问理解
+                // （后端隐私政策 v1.2 写了，App 内没写）。#365 刚把版本升到 3 且未发布，这里在它基础上再升一档。
+                "语音下单会录下你说的话并转成文字，再发给阿里云通义千问（第三方大模型）理解，只用于识别这一单的内容。第一次用语音下单之前会单独问你，不同意可以改用手动填写。",
                 // 2026-09-30 加入运动数据（后端隐私政策 v1.2 §2.5）。**这次 +1 `disclosureVersion`**：
                 // 新收集一类信息（步数 / 步频 / 爬升高度，跑后运动记录 #189 起随位置上传），
                 // 旧同意没有覆盖到 —— 与 09-10 那次「换分类说法」性质相反。独立一条是为了
@@ -134,6 +149,12 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 // `BlindEscortPreferencesTests` 钉住。
                 "不填也能约跑。你可以只告诉志愿者希望怎么被引导，那一项不需要单独同意。"
             ]
+        case .voiceOrderThirdPartyLLM:
+            return [
+                "语音下单会把你说的话转成文字。",
+                "这段文字会发给阿里云通义千问（第三方大模型），由它帮助理解你要去哪里、什么时候出发。",
+                "不同意也可以下单：改用手动填写，其他功能不受影响。"
+            ]
         }
     }
 
@@ -142,6 +163,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .appLaunch: return "同意并开始使用"
         case .blindIdentity, .volunteerIdentity: return "同意并提交"
         case .blindVisionProfile: return "同意并填写"
+        case .voiceOrderThirdPartyLLM: return "同意并使用语音下单"
         }
     }
 
@@ -152,6 +174,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .appLaunch: return "先不同意"
         case .blindIdentity, .volunteerIdentity: return "先不提交"
         case .blindVisionProfile: return "不填这一项"
+        case .voiceOrderThirdPartyLLM: return "不同意，手动填写"
         }
     }
 
@@ -168,6 +191,9 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             // GB/T 41819-2022 把「48 小时内提示 >1 次」举为反面做法）。这句只做两件事：
             // 确认拒绝是一个完整的答案，以及把人指向那条**真的还能走**的路。
             return "没有填。你仍然可以约跑，也可以在上面告诉志愿者希望怎么被引导。"
+        case .voiceOrderThirdPartyLLM:
+            // 不劝返；只确认拒绝是一个完整的答案，并指向那条真能走的路（页面此刻就停在手动表单上）。
+            return "没有使用语音下单。你可以直接在这一页手动填写出发地点和时间。"
         }
     }
 
@@ -186,10 +212,10 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         switch self {
         case .appLaunch:
             return "助盲跑会收集你的手机号、位置、语音和运动数据；实名认证时还会收集身份证号，志愿者另需人脸核验。"
-                + "地图、定位和地址搜索由高德开放平台 SDK 提供。"
+                + "地图、定位和地址搜索由高德开放平台 SDK 提供，语音下单的文字会发给阿里云通义千问理解。"
                 + "这些信息只用于陪跑服务，不做广告、不出售给任何人。"
                 + "身份证号、人脸、位置轨迹和视力状况属于敏感个人信息，收集前会再单独问你。"
-        case .blindIdentity, .volunteerIdentity, .blindVisionProfile:
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM:
             return nil
         }
     }
@@ -199,7 +225,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var launchTitle: String? {
         switch self {
         case .appLaunch: return "个人信息保护提示"
-        case .blindIdentity, .volunteerIdentity, .blindVisionProfile: return nil
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM: return nil
         }
     }
 

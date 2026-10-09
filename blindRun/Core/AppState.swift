@@ -488,8 +488,50 @@ final class AppState: ObservableObject {
     /// 这里没有注入口，理由同 `profile`：现有用例都通过给 `VoiceOrderWizard.configure`
     /// 传一个架在 `APIClientProtocol` 桩上的 `VoiceOrderService` 打桩，够用。
     /// 真需要 `FakeVoiceOrderService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    ///
+    /// 外面包了一层同意闸门（`ConsentGatedVoiceOrderService`）：账号没同意把转写文字交给第三方大模型时
+    /// 不发 `/parse`。向导拿到的就是这一份，没有绕过它的路。
     var voiceOrder: any VoiceOrderServing {
-        VoiceOrderService(transport: apiClient)
+        ConsentGatedVoiceOrderService(
+            base: VoiceOrderService(transport: apiClient),
+            isConsentGranted: { [weak self] in self?.hasVoiceOrderConsent ?? false }
+        )
+    }
+
+    // MARK: - 语音下单的第三方大模型同意
+
+    /// 按**账号**记（理由同 `ProfileModule` 的视力状况同意）。拿不到 userId 时退到 `.device`：
+    /// 宁可多问一次，也不让界面一声不响。
+    private var voiceOrderConsentScope: PrivacyConsentScope {
+        currentUser.map { .user(String($0.userId)) } ?? .device
+    }
+
+    /// 当前账号是否同意了「语音下单的转写文字交给阿里云通义千问」。每次现读，不缓存。
+    var hasVoiceOrderConsent: Bool {
+        if Self.uiTestSkipsVoiceOrderConsent() { return true }
+        return PrivacyConsentStore(persistence: persistence)
+            .hasConsented(to: .voiceOrderThirdPartyLLM, scope: voiceOrderConsentScope)
+    }
+
+    /// UI 用例默认跳过这道同意：好几条用例靠「点开始约跑」进下单页，同意页会把它们全部挡在门外。
+    /// 与首启告知同一个做法（`resolveInitialPrivacyConsent`）：专测同意页的用例设
+    /// `AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT=1` 走真实路径。UI 用例跑的是进程内 Mock，
+    /// 跳过它不会让任何文字发往第三方；真实安装没有这两个环境变量，一律要同意。
+    static func uiTestSkipsVoiceOrderConsent(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        #if DEBUG || DEMO
+        return environment["AIDRUN_UI_TEST_RESET_STATE"] == "1"
+            && environment["AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT"] != "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// 唯一的写入点：触发者只能是用户按下同意页上的「同意并使用语音下单」。
+    func recordVoiceOrderConsent() {
+        PrivacyConsentStore(persistence: persistence)
+            .recordConsent(to: .voiceOrderThirdPartyLLM, scope: voiceOrderConsentScope)
     }
 
     // MARK: - Init
