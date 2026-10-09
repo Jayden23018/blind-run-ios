@@ -28,7 +28,9 @@
    - 陪跑员端不改入口：跑步中的求助在 `VolunteerRunHelpPanel` 里，只有云端按钮。给它加本地拨号要么改面板（`VolunteerRunningCompanion.swift`，PR #370 正在大改），
      要么在关 sheet 的同时弹拨号框（SwiftUI 时序不稳，真机验不了）。本次只靠下面的兜底，失败文案直接说「请直接拨打120或110」。列为后续项。
    - 兜底：`EmergencyCoordinator.blocksCloudSOSForExpiredSession`，由 `AppState` 在进入暂缓时打开；`trigger` 在资格复核之后、取定位之前检查，落到新失败态 `.unsentSessionExpired`。
-5. **告知**：`ContentView` 照 `liveEscortHealthBanner` 的写法，再挂一条横幅并 `onReceive` 播报。补念限频 30 秒（`AppState.deferredExpiryReminderInterval`）。
+5. **告知**：播报在 `ContentView` 按 `announcementSerial` 念（首句最高档、补念普通档，限频 30 秒）。可见部分是 `SessionExpiryNotice`，放在两端跑步页**自己的固定底栏**里、按钮上方（`OrderFlowBottomActions`、`VolunteerRunningPage`），经自定义环境值拿数据。
+   第一版照 `liveEscortHealthBanner` 挂在 `ContentView` 的 `safeAreaInset` 上，真机截图里**整块盖住了「求助与安全」与主按钮**：那一层与页面之间隔着 UIKit 承载的 `TabView` / `NavigationStack`，安全区内边距传不进去。
+   跑步页没有返回键，所以跑步中真正的出口是提示里的「现在重新登录」（二次确认）。
 
 ## Risks / Trade-offs
 

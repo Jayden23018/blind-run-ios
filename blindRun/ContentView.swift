@@ -244,7 +244,6 @@ struct ContentView: View {
     @State private var healthAnnouncementGate = CurrentValueReplayGate<LiveEscortHealthState>()
     /// 按 `SessionExpiryDeferral.announcementSerial` 去重，理由同上。
     @State private var sessionExpiryAnnouncementGate = CurrentValueReplayGate<Int?>()
-    @State private var showsSessionExpiryReloginConfirmation = false
     private let locationReportTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
     private var rootRoutingKey: String {
         let restoration: String
@@ -353,6 +352,13 @@ struct ContentView: View {
                 routedContent
             }
         }
+        // 跑步中登录过期的提示（#376）由各跑步页底栏里的 `SessionExpiryNotice` 渲染，这里只把数据往下传。
+        // 环境值能穿过 UIKit 承载的 `TabView` / `NavigationStack`，`safeAreaInset` 不能（见下方 Mock 横幅的注释）。
+        .environment(\.sessionExpiryNotice, appState.sessionExpiryDeferral.map { deferral in
+            SessionExpiryNoticeContext(deferral: deferral) { [weak appState] in
+                appState?.endDeferredSessionExpiry()
+            }
+        })
         #if DEBUG
         // Mock 横幅：`.overlay` + 钉进状态栏那一条，**不是** `.safeAreaInset`。
         //
@@ -468,9 +474,6 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let deferral = appState.sessionExpiryDeferral {
-                sessionExpiryBanner(deferral)
-            }
             if let message = appState.liveEscortCoordinator.healthState.userMessage {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "location.fill.viewfinder")
@@ -487,14 +490,6 @@ struct ContentView: View {
                 .accessibilityLabel(message)
                 .accessibilityIdentifier("liveEscortHealthBanner")
             }
-        }
-        // 横幅上的「现在重新登录」。要二次确认：读屏用户在屏幕底部横扫时可能误触，而跑步中退出
-        // 会连本地拨号的求助入口一起带走（登录页没有求助条）。
-        .alert("现在重新登录？", isPresented: $showsSessionExpiryReloginConfirmation) {
-            Button("重新登录", role: .destructive) { appState.endDeferredSessionExpiry() }
-            Button("先不", role: .cancel) {}
-        } message: {
-            Text("会退出当前账号、回到登录页，需要重新收验证码。退出后 App 里暂时没有求助入口，紧急情况请直接拨打120或110。")
         }
         .alert("确认仅退出本机", isPresented: $showRestorationLocalSignOutConfirmation) {
             Button("仅退出本机", role: .destructive) { appState.clearSession() }
@@ -519,35 +514,6 @@ struct ContentView: View {
             lat: sample.coordinate.latitude,
             lng: sample.coordinate.longitude
         )
-    }
-
-    /// 跑步中登录过期、暂缓退出的横幅（#376）。照 `liveEscortHealthBanner` 的写法，多一枚整行按钮。
-    /// 文字用正文字号而不是那条横幅的 caption：这里说的是求助发不出去，不是电量提示。
-    private func sessionExpiryBanner(_ deferral: SessionExpiryDeferral) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(AppColors.warning)
-                    .accessibilityHidden(true)
-                Text(deferral.bannerMessage)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(deferral.bannerMessage)
-
-            Button("现在重新登录") { showsSessionExpiryReloginConfirmation = true }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .accessibilityHint("退出当前账号并回到登录页，会先让你确认")
-                .accessibilityIdentifier("sessionExpiryReloginButton")
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
-        .accessibilityIdentifier("sessionExpiryDeferralBanner")
     }
 
 }

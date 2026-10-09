@@ -771,6 +771,8 @@ struct VolunteerRunningPage<Footer: View>: View {
         .background(AppColors.Flow.page.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
+                // 跑步中登录过期（#376）：结束陪跑要先重新登录，那枚按钮就在这里。没有暂缓时不渲染。
+                SessionExpiryNotice()
                 // 暂停中本屏唯一的黄色按钮（08 §五）；长按结束保持在它下面。
                 if isPaused {
                     FlowActionButton(
