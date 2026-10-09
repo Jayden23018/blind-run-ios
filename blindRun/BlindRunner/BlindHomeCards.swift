@@ -53,6 +53,20 @@ struct BlindHomeOrderCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 8)
 
+                // 2026-10-07 方向 A：跑者首页的卡上画同一根引导绳（与订单页头卡同一组件、同一几何）。
+                // 只给跑者端 —— 陪跑员接单主页的同一张卡不在这次范围里。
+                // 整张卡是 `children: .ignore` 的一个读屏元素，绳子不会多出一站。
+                if role == .blindRunner {
+                    RopeView(
+                        state: ropeState,
+                        theme: .onHero(AppColors.Flow.navy),
+                        volunteerInitial: order.volunteerName?.unmaskedForSpeech.first.map(String.init) ?? "陪",
+                        perspective: .runner
+                    )
+                    .frame(maxWidth: RopeGeometry.width * 1.2)
+                    .padding(.top, 14)
+                }
+
                 placeRow
                     .padding(.top, 10)
 
@@ -156,6 +170,18 @@ struct BlindHomeOrderCard: View {
             in: RoundedRectangle(cornerRadius: FlowMetrics.navyFooterRadius, style: .continuous)
         )
         .accessibilityHidden(true)
+    }
+
+    /// 首页卡上那根绳停在哪一格。与订单页头卡同一套语义：还没有陪跑员是虚线空心，
+    /// 出发中进度固定一段（盲人 token 拿不到 `eta.progress`，同 `BlindOrderHero.departedRopeProgress`）。
+    private var ropeState: RopeState {
+        guard order.volunteerName?.nilIfBlank != nil else { return .invited }
+        switch order.status {
+        case .driverEnRoute: return .departed(progress: BlindOrderHero.departedRopeProgress)
+        case .driverArrived: return .arrived
+        case .inProgress, .completed: return .together
+        default: return .agreed
+        }
     }
 
     // MARK: 文案

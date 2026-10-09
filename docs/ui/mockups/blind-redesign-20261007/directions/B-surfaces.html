@@ -1,0 +1,83 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><link rel="stylesheet" href="common.css">
+<style>
+/* 方向 B：整屏切成几块整面控件，块与块之间是 8pt 深色分隔带，屏幕上没有非控件区域 */
+.phone.b{background:var(--ink)}
+.phone.b .sb{background:var(--page)}
+.blk{display:flex;flex-direction:column;justify-content:center;padding:0 26px;position:relative}
+.blk + .blk{margin-top:8px}
+.lbl{font-size:20px;font-weight:800;opacity:.94}
+.huge{font-size:64px;font-weight:800;line-height:1.02;letter-spacing:-1px}
+.mid{font-size:34px;font-weight:800;line-height:1.15}
+.sub{font-size:22px;font-weight:700;opacity:.94;margin-top:8px}
+.go{position:absolute;right:22px;bottom:18px;font-size:16px;font-weight:800;opacity:.9}
+.t-help{background:var(--helpBg);color:var(--helpText);flex-direction:row;align-items:center;justify-content:center;gap:10px;font-size:28px;font-weight:800}
+.t-cta{background:var(--cta);color:var(--onCTA)}
+.tabs{border-top:none}
+.rateb{display:flex;gap:8px;margin-top:16px}
+.rateb div{flex:1;height:72px;border-radius:14px;background:#fff;border:2px solid var(--ghost);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:var(--ink)}
+.rateb div.sel{border-color:var(--accent);background:var(--blueTint);color:#1F47AD}
+</style></head><body>
+<h1 class="dir">方向 B ·「整块面」</h1>
+<p class="dirsub">屏幕切成 2–3 块整面控件，块间 8pt 深色分隔带，没有留白、没有卡片；每块一句话、一个动作，摸到哪块就是哪件事。求助是每屏固定在最下面的一整块。</p>
+<div class="row">
+
+<!-- 1 首页 -->
+<div><div class="phone b">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="blk" style="flex:5;background:var(--navy);color:#fff">
+  <div class="lbl" style="color:var(--onNavy2)">下一次陪跑 · 已约好</div>
+  <div class="huge" style="margin-top:10px">明天<br>7:00</div>
+  <div class="sub" style="color:var(--onNavy3)">朝阳公园南门<br>陈陪你跑</div>
+  <div class="go" style="color:var(--onNavy2)">打开 ›</div>
+ </div>
+ <div class="blk t-cta" style="flex:3"><div style="display:flex;align-items:center;gap:16px"><span style="font-size:52px;font-weight:500;line-height:1">+</span><span class="mid">预约陪跑</span></div></div>
+ <div class="blk t-help" style="flex:1.4"><svg width="26" height="28" viewBox="0 0 20 22"><path d="M10 1l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V4l8-3z" fill="none" stroke="#B42318" stroke-width="2.4"/></svg>求助</div>
+ <div class="tabs"><div class="on"><i>⌂</i>首页</div><div><i>✦</i>星火</div><div><i>☰</i>记录</div><div><i>●</i>我的</div></div>
+ <div class="hi"></div>
+</div><div class="cap">① 首页（已有预约）</div></div>
+
+<!-- 2 汇合 -->
+<div><div class="phone b">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="blk" style="flex:4;background:var(--arrived);color:#fff">
+  <div class="lbl">汇合 · 第 4 步，共 4 步</div>
+  <div class="huge" style="font-size:56px;margin-top:10px">陈到了</div>
+  <div class="sub">在南门等你<br>陪跑 32 次</div>
+  <div class="go">‹ 返回</div>
+ </div>
+ <div class="blk t-cta" style="flex:3.4;align-items:center"><svg width="56" height="56" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.2" fill="#111A2E"/><path d="M8 21l3-6 3 2v5M6 11l4-3 4 1 2 4 3 1M11 15l-1-5" stroke="#111A2E" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="mid" style="margin-top:8px">开始跑步</span></div>
+ <div class="blk t-help" style="flex:1.4;padding-bottom:20px"><svg width="26" height="28" viewBox="0 0 20 22"><path d="M10 1l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V4l8-3z" fill="none" stroke="#B42318" stroke-width="2.4"/></svg>求助</div>
+ <div class="hi"></div>
+</div><div class="cap">② 汇合 → 开始跑步</div></div>
+
+<!-- 3 跑步中 -->
+<div><div class="phone b">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="blk" style="flex:6;background:var(--running);color:#fff;align-items:center;text-align:center">
+  <div class="lbl">陪跑中 · 和陈一起</div>
+  <div style="font-size:120px;font-weight:800;letter-spacing:-3px;line-height:1;margin-top:12px">2.4</div>
+  <div style="font-size:28px;font-weight:800">公里</div>
+  <div style="font-size:30px;font-weight:800;margin-top:22px">18 分钟</div>
+  <div style="margin-top:30px;display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;background:rgba(255,255,255,.16);padding:12px 22px;border-radius:30px"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="#fff"/><path d="M16 8.5a5 5 0 010 7" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>轻点整块 · 听状态</div>
+ </div>
+ <div class="blk" style="flex:2;background:var(--danger);color:#fff;align-items:center;padding-bottom:18px"><div class="mid">长按 3 秒求助</div></div>
+ <div class="hi light"></div>
+</div><div class="cap">③ 跑步中（整屏两块）</div></div>
+
+<!-- 4 完成 -->
+<div><div class="phone b">
+ <div class="sb"><span>9:41</span><span class="ic">▮▮▮ ◠ ▭</span></div>
+ <div class="blk" style="flex:3.2;background:var(--done);color:#fff">
+  <div class="lbl">陪跑完成 · 和陈一起</div>
+  <div class="huge" style="margin-top:8px">5.2 公里</div>
+  <div class="sub" style="font-size:28px">42 分钟</div>
+ </div>
+ <div class="blk" style="flex:2.6;background:var(--page)">
+  <div style="font-size:24px;font-weight:800">这次陪跑顺利吗</div>
+  <div class="rateb"><div>不顺利</div><div>一般</div><div class="sel">顺利</div></div>
+ </div>
+ <div class="blk t-cta" style="flex:1.6;align-items:center;padding-bottom:20px"><span class="mid">完成</span></div>
+ <div class="hi"></div>
+</div><div class="cap">④ 完成 + 三档评价</div></div>
+
+</div></body></html>

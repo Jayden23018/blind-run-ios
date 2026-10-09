@@ -1643,7 +1643,6 @@ struct BlindOrderStatusView: View {
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
-    @StateObject private var rhythmViewModel = RunnerRhythmViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showEmergencyCancelConfirmation = false
     /// 云端求助失败后的一跳拨号兜底（`EmergencyCallContext.cloudFailed`）。
@@ -1823,20 +1822,8 @@ struct BlindOrderStatusView: View {
     @ViewBuilder
     private func flowFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 10) {
-            // 跑步中告诉陪跑员节奏（V14）。只在 `IN_PROGRESS`：后端也只在这一态收。
-            if order.status == .inProgress {
-                RunnerRhythmButtons(viewModel: rhythmViewModel) { signal in
-                    Task {
-                        await rhythmViewModel.send(
-                            signal,
-                            orderId: order.orderId,
-                            appState: appState,
-                            speak: { speechService.speak($0) },
-                            speakError: { speechService.speakError($0) }
-                        )
-                    }
-                }
-            }
+            // 跑步中不再有节奏按钮（2026-10-07 方向 A，负责人：「跑者和陪跑员会直接沟通」）。
+            // 跑步中这一屏只剩「听当前状态」与底部求助，跑者基本不需要碰手机。
             // 求助的结果面。**不额外判相位** —— 云端求助只在 `IN_PROGRESS` 可发
             // （`canBlindRunnerTriggerEmergency`），所以这三块在别的幕里本来就恒为空；
             // 多一道相位闸只会多一个能判错的地方，而判错的方向是「求助失败了却没有兜底按钮」。
@@ -2013,18 +2000,16 @@ struct BlindOrderStatusView: View {
         .background(AppColors.background)
         .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
-        // 跑步中与已完成隐藏返回箭头（设计稿 ③④ 两屏的导航栏都没有它）。
+        // 🔄 2026-10-07（方向 A，OpenSpec `redesign-blind-runner-screens-a`）：订单页**每一态都藏标签栏**，
+        // 因此**每一态都给返回箭头**，包括跑步中与已完成。
         //
-        // 不藏的后果是具体的：读屏遍历第一站就是「返回」，两次右滑 + 双击就退出了这一屏，
-        // 而它是盲人跑动中唯一能听到里程 / 时长 / 配速、也是唯一能按到求助的地方。
+        // 此前跑步中 / 已完成藏的是返回箭头，出口靠标签栏（这段注释原先写着「若将来有人隐藏标签栏，
+        // 这一行必须同时撤销，否则跑步中就没有任何出口 —— 结束权只在陪跑员手上」）。现在兑现了那句话。
+        // 代价：读屏第一站是「返回」。误触的后果只是回到首页，订单照常进行，首页订单卡可以再点进来。
         //
-        // 🔴 **藏它不会把人关在这一屏里，这一点是核过的**：订单页是在首页 tab 的
-        // `NavigationStack` 里 push 的（`BlindRunnerHomeView` 的 `navigationDestination`），
-        // 而全仓 `.toolbar(.hidden, for: .tabBar)` 命中 0 ⇒ 标签栏照常在，
-        // 切到「记录」或「我的」就离开了。**若将来有人隐藏标签栏，这一行必须同时撤销**，
-        // 否则跑步中就没有任何出口（结束权只在陪跑员手上）。
-        // 已完成那一幕另有一个显式出口 —— 主按钮就是「完成」（`PrimaryAction.done`）。
-        .navigationBarBackButtonHidden(isRunningPhase || isFinishedPhase)
+        // 只能用 `.toolbar(.hidden, for: .tabBar)`：给内容加底部 padding 挡不住标签栏
+        // （记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
+        .toolbar(.hidden, for: .tabBar)
         // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
         // （主按钮 + 求助与安全），再挂一条会变成四个按钮，而
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
@@ -2475,14 +2460,8 @@ struct BlindOrderStatusView: View {
                     .foregroundColor(AppColors.textSecondary)
                     .accessibilityLabel("感谢反馈，可以返回首页")
             } else {
-                Picker("评分", selection: $viewModel.reviewRating) {
-                    ForEach(1...5, id: \.self) { value in
-                        Text("\(value) 星").tag(value)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("服务评分")
-                .accessibilityHint("选择一到五星评分")
+                // 2026-10-07：五档文字 + 跑步小人，评「这次陪跑」不评人。提交的仍是 1–5。
+                RunExperienceRatingPicker(rating: $viewModel.reviewRating)
 
                 TextEditor(text: $viewModel.reviewComment)
                     .frame(minHeight: 96)

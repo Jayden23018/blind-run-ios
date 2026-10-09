@@ -67,10 +67,8 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var quickMessageResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "sendQuickMessage"))
     var ringRunnerResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "ringRunner"))
     var endWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "endWaiting"))
-    var rhythmResult: Result<RhythmSignalResponse, Error> = .failure(NotStubbed(method: "sendRhythm"))
     var pauseRunResult: Result<Void, Error> = .failure(NotStubbed(method: "pauseRun"))
     var resumeRunResult: Result<Void, Error> = .failure(NotStubbed(method: "resumeRun"))
-    private(set) var lastRhythmSignal: RunRhythmSignal?
     var liveActivityTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "registerLiveActivityToken"))
     var runnerMessageResult: Result<RunnerMessageResponse, Error> = .failure(NotStubbed(method: "updateRunnerMessage"))
     private(set) var lastRunnerMessageText: String?
@@ -224,13 +222,6 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastOrderId = orderId
         return try endWaitingResult.get()
-    }
-
-    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws -> RhythmSignalResponse {
-        record()
-        lastOrderId = orderId
-        lastRhythmSignal = signal
-        return try rhythmResult.get()
     }
 
     func pauseRun(orderId: Int64) async throws {
