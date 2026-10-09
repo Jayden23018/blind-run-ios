@@ -14,7 +14,7 @@
 		<string>baidumap</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>用于通过活体认证 SDK 完成志愿者实人认证。</string>
+	<string>用于志愿者实人认证的活体检测，以及拍摄资质证书照片。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。</string>
 	<key>NSMicrophoneUsageDescription</key>
