@@ -44,7 +44,14 @@ public struct Client: APIProtocol {
     private var converter: Converter {
         client.converter
     }
-    /// 登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token， 不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。 如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
+    /// 登出：撤销**这一次登录**签发的全部 token —— 登录时的 access 与 refresh、之后续期和选角色换发的 access 一起失效（#642，2026-10-09 起，取代 S11「只撤这一个 token」）。
+    /// 同账号在其他设备上的登录不受影响；要下线全部设备请调账号注销（DELETE /api/users/{id}）。
+    ///
+    /// 本端点要求 access 有效。access 已过期时，先调 `POST /api/auth/refresh` 换一个再登出 —— 只在本地删 token，服务器上的 refresh 还能用 30 天。
+    ///
+    /// 服务端要把撤销写进数据库：写库失败时返回 500，此时服务端什么都还没撤，可以拿同一个 token 原样重试；不重试也照样清本地会话。
+    ///
+    /// 2026-10-09 之前签发的 token 没有会话号，登出时退回只撤这一个 token。
     ///
     /// - Remark: HTTP `POST /api/auth/logout`.
     /// - Remark: Generated from `#/paths//api/auth/logout/post(logout_1)`.
@@ -6218,6 +6225,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.setRole.Output.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
                 case 409:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.setRole.Output.Conflict.Body
