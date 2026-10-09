@@ -737,6 +737,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .badRequest(.init(body: body))
+                case 429:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.verifyIdentity.Output.TooManyRequests.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .tooManyRequests(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -6678,8 +6700,8 @@ public struct Client: APIProtocol {
     ///
     /// **PATCH 语义**：请求体中为 `null` 的字段保留原值。客户端在用户未修改电话时应省略 `phone`，
     /// 避免把展示层的脱敏串写回服务端。
-    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
-    /// 联系人不存在返回 404。
+    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403）。联系人不存在、或不属于该用户，一律 404
+    /// （2026-10 起；此前后者是 403，两种响应不同等于泄露「这个 id 存在、属于别人」）。
     /// `isPrimary` 不传（`null`）表示不改，保留原值。2026-10-07 前该字段的初值是 `false`，「没传」被当成「传了 false」，
     /// 只改姓名就会把主联系人降级（#581）。
     /// `isPrimary = true` 时原子清除原主联系人标记。
@@ -7832,6 +7854,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 429:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitBasicInfo.Output.TooManyRequests.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .tooManyRequests(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
