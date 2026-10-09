@@ -173,6 +173,19 @@ enum EmergencySOSState: Equatable {
         if case .countingDown = self { return true }
         return false
     }
+
+    /// 这一刻求助是否「已发出或即将发出」—— 只有这些状态下说「所附位置误差约 N 米」才有意义。
+    var carriesSubmittedLocation: Bool {
+        switch self {
+        case .countingDown, .submitting, .contactSmsDelivered, .contactNotifyFailed:
+            return true
+        case .acknowledged(let status):
+            return !status.isTerminal
+        case .idle, .locating, .unsentNoLocation, .failed, .cooldown,
+             .cancelledByOwner, .withdrawnBeforeSending, .withdrawFailed:
+            return false
+        }
+    }
 }
 
 // MARK: - Coordinator
@@ -201,8 +214,13 @@ final class EmergencyCoordinator: ObservableObject {
     /// 而这段逻辑的每一条都是安全约束 —— `latestBackendSample()` 只返回经单一后端边界
     /// 归一化过的**真实设备采样**，Demo / UI 测试的定位路径压根产不出设备采样，
     /// 所以演示坐标无法经由这里混进云端求助。两份实现意味着这条保证要守两遍。
+    ///
+    /// 🔴 **「精确位置」关闭时直接返回 nil，不等。** 那时系统给的是区域代表点（约 5 公里），
+    /// 它同样是「真实设备采样」、能穿过新鲜度闸 —— 而把家属引到几公里外，正是
+    /// `allowsSubmissionWithoutLocation` 那段注释说的「送错地方比不送更糟」。项目负责人 2026-10-09 拍板按无定位处理（#373）。
+    /// 这里**不**顺手申请临时精确位置：系统弹窗会和「求助未发出」的播报抢读屏焦点；跑步开始时已经申请过一次。
     static func freshEmergencyCoordinate(using locationService: LocationService?) async -> LocatedCoordinate? {
-        guard let locationService else { return nil }
+        guard let locationService, !locationService.isPreciseLocationOff else { return nil }
         if let sample = locationService.latestBackendSample() {
             return sample
         }
@@ -217,6 +235,16 @@ final class EmergencyCoordinator: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// `freshEmergencyCoordinate` 返回 nil 之后，文案该按哪个原因说。与它配对使用。
+    ///
+    /// 精确位置关闭排在 `locationError` 之前：那时 `locationError` 通常是 nil，
+    /// 落到默认分支就会叫用户「到室外开阔处重试」—— 换地方解决不了一个开关的问题。
+    static func locationFailureReason(using locationService: LocationService?) -> LocationError? {
+        guard let locationService else { return nil }
+        if locationService.isPreciseLocationOff { return .preciseLocationOff }
+        return locationService.locationError
     }
 
     /// 🔴 **离开 `.countingDown` 与「掐掉倒计时任务」绑成同一件事，不靠调用方各自记得。**
@@ -237,7 +265,17 @@ final class EmergencyCoordinator: ObservableObject {
             countdownTask = nil
         }
     }
-    @Published private(set) var activeEvent: ActiveEmergencyEvent?
+    @Published private(set) var activeEvent: ActiveEmergencyEvent? {
+        didSet {
+            // 误差说明属于「本机发出的那一条」。事件结束或换成别的事件（陪跑员代发、冷启动恢复）就作废，
+            // 否则上一条的「误差约 65 米」会挂到一条根本不是用这个坐标发出的求助上。
+            guard oldValue != nil, oldValue?.eventID != activeEvent?.eventID else { return }
+            submittedLocationAccuracyMeters = nil
+        }
+    }
+    /// 本机发出的求助所附坐标的精度，只在差于 `LocationAccuracyPolicy.weakAccuracyMeters` 时有值。
+    /// 由 `statusMessage` 读，见 `EmergencySafetyCopy.impreciseLocationNote`。
+    @Published private(set) var submittedLocationAccuracyMeters: Double?
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
     @Published private(set) var volunteerAlert: VolunteerEmergencyAlert?
 
@@ -281,7 +319,27 @@ final class EmergencyCoordinator: ObservableObject {
         EmergencyAlarm.stopAll()
         state = .idle
         activeEvent = nil
+        submittedLocationAccuracyMeters = nil
         volunteerAlert = nil
+    }
+
+    /// 屏幕与播报该用的那一句：`state.message`，加上（适用时）所发坐标的误差说明。
+    ///
+    /// **界面渲染点一律读它，不读 `state.message`** —— 否则误差说明只在播报里出现，
+    /// 屏幕上没有；低视力用户与读屏用户拿到的是两份不同的信息。
+    var statusMessage: String? {
+        guard let base = state.message else { return nil }
+        return base + (locationNote(for: state) ?? "")
+    }
+
+    /// 只在「已发出或即将发出」的状态附加：未发出 / 失败 / 撤回时说坐标误差毫无意义。
+    private func locationNote(for state: EmergencySOSState) -> String? {
+        guard let meters = submittedLocationAccuracyMeters, state.carriesSubmittedLocation else { return nil }
+        return EmergencySafetyCopy.impreciseLocationNote(meters: meters)
+    }
+
+    private func outcome(_ state: EmergencySOSState) -> TriggerOutcome {
+        TriggerOutcome(state: state, locationNote: locationNote(for: state))
     }
 
     // MARK: Recovery
@@ -504,12 +562,16 @@ final class EmergencyCoordinator: ObservableObject {
         eventID: Int64,
         orderID: Int64,
         userID: Int64?,
-        endsAt: Date
+        endsAt: Date,
+        locationAccuracyMeters: Double? = nil
     ) -> TriggerOutcome {
         activeEvent = ActiveEmergencyEvent(eventID: eventID, orderID: orderID, userID: userID, status: .countdown)
+        // 在 `activeEvent` 之后写：换事件时它的 didSet 会清掉旧值。恢复路径传 nil = 保留同一事件已有的值。
+        if let locationAccuracyMeters { submittedLocationAccuracyMeters = locationAccuracyMeters }
         state = .countingDown(secondsRemaining: Self.secondsRemaining(until: endsAt, now: Date()))
         let announce = countdownAnnouncer ?? { _ in }
-        announce(EmergencySafetyCopy.countdownTitle)
+        // 误差说明只跟在第一句后面念一次；每秒那句倒数不带，否则每秒重复一遍。
+        announce(EmergencySafetyCopy.countdownTitle + (locationNote(for: state) ?? ""))
         // 不 cancel 旧句柄：从 `beginCountdown` 进来时它正是调用链上的那个任务，取消它等于自杀。
         countdownTask = Task { [weak self] in
             while true {
@@ -532,12 +594,12 @@ final class EmergencyCoordinator: ObservableObject {
             self.countdownTask = nil
             self.activeEvent?.status = .pending
             self.state = .acknowledged(.pending)
-            announce(self.state.message ?? "")
+            announce(self.statusMessage ?? "")
             try? await Task.sleep(nanoseconds: UInt64(Self.serverFireGrace * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await self.refreshActiveEvent()
         }
-        return TriggerOutcome(state: state)
+        return outcome(state)
     }
 
     /// 倒计时里按了「取消」：`PUT /api/emergency/{id}/cancel` 把服务端那条倒计时撤掉。
@@ -582,7 +644,9 @@ final class EmergencyCoordinator: ObservableObject {
     /// Result of a trigger attempt, so callers can announce without re-deriving the state.
     struct TriggerOutcome: Equatable {
         let state: EmergencySOSState
-        var message: String { state.message ?? "" }
+        /// 所发坐标的误差说明（`EmergencySafetyCopy.impreciseLocationNote`），只在适用时有值。
+        var locationNote: String? = nil
+        var message: String { (state.message ?? "") + (locationNote ?? "") }
         var isFailure: Bool { state.isFailure }
     }
 
@@ -609,7 +673,7 @@ final class EmergencyCoordinator: ObservableObject {
     ) async -> TriggerOutcome {
         // Duplicate-submit protection: one tap at a time, regardless of how the alert was dismissed.
         guard !state.isBusy else {
-            return TriggerOutcome(state: state)
+            return outcome(state)
         }
 
         // Re-check eligibility against canonical order state at send time. Stale screen state or a
@@ -647,15 +711,19 @@ final class EmergencyCoordinator: ObservableObject {
             ),
             orderID: order.orderId,
             userID: userID,
-            safety: safety
+            safety: safety,
+            locationAccuracyMeters: LocationAccuracyPolicy.weakAccuracyMeters(of: coordinate)
         )
     }
 
+    /// - Parameter locationAccuracyMeters: 所发坐标的精度，只在差于阈值时非 nil。
+    ///   事件落地（`activeEvent` 写入）**之后**才记，换事件时 `activeEvent.didSet` 会先清掉旧值。
     private func send(
         request: EmergencyTriggerRequest,
         orderID: Int64,
         userID: Int64?,
-        safety: any SafetyServing
+        safety: any SafetyServing,
+        locationAccuracyMeters: Double? = nil
     ) async -> TriggerOutcome {
         state = .submitting
         do {
@@ -668,7 +736,13 @@ final class EmergencyCoordinator: ObservableObject {
             // 服务端采纳了倒计时 → 照它的截止时刻倒数。没采纳（`countdownEndsAt` 为 null）
             // 说明已经立即发出，走下面的已受理分支 —— 自己再数 3 秒就是「屏幕还在倒数、求助早发出去了」。
             if response.eventStatus == .countdown, let endsAt = response.countdownEndsAt?.backendTimestamp {
-                return startServerCountdown(eventID: response.eventId, orderID: orderID, userID: userID, endsAt: endsAt)
+                return startServerCountdown(
+                    eventID: response.eventId,
+                    orderID: orderID,
+                    userID: userID,
+                    endsAt: endsAt,
+                    locationAccuracyMeters: locationAccuracyMeters
+                )
             }
             activeEvent = ActiveEmergencyEvent(
                 eventID: response.eventId,
@@ -676,14 +750,18 @@ final class EmergencyCoordinator: ObservableObject {
                 userID: userID,
                 status: response.eventStatus
             )
+            submittedLocationAccuracyMeters = locationAccuracyMeters
             return finish(.acknowledged(response.eventStatus))
         } catch let error as APIError {
             if case .rateLimited(let info) = error {
-                return await reconcile(after: .cooldown(retryAfterSeconds: info.retryAfterSeconds))
+                return await reconcile(
+                    after: .cooldown(retryAfterSeconds: info.retryAfterSeconds),
+                    locationAccuracyMeters: locationAccuracyMeters
+                )
             }
-            return await reconcile(after: .failed(error.localizedMessage))
+            return await reconcile(after: .failed(error.localizedMessage), locationAccuracyMeters: locationAccuracyMeters)
         } catch {
-            return await reconcile(after: .failed("网络异常"))
+            return await reconcile(after: .failed("网络异常"), locationAccuracyMeters: locationAccuracyMeters)
         }
     }
 
@@ -701,16 +779,21 @@ final class EmergencyCoordinator: ObservableObject {
     ///
     /// 查不到（或这一侧没装恢复入口，比如志愿者 —— 他问到的是对方的事件，不是自己这一条）就老老实实保留失败态 ——
     /// 对账失败不许制造任何救援状态。
-    private func reconcile(after failure: EmergencySOSState) async -> TriggerOutcome {
+    private func reconcile(
+        after failure: EmergencySOSState,
+        locationAccuracyMeters: Double? = nil
+    ) async -> TriggerOutcome {
         _ = finish(failure)
         await refreshActiveEvent()
-        guard activeEvent != nil else { return TriggerOutcome(state: failure) }
-        return TriggerOutcome(state: state)
+        guard activeEvent != nil else { return outcome(failure) }
+        // 对账找回的就是刚才那条（响应在回程丢了）—— 它带的正是这个坐标。
+        if let locationAccuracyMeters { submittedLocationAccuracyMeters = locationAccuracyMeters }
+        return outcome(state)
     }
 
     private func finish(_ newState: EmergencySOSState) -> TriggerOutcome {
         state = newState
-        return TriggerOutcome(state: newState)
+        return outcome(newState)
     }
 
     // MARK: Realtime follow-ups

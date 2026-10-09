@@ -17,6 +17,15 @@
 	<string>用于通过活体认证 SDK 完成志愿者实人认证。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。</string>
+	<!-- 「精确位置」关闭时临时申请精确定位的用途说明。键名必须与 `PreciseLocationPurpose` 的 rawValue 一致，
+	     传了字典里没有的键系统就不弹（#373）。 -->
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>AidRunBookingStartPoint</key>
+		<string>精确位置已关闭时，系统只给大致位置，可能偏差几公里。允许后，助盲跑才能用你的当前位置作为陪跑出发地点，志愿者才能找到你。</string>
+		<key>AidRunEscortRun</key>
+		<string>精确位置已关闭时，系统只给大致位置，可能偏差几公里。允许后，跑步中的紧急求助才能带上你的准确位置，陪跑志愿者也能看到你在哪。</string>
+	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
 	<key>NSMotionUsageDescription</key>

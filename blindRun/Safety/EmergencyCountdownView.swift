@@ -84,7 +84,7 @@ struct EmergencyCountdownView: View {
                         countdownRing
                     }
                     pendingEffects
-                    if let message = coordinator.state.message {
+                    if let message = coordinator.statusMessage {
                         Text(message)
                             .font(AppFonts.body())
                             .foregroundColor(
@@ -221,7 +221,7 @@ struct EmergencyCountdownView: View {
     ///
     /// 🔴 **求助发出之后这一段就撤掉，不改成打勾的完成态。** 打勾等于宣称那三件事做成了，
     /// 而 App 无从知道：短信是事务提交后异步发的、失败也从不回告盲人（`AGENTS.md` §6）。
-    /// 发出之后该说什么由 `coordinator.state.message` 说了算 —— 那条链路上的每一句
+    /// 发出之后该说什么由 `coordinator.statusMessage` 说了算 —— 那条链路上的每一句
     /// 都是被 `EmergencySOSTests` 逐句验过时态的。
     @ViewBuilder
     private var pendingEffects: some View {

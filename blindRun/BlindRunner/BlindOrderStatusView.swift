@@ -662,7 +662,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             userID: appState.userId,
             safety: appState.safety,
             locate: { await self.freshEmergencyCoordinate() },
-            locationFailureReason: { self.locationService?.locationError }
+            locationFailureReason: { EmergencyCoordinator.locationFailureReason(using: self.locationService) }
         )
         // The visible surface is `EmergencyStatusNotice`, driven by the coordinator's state.
         // Deliberately not also setting `errorMessage`: that would render the same sentence twice
@@ -691,7 +691,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             userID: appState.userId,
             safety: appState.safety,
             locate: { await self.freshEmergencyCoordinate() },
-            locationFailureReason: { self.locationService?.locationError },
+            locationFailureReason: { EmergencyCoordinator.locationFailureReason(using: self.locationService) },
             announce: { [weak self] message in
                 // 倒计时每一秒都要盖掉上一秒那句 —— 合成器全进程只有一个、
                 // `speak` 自带 `stopSpeaking`，所以「谁后说谁赢」正是这里想要的行为

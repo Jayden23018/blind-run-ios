@@ -2415,7 +2415,7 @@ struct VolunteerInServiceView: View {
                 .accessibilityHint("确认被陪同者确实需要帮助，客服会介入")
             }
 
-            if order.status.canVolunteerTriggerEmergency, let message = coordinator.state.message {
+            if order.status.canVolunteerTriggerEmergency, let message = coordinator.statusMessage {
                 EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
             }
         }
