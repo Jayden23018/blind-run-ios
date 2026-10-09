@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 const baseURL = 'http://47.114.113.171';
-const defaultVerificationCode = '000000';
-const defaultBlindPhone = '13800000001';
-const defaultVolunteerPhone = '13800000002';
+// 联调账号与验证码不设默认值：仓库是公开的，向后端负责人索取后只放在环境变量里。
+const verificationCode = process.env.AIDRUN_E2E_VERIFICATION_CODE;
 const timeoutMs = Number(process.env.AIDRUN_E2E_TIMEOUT_MS ?? 25000);
 const dispatchWaitMs = Number(process.env.AIDRUN_E2E_DISPATCH_WAIT_MS ?? 30000);
 const attributionWaitMs = Number(process.env.AIDRUN_E2E_ATTRIBUTION_WAIT_MS ?? 20000);
@@ -131,7 +130,10 @@ function selectedPhones() {
     const [generatedBlindPhone, generatedVolunteerPhone] = uniquePhones();
     return [blindPhone ?? generatedBlindPhone, volunteerPhone ?? generatedVolunteerPhone, false];
   }
-  return [blindPhone ?? defaultBlindPhone, volunteerPhone ?? defaultVolunteerPhone, true];
+  throw new Error(
+    'Set AIDRUN_E2E_BLIND_PHONE and AIDRUN_E2E_VOLUNTEER_PHONE (ask the backend owner), '
+    + 'or AIDRUN_E2E_USE_GENERATED_PHONES=1.'
+  );
 }
 
 function shouldSkipProfileSetup(usingSeedAccounts) {
@@ -830,6 +832,9 @@ async function probeEmergencyContract(blind, volunteer, volunteerMessages) {
 }
 
 async function main() {
+  if (!verificationCode) {
+    throw new Error('Set AIDRUN_E2E_VERIFICATION_CODE (ask the backend owner).');
+  }
   const [blindPhone, volunteerPhone, usingSeedAccounts] = selectedPhones();
   created.blindPhone = blindPhone;
   created.volunteerPhone = volunteerPhone;
@@ -837,12 +842,12 @@ async function main() {
   const blind = await login(
     blindPhone,
     'BLIND',
-    defaultVerificationCode
+    verificationCode
   );
   const volunteer = await login(
     volunteerPhone,
     'VOLUNTEER',
-    defaultVerificationCode
+    verificationCode
   );
   created.blindUserId = blind.userId;
   created.volunteerUserId = volunteer.userId;

@@ -19,23 +19,18 @@
 //   node scripts/capture-fixtures.mjs --dry-run     # 只打印会打哪些端点，不发请求（默认）
 //   node scripts/capture-fixtures.mjs --write       # 真的请求并落盘
 //
-// 环境变量：
-//   AIDRUN_FIXTURE_BLIND_PHONE       默认 18664945138（生产 sms.test-phones 白名单里的盲人号）
-//   AIDRUN_FIXTURE_VOLUNTEER_PHONE   默认 13823594196（白名单里的志愿者号）
-//   AIDRUN_FIXTURE_CODE              默认 000000
-//   AIDRUN_FIXTURE_BLIND_TOKEN       给了就跳过 send-code/verify-code（零写入、零短信）
+// 环境变量（账号一律不设默认值，向后端负责人索取，仓库是公开的）：
+//   AIDRUN_FIXTURE_BLIND_TOKEN       给了就跳过 send-code/verify-code（零写入、零短信，首选）
 //   AIDRUN_FIXTURE_VOLUNTEER_TOKEN   同上
+//   AIDRUN_FIXTURE_BLIND_PHONE       没给 token 时必填：盲人端联调号
+//   AIDRUN_FIXTURE_VOLUNTEER_PHONE   没给 token 时必填：志愿者端联调号
+//   AIDRUN_FIXTURE_CODE              没给 token 时必填：该联调号的验证码
 //   AIDRUN_FIXTURE_ONLY              逗号分隔的模型名，只采这几个（例：RunRecordResponse,RunRecordHistoryResponse）
 //   AIDRUN_FIXTURE_RUN_RECORD_*      跑后记录用的订单号 / 月份，默认值见下方常量
 //
-// ⚠️ 号码分配跟直觉相反：**138 是志愿者、186 是盲人**。
-//    原因见 docs/test-accounts.md —— 13823594196 在生产上早就是 verified=1 的现成志愿者，
-//    而角色一旦设定不可更改。这是定论，不是笔误，别"顺手改回来"。
+// ⚠️ 联调号的角色在生产上早已设定且不可更改，要号时连同角色一起问清，别按号段猜。
 //
-// 🚨 别把号码换成白名单以外的号。白名单外的号会走 `smsService.sendVerificationCode` 真发短信，
-//    且 Redis 里存的是随机码 —— 固定码 000000 必然校验失败，脚本第一步就挂。
-//    白名单当前值以生产实测为准：
-//      sudo systemctl cat blindrun | grep -oE '\-Dsms\.test-phones=[^ ]*'
+// 🚨 只用后端给的联调号。其他号码会真发短信、Redis 里存随机码，verify-code 必然失败，脚本第一步就挂。
 //
 // 🚨 verify-code 是**写路径**（AuthService `findByPhone().orElseGet(新建 User)`）——
 //    号码在生产库不存在时会建出一个 role=UNSET 的用户。所以只用已存在的账号，
@@ -47,9 +42,9 @@ import path from 'node:path';
 const BASE_URL = 'http://47.114.113.171';
 const OUT_DIR = path.resolve(import.meta.dirname, '../blindRunTests/Fixtures');
 
-const BLIND_PHONE = process.env.AIDRUN_FIXTURE_BLIND_PHONE ?? '18664945138';
-const VOLUNTEER_PHONE = process.env.AIDRUN_FIXTURE_VOLUNTEER_PHONE ?? '13823594196';
-const CODE = process.env.AIDRUN_FIXTURE_CODE ?? '000000';
+const BLIND_PHONE = process.env.AIDRUN_FIXTURE_BLIND_PHONE;
+const VOLUNTEER_PHONE = process.env.AIDRUN_FIXTURE_VOLUNTEER_PHONE;
+const CODE = process.env.AIDRUN_FIXTURE_CODE;
 
 const RUN_RECORD_ORDER_ID = process.env.AIDRUN_FIXTURE_RUN_RECORD_ORDER_ID ?? '131';
 const RUN_RECORD_INSUFFICIENT_ORDER_ID = process.env.AIDRUN_FIXTURE_RUN_RECORD_INSUFFICIENT_ORDER_ID ?? '139';
@@ -190,15 +185,19 @@ async function sendCode(phone, attempt = 0) {
   }
 }
 
-async function login(phone) {
+// role 显式传入，不再靠 `phone === BLIND_PHONE` 判断 —— 号码没有默认值后，
+// 只给 token 时两个号码都是 undefined，那个比较会让志愿者拿到盲人的 token。
+async function login(role, phone, envToken) {
   // 已有 token 就直接用，跳过 send-code —— 别为了采 fixture 烧短信配额。
-  const envToken =
-    phone === BLIND_PHONE
-      ? process.env.AIDRUN_FIXTURE_BLIND_TOKEN
-      : process.env.AIDRUN_FIXTURE_VOLUNTEER_TOKEN;
   if (envToken) {
-    console.log(`  · ${phone} 复用环境变量里的 token，跳过 send-code`);
+    console.log(`  · ${role} 复用环境变量里的 token，跳过 send-code`);
     return { token: envToken, loginRaw: null };
+  }
+  if (!phone || !CODE) {
+    const prefix = `AIDRUN_FIXTURE_${role.toUpperCase()}`;
+    throw new Error(
+      `缺少${role}账号：设置 ${prefix}_TOKEN，或同时设置 ${prefix}_PHONE 与 AIDRUN_FIXTURE_CODE（向后端负责人索取）`,
+    );
   }
 
   await sendCode(phone);
@@ -253,12 +252,12 @@ async function main() {
   }
 
   console.log('\n[capture-fixtures] 登录…');
-  const blind = await login(BLIND_PHONE);
+  const blind = await login('blind', BLIND_PHONE, process.env.AIDRUN_FIXTURE_BLIND_TOKEN);
   tokens.blind = blind.token;
   if (blind.loginRaw && (!ONLY || ONLY.includes('LoginResponse'))) writeFixture('LoginResponse', 'blind', blind.loginRaw, manifest);
 
   try {
-    const volunteer = await login(VOLUNTEER_PHONE);
+    const volunteer = await login('volunteer', VOLUNTEER_PHONE, process.env.AIDRUN_FIXTURE_VOLUNTEER_TOKEN);
     tokens.volunteer = volunteer.token;
   } catch (err) {
     console.warn(`[capture-fixtures] ⚠ 志愿者账号登录失败，跳过志愿者端点：${err.message}`);
