@@ -285,6 +285,40 @@ final class PrivacyConsentTests: XCTestCase {
         XCTAssertTrue(LegalFallbackCopy.document(for: .userAgreement).sections.allSatisfy { $0.links.isEmpty })
     }
 
+    /// #374：语音下单的转写文字会交给第三方大模型，这件事必须在三处都点名 ——
+    /// 首启告知（含首屏摘要）、内置隐私政策、语音下单前的单独同意页。少一处，
+    /// 用户在那一处读到的就是「只用于识别这一单」，而没有说它会被交给谁。
+    func testEveryPlaceThatDescribesVoiceOrderingNamesTheThirdPartyLLM() throws {
+        let launch = PrivacyConsentPurpose.appLaunch.disclosures
+        let voiceLine = try XCTUnwrap(launch.first { $0.hasPrefix("语音下单会录下你说的话") })
+        XCTAssertTrue(voiceLine.contains("通义千问") && voiceLine.contains("第三方大模型"), voiceLine)
+        XCTAssertTrue(voiceLine.contains("手动填写"), "告知里要说清不同意还有路可走")
+        XCTAssertTrue(try XCTUnwrap(PrivacyConsentPurpose.appLaunch.launchSummary).contains("通义千问"))
+
+        let policy = LegalFallbackCopy.document(for: .privacyPolicy)
+        let collected = try XCTUnwrap(policy.sections.first { $0.heading == "我们收集的信息" })
+        let microphone = try XCTUnwrap(collected.bullets.first { $0.hasPrefix("麦克风与语音内容") })
+        XCTAssertTrue(microphone.contains("通义千问"), microphone)
+        let sdk = try XCTUnwrap(policy.sections.first { $0.heading == "第三方 SDK" })
+        XCTAssertTrue(sdk.bullets.contains { $0.contains("通义千问") }, "「第三方 SDK」一节没提通义千问")
+
+        let consent = PrivacyConsentPurpose.voiceOrderThirdPartyLLM.disclosures.joined()
+        for keyword in ["转成文字", "阿里云通义千问", "第三方大模型", "手动填写"] {
+            XCTAssertTrue(consent.contains(keyword), "语音下单同意页漏了「\(keyword)」")
+        }
+    }
+
+    /// 拒绝是一个完整的答案：只确认没用、并指向真能走的路；不劝返（GB/T 41819-2022 的反面做法）。
+    func testDecliningVoiceOrderConsentPointsToTheManualFormWithoutNagging() {
+        let purpose = PrivacyConsentPurpose.voiceOrderThirdPartyLLM
+        XCTAssertTrue(purpose.declinedFeedback.contains("手动填写"))
+        for nagging in ["建议", "请重新", "为了你的安全请", "再考虑", "必须"] {
+            XCTAssertFalse(purpose.declinedFeedback.contains(nagging), "拒绝后不许劝返：「\(nagging)」")
+        }
+        XCTAssertNil(purpose.launchSummary, "单独同意没有摘要，必须逐条摊开")
+        XCTAssertTrue(purpose.declineButtonTitle.contains("手动填写"), "拒绝按钮要说清拒绝之后去哪")
+    }
+
     func testDisclosureFingerprintIsPinnedToItsVersion() {
         // 指纹自己算，不用 `hashValue`：Swift 的 Hasher 每个进程重新播种，跨进程不稳定。
         func fingerprint(_ purpose: PrivacyConsentPurpose) -> Int {
@@ -304,7 +338,9 @@ final class PrivacyConsentTests: XCTestCase {
             // 2026-10-07 指纹变了**且版本号 2 → 3**，「行为变了」那一档：新的接收方高德 SDK（#355，来自安卓 #54）。
             // 同批「不卖给第三方」→「不出售给任何人」属换说法，跟着这次一起进指纹。
             // 2026-10-09 高德那句改按 iOS 条目写（去掉安卓合包才有的 Wi-Fi、基站），v3 未发布，版本号不再 +1。
-            .appLaunch: (3, 247_631_154),
+            // 2026-10-10 指纹变了**且版本号 3 → 4**，「行为变了」那一档：新的接收方阿里云通义千问（#374）——
+            // 语音下单的转写文字由后端交给它理解。#365 的 v3 未随任何构建发布，所以 +1 不拦任何真实老用户。
+            .appLaunch: (4, 528_145_870),
             // 2026-09-10 指纹又变了而版本号仍不动，同样是**有意的**：
             // 第 4 条里把「视力状况」加进敏感信息那一句。这两个字段的收集、用途、接收方、
             // 保留规则一个字节都没改（iOS 侧此前压根没有采集入口，值来自后端建档默认值），
@@ -313,7 +349,8 @@ final class PrivacyConsentTests: XCTestCase {
             // 属「同一行为换个说法」，不属「行为变了」。
             .blindIdentity: (1, 997_349_647),
             .volunteerIdentity: (1, 57_319_275),
-            .blindVisionProfile: (1, 237_038_544)
+            .blindVisionProfile: (1, 237_038_544),
+            .voiceOrderThirdPartyLLM: (1, 90_249_455)
         ]
 
         for purpose in PrivacyConsentPurpose.allCases {

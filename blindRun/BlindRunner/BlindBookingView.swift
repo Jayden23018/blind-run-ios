@@ -1020,6 +1020,12 @@ struct BlindBookingView: View {
     @State private var isPulsing = false
     /// 零输入下单走到第二步（复核整单）了没有。见 `zeroInputBookingSection`。
     @State private var isZeroInputConfirming = false
+    /// 第一次用语音下单前的单独同意页（转写文字交给第三方大模型，#374）。
+    @State private var showsVoiceConsent = false
+    /// 这一次进入下单页后用户拒绝过同意。只拦 `onAppear` 的**自动**启动：同意页关闭后若下单页又触发
+    /// 一次 `onAppear`，没有它就会再弹一次 —— 对刚拒绝的人那是劝返，也可能是循环。
+    /// 用户自己再点语音按钮 / Magic Tap 不受影响，那是他主动再次发起。
+    @State private var declinedVoiceConsentThisVisit = false
     /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
     /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
     let startsWithVoice: Bool
@@ -1113,7 +1119,7 @@ struct BlindBookingView: View {
             )
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
-            } else if startsWithVoice, !voiceWizard.isRunning {
+            } else if startsWithVoice, !voiceWizard.isRunning, !declinedVoiceConsentThisVisit {
                 startVoiceWizard()
             } else {
                 viewModel.announceEntryGateIfNeeded()
@@ -1151,6 +1157,11 @@ struct BlindBookingView: View {
                 isZeroInputConfirming = false
             }
         }
+        // 全屏而不是 sheet：每条告知要各自可听、可停、可回头再听，且系统模态会把背后的下单页
+        // 整个移出读屏树（自定义 overlay 才需要手动屏蔽，见记忆 hide-uikit-hosted-tree-from-accessibility）。
+        .fullScreenCover(isPresented: $showsVoiceConsent) {
+            voiceConsentScreen
+        }
         .onChange(of: voiceWizard.step) { step in
             // 表单跟着向导走：语音填到哪一项，屏幕上就停在哪一项，读屏用户切回手动时不用重新找位置。
             // 只剩整句和读回两轮，两轮屏幕都停在确认页：向导念的就是这一页的内容，
@@ -1182,6 +1193,12 @@ struct BlindBookingView: View {
     /// `start()` 返回 false 表示被前置门槛挡住（资料 / 实名 / 紧急联系人 / 定位），它自己已经播报过
     /// 原因。这时 `currentStep` 保持第 1 步是对的：用户要去补前置项，不是来复核整单的。
     private func startVoiceWizard() {
+        // 语音下单会把转写文字交给第三方大模型：账号没同意就先问，**不启动向导、不开麦克风**。
+        // 这里是用户看得见的那一道；`ConsentGatedVoiceOrderService` 是兜底，保证同意之前一个 `/parse` 都不会发。
+        guard appState.hasVoiceOrderConsent else {
+            showsVoiceConsent = true
+            return
+        }
         // 复位零输入那一步。**没有这行会露出一个可以直接下单的按钮**：
         // 用户点了「不用填，直接下单」（`isZeroInputConfirming = true`）之后改点「用语音重新说一次」，
         // 这一轮语音再失败时页面切回表单态，而 `@State` 还留着上一轮的 true ——
@@ -1201,6 +1218,39 @@ struct BlindBookingView: View {
         locationService.requestOneTimeLocation()
         if voiceWizard.start() {
             viewModel.currentStep = .review
+        }
+    }
+
+    /// 语音下单的单独同意页。文案全部取自 `PrivacyConsentPurpose`（被单测钉住的合规文本，不在 View 里另写）。
+    ///
+    /// 同意 → 记录后直接启动向导，用户不用再点一次。
+    /// 拒绝 → 关掉同意页，下单页此刻停在手动表单上（向导没跑，`showsVoiceStage` 为 false）；
+    /// 当场念出反馈，因为对看不见屏幕的人，页面悄悄换回表单等于「点了没反应」。
+    /// 不劝返、不重试：拒绝是一个完整的答案。
+    private var voiceConsentScreen: some View {
+        NavigationStack {
+            ConsentDisclosureView(
+                purpose: .voiceOrderThirdPartyLLM,
+                onAgree: {
+                    appState.recordVoiceOrderConsent()
+                    declinedVoiceConsentThisVisit = false
+                    showsVoiceConsent = false
+                    // 先掐掉还没念完的告知朗读：向导起步要等当前播报落定才开麦，不掐就白等那段长文本。
+                    speechService.stop()
+                    startVoiceWizard()
+                },
+                onDecline: {
+                    declinedVoiceConsentThisVisit = true
+                    showsVoiceConsent = false
+                    speechService.stop()
+                    speechService.speak(PrivacyConsentPurpose.voiceOrderThirdPartyLLM.declinedFeedback)
+                }
+            )
+            .navigationTitle("语音下单")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .task {
+            speechService.speak(text: PrivacyConsentPurpose.voiceOrderThirdPartyLLM.spokenScript)
         }
     }
 
