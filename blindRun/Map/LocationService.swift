@@ -8,6 +8,34 @@ enum LocationError: String, Sendable {
     case permissionDenied
     case locationUnavailable
     case timeout
+    /// 已授权，但系统「精确位置」关闭：只拿得到区域代表点（约 5 公里）。
+    ///
+    /// **`LocationService.locationError` 从不取这个值** —— 那个属性还是陪跑会话的闸门，
+    /// 模糊位置下同行位置照常共享（陪跑员端按 `accuracyM` 放宽方位扇形）。
+    /// 它只由 `EmergencyCoordinator.locationFailureReason(using:)` 产出，供求助文案分岔。
+    case preciseLocationOff
+}
+
+// MARK: - Accuracy Policy
+
+/// 定位精度的阈值。与陪跑员端 `VolunteerRunTip.weakAccuracyMeters` 取同一个数，
+/// 用例 `PreciseLocationGateTests.testWeakAccuracyThresholdMatchesTheVolunteerSide` 钉住两者相等。
+enum LocationAccuracyPolicy {
+    static let weakAccuracyMeters: Double = 50
+
+    /// 精度差于阈值时返回米数，否则 nil。精度未知（Core Location 给负数，`LocatedCoordinate` 已转成 nil）
+    /// 不算差 —— 没有依据就不说「不准」。
+    static func weakAccuracyMeters(of sample: LocatedCoordinate?) -> Double? {
+        guard let meters = sample?.horizontalAccuracy, meters > weakAccuracyMeters else { return nil }
+        return meters
+    }
+}
+
+/// 临时精确位置的用途键。值必须与 `Info.plist` 的 `NSLocationTemporaryUsageDescriptionDictionary` 键一致，
+/// 否则系统不弹（SDK `CLLocationManager.h` 原文：「Passing any other string would result in the prompt not being displayed」）。
+enum PreciseLocationPurpose: String, Sendable {
+    case bookingStartPoint = "AidRunBookingStartPoint"
+    case escortRun = "AidRunEscortRun"
 }
 
 // MARK: - Location Service
@@ -27,6 +55,10 @@ final class LocationService: NSObject, ObservableObject {
 
     /// 定位错误（权限拒绝或定位失败时有值）
     @Published var locationError: LocationError?
+
+    /// 系统「精确位置」开关。关掉后系统把位置吸附到区域代表点，精度约 5 公里，样本最旧可能 20 分钟
+    /// （iOS 26.2 SDK `CLLocationManager.h` 对 `CLAccuracyAuthorizationReducedAccuracy` 的注释）。
+    @Published private(set) var accuracyAuthorization: CLAccuracyAuthorization
 
     /// 最近一次真实定位更新时间，供非视觉摘要和验收记录使用。
     ///
@@ -113,6 +145,17 @@ final class LocationService: NSObject, ObservableObject {
         return authorizationStatus == .notDetermined
     }
 
+    /// 已授权、但「精确位置」关闭。此时拿到的坐标是区域代表点，不能当作求助坐标或出发地点。
+    ///
+    /// 只在已授权时成立：未授权时 SDK 说 `accuracyAuthorization` 无意义（`.notDetermined` 下也可能报 full）。
+    var isPreciseLocationOff: Bool {
+        #if DEBUG
+        if let preciseLocationOffOverrideForTesting { return preciseLocationOffOverrideForTesting }
+        if isUsingUITestDemoLocation { return false }
+        #endif
+        return isAuthorized && accuracyAuthorization == .reducedAccuracy
+    }
+
     var readableCurrentLocationSummary: String {
         #if DEBUG
         if isUsingUITestDemoLocation {
@@ -149,6 +192,16 @@ final class LocationService: NSObject, ObservableObject {
     #if DEBUG
     private var authorizationOverrideForTesting: Bool?
     private var suppressHardwareUpdatesForTesting = false
+    private var preciseLocationOffOverrideForTesting: Bool?
+    /// 申请过的临时精确位置用途，按调用顺序。接缝打开时不碰 `CLLocationManager`。
+    private(set) var temporaryPreciseLocationRequestsForTesting: [PreciseLocationPurpose] = []
+
+    /// 把「精确位置」开关钉在给定状态。与 `simulateDeviceLocationForTesting` 同一种接缝：
+    /// 打开后申请临时精确位置只记账，不弹系统窗。
+    func simulatePreciseLocationOffForTesting(_ off: Bool = true) {
+        preciseLocationOffOverrideForTesting = off
+        objectWillChange.send()
+    }
 
     func simulateDeviceLocationForTesting(
         _ coordinate: CLLocationCoordinate2D,
@@ -197,6 +250,7 @@ final class LocationService: NSObject, ObservableObject {
         let manager = CLLocationManager()
         self.locationManager = manager
         self.authorizationStatus = manager.authorizationStatus
+        self.accuracyAuthorization = manager.accuracyAuthorization
         super.init()
 
         manager.delegate = self
@@ -229,6 +283,22 @@ final class LocationService: NSObject, ObservableObject {
         #endif
         guard isNotDetermined else { return }
         locationManager.requestWhenInUseAuthorization()
+    }
+
+    /// 精确位置关闭时，申请临时精确位置；开着时什么都不做。
+    ///
+    /// 系统可能不弹（App 在后台、或系统自行决定），所以调用方的文案只能写「如果弹出提示」。
+    /// 用户的回答经 `locationManagerDidChangeAuthorization` 回来，这里不需要 completion。
+    /// 授予后在前台、或开着后台定位指示器的陪跑会话期间都不过期（SDK 注释）。
+    func requestTemporaryPreciseLocation(for purpose: PreciseLocationPurpose) {
+        guard isPreciseLocationOff else { return }
+        #if DEBUG
+        if preciseLocationOffOverrideForTesting != nil || suppressHardwareUpdatesForTesting {
+            temporaryPreciseLocationRequestsForTesting.append(purpose)
+            return
+        }
+        #endif
+        locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose.rawValue)
     }
 
     /// 开始持续定位更新
@@ -449,6 +519,11 @@ extension LocationService: CLLocationManagerDelegate {
             #endif
             if self.authorizationStatus != manager.authorizationStatus {
                 self.authorizationStatus = manager.authorizationStatus
+            }
+            // 「精确位置」开关的变化也走这个回调（SDK `CLLocationManagerDelegate.h` 原文：
+            // 「Invoked when either the authorizationStatus or accuracyAuthorization properties change」）。
+            if self.accuracyAuthorization != manager.accuracyAuthorization {
+                self.accuracyAuthorization = manager.accuracyAuthorization
             }
 
             switch manager.authorizationStatus {
