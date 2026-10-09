@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-const baseURL = 'http://47.114.113.171';
-const defaultVerificationCode = '000000';
-const defaultBlindPhone = '13800000001';
-const defaultVolunteerPhone = '13800000002';
+const baseURL = 'https://47.114.113.171';
+// 联调账号与验证码不设默认值：仓库是公开的，向后端负责人索取后只放在环境变量里。
+// 生成号模式下验证码可以来自 send-code 的响应，这个变量只是兜底。
+const verificationCode = process.env.AIDRUN_E2E_VERIFICATION_CODE;
 const timeoutMs = Number(process.env.AIDRUN_E2E_TIMEOUT_MS ?? 25000);
 const dispatchWaitMs = Number(process.env.AIDRUN_E2E_DISPATCH_WAIT_MS ?? 30000);
 const attributionWaitMs = Number(process.env.AIDRUN_E2E_ATTRIBUTION_WAIT_MS ?? 20000);
@@ -131,7 +131,10 @@ function selectedPhones() {
     const [generatedBlindPhone, generatedVolunteerPhone] = uniquePhones();
     return [blindPhone ?? generatedBlindPhone, volunteerPhone ?? generatedVolunteerPhone, false];
   }
-  return [blindPhone ?? defaultBlindPhone, volunteerPhone ?? defaultVolunteerPhone, true];
+  throw new Error(
+    'Set AIDRUN_E2E_BLIND_PHONE and AIDRUN_E2E_VOLUNTEER_PHONE (ask the backend owner), '
+    + 'or AIDRUN_E2E_USE_GENERATED_PHONES=1.'
+  );
 }
 
 function shouldSkipProfileSetup(usingSeedAccounts) {
@@ -203,6 +206,9 @@ async function login(phone, role, codeFallback) {
   log('send-code', `${phone}`);
   const sendResponse = await http('POST', '/api/auth/send-code', { body: { phone } });
   const code = verificationCodeFromSendResponse(sendResponse, codeFallback);
+  if (!code) {
+    throw new Error(`send-code did not return a code for ${phone}; set AIDRUN_E2E_VERIFICATION_CODE.`);
+  }
 
   log('verify-code', `${phone}`);
   const loginResponse = await http('POST', '/api/auth/verify-code', {
@@ -831,18 +837,21 @@ async function probeEmergencyContract(blind, volunteer, volunteerMessages) {
 
 async function main() {
   const [blindPhone, volunteerPhone, usingSeedAccounts] = selectedPhones();
+  if (usingSeedAccounts && !verificationCode) {
+    throw new Error('Set AIDRUN_E2E_VERIFICATION_CODE (ask the backend owner).');
+  }
   created.blindPhone = blindPhone;
   created.volunteerPhone = volunteerPhone;
 
   const blind = await login(
     blindPhone,
     'BLIND',
-    defaultVerificationCode
+    verificationCode
   );
   const volunteer = await login(
     volunteerPhone,
     'VOLUNTEER',
-    defaultVerificationCode
+    verificationCode
   );
   created.blindUserId = blind.userId;
   created.volunteerUserId = volunteer.userId;
