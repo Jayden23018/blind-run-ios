@@ -25,7 +25,7 @@ enum LocationAccuracyPolicy {
 
     /// 精度差于阈值时返回米数，否则 nil。精度未知（Core Location 给负数，`LocatedCoordinate` 已转成 nil）
     /// 不算差 —— 没有依据就不说「不准」。
-    static func weakAccuracyMeters(of sample: LocatedCoordinate?) -> Double? {
+    static func metersIfWeak(_ sample: LocatedCoordinate?) -> Double? {
         guard let meters = sample?.horizontalAccuracy, meters > weakAccuracyMeters else { return nil }
         return meters
     }
@@ -151,6 +151,8 @@ final class LocationService: NSObject, ObservableObject {
     var isPreciseLocationOff: Bool {
         #if DEBUG
         if let preciseLocationOffOverrideForTesting { return preciseLocationOffOverrideForTesting }
+        // UI 测试拿不到「系统设置里关掉精确位置」这一步，用启动开关模拟（`AccessibilityAuditTests`）。
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRECISE_LOCATION_OFF"] == "1" { return true }
         if isUsingUITestDemoLocation { return false }
         #endif
         return isAuthorized && accuracyAuthorization == .reducedAccuracy
