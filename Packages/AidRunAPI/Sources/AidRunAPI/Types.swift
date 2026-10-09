@@ -11,7 +11,14 @@ public import struct Foundation.Date
 #endif
 /// A type that performs HTTP operations defined by the OpenAPI document.
 public protocol APIProtocol: Sendable {
-    /// 登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token， 不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。 如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
+    /// 登出：撤销**这一次登录**签发的全部 token —— 登录时的 access 与 refresh、之后续期和选角色换发的 access 一起失效（#642，2026-10-09 起，取代 S11「只撤这一个 token」）。
+    /// 同账号在其他设备上的登录不受影响；要下线全部设备请调账号注销（DELETE /api/users/{id}）。
+    ///
+    /// 本端点要求 access 有效。access 已过期时，先调 `POST /api/auth/refresh` 换一个再登出 —— 只在本地删 token，服务器上的 refresh 还能用 30 天。
+    ///
+    /// 服务端要把撤销写进数据库：写库失败时返回 500，此时服务端什么都还没撤，可以拿同一个 token 原样重试；不重试也照样清本地会话。
+    ///
+    /// 2026-10-09 之前签发的 token 没有会话号，登出时退回只撤这一个 token。
     ///
     /// - Remark: HTTP `POST /api/auth/logout`.
     /// - Remark: Generated from `#/paths//api/auth/logout/post(logout_1)`.
@@ -1314,7 +1321,14 @@ public protocol APIProtocol: Sendable {
 
 /// Convenience overloads for operation inputs.
 extension APIProtocol {
-    /// 登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token， 不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。 如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
+    /// 登出：撤销**这一次登录**签发的全部 token —— 登录时的 access 与 refresh、之后续期和选角色换发的 access 一起失效（#642，2026-10-09 起，取代 S11「只撤这一个 token」）。
+    /// 同账号在其他设备上的登录不受影响；要下线全部设备请调账号注销（DELETE /api/users/{id}）。
+    ///
+    /// 本端点要求 access 有效。access 已过期时，先调 `POST /api/auth/refresh` 换一个再登出 —— 只在本地删 token，服务器上的 refresh 还能用 30 天。
+    ///
+    /// 服务端要把撤销写进数据库：写库失败时返回 500，此时服务端什么都还没撤，可以拿同一个 token 原样重试；不重试也照样清本地会话。
+    ///
+    /// 2026-10-09 之前签发的 token 没有会话号，登出时退回只撤这一个 token。
     ///
     /// - Remark: HTTP `POST /api/auth/logout`.
     /// - Remark: Generated from `#/paths//api/auth/logout/post(logout_1)`.
@@ -7397,8 +7411,21 @@ public enum Components {
         }
         /// - Remark: Generated from `#/components/schemas/LoginResponse`.
         public struct LoginResponse: Codable, Hashable, Sendable {
+            /// `token` 的有效期（秒，从签发时起算）。客户端据此在到期前主动续期，不必解析 JWT。
+            /// ⚠️ 不是常量：目前 86400（24h），iOS 支持续期后会改短。
+            ///
+            /// - Remark: Generated from `#/components/schemas/LoginResponse/expiresIn`.
+            public var expiresIn: Swift.Int64
+            /// refresh token（#642），有效期 30 天，**只用来调 `POST /api/auth/refresh`**。
+            /// 存 Keychain；不要放进 `Authorization` 头或任何 URL（当 Bearer 用一律 401）。
+            /// 每次续期都会换发一个新的，客户端用新的覆盖旧的。
+            ///
+            /// - Remark: Generated from `#/components/schemas/LoginResponse/refreshToken`.
+            public var refreshToken: Swift.String
             /// - Remark: Generated from `#/components/schemas/LoginResponse/role`.
             public var role: Swift.String
+            /// access token。放 `Authorization: Bearer` 和 WS 握手的 `?token=`。有效期见 `expiresIn`。
+            ///
             /// - Remark: Generated from `#/components/schemas/LoginResponse/token`.
             public var token: Swift.String
             /// - Remark: Generated from `#/components/schemas/LoginResponse/userId`.
@@ -7406,19 +7433,27 @@ public enum Components {
             /// Creates a new `LoginResponse`.
             ///
             /// - Parameters:
+            ///   - expiresIn: `token` 的有效期（秒，从签发时起算）。客户端据此在到期前主动续期，不必解析 JWT。
+            ///   - refreshToken: refresh token（#642），有效期 30 天，**只用来调 `POST /api/auth/refresh`**。
             ///   - role:
-            ///   - token:
+            ///   - token: access token。放 `Authorization: Bearer` 和 WS 握手的 `?token=`。有效期见 `expiresIn`。
             ///   - userId:
             public init(
+                expiresIn: Swift.Int64,
+                refreshToken: Swift.String,
                 role: Swift.String,
                 token: Swift.String,
                 userId: Swift.Int64
             ) {
+                self.expiresIn = expiresIn
+                self.refreshToken = refreshToken
                 self.role = role
                 self.token = token
                 self.userId = userId
             }
             public enum CodingKeys: String, CodingKey {
+                case expiresIn
+                case refreshToken
                 case role
                 case token
                 case userId
@@ -14302,7 +14337,14 @@ public enum Components {
 
 /// API operations, with input and output types, generated from `#/paths` in the OpenAPI document.
 public enum Operations {
-    /// 登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token， 不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。 如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
+    /// 登出：撤销**这一次登录**签发的全部 token —— 登录时的 access 与 refresh、之后续期和选角色换发的 access 一起失效（#642，2026-10-09 起，取代 S11「只撤这一个 token」）。
+    /// 同账号在其他设备上的登录不受影响；要下线全部设备请调账号注销（DELETE /api/users/{id}）。
+    ///
+    /// 本端点要求 access 有效。access 已过期时，先调 `POST /api/auth/refresh` 换一个再登出 —— 只在本地删 token，服务器上的 refresh 还能用 30 天。
+    ///
+    /// 服务端要把撤销写进数据库：写库失败时返回 500，此时服务端什么都还没撤，可以拿同一个 token 原样重试；不重试也照样清本地会话。
+    ///
+    /// 2026-10-09 之前签发的 token 没有会话号，登出时退回只撤这一个 token。
     ///
     /// - Remark: HTTP `POST /api/auth/logout`.
     /// - Remark: Generated from `#/paths//api/auth/logout/post(logout_1)`.
@@ -27701,6 +27743,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/user/role/POST/responses/401/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/user/role/POST/responses/401/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.setRole.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.setRole.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// 这次登录已登出（服务端撤销记录在库里），errorCode `REFRESH_TOKEN_INVALID`：回登录页（#642）
+            ///
+            /// - Remark: Generated from `#/paths//api/user/role/post(setRole)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.setRole.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.setRole.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
                             response: self
                         )
                     }
