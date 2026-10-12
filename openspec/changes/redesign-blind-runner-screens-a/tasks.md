@@ -29,6 +29,6 @@
 ## 6. 验收
 
 - [x] 6.1 `build-for-testing` 通过
-- [ ] 6.2 真机跑覆盖 suite（`FlowDesignSystemTests` 等单测 + 订单页 / 星火 / 预约相关 UI 用例 + `AccessibilityAuditTests`），`failed=0` 且 `passed>0`
-- [ ] 6.3 `ScreenTourTests` 截图 + 零上下文评委连续两轮 ≥8 分（最多 6 轮）
+- [x] 6.2 真机跑覆盖 suite（`FlowDesignSystemTests` 等单测 + 订单页 / 星火 / 预约相关 UI 用例 + `AccessibilityAuditTests`），`failed=0` 且 `passed>0`（2026-10-12 iPhone 16 Pro：单测 338/0、`ScreenTourTests` 40/0、`AccessibilityAuditTests` 43/4 —— 4 条与 `origin/main` 基线同签名，#384 跟踪）
+- [ ] 6.3 `ScreenTourTests` 截图（2026-10-12 已截，40/0）+ 零上下文评委连续两轮 ≥8 分（最多 6 轮）
 - [ ] 6.4 文档：`design-direction.md` 例外段、`mockups/INDEX.md`、`openspec/specs` 归档
