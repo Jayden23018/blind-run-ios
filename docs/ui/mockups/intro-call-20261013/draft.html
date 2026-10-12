@@ -1,17 +1,17 @@
-<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>先通个电话 · 初稿</title><style>
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>进度绳 + 先通个电话 · 初稿 v2</title><style>
 /* 颜色全部取自 AppColors.Flow 亮色档（同 blind-redesign-20261007/directions/common.css），不新增。 */
 :root{
   --page:#F2F3F6; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --sep:#EEF0F4;
-  --accent:#2A5BD7; --accentInk:#1F47AD; --navy:#1B2657; --onNavy2:#B8C3E6;
+  --accent:#2A5BD7; --accentInk:#1F47AD; --navy:#1B2657;
   --cta:#F6C343; --onCTA:#111A2E; --ctaStroke:#D9A21E;
   --helpBg:#FDECEC; --helpText:#B42318; --helpStroke:#C25A4E;
-  --arrived:#A04B0C; --gold:#FFD978; --blueTint:#E6EDFC; --avatarBg:#DCE6FB; --ghost:#CDD2DC; --track:#DDE1E8;
+  --departed:#2A5BD7; --arrived:#A04B0C; --gold:#FFD978; --blueTint:#E6EDFC; --avatarBg:#DCE6FB; --ghost:#CDD2DC;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;background:#D9DCE3;color:var(--ink);padding:36px 40px;-webkit-font-smoothing:antialiased}
 h1{font-size:30px;font-weight:800;margin-bottom:6px}
 h2{font-size:22px;font-weight:800;margin:40px 0 22px}
-p.sub{font-size:17px;color:#3a4152;margin-bottom:22px;max-width:1500px;line-height:1.5}
+p.sub{font-size:17px;color:#3a4152;margin-bottom:10px;max-width:1500px;line-height:1.55}
 .row{display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap;row-gap:30px}
 .cap{font-size:16px;font-weight:700;color:#3a4152;text-align:center;margin-top:12px;max-width:402px}
 .cap small{display:block;font-weight:500;color:#5B6272;margin-top:4px;font-size:14px;line-height:1.45}
@@ -22,35 +22,18 @@ p.sub{font-size:17px;color:#3a4152;margin-bottom:22px;max-width:1500px;line-heig
 .nav .t{font-size:18px;font-weight:700}
 .circ{width:48px;height:48px;border-radius:24px;background:var(--surface);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(21,26,38,.12);font-size:30px;font-weight:600;padding-bottom:3px}
 .pill-help{height:44px;padding:0 16px;border-radius:22px;background:var(--helpBg);border:1.5px solid var(--helpStroke);color:var(--helpText);font-weight:800;font-size:17px;display:flex;align-items:center;gap:6px}
-/* 头卡 */
 .hero{border-radius:24px;padding:18px 20px 20px;margin:0 16px}
 .hero.light{background:var(--surface);box-shadow:0 1px 2px rgba(21,26,38,.06),0 4px 14px rgba(21,26,38,.05)}
 .hero.dark{color:#fff}
-.eyebrow{font-size:15px;font-weight:700;color:var(--ink2)}
+.eyebrow{font-size:15px;font-weight:700;color:var(--accent)}
 .dark .eyebrow{color:rgba(255,255,255,.9)}
+.prog{font-size:15px;font-weight:700;color:var(--ink2);margin:2px 0 12px}
+.dark .prog{color:rgba(255,255,255,.9)}
 .say{font-size:28px;font-weight:800;line-height:1.25}
 .say-sub{font-size:17px;font-weight:600;color:var(--ink2);margin-top:6px;line-height:1.45}
 .dark .say-sub{color:rgba(255,255,255,.94)}
 .timer{display:inline-flex;align-items:center;gap:6px;margin-top:12px;height:34px;padding:0 14px;border-radius:17px;background:var(--blueTint);color:var(--accentInk);font-size:16px;font-weight:800}
-/* 四步进度 */
-.steps{display:flex;margin:2px 0 6px}
-.st{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;gap:6px;font-size:15px;font-weight:700}
-.st:not(:first-child)::before{content:"";position:absolute;top:14px;right:calc(50% + 14px);width:calc(100% - 28px);height:3px;border-radius:2px;background:var(--line,var(--track))}
-.dot{width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800}
-.light .st.done{color:var(--accentInk)} .light .st.done .dot{background:var(--accent);color:#fff}
-.light .st.done::before,.light .st.cur::before{--line:var(--accent)}
-.light .st.cur{color:var(--ink);font-weight:800} .light .st.cur .dot{background:var(--accent);color:#fff;box-shadow:0 0 0 5px var(--blueTint)}
-.light .st.up{color:#5B6272} .light .st.up .dot{background:#fff;border:2px solid var(--ghost);color:#5B6272}
-.dark .st{color:#fff} .dark .st.done .dot{background:#fff;color:var(--hc)}
-.dark .st.done::before,.dark .st.cur::before{--line:#fff}
-.dark .st.up::before{--line:rgba(255,255,255,.4)}
-.dark .st.cur{font-weight:800} .dark .st.cur .dot{background:#fff;color:var(--hc);box-shadow:0 0 0 5px rgba(255,255,255,.28)}
-.dark .st.up .dot{border:2px solid rgba(255,255,255,.8);color:#fff}
-.next{font-size:15px;font-weight:700;color:var(--ink2);text-align:center;margin:4px 0 2px}
-.dark .next{color:rgba(255,255,255,.9)}
-.divider{height:1px;background:var(--sep);margin:14px 0 12px}
-.dark .divider{background:rgba(255,255,255,.28)}
-/* 信息卡 */
+svg.rope{display:block;width:100%;overflow:visible;margin:12px 0 2px}
 .card{background:var(--surface);border-radius:20px;margin:12px 16px 0;box-shadow:0 1px 2px rgba(21,26,38,.06),0 4px 14px rgba(21,26,38,.05)}
 .kv{display:flex;justify-content:space-between;align-items:center;padding:0 20px;min-height:56px;border-top:1px solid var(--sep);font-size:18px;gap:12px}
 .kv:first-child{border-top:none}
@@ -59,7 +42,6 @@ p.sub{font-size:17px;color:#3a4152;margin-bottom:22px;max-width:1500px;line-heig
 .av{width:48px;height:48px;border-radius:24px;background:var(--avatarBg);color:var(--accentInk);font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
 .person b{font-size:19px;display:block} .person span{font-size:15px;color:var(--ink2)}
 .banner{margin:12px 16px 0;border-radius:16px;background:#FFF6DD;border:1.5px solid #E9C46A;padding:12px 16px;font-size:16px;font-weight:700;color:#5C3D00}
-/* 按钮 */
 .bottom{margin-top:auto;padding:12px 16px 30px;display:flex;flex-direction:column;gap:12px}
 .cta{height:72px;border-radius:18px;background:var(--cta);border:1.5px solid var(--ctaStroke);color:var(--onCTA);font-size:22px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 14px rgba(217,162,30,.28)}
 .cta.big{height:96px;font-size:26px}
@@ -68,136 +50,166 @@ p.sub{font-size:17px;color:#3a4152;margin-bottom:22px;max-width:1500px;line-heig
 .ghost{height:64px;border-radius:16px;background:var(--surface);border:1.5px solid var(--ghost);font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .textbtn{height:44px;font-size:17px;font-weight:700;color:var(--ink2);display:flex;align-items:center;justify-content:center}
 .help{height:64px;border-radius:16px;background:var(--helpBg);border:1.5px solid var(--helpStroke);color:var(--helpText);font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px}
-.new{position:absolute;top:-10px;right:-10px;background:#2A5BD7;color:#fff;font-size:13px;font-weight:800;padding:3px 9px;border-radius:10px}
-.note{font-size:14px;color:#3a4152;line-height:1.55;max-width:402px;margin-top:8px}
+.new{position:absolute;top:-10px;right:-10px;background:#2A5BD7;color:#fff;font-size:13px;font-weight:800;padding:3px 9px;border-radius:10px;z-index:2}
+.legend{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;background:#fff;border-radius:20px;padding:22px 26px;max-width:1440px}
+.legend .item{width:310px}
+.legend .item b{display:block;font-size:16px;margin-top:6px}
+.legend .item span{font-size:14px;color:#5B6272;line-height:1.5}
+.note{font-size:14px;color:#3a4152;line-height:1.55;margin-top:24px;max-width:1300px}
 </style></head><body>
 
-<h1>「先通个电话」通话页重设计 · 初稿（2026-10-13）</h1>
-<p class="sub">两端通话页并进订单页同一套样式：同样的顶栏、头卡、引导绳、信息卡、底部按钮；颜色全部是已有的，没有新增。
-通话这一步仍属「匹配」，人还没定下来，所以头卡是匹配阶段的白卡、引导绳是虚线。
-订单页新加的「四步进度」在通话页也有，用户随时知道自己在哪一步、前面走过什么、后面还有什么。<br>
-⚠️ 两条规则原样保留：<b>不显示对方的表态</b>，<b>不显示「这是第几位志愿者」</b>（说了就等于告诉盲人前面几位没成）。</p>
+<h1>进度绳 + 「先通个电话」通话页 · 初稿 v2（2026-10-13）</h1>
+<p class="sub">v2 按负责人 10-13 的意见改：<b>进度和引导绳合成一根</b>。我在左、对方在右，中间是一根下垂的弧线；
+绳上四个刻度（匹配 · 约好 · 出发 · 汇合），每进一个阶段，「我」的头像沿绳子往对方挪一格。走过的刻度打勾、绳段变实线；没到的刻度是空心圈、绳段是虚线。
+到「汇合」时两个头像挨在一起。陪跑员端镜像：陪跑员在左，刻度是邀请 · 约好 · 出发 · 汇合。<br>
+颜色全部是已有的；通话页两条规则原样保留：<b>不显示对方的表态</b>、<b>不显示「这是第几位志愿者」</b>。</p>
 
-<h2>一、订单页的两处改动（你已拍板，直接做；这里只是示意）</h2>
+<h2>〇、进度绳的四个阶段（盲人端，同一个组件）</h2>
+<div class="legend">
+ <div class="item"><svg class="rope" data-rope='{"cur":0,"theme":"light","other":"陪","otherState":"none"}'></svg><b>① 匹配</b><span>还没有陪跑员：右边是虚线圈，整根绳是虚线。</span></div>
+ <div class="item"><svg class="rope" data-rope='{"cur":1,"theme":"light","other":"陈","otherState":"set"}'></svg><b>② 约好</b><span>（实际画在藏青头卡上，这里用白底示意）匹配打勾，「我」挪到第二格。</span></div>
+ <div class="item"><svg class="rope" data-rope='{"cur":2,"theme":"light","other":"陈","otherState":"set"}'></svg><b>③ 出发</b><span>再挪一格，离陪跑员只差最后一段。</span></div>
+ <div class="item"><svg class="rope" data-rope='{"cur":3,"theme":"light","other":"陈","otherState":"set"}'></svg><b>④ 汇合</b><span>两个头像挨在一起，「我」外圈加一道金边。</span></div>
+</div>
+
+<h2>一、订单页（你已拍板的两处，用进度绳重画）</h2>
 <div class="row">
 
-<!-- A 匹配中 + 四步进度 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">陪跑订单</div><div class="circ" style="font-size:20px">🔈</div></div>
-<div class="hero light" style="position:relative"><span class="new">新</span>
- <div class="steps"><div class="st cur"><div class="dot">1</div>匹配</div><div class="st up"><div class="dot">2</div>约好</div><div class="st up"><div class="dot">3</div>出发</div><div class="st up"><div class="dot">4</div>汇合</div></div>
- <div class="next">现在：为你找陪跑员 · 接下来：约好时间</div>
- <div class="divider"></div>
- <div class="eyebrow" style="color:var(--accent)">明天早上 7:00 开跑</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><path d="M50 28 Q171 44 292 28" stroke="#C3C9D5" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="2 7"/><circle cx="24" cy="28" r="21" fill="none" stroke="#C3C9D5" stroke-width="2" stroke-dasharray="3 3"/><text x="24" y="35" text-anchor="middle" font-size="18" font-weight="800" fill="#8A91A2">陪</text><circle cx="318" cy="28" r="21" fill="#1B2657"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">我</text></svg>
+<div class="hero light"><div class="eyebrow">明天早上 7:00 开跑</div>
+ <svg class="rope" data-rope='{"cur":0,"theme":"light","other":"陪","otherState":"none"}'></svg>
+ <div class="prog">第 1 步，共 4 步 · 接下来：约好、出发、汇合</div>
  <div class="say">正在匹配陪跑员</div><div class="say-sub">系统正在派单，请稍候。</div></div>
 <div class="card"><div class="kv"><span>时间</span><span>明天 7:00</span></div><div class="kv"><span>集合地点</span><span>朝阳公园南门</span></div><div class="kv"><span>取消匹配</span><span style="color:#8A91A2">›</span></div></div>
 <div class="bottom"><div class="help">⛉ 求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">A · 匹配中：头卡顶部加四步进度<small>做完的打勾、正在做的是实心大圆点、没到的是空心圈。下面一句话说「现在在做什么、下一步是什么」。读屏念：「第 1 步，共 4 步，匹配陪跑员。接下来：约好、出发、汇合。」约好 / 出发 / 汇合三步用同一个组件，颜色跟着头卡变。</small></div></div>
+<div class="cap">A · 匹配中<small>绳子下面一行小字：第几步、接下来还有什么。读屏把绳子和这行字合成一句：「第 1 步，共 4 步，匹配中。接下来：约好、出发、汇合。」</small></div></div>
 
-<!-- B 汇合 + 大号打电话 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">陪跑订单</div><div class="circ" style="font-size:20px">🔈</div></div>
-<div class="hero dark" style="background:var(--arrived);--hc:var(--arrived)">
- <div class="steps"><div class="st done"><div class="dot">✓</div>匹配</div><div class="st done"><div class="dot">✓</div>约好</div><div class="st done"><div class="dot">✓</div>出发</div><div class="st cur"><div class="dot">4</div>汇合</div></div>
- <div class="next">最后一步：见面后开始跑步</div>
- <div class="divider"></div>
- <div class="eyebrow">今天早上 7:00 开跑</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><circle cx="8" cy="28" r="4" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2"/><path d="M290 28 Q293 28 296 28" stroke="rgba(255,255,255,.75)" stroke-width="3" fill="none"/><circle cx="268" cy="28" r="22" fill="#fff"/><text x="268" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#A04B0C">陈</text><circle cx="318" cy="28" r="27" fill="none" stroke="#FFD978" stroke-width="3"/><circle cx="318" cy="28" r="21" fill="rgba(255,255,255,.08)" stroke="#fff" stroke-width="2"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">我</text></svg>
+<div class="hero dark" style="background:var(--navy)"><div class="eyebrow">已约好 · 今天早上</div>
+ <svg class="rope" data-rope='{"cur":1,"theme":"dark","other":"陈","otherState":"set","hero":"#1B2657"}'></svg>
+ <div class="prog">已完成：匹配 · 接下来：出发、汇合</div>
+ <div class="say" style="font-size:44px">7:00 <span style="font-size:20px">开跑</span></div><div class="say-sub">已经为你约好陪跑员。到出发前如果计划有变，可以打电话告诉他。</div></div>
+<div class="card"><div class="person"><div class="av">陈</div><div><b>陈*</b><span>陪跑 32 次</span></div></div></div>
+<div class="bottom"><div class="cta">📞 打电话给陈</div><div class="help">⛉ 求助与安全</div></div><div class="hi"></div></div>
+<div class="cap">约好（顺带示意深色头卡上的样子）<small>打勾的刻度是白底、头卡色的勾；没到的刻度是白色空心圈。</small></div></div>
+
+<div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
+<div class="nav"><div class="circ">‹</div><div class="t">陪跑订单</div><div class="circ" style="font-size:20px">🔈</div></div>
+<div class="hero dark" style="background:var(--arrived)"><div class="eyebrow">今天早上 7:00 开跑</div>
+ <svg class="rope" data-rope='{"cur":3,"theme":"dark","other":"陈","otherState":"set","hero":"#A04B0C"}'></svg>
+ <div class="prog">已完成：匹配、约好、出发 · 最后一步：见面后开始跑步</div>
  <div class="say">陈已到达</div><div class="say-sub">见面后，轻点下方开始跑步。</div></div>
 <div class="card"><div class="person"><div class="av">陈</div><div><b>陈*</b><span>陪跑 32 次</span></div></div><div class="kv"><span>集合地点</span><span>朝阳公园南门</span></div></div>
 <div class="bottom"><div class="cta big">🏃 开始跑步</div><div class="call" style="position:relative"><span class="new">新</span>📞 打电话给陈</div><div class="help">⛉ 求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">B · 汇合：加回「打电话给陈」<small>80pt 高的大按钮，一按就拨（系统会先弹一次拨号确认）。用白底蓝框而不是黄色：黄色在整个 App 里只给「这一屏最主要的那一个动作」，这一屏是「开始跑步」。读屏顺序：头卡 → 陪跑员 → 开始跑步 → 打电话 → 求助。</small></div></div>
+<div class="cap">B · 汇合：加回「打电话给陈」<small>80pt 高、一按就拨（系统先弹一次拨号确认）。白底蓝框而不是黄色：黄色在整个 App 里只给这一屏最主要的那个动作，这里是「开始跑步」。</small></div></div>
 </div>
 
 <h2>二、盲人端通话页（初稿，请你评判）</h2>
 <div class="row">
 
-<!-- C 打电话前 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">先通个电话</div><div class="circ" style="font-size:20px">🔈</div></div>
-<div class="hero light">
- <div class="steps"><div class="st cur"><div class="dot">1</div>匹配</div><div class="st up"><div class="dot">2</div>约好</div><div class="st up"><div class="dot">3</div>出发</div><div class="st up"><div class="dot">4</div>汇合</div></div>
- <div class="next">现在：和志愿者通个电话 · 接下来：约好时间</div>
- <div class="divider"></div>
- <div class="eyebrow" style="color:var(--accent)">明天早上 7:00 开跑 · 朝阳公园南门</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><path d="M50 28 Q171 44 292 28" stroke="#8FA8E6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="6 7"/><circle cx="24" cy="28" r="22" fill="#DCE6FB" stroke="#2A5BD7" stroke-width="2"/><text x="24" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#1F47AD">李</text><circle cx="171" cy="36" r="15" fill="#fff" stroke="#8FA8E6" stroke-width="1.5"/><text x="171" y="41" text-anchor="middle" font-size="14">📞</text><circle cx="318" cy="28" r="21" fill="#1B2657"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">我</text></svg>
+<div class="hero light"><div class="eyebrow">明天早上 7:00 开跑 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"cur":0,"theme":"light","other":"李","otherState":"candidate","phone":true}'></svg>
+ <div class="prog">第 1 步，共 4 步 · 先通个电话，合适就约好</div>
  <div class="say">李*想陪你跑</div><div class="say-sub">先打个电话聊聊，你们都觉得合适，就约好了。</div>
  <div class="timer">⏱ 这通电话还剩 19 分钟可以打</div></div>
 <div class="bottom"><div class="cta mid">📞 打电话给李*</div><div class="ghost">换一位</div><div class="help">⛉ 求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">C · 还没打电话<small>和订单页一个样子：同样的进度、引导绳、黄色主按钮、底部求助。引导绳是虚线、中间挂一个电话 —— 人选好了但还没定。剩余时间是一个小标签，不是一行灰字。</small></div></div>
+<div class="cap">C · 还没打电话<small>右边是这位志愿者（实心浅蓝圈，有名字但还没定），绳子是虚线、中间挂一个电话。和订单页同一个顶栏、头卡、底部按钮。</small></div></div>
 
-<!-- D 打完回来 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">先通个电话</div><div class="circ" style="font-size:20px">🔈</div></div>
-<div class="hero light">
- <div class="steps"><div class="st cur"><div class="dot">1</div>匹配</div><div class="st up"><div class="dot">2</div>约好</div><div class="st up"><div class="dot">3</div>出发</div><div class="st up"><div class="dot">4</div>汇合</div></div>
- <div class="next">现在：告诉我们合不合适 · 接下来：约好时间</div>
- <div class="divider"></div>
- <div class="eyebrow" style="color:var(--accent)">明天早上 7:00 开跑 · 朝阳公园南门</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><path d="M50 28 Q171 44 292 28" stroke="#8FA8E6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="6 7"/><circle cx="24" cy="28" r="22" fill="#DCE6FB" stroke="#2A5BD7" stroke-width="2"/><text x="24" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#1F47AD">李</text><circle cx="318" cy="28" r="21" fill="#1B2657"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">我</text></svg>
+<div class="hero light"><div class="eyebrow">明天早上 7:00 开跑 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"cur":0,"theme":"light","other":"李","otherState":"candidate"}'></svg>
+ <div class="prog">第 1 步，共 4 步 · 你们都说合适，就进入「约好」</div>
  <div class="say">和李*聊得怎么样？</div><div class="say-sub">你们都说合适，这次陪跑就约好了。</div>
  <div class="timer">⏱ 还剩 12 分钟</div></div>
 <div class="bottom"><div class="cta mid">👍 聊过了，合适</div><div class="ghost">📞 再打一次</div><div class="ghost">换一位</div><div class="help">⛉ 求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">D · 打完电话回来<small>主按钮从「打电话」换成「聊过了，合适」，也改用黄色（原来是绿色，和全 App「黄色 = 主动作」不一致）。「再打一次」保留：App 只能猜你打过了，猜错时还能再拨。</small></div></div>
+<div class="cap">D · 打完电话回来<small>主按钮换成「聊过了，合适」，改用黄色（原来是绿色，和「黄色 = 主动作」不一致）。「再打一次」保留：App 只能猜你打过了，猜错还能再拨。</small></div></div>
 
-<!-- E 等对方 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">先通个电话</div><div class="circ" style="font-size:20px">🔈</div></div>
-<div class="hero light">
- <div class="steps"><div class="st cur"><div class="dot">1</div>匹配</div><div class="st up"><div class="dot">2</div>约好</div><div class="st up"><div class="dot">3</div>出发</div><div class="st up"><div class="dot">4</div>汇合</div></div>
- <div class="next">现在：等系统确认 · 接下来：约好时间</div>
- <div class="divider"></div>
- <div class="eyebrow" style="color:var(--accent)">明天早上 7:00 开跑 · 朝阳公园南门</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><path d="M50 28 Q171 44 292 28" stroke="#8FA8E6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="6 7"/><circle cx="24" cy="28" r="22" fill="#DCE6FB" stroke="#2A5BD7" stroke-width="2"/><text x="24" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#1F47AD">李</text><circle cx="318" cy="28" r="21" fill="#1B2657"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">我</text><circle cx="336" cy="12" r="10" fill="#1C7C45"/><text x="336" y="17" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">✓</text></svg>
+<div class="hero light"><div class="eyebrow">明天早上 7:00 开跑 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"cur":0,"theme":"light","other":"李","otherState":"candidate","meCheck":true}'></svg>
+ <div class="prog">第 1 步，共 4 步 · 等系统确认</div>
  <div class="say">已告诉系统你觉得合适</div><div class="say-sub">约好之后会通知你。</div></div>
 <div class="bottom"><div class="ghost">📞 再打一次</div><div class="ghost">换一位</div><div class="help">⛉ 求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">E · 已说合适，等系统确认<small>这一屏刻意没有黄色主按钮 —— 此刻你没有该做的事。「我」旁边的小勾表示你已经表过态；对方说了什么不显示（规则）。</small></div></div>
+<div class="cap">E · 已说合适，等系统确认<small>没有黄色主按钮：此刻你没有该做的事。「我」头像上的小勾 = 你已表态；对方说了什么不显示（规则）。约好后「我」会沿绳子挪到第 2 格。</small></div></div>
 </div>
 
 <h2>三、陪跑员端通话页（初稿，请你评判）</h2>
 <div class="row">
 
-<!-- F 等来电 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">先通个电话</div><div class="pill-help">⛉ 求助</div></div>
-<div class="hero light">
- <div class="steps"><div class="st cur"><div class="dot">1</div>邀请</div><div class="st up"><div class="dot">2</div>约好</div><div class="st up"><div class="dot">3</div>出发</div><div class="st up"><div class="dot">4</div>汇合</div></div>
- <div class="next">现在：等跑者来电 · 接下来：约好</div>
- <div class="divider"></div>
- <div class="eyebrow" style="color:var(--accent)">明天 7:00 开跑 · 朝阳公园南门 · 离你 3.2 公里</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><path d="M50 28 Q171 44 292 28" stroke="#8FA8E6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="6 7"/><circle cx="24" cy="28" r="21" fill="#1B2657"/><text x="24" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">我</text><circle cx="171" cy="36" r="15" fill="#fff" stroke="#8FA8E6" stroke-width="1.5"/><text x="171" y="41" text-anchor="middle" font-size="14">📞</text><circle cx="318" cy="28" r="22" fill="#DCE6FB" stroke="#2A5BD7" stroke-width="2"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#1F47AD">王</text></svg>
+<div class="hero light"><div class="eyebrow">明天 7:00 开跑 · 朝阳公园南门 · 离你 3.2 公里</div>
+ <svg class="rope" data-rope='{"cur":0,"theme":"light","other":"王","otherState":"candidate","phone":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="prog">第 1 步，共 4 步 · 等跑者来电</div>
  <div class="say">等王*打电话给你</div><div class="say-sub">跑者会用 138****0001 打给你，请留意来电。</div>
  <div class="timer">⏱ 22:42 前聊完</div></div>
 <div class="banner">跑者带导盲犬同行</div>
 <div class="card"><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
 <div class="bottom"><div class="cta">合适，接这一单</div><div class="ghost">不合适</div><div class="textbtn">一直没接到电话</div></div><div class="hi"></div></div>
-<div class="cap">F · 等跑者来电<small>和陪跑员订单页同一套：右上角求助胶囊（这一步按下去是本地拨号，与其他非跑步状态一致）。号码只显示打码版本，用来认来电，不能回拨（规则）。三个选择从一开始就都给。</small></div></div>
+<div class="cap">F · 等跑者来电<small>镜像：陪跑员「我」在左，跑者在右。右上角求助胶囊与陪跑员订单页一致（这一步按下去是本地拨号）。号码只显示打码版本，不能回拨（规则）。</small></div></div>
 
-<!-- G 约成了 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">先通个电话</div><div class="pill-help">⛉ 求助</div></div>
-<div class="hero dark" style="background:var(--navy);--hc:var(--navy)">
- <div class="steps"><div class="st done"><div class="dot">✓</div>邀请</div><div class="st cur"><div class="dot">2</div>约好</div><div class="st up"><div class="dot">3</div>出发</div><div class="st up"><div class="dot">4</div>汇合</div></div>
- <div class="next">接下来：按时出发去集合点</div>
- <div class="divider"></div>
- <div class="eyebrow">明天 7:00 开跑</div>
- <svg viewBox="0 0 342 56" width="100%" style="display:block;margin:10px 0 8px;overflow:visible"><path d="M50 28 Q171 46 292 28" stroke="rgba(255,255,255,.75)" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="24" cy="28" r="22" fill="#fff"/><text x="24" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#1B2657">我</text><circle cx="318" cy="28" r="21" fill="rgba(255,255,255,.08)" stroke="#fff" stroke-width="2"/><text x="318" y="35" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">王</text></svg>
+<div class="hero dark" style="background:var(--navy)"><div class="eyebrow">明天 7:00 开跑</div>
+ <svg class="rope" data-rope='{"cur":1,"theme":"dark","other":"王","otherState":"set","hero":"#1B2657","labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="prog">已完成：邀请 · 接下来：出发、汇合</div>
  <div class="say">约好了，这一单是你的</div><div class="say-sub">明天 7:00 在朝阳公园南门见王*。</div></div>
-<div class="card"><div class="kv"><span>出发地</span><span>朝阳公园南门</span></div><div class="kv"><span>时间</span><span>明天 7:00</span></div></div>
 <div class="bottom"><div class="cta">进入订单</div></div><div class="hi"></div></div>
-<div class="cap">G · 双方都说合适<small>头卡原地变成「约好」的藏青色，进度跳到第 2 步，绳子变实线 —— 和订单页「约好」那一屏一模一样，进去之后不会觉得换了个 App。</small></div></div>
+<div class="cap">G · 双方都说合适<small>头卡原地变成「约好」的藏青色，「我」沿绳子挪到第 2 格 —— 和订单页「约好」那一屏完全一样。</small></div></div>
 
-<!-- H 没约成 -->
 <div><div class="phone"><div class="sb"><span>9:41</span><span>▮▮▮ ◠ ▭</span></div>
 <div class="nav"><div class="circ">‹</div><div class="t">先通个电话</div><div style="width:48px"></div></div>
-<div class="hero light">
- <div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+<div class="hero light"><div class="eyebrow" style="color:var(--ink2)">明天 7:00 · 朝阳公园南门</div>
  <div class="say" style="margin-top:14px">这一单已经安排好了</div><div class="say-sub">感谢你的响应。</div></div>
 <div class="bottom"><div class="cta">返回首页</div></div><div class="hi"></div></div>
-<div class="cap">H · 这一单没约成<small>不说是谁、为什么没成（四种原因一律这样说，规则）。不显示进度：这一单已经不是你的了。语气平静，不安慰也不评判。</small></div></div>
+<div class="cap">H · 这一单没约成<small>不说是谁、为什么没成（四种原因一律这样说，规则）。不画绳子：这一单已经不是你的了。</small></div></div>
 </div>
 
-<p class="note" style="max-width:1300px;margin-top:30px">说明：图里的 🔈 📞 🏃 👍 ⛉ 只是示意，实现时换成系统图标（SF Symbols），不用 emoji。
-数字和名字是示例数据。最大字号下，四步进度改成两行、按钮文字换行，信息不截断。</p>
+<p class="note">说明：图里的 🔈 📞 🏃 👍 ⛉ 只是示意，实现时换成系统图标（SF Symbols），不用 emoji。数字和名字是示例数据。
+最大字号下刻度文字会变大，绳子按宽度等比放大，「第几步」那行字换行，信息不截断。「减弱动态效果」打开时头像直接跳到下一格，不做滑动。</p>
+
+<script>
+// 进度绳：我在左、对方在右；四个刻度在二次曲线上，「我」停在当前刻度。
+function quad(t,p0,c,p2){const u=1-t;return [u*u*p0[0]+2*u*t*c[0]+t*t*p2[0], u*u*p0[1]+2*u*t*c[1]+t*t*p2[1]];}
+document.querySelectorAll('svg[data-rope]').forEach(svg=>{
+  const o=JSON.parse(svg.dataset.rope); const dark=o.theme==='dark'; const hero=o.hero||'#2A5BD7';
+  const labels=o.labels||['匹配','约好','出发','汇合'];
+  const P0=[26,34],C=[146,80],P2=[270,34]; const ts=[0,1/3,2/3,1];
+  const pts=ts.map(t=>quad(t,P0,C,P2)); const cur=o.cur;
+  svg.setAttribute('viewBox','0 0 342 104');
+  let h='';
+  const solid=dark?'rgba(255,255,255,.95)':'#2A5BD7', ahead=dark?'rgba(255,255,255,.55)':(o.otherState==='none'?'#C3C9D5':'#8FA8E6');
+  const N=60; let doneD='',aheadD='';
+  for(let i=0;i<=N;i++){const t=i/N;const [x,y]=quad(t,P0,C,P2);if(t<=ts[cur]+1e-6) doneD+=(doneD?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';}
+  for(let i=0;i<=N;i++){const t=ts[cur]+(1-ts[cur])*i/N;const [x,y]=quad(t,P0,C,P2);aheadD+=(i===0?'M':'L')+x.toFixed(1)+' '+y.toFixed(1)+' ';}
+  if(cur>0) h+=`<path d="${doneD}" stroke="${solid}" stroke-width="3.5" fill="none" stroke-linecap="round"/>`;
+  const agreed=o.otherState==='set';
+  h+=`<path d="${aheadD} L 322 34" stroke="${agreed?solid:ahead}" stroke-width="${agreed?3:2.5}" fill="none" stroke-linecap="round" ${agreed?'':'stroke-dasharray="5 7"'} opacity="${agreed?0.75:1}"/>`;
+  pts.forEach((p,i)=>{
+    const [x,y]=p; const done=i<cur, isCur=i===cur;
+    if(!isCur){
+      if(done){h+=`<circle cx="${x}" cy="${y}" r="9" fill="${dark?'#fff':'#2A5BD7'}"/><path d="M${x-4} ${y} l3 3 l5 -6" stroke="${dark?hero:'#fff'}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;}
+      else{h+=`<circle cx="${x}" cy="${y}" r="7" fill="${dark?'transparent':'#fff'}" stroke="${dark?'rgba(255,255,255,.85)':'#AEB4C0'}" stroke-width="2"/>`;}
+    }
+    const col=dark?'#fff':(isCur?'#151A26':(done?'#1F47AD':'#5B6272'));
+    h+=`<text x="${x}" y="${y+(isCur?46:31)}" text-anchor="middle" font-size="${isCur?17:15}" font-weight="${isCur?800:700}" fill="${col}">${labels[i]}</text>`;
+  });
+  const ox=322, oy=34;
+  if(o.otherState==='none'){h+=`<circle cx="${ox}" cy="${oy}" r="21" fill="${dark?'transparent':'#fff'}" stroke="#C3C9D5" stroke-width="2" stroke-dasharray="3 3"/><text x="${ox}" y="${oy+7}" text-anchor="middle" font-size="18" font-weight="800" fill="#8A91A2">${o.other}</text>`;}
+  else if(o.otherState==='candidate' || !dark){h+=`<circle cx="${ox}" cy="${oy}" r="22" fill="#DCE6FB" stroke="#2A5BD7" stroke-width="2"/><text x="${ox}" y="${oy+7}" text-anchor="middle" font-size="19" font-weight="800" fill="#1F47AD">${o.other}</text>`;}
+  else{h+=`<circle cx="${ox}" cy="${oy}" r="21" fill="rgba(255,255,255,.1)" stroke="#fff" stroke-width="2"/><text x="${ox}" y="${oy+7}" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">${o.other}</text>`;}
+  if(o.phone){const [px,py]=quad((ts[cur]+1)/2+0.04,P0,C,P2);h+=`<circle cx="${px}" cy="${py}" r="14" fill="#fff" stroke="#8FA8E6" stroke-width="1.5"/><text x="${px}" y="${py+5}" text-anchor="middle" font-size="13">📞</text>`;}
+  const [mx,my]=pts[cur];
+  if(cur===3) h+=`<circle cx="${mx}" cy="${my}" r="28" fill="none" stroke="#FFD978" stroke-width="3"/>`;
+  h+=`<circle cx="${mx}" cy="${my}" r="23" fill="${dark?'#fff':'#1B2657'}"/><text x="${mx}" y="${my+7}" text-anchor="middle" font-size="19" font-weight="800" fill="${dark?hero:'#fff'}">我</text>`;
+  if(o.meCheck) h+=`<circle cx="${mx+18}" cy="${my-17}" r="10" fill="#1C7C45"/><path d="M${mx+13.5} ${my-17} l3 3 l5 -6" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+  svg.innerHTML=h;
+});
+</script>
 </body></html>
