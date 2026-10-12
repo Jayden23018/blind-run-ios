@@ -122,6 +122,37 @@ final class BlindOrderHeroTests: XCTestCase {
         XCTAssertNil(hero(.completed).0)
     }
 
+    // MARK: - 头卡色档（2026-10-07，`redesign-blind-runner-screens-a`）
+
+    /// 每一步各取各的状态色，匹配中（还没有陪跑员）是白卡。
+    /// 逐步断言而不是「都不是 light」：把出发错配成约好藏青，这条要能红。
+    func testHeroToneFollowsTheStepAndMatchingStaysLight() {
+        let start = OrderDetailResponse.previewLocalTime(minutesFromNow: 24 * 60, now: now)
+        XCTAssertEqual(hero(.pendingMatch, volunteerName: nil).0?.tone, .light)
+        XCTAssertEqual(hero(.scheduledConfirmed, plannedStart: start).0?.tone, .agreed)
+        XCTAssertEqual(hero(.pendingAccept, plannedStart: Self.noStart).0?.tone, .agreed, "拿不到开跑时间那一支也要着色")
+        XCTAssertEqual(hero(.driverEnRoute).0?.tone, .departed)
+        XCTAssertEqual(hero(.driverArrived).0?.tone, .arrived)
+        XCTAssertEqual(hero(.inProgress, plannedStart: Self.noStart, countdown: 3).0?.tone, .arrived, "倒计时三秒仍在汇合那一格")
+    }
+
+    /// 白卡与彩色卡的取色分支：白卡用浅色主题，其余一律 `onHero`。
+    func testHeroPaletteUsesTheLightThemeOnlyForTheMatchingCard() {
+        XCTAssertNil(BlindHeroPalette(tone: .light).stateColor)
+        for tone in [BlindHeroTone.agreed, .departed, .arrived, .running, .done] {
+            XCTAssertNotNil(BlindHeroPalette(tone: tone).stateColor, "\(tone) 应着状态色")
+        }
+    }
+
+    // MARK: - 完成页评价五档
+
+    /// 契约是 1–5 的整数，五档文字逐个对上分数；读屏念文字不念数字。
+    func testRunExperienceRatingMapsFiveWordsToOneThroughFive() {
+        XCTAssertEqual(RunExperienceRating.allCases.map(\.rawValue), [1, 2, 3, 4, 5])
+        XCTAssertEqual(RunExperienceRating.allCases.map(\.title), ["很差", "较差", "一般", "顺利", "很顺利"])
+        XCTAssertFalse(RunExperienceRating.allCases.contains { $0.title.contains("星") }, "评这次陪跑，不用星星")
+    }
+
     // MARK: - 引导绳读屏：跑者视角
 
     func testRopeSpeaksFromTheRunnersPerspective() {

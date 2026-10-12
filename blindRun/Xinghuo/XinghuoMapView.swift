@@ -279,13 +279,20 @@ struct XinghuoMapView: View {
     /// 大字号时四列改两列：四列平分宽度，「86.5」这种不能折行的数字会被截断
     /// （2026-09-23 真机审计 `Text clipped`）。改版前的写法就是这样，审计验绿过。
     private func stats(_ snapshot: XinghuoSnapshot) -> some View {
-        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : 4
-        let cells: [(String, String, Color)] = [
-            ("\(snapshot.volunteersOnline)", "志愿者在线", AppColors.Xinghuo.ember),
-            ("\(snapshot.runnersWaiting)", "视障跑者", AppColors.Xinghuo.moon),
-            ("\(snapshot.pairsRunning)", "正在同行", AppColors.Xinghuo.ink),
-            (XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink),
-        ]
+        // 盲人端三格：不显示在线志愿者数、也不提别的盲人（2026-10-07，同 `summaryText(for:)`）。
+        let cells: [(String, String, Color)] = isBlind
+            ? [
+                ("\(snapshot.pairsRunning)", "正在同行", AppColors.Xinghuo.ember),
+                ("\(snapshot.todayRuns)", "今日陪跑", AppColors.Xinghuo.ink),
+                (XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink),
+            ]
+            : [
+                ("\(snapshot.volunteersOnline)", "志愿者在线", AppColors.Xinghuo.ember),
+                ("\(snapshot.runnersWaiting)", "视障跑者", AppColors.Xinghuo.moon),
+                ("\(snapshot.pairsRunning)", "正在同行", AppColors.Xinghuo.ink),
+                (XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink),
+            ]
+        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : cells.count
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns), spacing: 0) {
             ForEach(cells.indices, id: \.self) { index in
                 statCell(cells[index].0, cells[index].1, cells[index].2, divided: index % columns != 0)
@@ -363,7 +370,7 @@ struct XinghuoMapView: View {
                 FlowActionButton(
                     "听见星光",
                     systemImage: "waveform",
-                    accessibilityHint: "朗读身边有多少人在线"
+                    accessibilityHint: "朗读附近陪跑的情况"
                 ) {
                     speakSummary()
                 }
@@ -410,29 +417,44 @@ struct XinghuoMapView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("听见星光")
-        .accessibilityHint("朗读身边有多少人在线")
+        .accessibilityHint("朗读附近陪跑的情况")
     }
 
     private func speakSummary() {
         speechService.speak(summary, priority: .onDemand)
     }
 
-    /// 收起态的摘要：一行「N 位志愿者在线」。读屏念的仍是完整摘要句（`accessibilityLabel(summary)`）。
+    /// 卡片头那个金色大数字和它的单位。盲人端是「N 对跑友正在同行」，陪跑员端是「N 位志愿者在线」。
+    /// `nil` = 数字为 0 或还没有数据，改显示 `headlineEmptyText`（不摆一个「0」）。
+    private var headlineNumber: (value: Int, unit: String)? {
+        guard let snapshot else { return nil }
+        if isBlind {
+            return snapshot.pairsRunning > 0 ? (snapshot.pairsRunning, " 对跑友正在同行") : nil
+        }
+        return snapshot.volunteersOnline > 0 ? (snapshot.volunteersOnline, " 位志愿者在线") : nil
+    }
+
+    private var headlineEmptyText: String {
+        if snapshot == nil { return "正在点亮附近的星光" }
+        return isBlind ? "此刻没有人在同行" : "暂时没有志愿者在线"
+    }
+
+    /// 收起态的摘要：一行大数字 + 单位。读屏念的仍是完整摘要句（`accessibilityLabel(summary)`）。
     private var compactHeadline: Text {
-        guard let snapshot, snapshot.volunteersOnline > 0 else {
-            return Text(snapshot == nil ? "正在点亮附近的星光" : "暂时没有志愿者在线")
+        guard let number = headlineNumber else {
+            return Text(headlineEmptyText)
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.Xinghuo.ink)
         }
-        return Text("\(snapshot.volunteersOnline)")
+        return Text("\(number.value)")
             .font(Self.numberFont(.title2))
             .foregroundColor(AppColors.Xinghuo.ember)
-            + Text(" 位志愿者在线")
+            + Text(number.unit)
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.Xinghuo.ink)
     }
 
-    /// 卡片头：「本市 · 此刻」/ **金色大数字** + 位志愿者在线 / 一两行明细。
+    /// 卡片头：「本市 · 此刻」/ **金色大数字** + 单位（见 `headlineNumber`）/ 一两行明细。
     ///
     /// 拼成**一个** `Text`：它就是页面第一个读屏元素，念的是完整摘要句（`accessibilityLabel`）。
     /// 拆成几个 `Text` 再合并成一个元素也能念对，但这一页的字号审计是在「一个 `Text`」
@@ -441,17 +463,17 @@ struct XinghuoMapView: View {
         var text = Text("\(snapshot?.regionName ?? "本市") · 此刻\n")
             .font(AppFonts.caption())
             .foregroundColor(AppColors.Xinghuo.muted)
-        if let snapshot, snapshot.volunteersOnline > 0 {
+        if let number = headlineNumber {
             text = text
-                + Text("\(snapshot.volunteersOnline)")
+                + Text("\(number.value)")
                     .font(Self.numberFont(.title))
                     .foregroundColor(AppColors.Xinghuo.ember)
-                + Text(" 位志愿者在线")
+                + Text(number.unit)
                     .font(AppFonts.body().weight(.semibold))
                     .foregroundColor(AppColors.Xinghuo.ink)
         } else {
             text = text
-                + Text(snapshot == nil ? "正在点亮附近的星光" : "暂时没有志愿者在线")
+                + Text(headlineEmptyText)
                     .font(AppFonts.body().weight(.semibold))
                     .foregroundColor(AppColors.Xinghuo.ink)
         }

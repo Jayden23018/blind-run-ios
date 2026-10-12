@@ -3,19 +3,13 @@ import SwiftUI
 // MARK: - 跑步中加进旧页的新能力（DECISIONS-v2 V4–V8、V11；交付包 08 §二–§五）
 //
 // 挂在 #227 的 v2 跑步页 `VolunteerRunningPage` 上（V4 原定「旧页不动」，负责人 09-26 改为整页换 v2，
-// 本变更随之移植）。这里只放**加进去**的东西：节奏卡 / 信号卡、提示条、耳机语音播报开关、跑步中求助面板。
+// 本变更随之移植）。这里只放**加进去**的东西：提示条、耳机语音播报开关、跑步中求助面板。
+// 节奏卡 / 信号卡 2026-10-07 随跑者端节奏按钮一起删除（OpenSpec `redesign-blind-runner-screens-a`）。
 // 判定都是纯函数，用例在 `RunningRhythmAndHelpTests`。
 
 enum VolunteerRunCopy {
-    static func rhythmLabel(_ name: String) -> String { "\(name)的节奏" }
-    static let staleLabel = "上次反馈"
-    static func noRhythmYet(_ name: String) -> String { "\(name)还没有发来节奏" }
-    static func signalTitle(_ name: String, _ signal: String) -> String { "\(name)：\(signal)" }
-    static let signalSubtitle = "刚刚 · 已震动两下提醒你"
-    static func spokenSignal(_ name: String, _ signal: String) -> String { "\(name)说：\(signal)" }
-
     static let voiceToggleTitle = "耳机语音播报"
-    static func voiceToggleSubtitle(_ name: String) -> String { "每 1 公里，以及\(name)的节奏信号" }
+    static let voiceToggleSubtitle = "每 1 公里播报一次里程和用时"
     static func kilometerAnnouncement(km: Int, duration: String) -> String { "\(km) 公里，用时 \(duration)" }
 
     static func separatedTitle(_ name: String) -> String { "你和\(name)好像走散了" }
@@ -62,144 +56,6 @@ enum VolunteerRunCopy {
 
     static let navButtonLabel = "求助与安全"
     static let navButtonHint = "打开求助面板：暂停、让对方手机响、联系客服或紧急求助"
-}
-
-// MARK: - 节奏卡
-
-struct VolunteerRhythmCardPresentation: Equatable {
-    enum Style: Equatable { case empty, fresh, stale, signal(RunRhythmSignal) }
-
-    /// 过期：距上次信号超过 5 分钟（08 §二）。
-    static let staleAfter: TimeInterval = 5 * 60
-    /// 信号卡保持 8 秒（08 §三）。
-    static let highlightDuration: TimeInterval = 8
-
-    let style: Style
-    let label: String
-    let title: String
-    let trailing: String?
-
-    var spoken: String {
-        [label, title, trailing].compactMap { $0 }.joined(separator: "，")
-    }
-
-    static func make(run: RunView?, name: String, highlightUntil: Date?, now: Date) -> Self {
-        guard let signal = run?.lastSignal, let text = signal.title else {
-            return .init(style: .empty, label: VolunteerRunCopy.rhythmLabel(name), title: VolunteerRunCopy.noRhythmYet(name), trailing: nil)
-        }
-        if let highlightUntil, now < highlightUntil, signal != .ok {
-            return .init(
-                style: .signal(signal),
-                label: VolunteerRunCopy.signalSubtitle,
-                title: VolunteerRunCopy.signalTitle(name, text),
-                trailing: nil
-            )
-        }
-        let at = run?.lastSignalAt?.backendTimestamp
-        let age = at.map { max(0, now.timeIntervalSince($0)) }
-        if let age, age > staleAfter {
-            return .init(style: .stale, label: VolunteerRunCopy.staleLabel, title: text, trailing: agoText(age))
-        }
-        return .init(style: .fresh, label: VolunteerRunCopy.rhythmLabel(name), title: text, trailing: age.map(agoText))
-    }
-
-    static func agoText(_ age: TimeInterval) -> String {
-        age < 60 ? "刚刚" : "\(Int(age / 60)) 分钟前"
-    }
-}
-
-/// 信号到达判定。**推送只当刷新信号**，到达从 `run.lastSignalAt` 的变化推出来（design.md D1）。
-enum RunSignalArrival {
-    /// 比这更旧的「新值」不提醒：切回前台补拉到的旧信号不是「刚刚」。
-    static let freshness: TimeInterval = 30
-
-    static func detect(previous: OrderDetailResponse?, updated: OrderDetailResponse, now: Date) -> RunRhythmSignal? {
-        // 首次加载只显示不提醒（08：冷启动能恢复，但不是新到达）。
-        guard let previous, previous.orderId == updated.orderId, updated.status == .inProgress,
-              let signal = updated.run?.lastSignal, signal != .unknown,
-              let rawAt = updated.run?.lastSignalAt?.nilIfBlank,
-              rawAt != previous.run?.lastSignalAt,
-              let at = rawAt.backendTimestamp,
-              abs(now.timeIntervalSince(at)) <= freshness else { return nil }
-        return signal
-    }
-}
-
-struct VolunteerRhythmCard: View {
-    let presentation: VolunteerRhythmCardPresentation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let titleFont: FlowV2Fonts.Spec = (18, .heavy, .headline)
-    private static let signalTitleFont: FlowV2Fonts.Spec = (22, .heavy, .title3)
-
-    private var signal: RunRhythmSignal? {
-        if case .signal(let signal) = presentation.style { return signal }
-        return nil
-    }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            icon
-            VStack(alignment: .leading, spacing: 2) {
-                if signal == nil {
-                    Text(presentation.label)
-                        .flowFont(FlowV2Fonts.subhead())
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                }
-                Text(presentation.title)
-                    .flowFont(signal == nil ? Self.titleFont : Self.signalTitleFont)
-                    .foregroundColor(titleColor)
-                if signal != nil {
-                    Text(presentation.label)
-                        .flowFont(FlowV2Fonts.subhead(bold: true))
-                        .foregroundColor(AppColors.Flow.onCTA)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if let trailing = presentation.trailing {
-                Text(trailing)
-                    .flowFont(FlowV2Fonts.subhead())
-                    .foregroundColor(AppColors.Flow.secondaryText)
-            }
-        }
-        .padding(16)
-        .background(signal == nil ? AppColors.Flow.surface : AppColors.Flow.cta)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(signal == nil ? Color.clear : AppColors.Flow.ctaStroke, lineWidth: 1.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        // 减弱动态效果：只留颜色过渡（08 §六），高度与缩放不动。
-        .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(response: 0.35, dampingFraction: 0.85), value: presentation.style)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(presentation.spoken)
-        .accessibilityIdentifier("volunteerRunRhythmCard")
-    }
-
-    private var titleColor: Color {
-        if signal != nil { return AppColors.Flow.onCTA }
-        return presentation.style == .stale ? AppColors.Flow.secondaryText : AppColors.Flow.primaryText
-    }
-
-    @ViewBuilder
-    private var icon: some View {
-        if let signal {
-            Image(systemName: signal == .slower ? "arrow.down" : signal == .faster ? "arrow.up" : "checkmark")
-                .font(.system(size: 20, weight: .heavy))
-                .foregroundColor(AppColors.Flow.onCTA)
-                .frame(width: 48, height: 48)
-                .background(Circle().fill(Color.black.opacity(0.1)))
-                .accessibilityHidden(true)
-        } else {
-            Circle()
-                .fill(presentation.style == .stale ? AppColors.Flow.decorMutedInk : AppColors.Flow.accent)
-                .frame(width: 10, height: 10)
-                .frame(width: 40, height: 40)
-                .background(Circle().fill(AppColors.Flow.blueTint))
-                .accessibilityHidden(true)
-        }
-    }
 }
 
 // MARK: - 提示条
@@ -288,7 +144,6 @@ enum VolunteerRunVoiceBroadcast {
 }
 
 struct VolunteerRunVoiceToggle: View {
-    let name: String
     @AppStorage(VolunteerRunVoiceBroadcast.defaultsKey) private var isOn = false
 
     var body: some View {
@@ -301,7 +156,7 @@ struct VolunteerRunVoiceToggle: View {
                     Text(VolunteerRunCopy.voiceToggleTitle)
                         .flowFont(FlowV2Fonts.callout(bold: true))
                         .foregroundColor(AppColors.Flow.primaryText)
-                    Text(VolunteerRunCopy.voiceToggleSubtitle(name))
+                    Text(VolunteerRunCopy.voiceToggleSubtitle)
                         .flowFont((13, .regular, .footnote))
                         .foregroundColor(AppColors.Flow.secondaryText)
                 }

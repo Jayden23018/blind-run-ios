@@ -37,9 +37,16 @@ struct XinghuoSnapshot: Equatable {
     ///
     /// 只有汇总数字：不带方位（「东边」还是「右前方」没定）、不带地点、不逐条播报 ——
     /// 逐条的「某处刚亮了一位」是 09-13 判过的时序攻击通道。人数为 0 时如实说没有。
+    ///
+    /// 🔄 2026-10-07（OpenSpec `redesign-blind-runner-screens-a`）：**盲人端不念在线志愿者人数**，
+    /// 改念「N 对跑友正在同行」。在线人数对盲人是一个做不出动作的数，且会被听成「有这么多人等着接我」。
     func summaryText(for role: UserRole) -> String {
         var sentences: [String] = []
-        if volunteersOnline > 0 {
+        if role != .volunteer {
+            sentences.append(pairsRunning > 0
+                ? "\(regionName)现在有 \(pairsRunning) 对跑友正在同行"
+                : "\(regionName)此刻没有人在同行")
+        } else if volunteersOnline > 0 {
             var head = "\(regionName)现在有 \(volunteersOnline) 位志愿者在线"
             if role == .volunteer {
                 head += "，\(runnersWaiting) 位视障跑者在等待陪跑，\(pairsRunning) 对正在同行"

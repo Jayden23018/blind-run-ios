@@ -25,6 +25,13 @@ struct BlindActiveRunView: View {
     /// `TrackStats.averagePaceText` 本身是「6 分 28 秒每公里」不带前缀，
     /// 所以 ④ 念出来正好是稿上那句「平均配速 6 分 28 秒每公里」。
     var paceLabel: String = BlindRunCopy.paceLabel
+    /// 画在彩色头卡上（2026-10-07 方向 A：跑步中青绿 / 已完成绿）。数字白色、标签半透明白，
+    /// 取值与陪跑员跑步页头卡同一套 `onHero*`（逐色验过 ≥4.5）。`false` = 旧的白卡样式（Preview 用）。
+    var onHero = false
+
+    private var valueColor: Color { onHero ? AppColors.Flow.onHeroStrong : AppColors.Flow.primaryText }
+    private var labelColor: Color { onHero ? AppColors.Flow.onHeroBody : AppColors.Flow.secondaryText }
+    private var dividerColor: Color { onHero ? AppColors.Flow.ropeMuted : AppColors.Flow.separator }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,14 +49,14 @@ struct BlindActiveRunView: View {
             Text(stats?.distanceKilometersText ?? "--")
                 .flowFont(FlowFonts.runDistance(), monospacedDigit: true)
                 .tracking(FlowMetrics.runDistanceTracking)
-                .foregroundColor(AppColors.Flow.primaryText)
+                .foregroundColor(valueColor)
                 // 设计稿 §23 给 AX5 的两条：裁掉这个数字等于裁掉这一屏本身，
                 // 所以宁可缩到 70% 也不换行、不省略。
                 .minimumScaleFactor(0.7)
                 .lineLimit(1)
             Text(BlindRunCopy.distanceLabel)
                 .flowFont(FlowFonts.runPrimaryLabel())
-                .foregroundColor(AppColors.Flow.secondaryText)
+                .foregroundColor(labelColor)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -72,7 +79,7 @@ struct BlindActiveRunView: View {
             HStack(spacing: 0) {
                 metric(BlindRunCopy.durationLabel, stats?.durationClockText, spoken: stats?.durationText)
                 Rectangle()
-                    .fill(AppColors.Flow.separator)
+                    .fill(dividerColor)
                     .frame(width: 1, height: FlowMetrics.runMetricDividerHeight)
                     .accessibilityHidden(true)
                 metric(paceLabel, stats?.paceClockText, spoken: stats?.averagePaceText)
@@ -89,12 +96,12 @@ struct BlindActiveRunView: View {
         VStack(spacing: 4) {
             Text(value ?? "--")
                 .flowFont(FlowFonts.runMetric(), monospacedDigit: true)
-                .foregroundColor(AppColors.Flow.primaryText)
+                .foregroundColor(valueColor)
                 .minimumScaleFactor(0.7)
                 .lineLimit(1)
             Text(label)
                 .flowFont(FlowFonts.runSecondaryLabel())
-                .foregroundColor(AppColors.Flow.secondaryText)
+                .foregroundColor(labelColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)

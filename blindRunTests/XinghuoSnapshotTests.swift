@@ -10,9 +10,12 @@ final class XinghuoSnapshotTests: XCTestCase {
 
     // MARK: - 摘要句
 
-    func testBlindSummaryCountsVolunteersButNotOtherRunners() {
+    /// 2026-10-07（`redesign-blind-runner-screens-a`）：盲人端不念在线志愿者人数，改念同行对数。
+    /// 志愿者 48 与同行 3 取不同的数，旧实现会念出「48」，这条才分得出新旧。
+    func testBlindSummaryCountsPairsNotOnlineVolunteersOrOtherRunners() {
         let text = makeSnapshot(volunteers: 48, runners: 9).summaryText(for: .blind)
-        XCTAssertEqual(text, "本市现在有 48 位志愿者在线。今天完成了 5 次陪跑，一共 12.5 公里。")
+        XCTAssertEqual(text, "本市现在有 3 对跑友正在同行。今天完成了 5 次陪跑，一共 12.5 公里。")
+        XCTAssertFalse(text.contains("48"), "盲人端不显示、不念在线志愿者人数")
         XCTAssertFalse(text.contains("视障跑者"), "盲人端要的是有人愿意帮忙，不是还有别的盲人")
     }
 
@@ -25,8 +28,10 @@ final class XinghuoSnapshotTests: XCTestCase {
     }
 
     func testSummarySaysNobodyInsteadOfInventingNumbers() {
-        let text = makeSnapshot(volunteers: 0, runners: 0, todayRuns: 0).summaryText(for: .blind)
-        XCTAssertEqual(text, "本市暂时没有志愿者在线。今天还没有完成的陪跑。")
+        let blind = makeSnapshot(volunteers: 5, runners: 0, pairs: 0, todayRuns: 0).summaryText(for: .blind)
+        XCTAssertEqual(blind, "本市此刻没有人在同行。今天还没有完成的陪跑。")
+        let volunteer = makeSnapshot(volunteers: 0, runners: 0, todayRuns: 0).summaryText(for: .volunteer)
+        XCTAssertEqual(volunteer, "本市暂时没有志愿者在线。今天还没有完成的陪跑。")
     }
 
     // MARK: - 片区可见性
@@ -169,12 +174,12 @@ final class XinghuoSnapshotTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeSnapshot(volunteers: Int, runners: Int, todayRuns: Int = 5) -> XinghuoSnapshot {
+    private func makeSnapshot(volunteers: Int, runners: Int, pairs: Int = 3, todayRuns: Int = 5) -> XinghuoSnapshot {
         XinghuoSnapshot(
             regionName: "本市",
             volunteersOnline: volunteers,
             runnersWaiting: runners,
-            pairsRunning: 3,
+            pairsRunning: pairs,
             todayRuns: todayRuns,
             todayKm: 12.5,
             cells: []

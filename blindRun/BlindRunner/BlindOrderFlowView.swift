@@ -8,7 +8,9 @@ import SwiftUI
 /// 浅色头卡（小标题 + 引导绳 + 大字 + 副文）→ 陪跑员卡 → 集合地点行 → 信息卡 → 底部两个按钮。
 /// 四格进度条去掉，「第 N 步，共 4 步」由引导绳的读屏标签承担（`RopeState`，跑者视角）。
 /// 头卡内容由 `BlindOrderHero` 算，它只从 `BlindOrderFlowPresentation` 派生，不新造判定。
-/// 负责人同日拍板的三条不变：底部「求助与安全」不挪到右上角、头卡用浅色、跑步中仍原地变形。
+/// 负责人同日拍板的三条里，「底部求助与安全不挪右上角」「跑步中原地变形」仍成立；
+/// 「头卡用浅色」2026-10-07 被推翻（方向 A「同一根绳」，OpenSpec `redesign-blind-runner-screens-a`）：
+/// 头卡按订单状态着色，与陪跑员端同一套状态色，匹配中仍是白卡。
 ///
 /// **每一块的位置都不变**，只换内容；而**主按钮的位置一格不动，只换文字与图标**。
 /// 这是设计稿最核心的一条：视障用户靠位置记忆操作，而改版前每个状态是独立页面 ——
@@ -100,20 +102,21 @@ struct BlindOrderFlowView<Footer: View>: View {
 
     // MARK: - 头卡（跑步前四屏 + 倒计时）
 
-    /// 浅色头卡（负责人 2026-10-06）。读屏顺序：引导绳（「第 N 步，共 4 步」，接替 v1 进度条）
+    /// 按状态着色的头卡（2026-10-07）。读屏顺序：引导绳（「第 N 步，共 4 步」，接替 v1 进度条）
     /// → 头卡正文（这一页最重要的那个元素）。
     private func heroCard(_ hero: BlindOrderHero) -> some View {
-        FlowHeroCard(style: .light) {
+        let palette = BlindHeroPalette(tone: hero.tone)
+        return FlowHeroCard(style: palette.cardStyle) {
             // 小标题画在绳子上面（与陪跑员端同一个排法），但**不单独进读屏** ——
             // 它已经是正文合成标签的第一句，单独一站会被念两遍。
             Text(hero.eyebrow)
                 .flowFont(FlowV2Fonts.subhead(bold: true))
-                .foregroundColor(AppColors.Flow.accent)
+                .foregroundColor(palette.eyebrow)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityHidden(true)
             RopeView(
                 state: hero.rope,
-                theme: .light,
+                theme: palette.ropeTheme,
                 volunteerInitial: volunteerInitial,
                 perspective: .runner
             )
@@ -122,34 +125,41 @@ struct BlindOrderFlowView<Footer: View>: View {
             // 取到的是被切开的半行字）。竖屏容器本来就比这个窄，不受影响。
             .frame(maxWidth: RopeGeometry.width * 1.2)
             .frame(maxWidth: .infinity)
-            heroBody(hero)
+            heroBody(hero, palette: palette)
         }
     }
 
-    private func heroBody(_ hero: BlindOrderHero) -> some View {
+    private func heroBody(_ hero: BlindOrderHero, palette: BlindHeroPalette) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let number = hero.number {
-                heroNumber(number, unit: hero.unit, beat: hero.countdownBeat)
+                heroNumber(number, unit: hero.unit, beat: hero.countdownBeat, palette: palette)
             }
             if let headline = hero.headline {
                 // AX5 下会长到一百多 pt，必须允许换行 —— `lineLimit(1)` 等于把这一屏最重要的一行裁掉。
                 Text(headline)
                     .flowFont(FlowV2Fonts.title())
-                    .foregroundColor(AppColors.Flow.primaryText)
+                    .foregroundColor(palette.strong)
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(hero.lines, id: \.self) { line in
                 Text(line)
                     .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .foregroundColor(palette.body)
                     .fixedSize(horizontal: false, vertical: true)
             }
             // 只在异常时出现。正常状态**不显示任何「定位正常」之类的反向提示**。
+            //
+            // 彩色底上**不用红字**：`destructive` 压琥珀 / 出发蓝都不到 4.5。改白色粗体 + 三角图标，
+            // 「这是警示」由图标与字重承担，读屏标签不变（合成在 `accessibilityLabel` 里）。
             if let warning = hero.warning {
-                Text(warning)
-                    .flowFont(FlowV2Fonts.callout(bold: true))
-                    .foregroundColor(AppColors.destructive)
-                    .fixedSize(horizontal: false, vertical: true)
+                Label {
+                    Text(warning)
+                        .flowFont(FlowV2Fonts.callout(bold: true))
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .foregroundColor(palette.warning)
             }
         }
         .multilineTextAlignment(.leading)
@@ -166,14 +176,14 @@ struct BlindOrderFlowView<Footer: View>: View {
     /// 倒计时每拍换一个数字 ⇒ `id` 变 ⇒ 这个视图被换掉一次 ⇒ `transition` 重新播一次回弹。
     /// 「减弱动态效果」下换成纯淡入淡出：不缩放、不位移，**但三个数字照样一拍一拍出现**。
     @ViewBuilder
-    private func heroNumber(_ number: String, unit: String?, beat: Int?) -> some View {
+    private func heroNumber(_ number: String, unit: String?, beat: Int?, palette: BlindHeroPalette) -> some View {
         let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(number).flowHeroNumber(beat == nil ? FlowV2Fonts.heroM : FlowV2Fonts.heroXL)
             if let unit {
                 Text(unit).flowFont(FlowV2Fonts.heroUnit())
             }
         }
-        .foregroundColor(beat == nil ? AppColors.Flow.primaryText : AppColors.Flow.accent)
+        .foregroundColor(beat == nil ? palette.strong : palette.countdown)
 
         if let beat {
             row
@@ -232,19 +242,24 @@ struct BlindOrderFlowView<Footer: View>: View {
 
     // MARK: - 跑步卡（跑步中 / 已完成）
 
+    /// 2026-10-07 方向 A：跑步中青绿、已完成绿的彩色头卡，内含并肩金绳与三个数字。
+    /// 读屏顺序：顶行「陪跑中 · 张伟」→ 定位新鲜度 → 里程 → 时长 → 配速。
     private var runCard: some View {
-        FlowCard {
-            VStack(spacing: 0) {
-                partnerRow
-                FlowSeparator()
-                BlindActiveRunView(stats: stats, paceLabel: paceLabel)
-                // ④ 比 ③ 多这一行「陪跑员 张伟」（设计稿 §4）。跑动中不显示 ——
-                // 那一刻人就在身边，而这一行会把三个数字往上挤。
-                if presentation.phase == .finished {
-                    FlowSeparator()
-                    partnerSummaryRow
-                }
-            }
+        let palette = BlindHeroPalette(tone: presentation.phase == .finished ? .done : .running)
+        return FlowHeroCard(style: palette.cardStyle) {
+            partnerRow(palette: palette)
+            // 并肩的金绳只给眼睛看。读屏会念「第 4 步，共 4 步，已汇合」——
+            // 跑起来之后那是过去时，顶行已经说了「陪跑中 · 张伟」。
+            RopeView(
+                state: .together,
+                theme: palette.ropeTheme,
+                volunteerInitial: volunteerInitial,
+                perspective: .runner
+            )
+            .frame(maxWidth: RopeGeometry.width * 1.2)
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
+            BlindActiveRunView(stats: stats, paceLabel: paceLabel, onHero: true)
         }
     }
 
@@ -254,41 +269,19 @@ struct BlindOrderFlowView<Footer: View>: View {
         BlindRunCopy.metricPaceLabel(isFinished: presentation.phase == .finished)
     }
 
-    /// ④ 卡片底部那一行。姓名**视觉上保留掩码、朗读去掩码**（同 `volunteerRow`）。
-    ///
-    /// 不显示陪跑经验：稿上这一行只有姓名，而跑完之后「陪跑 32 次」回答的是
-    /// 「要不要把自己交给他」—— 那个决定已经做完了。
-    private var partnerSummaryRow: some View {
-        FlowInfoRow(
-            label: BlindRunCopy.partnerSummaryLabel,
-            accessibilityLabel: "\(BlindRunCopy.partnerSummaryLabel)\(order.volunteerNameForSpeech)"
-        ) {
-            Text(volunteerDisplayName)
-                .flowFont(FlowFonts.rowValueEmphasized())
-                .foregroundColor(AppColors.Flow.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .multilineTextAlignment(.trailing)
-        }
-        .accessibilityIdentifier("blindOrderFlowFinishedPartnerRow")
-    }
-
     // MARK: - 跑步中 / 已完成的顶行
 
-    /// 小头像 ⌀28 + 「陪跑中 · 张伟」/「已完成 · 张伟」 + 定位新鲜度。
+    /// 「陪跑中 · 张伟」/「已完成 · 张伟」 + 定位新鲜度。
     ///
     /// 两条信息是**两个独立的无障碍元素**：读屏用户第一站听搭档是谁，第二站听定位好不好，
     /// 合成一个会让「定位信号弱」被埋在一句长话的尾巴上。
-    private var partnerRow: some View {
-        HStack(spacing: 10) {
-            FlowAvatar(
-                name: order.volunteerName,
-                diameter: FlowMetrics.partnerAvatarDiameter,
-                background: AppColors.Flow.avatarBackground,
-                foreground: AppColors.Flow.avatarInitial
-            )
+    ///
+    /// 2026-10-07 起已完成那一幕不再单列「陪跑员 张*」一行：顶行已经写着「已完成 · 张*」。
+    private func partnerRow(palette: BlindHeroPalette) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(presentation.title)
-                .flowFont(FlowFonts.partnerHeadline())
-                .foregroundColor(AppColors.Flow.primaryText)
+                .flowFont(FlowV2Fonts.subhead(bold: true))
+                .foregroundColor(palette.eyebrow)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("blindOrderFlowPartnerHeadline")
 
@@ -302,8 +295,6 @@ struct BlindOrderFlowView<Footer: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, FlowMetrics.partnerRowHorizontalPadding)
-        .padding(.vertical, FlowMetrics.partnerRowVerticalPadding)
     }
 
     /// 🚩 判的是**本机定位新不新鲜**，不是后端的 `ESCORT_SIGNAL_LOST`。那条事件是一次性
@@ -321,13 +312,16 @@ struct BlindOrderFlowView<Footer: View>: View {
             // （好 / 需注意），正是这颗点要表达的东西，而 `Flow` 装的是表面色。
             // 压白卡 5.07 / 5.20，压深卡 8.42 / 8.28，四个方向都过线 —— 理由与量过的数
             // 记在 `AppColors.Flow` 里那段注释上。
+            //
+            // 2026-10-07 起徽标画在青绿头卡上：`success` 压青绿看不出来，改头卡专用的
+            // `presenceGreen` / `gold`（两者都是冗余线索，状态由右边的文字承担）。
             Circle()
-                .fill(isLocationFresh ? AppColors.success : AppColors.warning)
+                .fill(isLocationFresh ? AppColors.Flow.presenceGreen : AppColors.Flow.gold)
                 .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
                 .accessibilityHidden(true)
             Text(isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale)
                 .flowFont(FlowFonts.rowDetail())
-                .foregroundColor(AppColors.Flow.secondaryText)
+                .foregroundColor(AppColors.Flow.onHeroBody)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
@@ -488,6 +482,34 @@ struct BlindOrderFlowView<Footer: View>: View {
             return BlindRunCopy.finishedButtonHint
         }
     }
+}
+
+// MARK: - 头卡配色
+
+/// `BlindHeroTone` → 头卡的全部颜色。白卡沿用 #349 的浅色取值；彩色档沿用陪跑员端头卡
+/// 已逐色验过的 `onHero*`（`FlowDesignSystemTests.testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`）。
+struct BlindHeroPalette {
+    let tone: BlindHeroTone
+
+    var stateColor: Color? {
+        switch tone {
+        case .light: return nil
+        case .agreed: return AppColors.Flow.stateAgreed
+        case .departed: return AppColors.Flow.stateDeparted
+        case .arrived: return AppColors.Flow.stateArrived
+        case .running: return AppColors.Flow.stateRunning
+        case .done: return AppColors.Flow.stateDone
+        }
+    }
+
+    var cardStyle: FlowHeroCardStyle { stateColor.map { .tinted($0) } ?? .light }
+    var ropeTheme: RopeView.Theme { stateColor.map { .onHero($0) } ?? .light }
+    var eyebrow: Color { stateColor == nil ? AppColors.Flow.accent : AppColors.Flow.onHeroEyebrow }
+    var strong: Color { stateColor == nil ? AppColors.Flow.primaryText : AppColors.Flow.onHeroStrong }
+    var body: Color { stateColor == nil ? AppColors.Flow.secondaryText : AppColors.Flow.onHeroBody }
+    var warning: Color { stateColor == nil ? AppColors.destructive : AppColors.Flow.onHeroStrong }
+    /// 倒计时那三个数字。白卡上是品牌蓝；琥珀底上用金色 —— 它只当 heroXL 大字（WCAG 大字 3:1）。
+    var countdown: Color { stateColor == nil ? AppColors.Flow.accent : AppColors.Flow.gold }
 }
 
 // MARK: - Previews

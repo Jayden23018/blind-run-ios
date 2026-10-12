@@ -1381,15 +1381,27 @@ struct BlindBookingView: View {
         if isRecording { return "正在录音" }
         if voiceWizard.isParsing { return "正在识别" }
         if isVoiceSessionEnded { return "语音下单已结束" }
+        if isAskingFreeform { return VoiceBookingCopy.freeformHeadline }
         return "请听提示后说话"
+    }
+
+    /// 第一步（自由说）且还没开口。这一刻屏幕上只放一个问题，不放说明。
+    private var isAskingFreeform: Bool {
+        voiceWizard.step == .freeform && voiceWizard.partialTranscript.isEmpty
     }
 
     /// 小字那一行。录音中优先显示实时识别文本 —— 它只写屏、不进无障碍树：
     /// 一边说一边念会盖住用户自己的声音，识别也会跟着跑偏（调研 2026-08-03）。
+    ///
+    /// 🔄 2026-10-07（`redesign-blind-runner-screens-a`）：**第一步不再把那段说明 + 示例摆在屏上**
+    /// （「请说你想从哪儿出发……比如：……」）。它仍然被念出来，也仍在读屏的 `accessibilityValue` 里 ——
+    /// WCAG 3.3.2 要的「给出输入示例」由听觉通道满足，屏幕只留问题本身。
+    /// 后面几步（同名地点追问、读回确认）的那句话**就是系统在问你的问题**，照常显示。
     private var voiceStageDetail: String? {
         if !voiceWizard.partialTranscript.isEmpty {
             return "听到：\(voiceWizard.partialTranscript)"
         }
+        if isAskingFreeform { return nil }
         return voiceWizard.lastSpokenPrompt
     }
 
@@ -2359,3 +2371,9 @@ struct BlindBookingView: View {
     }
 }
 #endif
+
+/// 语音预约屏上的固定文字。
+enum VoiceBookingCopy {
+    /// 第一步的大标题：屏幕上只放问题本身，说明与示例走语音与读屏（2026-10-07）。
+    static let freeformHeadline = "什么时候、在哪里跑？"
+}
