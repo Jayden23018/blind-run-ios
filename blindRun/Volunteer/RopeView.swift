@@ -326,7 +326,8 @@ struct RopeView: View {
         .onAppear { lastState = state }
         .onChange(of: state) { newState in
             defer { lastState = newState }
-            guard lastState == .invited, newState == .agreed, !reduceMotion else { return }
+            // 从第 1 格（邀请，或先通个电话）进约好都画：盲人订单页走的是「先通个电话 → 约好」。
+            guard lastState?.step == 0, newState == .agreed, !reduceMotion else { return }
             var reset = Transaction()
             reset.disablesAnimations = true
             withTransaction(reset) { drawn = 0 }
@@ -563,8 +564,13 @@ struct RopeTogetherIllustration: View {
             .trim(from: 0, to: appeared || reduceMotion ? 1 : 0)
             .stroke(AppColors.Flow.gold, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.8), value: appeared)
+            // 跟随 Dynamic Type、圆的直径定死，大字号下靠 `minimumScaleFactor` 缩回圆里（同 `RopeView.avatar`）。
+            // 写死 `.system(size:)` 会被无障碍审计判「改不了字号」—— 读屏隐藏的字照样被审计，
+            // 而这张图 2026-10-13 起也画在盲人汇合页上（那一页在审计范围里）。
             Text(leftInitial)
-                .font(.system(size: 22, weight: .bold))
+                .flowFont(size: 22, weight: .bold, relativeTo: .title3)
+                .minimumScaleFactor(0.4)
+                .lineLimit(1)
                 .foregroundColor(tint)
                 .frame(width: 60, height: 60)
                 .background(Circle().fill(Color.white))
@@ -574,7 +580,9 @@ struct RopeTogetherIllustration: View {
                 .frame(width: 64, height: 64)
                 .position(x: 121, y: 38)
             Text(rightInitial)
-                .font(.system(size: 22, weight: .bold))
+                .flowFont(size: 22, weight: .bold, relativeTo: .title3)
+                .minimumScaleFactor(0.4)
+                .lineLimit(1)
                 .foregroundColor(.white)
                 .frame(width: 60, height: 60)
                 .background(Circle().fill(AppColors.Flow.runnerFill))

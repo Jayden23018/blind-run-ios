@@ -37,11 +37,15 @@
 - **THEN** 头卡为与盲人端匹配中相同的灰蓝
 
 ### Requirement: 盲人端汇合页可以直接打给陪跑员
-订单为 `DRIVER_ARRIVED` 且尚未开始倒计时、且订单详情给出了可拨的陪跑员号码时，盲人订单页底部 SHALL 在主按钮与「求助与安全」之间显示「打电话给<陪跑员姓氏>」，白底、主色描边、高 80pt；按下 SHALL 走 `EmergencyDialer`（系统先弹拨号确认）。号码 MUST NOT 出现在屏幕或读屏标签里。拿不到可拨号码时该按钮 SHALL NOT 出现。
+订单为 `DRIVER_ARRIVED`（跑步前，以及按下开始后那三秒倒计时）、且订单详情给出了可拨的陪跑员号码时，盲人订单页底部 SHALL 在主按钮与「求助与安全」之间显示「打电话给<陪跑员姓氏>」，白底、主色描边、高 80pt；按下 SHALL 走 `EmergencyDialer`（系统先弹拨号确认）。号码 MUST NOT 出现在屏幕或读屏标签里。拿不到可拨号码时该按钮 SHALL NOT 出现。
 
 #### Scenario: 有号码
 - **WHEN** 订单为 `DRIVER_ARRIVED`，`volunteerPhone` 为明文可拨号码
 - **THEN** 底部依次是「开始跑步」、「打电话给张」、「求助与安全」
+
+#### Scenario: 倒计时那三秒
+- **WHEN** 订单刚进 `IN_PROGRESS`，本地倒计时还在 3、2、1
+- **THEN** 「打电话给张」仍在原位，「求助与安全」不移动；倒计时结束进入跑步中后才收起
 
 #### Scenario: 没有号码
 - **WHEN** 订单为 `DRIVER_ARRIVED`，`volunteerPhone` 为 null
