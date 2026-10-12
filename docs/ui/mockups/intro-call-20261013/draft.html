@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>进度绳 + 先通个电话 · 初稿 v2</title><style>
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>进度绳 + 先通个电话 · 初稿 v4</title><style>
 /* 颜色全部取自 AppColors.Flow 亮色档（同 blind-redesign-20261007/directions/common.css），不新增。 */
 :root{
   --page:#F2F3F6; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --sep:#EEF0F4;
@@ -58,7 +58,7 @@ svg.rope{display:block;width:100%;overflow:visible;margin:12px 0 2px}
 .note{font-size:14px;color:#3a4152;line-height:1.55;margin-top:24px;max-width:1300px}
 </style></head><body>
 
-<h1>进度绳 + 「先通个电话」通话页 · 初稿 v3（2026-10-13）</h1>
+<h1>进度绳 + 「先通个电话」通话页 · 初稿 v4（2026-10-13）</h1>
 <p class="sub">按负责人 10-13 的意见改：<b>进度和引导绳合成一根</b>。我在左、对方在右，中间是一根下垂的弧线；
 绳上四个刻度（匹配 · 约好 · 出发 · 汇合），每进一个阶段，「我」的头像沿绳子往对方挪一格。走过的刻度打勾、绳段变实线；没到的刻度是空心圈、绳段是虚线。
 <b>第四格「汇合」就是对方的头像</b>，不另起一段；到汇合时直接用陪跑员端现有的「已到达」样子（两个头像挨着、对方外圈一道金边），几何照搬 <code>RopeView</code>。陪跑员端本来就是「我在左、跑者在右」，这次只加刻度、让「我」逐格前进；盲人端改成同一个方向。<br>
@@ -177,11 +177,14 @@ svg.rope{display:block;width:100%;overflow:visible;margin:12px 0 2px}
 <script>
 // 进度绳 v3：几何照搬 RopeView.swift 的 RopeGeometry（342 宽、头像半径 22、对方停在 x=318、
 // 「已到达」时「我」停在 268 并给对方加金边）。新增的只有两样：绳上的四个刻度、「我」每进一个阶段挪一格。
-// 四个停靠点 24 / 105 / 187 / 268 正好等距；第四格「汇合」就是对方的头像本身，不另画刻度。
+// v4：四个刻度本身等距 24 / 122 / 220 / 318（每段 98），第四格「汇合」就是对方的头像本身，不另画刻度。
+// 「我」前三个阶段停在刻度上；到汇合时不压在对方头像上，贴到对方身边 x=268（RopeGeometry 的「已到达」）。
+// v3 把「我」的停靠点 24/105/187/268 当成刻度画，第四格却在 318，肉眼间距 81/81/131 —— 刻度与停靠点要分开。
 const SAG=24, X0=24, X1=318, Y=28;
 function yAt(x){const t=(x-X0)/(X1-X0);return Y+2*t*(1-t)*SAG;}   // RopeShape：控制点在中点、下垂 sag
 function curve(a,b){let d='';for(let i=0;i<=40;i++){const x=a+(b-a)*i/40;d+=(i?'L':'M')+x.toFixed(1)+' '+yAt(x).toFixed(1)+' ';}return d;}
-const STOPS=[24,105.3,186.7,268];
+const TICKS=[24,122,220,318];
+const STOPS=[TICKS[0],TICKS[1],TICKS[2],268];
 document.querySelectorAll('svg[data-rope]').forEach(svg=>{
   const o=JSON.parse(svg.dataset.rope); const dark=o.theme==='dark'; const hero=o.hero||'#2A5BD7';
   const labels=o.labels||['匹配','约好','出发','汇合']; const cur=o.cur;
@@ -198,13 +201,12 @@ document.querySelectorAll('svg[data-rope]').forEach(svg=>{
   if(cur<3) h+=`<path d="${curve(mx+24,X1-24)}" stroke="${agreed?solid:dash}" stroke-width="${agreed?3:2.5}" fill="none" stroke-linecap="round" ${agreed?'':'stroke-dasharray="2 7"'}/>`;
   else h+=`<path d="M290 ${yAt(290).toFixed(1)} L296 ${yAt(296).toFixed(1)}" stroke="${solid}" stroke-width="3"/>`;
   // 前三格刻度（第四格是对方头像）
-  for(let i=0;i<3;i++){ if(i===cur) continue; const x=STOPS[i],y=yAt(x);
+  for(let i=0;i<3;i++){ if(i===cur) continue; const x=TICKS[i],y=yAt(x);
     if(i<cur) h+=`<circle cx="${x}" cy="${y}" r="9" fill="${dark?'#fff':'#2A5BD7'}"/><path d="M${x-4} ${y} l3 3 l5 -6" stroke="${dark?hero:'#fff'}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
     else h+=`<circle cx="${x}" cy="${y}" r="7" fill="${dark?'transparent':'#fff'}" stroke="${dark?'rgba(255,255,255,.85)':'#AEB4C0'}" stroke-width="2"/>`;
   }
   // 文字：前三格在各自刻度下，「汇合」在对方头像下
-  const lx=[STOPS[0],STOPS[1],STOPS[2],X1];
-  lx.forEach((x,i)=>{const isCur=i===cur, done=i<cur; const big=isCur||(i===3);
+  TICKS.forEach((x,i)=>{const isCur=i===cur, done=i<cur; const big=isCur||(i===3);
     const y=(i===3?Y:yAt(x))+(big?40:30)+((i===3&&cur===3)?4:0);
     const col=dark?'#fff':(isCur?'#151A26':(done?'#1F47AD':'#5B6272'));
     h+=`<text x="${x}" y="${y}" text-anchor="middle" font-size="${isCur?17:15}" font-weight="${isCur?800:700}" fill="${col}">${labels[i]}</text>`;});
