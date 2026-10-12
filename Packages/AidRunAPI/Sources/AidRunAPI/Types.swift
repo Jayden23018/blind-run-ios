@@ -323,7 +323,7 @@ public protocol APIProtocol: Sendable {
     func createOrder(_ input: Operations.createOrder.Input) async throws -> Operations.createOrder.Output
     /// 我当前这一单（App 冷启动 / 断线重连恢复用）
     ///
-    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `plannedStartTime` 最早的一条（已经在跑的排最前，多张未来预约之间取最近的那张；不是按 `createdAt`）。
     ///
     /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
     ///
@@ -449,6 +449,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
     ///
+    /// **盲人能取消的状态**：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`， 以及 🆕 `DRIVER_ARRIVED`（2026-10-10，#682）—— 陪跑员标了「已到达」，从「这一次到达」与「计划开跑」中**较晚**的那个起 满 `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）后放行。只有跑者知道陪跑员到底在不在现场，这是给 「陪跑员标了到达、一直在线、人却不来」的出口。早于这个时刻返回 409 `BLIND_CANCEL_TOO_EARLY`，message 里带最早可取消的时刻 （可直接朗读），订单详情 `earliestBlindCancelAt` 是同一个时刻。这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（HIGH）。 `DRIVER_EN_ROUTE` / `IN_PROGRESS` 盲人仍不能取消（403 `ORDER_IN_PROGRESS`）。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output
@@ -495,7 +497,8 @@ public protocol APIProtocol: Sendable {
     /// 陪跑员到达后等满时限没碰上跑者，结束等待
     ///
     /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
-    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 且距 `max(这一次到达, 计划开跑)` 已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）——
+    /// 陪跑员早到时从计划开跑算起（#702），不会在约定的开跑时间之前就能结束订单。
     /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
     ///
     /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
@@ -559,7 +562,8 @@ public protocol APIProtocol: Sendable {
     /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
     ///
     /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
-    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// `lastRematchAt + 30min`（远期单取它与 `plannedStartTime - 30min` 中较晚的那个），
+    /// 而那条分支只在状态确实是 `REMATCHING` 时生效。
     /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
     /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
     ///
@@ -574,8 +578,15 @@ public protocol APIProtocol: Sendable {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
+    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
+    /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
+    ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
+    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -620,7 +631,7 @@ public protocol APIProtocol: Sendable {
     /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
     /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
     ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
-    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `max(lastRematchAt + 30min, plannedStartTime - 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
     ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
     /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
     ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
@@ -726,6 +737,8 @@ public protocol APIProtocol: Sendable {
     ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
     ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
     ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
+    /// - 409 `INTRO_CALL_PAIR_BUSY` — 你和这位跑者正在为**另一张单**通话磨合，又对这一张发了 `INTERESTED`。
+    ///   一对人同一时刻只能为一张单通话。提示先把那一单聊完：聊成了这一单直接 `ACCEPT`
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -1755,7 +1768,7 @@ extension APIProtocol {
     }
     /// 我当前这一单（App 冷启动 / 断线重连恢复用）
     ///
-    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `plannedStartTime` 最早的一条（已经在跑的排最前，多张未来预约之间取最近的那张；不是按 `createdAt`）。
     ///
     /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
     ///
@@ -1941,6 +1954,8 @@ extension APIProtocol {
     ///
     /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
     ///
+    /// **盲人能取消的状态**：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`， 以及 🆕 `DRIVER_ARRIVED`（2026-10-10，#682）—— 陪跑员标了「已到达」，从「这一次到达」与「计划开跑」中**较晚**的那个起 满 `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）后放行。只有跑者知道陪跑员到底在不在现场，这是给 「陪跑员标了到达、一直在线、人却不来」的出口。早于这个时刻返回 409 `BLIND_CANCEL_TOO_EARLY`，message 里带最早可取消的时刻 （可直接朗读），订单详情 `earliestBlindCancelAt` 是同一个时刻。这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（HIGH）。 `DRIVER_EN_ROUTE` / `IN_PROGRESS` 盲人仍不能取消（403 `ORDER_IN_PROGRESS`）。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(
@@ -2011,7 +2026,8 @@ extension APIProtocol {
     /// 陪跑员到达后等满时限没碰上跑者，结束等待
     ///
     /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
-    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 且距 `max(这一次到达, 计划开跑)` 已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）——
+    /// 陪跑员早到时从计划开跑算起（#702），不会在约定的开跑时间之前就能结束订单。
     /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
     ///
     /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
@@ -2099,7 +2115,8 @@ extension APIProtocol {
     /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
     ///
     /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
-    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// `lastRematchAt + 30min`（远期单取它与 `plannedStartTime - 30min` 中较晚的那个），
+    /// 而那条分支只在状态确实是 `REMATCHING` 时生效。
     /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
     /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
     ///
@@ -2114,8 +2131,15 @@ extension APIProtocol {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
+    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
+    /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
+    ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
+    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -2186,7 +2210,7 @@ extension APIProtocol {
     /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
     /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
     ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
-    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `max(lastRematchAt + 30min, plannedStartTime - 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
     ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
     /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
     ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
@@ -2334,6 +2358,8 @@ extension APIProtocol {
     ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
     ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
     ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
+    /// - 409 `INTRO_CALL_PAIR_BUSY` — 你和这位跑者正在为**另一张单**通话磨合，又对这一张发了 `INTERESTED`。
+    ///   一对人同一时刻只能为一张单通话。提示先把那一单聊完：聊成了这一单直接 `ACCEPT`
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -7710,11 +7736,15 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/departReminderAt`.
             public var departReminderAt: Swift.String?
+            /// （2026-10-10 新增，#682）盲人在「已到达」态最早可以取消的时刻 = 「这一次到达集合点」与「计划开跑」中**较晚**的那个 + `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）。 早于它调 `POST /api/orders/{id}/cancel` 一律 409 `BLIND_CANCEL_TOO_EARLY`（message 里带同一个时刻，可直接朗读）。 **只对本单盲人、只在 `DRIVER_ARRIVED` 下发**，其余为 `null`；后端把这条出口关掉（配置为 0）时也为 `null`，此时这一态取消仍是 403 `ORDER_IN_PROGRESS`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`。 不要自己拿到达时间加 10 —— 阈值和起点都由后端定
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestBlindCancelAt`.
+            public var earliestBlindCancelAt: Swift.String?
             /// （2026-10-06 新增，#307）陪跑员**当前这一步**出发动作最早可调的时刻：`SCHEDULED_CONFIRMED` 时是 `POST /api/orders/{id}/confirm-departure`（开跑前 `app.order.departure-confirm-window-minutes`，默认 120 分钟）， `PENDING_ACCEPT` 时是 `POST /api/orders/{id}/en-route`（开跑前 `app.order.en-route-earliest-minutes`，默认 60 分钟）。早于它调用一律 409 `DEPARTURE_TOO_EARLY`。 **只对本单陪跑员、只在这两态下发**，其余为 `null`。 与 `primaryActionUnlockAt` 的区别：那个是「建议亮起主按钮」的时刻（考虑了路上时间，且要有位置记录），本字段是「后端放行」的时刻，恒有值
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestDepartureAt`.
             public var earliestDepartureAt: Swift.String?
-            /// 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= 这一次到达集合点（换过陪跑员的单从新陪跑员到达算）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 阈值由后端配，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
+            /// 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= `max(这一次到达集合点, 计划开跑)`（换过陪跑员的单从新陪跑员到达算；陪跑员早到时从计划开跑算，#702，与盲人侧 `earliestBlindCancelAt` 同一个起点）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 起点和阈值都由后端定，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/earliestEndWaitAt`.
             public var earliestEndWaitAt: Swift.String?
@@ -8150,8 +8180,9 @@ public enum Components {
             ///   - completedTogetherCount: 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
             ///   - createdAt:
             ///   - departReminderAt: 「该出发了」提醒（WS `APP_NOTIFICATION` `eventType = DEPART_REMINDER`，HIGH，APNs time-sensitive） 推给陪跑员的时刻 = `suggestedDepartAt` − 5 分钟。页面可据此说「x:xx 会提醒你出发」。下发条件同 `travelMinutes`
+            ///   - earliestBlindCancelAt: （2026-10-10 新增，#682）盲人在「已到达」态最早可以取消的时刻 = 「这一次到达集合点」与「计划开跑」中**较晚**的那个 + `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）。 早于它调 `POST /api/orders/{id}/cancel` 一律 409 `BLIND_CANCEL_TOO_EARLY`（message 里带同一个时刻，可直接朗读）。 **只对本单盲人、只在 `DRIVER_ARRIVED` 下发**，其余为 `null`；后端把这条出口关掉（配置为 0）时也为 `null`，此时这一态取消仍是 403 `ORDER_IN_PROGRESS`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`。 不要自己拿到达时间加 10 —— 阈值和起点都由后端定
             ///   - earliestDepartureAt: （2026-10-06 新增，#307）陪跑员**当前这一步**出发动作最早可调的时刻：`SCHEDULED_CONFIRMED` 时是 `POST /api/orders/{id}/confirm-departure`（开跑前 `app.order.departure-confirm-window-minutes`，默认 120 分钟）， `PENDING_ACCEPT` 时是 `POST /api/orders/{id}/en-route`（开跑前 `app.order.en-route-earliest-minutes`，默认 60 分钟）。早于它调用一律 409 `DEPARTURE_TOO_EARLY`。 **只对本单陪跑员、只在这两态下发**，其余为 `null`。 与 `primaryActionUnlockAt` 的区别：那个是「建议亮起主按钮」的时刻（考虑了路上时间，且要有位置记录），本字段是「后端放行」的时刻，恒有值
-            ///   - earliestEndWaitAt: 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= 这一次到达集合点（换过陪跑员的单从新陪跑员到达算）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 阈值由后端配，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
+            ///   - earliestEndWaitAt: 最早可以「结束等待」的时刻（2026-09-25 新增，#362）= `max(这一次到达集合点, 计划开跑)`（换过陪跑员的单从新陪跑员到达算；陪跑员早到时从计划开跑算，#702，与盲人侧 `earliestBlindCancelAt` 同一个起点）+ `app.order.arrival-wait-timeout-minutes` （默认 15 分钟）。**只对本单陪跑员、且订单在 `DRIVER_ARRIVED` 时下发**，其余恒为 `null`。 客户端到点把主按钮从「开始跑步」换成「结束等待」（`POST /api/orders/{id}/end-waiting`）， 不要自己拿到达时间加 15 —— 起点和阈值都由后端定，与该端点的 409 `END_WAIT_TOO_EARLY` 是同一个判据。
             ///   - earliestServiceStartAt: （2026-10-06 新增，#307）`POST /api/orders/{id}/start-service` 最早可调的时刻（开跑前 `app.order.start-service-earliest-minutes`，默认 15 分钟）。 早于它调用一律 409 `SERVICE_START_TOO_EARLY`，按钮该置灰、到点再亮。 **订单双方都有**（盲人也能按开始），只在已接单未开跑的 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 下发，其余为 `null`
             ///   - endAddress: 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
             ///   - endLatitude: 终点纬度。允许「有地址、无坐标」（用户说了地名但查不到坐标）
@@ -8206,6 +8237,7 @@ public enum Components {
                 completedTogetherCount: Swift.Int64? = nil,
                 createdAt: Swift.String,
                 departReminderAt: Swift.String? = nil,
+                earliestBlindCancelAt: Swift.String? = nil,
                 earliestDepartureAt: Swift.String? = nil,
                 earliestEndWaitAt: Swift.String? = nil,
                 earliestServiceStartAt: Swift.String? = nil,
@@ -8262,6 +8294,7 @@ public enum Components {
                 self.completedTogetherCount = completedTogetherCount
                 self.createdAt = createdAt
                 self.departReminderAt = departReminderAt
+                self.earliestBlindCancelAt = earliestBlindCancelAt
                 self.earliestDepartureAt = earliestDepartureAt
                 self.earliestEndWaitAt = earliestEndWaitAt
                 self.earliestServiceStartAt = earliestServiceStartAt
@@ -8319,6 +8352,7 @@ public enum Components {
                 case completedTogetherCount
                 case createdAt
                 case departReminderAt
+                case earliestBlindCancelAt
                 case earliestDepartureAt
                 case earliestEndWaitAt
                 case earliestServiceStartAt
@@ -11322,7 +11356,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/RunService/durationMin`.
             public var durationMin: Swift.Int32?
-            /// 第一次进入 IN_PROGRESS 的时刻
+            /// 最近一次进入 IN_PROGRESS 的时刻（陪跑中换过人则是接手的这位开始的时刻）
             ///
             /// - Remark: Generated from `#/components/schemas/RunService/startedAt`.
             public var startedAt: Swift.String?
@@ -11335,7 +11369,7 @@ public enum Components {
             /// - Parameters:
             ///   - completedAt:
             ///   - durationMin: = 完成 − `startedAt` − 手动暂停总时长，按分钟向下取整；从未进入 IN_PROGRESS（超时自动完成）为 null
-            ///   - startedAt: 第一次进入 IN_PROGRESS 的时刻
+            ///   - startedAt: 最近一次进入 IN_PROGRESS 的时刻（陪跑中换过人则是接手的这位开始的时刻）
             ///   - volunteerTotalServiceMinutes: 这位陪跑员的累计服务分钟数（D6，两个角色都能看到），与 `GET /api/volunteer/achievements` 的 `totalServiceMinutes` 同源；陪跑员已注销为 null
             public init(
                 completedAt: Swift.String? = nil,
@@ -11724,7 +11758,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/RunView/runnerBatteryLow`.
             public var runnerBatteryLow: Swift.Bool
-            /// 开始陪跑的时刻（第一次进入 `IN_PROGRESS`，与跑后记录的服务开始同源）
+            /// 开始陪跑的时刻（最近一次进入 `IN_PROGRESS`；陪跑中换过人则是接手的这位开始的时刻，与跑后记录的服务开始同源）
             ///
             /// - Remark: Generated from `#/components/schemas/RunView/startedAt`.
             public var startedAt: Swift.String
@@ -11747,7 +11781,7 @@ public enum Components {
             ///   - paused: 此刻是否处于陪跑员手动暂停中
             ///   - pausedSeconds: 手动暂停累计（秒），含正在进行中的这一段。志愿服务时长扣除的就是它
             ///   - runnerBatteryLow: 跑者手机电量这一单是否降到过 ≤20%（WS `LOCATION_UPDATE.batteryLevel`）。 一旦为 `true` 本单内不再变回 `false` —— 与只推一次的 `RUNNER_BATTERY_LOW` 同一个判据
-            ///   - startedAt: 开始陪跑的时刻（第一次进入 `IN_PROGRESS`，与跑后记录的服务开始同源）
+            ///   - startedAt: 开始陪跑的时刻（最近一次进入 `IN_PROGRESS`；陪跑中换过人则是接手的这位开始的时刻，与跑后记录的服务开始同源）
             ///   - targetKm: 目标距离（公里）= `plannedDistanceMeters` / 1000，下单没填为 `null`
             ///   - turnaroundKm: 折返点（公里）。**恒为 `null`**（V12：没有数据来源，不画折返线）
             public init(
@@ -18359,7 +18393,7 @@ public enum Operations {
     }
     /// 我当前这一单（App 冷启动 / 断线重连恢复用）
     ///
-    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `plannedStartTime` 最早的一条（已经在跑的排最前，多张未来预约之间取最近的那张；不是按 `createdAt`）。
     ///
     /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
     ///
@@ -19708,6 +19742,8 @@ public enum Operations {
     ///
     /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
     ///
+    /// **盲人能取消的状态**：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`， 以及 🆕 `DRIVER_ARRIVED`（2026-10-10，#682）—— 陪跑员标了「已到达」，从「这一次到达」与「计划开跑」中**较晚**的那个起 满 `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）后放行。只有跑者知道陪跑员到底在不在现场，这是给 「陪跑员标了到达、一直在线、人却不来」的出口。早于这个时刻返回 409 `BLIND_CANCEL_TOO_EARLY`，message 里带最早可取消的时刻 （可直接朗读），订单详情 `earliestBlindCancelAt` 是同一个时刻。这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（HIGH）。 `DRIVER_EN_ROUTE` / `IN_PROGRESS` 盲人仍不能取消（403 `ORDER_IN_PROGRESS`）。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public enum cancelOrder {
@@ -19798,6 +19834,108 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.cancelOrder.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.cancelOrder.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是本单参与者（`NOT_ORDER_PARTICIPANT`）；或盲人在陪跑员已出发 / 陪跑中取消（`ORDER_IN_PROGRESS`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.cancelOrder.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.cancelOrder.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/cancel/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.cancelOrder.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.cancelOrder.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 当前状态不允许取消（`ORDER_STATUS_NOT_ALLOWED`）；盲人在「已到达」态还没等满（`BLIND_CANCEL_TOO_EARLY`，#682）； 或这一单还有未结束的紧急求助（`ORDER_HAS_ACTIVE_EMERGENCY`，陪跑员取消、以及盲人在「已到达」态取消时）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.cancelOrder.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.cancelOrder.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }
@@ -20285,7 +20423,8 @@ public enum Operations {
     /// 陪跑员到达后等满时限没碰上跑者，结束等待
     ///
     /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
-    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 且距 `max(这一次到达, 计划开跑)` 已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）——
+    /// 陪跑员早到时从计划开跑算起（#702），不会在约定的开跑时间之前就能结束订单。
     /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
     ///
     /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
@@ -21008,7 +21147,8 @@ public enum Operations {
     /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
     ///
     /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
-    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// `lastRematchAt + 30min`（远期单取它与 `plannedStartTime - 30min` 中较晚的那个），
+    /// 而那条分支只在状态确实是 `REMATCHING` 时生效。
     /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
     /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
     ///
@@ -21023,8 +21163,15 @@ public enum Operations {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
+    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
+    /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
+    ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
+    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -21158,7 +21305,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）
+            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）/ 志愿者表「合适」时已不具备接单资质（VOLUNTEER_NOT_VERIFIED / TRAINING_NOT_COMPLETED / VOLUNTEER_NOT_AVAILABLE）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)/responses/403`.
             ///
@@ -21753,7 +21900,7 @@ public enum Operations {
     /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
     /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
     ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
-    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `max(lastRematchAt + 30min, plannedStartTime - 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
     ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
     /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
     ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
@@ -23108,6 +23255,8 @@ public enum Operations {
     ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
     ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
     ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
+    /// - 409 `INTRO_CALL_PAIR_BUSY` — 你和这位跑者正在为**另一张单**通话磨合，又对这一张发了 `INTERESTED`。
+    ///   一对人同一时刻只能为一张单通话。提示先把那一单聊完：聊成了这一单直接 `ACCEPT`
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -23292,7 +23441,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 未派给你（ORDER_DISPATCH_MISMATCH）/ 已被他人接单（ORDER_ALREADY_ACCEPTED）/ 并发冲突（ORDER_CONCURRENT_CONFLICT）/ 陌生人未先通话（INTRO_CALL_REQUIRED）/ 熟人不必再通话（INTRO_CALL_NOT_REQUIRED）
+            /// 未派给你（ORDER_DISPATCH_MISMATCH）/ 已被他人接单（ORDER_ALREADY_ACCEPTED）/ 并发冲突（ORDER_CONCURRENT_CONFLICT）/ 陌生人未先通话（INTRO_CALL_REQUIRED）/ 熟人不必再通话（INTRO_CALL_NOT_REQUIRED）/ 与同一跑者正为另一单通话（INTRO_CALL_PAIR_BUSY）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)/responses/409`.
             ///
