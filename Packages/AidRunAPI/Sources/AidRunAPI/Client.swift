@@ -1927,7 +1927,7 @@ public struct Client: APIProtocol {
     }
     /// 我当前这一单（App 冷启动 / 断线重连恢复用）
     ///
-    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `createdAt` 最近的一条。
+    /// 角色：`BLIND`。返回该盲人**还没走完**的那一单 （`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，含 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` 等还在等人的状态），没有则 `data` 为 `null`。 同时存在多条时取 `plannedStartTime` 最早的一条（已经在跑的排最前，多张未来预约之间取最近的那张；不是按 `createdAt`）。
     ///
     /// **这是盲人端「我现在到哪一步了」的唯一权威来源。** 此前没有这个语义： `GET /api/orders/mine` 是分页历史列表（要自己传 role/status/page/size 再自己挑）， `GET /api/orders/{id}` 要求已经知道 id —— 而 App 被系统杀掉后 id 恰恰是丢掉的那个东西。 与 `GET /api/emergency/active` 是**同一次冷启动恢复里的一对**，形状也刻意一致。 志愿者侧的对应物是 `GET /api/volunteer/dispatch-summary` 的 `activeOrders`。
     ///
@@ -2642,6 +2642,8 @@ public struct Client: APIProtocol {
     ///
     /// **`countedAsLateCancel`（#361）**：陪跑员取消时，若距开跑不足 `app.order.late-cancel-window-hours`（默认 12 小时）， 本次记为一次「临时取消」，响应里为 `true`。**以这个字段为准**才能对陪跑员说「已记一次」。 只记不罚：不影响接单、派单与评分。盲人取消恒为 `false`。
     ///
+    /// **盲人能取消的状态**：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`， 以及 🆕 `DRIVER_ARRIVED`（2026-10-10，#682）—— 陪跑员标了「已到达」，从「这一次到达」与「计划开跑」中**较晚**的那个起 满 `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）后放行。只有跑者知道陪跑员到底在不在现场，这是给 「陪跑员标了到达、一直在线、人却不来」的出口。早于这个时刻返回 409 `BLIND_CANCEL_TOO_EARLY`，message 里带最早可取消的时刻 （可直接朗读），订单详情 `earliestBlindCancelAt` 是同一个时刻。这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（HIGH）。 `DRIVER_EN_ROUTE` / `IN_PROGRESS` 盲人仍不能取消（403 `ORDER_IN_PROGRESS`）。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
     public func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output {
@@ -2690,6 +2692,50 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.cancelOrder.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.cancelOrder.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -2925,7 +2971,8 @@ public struct Client: APIProtocol {
     /// 陪跑员到达后等满时限没碰上跑者，结束等待
     ///
     /// #362。角色 `VOLUNTEER`，且必须是**这一单已接单的志愿者**；只在 `DRIVER_ARRIVED` 可调，
-    /// 且距这一次到达已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）。
+    /// 且距 `max(这一次到达, 计划开跑)` 已满 `app.order.arrival-wait-timeout-minutes`（默认 15 分钟）——
+    /// 陪跑员早到时从计划开跑算起（#702），不会在约定的开跑时间之前就能结束订单。
     /// 最早可调的时刻见订单详情的 `earliestEndWaitAt`，客户端按它把主按钮从「开始跑步」换成「结束等待」。
     ///
     /// 结果：订单 → `CANCELLED`，`cancelledBy = SYSTEM`（状态日志备注 `BLIND_NO_SHOW`）。
@@ -3272,7 +3319,8 @@ public struct Client: APIProtocol {
     /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
     ///
     /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
-    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// `lastRematchAt + 30min`（远期单取它与 `plannedStartTime - 30min` 中较晚的那个），
+    /// 而那条分支只在状态确实是 `REMATCHING` 时生效。
     /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
     /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
     ///
@@ -3287,8 +3335,15 @@ public struct Client: APIProtocol {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
+    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
+    /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
+    ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
+    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -3645,7 +3700,7 @@ public struct Client: APIProtocol {
     /// - 前置状态：订单必须处于 `REMATCHING`，其他状态返回 409 `ORDER_STATUS_NOT_ALLOWED`。
     /// - 行为：刷新 `rematchNotifyAt`，重置重新匹配超时计时器，不影响 `rematchCount`。
     ///   该时间戳**同时是派单放弃时刻的一部分**（`DispatchService.dispatchDeadline` 取
-    ///   `max(lastRematchAt + 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
+    ///   `max(lastRematchAt + 30min, plannedStartTime - 30min, rematchNotifyAt)`），所以这次调用真的会把订单转
     ///   `NO_VOLUNTEER` 的时刻往后推 —— 不只是推迟提醒。
     /// - 上限：与 `keepWaiting` **共用同一阈值** `app.match.max-keep-waiting-count`（默认 10），
     ///   但**各数各的**（重匹侧是 `rematchNotifyCount`）：PENDING_MATCH 期已延长满的用户，
@@ -4195,6 +4250,8 @@ public struct Client: APIProtocol {
     ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
     ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
     ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
+    /// - 409 `INTRO_CALL_PAIR_BUSY` — 你和这位跑者正在为**另一张单**通话磨合，又对这一张发了 `INTERESTED`。
+    ///   一对人同一时刻只能为一张单通话。提示先把那一单聊完：聊成了这一单直接 `ACCEPT`
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
