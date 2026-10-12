@@ -290,11 +290,50 @@ enum IntroCallCopy {
     static let volunteerPhoneHint = "跑者会用这个号码打给你，请留意来电"
 
     /// 本轮结束、但这一单不是你的。中性、不归因 —— 志愿者同样不该被告知自己被拒了。
-    static let volunteerRoundClosed = "这一单已经安排好了，感谢你的响应。"
+    ///
+    /// 2026-10-13 起只播报、不再有一整屏（负责人：「这一单已经安排好了」那一屏不要）：
+    /// 通话页自己关掉回首页，这一句由语音说。措辞也换了 —— 原句「这一单已经安排好了」
+    /// 在**窗口超时**与**跑者取消**时并不成立（那两种情况下这一单没有被安排给任何人）。
+    static let volunteerRoundClosed = "这次通话确认已结束，感谢你的响应。"
 
-    static let volunteerMatched = "已约好，这一单是你的。"
+    /// 双方都说合适。2026-10-13 起通话页原地变成订单页「约好」，不再停在一句「这一单是你的」上。
+    static let volunteerMatched = "已约好。"
+
+    /// 通话数据还没拉回来时的标题（理由同 `blindLoadingNotice`：整屏空白对读屏用户等同于死机）。
+    static let volunteerLoadingNotice = "正在获取跑者的通话信息"
+
+    /// 陪跑员端等来电时的标题。屏幕上姓名保留掩码，读屏传 `unmaskedForSpeech` 版。
+    static func volunteerWaitingForCallTitle(counterpartName: String) -> String {
+        "等\(counterpartName)打电话给你"
+    }
+
+    /// 掩码号只用来**认人**（他会接到陌生号码来电），不是拨号入口。
+    static func volunteerIncomingNumberLine(masked: String) -> String {
+        "来电号码 \(masked)，请留意来电"
+    }
+
+    /// 「22:42 前聊完」。拿不到或解析不出就不显示这一行（不摆占位）。
+    static func volunteerWindowEndsText(windowEndsAt: String?) -> String? {
+        guard let endsAt = windowEndsAt?.nilIfBlank?.backendTimestamp else { return nil }
+        return "\(DateFormatter.aidRunDisplayClock.string(from: endsAt)) 前聊完"
+    }
 
     // MARK: 两侧共用
+
+    /// 两端通话页的导航栏标题（定稿 v6）。
+    static let pageTitle = "先通个电话"
+
+    /// 头卡小标题：「明天早上 7:00 · 朝阳公园南门」，陪跑员端再接「3.2 公里」。
+    /// 每一段取不到就省掉那一段，全都取不到返回 `nil`（不摆占位）。
+    static func eyebrow(plannedStart: String?, address: String?, distanceKm: Double? = nil, now: Date = Date()) -> String? {
+        var parts: [String] = []
+        if let start = plannedStart?.nilIfBlank?.backendTimestamp {
+            parts.append("\(VolunteerOrderTimeCopy.dayPart(start, now: now)) \(VolunteerOrderTimeCopy.clock(start))")
+        }
+        if let address = address?.nilIfBlank { parts.append(address) }
+        if let distanceKm { parts.append(String(format: "%.1f 公里", distanceKm)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 
     /// 409 `INTRO_CALL_NOT_ACTIVE`。最常见成因不是乱调，而是**窗口超时后客户端才发上来**，
     /// 所以要说清「这一轮已经结束」，不能说成「操作失败」。

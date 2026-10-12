@@ -510,6 +510,8 @@ struct BlindHeroPalette {
     var stateColor: Color {
         switch tone {
         case .matching: return AppColors.Flow.stateMatching
+        case .calling: return AppColors.Flow.stateCalling
+        case .called: return AppColors.Flow.stateCalled
         case .agreed: return AppColors.Flow.stateAgreed
         case .departed: return AppColors.Flow.stateDeparted
         case .arrived: return AppColors.Flow.stateArrived

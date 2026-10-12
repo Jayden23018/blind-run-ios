@@ -75,6 +75,18 @@ final class BlindOrderHeroTests: XCTestCase {
         XCTAssertEqual(result.eyebrow, "匹配中")
     }
 
+    /// 先通个电话也在第 1 格，但是不同的状态：紫色头卡、对方实心（已有候选人）、**不挂电话**
+    /// （订单页不知道用户打没打过）。改成与匹配中同一个样子，这条会红。
+    func testIntroCallOnTheOrderPageIsPurpleWithACandidateAndNoPhone() throws {
+        let result = try XCTUnwrap(hero(.pendingIntroCall, plannedStart: Self.noStart, volunteerName: nil).0)
+        XCTAssertEqual(result.tone, .calling)
+        XCTAssertEqual(result.rope, .introCall(.afterCall))
+        XCTAssertFalse(RopeGeometry.make(for: result.rope).showsPhone)
+        XCTAssertEqual(RopeGeometry.make(for: result.rope).otherStyle, .solid)
+        XCTAssertEqual(BlindHeroPalette(tone: .calling).stateColor, AppColors.Flow.stateCalling)
+        XCTAssertEqual(BlindHeroPalette(tone: .called).stateColor, AppColors.Flow.stateCalled)
+    }
+
     func testStepsOtherThanBookedPutTheStartTimeInTheEyebrow() throws {
         let start = OrderDetailResponse.previewLocalTime(minutesFromNow: 24 * 60, now: now)
         let clock = VolunteerOrderTimeCopy.clock(try XCTUnwrap(start.backendTimestamp))

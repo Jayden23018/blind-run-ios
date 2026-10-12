@@ -13,8 +13,20 @@ import SwiftUI
 // 几何是纯数据（`RopeGeometry`），视图只负责把数字画出来 —— 这样几何能在单测里验，
 // 不用渲染。坐标系 342×96（并肩态 342×56），按容器宽度等比缩放。
 
+/// 「先通个电话」（`PENDING_INTRO_CALL`）那一页绳子上的三档。还在第 1 格，只是多了一位候选人。
+enum IntroCallRopeStage: Equatable {
+    /// 还没打（盲人端没拨号 / 陪跑员端等来电）：绳子中间挂一个电话。
+    case beforeCall
+    /// 打过了（盲人端拨号回来）。
+    case afterCall
+    /// 「我」已经说了合适：「我」头像上一个小勾。**只画自己的表态**，对方的不画（无声拒绝）。
+    case decided
+}
+
 enum RopeState: Equatable {
     case invited
+    /// 先通个电话。对方是**候选人**：实心头像（已经有名字了），绳子仍是虚线（还没约好）。
+    case introCall(IntroCallRopeStage)
     case agreed
     /// `progress` 是后端 `eta.progress`。2026-10-13 起刻度态**不再用它定位**（「我」停在「出发」刻度上），
     /// 保留关联值是为了不动调用点的数据流；还有几分钟到由头卡大数字与读屏标签说。
@@ -28,7 +40,7 @@ enum RopeState: Equatable {
     /// 在四格里的哪一格（0…3）。
     var step: Int {
         switch self {
-        case .invited: return 0
+        case .invited, .introCall: return 0
         case .agreed: return 1
         case .departed: return 2
         case .arrived, .together: return 3
@@ -56,6 +68,7 @@ enum RopeState: Equatable {
     private func volunteerAccessibilityLabel(remainingMinutes: Int?) -> String {
         switch self {
         case .invited: return "第 1 步，共 4 步，邀请，还没约好"
+        case .introCall(let stage): return "第 1 步，共 4 步，邀请，" + Self.introCallWording(stage)
         case .agreed: return "第 2 步，共 4 步，已约好"
         case .departed:
             let base = "第 3 步，共 4 步，正在赶去"
@@ -71,6 +84,7 @@ enum RopeState: Equatable {
     private var runnerAccessibilityLabel: String {
         switch self {
         case .invited: return "第 1 步，共 4 步，匹配中，还没约好"
+        case .introCall(let stage): return "第 1 步，共 4 步，匹配中，" + Self.introCallWording(stage)
         case .agreed: return "第 2 步，共 4 步，已约好"
         case .departed: return "第 3 步，共 4 步，陪跑员正在赶来"
         case .arrived: return "第 4 步，共 4 步，陪跑员已到达"
@@ -79,9 +93,17 @@ enum RopeState: Equatable {
         }
     }
 
+    /// 只说**自己**这一侧的事。🚨 不许出现对方的表态（`IntroCallView` 的类型注释：无声拒绝）。
+    private static func introCallWording(_ stage: IntroCallRopeStage) -> String {
+        switch stage {
+        case .beforeCall, .afterCall: return "先通个电话"
+        case .decided: return "你已说合适"
+        }
+    }
+
     private func nextStepsSuffix(perspective: RopePerspective) -> String {
         switch self {
-        case .invited, .agreed, .departed:
+        case .invited, .introCall, .agreed, .departed:
             let rest = Self.stepTitles(perspective: perspective).dropFirst(step + 1)
             return "。接下来：" + rest.joined(separator: "、")
         case .arrived, .together, .cancelled:
@@ -153,6 +175,12 @@ struct RopeGeometry: Equatable {
     var otherStyle: OtherStyle = .solid
     /// 出发中「我」外圈的呼吸光晕。只在陪跑员视角画（他才是在路上的那个），见 `RopeView`。
     var showsDepartureHalo = false
+    /// 先通个电话 · 还没打：第 1、2 格中间挂一个电话。
+    var showsPhone = false
+    /// 先通个电话 · 已说合适：「我」头像右上角一个小勾。
+    var showsSelfCheck = false
+    /// 电话图标挂在哪：第 2、3 个刻度中间（「我」与对方之间那段绳子的正中附近，不压任何刻度）。
+    static let phoneX: CGFloat = (ticks[1] + ticks[2]) / 2
 
     var aspectHeight: CGFloat { layout == .together ? Self.togetherHeight : Self.height }
 
@@ -173,6 +201,11 @@ struct RopeGeometry: Equatable {
         switch state {
         case .invited:
             return RopeGeometry(step: 0, selfX: ticks[0], ropeStyle: .dashed, otherStyle: .hollow)
+        case .introCall(let stage):
+            return RopeGeometry(
+                step: 0, selfX: ticks[0], ropeStyle: .dashed, otherStyle: .solid,
+                showsPhone: stage == .beforeCall, showsSelfCheck: stage == .decided
+            )
         case .agreed:
             return RopeGeometry(step: 1, selfX: ticks[1], ropeStyle: .solid)
         case .departed:
@@ -392,6 +425,16 @@ struct RopeView: View {
             otherAvatar(style: g.otherStyle, radius: r, scale: s)
                 .position(x: g.otherX * s, y: RopeGeometry.avatarY * s)
 
+            if g.showsPhone {
+                Image(systemName: "phone.fill")
+                    .font(.system(size: 12 * s, weight: .semibold))
+                    .foregroundColor(stateColor)
+                    .frame(width: 26 * s, height: 26 * s)
+                    .background(Circle().fill(Color.white))
+                    .position(x: RopeGeometry.phoneX * s, y: RopeGeometry.curveY(atX: RopeGeometry.phoneX) * s)
+                    .transition(.opacity)
+            }
+
             if g.showsDepartureHalo && perspective == .volunteer {
                 Circle()
                     .fill(Color.white)
@@ -403,6 +446,18 @@ struct RopeView: View {
 
             selfAvatar(radius: r, scale: s)
                 .position(x: g.selfX * s, y: g.selfY * s)
+
+            if g.showsSelfCheck {
+                // 完成绿 + 白描边：压在「我」的白圆与任何一种头卡色上都看得出边界。
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9 * s, weight: .heavy))
+                    .foregroundColor(.white)
+                    .frame(width: 19 * s, height: 19 * s)
+                    .background(Circle().fill(AppColors.Flow.stateDone))
+                    .overlay(Circle().strokeBorder(Color.white, lineWidth: 2 * s))
+                    .position(x: (g.selfX + 17) * s, y: (g.selfY - 17) * s)
+                    .transition(.opacity)
+            }
         }
     }
 
@@ -601,7 +656,7 @@ struct RopeTogetherIllustration: View {
 private extension RopeGeometry {
     /// 「减弱动态效果」时用它当 `.id`：几何变了就整幅交叉淡入，而不是插值位置。
     var animationKey: String {
-        "\(layout)-\(step)-\(ropeStyle)-\(otherStyle)"
+        "\(layout)-\(step)-\(ropeStyle)-\(otherStyle)-\(showsPhone)-\(showsSelfCheck)"
     }
 }
 

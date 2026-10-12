@@ -70,6 +70,11 @@ struct OrderFlowBottomActions: View {
     let primary: OrderFlowPrimaryAction?
     /// 主按钮与「求助与安全」之间的「打电话给<对方>」。`nil` = 不出现（只有盲人端汇合页给）。
     var call: OrderFlowCallAction? = nil
+    /// 主按钮下面的次要按钮（「先通个电话」页的「再打一次」「换一位」「不合适」）。`nil` = 没有。
+    ///
+    /// 是一块视图而不是一组参数：每枚按钮的 `accessibilityIdentifier` 必须以字面量写在调用方
+    /// （理由同 `Owner`），参数化就会弄瞎 `stale-ui-test-identifier` 守卫。
+    var secondary: AnyView? = nil
     /// `nil` = 这一屏不提供求助与安全。
     let safetyHub: OrderFlowSafetyHubAction?
 
@@ -103,6 +108,10 @@ struct OrderFlowBottomActions: View {
                         action: primary.action
                     )
                 )
+            }
+
+            if let secondary {
+                secondary
             }
 
             if let call {

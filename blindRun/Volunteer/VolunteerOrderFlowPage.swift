@@ -246,7 +246,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         .padding(.vertical, 12)
         // 头卡是钢蓝底（定稿 v6）：浅灰块压在彩色卡里成了一块补丁，改成 12% 白。
         // 白字 5.24、副文 4.85（`FlowDesignSystemTests.testInviteMetricTileOnTheMatchingHero`）。
-        .background(Color.white.opacity(FlowMetrics.inviteMetricTileWhiteOpacity), in: RoundedRectangle(cornerRadius: FlowMetrics.v2ChipRadius, style: .continuous))
+        .background(Color.white.opacity(FlowMetrics.heroChipWhiteOpacity), in: RoundedRectangle(cornerRadius: FlowMetrics.v2ChipRadius, style: .continuous))
     }
 
     private var metricsSpoken: String {
