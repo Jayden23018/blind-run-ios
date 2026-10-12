@@ -267,12 +267,21 @@ struct VolunteerIntroCallView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
-        // 没成：自己关掉回首页。那句中性的话已经由 view model 在落定那一刻播了
-        // （`IntroCallCopy.volunteerRoundClosed`），不再停在一整屏上。
-        .onChange(of: viewModel.outcome) { outcome in
-            if outcome == .closed { dismiss() }
+        // 没成：头卡上停 3 秒那句中性的话（view model 在落定那一刻已经播了），然后自己关掉回首页。
+        // 不是一整屏结局页（负责人不要），但也**不能一闪就没**：静音的陪跑员只看得到页面消失、
+        // 不知道为什么；而且首页一出现若自己也念东西，会把那句话切断（记忆 `later-speak-silently-cuts-the-earlier-one`）。
+        .task(id: viewModel.outcome) {
+            guard viewModel.outcome == .closed else { return }
+            try? await Task.sleep(nanoseconds: Self.closedNoticeNanoseconds)
+            guard !Task.isCancelled else { return }
+            dismiss()
         }
     }
+
+    /// 没约成那句话在头卡上停多久再回首页。够念完一句十几个字的话。
+    static let closedNoticeNanoseconds: UInt64 = 3_000_000_000
+
+    private var isClosed: Bool { viewModel.outcome == .closed }
 
     private var callPage: some View {
         VStack(spacing: 0) {
@@ -320,7 +329,7 @@ struct VolunteerIntroCallView: View {
 
     /// 等来电紫，已说合适梅红（定稿 v6，与盲人端同一套）。
     private var heroColor: Color {
-        isWaiting ? AppColors.Flow.stateCalled : AppColors.Flow.stateCalling
+        isWaiting || isClosed ? AppColors.Flow.stateCalled : AppColors.Flow.stateCalling
     }
 
     private var runnerName: String {
@@ -337,7 +346,7 @@ struct VolunteerIntroCallView: View {
                     .accessibilityHidden(true)
             }
             RopeView(
-                state: .introCall(isWaiting ? .decided : .beforeCall),
+                state: .introCall(isWaiting ? .decided : (isClosed ? .afterCall : .beforeCall)),
                 theme: .onHero(heroColor),
                 runnerName: viewModel.introCall?.counterpartName
             )
@@ -370,6 +379,7 @@ struct VolunteerIntroCallView: View {
     }
 
     private var title: String {
+        if isClosed { return IntroCallCopy.volunteerRoundClosed }
         if isWaiting { return IntroCallCopy.waitingForCounterpart }
         // 还在拉：整屏不许空白（理由同盲人侧 `blindLoadingNotice`）。
         if viewModel.introCall == nil, viewModel.errorMessage == nil { return IntroCallCopy.volunteerLoadingNotice }
@@ -380,6 +390,7 @@ struct VolunteerIntroCallView: View {
     /// 后端恒不下发志愿者能拨通的明文号（`IntroCallView.counterpartPhoneMasked` 的注释）。
     /// 把 `138****1234` 拼进 `tel:` 会拼成一个七位的、可能真打给别人的号码。
     private var lines: [String] {
+        if isClosed { return [] }
         if isWaiting { return [IntroCallCopy.blindAfterCallSubtitle] }
         guard let masked = viewModel.introCall?.counterpartPhoneMasked?.nilIfBlank else { return [] }
         return [IntroCallCopy.volunteerIncomingNumberLine(masked: masked)]
@@ -422,7 +433,15 @@ struct VolunteerIntroCallView: View {
 
     // MARK: 底栏
 
+    @ViewBuilder
     private var bottomActions: some View {
+        // 没约成那 3 秒里一个按钮都不给：这一单已经不是他的了，任何一枚都按不出结果。
+        if !isClosed {
+            activeBottomActions
+        }
+    }
+
+    private var activeBottomActions: some View {
         OrderFlowBottomActions(
             owner: .volunteer,
             primary: isWaiting ? nil : OrderFlowPrimaryAction(

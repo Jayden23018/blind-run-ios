@@ -270,7 +270,7 @@ struct BlindIntroCallView: View {
     /// 主按钮 + 次要按钮 + 求助与安全。四个分支，**顺序逐条搬自原 `introCallSection`**，判定条件一字未改。
     private var bottomActions: OrderFlowBottomActions {
         OrderFlowBottomActions(
-            owner: .blindRunner,
+            owner: .blindIntroCall,
             primary: primaryAction,
             secondary: AnyView(secondaryButtons),
             safetyHub: OrderFlowSafetyHubAction(action: onOpenSafetyHub)

@@ -63,6 +63,9 @@ struct OrderFlowBottomActions: View {
     /// 所以这里按 owner 分支、两边各写一个字面量。多三行，换守卫继续看得见。
     enum Owner {
         case blindRunner
+        /// 盲人端「先通个电话」页。它是盖在订单页上的全屏页，与订单页用同一个 id
+        /// 会让找订单页主按钮的 UI 用例摸到通话页的「打电话」上。
+        case blindIntroCall
         case volunteer
     }
 
@@ -170,6 +173,7 @@ struct OrderFlowBottomActions: View {
     private func tagPrimary<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowPrimaryButton")
+        case .blindIntroCall: view.accessibilityIdentifier("blindIntroCallPrimaryButton")
         case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
         }
     }
@@ -178,6 +182,7 @@ struct OrderFlowBottomActions: View {
     private func tagCall<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowCallButton")
+        case .blindIntroCall: view.accessibilityIdentifier("blindIntroCallCallButton")
         case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowCallButton")
         }
     }
@@ -186,6 +191,7 @@ struct OrderFlowBottomActions: View {
     private func tagSafetyHub<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowSafetyHubButton")
+        case .blindIntroCall: view.accessibilityIdentifier("blindIntroCallSafetyHubButton")
         case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowSafetyHubButton")
         }
     }
@@ -198,6 +204,7 @@ private struct BottomBarIdentifier: ViewModifier {
     func body(content: Content) -> some View {
         switch owner {
         case .blindRunner: content.accessibilityIdentifier("blindOrderFlowBottomBar")
+        case .blindIntroCall: content.accessibilityIdentifier("blindIntroCallBottomBar")
         case .volunteer: content.accessibilityIdentifier("volunteerOrderFlowBottomBar")
         }
     }
