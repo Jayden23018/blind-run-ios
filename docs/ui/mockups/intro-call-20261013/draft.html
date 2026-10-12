@@ -1,7 +1,7 @@
-<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>进度绳 + 先通个电话 · 初稿 v5</title><style>
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>进度绳 + 先通个电话 · 定稿 v6</title><style>
 /* 颜色全部取自 FlowPalette（blindRun/Core/DesignSystem/FlowPalette.swift）亮色档，不新增。 */
 :root{
-  --page:#F2F3F6; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --ink3:#8A91A2; --sep:#EEF0F4;
+  --page:#F2F3F6; --matching:#46506A; --calling:#6941C6; --called:#86377F; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --ink3:#8A91A2; --sep:#EEF0F4;
   --accent:#2A5BD7; --accentInk:#1F47AD; --navy:#1B2657; --departed:#2A5BD7; --arrived:#A04B0C; --done:#1C7C45;
   --cta:#F6C343; --onCTA:#111A2E; --ctaStroke:#D9A21E;
   --helpBg:#FDECEC; --helpText:#B42318; --helpStroke:#F2B8B5;
@@ -30,7 +30,8 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke
 .pill-help svg.i{width:18px;height:18px}
 
 /* 头卡：居中，只有「时间 · 绳子 · 大标题 · 一行副标题」 */
-.hero{border-radius:24px;padding:20px 20px 24px;margin:4px 16px 0;text-align:center}
+.hero{border-radius:24px;padding:20px 20px 24px;margin:4px 16px 0;color:#fff}
+.hero.center{text-align:center}
 .hero.light{background:var(--surface);box-shadow:0 1px 2px rgba(21,26,38,.05),0 6px 18px rgba(21,26,38,.05)}
 .hero.dark{color:#fff}
 .eyebrow{font-size:15px;font-weight:600;color:var(--ink2)}
@@ -39,7 +40,7 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 .say{font-size:30px;font-weight:800;line-height:1.2;letter-spacing:-.3px}
 .say-sub{font-size:17px;color:var(--ink2);margin-top:8px;line-height:1.4}
 .dark .say-sub{color:rgba(255,255,255,.9)}
-.timer{display:inline-flex;align-items:center;gap:6px;margin-top:14px;height:32px;padding:0 14px;border-radius:16px;background:var(--blueTint);color:var(--accentInk);font-size:15px;font-weight:700}
+.timer{display:inline-flex;align-items:center;gap:6px;margin-top:14px;height:32px;padding:0 14px;border-radius:16px;background:rgba(255,255,255,.16);color:#fff;font-size:15px;font-weight:700}
 .timer svg.i{width:16px;height:16px}
 
 .card{background:var(--surface);border-radius:20px;margin:12px 16px 0;box-shadow:0 1px 2px rgba(21,26,38,.05),0 6px 18px rgba(21,26,38,.05)}
@@ -64,6 +65,8 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 .stage .hero{margin:0;padding:18px 14px 16px}
 .stage .cap{width:auto;margin-top:12px}
 
+.outcome{width:402px;font-size:16px;color:var(--ink2);line-height:1.6;padding-top:24px}
+.outcome b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}
 .notes{margin-top:56px;font-size:14px;color:var(--ink2);line-height:1.7;max-width:1300px}
 .notes b{color:var(--ink)}
 </style></head><body>
@@ -81,16 +84,16 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 <template id="sb"><div class="sb"><span>9:41</span><svg viewBox="0 0 64 13"><rect x="0" y="8" width="3" height="5" rx="1" fill="#151A26"/><rect x="5" y="5.5" width="3" height="7.5" rx="1" fill="#151A26"/><rect x="10" y="3" width="3" height="10" rx="1" fill="#151A26"/><rect x="15" y="0.5" width="3" height="12.5" rx="1" fill="#151A26"/><rect x="36" y="1" width="23" height="11" rx="3.5" fill="none" stroke="#151A26" stroke-opacity=".4"/><rect x="38" y="3" width="19" height="7" rx="2" fill="#151A26"/><rect x="60.5" y="4.5" width="1.6" height="4" rx=".8" fill="#151A26" fill-opacity=".4"/></svg></div></template>
 
 <header>
- <h1>进度绳 + 「先通个电话」 · 初稿 v5</h1>
- <p class="lede">汇合不再画刻度，改用完成页那张「两人并肩」的插图；头卡只留时间、绳子、标题、一行副标题。</p>
+ <h1>进度绳 + 「先通个电话」 · 定稿 v6</h1>
+ <p class="lede">每个状态一种头卡颜色，两端同一套；通话前紫、通话后梅红。汇合用完成页那张「两人并肩」的插图。</p>
 </header>
 
 <h2>四个阶段</h2>
 <div class="stages">
- <div class="stage"><div class="hero light"><svg class="rope" data-rope='{"cur":0,"other":"陪","otherState":"none"}'></svg></div><div class="cap">匹配</div></div>
+ <div class="stage"><div class="hero dark" style="background:var(--matching)"><svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#46506A","other":"陪","otherState":"none"}'></svg></div><div class="cap">匹配 / 邀请</div></div>
  <div class="stage"><div class="hero dark" style="background:var(--navy)"><svg class="rope" data-rope='{"cur":1,"dark":true,"hero":"#1B2657","other":"陈","otherState":"set"}'></svg></div><div class="cap">约好</div></div>
  <div class="stage"><div class="hero dark" style="background:var(--departed)"><svg class="rope" data-rope='{"cur":2,"dark":true,"hero":"#2A5BD7","other":"陈","otherState":"set"}'></svg></div><div class="cap">出发</div></div>
- <div class="stage"><div class="hero dark" style="background:var(--arrived)"><svg class="rope" data-rope='{"cur":3,"dark":true,"hero":"#A04B0C","other":"陈"}'></svg></div><div class="cap">汇合<small>和完成页同一张插图，换成汇合的颜色</small></div></div>
+ <div class="stage"><div class="hero dark center" style="background:var(--arrived)"><svg class="rope" data-rope='{"cur":3,"dark":true,"hero":"#A04B0C","other":"陈"}'></svg></div><div class="cap">汇合<small>和完成页同一张插图，换成汇合的颜色</small></div></div>
 </div>
 
 <h2>订单页</h2>
@@ -98,8 +101,8 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">陪跑订单</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
-<div class="hero light"><div class="eyebrow">明天 7:00 开跑</div>
- <svg class="rope" data-rope='{"cur":0,"other":"陪","otherState":"none"}'></svg>
+<div class="hero dark" style="background:var(--matching)"><div class="eyebrow">明天 7:00 开跑</div>
+ <svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#46506A","other":"陪","otherState":"none"}'></svg>
  <div class="say">正在匹配陪跑员</div><div class="say-sub">系统正在派单，请稍候</div></div>
 <div class="card"><div class="kv"><span>时间</span><span>明天 7:00</span></div><div class="kv"><span>集合地点</span><span>朝阳公园南门</span></div><div class="kv"><span>取消匹配</span><svg class="i" style="color:var(--ink3)"><use href="#chev"/></svg></div></div>
 <div class="bottom"><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
@@ -116,7 +119,7 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">陪跑订单</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
-<div class="hero dark" style="background:var(--arrived)"><div class="eyebrow">今天 7:00 开跑</div>
+<div class="hero dark center" style="background:var(--arrived)"><div class="eyebrow">今天 7:00 开跑</div>
  <svg class="rope" data-rope='{"cur":3,"dark":true,"hero":"#A04B0C","other":"陈"}'></svg>
  <div class="say">陈已到达</div><div class="say-sub">见面后，轻点下方开始跑步</div></div>
 <div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园南门</span></div></div>
@@ -129,29 +132,29 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
-<div class="hero light"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
- <svg class="rope" data-rope='{"cur":0,"other":"李","otherState":"candidate","phone":true}'></svg>
+<div class="hero dark" style="background:var(--calling)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#6941C6","other":"李","otherState":"candidate","phone":true}'></svg>
  <div class="say">李*想陪你跑</div><div class="say-sub">先打个电话，都觉得合适就约好</div>
  <div class="timer"><svg class="i"><use href="#clock"/></svg>还剩 19 分钟</div></div>
 <div class="bottom"><div class="cta big"><svg class="i"><use href="#phone"/></svg>打电话给李*</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">还没打电话</div></div>
+<div class="cap">通话前<small>紫</small></div></div>
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
-<div class="hero light"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
- <svg class="rope" data-rope='{"cur":0,"other":"李","otherState":"candidate"}'></svg>
+<div class="hero dark" style="background:var(--called)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#86377F","other":"李","otherState":"candidate"}'></svg>
  <div class="say">和李*聊得怎么样？</div><div class="say-sub">你们都说合适，就约好了</div>
  <div class="timer"><svg class="i"><use href="#clock"/></svg>还剩 12 分钟</div></div>
 <div class="bottom"><div class="cta big">聊过了，合适</div><div class="ghost"><svg class="i"><use href="#phone"/></svg>再打一次</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">打完电话回来</div></div>
+<div class="cap">打完电话回来<small>梅红</small></div></div>
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
-<div class="hero light"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
- <svg class="rope" data-rope='{"cur":0,"other":"李","otherState":"candidate","meCheck":true}'></svg>
+<div class="hero dark" style="background:var(--called)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#86377F","other":"李","otherState":"candidate","meCheck":true}'></svg>
  <div class="say">已告诉系统你觉得合适</div><div class="say-sub">约好后会通知你</div></div>
 <div class="bottom"><div class="ghost"><svg class="i"><use href="#phone"/></svg>再打一次</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
-<div class="cap">已说合适，等确认</div></div>
+<div class="cap">已说合适，等确认<small>梅红</small></div></div>
 </div>
 
 <h2>陪跑员端 · 先通个电话</h2>
@@ -159,34 +162,30 @@ svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
-<div class="hero light"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
- <svg class="rope" data-rope='{"cur":0,"other":"王","otherState":"candidate","phone":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
+<div class="hero dark" style="background:var(--calling)"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
+ <svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#6941C6","other":"王","otherState":"candidate","phone":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
  <div class="say">等王*打电话给你</div><div class="say-sub">来电号码 138****0001</div>
  <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前聊完</div></div>
 <div class="card"><div class="kv"><span>导盲犬</span><span>同行</span></div><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
 <div class="bottom"><div class="cta">合适，接这一单</div><div class="ghost">不合适</div><div class="textbtn">一直没接到电话</div></div><div class="hi"></div></div>
-<div class="cap">等跑者来电</div></div>
+<div class="cap">等跑者来电<small>紫</small></div></div>
 
 <div><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
-<div class="hero dark" style="background:var(--navy)"><div class="eyebrow">已约好</div>
- <svg class="rope" data-rope='{"cur":1,"dark":true,"hero":"#1B2657","other":"王","otherState":"set","labels":["邀请","约好","出发","汇合"]}'></svg>
- <div class="say">这一单是你的了</div><div class="say-sub">明天 7:00 在朝阳公园南门见王*</div></div>
-<div class="bottom"><div class="cta">进入订单</div></div><div class="hi"></div></div>
-<div class="cap">双方都说合适</div></div>
+<div class="hero dark" style="background:var(--called)"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
+ <svg class="rope" data-rope='{"cur":0,"dark":true,"hero":"#86377F","other":"王","otherState":"candidate","meCheck":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="say">已告诉系统你觉得合适</div><div class="say-sub">约好后会通知你</div></div>
+<div class="card"><div class="kv"><span>导盲犬</span><span>同行</span></div><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
+<div class="bottom"><div class="ghost">不合适</div></div><div class="hi"></div></div>
+<div class="cap">已说合适，等确认<small>梅红</small></div></div>
 
-<div><div class="phone" data-sb>
-<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div style="width:44px"></div></div>
-<div class="hero light"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
- <div class="say" style="margin-top:14px">这一单已经安排好了</div><div class="say-sub">感谢你的响应</div></div>
-<div class="bottom"><div class="cta">返回首页</div></div><div class="hi"></div></div>
-<div class="cap">这一单没约成</div></div>
+<div class="outcome"><b>双方都说合适</b>通话页原地变成订单页「约好」那一屏（藏青），不再有中间页。<br><br><b>这一单没约成</b>自动回到首页，播报「这次通话确认已结束，感谢你的响应」。不说是谁、为什么。</div>
 </div>
 
 <div class="notes">
 <b>保留的规则</b>　不显示对方的表态 · 不显示「第几位志愿者」 · 陪跑员端号码只显示打码版本、不能回拨 · 「一直没接到电话」与「不合适」是两个动作 · 没约成不说原因。<br>
 <b>读屏</b>　绳子念「第 N 步，共 4 步，＋当前状态」，头卡里不再写这句，免得念两遍。<br>
-<b>其他</b>　图标为示意，实现用 SF Symbols；名字和数字是示例。最大字号下绳子等比放大、文字换行不截断；「减弱动态效果」打开时头像直接跳格。陪跑员端汇合与完成页用同一张插图（左边是陪跑员自己）。
+<b>其他</b>　图标为示意，实现用 SF Symbols；名字和数字是示例。最大字号下绳子等比放大、文字换行不截断；「减弱动态效果」打开时头像直接跳格。陪跑员端汇合与完成页用同一张插图（左边是陪跑员自己）。<br><b>头卡颜色</b>　匹配 / 邀请 灰蓝 · 通话前 紫 · 通话后 梅红 · 约好 藏青 · 出发 蓝 · 汇合 橙 · 跑步 青绿 · 完成 绿。两端同一套。
 </div>
 
 <script>
