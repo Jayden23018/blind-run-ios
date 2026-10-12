@@ -191,6 +191,32 @@ final class AppState: ObservableObject {
     /// 会话过期后带到登录页展示的一次性提示。
     @Published private(set) var sessionExpirationMessage: String?
 
+    /// 跑步中收到 401 后的「登录过期、暂缓退出」状态（#376）。nil = 没有暂缓。
+    ///
+    /// 后端 JWT 24 小时有效且没有续期（blind-run-backend#642），订单页每 5 秒轮询一次，
+    /// 所以跑步途中过期是现实场景。此前任何 401 都立刻 `expireSession()`：盲人在跑道上被踢回登录页、
+    /// WebSocket 断开、云端求助不可用，还要重新收短信。暂缓期间：会话保留，订单页停轮询，
+    /// 云端求助一律不发（`EmergencyCoordinator.blocksCloudSOSForExpiredSession`），横幅可见可听。
+    @Published private(set) var sessionExpiryDeferral: SessionExpiryDeferral?
+
+    var isSessionExpiryDeferred: Bool { sessionExpiryDeferral != nil }
+
+    /// 暂缓期间再收到 401 时最多多久补念一次。轮询已经停了，剩下的 401 多半来自用户自己按的按钮 ——
+    /// 不补念就是「点了没反应」；每次都念又会在连按时把人淹没。
+    static let deferredExpiryReminderInterval: TimeInterval = 30
+
+    #if DEBUG
+    /// 限频用的时钟。单测换成可拨的钟，免得为了 30 秒真睡 30 秒。
+    var sessionClockForTesting: (() -> Date)?
+    #endif
+
+    private var sessionNow: Date {
+        #if DEBUG
+        if let sessionClockForTesting { return sessionClockForTesting() }
+        #endif
+        return Date()
+    }
+
     // MARK: - Legal Links
 
     /// `GET /api/misc/legal-links` 的结果。`nil` = 尚未加载 / 加载失败 / 后端未配置 URL，
@@ -548,6 +574,29 @@ final class AppState: ObservableObject {
             }
         }
 
+        // 跑步中登录过期的暂缓（#376）在本单离开 `IN_PROGRESS` 时结束。两路来源都要听：
+        // 订单页 / 首页写进来的本地记录，以及实时推送 —— 暂缓期间 HTTP 都是 401，
+        // 跑完这件事往往只能从推送里知道。
+        //
+        // 🔴 **登出放到下一拍，不在订阅回调里同步做。** 这两个回调都在发布方的调用栈中途：
+        // `$activeStatus` 是在 `activeStatus` 的 setter 还没返回时发的，同步清会话会经
+        // `liveEscortCoordinator.reset` 再写一次 `activeStatus`（对同一个 `@Published` 的重入写）；
+        // 推送那条在 `AppRealtimeCoordinator.route()` 中途，清完会话它还会接着往下写本单的刷新请求。
+        liveEscortCoordinator.$activeStatus
+            .sink { [weak self] status in
+                guard let self, self.sessionExpiryDeferral != nil, status != .inProgress else { return }
+                Task { @MainActor [weak self] in self?.endDeferredSessionExpiry() }
+            }
+            .store(in: &cancellables)
+        realtimeCoordinator.statusUpdatePublisher
+            .sink { [weak self] update in
+                guard let self, self.sessionExpiryDeferral != nil,
+                      update.orderId == self.liveEscortCoordinator.activeOrderID,
+                      update.fromStatus == .inProgress, update.toStatus != .inProgress else { return }
+                Task { @MainActor [weak self] in self?.endDeferredSessionExpiry() }
+            }
+            .store(in: &cancellables)
+
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
         realtimeCoordinator.recoveryPublisher
             .receive(on: DispatchQueue.main)
@@ -810,6 +859,8 @@ final class AppState: ObservableObject {
     }
 
     private func performLocalSessionCleanup() {
+        // 排在最前：下面清 token 会触发 `liveEscortCoordinator.reset`，进而触发结束暂缓的订阅。
+        sessionExpiryDeferral = nil
         disconnectWebSocket()
         accessToken = nil
         userId = nil
@@ -859,8 +910,39 @@ final class AppState: ObservableObject {
     @discardableResult
     func handleAuthenticatedAPIError(_ error: APIError) -> Bool {
         guard case .unauthorized = error else { return false }
-        expireSession()
+        if var deferral = sessionExpiryDeferral {
+            let now = sessionNow
+            if now.timeIntervalSince(deferral.lastAnnouncedAt) >= Self.deferredExpiryReminderInterval {
+                deferral.announcementSerial += 1
+                deferral.lastAnnouncedAt = now
+                sessionExpiryDeferral = deferral
+            }
+            return true
+        }
+        // 判据读 `liveEscortCoordinator.activeStatus`：全 App 唯一记着「本账号当前订单状态」的地方，
+        // 两端首页与订单页都往里写。冷启动时它还是空的 ⇒ 重启后的 401 照旧登出（design.md Non-Goals）。
+        guard liveEscortCoordinator.activeStatus == .inProgress else {
+            expireSession()
+            return true
+        }
+        sessionExpiryDeferral = SessionExpiryDeferral(
+            role: activeRole,
+            announcementSerial: 1,
+            lastAnnouncedAt: sessionNow
+        )
+        emergencyCoordinator.blockCloudSOSForExpiredSession()
         return true
+    }
+
+    /// 结束暂缓，按原逻辑登出。三个入口：本单离开 `IN_PROGRESS`（`init` 里的两条订阅）、
+    /// 跑者从首页导航栈退出订单页（`BlindRunnerHomeView`）、横幅上的「现在重新登录」。
+    ///
+    /// **先归零再清会话**：`clearSession` 会让 `liveEscortCoordinator.activeStatus` 变 nil，
+    /// 那条订阅会再进来一次 —— 不先归零就是重入。
+    func endDeferredSessionExpiry() {
+        guard sessionExpiryDeferral != nil else { return }
+        sessionExpiryDeferral = nil
+        expireSession()
     }
 
     /// 切换角色
@@ -1095,5 +1177,41 @@ private final class DisabledAPIClient: APIClientProtocol, @unchecked Sendable {
         requiresAuth: Bool
     ) async throws -> T {
         throw APIError.invalidURL
+    }
+}
+
+/// 跑步中登录过期、暂缓退出（#376）。
+struct SessionExpiryDeferral: Equatable {
+    /// 进入暂缓时的角色。横幅文案按它分：跑者「跑完后需要重新登录」，陪跑员「结束陪跑要先重新登录」。
+    let role: UserRole?
+    /// 需要（再）播报一次就 +1。`ContentView` 按它的变化念，不按整个值 —— 值里还有时间戳。
+    var announcementSerial: Int
+    var lastAnnouncedAt: Date
+
+    /// 横幅与第一次播报。三件事都要说：发生了什么、为什么没退出、求助怎么办。
+    /// 最后一句是 `AGENTS.md` §6 的红线：凭证过期时云端求助发不出去，必须说清「App 不会代你发送求助」。
+    var bannerMessage: String {
+        switch role {
+        case .volunteer:
+            return "登录已过期。为了不打断陪跑，暂时不退出；结束陪跑等操作需要先点「现在重新登录」。"
+                + "云端求助发不出去，紧急情况请直接拨打120或110，App 不会代你发送求助。"
+        default:
+            return "登录已过期，跑完后需要重新登录。为了不打断跑步，暂时不退出；"
+                + "云端求助发不出去，紧急情况请直接拨打120或110，App 不会代你发送求助。"
+        }
+    }
+
+    /// 暂缓期间又收到 401（多半是用户自己按了某个按钮）时补念的那一句。比横幅短：横幅一直在屏幕上。
+    var reminderMessage: String {
+        switch role {
+        case .volunteer:
+            return "登录已过期，这个操作需要先重新登录，请点屏幕底部的「现在重新登录」。紧急情况请直接拨打120或110。"
+        default:
+            return "登录已过期，这个操作现在做不了，跑完后需要重新登录。紧急情况请直接拨打120或110。"
+        }
+    }
+
+    var spokenMessage: String {
+        announcementSerial <= 1 ? bannerMessage : reminderMessage
     }
 }

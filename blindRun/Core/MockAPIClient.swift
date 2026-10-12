@@ -192,6 +192,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         mockRole = role
     }
 
+    #if DEBUG
+    private static var orderDetailRequestCountForUITest = 0
+    #endif
+
     // MARK: - APIClientProtocol
 
     func request<T: Decodable>(
@@ -216,6 +220,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
            path.matches(of: try! Regex("/api/orders/\\d+$")).count > 0 {
             await Self.suspendForeverIgnoringCancellation()
             throw CancellationError()
+        }
+        // 跑到一半凭证过期（#376）：订单详情第一次照常返回（订单页要靠它渲染出求助入口），之后一律 401。
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_UNAUTHORIZED_AFTER_FIRST_ORDER_DETAIL"] == "1",
+           method == .get,
+           path.matches(of: try! Regex("/api/orders/\\d+$")).count > 0 {
+            Self.orderDetailRequestCountForUITest += 1
+            if Self.orderDetailRequestCountForUITest > 1 { throw APIError.unauthorized }
         }
         // 让退出登录 / 删除账户在 `.inProgress` 停够几秒，UI 测试才断得到进度遮罩那一刻的无障碍树。
         // 限时而不是永久挂起：退出登录配 `AIDRUN_MOCK_LOGOUT_FAILURE` 就能走到「失败 → 取消 → 回到 idle」，

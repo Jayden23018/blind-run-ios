@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-const baseURL = process.env.AIDRUN_ADMIN_BASE_URL ?? 'http://47.114.113.171';
-const username = process.env.AIDRUN_ADMIN_USERNAME ?? 'admin';
-const password = process.env.AIDRUN_ADMIN_PASSWORD ?? 'admin123';
+// 管理员账号不设默认值：仓库是公开的，凭证向后端负责人索取后只放在环境变量里。
+const baseURL = process.env.AIDRUN_ADMIN_BASE_URL ?? 'https://47.114.113.171';
+const username = process.env.AIDRUN_ADMIN_USERNAME;
+const password = process.env.AIDRUN_ADMIN_PASSWORD;
 const explicitUserId = process.env.AIDRUN_ADMIN_REVIEW_USER_ID;
 const reviewPhone = process.env.AIDRUN_ADMIN_REVIEW_PHONE;
 const approved = process.env.AIDRUN_ADMIN_APPROVED !== '0';
@@ -12,13 +13,17 @@ const reviewKind = process.env.AIDRUN_ADMIN_REVIEW_KIND ?? 'id';
 function usage() {
   console.error([
     'Usage:',
+    '  AIDRUN_ADMIN_USERNAME=<username> AIDRUN_ADMIN_PASSWORD=<password> \\',
     '  AIDRUN_ADMIN_REVIEW_USER_ID=<userId> scripts/admin-review-volunteer.mjs',
     '',
+    'Required:',
+    '  AIDRUN_ADMIN_USERNAME=<username>      Ask the backend owner. No default.',
+    '  AIDRUN_ADMIN_PASSWORD=<password>      Ask the backend owner. No default.',
+    '',
     'Optional:',
-    '  AIDRUN_ADMIN_USERNAME=<username>      Default: admin.',
-    '  AIDRUN_ADMIN_PASSWORD=<password>      Default: admin123.',
+    '  AIDRUN_ADMIN_BASE_URL=<url>           Default: https://47.114.113.171.',
     '  AIDRUN_ADMIN_REVIEW_PHONE=<phone>       Find userId from pending review lists.',
-      '  AIDRUN_ADMIN_REVIEW_KIND=id|cert|both  Default: id.',
+    '  AIDRUN_ADMIN_REVIEW_KIND=id|cert|both  Default: id.',
     '  AIDRUN_ADMIN_APPROVED=0                Reject instead of approve.',
     '  AIDRUN_ADMIN_REJECTION_REASON=<text>   Rejection reason.'
   ].join('\n'));
@@ -120,6 +125,11 @@ async function review(token, userId, kind) {
 async function main() {
   if (!['id', 'cert', 'both'].includes(reviewKind)) {
     throw new Error('AIDRUN_ADMIN_REVIEW_KIND must be id, cert, or both');
+  }
+  // 缺审核对象时别先拿管理员账号登录一次再报错。
+  if (!explicitUserId && !reviewPhone) {
+    usage();
+    throw new Error('Missing AIDRUN_ADMIN_REVIEW_USER_ID or AIDRUN_ADMIN_REVIEW_PHONE');
   }
   const token = await login();
   const userId = await resolveUserId(token);

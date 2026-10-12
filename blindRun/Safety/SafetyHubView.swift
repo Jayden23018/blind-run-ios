@@ -206,8 +206,8 @@ struct BlindSafetyHubView: View {
             // 🔴 本地拨号档必须在这里说清底部那条只是拨号。不说的话，一个刚在
             // 「出发」态打开这一层的盲人会以为按下去求助就发出去了 ——
             // 而云端求助在那一态根本不可调（`AGENTS.md` §6）。
-            if mode == .localCall {
-                Text(EmergencySafetyCopy.hubLocalCallNotice)
+            if let localCallNotice = EmergencySafetyCopy.hubLocalCallNotice(for: mode) {
+                Text(localCallNotice)
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
             }
@@ -385,14 +385,14 @@ struct BlindSafetyHubView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
             .readableContentColumn()
-        case .localCall:
+        case .localCall, .localCallSessionExpired:
             PrimaryButton(
                 EmergencySafetyCopy.homeCallTitle,
                 isDestructive: true,
                 action: onLocalCall
             )
             .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
-            .accessibilityHint(EmergencySafetyCopy.homeCallAccessibilityHint)
+            .accessibilityHint(EmergencyCallContext.runner(for: mode).accessibilityHint)
             .accessibilityIdentifier("blindSafetyHubLocalCall")
             .accessibilityFocused($emergencyFocused)
             .padding(.horizontal, 20)

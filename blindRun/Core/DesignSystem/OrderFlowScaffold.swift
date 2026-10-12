@@ -73,6 +73,9 @@ struct OrderFlowBottomActions: View {
 
     var body: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
+            // 跑步中登录过期（#376）。放在底栏里、按钮上方，把按钮往上推而不是盖住它们；没有暂缓时不渲染。
+            SessionExpiryNotice()
+
             if let primary {
                 if let caption = primary.caption {
                     // 🔴 **对读屏隐藏，同一句话改走主按钮的 hint**（见 `OrderFlowPrimaryAction.caption`）。

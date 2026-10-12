@@ -93,6 +93,8 @@ enum EmergencySOSState: Equatable {
     /// 没有新鲜真实坐标，所以一个字节都没发出去。带上 `LocationService` 当时的报错，
     /// 让文案能区分「权限被关」和「拿不到 GPS」—— 两者的下一步动作完全不同。
     case unsentNoLocation(LocationError?)
+    /// 跑步中登录已过期（#376）：云端求助发不出去，一个字节都没发。
+    case unsentSessionExpired
     case failed(String)
     case cooldown(retryAfterSeconds: Int?)
     /// Carrier receipt confirmed the SMS reached the contact's handset
@@ -123,6 +125,8 @@ enum EmergencySOSState: Equatable {
             return EmergencySafetyCopy.submitted(status)
         case .unsentNoLocation(let reason):
             return EmergencySafetyCopy.locationUnavailable(reason)
+        case .unsentSessionExpired:
+            return EmergencySafetyCopy.sessionExpiredUnsent
         case .failed(let reason):
             return EmergencySafetyCopy.failure(reason)
         case .cooldown(let seconds):
@@ -146,7 +150,7 @@ enum EmergencySOSState: Equatable {
         switch self {
         // `contactNotifyFailed` counts as a failure on purpose: nobody was reached, and that is the
         // one fact a blind user must hear in the error register so they call 110 themselves.
-        case .unsentNoLocation, .failed, .cooldown, .contactNotifyFailed, .withdrawFailed:
+        case .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown, .contactNotifyFailed, .withdrawFailed:
             return true
         case .idle, .countingDown, .locating, .submitting, .acknowledged,
              .contactSmsDelivered, .cancelledByOwner, .withdrawnBeforeSending:
@@ -160,7 +164,7 @@ enum EmergencySOSState: Equatable {
         switch self {
         case .countingDown, .locating, .submitting:
             return true
-        case .idle, .acknowledged, .unsentNoLocation, .failed, .cooldown,
+        case .idle, .acknowledged, .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown,
              .contactSmsDelivered, .contactNotifyFailed, .cancelledByOwner,
              .withdrawnBeforeSending, .withdrawFailed:
             return false
@@ -238,6 +242,12 @@ final class EmergencyCoordinator: ObservableObject {
         }
     }
     @Published private(set) var activeEvent: ActiveEmergencyEvent?
+    /// 跑步中登录已过期（#376）：云端求助一律不发。由 `AppState.handleAuthenticatedAPIError` 在进入暂缓时打开，
+    /// `reset()`（每个会话边界都会调）关上。
+    ///
+    /// 两端的求助入口在暂缓期间本该已经切到本地拨号；这一道是**兜底** —— 漏网的入口（陪跑员跑步中求助面板、
+    /// 任何以后新加的入口）按下去也只会落到「求助未发出」，绝不会拿着过期凭证发请求、再被说成「网络异常，请重试」。
+    private(set) var blocksCloudSOSForExpiredSession = false
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
     @Published private(set) var volunteerAlert: VolunteerEmergencyAlert?
 
@@ -282,6 +292,11 @@ final class EmergencyCoordinator: ObservableObject {
         state = .idle
         activeEvent = nil
         volunteerAlert = nil
+        blocksCloudSOSForExpiredSession = false
+    }
+
+    func blockCloudSOSForExpiredSession() {
+        blocksCloudSOSForExpiredSession = true
     }
 
     // MARK: Recovery
@@ -616,6 +631,10 @@ final class EmergencyCoordinator: ObservableObject {
         // WebSocket event must never widen this.
         guard let role, order.status.canTriggerEmergency(as: role) else {
             return finish(.failed("当前订单状态不能发起求助"))
+        }
+        // 排在取定位之前：凭证已过期就别让人再等 5 秒定位，然后才听到发不出去。
+        guard !blocksCloudSOSForExpiredSession else {
+            return finish(.unsentSessionExpired)
         }
 
         state = .locating

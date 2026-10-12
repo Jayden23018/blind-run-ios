@@ -152,6 +152,6 @@ DEVELOPMENT_TEAM=ZW39BS8NXT scripts/device-test.sh -only-testing:blindRunTests/E
 
 ## 与本轮无关但开着的事
 
-- 后端 PR #21：`GET /api/volunteer/dispatch-summary` 对 `13823594196` 返 500 +
+- 后端 PR #21：`GET /api/volunteer/dispatch-summary` 对志愿者联调号返 500 +
   订单卡在 `PENDING_MATCH` 疑似被 `@Async` 吞异常。**是后端的活，别在 iOS 仓库里修**
 - iOS PR #3（`integrate/swift-migration` → `main`）长期开着，与本轮无关

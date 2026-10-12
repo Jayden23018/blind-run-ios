@@ -1484,6 +1484,77 @@ final class AccessibilityAuditTests: XCTestCase {
         app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch.tap()
     }
 
+    /// #376：跑到一半凭证过期。整条链按顺序钉住：
+    /// ① 订单详情第二次起 401（mock 开关）→ 横幅出现，**没有**被踢回登录页；
+    /// ② 打开求助中心（叠放弹层）→ 仍不登出，底部是本地拨号「紧急呼叫」，没有云端「一键求助」；
+    /// ③ 底栏里的「现在重新登录」→ 二次确认 → 这时才回到登录页（跑步页没有返回键，这是跑步中唯一的出口）。
+    ///
+    /// ② 守两件事：「判离开订单页看导航路径、不看 `onDisappear`」—— 挂回 `onDisappear` 的话，
+    /// 弹层一出来就可能被登出；以及提示**不许盖住「求助与安全」**（第一版浮层横幅真机上就盖住了它）。
+    @MainActor
+    func testRunnerKeepsTheSessionWhenTheTokenExpiresMidRunAndLogsOutAfterLeaving() throws {
+        let app = launchBlindHome(
+            emptyOrders: false,
+            seedOrderStatus: "IN_PROGRESS",
+            extraEnvironment: ["AIDRUN_UI_TEST_UNAUTHORIZED_AFTER_FIRST_ORDER_DETAIL": "1"]
+        )
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+
+        // ① 第二次轮询（约 5 秒后）拿到 401。
+        let banner = app.descendants(matching: .any)["sessionExpiryDeferralBanner"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), "跑步中 401 之后没有出现登录过期横幅")
+        let relogin = app.buttons["sessionExpiryReloginButton"].firstMatch
+        XCTAssertTrue(relogin.exists, "提示里缺「现在重新登录」")
+        XCTAssertGreaterThanOrEqual(
+            relogin.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "「现在重新登录」只有 \(relogin.frame.height)pt，低于盲人端 64pt 触达下限"
+        )
+        XCTAssertFalse(app.buttons["获取验证码"].exists, "跑步中 401 不许退回登录页")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "App 不会代你发送求助")).firstMatch.exists,
+            "横幅必须说清 App 不会代你发送求助"
+        )
+
+        // ② 求助中心：本地拨号，不是云端。
+        let entry = app.buttons[Self.safetyHubLabel].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "执行屏没有求助入口")
+        XCTAssertFalse(
+            banner.frame.intersects(entry.frame),
+            "登录过期提示 \(banner.frame) 盖住了「求助与安全」\(entry.frame)"
+        )
+        XCTAssertTrue(entry.isHittable, "「求助与安全」按不到")
+        entry.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHub"].firstMatch.waitForExistence(timeout: 10),
+            "求助中心没打开"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubLocalCall"].firstMatch.exists,
+            "登录过期时求助中心底部应是本地拨号「紧急呼叫」"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindSafetyHubTriggerEmergency"].firstMatch.exists,
+            "登录过期时不许再给云端「一键求助」"
+        )
+        XCTAssertFalse(app.buttons["获取验证码"].exists, "弹出求助中心不许把人登出")
+        app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch.tap()
+
+        // ③ 「现在重新登录」→ 确认 → 登出。
+        XCTAssertTrue(relogin.waitForExistence(timeout: 5))
+        relogin.tap()
+        let confirm = app.alerts.buttons["重新登录"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "「现在重新登录」没有二次确认")
+        XCTAssertFalse(app.buttons["获取验证码"].exists, "确认之前不许登出")
+        confirm.tap()
+        XCTAssertTrue(
+            app.buttons["获取验证码"].firstMatch.waitForExistence(timeout: 15),
+            "确认重新登录之后应回到登录页"
+        )
+    }
+
     /// 志愿者端服务中页，求助入口必须待在**屏幕上三分之一**，不和常规操作按钮混在一起。
     ///
     /// 2026-08-19 之前它是底部面板上方那个全宽 64pt 红色 `PrimaryButton`：与「结束服务」
