@@ -68,6 +68,8 @@ struct OrderFlowBottomActions: View {
 
     let owner: Owner
     let primary: OrderFlowPrimaryAction?
+    /// 主按钮与「求助与安全」之间的「打电话给<对方>」。`nil` = 不出现（只有盲人端汇合页给）。
+    var call: OrderFlowCallAction? = nil
     /// `nil` = 这一屏不提供求助与安全。
     let safetyHub: OrderFlowSafetyHubAction?
 
@@ -99,6 +101,18 @@ struct OrderFlowBottomActions: View {
                         isEnabled: primary.isEnabled,
                         accessibilityHint: primary.resolvedAccessibilityHint,
                         action: primary.action
+                    )
+                )
+            }
+
+            if let call {
+                tagCall(
+                    FlowActionButton(
+                        call.title,
+                        systemImage: "phone.fill",
+                        style: .call,
+                        accessibilityHint: call.accessibilityHint,
+                        action: call.action
                     )
                 )
             }
@@ -152,6 +166,14 @@ struct OrderFlowBottomActions: View {
     }
 
     @ViewBuilder
+    private func tagCall<V: View>(_ view: V) -> some View {
+        switch owner {
+        case .blindRunner: view.accessibilityIdentifier("blindOrderFlowCallButton")
+        case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowCallButton")
+        }
+    }
+
+    @ViewBuilder
     private func tagSafetyHub<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowSafetyHubButton")
@@ -194,6 +216,13 @@ struct OrderFlowPrimaryAction {
         let parts = [caption, accessibilityHint].compactMap { $0?.nilIfBlank }
         return parts.isEmpty ? nil : parts.joined(separator: "。")
     }
+}
+
+/// 「打电话给<对方>」那一枚。号码**不进**标题与提示（VoiceOver 外放，理由同 `primaryActionHint`）。
+struct OrderFlowCallAction {
+    let title: String
+    var accessibilityHint: String?
+    let action: () -> Void
 }
 
 /// 「求助与安全」那一枚。文案与图标固定，只有落点由调用方给。

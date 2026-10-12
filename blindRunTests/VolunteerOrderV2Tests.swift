@@ -129,7 +129,8 @@ final class VolunteerOrderV2Tests: XCTestCase {
         XCTAssertEqual(style(.cancelled), .agreed, "跑者取消用约好的藏青")
         XCTAssertEqual(
             VolunteerOrderHero.make(invite: .make(dispatch: OrderDetailResponse.previewDispatch(), remainingSeconds: 25)).style,
-            .light
+            .matching,
+            "邀请与盲人端匹配中同一个钢蓝（定稿 v6，不再有白卡）"
         )
     }
 

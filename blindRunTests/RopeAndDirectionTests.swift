@@ -8,61 +8,105 @@ import XCTest
 /// 转一圈过 0° 时扇形甩到反方向 —— 所以每条都挑能区分正确实现与错误实现的取值。
 final class RopeAndDirectionTests: XCTestCase {
 
-    // MARK: - 引导绳
+    // MARK: - 引导绳（2026-10-13 定稿 v6：进度与引导绳合成一根）
 
-    func testDepartedProgressIsClampedSoAvatarsNeverOverlapOrTouch() {
-        // 没有夹取时 0.02 → x = 28.88，头像与出发地小圈叠在一起。
-        XCTAssertEqual(RopeGeometry.make(for: .departed(progress: 0.02)).volunteerX, 24 + 244 * 0.1, accuracy: 0.001)
-        // 没有夹取时 0.99 → x = 265.56，已经贴到跑者身上，而人还没到。
-        XCTAssertEqual(RopeGeometry.make(for: .departed(progress: 0.99)).volunteerX, 24 + 244 * 0.85, accuracy: 0.001)
-        XCTAssertEqual(RopeGeometry.make(for: .departed(progress: 0.5)).volunteerX, 146, accuracy: 0.001)
+    /// 四个刻度等距，第四个就是对方头像的圆心。
+    /// v3 初稿把「我」的停靠点 24/105/187/268 当刻度、对方在 318 —— 肉眼间距 81/81/131，负责人目视抓到的。
+    /// 那组数在这里会红：最后一段 50 ≠ 98。
+    func testTicksAreEvenlySpacedAndTheLastTickIsTheOtherAvatar() {
+        let ticks = RopeGeometry.ticks
+        XCTAssertEqual(ticks.count, 4)
+        for index in 1..<ticks.count {
+            XCTAssertEqual(ticks[index] - ticks[index - 1], 98, accuracy: 0.001, "第 \(index) 段")
+        }
+        XCTAssertEqual(ticks.last, RopeGeometry.make(for: .agreed).otherX)
     }
 
-    /// 下垂量按文档公式 `max(2, 18·长度/242)`，不按画板示意的 10。
-    func testDepartedSagFollowsTheDocumentedFormulaNotTheArtboard() {
-        let g = RopeGeometry.make(for: .departed(progress: 0.68))
-        let length = 292 - (24 + 244 * 0.68 + 24)
-        XCTAssertEqual(g.sag, 18 * length / 242, accuracy: 0.001)
-        XCTAssertNotEqual(g.sag, 10, accuracy: 0.5)
-        XCTAssertEqual(g.ropeStartX, g.volunteerX + 24, accuracy: 0.001, "绳子从陪跑员右缘起，不画走过的路")
-        XCTAssertTrue(g.showsOrigin)
-        XCTAssertTrue(g.showsVolunteerHalo)
+    /// 「我」停在当前阶段的刻度上。出发中**不随 `eta.progress` 移动** —— 0.02 与 0.99 落在同一点；
+    /// 改版前按进度连续移动的实现在这里会红（两者分别是 48.4 与 231.4）。
+    func testSelfStopsOnTheTickOfTheCurrentStep() {
+        XCTAssertEqual(RopeGeometry.make(for: .invited).selfX, 24)
+        XCTAssertEqual(RopeGeometry.make(for: .agreed).selfX, 122)
+        XCTAssertEqual(RopeGeometry.make(for: .departed(progress: 0.02)).selfX, 220)
+        XCTAssertEqual(RopeGeometry.make(for: .departed(progress: 0.99)).selfX, 220)
+        XCTAssertEqual(
+            [RopeState.invited, .agreed, .departed(progress: 0.5), .arrived].map { RopeGeometry.make(for: $0).step },
+            [0, 1, 2, 3]
+        )
     }
 
-    func testInviteIsDashedWithAHollowRunnerAndAgreedIsSolid() {
+    /// 刻度圆点按 `curveY` 摆，绳子按同一条曲线画 —— 两端在头像那一行，中点低 12。
+    func testTicksSitOnTheRopeCurve() {
+        XCTAssertEqual(RopeGeometry.curveY(atX: 24), 28, accuracy: 0.001)
+        XCTAssertEqual(RopeGeometry.curveY(atX: 318), 28, accuracy: 0.001)
+        XCTAssertEqual(RopeGeometry.curveY(atX: 171), 40, accuracy: 0.001)
+        XCTAssertEqual(RopeGeometry.curveY(atX: 122), 28 + 2 * (1.0 / 3) * (2.0 / 3) * 24, accuracy: 0.001)
+        XCTAssertEqual(RopeGeometry.make(for: .agreed).selfY, RopeGeometry.curveY(atX: 122), accuracy: 0.001)
+    }
+
+    /// 绳子从「我」的右缘起、到对方左缘止（各让 24），不压在头像上。
+    func testRopeRunsBetweenTheTwoAvatars() {
+        let agreed = RopeGeometry.make(for: .agreed)
+        XCTAssertEqual(agreed.ropeStartX, 146)
+        XCTAssertEqual(agreed.ropeEndX, 294)
+    }
+
+    func testInviteIsDashedWithAHollowOtherAndAgreedIsSolid() {
         let invited = RopeGeometry.make(for: .invited)
         XCTAssertEqual(invited.ropeStyle, .dashed)
-        XCTAssertEqual(invited.runnerStyle, .hollow)
+        XCTAssertEqual(invited.otherStyle, .hollow)
         let agreed = RopeGeometry.make(for: .agreed)
         XCTAssertEqual(agreed.ropeStyle, .solid)
-        XCTAssertEqual(agreed.runnerStyle, .solid)
-        XCTAssertEqual(agreed.sag, 18)
+        XCTAssertEqual(agreed.otherStyle, .solid)
     }
 
-    func testArrivedPutsTheGoldRingOnTheRunnerAndTogetherHangsTheRopeBelow() {
+    /// 汇合不画刻度，改画完成页的并肩插图；跑步中衔接那根金绳原样保留（342×56）。
+    func testArrivedSwitchesToTheIllustrationAndTogetherKeepsTheGoldRope() {
         let arrived = RopeGeometry.make(for: .arrived)
-        XCTAssertEqual(arrived.volunteerX, 268)
-        XCTAssertTrue(arrived.showsRunnerRing)
+        XCTAssertEqual(arrived.layout, .illustration)
+        XCTAssertEqual(arrived.aspectHeight, RopeGeometry.height)
         let together = RopeGeometry.make(for: .together)
-        XCTAssertEqual(together.ropeY, 49)
+        XCTAssertEqual(together.layout, .together)
         XCTAssertEqual(together.ropeStyle, .gold)
+        XCTAssertEqual(together.aspectHeight, 56)
+        XCTAssertEqual(RopeGeometry.make(for: .agreed).layout, .ticks)
     }
 
-    /// 跑者取消：头像停在取消前的位置，绳子断开、跑者变灰、循环动效停。
+    /// 呼吸光晕只在出发中。
+    func testDepartureHaloOnlyWhileDeparted() {
+        XCTAssertTrue(RopeGeometry.make(for: .departed(progress: 0.3)).showsDepartureHalo)
+        XCTAssertFalse(RopeGeometry.make(for: .agreed).showsDepartureHalo)
+        XCTAssertFalse(RopeGeometry.make(for: .invited).showsDepartureHalo)
+    }
+
+    /// 跑者取消：头像停在取消前的位置，绳子断开、对方变灰、循环动效停。
     func testCancelledKeepsThePreviousPositionsAndBreaksTheRope() {
         let before = RopeGeometry.make(for: .departed(progress: 0.5))
         let after = RopeGeometry.make(for: .cancelled(after: .departed(progress: 0.5)))
-        XCTAssertEqual(after.volunteerX, before.volunteerX)
+        XCTAssertEqual(after.selfX, before.selfX)
+        XCTAssertEqual(after.step, before.step)
         XCTAssertEqual(after.ropeStyle, .broken)
-        XCTAssertEqual(after.runnerStyle, .greyed)
-        XCTAssertFalse(after.showsVolunteerHalo)
+        XCTAssertEqual(after.otherStyle, .greyed)
+        XCTAssertFalse(after.showsDepartureHalo)
     }
 
-    func testRopeAnnouncesStepAndRemainingMinutesOnlyWhileDeparted() {
+    func testRopeAnnouncesStepRemainingMinutesAndWhatComesNext() {
         XCTAssertEqual(RopeState.departed(progress: 0.3).accessibilityLabel(remainingMinutes: 8),
-                       "第 3 步，共 4 步，正在赶去，还有 8 分钟到")
-        XCTAssertEqual(RopeState.agreed.accessibilityLabel(remainingMinutes: 8), "第 2 步，共 4 步，已约好")
-        XCTAssertEqual(RopeState.invited.accessibilityLabel(), "第 1 步，共 4 步，邀请，还没约好")
+                       "第 3 步，共 4 步，正在赶去，还有 8 分钟到。接下来：汇合")
+        XCTAssertEqual(RopeState.agreed.accessibilityLabel(remainingMinutes: 8), "第 2 步，共 4 步，已约好。接下来：出发、汇合")
+        XCTAssertEqual(RopeState.invited.accessibilityLabel(), "第 1 步，共 4 步，邀请，还没约好。接下来：约好、出发、汇合")
+    }
+
+    /// 最后一格和取消没有「接下来」—— 说「接下来：」后面跟空串是在念一句没说完的话。
+    func testLastStepAndCancellationHaveNoNextSteps() {
+        XCTAssertEqual(RopeState.arrived.accessibilityLabel(), "第 4 步，共 4 步，已到集合点")
+        XCTAssertEqual(RopeState.together.accessibilityLabel(), "第 4 步，共 4 步，已汇合")
+        XCTAssertEqual(RopeState.cancelled(after: .agreed).accessibilityLabel(), "这次陪跑已取消")
+    }
+
+    func testFirstStepIsNamedForEachSide() {
+        XCTAssertEqual(RopeState.stepTitles(perspective: .runner), ["匹配", "约好", "出发", "汇合"])
+        XCTAssertEqual(RopeState.stepTitles(perspective: .volunteer), ["邀请", "约好", "出发", "汇合"])
     }
 
     // MARK: - 方位

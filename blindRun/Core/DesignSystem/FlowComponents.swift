@@ -311,6 +311,9 @@ struct FlowActionButton: View {
         /// 陪跑员订单页 v2 的次要按钮（「我已经出发了」、响铃）：白底 + 灰描边，字 16 bold。
         /// 与 `.ghost` 同形，只是字号字重按 v2。
         case outlined
+        /// 盲人端汇合页「打电话给<陪跑员>」：白底 + 2pt 主色描边 + 深蓝字，80pt 高（定稿 v6）。
+        /// **不用黄色**：黄色在这一屏只给「开始跑步」，两个黄块会抢「先按哪个」。
+        case call
     }
 
     let title: String
@@ -406,11 +409,12 @@ struct FlowActionButton: View {
             .frame(maxWidth: .infinity)
             // 文字放大后靠内容的固有高度顶开；64 只是下限，不是固定值。
             .padding(.vertical, 10)
-            .frame(minHeight: FlowMetrics.actionButtonMinHeight)
+            // 挂在 label 里面：挂在 Button 外面撑不大可点区（记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
+            .frame(minHeight: style == .call ? FlowMetrics.callButtonMinHeight : FlowMetrics.actionButtonMinHeight)
             .background(background)
             .overlay(
                 RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
-                    .strokeBorder(strokeColor, lineWidth: strokeColor == .clear ? 0 : 1.5)
+                    .strokeBorder(strokeColor, lineWidth: strokeColor == .clear ? 0 : (style == .call ? 2 : 1.5))
             )
             .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
         }
@@ -421,12 +425,13 @@ struct FlowActionButton: View {
         case .primary, .raisedPrimary: return AppColors.Flow.onCTA
         case .help: return AppColors.Flow.helpText
         case .ghost, .outlined: return AppColors.Flow.primaryText
+        case .call: return AppColors.Flow.bluePressed
         }
     }
 
     private var titleFont: (CGFloat, Font.Weight, Font.TextStyle) {
         switch style {
-        case .primary, .help, .ghost: return FlowFonts.actionButton()
+        case .primary, .help, .ghost, .call: return FlowFonts.actionButton()
         // 交付包 01：主按钮 17 heavy、次要按钮 16 bold。
         case .raisedPrimary: return (17, .heavy, .headline)
         case .outlined: return (16, .bold, .callout)
@@ -439,7 +444,7 @@ struct FlowActionButton: View {
         // 是「现在还不能按」唯一的视觉状态，见 `AppColors.Flow.ctaDisabled`。
         case .primary, .raisedPrimary: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
         case .help: return AppColors.Flow.helpBackground
-        case .ghost, .outlined: return AppColors.Flow.surface
+        case .ghost, .outlined, .call: return AppColors.Flow.surface
         }
     }
 
@@ -452,6 +457,7 @@ struct FlowActionButton: View {
         case .raisedPrimary: return isEnabled ? AppColors.Flow.ctaStroke : .clear
         case .help: return AppColors.Flow.helpStroke
         case .ghost, .outlined: return AppColors.Flow.ghostStroke
+        case .call: return AppColors.Flow.accent
         }
     }
 }

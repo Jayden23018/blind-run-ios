@@ -248,6 +248,13 @@ struct BlindOrderFlowPresentation: Equatable {
     /// 副标题下方那行警示。**只在异常时出现**，正常状态恒为 `nil` ——
     /// 设计稿明确不要「定位正常」这类反向提示。
     let warning: String?
+    /// 汇合页主按钮下面那枚「打电话给<陪跑员>」的标题。`nil` = 不出现。
+    ///
+    /// 2026-10-13 负责人要求加回（定稿 v6，OpenSpec `unify-order-progress-rope`）：汇合时
+    /// 一屏只有一个主按钮「开始跑步」，打电话原先藏在「遇到问题」→ 求助与安全中心里 ——
+    /// 而人到了却找不到对方，正是这一刻最可能要打的电话。它不抢主按钮的位置，是第二个版位。
+    /// 判据与约好态的主按钮相同：**拼得出 `tel:` URL** 才给（掩码串会被 `telURL` 拦掉）。
+    var callTitle: String? = nil
 
     enum Visual: Equatable {
         /// 匹配态：雷达。
@@ -379,7 +386,10 @@ struct BlindOrderFlowPresentation: Equatable {
                 subtitle: BlindRunCopy.countdownSubtitle,
                 lastRowTitle: lastRowTitle(order: order),
                 primaryAction: .preparing,
-                warning: locationWarning
+                warning: locationWarning,
+                // 汇合那一屏的第二个版位在这三秒里**留着**：它一消失，「求助与安全」就往下跳一格，
+                // 而视障用户靠位置记忆按钮。
+                callTitle: dialableCallTitle(order: order, name: name)
             )
         case .running:
             return BlindOrderFlowPresentation(
@@ -424,9 +434,21 @@ struct BlindOrderFlowPresentation: Equatable {
                 primaryAction: primaryAction(
                     order: order, name: name, canKeepWaiting: canKeepWaiting, isStartingRun: isStartingRun, now: now
                 ),
-                warning: locationWarning
+                warning: locationWarning,
+                callTitle: metUpCallTitle(order: order, name: name)
             )
         }
+    }
+
+    /// 跑步前只在汇合（`DRIVER_ARRIVED`）给。倒计时那三秒另走 `make` 的 `.countdown` 分支，同样给。
+    private static func metUpCallTitle(order: OrderDetailResponse, name: String) -> String? {
+        guard order.status.canStartService else { return nil }
+        return dialableCallTitle(order: order, name: name)
+    }
+
+    private static func dialableCallTitle(order: OrderDetailResponse, name: String) -> String? {
+        guard EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) != nil else { return nil }
+        return "打电话给\(name)"
     }
 
     /// 相位 = 订单状态 + 本地倒计时。

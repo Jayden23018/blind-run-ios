@@ -1815,6 +1815,7 @@ struct BlindOrderStatusView: View {
                 onLastRowTapped: { handleFlowLastRow(order) },
                 onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
                 onOpenSafetyHub: { showSafetyHub = true },
+                onCallVolunteer: { dialVolunteer(order) },
                 onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
                 footer: {
                     VStack(spacing: 16) {
@@ -1944,16 +1945,27 @@ struct BlindOrderStatusView: View {
         }
     }
 
+    /// 约好态的主按钮与汇合页的「打电话给<陪跑员>」共用。
+    ///
+    /// 拨号一律经 `EmergencyDialer`：它拦掩码串、并只取数字位；掩码串若不拦会拼成 `tel://1381234`，
+    /// 而空号在界面上看不出任何异常（守卫 `raw-open-url` 拦绕开它的写法）。
+    /// 拿不到号码时**出声**：按钮只在拼得出 URL 时才渲染，走到这里说明轮询间号码被收回了 ——
+    /// 静默 return 在盲人端就是「点了没反应」。
+    private func dialVolunteer(_ order: OrderDetailResponse) {
+        guard let url = EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) else {
+            speechService.speakError("暂时拿不到陪跑员的电话，请稍后再试。")
+            return
+        }
+        EmergencyDialer.dial(url)
+    }
+
     private func handleFlowPrimaryAction(
         _ presentation: BlindOrderFlowPresentation,
         order: OrderDetailResponse
     ) {
         switch presentation.primaryAction {
         case .callVolunteer:
-            // 拨号一律经 `EmergencyDialer`：它拦掩码串、并只取数字位；掩码串若不拦会拼成 `tel://1381234`，
-            // 而空号在界面上看不出任何异常（守卫 `raw-open-url` 拦绕开它的写法）。
-            guard let url = EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) else { return }
-            EmergencyDialer.dial(url)
+            dialVolunteer(order)
         case .openIntroCall:
             introCallPresentation.isShowing = true
         case .keepWaiting:

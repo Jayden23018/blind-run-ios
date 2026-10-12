@@ -122,13 +122,13 @@ final class BlindOrderHeroTests: XCTestCase {
         XCTAssertNil(hero(.completed).0)
     }
 
-    // MARK: - 头卡色档（2026-10-07，`redesign-blind-runner-screens-a`）
+    // MARK: - 头卡色档（2026-10-07 `redesign-blind-runner-screens-a`；10-13 `unify-order-progress-rope`）
 
-    /// 每一步各取各的状态色，匹配中（还没有陪跑员）是白卡。
-    /// 逐步断言而不是「都不是 light」：把出发错配成约好藏青，这条要能红。
-    func testHeroToneFollowsTheStepAndMatchingStaysLight() {
+    /// 每一步各取各的状态色，匹配中（还没有陪跑员）是钢蓝 —— 定稿 v6 起不再有白卡。
+    /// 逐步断言而不是「都着了色」：把出发错配成约好藏青，这条要能红。
+    func testHeroToneFollowsTheStepAndMatchingIsTinted() {
         let start = OrderDetailResponse.previewLocalTime(minutesFromNow: 24 * 60, now: now)
-        XCTAssertEqual(hero(.pendingMatch, volunteerName: nil).0?.tone, .light)
+        XCTAssertEqual(hero(.pendingMatch, volunteerName: nil).0?.tone, .matching)
         XCTAssertEqual(hero(.scheduledConfirmed, plannedStart: start).0?.tone, .agreed)
         XCTAssertEqual(hero(.pendingAccept, plannedStart: Self.noStart).0?.tone, .agreed, "拿不到开跑时间那一支也要着色")
         XCTAssertEqual(hero(.driverEnRoute).0?.tone, .departed)
@@ -136,12 +136,15 @@ final class BlindOrderHeroTests: XCTestCase {
         XCTAssertEqual(hero(.inProgress, plannedStart: Self.noStart, countdown: 3).0?.tone, .arrived, "倒计时三秒仍在汇合那一格")
     }
 
-    /// 白卡与彩色卡的取色分支：白卡用浅色主题，其余一律 `onHero`。
-    func testHeroPaletteUsesTheLightThemeOnlyForTheMatchingCard() {
-        XCTAssertNil(BlindHeroPalette(tone: .light).stateColor)
-        for tone in [BlindHeroTone.agreed, .departed, .arrived, .running, .done] {
-            XCTAssertNotNil(BlindHeroPalette(tone: tone).stateColor, "\(tone) 应着状态色")
-        }
+    /// 两端同一套颜色：盲人端匹配中与陪跑员端邀请是**同一个**钢蓝，其余各档也一一对上。
+    /// 只断言「着了色」抓不住两端各挑一个相近色的漂移 —— 那正是负责人要避免的「两端颜色不统一」。
+    func testBlindAndVolunteerHeroesShareOneColourPerState() {
+        XCTAssertEqual(BlindHeroPalette(tone: .matching).stateColor, VolunteerOrderHero.Style.matching.color)
+        XCTAssertEqual(BlindHeroPalette(tone: .agreed).stateColor, VolunteerOrderHero.Style.agreed.color)
+        XCTAssertEqual(BlindHeroPalette(tone: .departed).stateColor, VolunteerOrderHero.Style.departed.color)
+        XCTAssertEqual(BlindHeroPalette(tone: .arrived).stateColor, VolunteerOrderHero.Style.arrived.color)
+        XCTAssertEqual(BlindHeroPalette(tone: .done).stateColor, VolunteerOrderHero.Style.done.color)
+        XCTAssertEqual(BlindHeroPalette(tone: .matching).stateColor, AppColors.Flow.stateMatching)
     }
 
     // MARK: - 完成页评价五档
@@ -156,12 +159,15 @@ final class BlindOrderHeroTests: XCTestCase {
     // MARK: - 引导绳读屏：跑者视角
 
     func testRopeSpeaksFromTheRunnersPerspective() {
-        XCTAssertEqual(RopeState.invited.accessibilityLabel(perspective: .runner), "第 1 步，共 4 步，匹配中，还没约好")
-        XCTAssertEqual(RopeState.agreed.accessibilityLabel(perspective: .runner), "第 2 步，共 4 步，已约好")
+        XCTAssertEqual(
+            RopeState.invited.accessibilityLabel(perspective: .runner),
+            "第 1 步，共 4 步，匹配中，还没约好。接下来：约好、出发、汇合"
+        )
+        XCTAssertEqual(RopeState.agreed.accessibilityLabel(perspective: .runner), "第 2 步，共 4 步，已约好。接下来：出发、汇合")
         // 不念分钟数：即使传进来也不念 —— 盲人 token 根本拿不到 eta。
         XCTAssertEqual(
             RopeState.departed(progress: 0.35).accessibilityLabel(remainingMinutes: 8, perspective: .runner),
-            "第 3 步，共 4 步，陪跑员正在赶来"
+            "第 3 步，共 4 步，陪跑员正在赶来。接下来：汇合"
         )
         XCTAssertEqual(RopeState.arrived.accessibilityLabel(perspective: .runner), "第 4 步，共 4 步，陪跑员已到达")
     }
@@ -170,8 +176,8 @@ final class BlindOrderHeroTests: XCTestCase {
     func testRopeKeepsTheVolunteerWordingByDefault() {
         XCTAssertEqual(
             RopeState.departed(progress: 0.5).accessibilityLabel(remainingMinutes: 8),
-            "第 3 步，共 4 步，正在赶去，还有 8 分钟到"
+            "第 3 步，共 4 步，正在赶去，还有 8 分钟到。接下来：汇合"
         )
-        XCTAssertEqual(RopeState.invited.accessibilityLabel(), "第 1 步，共 4 步，邀请，还没约好")
+        XCTAssertEqual(RopeState.invited.accessibilityLabel(), "第 1 步，共 4 步，邀请，还没约好。接下来：约好、出发、汇合")
     }
 }

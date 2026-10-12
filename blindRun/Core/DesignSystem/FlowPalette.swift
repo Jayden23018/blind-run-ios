@@ -291,6 +291,18 @@ extension AppColors {
         /// 白字 6.25、小标题 5.39、副文 5.73（`FlowDesignSystemTests` 逐色验）。
         static let stateRunningTone = Tone(light: 0x0A6B72, dark: 0x0A6B72)
         static let stateRunning = flowDynamic(stateRunningTone)
+        /// 匹配中（盲人端）/ 收到邀请（陪跑员端）：还没约好的那一格。负责人 2026-10-13 定稿 v6
+        /// （`docs/ui/mockups/intro-call-20261013/`）：每个状态一种头卡色、两端同一套，不再有白卡。
+        /// 白字 7.06、小标题 6.08（`FlowDesignSystemTests` 逐色验）。偏蓝的钢灰而不是中性灰：
+        /// 中性灰 `#46506A` 与暂停灰 `statePaused` 肉眼分不开，而负责人要的是「不同状态不同颜色」。
+        static let stateMatchingTone = Tone(light: 0x3D5A80, dark: 0x3D5A80)
+        static let stateMatching = flowDynamic(stateMatchingTone)
+        /// 「先通个电话」· 还没打（盲人端没拨号 / 陪跑员端等来电）。白字 6.62、小标题 5.70。
+        static let stateCallingTone = Tone(light: 0x6941C6, dark: 0x6941C6)
+        static let stateCalling = flowDynamic(stateCallingTone)
+        /// 「先通个电话」· 打过了（盲人端拨号回来 / 任一端已说合适在等）。白字 7.33、小标题 6.27。
+        static let stateCalledTone = Tone(light: 0x86377F, dark: 0x86377F)
+        static let stateCalled = flowDynamic(stateCalledTone)
 
         // MARK: 彩色头卡上的字与引导绳（C02 / C03，替代 v1 的 onNavy* / volunteerDot / runnerDot / ropeOnNavy）
         //
