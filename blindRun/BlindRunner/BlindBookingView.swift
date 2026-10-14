@@ -1220,8 +1220,9 @@ struct BlindBookingView: View {
                 isZeroInputConfirming = false
             }
         }
-        // 全屏而不是 sheet：每条告知要各自可听、可停、可回头再听，且系统模态会把背后的下单页
-        // 整个移出读屏树（自定义 overlay 才需要手动屏蔽，见记忆 hide-uikit-hosted-tree-from-accessibility）。
+        // 全屏而不是 sheet：每条告知要各自可听、可停、可回头再听。
+        // ⚠️ 系统模态**不会**把背后的下单页移出读屏树（2026-10-14 真机实测），由 `voiceConsentScreen`
+        // 里的 `PresenterAccessibilityHider` 藏（记忆 hide-uikit-hosted-tree-from-accessibility）。
         .fullScreenCover(isPresented: $showsVoiceConsent) {
             voiceConsentScreen
         }
@@ -1312,6 +1313,8 @@ struct BlindBookingView: View {
             .navigationTitle("语音下单")
             .navigationBarTitleDisplayMode(.inline)
         }
+        // 系统模态不会把背后的下单页移出读屏树（真机实测），要自己藏，见 `PresenterAccessibilityHider`。
+        .background(PresenterAccessibilityHider())
         .task {
             speechService.speak(text: PrivacyConsentPurpose.voiceOrderThirdPartyLLM.spokenScript)
         }
