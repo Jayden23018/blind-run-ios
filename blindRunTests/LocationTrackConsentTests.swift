@@ -258,7 +258,8 @@ final class LocationTrackConsentTests: XCTestCase {
         let orders = FakeOrderService()
         orders.setDispatchStatusResult = .success(())
         orders.dispatchSummaryResult = .success(Self.summary(wantsDispatch: false))
-        let (_, viewModel, _) = Self.makeVolunteerHome(orders: orders)
+        // view model 对 AppState 是 weak：必须攥着，否则下面的判定拿到的是 nil。
+        let (appState, viewModel, _) = Self.makeVolunteerHome(orders: orders)
 
         viewModel.apply(summary: Self.summary(wantsDispatch: true))
         XCTAssertEqual(viewModel.trackConsentRequest, .resumeStandby)
@@ -266,6 +267,7 @@ final class LocationTrackConsentTests: XCTestCase {
         viewModel.declineTrackConsent()
         let turnedOff = await Self.waitUntil(timeout: 2) { orders.lastWantsDispatch == false }
         XCTAssertTrue(turnedOff, "后端不能一直当他在线却收不到位置")
+        withExtendedLifetime(appState) {}
     }
 
     /// 对照：有记录时服务端开着就照常恢复，不问。
@@ -339,12 +341,13 @@ final class LocationTrackConsentTests: XCTestCase {
         return appState
     }
 
-    /// 返回的 `WebSocketService` **必须由调用方攥着**：协调器对它是 `weak`。
+    /// 返回的 `WebSocketService` 与 `LocationService` **必须由调用方攥着**：协调器对两者都是 `weak`，
+    /// 传临时对象等于传 nil（记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
     private static func makeEscortCoordinator(
         role: UserRole,
         consent: ConsentRecorder,
         onSend: @escaping @MainActor () -> Void
-    ) -> (LiveEscortSessionCoordinator, WebSocketService) {
+    ) -> (LiveEscortSessionCoordinator, EscortDeps) {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: AppRealtimeCoordinator(),
             reportInterval: 0.05,
@@ -354,8 +357,14 @@ final class LocationTrackConsentTests: XCTestCase {
         let service = WebSocketService()
         service.simulateConnectionStateForTesting(.connected)
         coordinator.configure(identityKey: "account:\(role):token", role: role, webSocketService: service)
-        coordinator.attachLocationService(locationService())
-        return (coordinator, service)
+        let location = locationService()
+        coordinator.attachLocationService(location)
+        return (coordinator, EscortDeps(service: service, location: location))
+    }
+
+    private struct EscortDeps {
+        let service: WebSocketService
+        let location: LocationService
     }
 
     private static func makeVolunteerHome(
