@@ -116,6 +116,10 @@ final class LocationAddressAnnouncementTests: XCTestCase {
 
         XCTAssertEqual(fixture.places.reverseGeocodeCount, 0, "区域代表点不许拿去逆地理")
         XCTAssertTrue(fixture.safety.calls.isEmpty, "服务端那份同样是模糊点上报，不许问")
+        XCTAssertTrue(
+            fixture.location.temporaryPreciseLocationRequestsForTesting.isEmpty,
+            "这一刻不许弹临时精确位置的系统框 —— 会抢走读屏焦点"
+        )
         XCTAssertEqual(
             fixture.speechService.lastSpokenText,
             "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里，所以念不出你的准确位置。"
