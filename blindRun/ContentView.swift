@@ -422,7 +422,7 @@ struct ContentView: View {
         .onChange(of: appState.activeRole) { role in
             // #368：没有这一角色的位置轨迹同意就不开定位。
             if appState.isLoggedIn, appState.currentEnvironment != .mock,
-               let purpose = LiveEscortSessionCoordinator.trackConsentPurpose(for: role),
+               let purpose = PrivacyConsentPurpose.locationTrack(for: role),
                appState.hasLocationTrackConsent(purpose) {
                 locationService.startUpdating()
             }

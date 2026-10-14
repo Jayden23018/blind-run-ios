@@ -248,6 +248,15 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         }
     }
 
+    /// 某个角色持续定位要问的那一份同意（#368）。没有角色时为 nil —— 调用方一律按「没有同意」处理。
+    static func locationTrack(for role: UserRole?) -> PrivacyConsentPurpose? {
+        switch role {
+        case .blind: return .blindLocationTrack
+        case .volunteer: return .volunteerLocationTrack
+        case .unset, .none: return nil
+        }
+    }
+
     /// 已约好的单进入同行态（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）时拒绝的反馈。
     /// 与发起前拒绝分开：此刻单已经约好，拒绝的后果是「对方看不到你」，出路是「可以取消」，不是「不能预约」。
     /// 两个角色同一句（与安卓一致）。求助那半句与 AGENTS.md §6「坐标拿不到就不发」同一件事。

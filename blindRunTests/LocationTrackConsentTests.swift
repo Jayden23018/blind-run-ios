@@ -186,6 +186,25 @@ final class LocationTrackConsentTests: XCTestCase {
         withExtendedLifetime(service) {}
     }
 
+    /// 同一个目的两处同时在问（接单开关的同意页 + 同行态的同意页）：在一处同意，另一处要跟着收起，不能再问一遍。
+    func testConsentRecordedElsewhereClearsThePendingEscortConsent() async {
+        let appState = Self.loggedInAppState(role: .volunteer, userId: 22)
+        let service = WebSocketService()
+        appState.webSocketService = service
+        let coordinator = appState.liveEscortCoordinator
+        coordinator.updateOwnedOrder(orderID: 98, status: .driverEnRoute)
+        let asked = await Self.waitUntil { coordinator.pendingTrackConsent == .volunteerLocationTrack }
+        XCTAssertTrue(asked)
+
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        let cleared = await Self.waitUntil { coordinator.pendingTrackConsent == nil }
+
+        XCTAssertTrue(cleared, "已经同意过了，同行态的同意页还挂着")
+        XCTAssertNotEqual(coordinator.healthState, .trackConsentRequired)
+        coordinator.reset()
+        withExtendedLifetime(service) {}
+    }
+
     // MARK: - 求助
 
     /// 求助的拦截按角色判，不看同行会话此刻有没有订单（协调器换 token 后有几秒是空的）。

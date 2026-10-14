@@ -178,16 +178,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         return [.driverEnRoute, .driverArrived, .inProgress].contains(activeStatus)
     }
 
-    static func trackConsentPurpose(for role: UserRole?) -> PrivacyConsentPurpose? {
-        switch role {
-        case .blind: return .blindLocationTrack
-        case .volunteer: return .volunteerLocationTrack
-        case .unset, .none: return nil
-        }
-    }
-
     private var hasTrackConsent: Bool {
-        guard let purpose = Self.trackConsentPurpose(for: role) else { return false }
+        guard let purpose = PrivacyConsentPurpose.locationTrack(for: role) else { return false }
         return trackConsent.isGranted(purpose)
     }
 
@@ -197,6 +189,13 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         trackConsent.record(purpose)
         pendingTrackConsent = nil
         evaluateSession()
+    }
+
+    /// 本角色的同意在别处记下了（例如志愿者在接单开关的同意页上按了同意，而同行态的同意页也正等着）：
+    /// 重新判一次，挂着的同意页随之收起、同行定位开始。不重判的话，刚答过的问题会再问一遍，
+    /// 在那一页上按「先不同意」还会把一张已经有同意的单记成拒绝。
+    func trackConsentDidChange() {
+        scheduleReconcile()
     }
 
     /// 同意页上按了「先不同意」：这一单不再问，横幅说清后果（`healthState` 变化时根视图会念）。
@@ -345,7 +344,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         // 等用户在同意页上回答；拒绝过的单不再问。后端不存这项同意，所以没有记录就当没同意过。
         guard hasTrackConsent else {
             clearRuntimeSession()
-            pendingTrackConsent = hasDeclinedTrackConsentForActiveOrder ? nil : Self.trackConsentPurpose(for: role)
+            pendingTrackConsent = hasDeclinedTrackConsentForActiveOrder ? nil : PrivacyConsentPurpose.locationTrack(for: role)
             refreshHealth(now: Date())
             return
         }

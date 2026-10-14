@@ -593,8 +593,11 @@ final class AppState: ObservableObject {
     func recordLocationTrackConsent(_ purpose: PrivacyConsentPurpose) {
         guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack else { return }
         locationTrackConsentGrantedThisSession.insert(purpose)
-        guard let scope = locationTrackConsentScope else { return }
-        PrivacyConsentStore(persistence: persistence).recordConsent(to: purpose, scope: scope)
+        if let scope = locationTrackConsentScope {
+            PrivacyConsentStore(persistence: persistence).recordConsent(to: purpose, scope: scope)
+        }
+        // 同一个目的可能同时有两处在问（接单开关的同意页 + 同行态的同意页），答了一处另一处要跟着收。
+        liveEscortCoordinator.trackConsentDidChange()
     }
 
     /// 求助取坐标前读（#368）：当前角色在本机没有位置轨迹同意（还没回答或已拒绝）⇒ 求助**不附位置**，
@@ -604,7 +607,7 @@ final class AppState: ObservableObject {
     /// 订单状态，按会话判的话那几秒会放行一个用户说过不的位置。云端求助只在 `IN_PROGRESS` 开放，
     /// 而那一态没有同意的人一定被问过（同意页盖在界面上），所以按角色判不会误拦。拿不到角色时按「被拦」算。
     var isEmergencyLocationSharingBlocked: Bool {
-        guard let purpose = LiveEscortSessionCoordinator.trackConsentPurpose(for: activeRole) else { return true }
+        guard let purpose = PrivacyConsentPurpose.locationTrack(for: activeRole) else { return true }
         return !hasLocationTrackConsent(purpose)
     }
 
