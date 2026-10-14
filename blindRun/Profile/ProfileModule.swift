@@ -126,6 +126,13 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 保存中不响应（`isLoading`），免得两次请求的先后决定最终结果。
     func withdrawVisionConsent() {
         guard hasVisionConsent, !isLoading else { return }
+        // 撤回靠整表单保存。表单自己过不了校验（昵称空、引导偏好超长）时一个请求都发不出去：
+        // 先收起再被 `submit()` 拦下，界面就在说一件没发生的事，离开再进来两项又回来了。
+        // 所以不收起、不记待撤回，只念校验错误；改好后再按一次撤回。
+        guard canSubmit, guidePreferenceLengthError == nil else {
+            submit()
+            return
+        }
         hasVisionConsent = false
         isVisionConsentWithdrawalPending = true
         visionConsentWithdrawnNotice = nil

@@ -305,6 +305,25 @@ final class BlindEscortPreferencesTests: XCTestCase {
         XCTAssertEqual(retry.hasGuideDog, false)
     }
 
+    /// 表单过不了校验（昵称空）时按撤回：一个请求都发不出去，所以界面不能先收起、也不能记成待撤回，
+    /// 只念校验错误。对照是上面的成功用例 —— 同一个撤回，昵称在时立刻收起并发请求。
+    func testWithdrawingWithAnInvalidFormSendsNothingAndKeepsTheConsentShown() async {
+        let client = ProfileSaveSpy()
+        client.result = .success(BlindProfileResponse(name: "测试昵称", visionLevel: "NOT_SPECIFIED", hasGuideDog: false))
+        let (viewModel, appState) = makeSavingViewModel(client: client)
+        viewModel.name = "  "
+
+        viewModel.withdrawVisionConsent()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertNil(client.lastUpdate, "表单过不了校验，不该有请求")
+        XCTAssertTrue(viewModel.hasVisionConsent, "没发出去就不能收起两项")
+        XCTAssertFalse(viewModel.isVisionConsentWithdrawalPending)
+        XCTAssertEqual(viewModel.visionLevel, .lowVision, "没撤回成功，用户填的值不能被清掉")
+        XCTAssertTrue(hasStoredConsent(appState))
+        XCTAssertEqual(viewModel.errorMessage, "请填写必填信息")
+    }
+
     /// 撤回还没存上时又重新同意 ⇒ 那次撤回作废，保存的是用户这次选的值。
     func testReconsentingWhileAWithdrawalIsPendingVoidsIt() async {
         let client = ProfileSaveSpy()
