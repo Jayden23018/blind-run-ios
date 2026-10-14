@@ -248,17 +248,6 @@ final class PrivacyConsentTests: XCTestCase {
         }
     }
 
-    /// 告知内容改了而 `disclosureVersion` 该 +1 却没 +1，旧同意会被当成对新内容的同意 ——
-    /// 那是合规上的漏洞，且没有任何运行时表现，只能靠这条钉住。
-    ///
-    /// ⚠️ **这条红了不是「去 +1 版本号」，是「去做一次判断」**（判据见
-    /// `PrivacyConsentPurpose.disclosureVersion` 的文档注释）：
-    /// - 告知的**处理行为**变了（新收集一类信息、换用途、换接收方、改删除规则）→ +1 版本号，再换指纹
-    /// - 同一个行为**换一种说法**（更准、更好懂、错别字）→ 版本号不动，只换指纹，
-    ///   并在下面 `pinned` 里那一行写清这次属于哪一种
-    ///
-    /// 无脑 +1 的代价不是零：每个老用户下次冷启动都会被拦在同意页前面重来一次，
-    /// 而对读屏用户那是一整屏要逐条听完的文本。
     /// #355：首启告知点名高德、措辞不再与「第三方 SDK 会收集」自相矛盾；
     /// 隐私政策有「第三方 SDK」一节，高德与阿里云的隐私政策链接都**可点**（高德合规方案原话「透出且用户可点击」）。
     func testLaunchDisclosureNamesAMapAndThePolicyLinksBothSDKPolicies() throws {
@@ -285,6 +274,17 @@ final class PrivacyConsentTests: XCTestCase {
         XCTAssertTrue(LegalFallbackCopy.document(for: .userAgreement).sections.allSatisfy { $0.links.isEmpty })
     }
 
+    /// 告知内容改了而 `disclosureVersion` 该 +1 却没 +1，旧同意会被当成对新内容的同意 ——
+    /// 那是合规上的漏洞，且没有任何运行时表现，只能靠这条钉住。
+    ///
+    /// ⚠️ **这条红了不是「去 +1 版本号」，是「去做一次判断」**（判据见
+    /// `PrivacyConsentPurpose.disclosureVersion` 的文档注释）：
+    /// - 告知的**处理行为**变了（新收集一类信息、换用途、换接收方、改删除规则）→ +1 版本号，再换指纹
+    /// - 同一个行为**换一种说法**（更准、更好懂、错别字）→ 版本号不动，只换指纹，
+    ///   并在下面 `pinned` 里那一行写清这次属于哪一种
+    ///
+    /// 无脑 +1 的代价不是零：每个老用户下次冷启动都会被拦在同意页前面重来一次，
+    /// 而对读屏用户那是一整屏要逐条听完的文本。
     func testDisclosureFingerprintIsPinnedToItsVersion() {
         // 指纹自己算，不用 `hashValue`：Swift 的 Hasher 每个进程重新播种，跨进程不稳定。
         func fingerprint(_ purpose: PrivacyConsentPurpose) -> Int {
