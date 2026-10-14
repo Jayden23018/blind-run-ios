@@ -64,10 +64,13 @@ struct CompletedTrackSummaryView: View {
                 .accessibilityIdentifier("completedTrackFullScreenLink")
             }
 
-            Button("重复当前状态", action: repeatSummary)
-                .buttonStyle(.borderedProminent)
-                .frame(minHeight: 64)
-                .accessibilityHint("朗读本次路线的里程、时长和平均配速")
+            Button(action: repeatSummary) {
+                Text("重复当前状态")
+                    .frame(minHeight: 64)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("completedTrackRepeatSummary")
+            .accessibilityHint("朗读本次路线的里程、时长和平均配速")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("completedTrackSummary")
