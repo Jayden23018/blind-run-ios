@@ -32,6 +32,21 @@
 > 同一个洞在 `BlindOrderStatusView.peerMapSection` 也开着，一并修了。
 > 回归钉子：`testRealAMapEnabledSmoke`（真 key 路径，已验红 → 绿）。
 
+> ## 🔄 2026-10-14 补记：iOS 27 上结论反过来了（#384）
+>
+> 设备 iPhone 16 Pro / **iOS 27.0.1**，`scripts/device-test.sh`，只跑两条顺序用例，在 origin/main `52d501a` 上先跑基线。
+>
+> | 页面 | 原写法 | iOS 27 基线 | 改法 | 结果 |
+> |---|---|---|---|---|
+> | 求助中心 `BlindSafetyHubView` | 一键求助在 `ZStack` 里先声明 | 第一个元素是 `blindSafetyHubDismissButton` | 一键求助加 `accessibilitySortPriority(1)` | 通过 |
+> | 星火卡片 `XinghuoMapView.cardPanel` | 把手后画 | 第一层 `["9:xinghuoCardHandle", "46:"]` | 内容侧（`HugContentHeight` 外层）加 `+1` | **仍红** |
+> | 同上 | | | 改挂把手 `accessibilitySortPriority(-1)` | 通过 |
+>
+> 结论：iOS 27 不再按声明 / 绘制顺序排叠放层，而 `.contain` 容器里的排序优先级生效。
+> 优先级要挂在**真正被合成成无障碍元素的那一层**（与 08-22 那条「隐藏要发生在合成那一层」同构）。
+> 两处都保留原声明顺序，让 iOS 26 及以前照旧靠它。⚠️ iOS 26 上没有复验：手头的 iOS 26 设备（iPad）免费签名名额已满。
+> 未查到 Apple 公开说明此改动（2026-10-14 搜索 "iOS 27 SwiftUI VoiceOver ZStack accessibility order"，无相关结果）。
+
 ## 1. 先修正一个把人带偏的前提：那条断言本身就不可能通过
 
 `app.descendants(matching: .any).allElementsBoundByAccessibilityElement` 是**逐层枚举**的：

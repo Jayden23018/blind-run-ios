@@ -1451,11 +1451,11 @@ final class AccessibilityAuditTests: XCTestCase {
 
     /// 求助中心（屏 2）打开后，**读屏第一个念到的必须是「一键求助」**。
     ///
-    /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠的是**声明顺序**
-    /// （`BlindSafetyHubView.body` 的 `ZStack` 把它声明在最前）。
-    /// `accessibilitySortPriority` 在本仓库实测排不动叠放层，四种写法真机全废
-    /// （`docs/research/swiftui-voiceover-traversal-order-20260814.md`），
-    /// 所以这条断言是那个结构唯一的守卫：谁把 `ZStack` 里两块的顺序调回来，它就红。
+    /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠两样东西，各管一个系统版本
+    /// （`BlindSafetyHubView.body`）：iOS 26 及以前靠**声明顺序**（`accessibilitySortPriority`
+    /// 那时排不动叠放层，`docs/research/swiftui-voiceover-traversal-order-20260814.md`）；
+    /// iOS 27 声明顺序失效、靠 `accessibilitySortPriority(1)`（#384）。
+    /// 这条断言是那个结构唯一的守卫：在 iOS 27 上撤掉优先级它就红（2026-10-14 真机基线）。
     @MainActor
     func testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")

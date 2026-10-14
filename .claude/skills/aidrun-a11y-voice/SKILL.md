@@ -20,6 +20,12 @@ description: AidRun 无障碍、语音、地图与定位的硬规则 —— Voic
   改成内容层的 `.background`）全部无效。铺在底层的装饰地图**只能 `accessibilityHidden(true)`**
   （纯装饰 + 不可交互 + 信息另有文字版时，这本就是标准处理，且比「排到后面」少一次划动）。
   详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
+- 🔄 **iOS 27 起上一条反过来了**（2026-10-14 iPhone 16 Pro / iOS 27.0.1 真机，#384）：
+  靠「先声明 / 后画」排出来的读屏顺序失效（求助中心、星火卡片两处同时变红），
+  而同一个 `children: .contain` 容器里的 `accessibilitySortPriority` 生效了。
+  ⇒ 要「视觉在下、读屏在前」时**两样都写**：保留声明顺序（管 iOS 26 及以前）+ 挂优先级（管 iOS 27）。
+  优先级要挂在**真正的无障碍元素**上：挂在自定义 `Layout` 包着的 `ScrollView` 外层无效，
+  挂在对面那个显式 `.accessibilityElement()` 上（-1）才有效。
 - 判「遍历顺序」的断言只能比**同深度**的元素：`allElementsBoundByAccessibilityElement` 是逐层
   枚举的，拿容器（深度 1）和它孙辈的按钮（深度 3）比下标，比的是深度差，恒不通过。
 

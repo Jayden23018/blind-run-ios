@@ -122,15 +122,19 @@ struct BlindSafetyHubView: View {
     }
 
     var body: some View {
-        // 🚩 SOS **声明在最前面**，视觉上却贴在最底下。
+        // 🚩 SOS **声明在最前面 + 排序优先级 1**，视觉上却贴在最底下。两样都要，各管一个系统版本：
         //
-        // 本仓库 2026-08-14 真机实测过四种 `accessibilitySortPriority` 的排法，**全部无效**
-        // （`docs/research/swiftui-voiceover-traversal-order-20260814.md`）。真正管用的只有一条：
-        // 绘制顺序 = 遍历顺序，所以「读屏第一个念到求助」这件事只能靠声明位置拿到。
+        // - iOS 26 及以前：遍历顺序 = 绘制顺序，`accessibilitySortPriority` 实测排不动叠放层
+        //   （2026-08-14 四种排法全废，`docs/research/swiftui-voiceover-traversal-order-20260814.md`），
+        //   只能靠声明位置拿到「读屏第一个念到求助」。
+        // - iOS 27：声明顺序不再管用（「收起」排到了第一，#384），而排序优先级生效了 ——
+        //   2026-10-14 iPhone 16 Pro / iOS 27.0.1 真机验过红绿。
+        //
         // 上面那层内容用 `.padding(.bottom)` 给它让出位置，两者几何上不重叠。
         ZStack(alignment: .bottom) {
             emergencyButton
                 .frame(maxHeight: .infinity, alignment: .bottom)
+                .accessibilitySortPriority(1)
 
             VStack(spacing: 0) {
                 dismissButton
