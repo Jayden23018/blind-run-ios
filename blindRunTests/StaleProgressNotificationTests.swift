@@ -8,8 +8,9 @@ import XCTest
 /// | `ORDER_DEPARTURE_STALLED` | 盲人 | 志愿者接了单，但计划开始时间过了还没点「出发」⇒ 判失联，订单同时转 `REMATCHING` |
 /// | `ORDER_ARRIVAL_STALLED` | **双方各一条** | 志愿者标了「已到达」但迟迟没点「开始服务」 |
 /// | `EMERGENCY_UNATTENDED` | 盲人 | SOS 触发后长时间未推进到结案 |
+/// | `ORDER_VOLUNTEER_LOST` | **双方各一条** | 志愿者点了「已出发 / 已到达」后失联或迟迟不到，订单同时转 `REMATCHING`（后端 2026-10-10，#616 M6） |
 ///
-/// 三条都是 `APP_NOTIFICATION` 的 `eventType`、都是 `HIGH`（会补发 APNs）。
+/// 都是 `APP_NOTIFICATION` 的 `eventType`、都是 `HIGH`（会补发 APNs）。
 /// 共同点是**必然在有活跃订单时触发** —— 这正是它们全部的危险来源，见下面第一条用例。
 @MainActor
 final class StaleProgressNotificationTests: XCTestCase {
@@ -17,14 +18,15 @@ final class StaleProgressNotificationTests: XCTestCase {
     private static let allEventTypes = [
         "ORDER_DEPARTURE_STALLED",
         "ORDER_ARRIVAL_STALLED",
-        "EMERGENCY_UNATTENDED"
+        "EMERGENCY_UNATTENDED",
+        "ORDER_VOLUNTEER_LOST"
     ]
 
     /// 🔴 **本文件最重要的一条。**
     ///
     /// `shouldSuppressLifecycleNotification` 的第一条规则是「有活跃订单 ⇒ 抑制」
     /// （`AppRealtimeCoordinator.swift` 的 `if !activeOrderIDs.isEmpty { return true }`），
-    /// 而这三条**必然**在有活跃订单时到达。所以只要有人「顺手」把它们补进
+    /// 而它们**必然**在有活跃订单时到达。所以只要有人「顺手」把它们补进
     /// `lifecycleStatus(forEventType:)` 那张表 —— 一个看起来完全合理的补全动作 ——
     /// 就是 100% 静默吞掉，而三条里两条发生时盲人正一个人站在户外。
     func testNoneOfThemIsALifecycleTemplate() {
@@ -38,7 +40,7 @@ final class StaleProgressNotificationTests: XCTestCase {
 
     /// 上一条钉的是判定表，这一条在真实场景（已注册活跃订单）下端到端跑一遍 ——
     /// 抑制发生在「判定表 + 活跃订单」的组合上，只钉判定函数看不住它。
-    func testAllThreeAreStillSpokenWhileAnOrderIsActive() async {
+    func testAllAreStillSpokenWhileAnOrderIsActive() async {
         for eventType in Self.allEventTypes {
             let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
             let service = WebSocketService()
@@ -60,9 +62,9 @@ final class StaleProgressNotificationTests: XCTestCase {
         }
     }
 
-    /// 三条都按安全提醒呈现：队列裁剪时最后被丢，且能抢占正在显示的 NORMAL 横幅。
+    /// 都按安全提醒呈现：队列裁剪时最后被丢，且能抢占正在显示的 NORMAL 横幅。
     /// 后端把 `priority` 给到 HIGH 就到边界了，呈现强度是端上的事。
-    func testAllThreeArePresentedAsSafetyEvents() async {
+    func testAllArePresentedAsSafetyEvents() async {
         for eventType in Self.allEventTypes {
             let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
             let service = WebSocketService()
@@ -97,6 +99,26 @@ final class StaleProgressNotificationTests: XCTestCase {
             .rematching,
             "普通那档仍然是生命周期通知，订单页已经在显示同一件事时该被抑制"
         )
+    }
+
+    /// `ORDER_VOLUNTEER_LOST` 同样以 `REMATCHING` 收场，但后端点名它**不是**
+    /// `ORDER_DEPARTURE_STALLED`（没出发）或 `REMATCHING_MID_RUN`（主动取消）的同义词：
+    /// 原因不同、文案不同。陪跑员那条照后端原样播 —— 这一单已经不是他的了。
+    func testVolunteerLostReachesTheVolunteerSideWithItsOwnCopy() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .volunteer)
+        coordinator.registerActiveOrder(42)
+
+        let volunteerBody = "已经过了约定的开跑时间，陪跑一直没能开始，系统已经把这一单转给其他志愿者。如果你仍然有空，可以在应用里接新的单。"
+        service.simulateIncomingEventForTesting(.notification(
+            makeNotification(eventType: "ORDER_VOLUNTEER_LOST", body: volunteerBody)
+        ))
+        await Task.yield()
+
+        XCTAssertEqual(coordinator.currentNotification?.displayText, volunteerBody)
+        XCTAssertEqual(coordinator.currentNotification?.speechText, volunteerBody)
+        XCTAssertEqual(coordinator.currentNotification?.isSafetyEvent, true)
     }
 
     /// `ORDER_ARRIVAL_STALLED` 是**双方各收一条**（后端按 `TargetRole` 分模板，文案不同）。
@@ -161,7 +183,7 @@ final class StaleProgressNotificationTests: XCTestCase {
         XCTAssertFalse(spoken.contains("接手"), "客户端不许自己补「有没有人接手」——两种情况必有一种是假话")
     }
 
-    /// 断线期间错过的这三条，补读回来时同样要按安全提醒呈现。
+    /// 断线期间错过的这几条，补读回来时同样要按安全提醒呈现。
     func testCatchUpKeepsTheSafetyPresentation() async {
         for (index, eventType) in Self.allEventTypes.enumerated() {
             let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
@@ -194,6 +216,9 @@ final class StaleProgressNotificationTests: XCTestCase {
             return "志愿者接单后一直没有出发，系统正在为你重新匹配志愿者，请在原地稍候。"
         case "ORDER_ARRIVAL_STALLED":
             return "志愿者标记了已到达，但服务还没有开始。如果还没碰到面，可以打电话联系他。"
+        case "ORDER_VOLUNTEER_LOST":
+            // 后端 Jayden23018/blind-run-backend#683 给出的盲人端 ttsText。
+            return "已经过了约定的开跑时间，原来的志愿者还没能和你开始陪跑，系统正在为你重新匹配志愿者，请在原地稍候。"
         default:
             return "你的求助已经发出一段时间了。如果情况危急，请立即拨打120或110，或者向周围的人求助，不要继续等待。"
         }

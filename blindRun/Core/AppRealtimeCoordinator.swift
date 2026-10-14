@@ -1094,6 +1094,10 @@ final class AppRealtimeCoordinator: ObservableObject {
     ///   而 `DRIVER_ARRIVED` 这一态两侧都有拨号入口，所以这条通知落地是有动作的。
     /// - `EMERGENCY_UNATTENDED` —— SOS 触发后长时间没推进到结案。要说的是「别再干等，
     ///   自己拨 120/110」，后端点名**不要做成普通提示**。
+    /// - `ORDER_VOLUNTEER_LOST`（后端 2026-10-10，#616 M6）—— 志愿者点了「已出发 / 已到达」之后
+    ///   失联或迟迟不到，订单转 `REMATCHING`。**双方各收一条、文案不同**。
+    ///   🚨 不是 `ORDER_DEPARTURE_STALLED`（他根本没出发）或 `REMATCHING_MID_RUN`（他主动取消）的同义词，
+    ///   别合并分支 —— 原因不同、文案不同。
     ///
     /// ⚠️ `EMERGENCY_UNATTENDED` **刻意不走 `emergencyKind`**：那条链路会落 `latestSafetyEvent`
     /// 并驱动 `EmergencyCoordinator.apply` 改求助状态机，而这条事件本身不改变求助的任何状态
@@ -1105,6 +1109,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         case "REMATCHING_MID_RUN",
              "ORDER_DEPARTURE_STALLED",
              "ORDER_ARRIVAL_STALLED",
+             "ORDER_VOLUNTEER_LOST",
              "EMERGENCY_UNATTENDED":
             return true
         default:
