@@ -882,6 +882,32 @@ final class AccessibilityAuditTests: XCTestCase {
         add(attachment)
     }
 
+    /// 陪跑员端星火卡片：读屏第一层先念内容、后念把手。把手的排序优先级两端共用（`XinghuoMapView.cardPanel`），
+    /// 盲人端那条用例只守盲人端 —— iOS 27 上撤掉 -1，这条在陪跑员端同样会红（#384）。
+    @MainActor
+    func testVolunteerXinghuoCardReadsContentBeforeHandle() throws {
+        let app = launchVolunteerHome()
+        let xinghuoTab = app.tabBars.firstMatch.waitForExistence(timeout: 20)
+            ? app.tabBars.firstMatch.buttons["星火"]
+            : app.buttons["星火"].firstMatch
+        XCTAssertTrue(xinghuoTab.waitForExistence(timeout: 5), "「星火」标签不在")
+        xinghuoTab.tap()
+
+        let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来")
+        let cardScroll = app.descendants(matching: .any)["xinghuoCardScroll"].firstMatch
+        XCTAssertTrue(cardScroll.exists, "卡片滚动容器不在")
+        // 只比同一层（记忆 `swiftui-traversal-order-follows-paint-order`）。
+        let topLevel = cardScroll.children(matching: .any).allElementsBoundByIndex
+        let handleIndex = topLevel.firstIndex { $0.identifier == "xinghuoCardHandle" }
+        let contentIndex = topLevel.firstIndex { $0.descendants(matching: .any)["xinghuoSummary"].exists }
+        XCTAssertNotNil(handleIndex, "卡片第一层没有把手")
+        XCTAssertLessThan(
+            contentIndex ?? .max, handleIndex ?? -1,
+            "陪跑员端把手排到了卡片内容前面。第一层：\(topLevel.map { "\($0.elementType.rawValue):\($0.identifier)" })"
+        )
+    }
+
     /// 星火页（调试版）：摘要句与今日足迹开关在，盲人端摘要不念别的盲人；整页过审计。
     @MainActor
     func testBlindXinghuoPageShowsSummaryAndPassesAudit() throws {

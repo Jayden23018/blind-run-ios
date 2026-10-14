@@ -14,7 +14,7 @@ description: AidRun 无障碍、语音、地图与定位的硬规则 —— Voic
 - 盲人端关键主按钮高度 **≥ 64pt**。
 - **每个关键盲人页面必须有「重复当前状态」按钮**。它不冗余：系统的 Speak Screen 读不到一次性的 `announcement`。可以降视觉权重，但不能删。
 - **读屏遍历顺序必须操作优先**，地图不得可交互、不得承载任何必要信息。
-- ⚠️ **`accessibilitySortPriority` 排不动叠放层，别用它去解耦视觉顺序与遍历顺序。**
+- ⚠️ **iOS 26 及以前：`accessibilitySortPriority` 排不动叠放层，别只靠它去解耦视觉顺序与遍历顺序**（iOS 27 见下一条）。
   SwiftUI 的 VoiceOver 遍历顺序跟随**绘制顺序**；2026-08-14 真机实测四种排法（裸 sortPriority、
   换声明顺序 + `zIndex`、三层都补 `accessibilityElement(children: .contain)` 再排、
   改成内容层的 `.background`）全部无效。铺在底层的装饰地图**只能 `accessibilityHidden(true)`**
