@@ -751,10 +751,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
         )
     }
 
-    /// 同行态里这一单没同意共享位置（#368）。`appState` 是 weak，拿不到时按「被拦」算 ——
-    /// 不发比带着一个用户说过不的位置发出去安全。
+    /// 本角色没同意共享位置（#368，判据见 `AppState.isEmergencyLocationSharingBlocked`）。
+    /// `appState` 是 weak，拿不到时按「被拦」算 —— 不发比带着一个用户说过不的位置发出去安全。
     private var isEmergencyLocationSharingBlocked: Bool {
-        appState?.liveEscortCoordinator.isLocationSharingBlocked ?? true
+        appState?.isEmergencyLocationSharingBlocked ?? true
     }
 
     func submitReview() async {

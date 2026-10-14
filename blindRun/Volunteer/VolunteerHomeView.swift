@@ -42,6 +42,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published private(set) var trackConsentDeclinedNotice: String?
     /// 从开关发起的同意按下之后置位，由首页把接单主页推出来，然后复位。
     @Published var entersDispatchHubAfterTrackConsent = false
+    /// 本次登录里在「自动恢复待命」那一问上拒绝过。拒绝是完整的答案：替他关服务端开关若失败，
+    /// 之后的摘要仍会说「开着」，不能因此每次刷新都再问一遍。
+    private var declinedResumeTrackConsent = false
     @Published var nickname = ""
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var errorMessage: String?
@@ -1360,13 +1363,15 @@ final class VolunteerHomeViewModel: ObservableObject {
         cancelLoading()
     }
 
-    func setAvailability(_ value: Bool) {
-        guard !isUpdatingAvailability, let appState else { return }
+    /// - Returns: 这次真的开始改开关了（发出了请求）。被「正在改」或同意闸挡下时为 false。
+    @discardableResult
+    func setAvailability(_ value: Bool) -> Bool {
+        guard !isUpdatingAvailability, let appState else { return false }
         // #368：开始为派单持续上报位置之前，先要本机有志愿者位置轨迹的单独同意。
         // 没有就盖同意页：开关不翻、不发请求、不弹系统授权框。
         if value, !appState.hasLocationTrackConsent(.volunteerLocationTrack) {
             trackConsentRequest = .turnOn
-            return
+            return false
         }
 
         let previousValue = isAvailable
@@ -1374,6 +1379,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         Task {
             await updateAvailability(value, previousValue: previousValue, appState: appState)
         }
+        return true
     }
 
     private func updateAvailability(_ value: Bool, previousValue: Bool, appState: AppState) async {
@@ -1436,6 +1442,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     private func requestTrackConsentIfStandbyResumesWithoutIt() {
         guard isAvailable,
               !isUpdatingAvailability,
+              !declinedResumeTrackConsent,
               trackConsentRequest == nil,
               let appState,
               !appState.hasLocationTrackConsent(.volunteerLocationTrack) else { return }
@@ -1448,12 +1455,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard let request = trackConsentRequest, let appState else { return }
         trackConsentRequest = nil
         trackConsentDeclinedNotice = nil
+        declinedResumeTrackConsent = false
         appState.recordLocationTrackConsent(.volunteerLocationTrack)
         requestLocationPermission()
         switch request {
         case .turnOn:
-            setAvailability(true)
-            entersDispatchHubAfterTrackConsent = true
+            // 只在开关真的开始打开时才进接单主页，否则会进到一个「开关其实没开」的接单主页。
+            entersDispatchHubAfterTrackConsent = setAvailability(true)
         case .resumeStandby:
             // 开关本来就开着，不用 PUT；立刻补报一次，不等下一拍刷新循环。
             Task { [weak self] in
@@ -1470,8 +1478,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     func declineTrackConsent() {
         guard let request = trackConsentRequest else { return }
         trackConsentRequest = nil
-        if request == .resumeStandby, isAvailable {
-            setAvailability(false)
+        if request == .resumeStandby {
+            declinedResumeTrackConsent = true
+            if isAvailable { setAvailability(false) }
         }
         let notice = PrivacyConsentPurpose.volunteerLocationTrack.declinedFeedback
         trackConsentDeclinedNotice = notice

@@ -70,8 +70,19 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     var trackConsent: LiveEscortTrackConsent = .grantedForTesting {
         didSet { scheduleReconcile() }
     }
-    /// 拒绝过位置共享的单。「这一单不再问」—— 只在本次进程里记，重启 App 会再问一次。
-    private var trackConsentDeclinedOrderIDs: Set<Int64> = []
+    /// 拒绝过位置共享的单（按「角色:订单号」记）。「这一单不再问」—— 只在本次进程里记，重启 App 会再问一次。
+    /// 换 token / 换 WS 实例走的 `reset(clearIdentity: false)` **不清它**：否则跑步中刷新一次凭证，
+    /// 同一单就会再弹一次同意页。带角色是因为同一台手机上同一单的两端是两个人。
+    private var declinedTrackConsentKeys: Set<String> = []
+
+    private var activeDeclineKey: String? {
+        guard let activeOrderID, let role else { return nil }
+        return "\(role.rawValue):\(activeOrderID)"
+    }
+
+    private var hasDeclinedTrackConsentForActiveOrder: Bool {
+        activeDeclineKey.map(declinedTrackConsentKeys.contains) ?? false
+    }
 
     private let realtimeCoordinator: AppRealtimeCoordinator
     private let reportInterval: TimeInterval
@@ -180,13 +191,6 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         return trackConsent.isGranted(purpose)
     }
 
-    /// 同行态里没有本角色的位置轨迹同意（还没回答或已拒绝）。
-    /// 求助取坐标前读：此时求助**不附位置**，按「拿不到坐标就不发」处理（`AGENTS.md` §6），
-    /// 原因由 `LocationError.locationSharingNotConsented` 说清。
-    var isLocationSharingBlocked: Bool {
-        isSessionEligible && !hasTrackConsent
-    }
-
     /// 同意页上按了「同意共享位置」：记下来，立刻开始这一单的同行定位。
     func agreeTrackConsent() {
         guard let purpose = pendingTrackConsent else { return }
@@ -197,8 +201,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     /// 同意页上按了「先不同意」：这一单不再问，横幅说清后果（`healthState` 变化时根视图会念）。
     func declineTrackConsent() {
-        guard pendingTrackConsent != nil, let activeOrderID else { return }
-        trackConsentDeclinedOrderIDs.insert(activeOrderID)
+        guard pendingTrackConsent != nil, let key = activeDeclineKey else { return }
+        declinedTrackConsentKeys.insert(key)
         pendingTrackConsent = nil
         refreshHealth(now: Date())
     }
@@ -259,7 +263,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     func reset(clearIdentity: Bool = true) {
         clearOwnedOrder()
-        trackConsentDeclinedOrderIDs = []
+        if clearIdentity { declinedTrackConsentKeys = [] }
         cancellables.removeAll()
         webSocketService = nil
         if clearIdentity {
@@ -341,12 +345,14 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         // 等用户在同意页上回答；拒绝过的单不再问。后端不存这项同意，所以没有记录就当没同意过。
         guard hasTrackConsent else {
             clearRuntimeSession()
-            let declined = activeOrderID.map(trackConsentDeclinedOrderIDs.contains) ?? false
-            pendingTrackConsent = declined ? nil : Self.trackConsentPurpose(for: role)
+            pendingTrackConsent = hasDeclinedTrackConsentForActiveOrder ? nil : Self.trackConsentPurpose(for: role)
             refreshHealth(now: Date())
             return
         }
         pendingTrackConsent = nil
+        // 显式打开定位，不靠 `LocationService` 在授权回调里自己开（那一条不区分有没有同意）。
+        // 出发 / 汇合两态不开后台模式，`setEscortBackgroundMode(false)` 不会替我们开。
+        locationService?.startUpdating()
         let needsBackground = activeStatus == .inProgress
         locationService?.setEscortBackgroundMode(enabled: needsBackground)
         syncMotionRecording()
@@ -416,8 +422,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         }
         // 排在最前：没有同意时定位根本没开，下面那几档（权限 / 网络 / 样本）说的都不是真正的原因。
         guard hasTrackConsent else {
-            let declined = activeOrderID.map(trackConsentDeclinedOrderIDs.contains) ?? false
-            setHealthState(declined ? .locationSharingDeclined : .trackConsentRequired)
+            setHealthState(hasDeclinedTrackConsentForActiveOrder ? .locationSharingDeclined : .trackConsentRequired)
             return
         }
         guard locationService?.isAuthorized == true else {

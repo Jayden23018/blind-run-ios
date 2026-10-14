@@ -597,6 +597,17 @@ final class AppState: ObservableObject {
         PrivacyConsentStore(persistence: persistence).recordConsent(to: purpose, scope: scope)
     }
 
+    /// 求助取坐标前读（#368）：当前角色在本机没有位置轨迹同意（还没回答或已拒绝）⇒ 求助**不附位置**，
+    /// 按「拿不到坐标就不发」处理（`AGENTS.md` §6），原因由 `LocationError.locationSharingNotConsented` 说清。
+    ///
+    /// 按角色判，**不看同行会话此刻有没有订单**：协调器在换 token / 换角色 / 冷启动之后会有几秒拿不到
+    /// 订单状态，按会话判的话那几秒会放行一个用户说过不的位置。云端求助只在 `IN_PROGRESS` 开放，
+    /// 而那一态没有同意的人一定被问过（同意页盖在界面上），所以按角色判不会误拦。拿不到角色时按「被拦」算。
+    var isEmergencyLocationSharingBlocked: Bool {
+        guard let purpose = LiveEscortSessionCoordinator.trackConsentPurpose(for: activeRole) else { return true }
+        return !hasLocationTrackConsent(purpose)
+    }
+
     /// 为派单上报位置的总闸：开着接单开关，且同意过志愿者位置轨迹。
     /// 同意文案第 1 条写了「暂停接单后不再为派单获取位置」，这一闸就是它的兑现。
     var allowsVolunteerDispatchLocationReporting: Bool {

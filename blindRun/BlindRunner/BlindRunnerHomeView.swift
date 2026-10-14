@@ -466,17 +466,17 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             role: appState.activeRole,
             userID: appState.userId,
             safety: appState.safety,
-            // 同行态里这一单没同意共享位置（#368）⇒ 不取位置、不发，文案说清原因。
+            // 本角色没同意共享位置（#368）⇒ 不取位置、不发，文案说清原因。
             locate: {
                 await EmergencyCoordinator.freshEmergencyCoordinate(
                     using: locationService,
-                    sharingBlocked: appState.liveEscortCoordinator.isLocationSharingBlocked
+                    sharingBlocked: appState.isEmergencyLocationSharingBlocked
                 )
             },
             locationFailureReason: {
                 EmergencyCoordinator.locationFailureReason(
                     using: locationService,
-                    sharingBlocked: appState.liveEscortCoordinator.isLocationSharingBlocked
+                    sharingBlocked: appState.isEmergencyLocationSharingBlocked
                 )
             }
         )

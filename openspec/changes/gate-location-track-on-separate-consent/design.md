@@ -15,9 +15,11 @@
 2. **预约闸挂在路由上**（`BlindBookingTrackConsentGate` 包住 `.voiceBooking` 的目的地），不挂在按钮上：以后加的入口自动过闸。同意页没有返回按钮，读屏「返回」手势等同拒绝。
 3. **志愿者同意页挂在 `VolunteerTabView`**（fullScreenCover + `PresenterAccessibilityHider`），因为自动恢复发生时人可能在任何 tab。view model 持 `trackConsentRequest`（`.turnOn` / `.resumeStandby`），系统授权框由视图在按「同意」时传进来的闭包弹。
 4. **派单上报总闸 = 开关开着 ∧ 有同意**。`isAvailable` 的 `didSet` 同步到 `AppState.volunteerWantsDispatch`，根视图定时上报与首页刷新循环读同一个判据。暂停时不报也不算失败（清掉「定位暂不可用」）。
-5. **同行闸在协调器里**：`evaluateSession` 在开定位之前查同意；没有就清掉运行时会话、发布 `pendingTrackConsent`。根视图 `EscortTrackConsentOverlay` 以 `@ObservedObject` 持协调器（嵌套 ObservableObject 不经 AppState 重新发布），盖同意页并隐藏背后的 UIKit 宿主树。拒绝记在内存里的订单号集合（「这一单不再问」，重启会再问一次）。健康状态新增 `.trackConsentRequired`（不出横幅）与 `.locationSharingDeclined`（横幅 + 根视图已有的状态播报）。`sendLatestLocation` 也查一次同意，作为纵深防御。
+5. **同行闸在协调器里**：`evaluateSession` 在开定位之前查同意；没有就清掉运行时会话、发布 `pendingTrackConsent`。根视图 `EscortTrackConsentOverlay` 以 `@ObservedObject` 持协调器（嵌套 ObservableObject 不经 AppState 重新发布），盖同意页并隐藏背后的 UIKit 宿主树。拒绝记在内存里，键是「角色:订单号」（「这一单不再问」，重启会再问一次）；换 token / 换 WS 的 `reset(clearIdentity: false)` 不清它，否则跑步中刷新一次凭证就会再弹。同意之后**显式** `startUpdating()`，不依赖 `LocationService` 在授权回调里自己开（#413）。健康状态新增 `.trackConsentRequired`（不出横幅）与 `.locationSharingDeclined`（横幅 + 根视图已有的状态播报）。`sendLatestLocation` 也查一次同意，作为纵深防御。
 6. **协调器的同意依赖默认放行，只给直接构造它的单测用**；`AppState` 装配时换成真实的，用例钉住这一点。
-7. **求助**：新增 `LocationError.locationSharingNotConsented`，`EmergencyCoordinator` 两个静态助手多一个 `sharingBlocked` 参数，盲人端三处、志愿者端两处求助入口都读 `liveEscortCoordinator.isLocationSharingBlocked`。
+7. **求助**：新增 `LocationError.locationSharingNotConsented`，`EmergencyCoordinator` 两个静态助手多一个 `sharingBlocked` 参数，盲人端三处、志愿者端两处求助入口都读 `AppState.isEmergencyLocationSharingBlocked`。**按角色判，不看同行会话此刻有没有订单**（安全审查 A3）：协调器在换 token / 冷启动后有几秒拿不到订单状态，按会话判会在那几秒放行。
+8. **接单那一下的补报也过闸**（安全审查 A1）：闸放在 `VolunteerLocationReporter.reportIfNeeded(appState:)` 里，接单两处与刷新循环共用。
+9. **自动恢复那一问拒绝后本次登录不再问**（安全审查 A2）：替他关服务端开关失败时摘要仍说「开着」，不能每次刷新都再问。
 
 ## Risks / Trade-offs
 

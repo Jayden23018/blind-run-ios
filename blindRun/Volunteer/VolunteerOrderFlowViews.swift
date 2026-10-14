@@ -2208,15 +2208,15 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    /// 代跑者求助时取的坐标。这一单没同意共享位置（#368）就不取 —— 同意页写着拒绝后
+    /// 代跑者求助时取的坐标。本角色没同意共享位置（#368）就不取 —— 同意页写着拒绝后
     /// 「求助定位也用不了」，按 `AGENTS.md` §6「拿不到坐标就不发」处理，原因单独说。
     private func emergencyLocate() -> LocatedCoordinate? {
-        guard !appState.liveEscortCoordinator.isLocationSharingBlocked else { return nil }
+        guard !appState.isEmergencyLocationSharingBlocked else { return nil }
         return locationService.latestBackendSample()
     }
 
     private func emergencyLocationFailureReason() -> LocationError? {
-        if appState.liveEscortCoordinator.isLocationSharingBlocked { return .locationSharingNotConsented }
+        if appState.isEmergencyLocationSharingBlocked { return .locationSharingNotConsented }
         return locationService.locationError
     }
 

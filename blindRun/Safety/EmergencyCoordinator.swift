@@ -225,7 +225,7 @@ final class EmergencyCoordinator: ObservableObject {
     /// `allowsSubmissionWithoutLocation` 那段注释说的「送错地方比不送更糟」。项目负责人 2026-10-09 拍板按无定位处理（#373）。
     /// 这里**不**顺手申请临时精确位置：系统弹窗会和「求助未发出」的播报抢读屏焦点；跑步开始时已经申请过一次。
     ///
-    /// 🔴 **同行态里这一单没有同意共享位置时（`sharingBlocked`，#368）同样直接返回 nil。**
+    /// 🔴 **本角色没有同意共享位置时（`sharingBlocked`，#368）同样直接返回 nil。**
     /// 同意页写着「不同意 …… 走散提醒和求助定位也用不了」—— 拒绝之后再把位置随求助发出去，就是拿走了用户刚说不的东西。
     static func freshEmergencyCoordinate(
         using locationService: LocationService?,

@@ -86,7 +86,6 @@ final class LocationTrackConsentTests: XCTestCase {
         _ = await Self.waitUntil(timeout: 0.3) { false }
         XCTAssertEqual(sent, 0, "回答之前一个点都不许发")
         XCTAssertEqual(coordinator.healthState, .trackConsentRequired)
-        XCTAssertTrue(coordinator.isLocationSharingBlocked, "求助也不能附位置")
         coordinator.reset()
         withExtendedLifetime(service) {}
     }
@@ -104,7 +103,6 @@ final class LocationTrackConsentTests: XCTestCase {
         XCTAssertEqual(consent.recorded, [.blindLocationTrack])
         XCTAssertNil(coordinator.pendingTrackConsent)
         XCTAssertTrue(started, "同意之后立刻开始上报")
-        XCTAssertFalse(coordinator.isLocationSharingBlocked)
         coordinator.reset()
         withExtendedLifetime(service) {}
     }
@@ -134,6 +132,25 @@ final class LocationTrackConsentTests: XCTestCase {
         XCTAssertTrue(askedAgain, "换了一单要重新问")
         coordinator.reset()
         withExtendedLifetime(service) {}
+    }
+
+    /// 换 token / 换 WS 实例会 `reset(clearIdentity: false)`。拒绝过的单不能因此在跑步中再弹一次。
+    func testCredentialRefreshDoesNotReaskADeclinedOrder() async {
+        let consent = ConsentRecorder(granted: false)
+        let (coordinator, deps) = Self.makeEscortCoordinator(role: .blind, consent: consent) {}
+        coordinator.updateOwnedOrder(orderID: 97, status: .inProgress)
+        _ = await Self.waitUntil { coordinator.pendingTrackConsent != nil }
+        coordinator.declineTrackConsent()
+
+        coordinator.reset(clearIdentity: false)
+        coordinator.configure(identityKey: "account:blind:token-2", role: .blind, webSocketService: deps.service)
+        coordinator.updateOwnedOrder(orderID: 97, status: .inProgress)
+        _ = await Self.waitUntil(timeout: 0.3) { false }
+
+        XCTAssertNil(coordinator.pendingTrackConsent, "这一单已经拒绝过")
+        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined)
+        coordinator.reset()
+        withExtendedLifetime(deps) {}
     }
 
     /// 对照：有同意记录时与改动前完全一样，不问、照常上报。
@@ -170,6 +187,19 @@ final class LocationTrackConsentTests: XCTestCase {
     }
 
     // MARK: - 求助
+
+    /// 求助的拦截按角色判，不看同行会话此刻有没有订单（协调器换 token 后有几秒是空的）。
+    func testEmergencyLocationIsBlockedByRoleConsentEvenWithoutAnEscortSession() {
+        let appState = Self.loggedInAppState(role: .blind, userId: 31)
+        XCTAssertNil(appState.liveEscortCoordinator.activeStatus, "前提：协调器手里没有订单")
+        XCTAssertTrue(appState.isEmergencyLocationSharingBlocked, "没有同意就不能随求助发位置")
+
+        appState.recordLocationTrackConsent(.blindLocationTrack)
+        XCTAssertFalse(appState.isEmergencyLocationSharingBlocked)
+
+        appState.activeRole = .volunteer
+        XCTAssertTrue(appState.isEmergencyLocationSharingBlocked, "陪跑员看的是陪跑员那一份")
+    }
 
     func testBlockedSharingSendsNoEmergencyAndSaysWhy() async {
         let location = Self.locationService()
@@ -280,6 +310,44 @@ final class LocationTrackConsentTests: XCTestCase {
         XCTAssertNil(viewModel.trackConsentRequest)
         XCTAssertTrue(appState.volunteerWantsDispatch)
         XCTAssertTrue(appState.allowsVolunteerDispatchLocationReporting)
+    }
+
+    /// 拒绝之后替他关服务端开关失败：摘要仍说「开着」，但不能每次刷新都再问一遍。
+    func testDeclinedResumeIsNotAskedAgainWhenTurningTheSwitchOffFails() async {
+        let orders = FakeOrderService()
+        orders.setDispatchStatusResult = .failure(URLError(.notConnectedToInternet))
+        let (appState, viewModel, _) = Self.makeVolunteerHome(orders: orders)
+        viewModel.apply(summary: Self.summary(wantsDispatch: true))
+        viewModel.declineTrackConsent()
+        let attempted = await Self.waitUntil(timeout: 2) {
+            orders.callCount("setDispatchStatus(wantsDispatch:)") == 1 && !viewModel.isUpdatingAvailability
+        }
+        XCTAssertTrue(attempted)
+
+        viewModel.apply(summary: Self.summary(wantsDispatch: true))
+
+        XCTAssertNil(viewModel.trackConsentRequest, "拒绝是完整的答案，不追问")
+        withExtendedLifetime(appState) {}
+    }
+
+    /// 接单那一下的补报也要过同意闸（安全审查 A1）：没有同意就不往服务器发位置。
+    func testAcceptingAnInviteDoesNotReportLocationWithoutConsent() {
+        // 不登录：登录态下切到云端环境会去连真实 WebSocket。没有 userId 时同意记在本次会话里，够这条用例用。
+        let appState = AppState(
+            persistence: AppStatePersistenceFactory.makeIsolatedTest(),
+            tokenStore: InMemoryTokenStore()
+        )
+        appState.currentEnvironment = .demoCloud
+        let coordinate = CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737)
+
+        XCTAssertFalse(VolunteerLocationReporter.reportIfNeeded(
+            appState: appState, currentLocation: coordinate, locationAuthorized: true
+        ))
+
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        XCTAssertTrue(VolunteerLocationReporter.reportIfNeeded(
+            appState: appState, currentLocation: coordinate, locationAuthorized: true
+        ), "对照：同意之后照常补报")
     }
 
     /// 同意文案写着「暂停接单后不再为派单获取位置」：暂停时刷新循环不上报，也不报「定位暂不可用」。
