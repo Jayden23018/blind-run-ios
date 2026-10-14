@@ -342,10 +342,10 @@
 				};
 			};
 			buildConfigurationList = C490E0722FBB552800807A54 /* Build configuration list for PBXProject "blindRun" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = C490E06E2FBB552800807A54;
