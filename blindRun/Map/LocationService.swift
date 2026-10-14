@@ -158,6 +158,16 @@ final class LocationService: NSObject, ObservableObject {
         return isAuthorized && accuracyAuthorization == .reducedAccuracy
     }
 
+    /// 「精确位置」从关到开时丢掉手里的样本：那是关着时拿到的区域代表点，而它还在 15 秒新鲜度内，
+    /// 开关一开 `isPreciseLocationOff` 就放行它 —— 刚允许临时精确位置就按求助，会带着几公里外的点发出。
+    /// 清掉后取坐标的一方照常等下一个真实样本（CoreLocation 几毫秒内就会送来）。
+    func applyAccuracyAuthorization(_ newValue: CLAccuracyAuthorization) {
+        guard accuracyAuthorization != newValue else { return }
+        let leavesReducedAccuracy = accuracyAuthorization == .reducedAccuracy
+        accuracyAuthorization = newValue
+        if leavesReducedAccuracy { clearDeviceLocation() }
+    }
+
     var readableCurrentLocationSummary: String {
         #if DEBUG
         if isUsingUITestDemoLocation {
@@ -524,9 +534,7 @@ extension LocationService: CLLocationManagerDelegate {
             }
             // 「精确位置」开关的变化也走这个回调（SDK `CLLocationManagerDelegate.h` 原文：
             // 「Invoked when either the authorizationStatus or accuracyAuthorization properties change」）。
-            if self.accuracyAuthorization != manager.accuracyAuthorization {
-                self.accuracyAuthorization = manager.accuracyAuthorization
-            }
+            self.applyAccuracyAuthorization(manager.accuracyAuthorization)
 
             switch manager.authorizationStatus {
             case .authorizedWhenInUse, .authorizedAlways:

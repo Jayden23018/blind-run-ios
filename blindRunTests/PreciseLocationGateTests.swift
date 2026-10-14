@@ -77,6 +77,31 @@ final class PreciseLocationGateTests: XCTestCase {
         XCTAssertNil(EmergencyCoordinator.locationFailureReason(using: location))
     }
 
+    /// 刚允许临时精确位置：关着时拿到的样本仍在新鲜度内，但不能当成精确坐标发出去。
+    /// 开关之后到来的样本照常可用 —— 只断「清掉」的话，一个把定位全拦掉的实现也会绿。
+    func testSampleTakenWhilePreciseLocationWasOffIsDroppedWhenItTurnsOn() {
+        let location = LocationService()
+        location.applyAccuracyAuthorization(.reducedAccuracy)
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
+            capturedAt: Date(),
+            horizontalAccuracy: 3000
+        )
+        XCTAssertTrue(location.isPreciseLocationOff)
+
+        location.applyAccuracyAuthorization(.fullAccuracy)
+
+        XCTAssertFalse(location.isPreciseLocationOff)
+        XCTAssertNil(location.latestBackendSample(), "关着时的区域代表点不能在开关打开后当精确坐标用")
+
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 31.2305, longitude: 121.4738),
+            capturedAt: Date(),
+            horizontalAccuracy: 10
+        )
+        XCTAssertNotNil(location.latestBackendSample(), "打开之后的新样本照常可用")
+    }
+
     /// 精确授权下精度 65 米：照发，屏幕与播报都说误差。30 米：不说。
     func testLowAccuracyEmergencyIsSentWithAnErrorNoteAndPreciseOneIsNot() async {
         for (accuracy, expectsNote) in [(65.0, true), (30.0, false)] {
