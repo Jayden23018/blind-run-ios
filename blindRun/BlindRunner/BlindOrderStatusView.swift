@@ -269,8 +269,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 🔴 「精确位置」关着时两条来源都不用（#406）：本机是区域代表点，服务端那份来自同一台手机的上报，
     /// 一样是模糊点。也不申请临时精确位置 —— 系统框会在这一刻抢走读屏焦点。
     func announceCurrentLocation() async {
+        // 没注入定位服务就判不出精确位置开没开：按拿不到处理，不退到服务端那份（它可能就是模糊点）。
+        guard let locationService else {
+            speechService?.speak(EmergencySafetyCopy.locationAnnouncement(nil), priority: .onDemand)
+            return
+        }
         // 答句不走网络、立刻出声，所以不先说「正在获取」—— 说了只会被马上打断。
-        if locationService?.isPreciseLocationOff == true {
+        if locationService.isPreciseLocationOff {
             speechService?.speak(EmergencySafetyCopy.locationAnnouncementPreciseLocationOff, priority: .onDemand)
             return
         }
@@ -278,8 +283,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         // 对看不见屏幕的人，静默就是「点了没反应」。答句回来时会盖掉它，那正是想要的
         // （`.onDemand` 同档相互打断，见 `AnnouncementPriority`）。
         speechService?.speak(EmergencySafetyCopy.locating, priority: .onDemand)
-        if let locationService,
-           !locationService.isUsingDemoFallback,
+        if !locationService.isUsingDemoFallback,
            let coordinate = locationService.currentLocation {
             let place = await placeSearchProvider?.reverseGeocode(coordinate: coordinate)
             // `title` 是 POI 名（「人民公园」），`addressText` 是街道级描述。优先念前者：

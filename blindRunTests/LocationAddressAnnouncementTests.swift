@@ -76,8 +76,11 @@ final class LocationAddressAnnouncementTests: XCTestCase {
         let appState = AppState(safety: safety)
         appState.currentEnvironment = .mock
         let speechService = makeSpeechService()
+        let location = LocationService()
+        location.simulateMissingDeviceLocationForTesting()
+        location.simulatePreciseLocationOffForTesting(false)
         let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.configure(appState: appState, speechService: speechService, locationService: location)
         viewModel.startPolling(orderId: 612)
         viewModel.stopPolling()
 
@@ -94,13 +97,37 @@ final class LocationAddressAnnouncementTests: XCTestCase {
         let appState = AppState(safety: safety)
         appState.currentEnvironment = .mock
         let speechService = makeSpeechService()
+        let location = LocationService()
+        location.simulateMissingDeviceLocationForTesting()
+        location.simulatePreciseLocationOffForTesting(false)
         let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.configure(appState: appState, speechService: speechService, locationService: location)
         viewModel.startPolling(orderId: 613)
         viewModel.stopPolling()
 
         await viewModel.announceCurrentLocation()
 
+        XCTAssertEqual(speechService.lastSpokenText, EmergencySafetyCopy.locationAnnouncement(nil))
+    }
+
+    /// 没注入定位服务时判不出精确位置开没开 —— 按拿不到处理，不去问服务端（那份可能就是模糊点）。
+    /// 服务端故意打桩成功：可选链放行的旧写法会念出「北山街」。
+    func testMissingLocationServiceDoesNotFallBackToTheServer() async {
+        let safety = FakeSafetyService()
+        safety.orderLocationAddressResult = .success(
+            OrderLocationAddressResponse(formattedAddress: "北山街", latitude: 30.2, longitude: 120.1, ageSeconds: 3, degraded: false)
+        )
+        let appState = AppState(safety: safety)
+        appState.currentEnvironment = .mock
+        let speechService = makeSpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.startPolling(orderId: 615)
+        viewModel.stopPolling()
+
+        await viewModel.announceCurrentLocation()
+
+        XCTAssertTrue(safety.calls.isEmpty)
         XCTAssertEqual(speechService.lastSpokenText, EmergencySafetyCopy.locationAnnouncement(nil))
     }
 
