@@ -73,4 +73,47 @@ final class LocationServiceAuthorizationTests: XCTestCase {
         XCTAssertTrue(service.isUpdatingLocation)
         XCTAssertEqual(service.hardwareUpdateStartsForTesting, 2)
     }
+
+    /// 迟到的「系统暂停了定位」回调不能把已经撤回的意图重新立起来。
+    func testPausedCallbackAfterStopDoesNotRestartUpdates() {
+        let service = makeService()
+        service.handleAuthorizationChange(.authorizedWhenInUse, accuracy: .fullAccuracy)
+        service.startUpdating()
+        service.stopUpdating()
+
+        service.handlePausedLocationUpdates()
+
+        XCTAssertFalse(service.isUpdatingLocation)
+        XCTAssertEqual(service.hardwareUpdateStartsForTesting, 1)
+    }
+
+    /// 上面几条直接调 `handleAuthorizationChange`；这一条守 delegate 回调真的转到它。
+    /// 用「先要定位、后授权」的场景：转发断了的话，授权之后定位开不起来。
+    func testDelegateAuthorizationCallbackReachesTheSameRule() async throws {
+        let service = makeService()
+        service.handleAuthorizationChange(.notDetermined, accuracy: .fullAccuracy)
+        service.startUpdating()
+
+        service.locationManagerDidChangeAuthorization(StubLocationManager(status: .authorizedWhenInUse))
+
+        // 回调里切回主线程的 Task 要让一拍才执行。
+        for _ in 0..<50 where service.hardwareUpdateStartsForTesting == 0 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(service.isAuthorized)
+        XCTAssertEqual(service.hardwareUpdateStartsForTesting, 1)
+    }
+}
+
+/// 授权状态由用例给定的 `CLLocationManager` 替身。不设 delegate，自己不会触发任何回调。
+private final class StubLocationManager: CLLocationManager {
+    private let stubStatus: CLAuthorizationStatus
+
+    init(status: CLAuthorizationStatus) {
+        stubStatus = status
+        super.init()
+    }
+
+    override var authorizationStatus: CLAuthorizationStatus { stubStatus }
+    override var accuracyAuthorization: CLAccuracyAuthorization { .fullAccuracy }
 }

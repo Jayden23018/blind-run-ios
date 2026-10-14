@@ -454,7 +454,10 @@ final class LocationService: NSObject, ObservableObject {
     ///   `latestEscortBackendSample()` 返回 nil，同行会话停发并落到 `.waitingForLocation`。
     func handlePausedLocationUpdates() {
         isUpdatingLocation = false
-        startUpdating()
+        // 只恢复还有人要的定位（#413）：迟到的暂停回调不能把已经 `stopUpdating()` 撤回的意图重新立起来。
+        if wantsContinuousUpdates {
+            startUpdating()
+        }
         setLocationError(.locationUnavailable)
     }
 
@@ -563,7 +566,9 @@ extension LocationService: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             #if DEBUG
-            if self.suppressHardwareUpdatesForTesting || self.interceptsLocationManagerForTesting { return }
+            if self.suppressHardwareUpdatesForTesting { return }
+            // 只挡本服务自己那台 manager 的真实回调；用例传进来的替身照常转发，接线本身才有人守。
+            if self.interceptsLocationManagerForTesting, manager === self.locationManager { return }
             #endif
             self.handleAuthorizationChange(manager.authorizationStatus, accuracy: manager.accuracyAuthorization)
         }
