@@ -124,6 +124,8 @@ final class AppState: ObservableObject {
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
                 emergencyCoordinator.reset()
+                locationTrackConsentGrantedThisSession = []
+                volunteerWantsDispatch = false
             }
         }
     }
@@ -137,6 +139,8 @@ final class AppState: ObservableObject {
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
                 emergencyCoordinator.reset()
+                locationTrackConsentGrantedThisSession = []
+                volunteerWantsDispatch = false
             }
         }
     }
@@ -560,6 +564,73 @@ final class AppState: ObservableObject {
             .recordConsent(to: .voiceOrderThirdPartyLLM, scope: voiceOrderConsentScope)
     }
 
+    // MARK: - 位置轨迹的单独同意（#368）
+
+    /// 志愿者此刻开着接单开关（以首页 view model 为准，由它同步进来）。
+    /// 不是 `@Published`：只有 `ContentView` 的定时上报读它，不驱动渲染。
+    var volunteerWantsDispatch = false
+
+    /// 本次登录里按下过「同意共享位置」的目的。拿不到 userId 时写不了盘，
+    /// 这一份让「刚同意完又被问一次」不会发生；换 token 就清掉。
+    private var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
+
+    /// 按**账号**记。拿不到 userId 时不读盘 —— 宁可多问一次，也不让一个身份不明的会话继承别人的同意。
+    private var locationTrackConsentScope: PrivacyConsentScope? {
+        userId.map { .user(String($0)) }
+    }
+
+    /// 本账号在本机有没有这一角色的位置轨迹同意。**后端不存这项同意**：没有记录就当没同意过。
+    /// 每次现读，不缓存。`purpose` 只接受两个位置轨迹目的，其余一律 false。
+    func hasLocationTrackConsent(_ purpose: PrivacyConsentPurpose) -> Bool {
+        guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack else { return false }
+        if Self.uiTestSkipsLocationTrackConsent() { return true }
+        if locationTrackConsentGrantedThisSession.contains(purpose) { return true }
+        guard let scope = locationTrackConsentScope else { return false }
+        return PrivacyConsentStore(persistence: persistence).hasConsented(to: purpose, scope: scope)
+    }
+
+    /// 唯一的写入点：触发者只能是用户按下同意页上的「同意共享位置」。
+    func recordLocationTrackConsent(_ purpose: PrivacyConsentPurpose) {
+        guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack else { return }
+        locationTrackConsentGrantedThisSession.insert(purpose)
+        if let scope = locationTrackConsentScope {
+            PrivacyConsentStore(persistence: persistence).recordConsent(to: purpose, scope: scope)
+        }
+        // 同一个目的可能同时有两处在问（接单开关的同意页 + 同行态的同意页），答了一处另一处要跟着收。
+        liveEscortCoordinator.trackConsentDidChange()
+    }
+
+    /// 求助取坐标前读（#368）：当前角色在本机没有位置轨迹同意（还没回答或已拒绝）⇒ 求助**不附位置**，
+    /// 按「拿不到坐标就不发」处理（`AGENTS.md` §6），原因由 `LocationError.locationSharingNotConsented` 说清。
+    ///
+    /// 按角色判，**不看同行会话此刻有没有订单**：协调器在换 token / 换角色 / 冷启动之后会有几秒拿不到
+    /// 订单状态，按会话判的话那几秒会放行一个用户说过不的位置。云端求助只在 `IN_PROGRESS` 开放，
+    /// 而那一态没有同意的人一定被问过（同意页盖在界面上），所以按角色判不会误拦。拿不到角色时按「被拦」算。
+    var isEmergencyLocationSharingBlocked: Bool {
+        guard let purpose = PrivacyConsentPurpose.locationTrack(for: activeRole) else { return true }
+        return !hasLocationTrackConsent(purpose)
+    }
+
+    /// 为派单上报位置的总闸：开着接单开关，且同意过志愿者位置轨迹。
+    /// 同意文案第 1 条写了「暂停接单后不再为派单获取位置」，这一闸就是它的兑现。
+    var allowsVolunteerDispatchLocationReporting: Bool {
+        volunteerWantsDispatch && hasLocationTrackConsent(.volunteerLocationTrack)
+    }
+
+    /// UI 用例默认跳过这道同意，理由同 `uiTestSkipsVoiceOrderConsent`：好几十条用例靠「预约 / 接单开关 /
+    /// 种一张同行态的单」进页面，同意页会把它们全挡在门外。专测同意页的用例设
+    /// `AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT=1`。真实安装没有这两个环境变量，一律要同意。
+    static func uiTestSkipsLocationTrackConsent(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        #if DEBUG || DEMO
+        return environment["AIDRUN_UI_TEST_RESET_STATE"] == "1"
+            && environment["AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT"] != "1"
+        #else
+        return false
+        #endif
+    }
+
     // MARK: - Init
 
     init(
@@ -607,6 +678,12 @@ final class AppState: ObservableObject {
             guard let self else { throw CancellationError() }
             return try await self.safety.orderTrack(orderId: orderID).blindStats
         }
+
+        // 同行定位前的位置轨迹同意（#368）。协调器自己不认识持久化，读写都回到这里的唯一入口。
+        liveEscortCoordinator.trackConsent = LiveEscortTrackConsent(
+            isGranted: { [weak self] purpose in self?.hasLocationTrackConsent(purpose) ?? false },
+            record: { [weak self] purpose in self?.recordLocationTrackConsent(purpose) }
+        )
 
         // 陪跑员出发 / 汇合锁屏卡的推送 token。provider 形态，理由同上。
         if #available(iOS 16.2, *) {

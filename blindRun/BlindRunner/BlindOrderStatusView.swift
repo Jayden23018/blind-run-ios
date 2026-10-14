@@ -676,7 +676,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             userID: appState.userId,
             safety: appState.safety,
             locate: { await self.freshEmergencyCoordinate() },
-            locationFailureReason: { EmergencyCoordinator.locationFailureReason(using: self.locationService) }
+            locationFailureReason: { self.emergencyLocationFailureReason() }
         )
         // The visible surface is `EmergencyStatusNotice`, driven by the coordinator's state.
         // Deliberately not also setting `errorMessage`: that would render the same sentence twice
@@ -705,7 +705,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             userID: appState.userId,
             safety: appState.safety,
             locate: { await self.freshEmergencyCoordinate() },
-            locationFailureReason: { EmergencyCoordinator.locationFailureReason(using: self.locationService) },
+            locationFailureReason: { self.emergencyLocationFailureReason() },
             announce: { [weak self] message in
                 // 倒计时每一秒都要盖掉上一秒那句 —— 合成器全进程只有一个、
                 // `speak` 自带 `stopSpeaking`，所以「谁后说谁赢」正是这里想要的行为
@@ -738,7 +738,23 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// `IN_PROGRESS` 期间实时陪跑会话每 5 秒采样一次，所以那次有界重试只在刚起跑
     /// 或位置更新短暂暂停时才用得上。
     private func freshEmergencyCoordinate() async -> LocatedCoordinate? {
-        await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService)
+        await EmergencyCoordinator.freshEmergencyCoordinate(
+            using: locationService,
+            sharingBlocked: isEmergencyLocationSharingBlocked
+        )
+    }
+
+    private func emergencyLocationFailureReason() -> LocationError? {
+        EmergencyCoordinator.locationFailureReason(
+            using: locationService,
+            sharingBlocked: isEmergencyLocationSharingBlocked
+        )
+    }
+
+    /// 本角色没同意共享位置（#368，判据见 `AppState.isEmergencyLocationSharingBlocked`）。
+    /// `appState` 是 weak，拿不到时按「被拦」算 —— 不发比带着一个用户说过不的位置发出去安全。
+    private var isEmergencyLocationSharingBlocked: Bool {
+        appState?.isEmergencyLocationSharingBlocked ?? true
     }
 
     func submitReview() async {

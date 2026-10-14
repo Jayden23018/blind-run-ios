@@ -201,6 +201,10 @@ enum EmergencySafetyCopy {
         case .preciseLocationOff:
             return "求助未发出：本 App 的「精确位置」已关闭，只能拿到大致位置，可能偏差几公里。"
                 + "请直接拨打120或110；跑完后可在系统设置里为助盲跑打开「精确位置」。"
+        // #368：这一单拒绝了位置共享（或还没回答）。求助不附位置就不发（`AGENTS.md` §6），
+        // 换地方、等一等都没用，所以只给能立刻做的：拨号。
+        case .locationSharingNotConsented:
+            return "求助未发出：这一单你没有同意共享位置，求助无法附带你的位置。请直接拨打120或110。"
         }
     }
 

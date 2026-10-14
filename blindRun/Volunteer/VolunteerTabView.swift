@@ -98,8 +98,12 @@ struct VolunteerTabView: View {
         }
         .onAppear {
             // **删地图 ≠ 停定位**：这两行是派单的前提，没有位置上报就收不到单。
-            locationService.requestPermission()
-            locationService.startUpdating()
+            // #368：没有位置轨迹同意时一行都不做 —— 同意页出现之前不弹系统授权框（告知在前）。
+            // 授权框改在同意页按「同意共享位置」时弹（`agreeTrackConsent` 的回调）。
+            if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
+                locationService.requestPermission()
+                locationService.startUpdating()
+            }
             // 第一条派单进来时，邀请卡的 spring 和「合成 WAV + 写盘 + 注册 SystemSoundID」
             // 会挤在同一拍主线程上 —— 表现是冷启动后的**第一条**派单弹得一顿一顿的。
             // 提前在后台把它做掉，理由见 `VolunteerInviteCue.prewarm()`。
@@ -229,6 +233,43 @@ struct VolunteerTabView: View {
             // 没有邀请时这一层什么都不画，但它铺满全屏 —— 关掉命中测试，
             // 免得哪天有人在里面加一个带背景色的容器就把整个标签栏点不动了。
             .allowsHitTesting(viewModel.isInviteSheetPresented)
+        }
+        // #368：接单开关 / 自动恢复待命前的位置轨迹同意。挂在容器上而不是首页 tab 上：
+        // 自动恢复那条路发生时他可能在任何一个 tab。全屏而不是对话框，理由见 `ConsentDisclosureView`。
+        .fullScreenCover(isPresented: Binding(
+            get: { viewModel.trackConsentRequest != nil },
+            set: { _ in }
+        )) {
+            trackConsentScreen
+        }
+    }
+
+    private var trackConsentScreen: some View {
+        let purpose = PrivacyConsentPurpose.volunteerLocationTrack
+        return ConsentDisclosureView(
+            purpose: purpose,
+            onAgree: {
+                speechService.stop()
+                viewModel.agreeTrackConsent {
+                    // 系统授权框在这一刻弹，不早于告知。
+                    locationService.requestPermission()
+                    locationService.startUpdating()
+                }
+            },
+            onDecline: {
+                speechService.stop()
+                viewModel.declineTrackConsent()
+            }
+        )
+        // 系统模态不会把背后的标签栏容器移出读屏树（真机实测），要自己藏，见 `PresenterAccessibilityHider`。
+        .background(PresenterAccessibilityHider())
+        // 读屏的「返回」手势（双指 Z）等同「先不同意」：没有别的出口，不能让它什么都不做。
+        .accessibilityAction(.escape) {
+            speechService.stop()
+            viewModel.declineTrackConsent()
+        }
+        .task {
+            speechService.speak(text: purpose.spokenScript)
         }
     }
 }

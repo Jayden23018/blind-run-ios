@@ -14,6 +14,9 @@ enum LocationError: String, Sendable {
     /// 模糊位置下同行位置照常共享（陪跑员端按 `accuracyM` 放宽方位扇形）。
     /// 它只由 `EmergencyCoordinator.locationFailureReason(using:)` 产出，供求助文案分岔。
     case preciseLocationOff
+    /// 当前角色在本机没有位置轨迹同意（#368，按角色判，见 `AppState.isEmergencyLocationSharingBlocked`）。
+    /// 与 `preciseLocationOff` 一样只供求助文案分岔，由 `EmergencyCoordinator.locationFailureReason(using:sharingBlocked:)` 产出。
+    case locationSharingNotConsented
 }
 
 // MARK: - Accuracy Policy

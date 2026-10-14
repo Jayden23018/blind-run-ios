@@ -271,6 +271,9 @@ final class blindRunTests: XCTestCase {
             currentLocationProvider: { expectedLocation },
             locationAuthorizedProvider: { true }
         )
+        // #368：为派单上报位置的前提是开着接单开关、且本机有志愿者位置轨迹同意。
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        viewModel.isAvailable = true
         viewModel.setSceneActive(true)
 
         service.simulateConnectionStateForTesting(.connected)
@@ -301,6 +304,9 @@ final class blindRunTests: XCTestCase {
             reportVolunteerLocation: { _, _, _ in false }
         )
         viewModel.configure(with: appState, speechService: speechService)
+        // #368：为派单上报位置的前提是开着接单开关、且本机有志愿者位置轨迹同意。
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        viewModel.isAvailable = true
 
         await viewModel.reportLocationThenRefreshSummary(
             currentLocation: nil,
@@ -325,6 +331,9 @@ final class blindRunTests: XCTestCase {
             reportVolunteerLocation: { _, _, _ in false }
         )
         viewModel.configure(with: appState, speechService: speechService)
+        // #368：为派单上报位置的前提是开着接单开关、且本机有志愿者位置轨迹同意。
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        viewModel.isAvailable = true
 
         for attempt in 1..<Self.locationReportFailureThreshold {
             await viewModel.reportLocationThenRefreshSummary(
@@ -366,6 +375,9 @@ final class blindRunTests: XCTestCase {
             reportVolunteerLocation: { _, _, _ in shouldSucceed }
         )
         viewModel.configure(with: appState, speechService: speechService)
+        // #368：为派单上报位置的前提是开着接单开关、且本机有志愿者位置轨迹同意。
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        viewModel.isAvailable = true
 
         for _ in 0..<Self.locationReportFailureThreshold {
             await viewModel.reportLocationThenRefreshSummary(

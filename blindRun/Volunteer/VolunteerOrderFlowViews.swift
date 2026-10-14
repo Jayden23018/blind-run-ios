@@ -730,8 +730,12 @@ struct VolunteerOrderDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             viewModel.configure(with: appState, speechService: speechService)
-            locationService.requestPermission()
-            locationService.startUpdating()
+            // #368：没有位置轨迹同意就不开定位、也不弹系统授权框（告知在前）。
+            // 同行态的同意页由根视图盖上来，同意之后由同行会话打开定位。
+            if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
+                locationService.requestPermission()
+                locationService.startUpdating()
+            }
             await viewModel.load(orderId: orderId)
             if viewModel.order?.status == .completed {
                 await trackViewModel.load(orderID: orderId, appState: appState)
@@ -1888,7 +1892,10 @@ struct VolunteerInServiceView: View {
         .toolbar(.hidden, for: .tabBar)
         .task {
             viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
-            locationService.startUpdating()
+            // #368：没有位置轨迹同意就不开定位。
+            if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
+                locationService.startUpdating()
+            }
             viewModel.startPolling(orderId: orderId)
             // 取消弹层的窗口小时数读它。从推送直接点进这一页时首页那次可能还没拉过；
             // 已经拉过就是一次空操作（`loadRuleParamsIfNeeded` 成功后置位）。
@@ -1927,8 +1934,8 @@ struct VolunteerInServiceView: View {
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
             Task {
                 await viewModel.enterEmergency(
-                    locate: { locationService.latestBackendSample() },
-                    locationFailureReason: { locationService.locationError }
+                    locate: { emergencyLocate() },
+                    locationFailureReason: { emergencyLocationFailureReason() }
                 )
             }
         }
@@ -1975,8 +1982,8 @@ struct VolunteerInServiceView: View {
                         onEmergency: {
                             Task {
                                 await viewModel.enterEmergency(
-                                    locate: { locationService.latestBackendSample() },
-                                    locationFailureReason: { locationService.locationError }
+                                    locate: { emergencyLocate() },
+                                    locationFailureReason: { emergencyLocationFailureReason() }
                                 )
                             }
                         }
@@ -2199,6 +2206,18 @@ struct VolunteerInServiceView: View {
             // 留一个显式分支而不是 `default`：加 `Action` 时编译器会逼一次决策。
             break
         }
+    }
+
+    /// 代跑者求助时取的坐标。本角色没同意共享位置（#368）就不取 —— 同意页写着拒绝后
+    /// 「求助定位也用不了」，按 `AGENTS.md` §6「拿不到坐标就不发」处理，原因单独说。
+    private func emergencyLocate() -> LocatedCoordinate? {
+        guard !appState.isEmergencyLocationSharingBlocked else { return nil }
+        return locationService.latestBackendSample()
+    }
+
+    private func emergencyLocationFailureReason() -> LocationError? {
+        if appState.isEmergencyLocationSharingBlocked { return .locationSharingNotConsented }
+        return locationService.locationError
     }
 
     /// 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉
