@@ -50,3 +50,29 @@ struct VoiceOrderService: VoiceOrderServing {
         )
     }
 }
+
+// MARK: - Consent gate
+
+/// 当前账号没有同意「说的话转成文字后交给第三方大模型」，所以没有发出解析请求。
+enum VoiceOrderConsentError: Error, Equatable {
+    case notGranted
+}
+
+/// `VoiceOrderServing` 的闸门：**没有同意就不发 `/api/orders/voice/parse`**（#374，审核指南 5.1.2(i)）。
+///
+/// 做成装饰器而不是只在视图里拦，是因为合规约束要守在**唯一的出口**上：视图层今天只有
+/// `BlindBookingView.startVoiceWizard()` 一个入口，明天再多一个入口就绕过去了，而且「没发请求」
+/// 在视图里没法单测。这里每次调用都现读同意状态，换账号立刻生效。
+///
+/// 向导把解析错误当「没听懂」吞掉（`VoiceOrderWizard.handle`），所以这里抛错**不给用户任何交代**。
+/// 用户可见的出路由 `BlindBookingView` 在启动向导前先问同意来给；这一层是兜底，正常路径走不到。
+struct ConsentGatedVoiceOrderService: VoiceOrderServing {
+    let base: any VoiceOrderServing
+    /// 在主线程现读 —— 同意记录在 `AppStatePersistence` 里，它不是 `Sendable`。
+    let isConsentGranted: @MainActor @Sendable () -> Bool
+
+    func parseOrder(_ request: ParseVoiceOrderRequest) async throws -> ParseVoiceOrderResponse {
+        guard await isConsentGranted() else { throw VoiceOrderConsentError.notGranted }
+        return try await base.parseOrder(request)
+    }
+}

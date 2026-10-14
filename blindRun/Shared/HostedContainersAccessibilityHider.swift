@@ -46,3 +46,46 @@ struct HostedContainersAccessibilityHider: UIViewRepresentable {
         }
     }
 }
+
+/// 系统模态（`fullScreenCover` / `sheet`）弹出时，把**弹出它的那一层**整棵视图树对读屏藏起来。
+/// 挂在被弹出内容里（`.background(PresenterAccessibilityHider())`），出现即藏、移除即放。
+///
+/// 🔴 **系统模态并不会自动做这件事**：2026-10-14 真机（iPhone 16 Pro，iOS 27.0.1）实测，
+/// 语音下单同意页（`fullScreenCover`）完全盖住下单页 3 秒后，下单页的导航栏和按钮仍在 XCUITest 树里，
+/// 只是 `isHittable == false`（#374 的 `testVoiceOrderConsentIsolatesTheScreenAndDeclineFallsBackToTheForm`）。
+/// 上面那个类型从挂载点往上找宿主，从被弹出的内容里找不到被盖住的那一层，所以另起一个，走 `presentingViewController`。
+/// 弹出方实测是根部的 `UIHostingController<ContentView>`：对**它的**根视图置空无效（与上面同一个限制），
+/// 要置空它的直接子控制器（`TabView` 的 `UITabBarController` 挂在那里）。
+struct PresenterAccessibilityHider: UIViewRepresentable {
+    final class Coordinator {
+        var hiddenViews: [UIView] = []
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        let coordinator = context.coordinator
+        // 推到下一拍：makeUIView 时探针还没进窗口，responder 链接不上被弹出的控制器。
+        DispatchQueue.main.async {
+            guard coordinator.hiddenViews.isEmpty,
+                  let presented = sequence(first: view as UIResponder, next: \.next)
+                    .first(where: { $0 is UIViewController }) as? UIViewController,
+                  let presenter = presented.presentingViewController
+            else { return }
+            let targets = presenter.children.isEmpty ? [presenter.view!] : presenter.children.map(\.view!)
+            for target in targets { target.accessibilityElements = [] }
+            coordinator.hiddenViews = targets
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        for view in coordinator.hiddenViews { view.accessibilityElements = nil }
+        coordinator.hiddenViews = []
+    }
+}

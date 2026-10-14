@@ -249,6 +249,51 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    // MARK: - 语音下单前的第三方大模型同意（#374）
+
+    /// 第一次语音下单：先出现单独同意页，背后的下单页不在读屏树里；拒绝后落在手动表单。
+    ///
+    /// 用 `AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT` 走真实路径 —— 默认 UI 用例跳过这道同意。
+    /// 不点「同意」：同意会立刻启动向导去碰麦克风，真机 UI 测试拿不到语音识别授权。
+    @MainActor
+    func testVoiceOrderConsentIsolatesTheScreenAndDeclineFallsBackToTheForm() throws {
+        let app = launchBlindHome(
+            extraEnvironment: ["AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT": "1"],
+            tapsAfterLaunch: true
+        )
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+
+        let consent = app.descendants(matching: .any)["voiceOrderThirdPartyLLMConsentView"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 20), "第一次语音下单没有先弹出单独同意页")
+        let agree = app.buttons["voiceOrderThirdPartyLLMConsentAgreeButton"].firstMatch
+        let decline = app.buttons["voiceOrderThirdPartyLLMConsentDeclineButton"].firstMatch
+        XCTAssertTrue(agree.exists && decline.exists)
+        XCTAssertGreaterThanOrEqual(agree.frame.height, 64, "同意按钮低于 64pt")
+        XCTAssertGreaterThanOrEqual(decline.frame.height, 64, "不同意按钮低于 64pt")
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "阿里云通义千问")).firstMatch.exists,
+            "同意页没有点名通义千问"
+        )
+
+        // 背后的下单页（表单态的语音按钮 / 语音态的整块表面）都不该还在读屏树里。
+        XCTAssertFalse(app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
+                       "同意页弹出时背后的内容仍在无障碍树里")
+        XCTAssertFalse(app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch.exists,
+                       "没同意就不该进语音态")
+
+        decline.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.waitForExistence(timeout: 20),
+            "拒绝后没有停在手动表单上"
+        )
+        XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
+        XCTAssertFalse(app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch.exists,
+                       "拒绝后不该进语音态")
+    }
+
     // MARK: - 静态审计抓不到的语义要求
 
     /// `AGENTS.md`：盲人端关键主按钮高度 ≥ 64pt。
