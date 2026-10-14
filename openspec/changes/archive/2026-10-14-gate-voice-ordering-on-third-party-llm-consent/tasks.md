@@ -12,5 +12,5 @@
 
 - [x] 3.1 单测：未同意不发 `/parse`、同意后正常发、换账号不继承；文案指纹与关键词
 - [x] 3.2 验红：拿掉闸门，对应用例必须变红
-- [ ] 3.3 真机只跑覆盖本次改动的 suite（单测 `VoiceOrderConsentGateTests` + `PrivacyConsentTests` 已在 iPhone 16 Pro 跑过，24 条全过；UI 用例 `testVoiceOrderConsentIsolatesTheScreenAndDeclineFallsBackToTheForm` 因设备走 Wi-Fi、UI 测试 runner code 74 未跑，待 USB 连接后补跑，通过后归档）
+- [x] 3.3 真机只跑覆盖本次改动的 suite：2026-10-14（#405）iPhone 16 Pro 有线，单测 `VoiceOrderConsentGateTests` + `PrivacyConsentTests` + `VoiceOrderWizardTests` + `PreciseLocationGateTests` passed=157 failed=0；UI 用例 `testVoiceOrderConsentIsolatesTheScreenAndDeclineFallsBackToTheForm` 首跑抓到背后下单页仍在读屏树里，修复后与同批 3 条 passed=4 failed=0
 - [x] 3.4 `openspec validate --all --strict`、`node scripts/validate-docs.mjs`、编译门禁
