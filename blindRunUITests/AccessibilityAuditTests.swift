@@ -377,6 +377,41 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(hubPill.waitForExistence(timeout: 20), "同意后没有开启并进入接单主页")
     }
 
+    /// 同行态的根部同意页（#414）：已约好的单在出发态、本机没有志愿者位置轨迹同意 ⇒ 同意页盖住整个界面，
+    /// 背后订单页的主按钮不在读屏树里；拒绝 ⇒ 根视图横幅说清「没有共享位置」。
+    ///
+    /// `AIDRUN_UI_TEST_MOCK_ESCORT_SESSION`：Mock 没有 WebSocket，不开它同行会话根本不跑（#368 时这条红在这里）。
+    /// 同一条也守着「系统授权框不早于告知」：冷启动进订单页的路上任何一处无闸的 `requestPermission()`
+    /// 都会撞上 `LocationService.trackConsentPreconditionForDebug` 的断言，App 当场崩掉。
+    @MainActor
+    func testVolunteerEscortStateCoversScreenWithTrackConsentAndDeclineShowsBanner() {
+        let app = launchVolunteerHome(
+            seedOrderStatus: "DRIVER_EN_ROUTE",
+            extraEnvironment: [
+                "AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1",
+                "AIDRUN_UI_TEST_MOCK_ESCORT_SESSION": "1",
+            ]
+        )
+        let consent = app.descendants(matching: .any)["volunteerLocationTrackConsentView"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 25), "进入出发态时没有盖上位置轨迹同意页")
+        XCTAssertEqual(app.state, .runningForeground,
+                       "App 不在前台 —— 多半是同意页之前调了 requestPermission()，撞上了调试断言")
+        let primary = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        XCTAssertFalse(primary.exists, "同意页盖着时背后订单页的主按钮仍在读屏树里")
+
+        let decline = app.buttons["volunteerLocationTrackConsentDeclineButton"].firstMatch
+        XCTAssertTrue(decline.exists)
+        decline.tap()
+
+        let banner = app.descendants(matching: .any)["liveEscortHealthBanner"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), "拒绝后根视图没有出现同行位置横幅")
+        XCTAssertTrue(banner.label.contains("没有共享位置"), "横幅说的不是拒绝的后果：\(banner.label)")
+        XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
+        // 反向钉住上面那条 `exists == false`：主按钮本来就在这一页上，不是因为页面没加载出来才找不到。
+        XCTAssertTrue(primary.waitForExistence(timeout: 10), "拒绝后订单页的主按钮没有回到读屏树里")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     // MARK: - 静态审计抓不到的语义要求
 
     /// `AGENTS.md`：盲人端关键主按钮高度 ≥ 64pt。
