@@ -202,7 +202,12 @@ final class LocationService: NSObject, ObservableObject {
 
     private let locationManager: CLLocationManager
     private(set) var isEscortBackgroundModeEnabled = false
-    private var isUpdatingLocation = false
+    private(set) var isUpdatingLocation = false
+    /// 有调用方要过持续定位、且没有 `stopUpdating()` 撤回（#413）。授权回调只替这样的调用方开定位。
+    ///
+    /// 和 `isUpdatingLocation` 分开存：没授权时 `startUpdating()` 被挡住、硬件没开，但意图要留着，
+    /// 授权弹窗答「允许」之后才能补上；权限被收回时硬件停了，意图也留着，重新打开权限就恢复。
+    private var wantsContinuousUpdates = false
 
     #if DEBUG
     private var authorizationOverrideForTesting: Bool?
@@ -250,6 +255,15 @@ final class LocationService: NSObject, ObservableObject {
 
     func simulateLocationFailureForTesting() {
         setLocationError(.locationUnavailable)
+    }
+
+    /// 授权回调的接缝：从此忽略 `CLLocationManager` 的真实回调，开 / 停持续定位只记账不碰硬件。
+    /// 授权变化改由用例直接调 `handleAuthorizationChange` 喂进来 —— 测试机上真实的授权状态不固定。
+    private var interceptsLocationManagerForTesting = false
+    private(set) var hardwareUpdateStartsForTesting = 0
+
+    func interceptLocationManagerForTesting() {
+        interceptsLocationManagerForTesting = true
     }
     #endif
 
@@ -316,7 +330,7 @@ final class LocationService: NSObject, ObservableObject {
         locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose.rawValue)
     }
 
-    /// 开始持续定位更新
+    /// 开始持续定位更新。没授权时只记下意图，等授权回调补上。
     func startUpdating() {
         #if DEBUG
         if suppressHardwareUpdatesForTesting { return }
@@ -325,6 +339,11 @@ final class LocationService: NSObject, ObservableObject {
             return
         }
         #endif
+        wantsContinuousUpdates = true
+        resumeHardwareUpdates()
+    }
+
+    private func resumeHardwareUpdates() {
         guard isAuthorized else {
             if isDenied {
                 setLocationError(.permissionDenied)
@@ -334,13 +353,27 @@ final class LocationService: NSObject, ObservableObject {
         guard !isUpdatingLocation else { return }
         setLocationError(nil)
         isUpdatingLocation = true
+        #if DEBUG
+        if interceptsLocationManagerForTesting {
+            hardwareUpdateStartsForTesting += 1
+            return
+        }
+        #endif
         locationManager.startUpdatingLocation()
     }
 
-    /// 停止定位更新
+    /// 停止定位更新，并撤回意图：之后的授权回调不再自动开。
     func stopUpdating() {
+        wantsContinuousUpdates = false
+        haltHardwareUpdates()
+    }
+
+    private func haltHardwareUpdates() {
         guard isUpdatingLocation else { return }
         isUpdatingLocation = false
+        #if DEBUG
+        if interceptsLocationManagerForTesting { return }
+        #endif
         locationManager.stopUpdatingLocation()
     }
 
@@ -421,7 +454,10 @@ final class LocationService: NSObject, ObservableObject {
     ///   `latestEscortBackendSample()` 返回 nil，同行会话停发并落到 `.waitingForLocation`。
     func handlePausedLocationUpdates() {
         isUpdatingLocation = false
-        startUpdating()
+        // 只恢复还有人要的定位（#413）：迟到的暂停回调不能把已经 `stopUpdating()` 撤回的意图重新立起来。
+        if wantsContinuousUpdates {
+            startUpdating()
+        }
         setLocationError(.locationUnavailable)
     }
 
@@ -531,28 +567,44 @@ extension LocationService: CLLocationManagerDelegate {
         Task { @MainActor in
             #if DEBUG
             if self.suppressHardwareUpdatesForTesting { return }
+            // 只挡本服务自己那台 manager 的真实回调；用例传进来的替身照常转发，接线本身才有人守。
+            if self.interceptsLocationManagerForTesting, manager === self.locationManager { return }
             #endif
-            if self.authorizationStatus != manager.authorizationStatus {
-                self.authorizationStatus = manager.authorizationStatus
-            }
-            // 「精确位置」开关的变化也走这个回调（SDK `CLLocationManagerDelegate.h` 原文：
-            // 「Invoked when either the authorizationStatus or accuracyAuthorization properties change」）。
-            self.applyAccuracyAuthorization(manager.accuracyAuthorization)
+            self.handleAuthorizationChange(manager.authorizationStatus, accuracy: manager.accuracyAuthorization)
+        }
+    }
+}
 
-            switch manager.authorizationStatus {
-            case .authorizedWhenInUse, .authorizedAlways:
-                self.setLocationError(nil)
-                self.startUpdating()
-            case .denied, .restricted:
-                self.setLocationError(.permissionDenied)
-                self.clearDeviceLocation()
-                self.setEscortBackgroundMode(enabled: false)
-                self.stopUpdating()
-            case .notDetermined:
-                break
-            @unknown default:
-                break
+extension LocationService {
+
+    /// 🔴 **「已授权」不等于「开定位」（#413）。** `CLLocationManager` 一创建就回调一次，
+    /// 这里若无条件开定位，已授权的设备一启动 App 就在本机持续定位 —— 早于位置轨迹同意（#368），
+    /// 也不看角色和订单。所以只替 `startUpdating()` 要过、还没撤回的调用方开：
+    /// 预约页、接单开关、同意页都是先 `requestPermission()` 再 `startUpdating()`，后者被挡住时靠这里补上。
+    func handleAuthorizationChange(_ status: CLAuthorizationStatus, accuracy: CLAccuracyAuthorization) {
+        if authorizationStatus != status {
+            authorizationStatus = status
+        }
+        // 「精确位置」开关的变化也走这个回调（SDK `CLLocationManagerDelegate.h` 原文：
+        // 「Invoked when either the authorizationStatus or accuracyAuthorization properties change」）。
+        applyAccuracyAuthorization(accuracy)
+
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways:
+            setLocationError(nil)
+            if wantsContinuousUpdates {
+                resumeHardwareUpdates()
             }
+        case .denied, .restricted:
+            setLocationError(.permissionDenied)
+            clearDeviceLocation()
+            setEscortBackgroundMode(enabled: false)
+            // 只停硬件、不撤回意图：用户在系统设置里重新打开权限时，原来在跑的定位要恢复。
+            haltHardwareUpdates()
+        case .notDetermined:
+            break
+        @unknown default:
+            break
         }
     }
 }
