@@ -8,5 +8,5 @@
 
 ## 2. 验证
 
-- [ ] 2.1 单测：拒绝传 `false`、撤回成功 / 失败 / 重新同意作废（`BlindEscortPreferencesTests`）真机执行并验红
-- [ ] 2.2 真机目视：撤回按钮在 AX5 下不截断、成功提示上屏
+- [x] 2.1 单测：拒绝传 `false`、撤回成功 / 失败 / 重新同意作废（`BlindEscortPreferencesTests`）真机执行并验红 —— 2026-10-14 iPhone 16 Pro：passed=35 failed=0；三处打回红 4 条（含新增「表单无效时撤回」）
+- [ ] 2.2 真机目视：撤回按钮在 AX5 下不截断、成功提示上屏 —— 转 #410
