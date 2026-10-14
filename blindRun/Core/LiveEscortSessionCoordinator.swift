@@ -7,6 +7,8 @@ enum LiveEscortHealthState: Equatable, Sendable {
     case idle
     case waitingForLocation
     case permissionRequired
+    /// 盲人端专用：已授权但「精确位置」关闭（#373）。陪跑员端不进这一档。
+    case preciseLocationOff
     case networkDisconnected
     case active(background: Bool)
 
@@ -15,6 +17,10 @@ enum LiveEscortHealthState: Equatable, Sendable {
         case .idle: return nil
         case .waitingForLocation: return "设备位置暂时不可用，已暂停同行位置共享。"
         case .permissionRequired: return "定位权限已关闭，同行位置与路线记录已暂停，请前往系统设置开启。"
+        // 先说后果（求助发不出去），再说怎么办。「如果弹出提示」是因为系统可能不弹（App 在后台时）。
+        case .preciseLocationOff:
+            return "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里：紧急求助会因此发不出去，陪跑员也可能看不到你的准确位置。"
+                + "如果弹出提示请选允许，或到系统设置里为助盲跑打开「精确位置」。"
         case .networkDisconnected: return "网络连接已中断，同行位置将在重连后自动恢复。"
         case .active(let background) where background:
             return "路线记录正在运行，锁屏后仍会持续使用定位，可能增加电量消耗。"
@@ -56,6 +62,13 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     private var shouldSendLatestAfterCurrent = false
     private var cancellables: Set<AnyCancellable> = []
     private var lastSentAt: Date?
+    /// 本单已经在哪个阶段申请过临时精确位置。出发阶段一次、跑步中一次（若那时已过期），不重复弹。
+    private var lastPreciseLocationRequest: PreciseLocationRequestKey?
+
+    private struct PreciseLocationRequestKey: Equatable {
+        let orderID: Int64
+        let inProgress: Bool
+    }
 
     // MARK: 锁屏实时活动
     //
@@ -259,6 +272,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         let needsBackground = activeStatus == .inProgress
         locationService?.setEscortBackgroundMode(enabled: needsBackground)
         syncMotionRecording()
+        requestTemporaryPreciseLocationIfNeeded(inProgress: needsBackground)
         if reportTask == nil {
             reportTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -325,8 +339,15 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             setHealthState(.permissionRequired)
             return
         }
+        // 网络断开排在前面：那时同行位置整个停了，比「位置不准」更要紧。
         guard webSocketService?.connectionState == .connected else {
             setHealthState(.networkDisconnected)
+            return
+        }
+        // 排在样本档位之前：模糊位置下样本最旧可能 20 分钟才来一个，
+        // 否则会落到「设备位置暂时不可用」，把真正的原因（一个开关）盖住，用户只会去换地方。
+        if role == .blind, locationService?.isPreciseLocationOff == true {
+            setHealthState(.preciseLocationOff)
             return
         }
         // 样本年龄闸在 `latestEscortBackendSample` 里，所以「样本停更超过 60 秒」和
@@ -457,6 +478,24 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         locationService?.setEscortBackgroundMode(enabled: false)
         motionRecorder.stop()
         setHealthState(.idle)
+    }
+
+    /// 盲人端「精确位置」关闭时申请临时精确位置（#373）。
+    ///
+    /// 时机照抄下面「运动与健身」的先例：**出发去会合时**先申请，系统框不在起跑那一刻抢读屏焦点。
+    /// 出发阶段拿到的临时授权在 App 进后台后可能过期（那时还没开后台定位指示器），
+    /// 所以进 `IN_PROGRESS` 时若仍关着再申请一次 —— 那之后开着指示器，授权整段跑步不过期（SDK 注释）。
+    /// 同样只在连着云端 WS 时做，Mock 与 UI 测试不会冒出系统框。
+    private func requestTemporaryPreciseLocationIfNeeded(inProgress: Bool) {
+        guard role == .blind,
+              webSocketService != nil,
+              let activeOrderID,
+              let locationService,
+              locationService.isPreciseLocationOff else { return }
+        let key = PreciseLocationRequestKey(orderID: activeOrderID, inProgress: inProgress)
+        guard lastPreciseLocationRequest != key else { return }
+        lastPreciseLocationRequest = key
+        locationService.requestTemporaryPreciseLocation(for: .escortRun)
     }
 
     /// 两台手机都在**出发去会合时**就申请「运动与健身」（项目负责人 2026-09-24 拍板）：

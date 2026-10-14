@@ -454,7 +454,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             userID: appState.userId,
             safety: appState.safety,
             locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService) },
-            locationFailureReason: { locationService?.locationError }
+            locationFailureReason: { EmergencyCoordinator.locationFailureReason(using: locationService) }
         )
         // 可见面是 SOS 条里的 `EmergencyStatusNotice`，这里只负责播报。
         // 刻意不再写 `errorMessage`：那会让同一句话在屏幕上出现两次、被读屏念两遍。
