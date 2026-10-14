@@ -614,6 +614,13 @@ enum EmergencySafetyCopy {
         return "你现在在\(name)附近。"
     }
 
+    /// 「精确位置」关闭时「播报我的位置」的答句（#406）。句式照抄 `locationUnavailable(.preciseLocationOff)`，
+    /// 只把开头换掉 —— 这里没有求助被拦，要说的是「念不出」。不给地名也不给坐标：
+    /// 本机与服务端两份都是约 5 公里的区域代表点，偏几公里的地名转述给 120 比没有地名更糟。
+    static let locationAnnouncementPreciseLocationOff =
+        "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里，所以念不出你的准确位置。"
+        + "请直接拨打120或110，说明你周围的情况；跑完后可在系统设置里为助盲跑打开「精确位置」。"
+
     /// 服务端坐标超过这个秒数就要说出它有多旧（`demo/docs/safety-hub-ui-spec.md` 屏 2）。
     /// 跑步时 28 秒前和 1 秒前差着几百米，而从地址字符串上听不出来。
     static let locationStaleAfterSeconds = 15

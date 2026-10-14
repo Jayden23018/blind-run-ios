@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import blindRun
 
@@ -101,5 +102,96 @@ final class LocationAddressAnnouncementTests: XCTestCase {
         await viewModel.announceCurrentLocation()
 
         XCTAssertEqual(speechService.lastSpokenText, EmergencySafetyCopy.locationAnnouncement(nil))
+    }
+
+    // MARK: - 「精确位置」关闭（#406）
+
+    /// 🔴 本机有新鲜样本、逆地理也查得到、服务端也有地址 —— 三条路都通，一个地名都不许念。
+    ///
+    /// 服务端那份故意打桩成功：只跳过本机、退到服务端的实现会念出「北山街」，这条就红。
+    func testPreciseLocationOffNeitherGeocodesNorAsksTheServer() async {
+        let fixture = makeAnnouncementFixture(preciseLocationOff: true)
+
+        await fixture.viewModel.announceCurrentLocation()
+
+        XCTAssertEqual(fixture.places.reverseGeocodeCount, 0, "区域代表点不许拿去逆地理")
+        XCTAssertTrue(fixture.safety.calls.isEmpty, "服务端那份同样是模糊点上报，不许问")
+        XCTAssertEqual(
+            fixture.speechService.lastSpokenText,
+            "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里，所以念不出你的准确位置。"
+                + "请直接拨打120或110，说明你周围的情况；跑完后可在系统设置里为助盲跑打开「精确位置」。"
+        )
+    }
+
+    /// 对照：同一套桩、精确位置开着时照常念本机地名。没有它，一个「一律不念」的实现也能让上一条绿。
+    func testPreciseLocationOnStillReadsTheDevicePlace() async {
+        let fixture = makeAnnouncementFixture(preciseLocationOff: false)
+
+        await fixture.viewModel.announceCurrentLocation()
+
+        XCTAssertEqual(fixture.places.reverseGeocodeCount, 1)
+        XCTAssertTrue(fixture.safety.calls.isEmpty, "本机查到了就不该再问服务端")
+        XCTAssertEqual(fixture.speechService.lastSpokenText, "你现在在人民公园附近。")
+    }
+
+    private struct AnnouncementFixture {
+        let viewModel: BlindOrderStatusViewModel
+        let speechService: SpeechService
+        let safety: FakeSafetyService
+        let places: CountingPlaceSearchProvider
+    }
+
+    private func makeAnnouncementFixture(preciseLocationOff: Bool) -> AnnouncementFixture {
+        let safety = FakeSafetyService()
+        safety.orderLocationAddressResult = .success(
+            OrderLocationAddressResponse(formattedAddress: "北山街", latitude: 30.2, longitude: 120.1, ageSeconds: 3, degraded: false)
+        )
+        let appState = AppState(safety: safety)
+        appState.currentEnvironment = .mock
+        let location = LocationService()
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 30.2593, longitude: 120.1480),
+            capturedAt: Date(),
+            horizontalAccuracy: preciseLocationOff ? 5000 : 10
+        )
+        location.simulatePreciseLocationOffForTesting(preciseLocationOff)
+        let places = CountingPlaceSearchProvider(
+            place: ResolvedPlace(
+                id: "poi", title: "人民公园", addressText: "北山街1号",
+                latitude: 30.2593, longitude: 120.1480, source: .deviceLocation
+            )
+        )
+        let speechService = makeSpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(
+            appState: appState,
+            speechService: speechService,
+            locationService: location,
+            placeSearchProvider: places
+        )
+        viewModel.startPolling(orderId: 614)
+        viewModel.stopPolling()
+        return AnnouncementFixture(viewModel: viewModel, speechService: speechService, safety: safety, places: places)
+    }
+}
+
+/// 只数逆地理被调了几次。`blindRunTests.swift` 里那个 `FakePlaceSearchProvider` 是 private 的，且不计数。
+@MainActor
+private final class CountingPlaceSearchProvider: PlaceSearchProviding {
+    var lastErrorMessage: String?
+    private(set) var reverseGeocodeCount = 0
+    private let place: ResolvedPlace
+
+    init(place: ResolvedPlace) {
+        self.place = place
+    }
+
+    func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> ResolvedPlace? {
+        reverseGeocodeCount += 1
+        return place
+    }
+
+    func searchPlaces(keyword: String, near coordinate: CLLocationCoordinate2D?) async -> [ResolvedPlace] {
+        []
     }
 }
