@@ -27,10 +27,15 @@ final class LocationTrackConsentTests: XCTestCase {
             PrivacyConsentPurpose.volunteerLocationTrack.declinedFeedback,
             "没有开始接单。不同意位置共享就不能接单，其他功能照常可用。想好了可以再打开接单开关。"
         )
-        let escort = "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
-        XCTAssertEqual(PrivacyConsentPurpose.blindLocationTrack.escortDeclinedFeedback, escort)
-        XCTAssertEqual(PrivacyConsentPurpose.volunteerLocationTrack.escortDeclinedFeedback, escort)
-        XCTAssertEqual(LiveEscortHealthState.locationSharingDeclined.userMessage, escort, "横幅与播报念的就是这一句")
+        // 同行态拒绝：两个角色出路不同（2026-10-14 负责人定）。盲人在出发 / 跑步中取消不了（契约 403 `ORDER_IN_PROGRESS`），
+        // 所以盲人那句不许再出现「取消」；陪跑员三态都能取消，保留原句。
+        let blindEscort = "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以给志愿者打电话。"
+        let volunteerEscort = "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
+        XCTAssertEqual(PrivacyConsentPurpose.blindLocationTrack.escortDeclinedFeedback, blindEscort)
+        XCTAssertEqual(PrivacyConsentPurpose.volunteerLocationTrack.escortDeclinedFeedback, volunteerEscort)
+        XCTAssertFalse(blindEscort.contains("取消"), "盲人在同行态取消不了，不许指一条走不通的路")
+        XCTAssertEqual(LiveEscortHealthState.locationSharingDeclined(.blindLocationTrack).userMessage, blindEscort, "横幅与播报念的就是这一句")
+        XCTAssertEqual(LiveEscortHealthState.locationSharingDeclined(.volunteerLocationTrack).userMessage, volunteerEscort)
         XCTAssertNil(LiveEscortHealthState.trackConsentRequired.userMessage, "同意页自己在念，横幅不重复")
         for purpose in [PrivacyConsentPurpose.blindLocationTrack, .volunteerLocationTrack] {
             XCTAssertEqual(purpose.title, "陪跑前，请先确认位置共享")
@@ -118,12 +123,12 @@ final class LocationTrackConsentTests: XCTestCase {
 
         coordinator.declineTrackConsent()
         XCTAssertNil(coordinator.pendingTrackConsent)
-        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined)
+        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined(.volunteerLocationTrack))
 
         coordinator.updateOwnedOrder(orderID: 93, status: .inProgress)
         _ = await Self.waitUntil(timeout: 0.3) { false }
         XCTAssertNil(coordinator.pendingTrackConsent, "这一单不再问")
-        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined)
+        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined(.volunteerLocationTrack))
         XCTAssertEqual(sent, 0)
         XCTAssertTrue(consent.recorded.isEmpty, "拒绝不许写成同意")
 
@@ -148,7 +153,7 @@ final class LocationTrackConsentTests: XCTestCase {
         _ = await Self.waitUntil(timeout: 0.3) { false }
 
         XCTAssertNil(coordinator.pendingTrackConsent, "这一单已经拒绝过")
-        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined)
+        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined(.blindLocationTrack))
         coordinator.reset()
         withExtendedLifetime(deps) {}
     }

@@ -258,11 +258,19 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     }
 
     /// 已约好的单进入同行态（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）时拒绝的反馈。
-    /// 与发起前拒绝分开：此刻单已经约好，拒绝的后果是「对方看不到你」，出路是「可以取消」，不是「不能预约」。
-    /// 两个角色同一句（与安卓一致）。求助那半句与 AGENTS.md §6「坐标拿不到就不发」同一件事。
+    /// 与发起前拒绝分开：此刻单已经约好，拒绝的后果是「对方看不到你」，不是「不能预约」。
+    /// 求助那半句与 AGENTS.md §6「坐标拿不到就不发」同一件事。
+    ///
+    /// 🔄 **两个角色的出路不一样**（2026-10-14 负责人定，起初两端同一句「可以在订单页取消这次陪跑」）：
+    /// 同意页恰好在陪跑员出发那一刻弹出，而契约规定盲人在 `DRIVER_EN_ROUTE` / `IN_PROGRESS` 取消不了
+    /// （403 `ORDER_IN_PROGRESS`），`DRIVER_ARRIVED` 也要等满 10 分钟（#682）——对盲人说「可以取消」从第一刻起就不成立。
+    /// 盲人改说打电话：出发态订单页主按钮就是「打电话给 X」，汇合与跑步中在求助与安全中心里有「联系陪跑员」。
+    /// 陪跑员在这三态都能取消（转重新匹配），原句保留。安卓同步：Jayden23018/blind-run-android#235。
     var escortDeclinedFeedback: String? {
         switch self {
-        case .blindLocationTrack, .volunteerLocationTrack:
+        case .blindLocationTrack:
+            return "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以给志愿者打电话。"
+        case .volunteerLocationTrack:
             return "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
         case .appLaunch, .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM:
             return nil

@@ -15,7 +15,8 @@ enum LiveEscortHealthState: Equatable, Sendable {
     /// 横幅不另说一遍 —— 同意页自己在念。
     case trackConsentRequired
     /// 这一单拒绝了位置共享（#368）。横幅常驻并播报一次，说清后果与出路。
-    case locationSharingDeclined
+    /// 带上目的：两个角色的出路不一样（盲人打电话、陪跑员可取消），见 `escortDeclinedFeedback`。
+    case locationSharingDeclined(PrivacyConsentPurpose)
 
     var userMessage: String? {
         switch self {
@@ -33,9 +34,8 @@ enum LiveEscortHealthState: Equatable, Sendable {
             return "同行位置共享已开启；服务开始后锁屏仍会持续记录路线，可能增加电量消耗，并受系统定位限制影响。"
         case .trackConsentRequired:
             return nil
-        case .locationSharingDeclined:
-            // 两个角色同一句（与安卓逐字一致），取哪一个目的都一样。
-            return PrivacyConsentPurpose.blindLocationTrack.escortDeclinedFeedback
+        case .locationSharingDeclined(let purpose):
+            return purpose.escortDeclinedFeedback
         }
     }
 }
@@ -421,7 +421,11 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         }
         // 排在最前：没有同意时定位根本没开，下面那几档（权限 / 网络 / 样本）说的都不是真正的原因。
         guard hasTrackConsent else {
-            setHealthState(hasDeclinedTrackConsentForActiveOrder ? .locationSharingDeclined : .trackConsentRequired)
+            if hasDeclinedTrackConsentForActiveOrder, let purpose = PrivacyConsentPurpose.locationTrack(for: role) {
+                setHealthState(.locationSharingDeclined(purpose))
+            } else {
+                setHealthState(.trackConsentRequired)
+            }
             return
         }
         guard locationService?.isAuthorized == true else {
