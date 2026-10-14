@@ -396,11 +396,16 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(consent.waitForExistence(timeout: 25), "进入出发态时没有盖上位置轨迹同意页")
         XCTAssertEqual(app.state, .runningForeground,
                        "App 不在前台 —— 多半是同意页之前调了 requestPermission()，撞上了调试断言")
+        // 等满一段而不是只看一眼：同意页常在根路由还在「正在恢复账号资料」时就盖上来，订单页是之后才加载的。
+        // 只看一眼会在订单页出现之前就判过（2026-10-15 真机首跑正是这样：随后订单页整棵回到了读屏树里）。
         let primary = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
-        XCTAssertFalse(primary.exists, "同意页盖着时背后订单页的主按钮仍在读屏树里")
+        XCTAssertFalse(primary.waitForExistence(timeout: 8), "同意页盖着时背后订单页的主按钮出现在读屏树里")
 
+        // 两个按钮在长文案下面、屏幕之外，`tap()` 不会替这一页滚动（首跑点空了）。
         let decline = app.buttons["volunteerLocationTrackConsentDeclineButton"].firstMatch
         XCTAssertTrue(decline.exists)
+        for _ in 0..<6 where !decline.isHittable { consent.swipeUp() }
+        XCTAssertTrue(decline.isHittable, "滚到底了「先不同意」仍点不到")
         decline.tap()
 
         let banner = app.descendants(matching: .any)["liveEscortHealthBanner"].firstMatch

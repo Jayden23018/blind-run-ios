@@ -17,9 +17,33 @@ struct HostedContainersAccessibilityHider: UIViewRepresentable {
 
     final class Coordinator {
         var appliedIsHidden = false
+        /// 藏着期间定时补藏后出现的容器（#414）：冷启动时同行态同意页先盖上来，根路由还在「正在恢复账号资料」，
+        /// 志愿者主页的 `TabView` 是之后才挂上的子控制器 —— 只在翻转那一拍藏一次，它就整棵留在读屏树里。
+        /// ponytail: 0.3 秒轮询，只在遮罩盖着时跑；要省掉就换成监听宿主 `children` 的变化（UIKit 没有现成通知）。
+        var reapplyTimer: Timer?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.reapplyTimer?.invalidate()
+        coordinator.reapplyTimer = nil
+    }
+
+    /// 从探针往上找宿主，把它的直接子控制器的根视图子元素列表置空（藏）或设回 `nil`（放）。
+    /// 藏的时候跳过已经是空列表的，免得定时补藏每一拍都改写一次无障碍树。
+    private static func apply(isHidden: Bool, from probe: UIView) {
+        guard let host = sequence(first: probe as UIResponder, next: \.next)
+            .first(where: { $0 is UIViewController }) as? UIViewController
+        else { return }
+        for child in host.children {
+            if isHidden {
+                if child.view.accessibilityElements?.isEmpty != true { child.view.accessibilityElements = [] }
+            } else {
+                child.view.accessibilityElements = nil
+            }
+        }
+    }
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
@@ -32,16 +56,21 @@ struct HostedContainersAccessibilityHider: UIViewRepresentable {
         // 只在翻转时写。挂在根上时宿主任何一次发布都会触发 update，每次都写 `nil`
         // 会把别处（例如邀请卡）对同一个容器置的 `[]` 冲掉。
         // ponytail: 两处同时要藏同一个容器时后收起的一方会把它放出来；目前两层遮罩互斥，真叠加了再做引用计数。
-        guard context.coordinator.appliedIsHidden != isHidden else { return }
-        context.coordinator.appliedIsHidden = isHidden
+        let coordinator = context.coordinator
+        guard coordinator.appliedIsHidden != isHidden else { return }
+        coordinator.appliedIsHidden = isHidden
+        coordinator.reapplyTimer?.invalidate()
+        coordinator.reapplyTimer = nil
         let isHidden = isHidden
         // 推到下一拍：本次 update 里 responder 链与子控制器不一定已经就位。
-        DispatchQueue.main.async {
-            guard let host = sequence(first: uiView as UIResponder, next: \.next)
-                .first(where: { $0 is UIViewController }) as? UIViewController
-            else { return }
-            for child in host.children {
-                child.view.accessibilityElements = isHidden ? [] : nil
+        DispatchQueue.main.async { [weak uiView] in
+            // 这一拍之前又翻回去了：交给后来那次，别在它之后再藏一遍、再起一个定时器。
+            guard let uiView, coordinator.appliedIsHidden == isHidden else { return }
+            Self.apply(isHidden: isHidden, from: uiView)
+            guard isHidden else { return }
+            coordinator.reapplyTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak uiView] _ in
+                guard let uiView else { return }
+                Self.apply(isHidden: true, from: uiView)
             }
         }
     }
