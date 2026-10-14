@@ -134,8 +134,12 @@ final class LocationAddressAnnouncementTests: XCTestCase {
         XCTAssertEqual(fixture.speechService.lastSpokenText, "你现在在人民公园附近。")
     }
 
+    /// `appState` / `location` 必须由夹具持有：ViewModel 对它们是 weak 引用，夹具函数一返回就被释放，
+    /// 等于传了 nil（记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
     private struct AnnouncementFixture {
         let viewModel: BlindOrderStatusViewModel
+        let appState: AppState
+        let location: LocationService
         let speechService: SpeechService
         let safety: FakeSafetyService
         let places: CountingPlaceSearchProvider
@@ -171,7 +175,10 @@ final class LocationAddressAnnouncementTests: XCTestCase {
         )
         viewModel.startPolling(orderId: 614)
         viewModel.stopPolling()
-        return AnnouncementFixture(viewModel: viewModel, speechService: speechService, safety: safety, places: places)
+        return AnnouncementFixture(
+            viewModel: viewModel, appState: appState, location: location,
+            speechService: speechService, safety: safety, places: places
+        )
     }
 }
 
