@@ -186,7 +186,7 @@ enum EmergencySOSState: Equatable {
         case .acknowledged(let status):
             return !status.isTerminal
         // `.submitting`：误差在事件落地（`activeEvent` 写入）之后才记，提交中恒无值，列进来是死分支。
-        case .idle, .locating, .submitting, .unsentNoLocation, .failed, .cooldown,
+        case .idle, .locating, .submitting, .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown,
              .cancelledByOwner, .withdrawnBeforeSending, .withdrawFailed:
             return false
         }
