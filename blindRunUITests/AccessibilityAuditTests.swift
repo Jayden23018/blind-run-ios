@@ -385,8 +385,11 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 都会撞上 `LocationService.trackConsentPreconditionForDebug` 的断言，App 当场崩掉。
     @MainActor
     func testVolunteerEscortStateCoversScreenWithTrackConsentAndDeclineShowsBanner() {
+        // `available: false`：接单开关开着时，「服务端说还在接单、本机没有同意」会另弹一张同目的、同 identifier 的
+        // 同意页（`requestTrackConsentIfStandbyResumesWithoutIt`），两张叠着，拒绝一张另一张还在 —— 测的就不是根部这张了。
         let app = launchVolunteerHome(
             seedOrderStatus: "DRIVER_EN_ROUTE",
+            available: false,
             extraEnvironment: [
                 "AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1",
                 "AIDRUN_UI_TEST_MOCK_ESCORT_SESSION": "1",
