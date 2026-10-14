@@ -166,9 +166,13 @@ struct XinghuoMapView: View {
 
     /// 把手 + 卡片，共用一块玻璃。标识符沿用 `xinghuoCardScroll`：审计用例靠它量面板的上沿。
     ///
-    /// 把手在 `ZStack` 里**后画**、内容顶部让出同样高度，而不是放进 `VStack` 第一个：
-    /// 读屏遍历顺序跟**绘制顺序**走，`accessibilitySortPriority` 在这里真机实测排不动
-    /// （2026-09-23，把手照样排在摘要句前面；记忆 `swiftui-traversal-order-follows-paint-order`）。
+    /// 把手在 `ZStack` 里**后画**、内容顶部让出同样高度，而不是放进 `VStack` 第一个，
+    /// 并且挂排序优先级 -1。两样各管一个系统版本：
+    /// - iOS 26 及以前：读屏遍历顺序跟**绘制顺序**走，`accessibilitySortPriority` 在这里真机实测排不动
+    ///   （2026-09-23，把手照样排在摘要句前面；记忆 `swiftui-traversal-order-follows-paint-order`）。
+    /// - iOS 27：后画不再管用，把手排到了内容前面（#384）；挂在**把手**上的 -1 生效了
+    ///   （2026-10-14 真机）。挂在内容那侧的 +1 无效 —— 它外面套着 `HugContentHeight`，
+    ///   优先级落不到里面的 `ScrollView` 上。
     ///
     /// 卡片顶上只让出 `handleStrip` 那么高的一条（负责人 2026-09-24：「把手上面空白太多」）；
     /// 把手的命中区更高，多出来的部分往卡片**上方**伸，见 `cardHandle`。
@@ -180,6 +184,7 @@ struct XinghuoMapView: View {
                 }
             }
             cardHandle
+                .accessibilitySortPriority(-1)
         }
         .xinghuoGlass(cornerRadius: 22)
         .offset(y: handleOffset)

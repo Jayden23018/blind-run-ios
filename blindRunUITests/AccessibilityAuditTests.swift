@@ -882,6 +882,32 @@ final class AccessibilityAuditTests: XCTestCase {
         add(attachment)
     }
 
+    /// 陪跑员端星火卡片：读屏第一层先念内容、后念把手。把手的排序优先级两端共用（`XinghuoMapView.cardPanel`），
+    /// 盲人端那条用例只守盲人端 —— iOS 27 上撤掉 -1，这条在陪跑员端同样会红（#384）。
+    @MainActor
+    func testVolunteerXinghuoCardReadsContentBeforeHandle() throws {
+        let app = launchVolunteerHome()
+        let xinghuoTab = app.tabBars.firstMatch.waitForExistence(timeout: 20)
+            ? app.tabBars.firstMatch.buttons["星火"]
+            : app.buttons["星火"].firstMatch
+        XCTAssertTrue(xinghuoTab.waitForExistence(timeout: 5), "「星火」标签不在")
+        xinghuoTab.tap()
+
+        let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来")
+        let cardScroll = app.descendants(matching: .any)["xinghuoCardScroll"].firstMatch
+        XCTAssertTrue(cardScroll.exists, "卡片滚动容器不在")
+        // 只比同一层（记忆 `swiftui-traversal-order-follows-paint-order`）。
+        let topLevel = cardScroll.children(matching: .any).allElementsBoundByIndex
+        let handleIndex = topLevel.firstIndex { $0.identifier == "xinghuoCardHandle" }
+        let contentIndex = topLevel.firstIndex { $0.descendants(matching: .any)["xinghuoSummary"].exists }
+        XCTAssertNotNil(handleIndex, "卡片第一层没有把手")
+        XCTAssertLessThan(
+            contentIndex ?? .max, handleIndex ?? -1,
+            "陪跑员端把手排到了卡片内容前面。第一层：\(topLevel.map { "\($0.elementType.rawValue):\($0.identifier)" })"
+        )
+    }
+
     /// 星火页（调试版）：摘要句与今日足迹开关在，盲人端摘要不念别的盲人；整页过审计。
     @MainActor
     func testBlindXinghuoPageShowsSummaryAndPassesAudit() throws {
@@ -1451,11 +1477,11 @@ final class AccessibilityAuditTests: XCTestCase {
 
     /// 求助中心（屏 2）打开后，**读屏第一个念到的必须是「一键求助」**。
     ///
-    /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠的是**声明顺序**
-    /// （`BlindSafetyHubView.body` 的 `ZStack` 把它声明在最前）。
-    /// `accessibilitySortPriority` 在本仓库实测排不动叠放层，四种写法真机全废
-    /// （`docs/research/swiftui-voiceover-traversal-order-20260814.md`），
-    /// 所以这条断言是那个结构唯一的守卫：谁把 `ZStack` 里两块的顺序调回来，它就红。
+    /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠两样东西，各管一个系统版本
+    /// （`BlindSafetyHubView.body`）：iOS 26 及以前靠**声明顺序**（`accessibilitySortPriority`
+    /// 那时排不动叠放层，`docs/research/swiftui-voiceover-traversal-order-20260814.md`）；
+    /// iOS 27 声明顺序失效、靠 `accessibilitySortPriority(1)`（#384）。
+    /// 这条断言是那个结构唯一的守卫：在 iOS 27 上撤掉优先级它就红（2026-10-14 真机基线）。
     @MainActor
     func testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
