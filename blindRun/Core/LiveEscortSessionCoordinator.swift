@@ -11,6 +11,11 @@ enum LiveEscortHealthState: Equatable, Sendable {
     case preciseLocationOff
     case networkDisconnected
     case active(background: Bool)
+    /// 同行态里本机还没有这一角色的位置轨迹同意（#368）：不开定位、不上报，同意页正盖在界面上。
+    /// 横幅不另说一遍 —— 同意页自己在念。
+    case trackConsentRequired
+    /// 这一单拒绝了位置共享（#368）。横幅常驻并播报一次，说清后果与出路。
+    case locationSharingDeclined
 
     var userMessage: String? {
         switch self {
@@ -26,8 +31,23 @@ enum LiveEscortHealthState: Equatable, Sendable {
             return "路线记录正在运行，锁屏后仍会持续使用定位，可能增加电量消耗。"
         case .active:
             return "同行位置共享已开启；服务开始后锁屏仍会持续记录路线，可能增加电量消耗，并受系统定位限制影响。"
+        case .trackConsentRequired:
+            return nil
+        case .locationSharingDeclined:
+            // 两个角色同一句（与安卓逐字一致），取哪一个目的都一样。
+            return PrivacyConsentPurpose.blindLocationTrack.escortDeclinedFeedback
         }
     }
+}
+
+/// 同行定位前的位置轨迹同意（#368）的读写。协调器不认识持久化，由 `AppState` 装配成它自己的唯一入口。
+struct LiveEscortTrackConsent {
+    let isGranted: @MainActor (PrivacyConsentPurpose) -> Bool
+    let record: @MainActor (PrivacyConsentPurpose) -> Void
+
+    /// 直接构造协调器的单测用（它们测的不是这道闸）。
+    /// `AppState` 装配时一定换成真实的 —— `LocationTrackConsentTests` 钉住，否则这里就是一道「默认放行」的闸。
+    static let grantedForTesting = LiveEscortTrackConsent(isGranted: { _ in true }, record: { _ in })
 }
 
 /// App 生命周期内唯一的同行会话所有者。ViewModel 只提交权威订单状态，不自行发位置或转换坐标。
@@ -44,6 +64,14 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     @Published private(set) var healthState: LiveEscortHealthState = .idle
     @Published private(set) var activeOrderID: Int64?
     @Published private(set) var activeStatus: RunOrderStatus?
+    /// 同行态里等着用户回答的位置轨迹同意。非 nil 时根视图盖同意页（`EscortTrackConsentOverlay`）。
+    @Published private(set) var pendingTrackConsent: PrivacyConsentPurpose?
+
+    var trackConsent: LiveEscortTrackConsent = .grantedForTesting {
+        didSet { scheduleReconcile() }
+    }
+    /// 拒绝过位置共享的单。「这一单不再问」—— 只在本次进程里记，重启 App 会再问一次。
+    private var trackConsentDeclinedOrderIDs: Set<Int64> = []
 
     private let realtimeCoordinator: AppRealtimeCoordinator
     private let reportInterval: TimeInterval
@@ -139,6 +167,42 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         return [.driverEnRoute, .driverArrived, .inProgress].contains(activeStatus)
     }
 
+    static func trackConsentPurpose(for role: UserRole?) -> PrivacyConsentPurpose? {
+        switch role {
+        case .blind: return .blindLocationTrack
+        case .volunteer: return .volunteerLocationTrack
+        case .unset, .none: return nil
+        }
+    }
+
+    private var hasTrackConsent: Bool {
+        guard let purpose = Self.trackConsentPurpose(for: role) else { return false }
+        return trackConsent.isGranted(purpose)
+    }
+
+    /// 同行态里没有本角色的位置轨迹同意（还没回答或已拒绝）。
+    /// 求助取坐标前读：此时求助**不附位置**，按「拿不到坐标就不发」处理（`AGENTS.md` §6），
+    /// 原因由 `LocationError.locationSharingNotConsented` 说清。
+    var isLocationSharingBlocked: Bool {
+        isSessionEligible && !hasTrackConsent
+    }
+
+    /// 同意页上按了「同意共享位置」：记下来，立刻开始这一单的同行定位。
+    func agreeTrackConsent() {
+        guard let purpose = pendingTrackConsent else { return }
+        trackConsent.record(purpose)
+        pendingTrackConsent = nil
+        evaluateSession()
+    }
+
+    /// 同意页上按了「先不同意」：这一单不再问，横幅说清后果（`healthState` 变化时根视图会念）。
+    func declineTrackConsent() {
+        guard pendingTrackConsent != nil, let activeOrderID else { return }
+        trackConsentDeclinedOrderIDs.insert(activeOrderID)
+        pendingTrackConsent = nil
+        refreshHealth(now: Date())
+    }
+
     func configure(
         identityKey: String?,
         role: UserRole?,
@@ -169,6 +233,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         }
         if let previous = activeOrderID, previous != orderID {
             realtimeCoordinator.unregisterActiveOrder(previous)
+            pendingTrackConsent = nil
             clearRuntimeSession()
         }
         activeOrderID = orderID
@@ -188,11 +253,13 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         if let activeOrderID { realtimeCoordinator.unregisterActiveOrder(activeOrderID) }
         activeOrderID = nil
         activeStatus = nil
+        pendingTrackConsent = nil
         clearRuntimeSession()
     }
 
     func reset(clearIdentity: Bool = true) {
         clearOwnedOrder()
+        trackConsentDeclinedOrderIDs = []
         cancellables.removeAll()
         webSocketService = nil
         if clearIdentity {
@@ -266,9 +333,20 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     private func evaluateSession() {
         guard identityKey != nil, role != nil, isSessionEligible else {
+            pendingTrackConsent = nil
             clearRuntimeSession()
             return
         }
+        // #368：开始持续定位之前，本机要有这一角色的位置轨迹同意。没有就**一个点都不开、不发**，
+        // 等用户在同意页上回答；拒绝过的单不再问。后端不存这项同意，所以没有记录就当没同意过。
+        guard hasTrackConsent else {
+            clearRuntimeSession()
+            let declined = activeOrderID.map(trackConsentDeclinedOrderIDs.contains) ?? false
+            pendingTrackConsent = declined ? nil : Self.trackConsentPurpose(for: role)
+            refreshHealth(now: Date())
+            return
+        }
+        pendingTrackConsent = nil
         let needsBackground = activeStatus == .inProgress
         locationService?.setEscortBackgroundMode(enabled: needsBackground)
         syncMotionRecording()
@@ -313,6 +391,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     private func sendLatestLocation(now: Date) async {
         guard isSessionEligible,
+              hasTrackConsent,
               webSocketService?.connectionState.canSendOrQueueMessages == true,
               let sample = locationService?.latestEscortBackendSample(now: now) else { return }
         guard let webSocketService else { return }
@@ -333,6 +412,12 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     private func refreshHealth(now: Date) {
         guard isSessionEligible else {
             setHealthState(.idle)
+            return
+        }
+        // 排在最前：没有同意时定位根本没开，下面那几档（权限 / 网络 / 样本）说的都不是真正的原因。
+        guard hasTrackConsent else {
+            let declined = activeOrderID.map(trackConsentDeclinedOrderIDs.contains) ?? false
+            setHealthState(declined ? .locationSharingDeclined : .trackConsentRequired)
             return
         }
         guard locationService?.isAuthorized == true else {

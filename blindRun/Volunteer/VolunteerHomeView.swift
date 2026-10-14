@@ -23,7 +23,25 @@ enum VolunteerAvailabilityCopy {
 
 @MainActor
 final class VolunteerHomeViewModel: ObservableObject {
-    @Published var isAvailable = false
+    /// 接单开关。变化同步进 `AppState.volunteerWantsDispatch` —— 根视图的定时上报也读它（#368）。
+    @Published var isAvailable = false {
+        didSet { appState?.volunteerWantsDispatch = isAvailable }
+    }
+
+    /// 为什么要问位置轨迹的单独同意（#368）。非 nil 时 `VolunteerTabView` 盖同意页。
+    enum TrackConsentRequest: Equatable {
+        /// 滑开接单开关时本机没有同意记录。同意后再去开开关并进接单主页。
+        case turnOn
+        /// 服务端「可服务」已开着（冷启动 / 别的设备打开）而本机没有同意记录。
+        /// 拒绝时替他把服务端开关关掉，否则后端一直当他在线、却收不到位置。
+        case resumeStandby
+    }
+
+    @Published private(set) var trackConsentRequest: TrackConsentRequest?
+    /// 拒绝之后滑块上方那句后果说明。下次同意时清掉。
+    @Published private(set) var trackConsentDeclinedNotice: String?
+    /// 从开关发起的同意按下之后置位，由首页把接单主页推出来，然后复位。
+    @Published var entersDispatchHubAfterTrackConsent = false
     @Published var nickname = ""
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var errorMessage: String?
@@ -1070,8 +1088,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         currentLocation: CLLocationCoordinate2D?,
         locationAuthorized: Bool
     ) async {
-        let didReportLocation = reportVolunteerLocation(appState, currentLocation, locationAuthorized)
-        updateLocationDispatchWarning(didReportLocation: didReportLocation, appState: appState)
+        reportDispatchLocationIfAllowed(appState, currentLocation, locationAuthorized)
 
         do {
             let orders = appState.orders
@@ -1345,6 +1362,12 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     func setAvailability(_ value: Bool) {
         guard !isUpdatingAvailability, let appState else { return }
+        // #368：开始为派单持续上报位置之前，先要本机有志愿者位置轨迹的单独同意。
+        // 没有就盖同意页：开关不翻、不发请求、不弹系统授权框。
+        if value, !appState.hasLocationTrackConsent(.volunteerLocationTrack) {
+            trackConsentRequest = .turnOn
+            return
+        }
 
         let previousValue = isAvailable
         isAvailable = value
@@ -1405,6 +1428,54 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard let profile else { return }
         nickname = profile.name ?? ""
         isAvailable = profile.isAvailable ?? false
+        requestTrackConsentIfStandbyResumesWithoutIt()
+    }
+
+    /// 服务端说还在接单、而本机没有同意记录（重装、换手机、在安卓上同意过）：先问，再恢复待命。
+    /// 后端不存这项同意，所以「服务端开着」不等于「同意过」。
+    private func requestTrackConsentIfStandbyResumesWithoutIt() {
+        guard isAvailable,
+              !isUpdatingAvailability,
+              trackConsentRequest == nil,
+              let appState,
+              !appState.hasLocationTrackConsent(.volunteerLocationTrack) else { return }
+        trackConsentRequest = .resumeStandby
+    }
+
+    /// 同意页上按了「同意共享位置」。`requestLocationPermission` 由视图传入 ——
+    /// 系统授权框挪到这一刻弹（告知在前），view model 不持有定位服务。
+    func agreeTrackConsent(requestLocationPermission: () -> Void) {
+        guard let request = trackConsentRequest, let appState else { return }
+        trackConsentRequest = nil
+        trackConsentDeclinedNotice = nil
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        requestLocationPermission()
+        switch request {
+        case .turnOn:
+            setAvailability(true)
+            entersDispatchHubAfterTrackConsent = true
+        case .resumeStandby:
+            // 开关本来就开着，不用 PUT；立刻补报一次，不等下一拍刷新循环。
+            Task { [weak self] in
+                guard let self else { return }
+                await self.reportLocationThenRefreshSummary(
+                    currentLocation: self.currentLocationProvider(),
+                    locationAuthorized: self.locationAuthorizedProvider()
+                )
+            }
+        }
+    }
+
+    /// 同意页上按了「先不同意」。拒绝是完整的答案，不追问。
+    func declineTrackConsent() {
+        guard let request = trackConsentRequest else { return }
+        trackConsentRequest = nil
+        if request == .resumeStandby, isAvailable {
+            setAvailability(false)
+        }
+        let notice = PrivacyConsentPurpose.volunteerLocationTrack.declinedFeedback
+        trackConsentDeclinedNotice = notice
+        speechService?.speak(notice)
     }
 
     /// 摘要的唯一漏斗 —— 冷启动首屏、下拉刷新、接单后回读全从这里过，
@@ -1419,6 +1490,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         let previousOrderID = activeOrder?.orderId
         dispatchSummary = summary
         isAvailable = summary.wantsDispatch ?? isAvailable
+        requestTrackConsentIfStandbyResumesWithoutIt()
         if let active = summary.activeOrders?.first {
             let candidate = active.orderDetail
             if let statusRequestToken,
@@ -1611,15 +1683,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         locationAuthorized: Bool
     ) async {
         guard let appState else { return }
-        let didReportLocation = reportVolunteerLocation(
-            appState,
-            currentLocation,
-            locationAuthorized
-        )
-        updateLocationDispatchWarning(
-            didReportLocation: didReportLocation,
-            appState: appState
-        )
+        let didReportLocation = reportDispatchLocationIfAllowed(appState, currentLocation, locationAuthorized)
         if didReportLocation {
             try? await Task.sleep(nanoseconds: UInt64(dispatchPropagationDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -1637,6 +1701,25 @@ final class VolunteerHomeViewModel: ObservableObject {
                 locationAuthorized: self.locationAuthorizedProvider()
             )
         }
+    }
+
+    /// 为派单上报位置的唯一入口（首屏加载与刷新循环）。#368 之后只在开着接单开关、且同意过
+    /// 位置轨迹时才报 —— 同意文案写着「暂停接单后不再为派单获取位置」。不该报时不算失败：
+    /// 清掉「定位暂不可用」的提示，否则暂停接单的人会被一句与他无关的警告反复打断。
+    @discardableResult
+    private func reportDispatchLocationIfAllowed(
+        _ appState: AppState,
+        _ currentLocation: CLLocationCoordinate2D?,
+        _ locationAuthorized: Bool
+    ) -> Bool {
+        guard isAvailable, appState.hasLocationTrackConsent(.volunteerLocationTrack) else {
+            consecutiveLocationReportFailures = 0
+            locationDispatchWarning = nil
+            return false
+        }
+        let didReportLocation = reportVolunteerLocation(appState, currentLocation, locationAuthorized)
+        updateLocationDispatchWarning(didReportLocation: didReportLocation, appState: appState)
+        return didReportLocation
     }
 
     private func updateLocationDispatchWarning(
@@ -1759,7 +1842,18 @@ struct VolunteerHomeView: View {
                 // 与那一页自己的「暂停接单」直接打架；而设计交付 v3 §4.2 总表里
                 // S3/S4 的主按钮一栏写的就是「无」。
                 .safeAreaInset(edge: .bottom) {
-                    availabilityCTA
+                    VStack(spacing: 0) {
+                        trackConsentDeclinedNotice
+                            .padding(.horizontal, 20)
+                            .padding(.top, 10)
+                            .background(.regularMaterial)
+                        availabilityCTA
+                    }
+                }
+                .onChange(of: viewModel.entersDispatchHubAfterTrackConsent) { enters in
+                    guard enters else { return }
+                    viewModel.entersDispatchHubAfterTrackConsent = false
+                    showsDispatchHub = true
                 }
         }
     }
@@ -1778,12 +1872,29 @@ struct VolunteerHomeView: View {
             isUpdating: viewModel.isUpdatingAvailability,
             statusText: viewModel.statusText,
             onChange: { viewModel.setAvailability($0) },
-            onEnterHub: { showsDispatchHub = true }
+            // #368：滑开时若要先问位置轨迹同意，同意页盖上来，接单主页等同意之后再推。
+            onEnterHub: {
+                guard viewModel.trackConsentRequest == nil else { return }
+                showsDispatchHub = true
+            }
         )
         .padding(.horizontal, 20)
         .padding(.top, 10)
         .padding(.bottom, 8)
         .background(.regularMaterial)
+    }
+
+    /// 拒绝位置轨迹同意之后，滑块上方那句后果说明（#368）。拒绝时已念过一遍，这里是留在屏幕上的那一份。
+    @ViewBuilder
+    private var trackConsentDeclinedNotice: some View {
+        if let notice = viewModel.trackConsentDeclinedNotice {
+            Text(notice)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("volunteerTrackConsentDeclinedNotice")
+        }
     }
 
     private func loadHome() async {

@@ -83,6 +83,19 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         speechService?.speakError(message)
     }
 
+    /// 预约前拒绝了位置轨迹同意（#368）之后，预约块上方那句后果说明。拒绝时已念过一遍，这里是留在屏幕上的那一份。
+    @Published private(set) var bookingTrackConsentDeclinedNotice: String?
+
+    func noteBookingTrackConsentDeclined() {
+        let notice = PrivacyConsentPurpose.blindLocationTrack.declinedFeedback
+        bookingTrackConsentDeclinedNotice = notice
+        speechService?.speak(notice)
+    }
+
+    func clearBookingTrackConsentDeclinedNotice() {
+        bookingTrackConsentDeclinedNotice = nil
+    }
+
     /// - Parameter speechInputService: 「问一句」用。可选是为了让既有的一批单测不必凭空造一个
     ///   麦克风服务；传 nil 时按下按钮不会起听（`VoiceStatusQuerySession.ask` 自己 guard 掉）。
     func configure(
@@ -453,8 +466,19 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             role: appState.activeRole,
             userID: appState.userId,
             safety: appState.safety,
-            locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService) },
-            locationFailureReason: { EmergencyCoordinator.locationFailureReason(using: locationService) }
+            // 同行态里这一单没同意共享位置（#368）⇒ 不取位置、不发，文案说清原因。
+            locate: {
+                await EmergencyCoordinator.freshEmergencyCoordinate(
+                    using: locationService,
+                    sharingBlocked: appState.liveEscortCoordinator.isLocationSharingBlocked
+                )
+            },
+            locationFailureReason: {
+                EmergencyCoordinator.locationFailureReason(
+                    using: locationService,
+                    sharingBlocked: appState.liveEscortCoordinator.isLocationSharingBlocked
+                )
+            }
         )
         // 可见面是 SOS 条里的 `EmergencyStatusNotice`，这里只负责播报。
         // 刻意不再写 `errorMessage`：那会让同一句话在屏幕上出现两次、被读屏念两遍。
@@ -583,10 +607,14 @@ struct BlindRunnerHomeView: View {
                     speechService: speechService,
                     speechInputService: speechInputService
                 )
-                if locationService.isNotDetermined {
-                    locationService.requestPermission()
+                // #368：没有位置轨迹同意时不开定位、不弹系统授权框（告知在前）。
+                // 第一次弹授权框挪到预约向导里（同意页之后的下单页 `onAppear`）。
+                if appState.hasLocationTrackConsent(.blindLocationTrack) {
+                    if locationService.isNotDetermined {
+                        locationService.requestPermission()
+                    }
+                    locationService.startUpdating()
                 }
-                locationService.startUpdating()
             }
             // 🔴 **`onDisappear` 不再取消加载。** 2026-09-16 起这一页在 `TabView` 里，
             // 切到「记录」/「我的」就会走 `onDisappear` —— 而「我的」那条兜底求助条的
@@ -700,8 +728,17 @@ struct BlindRunnerHomeView: View {
                     .padding(.top, 6)
                 }
 
+                if let notice = viewModel.bookingTrackConsentDeclinedNotice {
+                    Text(notice)
+                        .flowFont(FlowFonts.statusSubtitle())
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("blindBookingTrackConsentDeclinedNotice")
+                }
+
                 BlindHomeBookingBlock(isEnabled: viewModel.canStartNewBooking) {
                     if viewModel.canStartNewBooking {
+                        viewModel.clearBookingTrackConsentDeclinedNotice()
                         path.append(.voiceBooking)
                     } else {
                         viewModel.explainBookingUnavailable()
@@ -833,10 +870,18 @@ struct BlindRunnerHomeView: View {
     private func destination(for route: BlindRunnerRoute) -> some View {
         switch route {
         case .voiceBooking:
-            BlindBookingView(startsWithVoice: true) { response in
-                viewModel.handleOrderCreated(response)
-                if let orderId = response.id {
-                    path = [.orderStatus(orderId)]
+            // #368：向导路由本身过闸 —— 不管从哪里进向导，都先要本机有盲人位置轨迹的单独同意。
+            BlindBookingTrackConsentGate(
+                onDecline: {
+                    path.removeAll()
+                    viewModel.noteBookingTrackConsentDeclined()
+                }
+            ) {
+                BlindBookingView(startsWithVoice: true) { response in
+                    viewModel.handleOrderCreated(response)
+                    if let orderId = response.id {
+                        path = [.orderStatus(orderId)]
+                    }
                 }
             }
         case .orderStatus(let orderId):
@@ -931,6 +976,50 @@ struct DebugTestingPanel: View {
     }
 }
 #endif
+
+/// 预约向导前的位置轨迹单独同意（#368）。
+///
+/// 问在预约前而不是同行时：拒绝的代价只是「这次不约了」，不会让已经出发的志愿者白跑。
+/// 有本机记录就直接放行，不再问。同意 → 当场换成向导（系统定位授权框由向导的 `onAppear` 弹，晚于告知）；
+/// 拒绝 → 回首页，首页念并留下后果说明。没有返回按钮：出口只有这两个，读屏的「返回」手势等同拒绝。
+private struct BlindBookingTrackConsentGate<Content: View>: View {
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+
+    let onDecline: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    @State private var agreedThisVisit = false
+
+    private let purpose = PrivacyConsentPurpose.blindLocationTrack
+
+    var body: some View {
+        if agreedThisVisit || appState.hasLocationTrackConsent(purpose) {
+            content()
+        } else {
+            ConsentDisclosureView(
+                purpose: purpose,
+                onAgree: {
+                    speechService.stop()
+                    appState.recordLocationTrackConsent(purpose)
+                    agreedThisVisit = true
+                },
+                onDecline: decline
+            )
+            .navigationBarBackButtonHidden(true)
+            .navigationBarTitleDisplayMode(.inline)
+            .accessibilityAction(.escape, decline)
+            .task {
+                speechService.speak(text: purpose.spokenScript)
+            }
+        }
+    }
+
+    private func decline() {
+        speechService.stop()
+        onDecline()
+    }
+}
 
 #if DEBUG
 #Preview("首页 · 有订单") {

@@ -294,6 +294,89 @@ final class AccessibilityAuditTests: XCTestCase {
                        "拒绝后不该进语音态")
     }
 
+    // MARK: - 位置轨迹的单独同意（#368）
+
+    /// 预约向导路由本身过闸：没有同意记录先出同意页；拒绝回首页并留下后果说明；同意才进向导。
+    ///
+    /// 用 `AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT` 走真实路径 —— 默认 UI 用例跳过这道同意。
+    @MainActor
+    func testBlindBookingAsksForLocationTrackConsentFirstAndDeclineReturnsHome() throws {
+        let app = launchBlindHome(
+            extraEnvironment: ["AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1"],
+            tapsAfterLaunch: true
+        )
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+
+        let consent = app.descendants(matching: .any)["blindLocationTrackConsentView"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 20), "没有先弹出位置轨迹同意页")
+        let agree = app.buttons["blindLocationTrackConsentAgreeButton"].firstMatch
+        let decline = app.buttons["blindLocationTrackConsentDeclineButton"].firstMatch
+        XCTAssertTrue(agree.exists && decline.exists)
+        XCTAssertGreaterThanOrEqual(agree.frame.height, 64, "同意按钮低于 64pt")
+        XCTAssertGreaterThanOrEqual(decline.frame.height, 64, "不同意按钮低于 64pt")
+        XCTAssertFalse(app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
+                       "没同意就不该进预约向导")
+
+        decline.tap()
+
+        let notice = app.descendants(matching: .any)["blindBookingTrackConsentDeclinedNotice"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 20), "拒绝后首页没有留下后果说明")
+        XCTAssertTrue(start.waitForExistence(timeout: 5), "拒绝后应回到首页")
+        XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
+
+        // 再点一次：仍然要问（拒绝不是同意）；这次同意 → 进向导。
+        start.tap()
+        XCTAssertTrue(consent.waitForExistence(timeout: 20), "拒绝过的人再点预约，仍要先问")
+        app.buttons["blindLocationTrackConsentAgreeButton"].firstMatch.tap()
+        let bookingSurface = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier IN %@", ["blindBookingVoiceOrderButton", "blindBookingFinishSpeakingSurface"]))
+            .firstMatch
+        XCTAssertTrue(bookingSurface.waitForExistence(timeout: 20), "同意后没有进预约向导")
+    }
+
+    /// 滑开接单开关时没有同意记录：先盖同意页（背后的滑块不在读屏树里）；拒绝 → 开关仍关、留下说明；同意 → 开启并进接单主页。
+    @MainActor
+    func testVolunteerTurningOnAsksForLocationTrackConsentFirst() {
+        let app = launchVolunteerHome(
+            available: false,
+            extraEnvironment: ["AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1"]
+        )
+        let slider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 25), "滑动 CTA 没渲染出来")
+        func slideOpen() {
+            slider.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
+                .press(
+                    forDuration: 0.1,
+                    thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
+                )
+        }
+
+        slideOpen()
+        let consent = app.descendants(matching: .any)["volunteerLocationTrackConsentView"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 20), "滑开开关时没有先弹出位置轨迹同意页")
+        let decline = app.buttons["volunteerLocationTrackConsentDeclineButton"].firstMatch
+        XCTAssertTrue(decline.exists)
+        XCTAssertGreaterThanOrEqual(decline.frame.height, 64, "不同意按钮低于 64pt")
+        XCTAssertFalse(slider.exists, "同意页弹出时背后的滑块仍在无障碍树里")
+        XCTAssertFalse(app.descendants(matching: .any)["volunteerDispatchHubAcceptingPill"].firstMatch.exists,
+                       "没同意就不该进接单主页")
+
+        decline.tap()
+
+        let notice = app.descendants(matching: .any)["volunteerTrackConsentDeclinedNotice"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 20), "拒绝后滑块上方没有后果说明")
+        XCTAssertTrue(app.buttons["向右滑动，我现在有空陪跑"].waitForExistence(timeout: 10), "拒绝后开关应保持关闭")
+        XCTAssertFalse(app.descendants(matching: .any)["volunteerDispatchHubAcceptingPill"].firstMatch.exists)
+
+        slideOpen()
+        XCTAssertTrue(consent.waitForExistence(timeout: 20), "拒绝过的人再滑开关，仍要先问")
+        app.buttons["volunteerLocationTrackConsentAgreeButton"].firstMatch.tap()
+        let hubPill = app.descendants(matching: .any)["volunteerDispatchHubAcceptingPill"].firstMatch
+        XCTAssertTrue(hubPill.waitForExistence(timeout: 20), "同意后没有开启并进入接单主页")
+    }
+
     // MARK: - 静态审计抓不到的语义要求
 
     /// `AGENTS.md`：盲人端关键主按钮高度 ≥ 64pt。

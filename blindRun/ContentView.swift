@@ -350,6 +350,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("rootRoute.privacyConsent")
             } else {
                 routedContent
+                    .modifier(EscortTrackConsentOverlay(coordinator: appState.liveEscortCoordinator))
             }
         }
         // 跑步中登录过期的提示（#376）由各跑步页底栏里的 `SessionExpiryNotice` 渲染，这里只把数据往下传。
@@ -418,8 +419,11 @@ struct ContentView: View {
         .onReceive(locationReportTimer) { _ in
             reportWebSocketLocationIfNeeded()
         }
-        .onChange(of: appState.activeRole) { _ in
-            if appState.isLoggedIn, appState.currentEnvironment != .mock {
+        .onChange(of: appState.activeRole) { role in
+            // #368：没有这一角色的位置轨迹同意就不开定位。
+            if appState.isLoggedIn, appState.currentEnvironment != .mock,
+               let purpose = LiveEscortSessionCoordinator.trackConsentPurpose(for: role),
+               appState.hasLocationTrackConsent(purpose) {
                 locationService.startUpdating()
             }
             reportWebSocketLocationIfNeeded()
@@ -503,6 +507,8 @@ struct ContentView: View {
         guard appState.isLoggedIn,
               appState.activeRole == .volunteer,
               appState.currentEnvironment != .mock,
+              // #368：开着接单开关、且同意过位置轨迹，才为派单上报。
+              appState.allowsVolunteerDispatchLocationReporting,
               locationService.isAuthorized,
               !appState.liveEscortCoordinator.isSessionEligible,
               let sample = locationService.latestBackendSample() else {
@@ -531,6 +537,54 @@ struct CurrentValueReplayGate<Value: Equatable> {
         guard lastAcceptedValue != value else { return false }
         lastAcceptedValue = value
         return true
+    }
+}
+
+/// 已约好的单进入同行态（出发 / 汇合 / 跑步中）而本机没有这一角色的位置轨迹同意时，
+/// 盖在整个界面上的同意页（#368）。协调器在用户回答之前一个点都不开、不发。
+///
+/// 盖在路由根上而不是某一页上：进入同行态时用户可能在任何一个 tab、任何一层栈上，
+/// 而这件事不回答，这一单的位置共享就一直停着。背后那棵树对读屏藏起来，理由同 `SessionLifecycleStatusModifier`。
+/// 拒绝不在这里念 —— 协调器把健康状态切成 `.locationSharingDeclined`，根视图的横幅会显示并播报那一句。
+///
+/// `@ObservedObject` 自己持有协调器：它挂在 `AppState` 上，嵌套的 ObservableObject 不会经 AppState 重新发布。
+private struct EscortTrackConsentOverlay: ViewModifier {
+    @ObservedObject var coordinator: LiveEscortSessionCoordinator
+    @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var locationService: LocationService
+
+    func body(content: Content) -> some View {
+        let pending = coordinator.pendingTrackConsent
+        content
+            .accessibilityHidden(pending != nil)
+            .background(HostedContainersAccessibilityHider(isHidden: pending != nil))
+            .overlay {
+                if let pending {
+                    ConsentDisclosureView(
+                        purpose: pending,
+                        onAgree: {
+                            speechService.stop()
+                            coordinator.agreeTrackConsent()
+                            // 系统授权框在这一刻弹，不早于告知。已授权时这一行什么都不做。
+                            if locationService.isNotDetermined {
+                                locationService.requestPermission()
+                            }
+                        },
+                        onDecline: decline
+                    )
+                    .accessibilityAddTraits(.isModal)
+                    // 读屏的「返回」手势（双指 Z）等同「先不同意」：没有别的出口，不能让它什么都不做。
+                    .accessibilityAction(.escape, decline)
+                    .task(id: pending) {
+                        speechService.speak(text: pending.spokenScript)
+                    }
+                }
+            }
+    }
+
+    private func decline() {
+        speechService.stop()
+        coordinator.declineTrackConsent()
     }
 }
 

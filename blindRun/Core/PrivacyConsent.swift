@@ -44,6 +44,25 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     /// 只盖 `POST /api/orders/voice/parse` 这一条链路。拒绝之后下单照旧可以手动填写 ——
     /// 「不同意就用不了」不是一个合格的单独同意，所以出路必须是真的（见 `declinedFeedback`）。
     case voiceOrderThirdPartyLLM
+    /// 视障跑者的**位置轨迹**：从志愿者出发来找他到跑步结束的持续定位（Jayden23018/blind-run-ios#368）。
+    ///
+    /// 首启告知里写了「位置轨迹……到收集它们的那一步，我们会再单独问你一次」，此前没兑现。
+    /// 文案与安卓 `BLIND_LOCATION_TRACK`（blind-run-android#55 / PR #201）**逐字一致**，改一端要两端一起改。
+    ///
+    /// 按**账号**记（与安卓按 userId 一致）。**后端不存这项同意** ⇒ 本机记录不是缓存：
+    /// 没有记录就当没同意过，换手机、重装、在安卓上同意过，都要再问一次。
+    ///
+    /// 文案里的事实取自后端 origin/main（2026-10-07 安卓核对）：跑后记录订单双方可读、
+    /// 轨迹与求助坐标保存 90 天（`TrackDataRetentionScheduler` / `EmergencyGpsRetentionScheduler`）、
+    /// 跑者里程用于积分零位移判定（`PointService`）、求助短信带坐标（`EmergencyContactNotifier`）。
+    /// 后端改了这几条，两端文案与 `disclosureVersion` 一起改。
+    case blindLocationTrack
+    /// 志愿者的**位置轨迹**：打开接单开关后的派单定位 + 接单后同行阶段的持续定位（#368）。
+    /// 与安卓 `VOLUNTEER_LOCATION_TRACK` 逐字一致；归属与「后端不存」同 `blindLocationTrack`。
+    ///
+    /// 第 5 条如实写了「最后一次上报的位置会一直保留……删除账户时不会删除它」：后端 `volunteer_location`
+    /// 至今没有保存期限、注销不删（`DeparturePlanner` 用它估算出发）。后端改了之后这句要跟着改并 +1 版本。
+    case volunteerLocationTrack
 
     /// 告知内容的版本。版本号进存储 key，+1 之后旧记录自然失效、用户会被重新问一次。
     ///
@@ -72,6 +91,8 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .volunteerIdentity: return 1
         case .blindVisionProfile: return 1
         case .voiceOrderThirdPartyLLM: return 1
+        case .blindLocationTrack: return 1
+        case .volunteerLocationTrack: return 1
         }
     }
 
@@ -87,6 +108,9 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             return "填写视力状况前，请先确认"
         case .voiceOrderThirdPartyLLM:
             return "语音下单前，请先确认"
+        case .blindLocationTrack, .volunteerLocationTrack:
+            // 两种场合（发起前、已约好的单进入同行）都说得通，所以不写「预约前」「接单前」。
+            return "陪跑前，请先确认位置共享"
         }
     }
 
@@ -155,6 +179,26 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 "这段文字会发给阿里云通义千问（第三方大模型），由它帮助理解你要去哪里、什么时候出发。",
                 "不同意也可以下单：改用手动填写，其他功能不受影响。"
             ]
+        case .blindLocationTrack:
+            return [
+                "从志愿者出发来找你，到这次跑步结束，我们会持续获取你的位置；锁屏后仍在定位。",
+                "你的实时位置会显示给这一单的志愿者，让志愿者找到你、在跑步中照看你。跑完后，这次的路线会生成跑步记录，你和这一单的志愿者都能查看。",
+                "位置轨迹属于敏感个人信息，用于这次陪跑、陪跑中的安全保障（比如走散提醒和紧急求助），以及核对这次陪跑的里程。",
+                "你发起紧急求助时，当时的位置会用短信发给你的紧急联系人。",
+                "轨迹坐标和求助时的位置保存 90 天，到期自动删除；删除账户时轨迹一并删除。订单里的起终点位置会保留，用于纠纷复核。",
+                "陪跑离不开位置共享：不同意就不能预约陪跑；已经约好的陪跑，志愿者会看不到你的位置。其他功能不受影响。",
+                "想撤回同意，可以在系统设置里关闭本应用的定位权限；关闭后不再获取你的位置，也就不能预约陪跑。"
+            ]
+        case .volunteerLocationTrack:
+            return [
+                "打开接单开关后，我们会持续获取你的位置，用来给你派附近的陪跑邀请、估算你什么时候该出发；锁屏后仍在定位。暂停接单后不再为派单获取位置。",
+                "接单后，从你出发到这次跑步结束，你的实时位置会显示给这一单的视障跑者；跑完后，对方也能查看你这次的路线。",
+                "位置轨迹属于敏感个人信息，用于派单、这次陪跑和陪跑中的安全保障。",
+                "你在陪跑中替跑者发起紧急求助时，你当时的位置会用短信发给跑者的紧急联系人。",
+                "陪跑中的轨迹坐标保存 90 天，到期自动删除，删除账户时一并删除。你最后一次上报的位置会一直保留，用来估算下次出发时间；目前删除账户时不会删除它。",
+                "派单和陪跑都离不开位置：不同意就不能接单；已经接下的陪跑，视障跑者会看不到你的位置。其他功能不受影响。",
+                "想撤回同意，可以在系统设置里关闭本应用的定位权限；关闭后不再获取你的位置，也就不能接单。"
+            ]
         }
     }
 
@@ -164,6 +208,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .blindIdentity, .volunteerIdentity: return "同意并提交"
         case .blindVisionProfile: return "同意并填写"
         case .voiceOrderThirdPartyLLM: return "同意并使用语音下单"
+        case .blindLocationTrack, .volunteerLocationTrack: return "同意共享位置"
         }
     }
 
@@ -175,6 +220,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .blindIdentity, .volunteerIdentity: return "先不提交"
         case .blindVisionProfile: return "不填这一项"
         case .voiceOrderThirdPartyLLM: return "不同意，手动填写"
+        case .blindLocationTrack, .volunteerLocationTrack: return "先不同意"
         }
     }
 
@@ -194,6 +240,23 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .voiceOrderThirdPartyLLM:
             // 不劝返；只确认拒绝是一个完整的答案，并指向那条真能走的路（页面此刻就停在手动表单上）。
             return "没有使用语音下单。你可以直接在这一页手动填写出发地点和时间。"
+        case .blindLocationTrack:
+            // 发起前拒绝（预约入口）。已约好的单进入同行态时拒绝，念的是 `escortDeclinedFeedback`。
+            return "没有开始预约。不同意位置共享就不能预约陪跑，其他功能照常可用。想好了可以再点「预约新的陪跑」。"
+        case .volunteerLocationTrack:
+            return "没有开始接单。不同意位置共享就不能接单，其他功能照常可用。想好了可以再打开接单开关。"
+        }
+    }
+
+    /// 已约好的单进入同行态（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）时拒绝的反馈。
+    /// 与发起前拒绝分开：此刻单已经约好，拒绝的后果是「对方看不到你」，出路是「可以取消」，不是「不能预约」。
+    /// 两个角色同一句（与安卓一致）。求助那半句与 AGENTS.md §6「坐标拿不到就不发」同一件事。
+    var escortDeclinedFeedback: String? {
+        switch self {
+        case .blindLocationTrack, .volunteerLocationTrack:
+            return "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
+        case .appLaunch, .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM:
+            return nil
         }
     }
 
@@ -215,7 +278,8 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 + "地图、定位和地址搜索由高德开放平台 SDK 提供，语音下单的文字会发给阿里云通义千问理解。"
                 + "这些信息只用于陪跑服务，不做广告、不出售给任何人。"
                 + "身份证号、人脸、位置轨迹和视力状况属于敏感个人信息，收集前会再单独问你。"
-        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM:
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM,
+             .blindLocationTrack, .volunteerLocationTrack:
             return nil
         }
     }
@@ -225,7 +289,8 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var launchTitle: String? {
         switch self {
         case .appLaunch: return "个人信息保护提示"
-        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM: return nil
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM,
+             .blindLocationTrack, .volunteerLocationTrack: return nil
         }
     }
 

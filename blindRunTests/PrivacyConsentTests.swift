@@ -350,7 +350,11 @@ final class PrivacyConsentTests: XCTestCase {
             .blindIdentity: (1, 997_349_647),
             .volunteerIdentity: (1, 57_319_275),
             .blindVisionProfile: (1, 237_038_544),
-            .voiceOrderThirdPartyLLM: (1, 90_249_455)
+            .voiceOrderThirdPartyLLM: (1, 90_249_455),
+            // 2026-10-14 新增（#368）。文案与安卓 `ConsentPurpose.kt` 的 BLIND_ / VOLUNTEER_LOCATION_TRACK 逐字一致，
+            // 改这两行指纹时，去安卓仓库把同一段文案一起改（这里只拦得住 iOS 一侧单独变动）。
+            .blindLocationTrack: (1, 397_224_394),
+            .volunteerLocationTrack: (1, 204_043_472)
         ]
 
         for purpose in PrivacyConsentPurpose.allCases {

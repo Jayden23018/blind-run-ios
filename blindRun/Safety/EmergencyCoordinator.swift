@@ -224,7 +224,14 @@ final class EmergencyCoordinator: ObservableObject {
     /// 它同样是「真实设备采样」、能穿过新鲜度闸 —— 而把家属引到几公里外，正是
     /// `allowsSubmissionWithoutLocation` 那段注释说的「送错地方比不送更糟」。项目负责人 2026-10-09 拍板按无定位处理（#373）。
     /// 这里**不**顺手申请临时精确位置：系统弹窗会和「求助未发出」的播报抢读屏焦点；跑步开始时已经申请过一次。
-    static func freshEmergencyCoordinate(using locationService: LocationService?) async -> LocatedCoordinate? {
+    ///
+    /// 🔴 **同行态里这一单没有同意共享位置时（`sharingBlocked`，#368）同样直接返回 nil。**
+    /// 同意页写着「不同意 …… 走散提醒和求助定位也用不了」—— 拒绝之后再把位置随求助发出去，就是拿走了用户刚说不的东西。
+    static func freshEmergencyCoordinate(
+        using locationService: LocationService?,
+        sharingBlocked: Bool = false
+    ) async -> LocatedCoordinate? {
+        guard !sharingBlocked else { return nil }
         guard let locationService, !locationService.isPreciseLocationOff else { return nil }
         if let sample = locationService.latestBackendSample() {
             return sample
@@ -246,7 +253,12 @@ final class EmergencyCoordinator: ObservableObject {
     ///
     /// 精确位置关闭排在 `locationError` 之前：那时 `locationError` 通常是 nil，
     /// 落到默认分支就会叫用户「到室外开阔处重试」—— 换地方解决不了一个开关的问题。
-    static func locationFailureReason(using locationService: LocationService?) -> LocationError? {
+    static func locationFailureReason(
+        using locationService: LocationService?,
+        sharingBlocked: Bool = false
+    ) -> LocationError? {
+        // 排在最前：没有同意时根本不取位置，下面几个原因都不是真正的原因。
+        if sharingBlocked { return .locationSharingNotConsented }
         guard let locationService else { return nil }
         if locationService.isPreciseLocationOff { return .preciseLocationOff }
         return locationService.locationError
