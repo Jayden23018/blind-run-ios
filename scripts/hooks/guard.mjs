@@ -111,6 +111,19 @@ const rules = {
     check: () => true,
     why: '不要用 `scenePhase != .active` 当「App 进后台」：系统权限弹窗只会让它走一趟 `.inactive`，在那一刻清理会把正在等授权回调的会话静默毁掉（2026-09-07 真机事故：点完「允许」按钮完全没反应，要重启两次）。真进后台用 `phase == .background`；需要区分「暂时失焦」的，再看一眼业务状态（例如 `isListening`）。确实要拦下全部非活跃态，行尾加 `// guard:allow scenephase-not-active` 并写清为什么权限弹窗那一刻清理是安全的。',
   },
+  'bordered-frame-hit-area': {
+    // 2026-10-14 立（#383）。`.buttonStyle(.bordered*)` 之后再挂 `.frame(minHeight: 64)`，
+    // 按钮看起来是 64pt，真机量到的可点区只有 34.7pt：外面那层 frame 只撑大布局，
+    // bordered 样式的可点区仍按 label 尺寸算。PR #380 在下单页量出来一次，
+    // 之后又扫出两处同样写法 —— 第三次出现，按 AGENTS.md §1 落成守卫。
+    //
+    // 只认 `.buttonStyle` **之后** 3 行内、作为按钮修饰符的 `.frame(…minHeight…)`。
+    // frame 挂在 label 里（正解）时它出现在 `.buttonStyle` 之前，不会被扫到。
+    pattern: /\.buttonStyle\(\s*\.bordered/,
+    check: (_line, statement) =>
+      statement.split('\n').slice(1).some((l) => /^\s*\.frame\([^)]*minHeight/.test(l)),
+    why: 'bordered 按钮外挂 `.frame(minHeight:)` 撑不大可点区（真机实测 34.7pt，盲人端要求 ≥64pt）。把 frame 挪进 label：`Button { … } label: { Text(…).frame(minHeight: 64) }`。记忆 `button-frame-outside-label-does-not-grow-hit-area`。确实不是可点区问题，行尾加 `// guard:allow bordered-frame-hit-area`。',
+  },
   'invite-code-reward-flag': {
     // 2026-09-14 立。契约 `FeatureFlagsResponse.invitationRewardEnabled` 的 description 逐字：
     //

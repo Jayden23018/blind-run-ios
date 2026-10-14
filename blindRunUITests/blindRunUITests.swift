@@ -319,7 +319,10 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["里程"].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["时长"].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["平均配速"].firstMatch.exists)
-        XCTAssertTrue(app.buttons["重复当前状态"].firstMatch.exists, "Track summary must remain usable without inspecting the map")
+        let repeatSummary = app.buttons["completedTrackRepeatSummary"].firstMatch
+        XCTAssertTrue(repeatSummary.exists, "Track summary must remain usable without inspecting the map")
+        // #383：bordered 按钮外挂 frame 时这里量到 34.7pt，frame 要挂在 label 里才撑得开可点区。
+        XCTAssertGreaterThanOrEqual(repeatSummary.frame.height, 64, "「重复当前状态」可点区必须 ≥64pt")
         let routeMap = app.descendants(matching: .any)["completedTrackAuxiliaryMap"].firstMatch
         XCTAssertTrue(routeMap.exists, "The blind track should be available as an auxiliary map")
         XCTAssertLessThan(

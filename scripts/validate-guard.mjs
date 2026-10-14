@@ -1245,6 +1245,32 @@ const cases = [
     swift: 'struct A { func f() { if phase != .active { dimScreen() } } } // guard:allow scenephase-not-active'
   },
 
+  // bordered-frame-hit-area（2026-10-14，#383）。bordered 按钮外挂 frame 撑不大可点区。
+  {
+    name: 'bordered 按钮外挂 frame(minHeight:)（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'Button("重复当前状态", action: f)\n    .buttonStyle(.borderedProminent)\n    .frame(minHeight: 64)\n'
+  },
+  {
+    name: '中间隔一层 frame(maxWidth:) 也要拦',
+    mode: 'post',
+    expect: 2,
+    swift: 'Button("去设置") { f() }\n    .buttonStyle(.bordered)\n    .frame(maxWidth: .infinity)\n    .frame(minHeight: 64)\n'
+  },
+  {
+    name: 'frame 挂在 label 里（正解，放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'Button { f() } label: {\n    Text("重复当前状态")\n        .frame(minHeight: 64)\n}\n.buttonStyle(.borderedProminent)\n.accessibilityHint("x")\n'
+  },
+  {
+    name: 'bordered 违规行带 guard:allow 标注（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'Button("x", action: f)\n    .buttonStyle(.bordered) // guard:allow bordered-frame-hit-area\n    .frame(minHeight: 64)\n'
+  },
+
   // server-addr 的 scheme 那一半（2026-09-14 补）。
   // 原判据只看主机名，于是「主机对、scheme 退回明文」整类改动能原样穿过去 —— 实测 exit 0。
   // 下面头两条就是那个洞的形状；主机拼成字符串是为了本文件自己也过得了守卫。
