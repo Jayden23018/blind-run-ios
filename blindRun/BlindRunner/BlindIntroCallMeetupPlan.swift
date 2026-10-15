@@ -28,7 +28,7 @@ struct BlindMeetupPlanRow: Equatable, Identifiable {
     let isChanged: Bool
     /// 主值，每个元素一行（上衣颜色是两行）。
     let values: [String]
-    /// 「原定 7:00 – 8:00」。只有已变更的项有。
+    /// 主值下面那行灰色小字。已变更的项是「原定 7:00 – 8:00」；上衣颜色那项是「你的上衣颜色在通话中确认」。
     let original: String?
     /// 读屏标签。取自 `IntroCallMeetupCopy.planSpeech`，**不在这里另写一套**。
     let speech: String
@@ -133,13 +133,19 @@ enum BlindMeetupPlanLayout {
         )
     }
 
-    /// 「陪跑员：红色」「你：蓝色（通话中确认）」。只出现颜色名，不画色块（视觉稿决定 5）。
+    /// 「陪跑员：红色」「你：蓝色」，下面一行灰字「你的上衣颜色在通话中确认」。只出现颜色名，不画色块（视觉稿决定 5）。
+    ///
+    /// ⚠️ 与视觉稿原文「你：蓝色（通话中确认）」不同：那一行在真机无障碍审计里报
+    /// 「Text clipped（放大字号后可能被截断）」（2026-10-16，#434），同屏不带括号的几行都不报。
+    /// 拆成值 + 灰字一行，意思不变。读屏念的仍是 `planSpeech` 那一句，不受影响。
     private static func colorRow(plan: IntroCallMeetupPlan, speech: String) -> BlindMeetupPlanRow {
         var values: [String] = []
         if let volunteer = plan.volunteerTopColor?.spokenName { values.append("陪跑员：\(volunteer)") }
-        if let runner = plan.runnerTopColor?.spokenName { values.append("你：\(runner)（通话中确认）") }
+        let runner = plan.runnerTopColor?.spokenName
+        if let runner { values.append("你：\(runner)") }
         return BlindMeetupPlanRow(
-            kind: .colors, title: "上衣颜色", isChanged: false, values: values, original: nil, speech: speech
+            kind: .colors, title: "上衣颜色", isChanged: false, values: values,
+            original: runner == nil ? nil : "你的上衣颜色在通话中确认", speech: speech
         )
     }
 }
