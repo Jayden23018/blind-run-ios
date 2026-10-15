@@ -396,7 +396,10 @@ final class AccessibilityAuditTests: XCTestCase {
             ]
         )
         let consent = app.descendants(matching: .any)["volunteerLocationTrackConsentView"].firstMatch
-        XCTAssertTrue(consent.waitForExistence(timeout: 25), "进入出发态时没有盖上位置轨迹同意页")
+        XCTAssertTrue(
+            consent.waitForExistence(timeout: 25),
+            "进入出发态时没有盖上位置轨迹同意页（App 状态 \(app.state.rawValue)；1 = 没在运行，多半是某处无闸的 requestPermission() 撞上了调试断言）"
+        )
         XCTAssertEqual(app.state, .runningForeground,
                        "App 不在前台 —— 多半是同意页之前调了 requestPermission()，撞上了调试断言")
         // 等满一段而不是只看一眼：同意页常在根路由还在「正在恢复账号资料」时就盖上来，订单页是之后才加载的。

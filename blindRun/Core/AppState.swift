@@ -1192,7 +1192,7 @@ final class AppState: ObservableObject {
     /// 根据当前 token 和角色连接 WebSocket（mock 环境跳过）
     private func connectWebSocketIfNeeded() {
         #if DEBUG
-        if Self.uiTestConfiguresEscortSessionWithoutWebSocket() {
+        if currentEnvironment == .mock, Self.uiTestConfiguresEscortSessionWithoutWebSocket() {
             liveEscortCoordinator.configure(identityKey: sessionIdentityKey, role: activeRole, webSocketService: nil)
         }
         #endif
