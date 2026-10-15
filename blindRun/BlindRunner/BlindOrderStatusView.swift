@@ -90,6 +90,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private var introCallNotifyThrottle = IntroCallIncomingNotifyThrottle()
     /// App 在不在前台。10 分钟提醒在前台播报、不在前台走本地通知。
     private var isAppActive = true
+    /// 这次离开前台时真排出去的那条提醒的到点时刻。`nil` = 没排（回前台时就不撤、也不记「已送达」）。
+    private var introCallReminderScheduledFor: Date?
+    /// 安排单读不懂这件事已经念过了。只在 false → true 那一跳念一次，理由同 `introCallUnavailable`。
+    private var didAnnounceUnreadableIntroCallPlan = false
     /// 10 分钟提醒的本地通知。单测换成假的（真排一条是系统级副作用）。
     var introCallPlanReminderNotifier: any IntroCallPlanReminderNotifying = IntroCallPlanReminderNotifier.shared
     /// 时钟。单测拨它验 10 分钟提醒与 60 秒节流。
@@ -551,6 +555,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
         introCallCountdownAnnouncer = IntroCallCountdownAnnouncer()
         introCallPlanReminder = IntroCallPlanReminder()
         introCallNotifyThrottle = IntroCallIncomingNotifyThrottle()
+        introCallReminderScheduledFor = nil
+        didAnnounceUnreadableIntroCallPlan = false
     }
 
     /// 每次成功拉到通话数据之后：认出「安排单刚到 / 改了一版」、5 / 1 分钟播报、10 分钟提醒。
@@ -567,6 +573,16 @@ final class BlindOrderStatusViewModel: ObservableObject {
         // 节流都是那一轮的，不许带到新的人身上。
         if view.plan == nil, lastSeenIntroCallPlanVersion != nil {
             clearIntroCallPlanState()
+        }
+        // 服务端说有安排单、客户端读不懂：通话页显示「暂时拿不到」+ 重新加载（`hasUnreadablePlan`），
+        // 这里补上听得到的那半 —— 只在 false → true 那一跳念一次，每 5 秒一遍会把人淹掉。
+        if view.hasUnreadablePlan {
+            if !didAnnounceUnreadableIntroCallPlan {
+                didAnnounceUnreadableIntroCallPlan = true
+                speechService?.speakError(IntroCallCopy.loadFailed)
+            }
+        } else {
+            didAnnounceUnreadableIntroCallPlan = false
         }
         if let plan {
             if let last = lastSeenIntroCallPlanVersion {
@@ -626,20 +642,29 @@ final class BlindOrderStatusViewModel: ObservableObject {
     ///
     /// - 回前台判据只认「进过后台」（`IntroCallForegroundReturnDetector`）：拨号确认框点取消、
     ///   权限弹窗走的是 `.inactive → .active`，不许把它们当成「打完电话回来了」（修审查 #8）。
-    /// - 10 分钟提醒：进后台时排本地通知，回前台时撤掉；离开期间已经到点的记成「已提醒」，不补播。
+    /// - 10 分钟提醒：进后台时排本地通知，回前台时撤掉；**真排过通知**、且离开期间已经到点的，
+    ///   才记成「已提醒」不补播。只走过 `.inactive`（控制中心）、或进后台时已经过点没排上的，
+    ///   回来照样由前台轮询念出来 —— 否则这一轮的提醒一次都没响就被记成响过了。
     func observeScenePhase(_ phase: ScenePhase) {
         let returnedFromBackground = introCallForegroundDetector.observe(phase)
         let orderId = order?.orderId
         switch phase {
         case .background:
             isAppActive = false
-            if let orderId, let dueAt = introCallPlanReminder.dueAt {
+            let now = introCallNow()
+            if let orderId, let dueAt = introCallPlanReminder.dueAt, dueAt > now {
                 introCallPlanReminderNotifier.schedule(orderId: orderId, at: dueAt)
+                introCallReminderScheduledFor = dueAt
             }
         case .active:
             isAppActive = true
-            introCallPlanReminder.markDeliveredWhileAway(now: introCallNow())
-            if let orderId { introCallPlanReminderNotifier.cancel(orderId: orderId) }
+            if let scheduledFor = introCallReminderScheduledFor {
+                introCallReminderScheduledFor = nil
+                if introCallNow() >= scheduledFor {
+                    introCallPlanReminder.markDeliveredWhileAway(now: introCallNow())
+                }
+                if let orderId { introCallPlanReminderNotifier.cancel(orderId: orderId) }
+            }
             guard returnedFromBackground, order?.status == .pendingIntroCall else { return }
             if didDialThisIntroCallRound { hasReturnedFromIntroCallDialer = true }
             // 打完电话回来，陪跑员很可能已经填好了：马上拉一次，别让人对着 B2 等下一轮轮询。

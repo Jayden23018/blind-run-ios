@@ -271,6 +271,35 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
         )
     }
 
+    /// 到点那一刻只走了一趟 `.inactive`（拉下控制中心），没进后台、没排通知：回来**照样要念**。
+    /// 与上一条成对 —— 两条一起才说明「不补播」认的是「真排过通知」，而不是「离开过前台」。
+    func testReminderStillSpeaksWhenTheAppWasOnlyInactiveAtTheDueTime() async {
+        let windowEndsAt = Self.start.addingTimeInterval(20 * 60)
+        let view = Self.view(plan: Self.plan(version: 1, submittedAt: Self.start), windowEndsAt: windowEndsAt)
+        let h = await makeHarness(view: view)
+
+        h.viewModel.observeScenePhase(.inactive)
+        h.clock.now = Self.start.addingTimeInterval(10 * 60 + 5)
+        h.viewModel.observeScenePhase(.active)
+        await h.viewModel.reloadIntroCall()
+
+        XCTAssertTrue(h.notifier.scheduled.isEmpty)
+        let reminders = h.speech.spokenHistoryForTesting.filter { $0 == IntroCallCopy.blindPlanReminderSpeech }
+        XCTAssertEqual(reminders.count, 1, "只走了一趟 inactive，提醒却被记成「已送达」吞掉了")
+    }
+
+    /// 服务端有安排单、客户端读不懂：屏幕显示「暂时拿不到」，**也要念出来**，而且轮询多次只念一次。
+    func testUnreadablePlanIsAnnouncedOnceNotOnlyShown() async {
+        let unreadable = Self.view(plan: IntroCallPlanView(version: nil))
+        let h = await makeHarness(view: unreadable)
+        await h.viewModel.reloadIntroCall()
+        await h.viewModel.reloadIntroCall()
+
+        XCTAssertTrue(h.viewModel.introCall?.hasUnreadablePlan == true)
+        let failures = h.speech.spokenHistoryForTesting.filter { $0 == IntroCallCopy.loadFailed }
+        XCTAssertEqual(failures.count, 1)
+    }
+
     /// 到点时窗口已经结束：不提醒（超时由服务端宣布）。
     func testReminderIsSkippedWhenTheWindowEndsFirst() {
         var reminder = IntroCallPlanReminder()
@@ -314,6 +343,25 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
 
         XCTAssertTrue(
             h.speech.spokenHistoryForTesting.contains("本次见面安排未生效。正在为你寻找合适的陪跑伙伴。"),
+            "实际念的：\(h.speech.spokenHistoryForTesting)"
+        )
+    }
+
+    /// 确认之后订单约好：念的是「约定完成……」整句，不是「志愿者已接单，请前往……」。
+    /// 钉的是 `statusChangeAnnouncement` 里那条分支，纯函数那一条钉不到接线。
+    func testBecomingAgreedFromTheIntroCallSpeaksTheAgreedSentence() async {
+        let h = await makeHarness(view: Self.view(plan: Self.plan(version: 1)))
+        var agreed = Self.order(status: .pendingAccept)
+        agreed.meetSpotNote = "东门保安亭左侧"
+        agreed.volunteerTopColor = .red
+        h.orders.orderDetailResult = .success(agreed)
+
+        h.viewModel.startPolling(orderId: Self.orderId)
+        await Self.waitUntil { h.viewModel.order?.status == .pendingAccept }
+        h.viewModel.stopPolling()
+
+        XCTAssertTrue(
+            h.speech.spokenHistoryForTesting.contains(BlindIntroCallOutcomeCopy.agreed(order: agreed)),
             "实际念的：\(h.speech.spokenHistoryForTesting)"
         )
     }

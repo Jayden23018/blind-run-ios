@@ -222,7 +222,7 @@ enum IntroCallCopy {
     /// 就等于随时可能误拨。所以措辞落在「确认」而不是「打电话」上，hint 里再说一遍
     /// 「打开一个页面」。
     static let blindEntryButtonTitle = "和这位志愿者通话确认"
-    static let blindEntryAccessibilityHint = "打开通话确认页，在那里拨号并告诉系统合不合适"
+    static let blindEntryAccessibilityHint = "打开通话确认页，在那里拨号，或收听并确认陪跑员发来的见面安排"
 
     // MARK: 盲人侧 B1–B3（#434，视觉稿 v2 `docs/ui/mockups/intro-call-meetup-plan-20261015/` ③④，逐字）
 

@@ -122,7 +122,7 @@ enum BlindMeetupPlanLayout {
             // 原地名写全，不截前缀（理由同 `IntroCallMeetupCopy.placeItem`：集合点是可能是威胁来源的一方改的）。
             let from = original.startAddress?.nilIfBlank.map { "原定 \($0)" }
             let distance = changes.distanceFromOriginalMeters
-                .flatMap { $0 >= 10 ? $0 : nil }
+                .flatMap { $0 >= IntroCallMeetupCopy.minimumSpokenDistanceMeters ? $0 : nil }
                 .map { "距原地点约 \(DistanceCalculator.formattedDistance($0))" }
             let parts = [from, distance].compactMap { $0 }
             originalText = parts.isEmpty ? nil : parts.joined(separator: "，")
