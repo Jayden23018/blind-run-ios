@@ -24,6 +24,11 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
     }
 
     private struct Harness {
+        /// 🔴 **必须由 Harness 持有。** view model 对 `appState` 是 `weak`：只在 `makeHarness` 里有局部变量，
+        /// 函数一返回它就释放，此后 `reloadIntroCall` / `confirmIntroCallPlan` / `introCallDialURL`
+        /// 全在 `guard let appState` 处静默返回 —— 2026-10-16 首轮真机 11 条红、2 条假绿就是这个
+        /// （记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
+        let appState: AppState
         let orders: FakeOrderService
         let speech: SpeechService
         let viewModel: BlindOrderStatusViewModel
@@ -54,7 +59,7 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
         viewModel.introCallNow = { clock.now }
         viewModel.order = Self.order(status: .pendingIntroCall)
         if view != nil { await viewModel.reloadIntroCall() }
-        return Harness(orders: orders, speech: speech, viewModel: viewModel, notifier: notifier, clock: clock)
+        return Harness(appState: appState, orders: orders, speech: speech, viewModel: viewModel, notifier: notifier, clock: clock)
     }
 
     private static func view(
@@ -263,8 +268,11 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
         h.clock.now = Self.start.addingTimeInterval(12 * 60)
         h.viewModel.observeScenePhase(.active)
         XCTAssertGreaterThan(h.notifier.cancelCount, 0, "回前台没撤掉还没响的通知")
+        let fetchesBefore = h.orders.calls.filter { $0 == "introCallView(orderId:)" }.count
         await h.viewModel.reloadIntroCall()
 
+        // 先证明那次刷新**真的跑了**：只断言「没念」的话，view model 什么都不做也会绿。
+        XCTAssertGreaterThan(h.orders.calls.filter { $0 == "introCallView(orderId:)" }.count, fetchesBefore)
         XCTAssertFalse(
             h.speech.spokenHistoryForTesting.contains(IntroCallCopy.blindPlanReminderSpeech),
             "通知已经送达过，回前台又念了一遍"
@@ -296,6 +304,8 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
         await h.viewModel.reloadIntroCall()
 
         XCTAssertTrue(h.viewModel.introCall?.hasUnreadablePlan == true)
+        // 三次刷新都真的打到了端点 —— 否则「只念一次」在什么都没做时也成立。
+        XCTAssertEqual(h.orders.calls.filter { $0 == "introCallView(orderId:)" }.count, 3)
         let failures = h.speech.spokenHistoryForTesting.filter { $0 == IntroCallCopy.loadFailed }
         XCTAssertEqual(failures.count, 1)
     }
