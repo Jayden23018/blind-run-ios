@@ -1,0 +1,381 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>先通个电话 + 见面安排单 · 视觉稿 v1（待确认）</title><style>
+/* 颜色取自 FlowPalette（blindRun/Core/DesignSystem/FlowPalette.swift）亮色档。
+   唯一不在 main 上的是 --matching 灰蓝：它来自在途 PR #399（匹配 / 邀请头卡），本稿只复用、不再新增。
+   v6 的通话前紫 #6941C6、通话后梅红 #86377F 本稿不用。 */
+:root{
+  --page:#F2F3F6; --matching:#46506A; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --ink3:#8A91A2; --sep:#EEF0F4;
+  --accent:#2A5BD7; --accentInk:#1F47AD; --navy:#1B2657; --departed:#2A5BD7; --arrived:#A04B0C; --running:#0A6B72; --done:#1C7C45;
+  --cta:#F6C343; --onCTA:#111A2E; --ctaStroke:#D9A21E;
+  --helpBg:#FDECEC; --helpText:#B42318; --helpStroke:#F2B8B5;
+  --blueTint:#E6EDFC; --avatarBg:#DCE6FB; --ghost:#D5DAE3;
+  --warmCard:#FFF4D6; --warmTitle:#6B4A00; --warmBody:#3A2B00;
+  --note:#7A5AF8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;background:#E4E6EB;color:var(--ink);padding:48px 56px 64px;-webkit-font-smoothing:antialiased}
+h1{font-size:32px;font-weight:800;letter-spacing:-.2px}
+.lede{font-size:17px;color:var(--ink2);margin-top:8px;max-width:1200px;line-height:1.55}
+h2{font-size:22px;font-weight:800;margin:64px 0 6px}
+h2 + .h2sub{font-size:15px;color:var(--ink2);margin-bottom:22px;max-width:1200px;line-height:1.55}
+.row{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+.col{width:402px}
+.cap{font-size:16px;font-weight:700;text-align:center;margin-top:16px}
+.cap small{display:block;font-weight:500;color:var(--ink2);margin-top:4px;font-size:14px;line-height:1.45}
+svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* 读屏原话 */
+.speak{margin-top:12px;background:#fff;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.6;color:var(--ink);border-left:4px solid var(--note)}
+.speak b{display:block;font-size:12px;letter-spacing:.5px;color:var(--note);margin-bottom:2px}
+.speak q{quotes:"「" "」"}
+
+/* 手机 */
+.phone{width:402px;height:874px;border-radius:56px;background:var(--page);position:relative;overflow:hidden;box-shadow:0 0 0 10px #1C1F26,0 24px 48px rgba(0,0,0,.18);display:flex;flex-direction:column}
+.phone.tall{height:auto;min-height:874px;padding-bottom:20px}
+.sb{height:54px;flex:none;display:flex;justify-content:space-between;align-items:flex-end;padding:0 32px 8px 46px;font-size:17px;font-weight:600}
+.sb svg{height:13px}
+.hi{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:140px;height:5px;border-radius:3px;background:#111}
+.nav{height:56px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+.nav .t{font-size:17px;font-weight:700}
+.circ{width:44px;height:44px;border-radius:22px;background:var(--surface);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(21,26,38,.10);color:var(--ink)}
+.navtxt{font-size:17px;font-weight:600;color:var(--accent);min-width:44px}
+.pill-help{height:40px;padding:0 14px;border-radius:20px;background:var(--helpBg);color:var(--helpText);font-weight:700;font-size:16px;display:flex;align-items:center;gap:5px}
+.pill-help svg.i{width:18px;height:18px}
+
+.hero{border-radius:24px;padding:20px 20px 22px;margin:4px 16px 0;color:#fff}
+.eyebrow{font-size:15px;font-weight:600;color:rgba(255,255,255,.9)}
+svg.rope{display:block;width:100%;overflow:visible;margin:14px 0 10px}
+.say{font-size:30px;font-weight:800;line-height:1.2;letter-spacing:-.3px}
+.say.m{font-size:26px}
+.say-sub{font-size:17px;color:rgba(255,255,255,.92);margin-top:8px;line-height:1.4}
+.timer{display:inline-flex;align-items:center;gap:6px;margin-top:14px;height:32px;padding:0 14px;border-radius:16px;background:rgba(255,255,255,.16);color:#fff;font-size:15px;font-weight:700}
+.timer svg.i{width:16px;height:16px}
+.incoming{display:flex;align-items:center;gap:8px;margin-top:12px;height:36px;padding:0 14px;border-radius:18px;background:#fff;color:var(--accentInk);font-size:16px;font-weight:800;width:max-content}
+
+.card{background:var(--surface);border-radius:20px;margin:12px 16px 0;box-shadow:0 1px 2px rgba(21,26,38,.05),0 6px 18px rgba(21,26,38,.05)}
+.kv{display:flex;justify-content:space-between;align-items:center;padding:0 20px;min-height:54px;border-top:1px solid var(--sep);font-size:17px;gap:12px}
+.kv:first-child{border-top:none}
+.kv span:first-child{color:var(--ink2);flex:none} .kv span:last-child{font-weight:600;text-align:right}
+
+/* 安排单条目（盲人 B3 / 陪跑员 V3） */
+.plan .item{position:relative;padding:14px 20px 14px 20px;border-top:1px solid var(--sep)}
+.plan .item:first-child{border-top:none}
+.plan .lbl{font-size:15px;color:var(--ink2);display:flex;align-items:center;gap:8px}
+.plan .val{font-size:20px;font-weight:700;margin-top:4px;line-height:1.35}
+.plan .old{font-size:15px;color:var(--ink2);margin-top:2px}
+.tag{font-size:13px;font-weight:800;padding:2px 8px;border-radius:8px;background:var(--blueTint);color:var(--accentInk)}
+.plan .fixed{font-size:16px;color:var(--ink);line-height:1.5}
+.fo{position:absolute;left:-30px;top:14px;width:22px;height:22px;border-radius:11px;background:var(--note);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.fo.btn{left:-30px;top:50%;transform:translateY(-50%)}
+.hero .fo{left:-6px;top:-6px}
+.foWrap{position:relative}
+
+/* 表单（陪跑员 V2） */
+.sheetHead{padding:4px 20px 10px;font-size:16px;color:var(--ink2);line-height:1.5}
+.sec{background:var(--surface);border-radius:20px;margin:12px 16px 0;padding:14px 18px;box-shadow:0 1px 2px rgba(21,26,38,.05)}
+.sec h4{font-size:15px;color:var(--ink2);font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.sec .now{font-size:19px;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.sec .now .chg{font-size:16px;font-weight:700;color:var(--accent);flex:none}
+.sec .was{font-size:14px;color:var(--ink2);margin-top:2px}
+.input{margin-top:6px;height:48px;border-radius:12px;border:1.5px solid var(--ghost);display:flex;align-items:center;padding:0 14px;font-size:17px;color:var(--ink);justify-content:space-between}
+.input .cnt{font-size:13px;color:var(--ink3)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{height:40px;padding:0 12px 0 8px;border-radius:20px;border:1.5px solid var(--ghost);display:flex;align-items:center;gap:6px;font-size:15px;font-weight:600;background:#fff}
+.chip i{width:20px;height:20px;border-radius:10px;border:1px solid rgba(0,0,0,.15);display:block}
+.chip.on{border:2.5px solid var(--accent);color:var(--accentInk)}
+.chip.unk{padding-left:12px;color:var(--ink2)}
+.err{margin-top:8px;font-size:15px;color:var(--helpText);font-weight:600;line-height:1.45;display:flex;gap:6px}
+.remind{margin:12px 16px 0;font-size:15px;color:var(--ink2);line-height:1.5;padding:0 4px}
+
+.bottom{margin-top:auto;padding:12px 16px 30px;display:flex;flex-direction:column;gap:12px}
+.phone.tall .bottom{margin-top:16px}
+.cta{height:72px;border-radius:18px;background:var(--cta);border:1.5px solid var(--ctaStroke);color:var(--onCTA);font-size:21px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;text-align:center;padding:0 12px;line-height:1.25}
+.cta.big{height:84px;font-size:23px}
+.cta.stack{flex-direction:column;gap:2px}
+.cta small{display:block;font-size:15px;font-weight:700}
+.call{height:84px;border-radius:18px;background:var(--surface);border:2px solid var(--accent);color:var(--accentInk);font-size:21px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px}
+.ghost{height:64px;border-radius:16px;background:var(--surface);border:1.5px solid var(--ghost);font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+.textbtn{height:44px;font-size:16px;font-weight:600;color:var(--ink2);display:flex;align-items:center;justify-content:center}
+.help{height:64px;border-radius:16px;background:var(--helpBg);border:1.5px solid var(--helpStroke);color:var(--helpText);font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px}
+.banner{margin:12px 16px 0;border-radius:16px;background:var(--helpBg);border:1.5px solid var(--helpStroke);color:var(--helpText);padding:14px 16px;font-size:17px;font-weight:700;line-height:1.45}
+.banner.warm{background:var(--warmCard);border-color:#EBD08A;color:var(--warmBody)}
+.banner.warm b{color:var(--warmTitle)}
+
+/* 颜色对比条 */
+.swrow{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.sw{width:118px;height:64px;border-radius:14px;color:#fff;font-size:14px;font-weight:700;display:flex;align-items:flex-end;padding:8px 10px;line-height:1.2}
+.sw.x{outline:3px dashed #C81E14;outline-offset:3px}
+.swlabel{width:110px;font-size:15px;font-weight:800}
+.swnote{font-size:14px;color:var(--ink2);margin-left:6px}
+
+/* 时间线 */
+table.tl{border-collapse:separate;border-spacing:0;background:#fff;border-radius:18px;overflow:hidden;font-size:15px;line-height:1.55;width:100%;max-width:1320px}
+.tl th{background:#1C1F26;color:#fff;text-align:left;padding:12px 14px;font-size:14px;letter-spacing:.3px}
+.tl td{padding:12px 14px;border-top:1px solid var(--sep);vertical-align:top}
+.tl td:first-child{font-weight:800;color:var(--ink2);width:46px;text-align:center}
+.tl td.sys{color:var(--ink2);background:#FAFBFC;width:26%}
+.tl .sayq{color:var(--note);font-weight:600}
+.tl tr.branch td{background:#FBFAFF}
+
+.notes{margin-top:56px;font-size:15px;color:var(--ink2);line-height:1.75;max-width:1320px;background:#fff;border-radius:18px;padding:22px 26px}
+.notes b{color:var(--ink)}
+.notes h3{font-size:17px;color:var(--ink);margin:14px 0 4px}
+.notes h3:first-child{margin-top:0}
+.snip{width:402px;background:var(--page);border-radius:28px;padding:14px 0 18px;box-shadow:0 0 0 6px #1C1F26}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+ <symbol id="phone" viewBox="0 0 24 24"><path d="M6.5 3.5h2.8l1.6 4.2-2.1 1.4a11.5 11.5 0 0 0 6.1 6.1l1.4-2.1 4.2 1.6v2.8a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z"/></symbol>
+ <symbol id="shield" viewBox="0 0 24 24"><path d="M12 3l7 2.8v5.4c0 4.6-3 8.3-7 9.8-4-1.5-7-5.2-7-9.8V5.8z"/></symbol>
+ <symbol id="speaker" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></symbol>
+ <symbol id="back" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
+ <symbol id="close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+ <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+ <symbol id="doc" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M14 3.5V8h4M9.5 12h5M9.5 15.5h5"/></symbol>
+ <symbol id="alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.2v.1"/></symbol>
+</svg>
+<template id="sb"><div class="sb"><span>9:41</span><svg viewBox="0 0 64 13"><rect x="0" y="8" width="3" height="5" rx="1" fill="#151A26"/><rect x="5" y="5.5" width="3" height="7.5" rx="1" fill="#151A26"/><rect x="10" y="3" width="3" height="10" rx="1" fill="#151A26"/><rect x="15" y="0.5" width="3" height="12.5" rx="1" fill="#151A26"/><rect x="36" y="1" width="23" height="11" rx="3.5" fill="none" stroke="#151A26" stroke-opacity=".4"/><rect x="38" y="3" width="19" height="7" rx="2" fill="#151A26"/></svg></div></template>
+
+<header>
+ <h1>先通个电话 + 见面安排单 · 视觉稿 v1（待负责人确认）</h1>
+ <p class="lede">依据设计文档 <code>docs/design/2026-10-15-intro-call-meetup-plan-design.md</code>（已批准）。本稿只回答「长什么样」：屏幕结构、按钮、文案、读屏顺序与原话。紫色框里是读屏会念的话。
+ 名字、时间、地点都是示例：原约「明天 7:00–8:00，朝阳公园南门」，陪跑员在电话里和跑者商量改成「7:30，东门」。</p>
+</header>
+
+<h2>① 颜色：通话这一步不再加颜色</h2>
+<p class="h2sub">v6 给通话前、通话后各配了一种新颜色（紫、梅红），加上匹配灰蓝，一共 8 种头卡色。本稿把通话归回进度绳的第一格「匹配 / 邀请」，整步沿用同一种颜色；通话前、等安排、听安排这几个子状态<b>靠头卡那句话和绳子上的小图标区分</b>（电话 → 单子），不靠换色。颜色只是冗余线索，状态由那句话承担（<code>design-direction.md</code> §2）。</p>
+<div class="swrow"><div class="swlabel">v6（8 种）</div>
+ <div class="sw" style="background:#46506A">匹配 / 邀请</div><div class="sw x" style="background:#6941C6">通话前 紫</div><div class="sw x" style="background:#86377F">通话后 梅红</div>
+ <div class="sw" style="background:#1B2657">约好</div><div class="sw" style="background:#2A5BD7">出发</div><div class="sw" style="background:#A04B0C">汇合</div><div class="sw" style="background:#0A6B72">跑步中</div><div class="sw" style="background:#1C7C45">完成</div></div>
+<div class="swrow" style="margin-top:16px"><div class="swlabel">本稿（6 种）</div>
+ <div class="sw" style="background:#46506A">匹配 / 邀请 /<br>先通个电话</div>
+ <div class="sw" style="background:#1B2657">约好</div><div class="sw" style="background:#2A5BD7">出发</div><div class="sw" style="background:#A04B0C">汇合</div><div class="sw" style="background:#0A6B72">跑步中</div><div class="sw" style="background:#1C7C45">完成</div>
+ <span class="swnote">红虚线框 = 本稿去掉的颜色。按钮只有三种：黄 = 这一屏唯一主动作，白底蓝框 = 打电话，浅红 = 求助。</span></div>
+
+<!-- ================= 陪跑员端 ================= -->
+<h2>② 陪跑员端</h2>
+<p class="h2sub">陪跑员是明眼人，单手操作。主路径做到「一个字不改，点一下就能提交」。</p>
+<div class="row">
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
+<div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
+ <svg class="rope" data-rope='{"icon":"phone","other":"王","labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="say">等王*打电话给你</div><div class="say-sub">来电号码 138****0001</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前聊完 · 还剩 14 分钟</div></div>
+<div class="card"><div class="kv"><span>导盲犬</span><span>同行</span></div><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
+<div class="bottom"><div class="cta">聊过了，填见面安排</div><div class="ghost">不合适</div><div class="textbtn">一直没接到电话</div></div><div class="hi"></div></div>
+<div class="cap">V1 等来电<small>主按钮从「合适，接这一单」改成「聊过了，填见面安排」</small></div>
+<div class="speak"><b>读屏 · 进入时</b><q>等王*打电话给你。来电号码 138 星星星星 0001。22 点 42 分前聊完，还剩 14 分钟。</q></div></div>
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
+<div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
+ <svg class="rope" data-rope='{"icon":"phone","other":"王","labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="say">王*正在给你打电话</div><div class="say-sub">来电号码 138****0001，请接听</div>
+ <div class="incoming"><svg class="i"><use href="#phone"/></svg>来电提醒 · 2 分钟内有效</div></div>
+<div class="card"><div class="kv"><span>导盲犬</span><span>同行</span></div><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
+<div class="bottom"><div class="cta">聊过了，填见面安排</div><div class="ghost">不合适</div><div class="textbtn">一直没接到电话</div></div><div class="hi"></div></div>
+<div class="cap">V1′ 跑者正在打来<small>收到后端 <code>INTRO_CALL_INCOMING</code> 后的 2 分钟。只说「正在打」，不说「通话中」—— 系统不知道接通没有</small></div>
+<div class="speak"><b>读屏 · 收到提醒时</b><q>王*正在给你打电话，请接听。</q></div></div>
+
+<div class="col"><div class="phone tall" data-sb>
+<div class="nav"><div class="navtxt">取消</div><div class="t">见面安排</div><div style="width:44px"></div></div>
+<div class="sheetHead">把电话里说好的写下来，跑者听完确认就算约好。没改的项不用动。</div>
+<div class="sec"><h4>开跑时间<span class="tag">已改</span></h4><div class="now"><span>明天 7:30 – 8:30</span><span class="chg">改</span></div><div class="was">原来 7:00 – 8:00</div></div>
+<div class="sec"><h4>集合地点<span class="tag">已改</span></h4><div class="now"><span>朝阳公园东门</span><span class="chg">改</span></div><div class="was">原来 朝阳公园南门 · 相距约 800 米（上限 3 公里）</div></div>
+<div class="sec"><h4>具体在哪儿见</h4><div class="input"><span>东门保安亭左边</span><span class="cnt">7 / 30</span></div></div>
+<div class="sec"><h4>你今天穿的上衣</h4><div class="chips">
+ <div class="chip"><i style="background:#111"></i>黑</div><div class="chip"><i style="background:#fff"></i>白</div><div class="chip"><i style="background:#9AA0A6"></i>灰</div><div class="chip on"><i style="background:#D93025"></i>红</div><div class="chip"><i style="background:#F29900"></i>橙</div><div class="chip"><i style="background:#F9D71C"></i>黄</div><div class="chip"><i style="background:#188038"></i>绿</div><div class="chip"><i style="background:#1A73E8"></i>蓝</div><div class="chip"><i style="background:#8E24AA"></i>紫</div><div class="chip"><i style="background:#F48FB1"></i>粉</div><div class="chip unk">不确定</div></div></div>
+<div class="sec"><h4>跑者说他穿的上衣</h4><div class="chips">
+ <div class="chip"><i style="background:#111"></i>黑</div><div class="chip"><i style="background:#fff"></i>白</div><div class="chip"><i style="background:#9AA0A6"></i>灰</div><div class="chip"><i style="background:#D93025"></i>红</div><div class="chip"><i style="background:#F29900"></i>橙</div><div class="chip"><i style="background:#F9D71C"></i>黄</div><div class="chip"><i style="background:#188038"></i>绿</div><div class="chip on"><i style="background:#1A73E8"></i>蓝</div><div class="chip"><i style="background:#8E24AA"></i>紫</div><div class="chip"><i style="background:#F48FB1"></i>粉</div><div class="chip unk">他不确定</div></div></div>
+<div class="remind">见面时请你主动走过去，先报自己的姓。</div>
+<div class="bottom"><div class="cta stack">发给跑者确认<small>改了时间、地点</small></div></div><div class="hi"></div></div>
+<div class="cap">V2 填见面安排（整页展开，实际可滚动）<small>色块是这一页唯一出现「内容颜色」的地方，只给明眼的陪跑员看；盲人端只念颜色名。一项不改时主按钮是「按原约，发给跑者确认」</small></div></div>
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
+<div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:30 · 朝阳公园东门</div>
+ <svg class="rope" data-rope='{"icon":"doc","other":"王","meCheck":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="say">已发给王*，等他确认</div><div class="say-sub">他确认后就算约好</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前 · 还剩 9 分钟</div></div>
+<div class="card plan"><div class="item"><div class="lbl">开跑时间 <span class="tag">已改</span></div><div class="val">明天 7:30 – 8:30</div></div><div class="item"><div class="lbl">集合地点 <span class="tag">已改</span></div><div class="val">朝阳公园东门 · 东门保安亭左边</div></div><div class="item"><div class="lbl">上衣</div><div class="val" style="font-size:17px">你 红色 · 王* 蓝色</div></div></div>
+<div class="bottom"><div class="ghost">修改安排</div><div class="textbtn">不合适</div></div><div class="hi"></div></div>
+<div class="cap">V3 等跑者确认<small>不显示跑者在不在听、同不同意。点「修改安排」会先提示「改了之后跑者要重新确认」</small></div>
+<div class="speak"><b>读屏 · 提交成功</b><q>已发给王*确认。</q></div></div>
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">陪跑订单</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
+<div class="hero" style="background:var(--navy)"><div class="eyebrow">已约好</div>
+ <svg class="rope" data-rope='{"cur":1,"other":"王","agreed":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="say">明天 7:30</div><div class="say-sub">请提前 10 分钟到东门保安亭左边</div></div>
+<div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园东门</span></div><div class="kv"><span>具体在哪儿见</span><span>东门保安亭左边</span></div><div class="kv"><span>王* 穿</span><span>蓝色上衣</span></div><div class="kv"><span>你说你穿</span><span>红色上衣</span></div></div>
+<div class="bottom"></div><div class="hi"></div></div>
+<div class="cap">V4 约好<small>订单页「约好」新增见面点与两人上衣颜色，其余同现有陪跑员订单页</small></div>
+<div class="speak"><b>读屏 · 约好时</b><q>已约好。明天 7 点 30 分，朝阳公园东门，东门保安亭左边。王*穿蓝色上衣。</q></div></div>
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div style="width:44px"></div></div>
+<div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"other":"王","otherState":"none","labels":["邀请","约好","出发","汇合"]}'></svg>
+ <div class="say m">这次通话确认已结束</div><div class="say-sub">感谢你的响应</div></div>
+<div class="bottom"><div class="cta">回首页</div></div><div class="hi"></div></div>
+<div class="cap">V4′ 没约成<small>跑者不合适 / 超时 / 跑者取消，全部同一句。v6 是停 3 秒自动跳走，本稿改为留在这里等陪跑员自己点</small></div>
+<div class="speak"><b>读屏</b><q>这次通话确认已结束，感谢你的响应。</q></div></div>
+</div>
+
+<!-- ================= 盲人端 ================= -->
+<h2>③ 盲人端</h2>
+<p class="h2sub">每一屏只做一件事，听完就知道下一步按什么。紫色圆圈数字 = 读屏滑动顺序。导航栏右侧的喇叭是「重复当前状态」。</p>
+<div class="row">
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
+<div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"icon":"phone","other":"李"}'></svg>
+ <div class="say">李*想陪你跑</div><div class="say-sub">先打个电话，聊完他会把约定发给你确认</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>还剩 19 分钟</div></div>
+<div class="bottom"><div class="cta big"><svg class="i"><use href="#phone"/></svg>打电话给李*</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
+<div class="cap">B1 待通话<small>同 v6 结构，副标题改为预告下一步</small></div>
+<div class="speak"><b>读屏 · 进入时</b><q>李*想陪你跑。先打个电话，聊完他会把约定发给你确认。还剩 19 分钟。</q></div></div>
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
+<div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
+ <svg class="rope" data-rope='{"icon":"doc","iconDim":true,"other":"李"}'></svg>
+ <div class="say">等李*发来见面安排</div><div class="say-sub">他会把电话里说好的时间、地点写下来发给你。你听完点确认，就算约好。</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>还剩 12 分钟</div></div>
+<div class="bottom"><div class="call"><svg class="i"><use href="#phone"/></svg>再打一次</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
+<div class="cap">B2 等安排<small>只在 App 从<b>后台</b>回到前台时进入（拨号确认框点取消不算）。v6 的「聊过了，合适」去掉；这一屏没有黄色主按钮，因为此刻没有该你做的事</small></div>
+<div class="speak"><b>读屏 · 打完电话回来</b><q>等李*发来见面安排。他会把电话里说好的时间、地点写下来发给你。你听完点确认，就算约好。</q></div></div>
+
+<div class="col"><div class="phone tall" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">见面安排</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
+<div class="foWrap"><div class="hero" style="background:var(--matching);padding-bottom:18px"><span class="fo">1</span><div class="eyebrow">李* 发来的</div>
+ <div class="say m" style="margin-top:6px">见面安排，改了 2 项</div>
+ <div class="timer" style="margin-top:10px"><svg class="i"><use href="#clock"/></svg>还剩 9 分钟</div></div></div>
+<div class="card plan" style="margin-left:46px">
+ <div class="item"><span class="fo">2</span><div class="lbl">开跑时间 <span class="tag">改了</span></div><div class="val">明天 7:30 – 8:30</div><div class="old">原来 7:00 – 8:00</div></div>
+ <div class="item"><span class="fo">3</span><div class="lbl">集合地点 <span class="tag">改了</span></div><div class="val">朝阳公园东门</div><div class="old">原来南门，离原来的地方约 800 米</div></div>
+ <div class="item"><span class="fo">4</span><div class="lbl">具体在哪儿见</div><div class="val">东门保安亭左边</div></div>
+ <div class="item"><span class="fo">5</span><div class="lbl">上衣</div><div class="val" style="font-size:18px">李* 红色 · 他记下你穿蓝色</div></div>
+ <div class="item"><span class="fo">6</span><div class="fixed">见面时他会走过来，先报自己的姓。</div></div>
+</div>
+<div class="bottom" style="padding-left:46px"><div class="foWrap"><span class="fo btn">7</span><div class="cta big">对，就这样</div></div><div class="foWrap"><span class="fo btn">8</span><div class="call"><svg class="i"><use href="#phone"/></svg>不对，再打电话说</div></div><div class="foWrap"><span class="fo btn">9</span><div class="ghost">换一位</div></div><div class="foWrap"><span class="fo btn">10</span><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div></div><div class="hi"></div></div>
+<div class="cap">B3 听安排、做确认（核心）<small>「对」与「不对」同样高（84pt），避免让人觉得被迫同意。顺序固定：时间 → 地点 → 见面点 → 上衣 → 固定句。整页展开画出，实际可滚动，「求助与安全」常驻底部。左侧缩进只是为了放读屏序号，实现时不缩进</small></div>
+<div class="speak"><b>读屏 · 安排一到（焦点落 ①）</b><q>李*发来了见面安排，改了 2 项。</q><br>
+<b style="margin-top:6px">往右滑依次念</b>② <q>开跑时间，改了：从明天 7 点改为 7 点 30，到 8 点 30 结束。</q> ③ <q>集合地点，改了：从朝阳公园南门改为东门，离原来的地方约 800 米。</q> ④ <q>具体在哪儿见：东门保安亭左边。</q> ⑤ <q>李*今天穿红色上衣。他记下你穿蓝色上衣，不对可以打电话告诉他。</q> ⑥ <q>见面时他会走过来，先报自己的姓。</q></div></div>
+
+<div class="col"><div class="phone" data-sb>
+<div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">陪跑订单</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
+<div class="hero" style="background:var(--navy)"><div class="eyebrow">已约好</div>
+ <svg class="rope" data-rope='{"cur":1,"other":"李","agreed":true}'></svg>
+ <div class="say">明天 7:30</div><div class="say-sub">请提前 10 分钟到东门保安亭左边</div></div>
+<div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园东门</span></div><div class="kv"><span>具体在哪儿见</span><span>东门保安亭左边</span></div><div class="kv"><span>李* 穿</span><span>红色上衣</span></div></div>
+<div class="bottom"><div class="cta"><svg class="i"><use href="#phone"/></svg>打电话给李*</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
+<div class="cap">约好<small>沿用订单页「约好」（藏青），信息卡新增两行</small></div>
+<div class="speak"><b>读屏 · 约好时</b><q>约好了。明天 7 点 30 分，朝阳公园东门，东门保安亭左边。李*穿红色上衣，见面时他会先报姓。</q></div></div>
+</div>
+
+<!-- ================= 异常与临期 ================= -->
+<h2>④ 等待、临期与出错</h2>
+<p class="h2sub">每个出错的地方都要「屏幕上看得到 + 读屏听得到」—— 现在 main 上盲人表态失败只有语音（审查 #3）。下面是局部截图，不是整屏。</p>
+<div class="row">
+
+<div class="col"><div class="snip">
+<div class="hero" style="background:var(--matching);margin-top:0"><div class="eyebrow">李* 发来的</div><div class="say m" style="margin-top:6px">李*改了安排，请再听一遍</div><div class="timer" style="margin-top:10px"><svg class="i"><use href="#clock"/></svg>还剩 6 分钟</div></div>
+<div class="card plan"><div class="item"><div class="lbl">开跑时间 <span class="tag">改了</span></div><div class="val">明天 7:20 – 8:20</div><div class="old">原来 7:00 – 8:00</div></div></div></div>
+<div class="cap">盲人在 B3 时陪跑员又改了<small>或点「对」时后端回 409（版本过期）。不当错误念，焦点回到标题</small></div>
+<div class="speak"><b>读屏</b><q>李*改了安排，请再听一遍。</q></div></div>
+
+<div class="col"><div class="snip">
+<div class="banner"><div style="display:flex;gap:8px"><svg class="i"><use href="#alert"/></svg><span>没有发出去，请再点一次「对，就这样」。</span></div></div>
+<div class="bottom" style="padding-bottom:0"><div class="cta big">对，就这样</div></div></div>
+<div class="cap">盲人点「对」失败<small>留在 B3，红条出现在按钮上方并播报</small></div>
+<div class="speak"><b>读屏</b><q>没有发出去，请再点一次。</q></div></div>
+
+<div class="col"><div class="snip">
+<div class="sec" style="margin-top:0"><h4>开跑时间<span class="tag">已改</span></h4><div class="now"><span>今天 21:30 – 22:30</span><span class="chg">改</span></div>
+<div class="err"><svg class="i" style="width:18px;height:18px"><use href="#alert"/></svg><span>整段跑步不能跨过晚上 10 点到早上 5 点，换一个时间。</span></div></div>
+<div class="sec"><h4>集合地点<span class="tag">已改</span></h4><div class="now"><span>奥林匹克森林公园南门</span><span class="chg">改</span></div>
+<div class="err"><svg class="i" style="width:18px;height:18px"><use href="#alert"/></svg><span>离原来的地方 8.4 公里，最远只能改到 3 公里内。</span></div></div></div>
+<div class="cap">陪跑员提交被拦<small>错误写在对应那一块下面，已填内容保留。跑者那边时段冲突只说「这个时间不行，换一个试试」，不说原因</small></div></div>
+
+<div class="col"><div class="snip">
+<div class="banner warm"><b>还剩 5 分钟</b><br>听完安排，请点「对，就这样」。</div>
+<div class="banner warm" style="margin-top:10px"><b>李*发来的见面安排还没确认</b><br>发来 10 分钟了。没离开 App 也会收到这条通知。</div></div>
+<div class="cap">临期提醒（盲人端）<small>倒计时平时静默，只在剩 5 分钟、剩 1 分钟各播一次；安排单发来 10 分钟未确认提醒一次。不足 1 分钟显示「不到 1 分钟」，不再整行消失</small></div>
+<div class="speak"><b>读屏</b><q>还剩 5 分钟，听完安排请点确认。</q></div></div>
+
+<div class="col"><div class="snip">
+<div class="hero" style="background:var(--matching);margin-top:0"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div><div class="say m" style="margin-top:6px">这次安排没有生效</div><div class="say-sub">正在为你寻找合适的陪跑伙伴</div></div></div>
+<div class="cap">盲人在 B3 时超时<small>先说「没有生效」，免得以为刚听的安排已经定了；再接现有那句继续寻找</small></div>
+<div class="speak"><b>读屏</b><q>这次安排没有生效。正在为你寻找合适的陪跑伙伴。</q></div></div>
+</div>
+
+<!-- ================= 时间线 ================= -->
+<h2>⑤ 两端时间线：谁在什么时候看到、听到什么</h2>
+<p class="h2sub">中间一列是系统真正知道的事。界面只说这一列里有的事 —— 例如系统不知道电话接通没有，所以两端都不说「通话中」。</p>
+<table class="tl">
+<tr><th>#</th><th>盲人端</th><th>系统知道什么</th><th>陪跑员端</th></tr>
+<tr><td>1</td><td>B1 弹出，播 <span class="sayq">「有一位志愿者想陪您跑步……」</span>（后端 <code>INTRO_CALL_READY</code>）</td><td class="sys">陪跑员点了「有意向」，20 分钟窗口开始</td><td>V1「等王*打电话给你」</td></tr>
+<tr><td>2</td><td>点「打电话给李*」→ 系统拨号确认框 → 进入系统电话</td><td class="sys">盲人按了拨号（<code>notify-incoming</code>，客户端 60 秒内最多发一次）</td><td>V1′ 播 <span class="sayq">「王*正在给你打电话，请接听」</span>，持续 2 分钟</td></tr>
+<tr><td>3</td><td>（在系统电话里，App 不显示）</td><td class="sys"><b>不知道</b>接通没有、聊了多久</td><td>（在接电话）</td></tr>
+<tr><td>4</td><td>挂断回到 App → B2「等李*发来见面安排」</td><td class="sys">只知道 App 从后台回到了前台</td><td>点「聊过了，填见面安排」→ V2</td></tr>
+<tr><td>5</td><td>B3 自动出现，焦点落标题，播 <span class="sayq">「李*发来了见面安排，改了 2 项」</span></td><td class="sys">收到安排单第 1 版；校验通过（提前量、7 天、时长、夜间、3 公里、时段）</td><td>V3，播 <span class="sayq">「已发给王*确认」</span></td></tr>
+<tr class="branch"><td>5a</td><td>点「不对，再打电话说」→ 直接拨号</td><td class="sys">又一次 <code>notify-incoming</code>；安排单保留</td><td>再次 V1′ 来电提醒 —— <b>不告诉他「跑者不同意」</b></td></tr>
+<tr class="branch"><td>5b</td><td>（若在听）焦点回标题，播 <span class="sayq">「李*改了安排，请再听一遍」</span></td><td class="sys">安排单第 2 版，盲人之前的确认作废</td><td>点「修改安排」重新提交</td></tr>
+<tr><td>6</td><td>安排单发来 10 分钟未确认 → 提醒一次（播报 + 本地通知）</td><td class="sys">安排单版本与盲人确认状态</td><td>不提醒，不显示跑者状态</td></tr>
+<tr><td>7</td><td>剩 5 分钟、剩 1 分钟各播一次，内容按当前屏说下一步</td><td class="sys"><code>windowEndsAt</code></td><td>同样两次，<span class="sayq">「还剩 5 分钟」</span></td></tr>
+<tr><td>8</td><td>点「对，就这样」→ 订单页「约好」，播整句约定</td><td class="sys">盲人确认最新版本 → 成单前复检 → 写入订单 → 成单</td><td>V4 约好，播 <span class="sayq">「已约好……」</span></td></tr>
+<tr class="branch"><td>8′</td><td>超时 / 换一位 → <span class="sayq">「这次安排没有生效。正在为你寻找……」</span></td><td class="sys">本轮结束，安排单删除</td><td>V4′ 没约成（同一句，不说原因）</td></tr>
+</table>
+
+<div class="notes">
+<h3>请负责人确认的视觉决定</h3>
+<b>1. 颜色</b>　通话整步沿用「匹配 / 邀请」灰蓝，去掉 v6 的紫和梅红（头卡色 8 → 6）。⚠️ 灰蓝本身来自在途 PR #399；若 #399 最终不用灰蓝，通话步骤跟随匹配页（main 上盲人端匹配页是白卡）。<br>
+<b>2. 子状态怎么区分</b>　靠头卡那句话 + 绳子第一段上的小图标：电话（等通话）→ 灰色单子（等安排）→ 不画绳子、改成大标题「见面安排，改了 N 项」（听安排）。<br>
+<b>3. B3 的两个大按钮</b>　「对，就这样」黄、「不对，再打电话说」白底蓝框，<b>同样 84pt 高</b>。<br>
+<b>4. 「改了」标记</b>　浅蓝小标签 + 下面一行「原来 …」。不用删除线（读屏念不出删除线）。<br>
+<b>5. 上衣颜色</b>　陪跑员表单里用色块（内容颜色，不是界面装饰色）；盲人端只出现颜色名。
+
+<h3>不变的规则</h3>
+不显示对方的表态 · 不显示第几位志愿者 · 陪跑员端号码只显示打码版本、不能回拨 · 「一直没接到电话」与「不合适」仍是两个动作 · 没约成不说原因 · 改约后由盲人确认才生效。
+
+<h3>本稿没画的</h3>
+最大字号（AX5）、深色模式、横屏、时间选择器与地点搜索的弹层 —— 视觉方向批准后在实现阶段补；真机截图按 <code>design-direction.md</code> §1 第 4 步比对。
+</div>
+
+<script>
+document.querySelectorAll('[data-sb]').forEach(p=>p.prepend(document.getElementById('sb').content.cloneNode(true)));
+
+// 进度绳：几何照搬 v6（RopeView 的 RopeGeometry：342 宽、刻度 24/122/220/318、对方在 318）。
+const SAG=24, X0=24, X1=318, Y=28, LABEL_Y=84, TICKS=[24,122,220,318];
+function yAt(x){const t=(x-X0)/(X1-X0);return Y+2*t*(1-t)*SAG;}
+function curve(a,b){let d='';for(let i=0;i<=40;i++){const x=a+(b-a)*i/40;d+=(i?'L':'M')+x.toFixed(1)+' '+yAt(x).toFixed(1)+' ';}return d;}
+const ICONS={
+ phone:'<path d="M6.5 3.5h2.8l1.6 4.2-2.1 1.4a11.5 11.5 0 0 0 6.1 6.1l1.4-2.1 4.2 1.6v2.8a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z"/>',
+ doc:'<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M14 3.5V8h4M9.5 12h5M9.5 15.5h5"/>'};
+document.querySelectorAll('svg[data-rope]').forEach(svg=>{
+  const o=JSON.parse(svg.dataset.rope); const cur=o.cur||0;
+  const hero=getComputedStyle(svg.closest('.hero')).backgroundColor;
+  svg.setAttribute('viewBox','0 0 342 96');
+  const labels=o.labels||['匹配','约好','出发','汇合'];
+  const mx=TICKS[cur], my=yAt(mx);
+  let h='';
+  if(cur>0) h+=`<path d="${curve(X0,mx)}" stroke="rgba(255,255,255,.3)" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  h+=`<path d="${curve(mx+24,X1-24)}" stroke="${o.agreed?'rgba(255,255,255,.75)':'rgba(255,255,255,.5)'}" stroke-width="${o.agreed?3:2.5}" fill="none" stroke-linecap="round" ${o.agreed?'':'stroke-dasharray="2 7"'}/>`;
+  for(let i=0;i<3;i++){ if(i===cur) continue; const x=TICKS[i],y=yAt(x);
+    if(i<cur) h+=`<circle cx="${x}" cy="${y}" r="9" fill="#fff"/><path d="M${x-4} ${y} l3 3 l5 -6" stroke="${hero}" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    else h+=`<circle cx="${x}" cy="${y}" r="6.5" fill="transparent" stroke="rgba(255,255,255,.75)" stroke-width="2"/>`;}
+  TICKS.forEach((x,i)=>{const isCur=i===cur; const col=isCur?'#fff':(i<cur?'rgba(255,255,255,.8)':'rgba(255,255,255,.6)');
+    h+=`<text x="${x}" y="${LABEL_Y}" text-anchor="middle" font-size="15" font-weight="${isCur?800:600}" fill="${col}">${labels[i]}</text>`;});
+  if(o.icon){const px=(TICKS[1]+TICKS[2])/2, py=yAt(px);
+    h+=`<circle cx="${px}" cy="${py}" r="13" fill="#fff" ${o.iconDim?'fill-opacity=".55"':''}/><g transform="translate(${px-8} ${py-8}) scale(.667)" fill="none" stroke="${hero}" stroke-width="2.2" stroke-linejoin="round">${ICONS[o.icon]}</g>`;}
+  if(o.otherState==='none') h+=`<circle cx="${X1}" cy="${Y}" r="21" fill="transparent" stroke="rgba(255,255,255,.5)" stroke-width="2" stroke-dasharray="3 3"/><text x="${X1}" y="${Y+7}" text-anchor="middle" font-size="18" font-weight="700" fill="rgba(255,255,255,.9)">${o.other}</text>`;
+  else h+=`<circle cx="${X1}" cy="${Y}" r="21" fill="rgba(255,255,255,.08)" stroke="#fff" stroke-width="2"/><text x="${X1}" y="${Y+7}" text-anchor="middle" font-size="18" font-weight="800" fill="#fff">${o.other}</text>`;
+  h+=`<circle cx="${mx}" cy="${my}" r="22" fill="#fff"/><text x="${mx}" y="${my+7}" text-anchor="middle" font-size="18" font-weight="800" fill="${hero}">我</text>`;
+  if(o.meCheck) h+=`<circle cx="${mx+17}" cy="${my-17}" r="9.5" fill="#1C7C45" stroke="#fff" stroke-width="2"/><path d="M${mx+13} ${my-17} l2.6 2.6 l4.6 -5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  svg.innerHTML=h;
+});
+</script>
+</body></html>
