@@ -1470,9 +1470,9 @@ final class VolunteerHomeViewModel: ObservableObject {
         case .declined(let purpose):
             guard purpose == .volunteerLocationTrack else { return }
             declinedResumeTrackConsent = true
-            guard isAvailable else { return }
+            // 开关正在改（`setAvailability` 被挡下）时不写这句：开关没关，「没有开始接单」就是假话。
+            guard isAvailable, setAvailability(false) else { return }
             trackConsentDeclinedNotice = purpose.declinedFeedback
-            setAvailability(false)
         }
     }
 

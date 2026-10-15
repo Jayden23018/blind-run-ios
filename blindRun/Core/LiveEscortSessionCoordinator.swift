@@ -97,7 +97,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     /// 这一单此刻要不要（或正在）问位置轨迹同意。**同步判**，不等下一拍的 reconcile ——
     /// 陪跑员首页刚把订单交进来就要知道该不该让开，等 `pendingTrackConsent` 置上再收会先闪出一张（#420）。
-    /// 判据与 `evaluateSession` 里置 `pendingTrackConsent` 的那一支相同。
+    /// `evaluateSession` 置 `pendingTrackConsent` 也只读它，两处不会漂开。
     var needsTrackConsentForActiveOrder: Bool {
         identityKey != nil && role != nil && isSessionEligible
             && !hasTrackConsent && !hasDeclinedTrackConsentForActiveOrder
@@ -365,7 +365,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         guard hasTrackConsent else {
             clearRuntimeSession()
             let wasAsking = pendingTrackConsent != nil
-            pendingTrackConsent = hasDeclinedTrackConsentForActiveOrder ? nil : PrivacyConsentPurpose.locationTrack(for: role)
+            // 判据只走 `needsTrackConsentForActiveOrder` 一处：陪跑员首页靠它同步判该不该让开，两处一漂移就又叠两张（#420）。
+            pendingTrackConsent = needsTrackConsentForActiveOrder ? PrivacyConsentPurpose.locationTrack(for: role) : nil
             refreshHealth(now: Date())
             if !wasAsking, let purpose = pendingTrackConsent {
                 onTrackConsentQuestion?(.asked(purpose))
