@@ -144,6 +144,8 @@ final class AppState: ObservableObject {
                 emergencyCoordinator.reset()
                 locationTrackConsentGrantedThisSession = []
                 volunteerWantsDispatch = false
+                // 角色不变时 `activeRole` 那一道不会经过：换成的账号没同意就得在这里停（#417）。
+                stopLocationUpdatesWithoutTrackConsent()
             }
         }
     }
@@ -1018,10 +1020,10 @@ final class AppState: ObservableObject {
         FavoritePlaceStore.clearPersistedPlaces()
         // 上面 `activeRole = nil` 已经会停，但退出时角色本来就是 nil（停在角色选择页）不经过那一道。
         // `stopUpdating` 连意图一起撤回：只停硬件的话，下一个账号改一次系统权限，授权回调就会把它开回来（#417）。
-        locationService?.stopUpdating()
+        stopLocationUpdates()
     }
 
-    /// 换角色 / 退出登录时，新角色在本机没有位置轨迹同意就停掉持续定位（#417）。
+    /// 换账号 / 换角色 / 退出登录时，当前账号的当前角色在本机没有位置轨迹同意就停掉持续定位（#417）。
     /// 有同意时不停：`ContentView` 的 `onChange(of: activeRole)` 会照常开，停了再开只是白折腾一次硬件。
     /// 同行会话不受影响：换角色本来就会 `liveEscortCoordinator.reset`，新角色的会话由它自己 `startUpdating()`。
     private func stopLocationUpdatesWithoutTrackConsent() {
@@ -1029,6 +1031,16 @@ final class AppState: ObservableObject {
            hasLocationTrackConsent(purpose) {
             return
         }
+        stopLocationUpdates()
+    }
+
+    private func stopLocationUpdates() {
+        // 生产里唯一的注入点是 `blindRunApp` 根视图那一行，单测都自己注入 —— 删掉那一行所有单测照样绿，
+        // 而这次修复整个失效。所以真 App（含 UI 用例跑的那个）里没注入就当场崩；单测宿主进程不注入是常态，放行。
+        assert(
+            locationService != nil || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil,
+            "AppState.locationService 未注入：退出登录 / 换角色停不了定位（#417）"
+        )
         locationService?.stopUpdating()
     }
 

@@ -168,6 +168,20 @@ final class LocationSessionBoundaryTests: XCTestCase {
         XCTAssertFalse(service.isUpdatingLocation)
     }
 
+    /// 换账号但角色不变：不经过角色那一道，换成的账号没同意也要停。
+    func testSwitchingToAnAccountWithoutTrackConsentStopsUpdatesEvenWhenTheRoleStaysTheSame() {
+        let service = makeAuthorizedService()
+        let appState = makeLoggedInAppState(role: .volunteer, userId: 45, service: service)
+        appState.recordLocationTrackConsent(.volunteerLocationTrack)
+        service.startUpdating()
+
+        appState.userId = 46
+
+        XCTAssertFalse(service.isUpdatingLocation, "账号 46 没同意过位置轨迹")
+        toggleAuthorization(service)
+        XCTAssertFalse(service.isUpdatingLocation)
+    }
+
     /// 切到一个没有位置轨迹同意的角色：停掉，之后的授权回调也不恢复。
     func testSwitchingToARoleWithoutTrackConsentStopsUpdates() {
         let service = makeAuthorizedService()
