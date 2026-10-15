@@ -94,13 +94,49 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         guard let orderId, let appState else { return }
         do {
             introCall = try await appState.safety.introCall(orderId: orderId)
+            clearLoadFailure()
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
-            // 409 `INTRO_CALL_NOT_ACTIVE`（或 403 —— 我们已经不是参与者了）都意味着本轮结束。
+            guard Self.endsTheRound(error) else {
+                noteLoadFailure()
+                return
+            }
             // 到底是成了还是没成，端点自己不说，也不该说。
             await resolveFinishedRound(orderId: orderId, appState: appState)
         } catch {
-            errorMessage = IntroCallCopy.loadFailed
+            noteLoadFailure()
+        }
+    }
+
+    /// 服务端明说「这一轮结束了」的回答。契约 `GET /api/orders/{id}/intro-call` 只列了两种：
+    /// 409 `INTRO_CALL_NOT_ACTIVE`（本轮已结束）、403 `NOT_ORDER_PARTICIPANT`（我们已经不是参与者了）。
+    /// 后端没回可解码的错误体时，同样两个状态码落成 `.unknown(statusCode:)`，一并算。
+    ///
+    /// 🚨 其余一律不算：网络失败、429、解码失败、5xx 都只是「这次没拿到」。
+    /// 当成结束会让弱网一次就把志愿者踢出通话页（#428）—— `resolveFinishedRound` 里的
+    /// `matchedOrder` 在弱网下同样失败，于是判成「没成」并停轮询，而盲人可能正在拨他的电话。
+    static func endsTheRound(_ error: APIError) -> Bool {
+        if let code = error.errorCode, code == .introCallNotActive || code == .notOrderParticipant {
+            return true
+        }
+        if case .unknown(let statusCode) = error {
+            return statusCode == 403 || statusCode == 409
+        }
+        return false
+    }
+
+    /// 这次没拿到通话数据：留在 `.active`、轮询照常继续，**只在第一次失败时播一遍** ——
+    /// 轮询每 5 秒一次，每次都播会把读屏用户淹掉（与盲人侧 `refreshIntroCallIfNeeded` 同一条）。
+    private func noteLoadFailure() {
+        guard errorMessage != IntroCallCopy.loadFailed else { return }
+        errorMessage = IntroCallCopy.loadFailed
+        speechService?.speakError(IntroCallCopy.loadFailed)
+    }
+
+    /// 拿到了就撤掉上一次的「暂时拿不到」。只撤这一句：表态失败的错误文案不归这里管。
+    private func clearLoadFailure() {
+        if errorMessage == IntroCallCopy.loadFailed {
+            errorMessage = nil
         }
     }
 
