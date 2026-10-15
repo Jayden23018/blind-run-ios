@@ -244,6 +244,50 @@ final class BlindBookingGateTests: XCTestCase {
         )
     }
 
+    /// 审阅步在「时间不合法」时要说出**真实原因**，不能一律念「至少 30 分钟后」（#424）。
+    ///
+    /// 三个取值各落在不同的问题上：晚上 23:00（在 30 分钟之后，但撞夜间窗口）、8 天后的白天、一分钟后。
+    /// 若实现退回手抄的「至少 30 分钟」，前两条会拿到 `.tooSoon` 的说法而变红；
+    /// 若三种原因被塌成同一句，下面的互不相等断言也会抓到。
+    @MainActor
+    func testReviewStepNamesTheActualAppointmentTimeProblem() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([contact(1, primary: true)])
+
+        let viewModel = makeBookingViewModel(appState: appState)
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
+            latitude: 31.2304, longitude: 121.4737, source: .manual
+        )
+        viewModel.currentStep = .review
+
+        // 夜间窗口按北京时间判（`Calendar.aidRunBackend`），所以用同一个日历造 23:00。
+        let backend = Calendar.aidRunBackend
+        let tomorrow = backend.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        let tomorrowNight = backend.date(bySettingHour: 23, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+        let eightDaysAhead = BookingTimeFixture.daytime().addingTimeInterval(8 * 24 * 3600)
+
+        let cases: [(Date, BookingTimeProblem)] = [
+            (tomorrowNight, .nightWindow),
+            (eightDaysAhead, .tooFar),
+            (Date().addingTimeInterval(60), .tooSoon)
+        ]
+        var spoken: [String] = []
+        for (time, problem) in cases {
+            viewModel.appointmentTime = time
+            XCTAssertEqual(viewModel.appointmentTimeProblem, problem, "前提：这个时间确实卡在 \(problem)")
+            XCTAssertEqual(viewModel.firstMissingGate, .appointmentTime)
+            XCTAssertEqual(viewModel.blockingReasonForCurrentStep, problem.message, "审阅步要说出真实原因")
+            XCTAssertEqual(viewModel.message(for: .appointmentTime), problem.message, "提交被拦时念的是同一句")
+            spoken.append(viewModel.blockingReasonForCurrentStep ?? "")
+        }
+        XCTAssertEqual(Set(spoken).count, 3, "三种原因必须说成三句不同的话")
+
+        // 非时间门槛的说法不受影响。
+        XCTAssertEqual(viewModel.message(for: .emergencyContacts), BlindBookingGate.emergencyContacts.message)
+    }
+
     /// 进页面就播报「本页填不了」的门槛，别等用户走到审阅步。
     /// 起点和时间是本页的槽位，缺了不播 —— 分步流程自己会管。
     @MainActor

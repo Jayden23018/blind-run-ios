@@ -71,7 +71,7 @@ struct blindRunApp: App {
     @StateObject private var amapGeocodingService: AMapGeocodingService
 
     init() {
-        AMapManager.configure()
+        AMapManager.configureAtLaunch()
         RuntimeDiagnosticMonitor.shared.start()
         MainRunLoopWatchdog.shared.start()
         // 锁屏按钮被按下时系统可能冷启动 App 来跑 intent，`App.init` 是最早、也是一定会跑到的那一处。

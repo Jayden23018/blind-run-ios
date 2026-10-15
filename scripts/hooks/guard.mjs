@@ -244,11 +244,21 @@ const ACCESSIBILITY_IDENTIFIER_ARG = new RegExp(
   'g'
 );
 
+// 另一种挂法：辅助视图把 id 当参数收下，自己再挂 `.accessibilityIdentifier(identifier)`，
+// 调用点只有 `identifier: "runRecordHistoryPreviousMonth"` 这个字面量（#412）。
+// 只认带 `identifier:` 实参标签的字符串字面量；`Locale(identifier:)` / `TimeZone(identifier:)`
+// 是系统 API 的同名标签，与 a11y 无关，用负向后顾排除。
+// 已知上限：id 先赋给变量再传、或经 `identifierPrefix:` 这类带后缀的标签传入，匹配不上
+// （与改动前相同，只会漏、不会误报）。
+const IDENTIFIER_PARAMETER_ARG = /(?<!Locale\()(?<!TimeZone\()\bidentifier\s*:\s*("(?:[^"\\]|\\.)*")/g;
+
 // 方向 A（建匹配器）与方向 B（判删除 / 判还在）都走这一个函数，口径必须一致。
 function identifierLiterals(text) {
-  return [...text.matchAll(ACCESSIBILITY_IDENTIFIER_ARG)].flatMap((m) =>
+  const viaModifier = [...text.matchAll(ACCESSIBILITY_IDENTIFIER_ARG)].flatMap((m) =>
     [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((lit) => lit[1])
   );
+  const viaParameter = [...text.matchAll(IDENTIFIER_PARAMETER_ARG)].map((m) => m[1].slice(1, -1));
+  return [...viaModifier, ...viaParameter];
 }
 
 function escapeRegExp(s) {

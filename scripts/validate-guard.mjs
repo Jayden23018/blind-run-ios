@@ -884,6 +884,52 @@ const cases = [
       'app.buttons["appLaunchConsentAgreeButton"].tap()'
   },
   {
+    // #412：辅助视图把 id 当 `identifier:` 参数收下再挂修饰符，调用点只有字面量。
+    // 只认 a11y 的 `identifier:`，系统 API 的同名标签（`Locale(identifier:)`）不算。
+    name: 'identifier: 参数传入的 id 能匹配上（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      // 配一个真 id：App 侧一个 id 都没读到时守卫按「扫描失败」整体放行，用例会变成恒过。
+      'blindRun/History.swift':
+        'Text("x").accessibilityIdentifier("blindHomeStartButton")\n' +
+        'monthSwitchRow(title: "上个月", identifier: "runRecordHistoryPreviousMonth") { }\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'XCTAssertTrue(app.buttons["runRecordHistoryPreviousMonth"].exists)'
+  },
+  {
+    // 反向：参数写法只放行真传了的 id；没传的照拦。
+    name: 'identifier: 参数里没有的 id 仍拦',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      // 配一个真 id：App 侧一个 id 都没读到时守卫按「扫描失败」整体放行，用例会变成恒过。
+      'blindRun/History.swift':
+        'Text("x").accessibilityIdentifier("blindHomeStartButton")\n' +
+        'monthSwitchRow(title: "上个月", identifier: "runRecordHistoryPreviousMonth") { }\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'XCTAssertTrue(app.buttons["runRecordHistoryNextMonth"].exists)'
+  },
+  {
+    // `Locale(identifier: "...")` 是系统 API，不能当成 a11y id 算进匹配器，
+    // 否则测试引用同名字符串会被错误放行。
+    name: 'Locale(identifier:) 不算 a11y id（仍拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      // 配一个真 id：App 侧一个 id 都没读到时守卫按「扫描失败」整体放行，用例会变成恒过。
+      'blindRun/Fmt.swift':
+        'let f = Locale(identifier: "enUSPosix")\nText("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'XCTAssertTrue(app.buttons["enUSPosix"].exists)'
+  },
+  {
     // 系统键盘的收键盘按钮，App 侧永远不会有。白名单只有这两个。
     name: '系统键盘按键 Done / Return（放行）',
     mode: 'repo',

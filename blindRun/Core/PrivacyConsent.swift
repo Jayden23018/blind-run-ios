@@ -132,7 +132,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 // 读屏用户把它当成单独的焦点听到，而不是埋在位置那句里。
                 "陪跑服务进行中，手机的运动传感器还会记录你的步数、步频和爬升高度，跑完后只显示在你自己的跑步记录里，另一方看不到。不同意「运动与健身」权限也不影响陪跑。",
                 // 2026-10-07 加入高德 SDK（#355，来自安卓 #54）。**+1 `disclosureVersion`（2 → 3）**：
-                // 新的接收方。`AMapManager.configurePrivacyCompliance` 一直在向高德声明「告知已含高德条款」，此前不属实。
+                // 新的接收方。`AMapManager`（改版前的 `configurePrivacyCompliance`）一直在向高德声明「告知已含高德条款」，此前不属实。
                 // 细项在内置隐私政策「第三方 SDK」一节（按高德 iOS 地图合包条目列）。
                 // ⚠️ 这一句**刻意与安卓不逐字一致**（2026-10-09 负责人定）：安卓原文的「Wi-Fi、基站」是安卓合包的收集项，
                 // 高德 iOS 条目里没有，所以 iOS 按 iOS 条目写。其余两句仍与安卓逐字一致。

@@ -724,6 +724,7 @@ struct VolunteerProfileFirstScreen: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityHint("点击查看订单详情")
+                        .accessibilityIdentifier("volunteerProfileRecentRow.\(order.orderId)")
                     }
                 }
             }
