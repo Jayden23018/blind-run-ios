@@ -25,6 +25,8 @@ nonisolated enum WSMessageType: String, Codable, Sendable {
     case orderEtaUpdated = "ORDER_ETA_UPDATED"
     /// 汇合距离档位变了才推，只推陪跑员。⚠️ 一侧先到时会先推一条 `UNKNOWN`。
     case meetDistanceBucket = "MEET_DISTANCE_BUCKET"
+    /// 邀请被撤回（后端 #371，只走 WS）。按 `inviteId` 指认是哪一张。
+    case inviteWithdrawn = "INVITE_WITHDRAWN"
 }
 
 // MARK: - Outgoing Messages (Client -> Server)
@@ -292,7 +294,9 @@ nonisolated struct WSPong: Codable, Sendable {
 /// 对照：`pacePreference` / `hasGuideDog` 留着 —— 取值空间封闭（枚举 / 布尔），且它们是志愿者
 /// 判断「我接不接得下来」的依据，藏起来只会让人盲接、接了再取消，成本落回盲人身上。
 nonisolated struct WSNewOrder: Codable, Sendable {
-    let type: String
+    /// 可选：`GET /api/volunteer/pending-invites` 的每一项是「`NEW_ORDER` 的全部字段 + `sentAt`」，
+    /// **没有 `type` 键**。两路共用这一个模型，必填就会让整个待回复列表解不出来。没有代码读它。
+    let type: String?
     let timestamp: String?
     let orderId: Int64
     let startAddress: String?
@@ -353,6 +357,16 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     /// 预计时长（#357，2026-09-25 起在推送里）。与 `AvailableOrderResponse` 同名同值。
     var expectedDurationMinutes: Int?
 
+    /// 这条邀请的 id（后端 #371）。**邀请的身份是它，不是 `orderId`**：同一张单的邀请被撤回（`TAKEN`）
+    /// 而那轮通话没打成时，会给你同一张单发一张**新的**邀请（新 `inviteId`）。按 `orderId` 去重会把它当重复丢掉。
+    /// 可选只为兼容老服务端；缺了就退回按 `orderId` 认。
+    var inviteId: Int64?
+    /// 回复的最晚时刻（后端 #371，**权威**）。倒计时读它，不拿 `dispatchTimeoutSeconds` 加当前时间推。
+    /// WS 这一路整分钟时省掉 `:00`（后端 #542），`backendTimestamp` 两种都认。
+    var expiresAt: String?
+    /// 邀请发出的时刻。**只有 REST**（`pending-invites`）带，WS 推送里没有。
+    var sentAt: String?
+
     /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
     ///
     /// `false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 / 距开跑已不够聊一轮）
@@ -387,6 +401,48 @@ nonisolated struct WSEmergencyVolunteerAlert: Codable, Sendable {
     }
 }
 
+/// `INVITE_WITHDRAWN`（后端 #371）。只走 WS，不发 APNs、不能重连补读 —— 重连后以待回复列表为准。
+nonisolated struct WSInviteWithdrawn: Codable, Sendable {
+    let orderId: Int64
+    /// 被撤回的那一张。可选只为容忍缺键；缺了就按 `orderId` 认。
+    let inviteId: Int64?
+    /// 开放枚举，原样留字符串，见 `InviteWithdrawReason`。
+    let reason: String?
+
+    var withdrawReason: InviteWithdrawReason { InviteWithdrawReason(rawValue: reason) }
+}
+
+/// 邀请为什么失效。决定那张卡上「这个邀请已失效」下面那一行说什么。
+///
+/// 前三档来自 `INVITE_WITHDRAWN.reason`（**开放枚举**，认不出的落 `.other`，不许整条崩）；
+/// `.noLongerPending` 是客户端自己的：待回复列表里已经没有这一张（离线期间被撤回、被接走或过期，
+/// 撤回事件只走 WS 补不回来），说不清是哪一种，就不说是哪一种。
+nonisolated enum InviteWithdrawReason: Equatable, Sendable {
+    case taken
+    case conflict
+    case orderClosed
+    case noLongerPending
+    case other
+
+    init(rawValue: String?) {
+        switch rawValue {
+        case "TAKEN": self = .taken
+        case "CONFLICT": self = .conflict
+        case "ORDER_CLOSED": self = .orderClosed
+        default: self = .other
+        }
+    }
+}
+
+/// `GET /api/volunteer/pending-invites` 的响应（后端 #366，**裸对象，不在 `{success, data}` 信封里**）。
+/// 只含：自己的、待回复、还没过期、订单仍在派单中的邀请，按 `expiresAt` 升序；没有时是空数组。
+nonisolated struct PendingInvitesResponse: Decodable, Sendable {
+    /// 连续拒绝 / 过期次数（后端计，接单或有意向清零，撤回不计）。本次只解码，接入另见 iOS issue。
+    let consecutiveDeclineCount: Int?
+    /// 可选只为容忍缺键；缺了当空列表 —— 但**不能**据此把手上的邀请都判成失效，见 `AppState.restorePendingInvites`。
+    let invites: [WSNewOrder]?
+}
+
 // MARK: - Parsed WebSocket Event
 
 /// High-level event enum for consumers to switch on
@@ -401,5 +457,6 @@ nonisolated enum WSIncomingEvent: Sendable {
     case emergencyAlert(WSEmergencyVolunteerAlert)
     case orderEtaUpdated(WSOrderEtaUpdated)
     case meetDistanceBucket(WSMeetDistanceBucket)
+    case inviteWithdrawn(WSInviteWithdrawn)
     case unknown(String)
 }

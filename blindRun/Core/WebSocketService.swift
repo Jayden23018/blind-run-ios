@@ -419,6 +419,9 @@ final class WebSocketService: ObservableObject {
             case WSMessageType.meetDistanceBucket.rawValue:
                 event = .meetDistanceBucket(try decoder.decode(WSMeetDistanceBucket.self, from: data))
 
+            case WSMessageType.inviteWithdrawn.rawValue:
+                event = .inviteWithdrawn(try decoder.decode(WSInviteWithdrawn.self, from: data))
+
             default:
                 // 认不出的**类型**是降级，不是失败 —— 后端加类型而 spec 没跟上时不许整条崩。
                 event = .unknown(envelope.type)

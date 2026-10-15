@@ -9,11 +9,23 @@ import Foundation
 /// 所以回复成功之后这条邀请不能直接从队列里删掉 —— 删了卡片就跟着消失，
 /// 而那正是设计稿点名不要的那种「弹层套弹层」。
 struct VolunteerInviteState: Identifiable {
-    enum Outcome {
+    enum Outcome: Equatable {
         /// 已接下（`ACCEPT` 成功）。卡片原地变「已约好」。
         case accepted
-        /// 回复期限已过。卡片原地变「这个邀请已失效」。
+        /// 回复期限已过（本地倒计时归零，或「接下」被 409 `ORDER_DISPATCH_MISMATCH` 拒）。
+        /// 卡片原地变「这个邀请已失效」。
         case expired
+        /// 邀请被撤回（后端 #371 的 `INVITE_WITHDRAWN`、快照里已没有它，或「接下」被 409 `ORDER_ALREADY_ACCEPTED` 拒）。
+        /// 与 `.expired` 同一张「已失效」卡，下面那行说原因 —— 后端原话：「卡片上会留着一个点了必定失败的按钮」不行。
+        case withdrawn(InviteWithdrawReason)
+
+        /// 「已失效」那一类（过期或撤回）。
+        var isInvalidated: Bool {
+            switch self {
+            case .accepted: return false
+            case .expired, .withdrawn: return true
+            }
+        }
     }
 
     let order: WSNewOrder
@@ -44,11 +56,22 @@ struct VolunteerInviteState: Identifiable {
     var id: Int64 { order.orderId }
     var isAwaitingReply: Bool { outcome == nil }
 
-    /// 进度条的分母。**取 `expiresAt - receivedAt` 而不是 `dispatchTimeoutSeconds`**：
-    /// 后端把窗口算在**发出**那一刻（`timestamp`），推送在路上耗掉的时间是真的少掉了，
-    /// 拿标称值当分母会让进度条一上来就跳一段。
+    /// 这张卡是不是 `inviteID` 指的那一张。任一边没有 `inviteId`（老服务端）时只按 `orderId` 认。
+    func matches(orderID: Int64, inviteID: Int64?) -> Bool {
+        id == orderID && (inviteID == nil || order.inviteId == nil || order.inviteId == inviteID)
+    }
+
+    /// 进度条的分母 = 这条邀请完整的回复窗口。
+    ///
+    /// 优先 `dispatchTimeoutSeconds`：后端 #371 起它就是这条邀请的**实际**窗口（`expiresAt − 发出时刻`，
+    /// 契约原话「进度条分母继续用它也不会错」）。从待回复列表**恢复**回来的邀请 `receivedAt` 是恢复那一刻，
+    /// 拿 `expiresAt − receivedAt` 当分母会让进度条在恢复时重新满格，而那条邀请其实已经过去了一大半。
+    /// 老服务端没有可信的窗口时才退回 `expiresAt − receivedAt`。
     var totalSeconds: Int {
-        max(1, Int(ceil(expiresAt.timeIntervalSince(receivedAt))))
+        if let window = order.dispatchTimeoutSeconds, window > 0 {
+            return max(window, remainingSeconds, 1)
+        }
+        return max(1, Int(ceil(expiresAt.timeIntervalSince(receivedAt))))
     }
 
     /// 剩余占比，0…1。
@@ -56,15 +79,13 @@ struct VolunteerInviteState: Identifiable {
         min(1, max(0, Double(remainingSeconds) / Double(totalSeconds)))
     }
 
-    /// 进度条与剩余时间文字转「深黄」的那一刻（设计交付 v3 §4.4.2 第 3 项）。
+    /// 进度条与剩余时间文字转「深黄」的那一刻（设计交付 v3 §4.4.2 第 3 项「剩余不到 15 分钟」）。
     ///
-    /// ⚠️ 设计稿的判据是「剩余 < 15 **分钟**」，那是按 §10「回复期限 1 小时 / 15 分钟」写的。
-    /// 后端目前只有 `app.dispatch.per-volunteer-timeout-seconds=30`，一整个窗口才 30 秒 ——
-    /// 照 15 分钟写等于**从第一帧就是深黄**，那条视觉提示就没有了。
-    /// 所以沿用弹窗原有的 10 秒阈值（`VolunteerOrderFlowCopy.urgentCountdownSeconds`），
-    /// 与「查看详情」那一页说同一句话。预约单的分钟级回复期限已投 handoff。
+    /// 🔄 2026-10-06：原先沿用弹窗的 10 秒阈值，理由是后端一整个窗口才 30 秒，照 15 分钟写会从第一帧就深黄。
+    /// 后端 #371 起期限改成 60 / 15 分钟，那个理由不成立了，回到设计稿。
+    /// 15 分钟档的邀请因此**从一开始就是深黄** —— 距开跑不到 24 小时的邀请本来就是急的，这是设计稿的意思。
     var isUrgent: Bool {
-        remainingSeconds <= VolunteerOrderFlowCopy.urgentCountdownSeconds
+        VolunteerOrderFlowCopy.isReplyUrgent(remainingSeconds: remainingSeconds)
     }
 }
 
@@ -286,6 +307,24 @@ enum VolunteerInviteCopy {
     static let expiredTitle = "这个邀请已失效"
     static let expiredDetail = "回复时间已过"
     static let expiredPrimary = "知道了"
+
+    /// 被撤回时「已失效」下面那一行（后端 #371 的 `INVITE_WITHDRAWN.reason`）。
+    /// 只说陪跑员能据以理解的事实，不提跑者的任何信息。
+    static func withdrawnDetail(_ reason: InviteWithdrawReason) -> String {
+        switch reason {
+        case .taken: return "已有其他陪跑员接下"
+        case .conflict: return "和你已约好的陪跑时间冲突"
+        case .orderClosed: return "这一单已经结束"
+        // 不再写「这个邀请」：播报时前面已经有标题「这个邀请已失效」，拼起来会念两遍。
+        case .noLongerPending, .other: return "不需要再回复了"
+        }
+    }
+
+    /// 结果卡下面那一行。过期与撤回是同一张卡，只有这一行不同。
+    static func invalidatedDetail(_ outcome: VolunteerInviteState.Outcome) -> String {
+        if case .withdrawn(let reason) = outcome { return withdrawnDetail(reason) }
+        return expiredDetail
+    }
 
     // §4.4.3 「这次去不了」的撤销 toast
     static let declineToastText = "已回复这次去不了"

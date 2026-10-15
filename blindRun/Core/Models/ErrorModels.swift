@@ -230,8 +230,10 @@ enum ErrorCode: String, Codable, Sendable {
             return "当前存在进行中的服务，请处理完成后再删除账户。"
         case .keepWaitingLimitReached:
             return "延长次数已达上限，无法继续等待。"
+        // 后端 #371 起它的主要含义是「这条邀请已过期（哪怕过期扫描还没跑到它）」或「你没有这张邀请」。
+        // 「未派送给您」读起来像系统出错；说「已失效」是对两种成因都为真的那一半。
         case .orderDispatchMismatch:
-            return "该订单未派送给您。"
+            return "这个邀请已失效，回复时间已过。"
         case .orderConcurrentConflict:
             return "操作冲突，请重试一次。"
         case .tooManyRequests:
