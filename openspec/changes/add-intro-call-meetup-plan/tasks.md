@@ -5,7 +5,7 @@
 - [x] 1.3 朗读文本：标题 + 固定顺序五项；只有变更项带「由 X 改为 Y」，地点念距原地点多远，未知颜色不念
 - [x] 1.4 回前台判据：只有进过后台再回到 `active` 才算，`(.inactive → .active)` 不算
 - [x] 1.5 倒计时：显示文字（含「不到 1 分钟」）与 5 分钟 / 1 分钟播报节点，重复轮询不重复触发
-- [ ] 1.6 新建 `blindRunTests/IntroCallMeetupPlanTests.swift` 钉住 1.2–1.5，真机跑通
+- [x] 1.6 新建 `blindRunTests/IntroCallMeetupPlanTests.swift` 钉住 1.2–1.5，真机跑通
 
 ## 2. 端点、解码、Mock、错误码（#432，依赖 Jayden23018/blind-run-backend#755）
 
