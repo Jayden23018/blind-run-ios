@@ -325,6 +325,12 @@ final class VolunteerMeetupPlanTests: XCTestCase {
         XCTAssertTrue(h.viewModel.isShowingIncomingCall(now: sentAt.addingTimeInterval(119)))
         XCTAssertFalse(h.viewModel.isShowingIncomingCall(now: sentAt.addingTimeInterval(121)))
 
+        // 发出时刻比本机快 10 分钟（时钟偏差）：仍只挂 2 分钟。
+        let skewed = makeHarness(safety)
+        skewed.viewModel.noteIncomingCall(sentAt: now.addingTimeInterval(600), now: now)
+        XCTAssertTrue(skewed.viewModel.isShowingIncomingCall(now: now.addingTimeInterval(119)))
+        XCTAssertFalse(skewed.viewModel.isShowingIncomingCall(now: now.addingTimeInterval(121)))
+
         // 重连补读来的旧提醒（3 分钟前发的）：不显示也不播。
         let stale = makeHarness(safety)
         stale.speech.resetSpokenHistoryForTesting()
