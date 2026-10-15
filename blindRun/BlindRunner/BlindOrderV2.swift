@@ -26,8 +26,9 @@ struct BlindOrderHero: Equatable {
     var warning: String?
     var rope: RopeState
     /// 头卡底色。2026-10-07 负责人推翻 10-06「浅色头卡」，改为与陪跑员端同一套状态色
-    /// （OpenSpec `redesign-blind-runner-screens-a`）。匹配中还没有陪跑员，仍是白卡。
-    var tone: BlindHeroTone = .light
+    /// （OpenSpec `redesign-blind-runner-screens-a`）；2026-10-13 定稿 v6 起匹配中也着色（钢蓝），
+    /// 不再有白卡（OpenSpec `unify-order-progress-rope`）。
+    var tone: BlindHeroTone = .matching
     /// 倒计时那一拍。非 nil 时视图给大数字加回弹，读屏标签**不念这个数** ——
     /// 三个数字走 announcement 通道播报（`BlindOrderStatusViewModel.startRunCountdown`），
     /// 再进标签就是每秒换一次焦点元素的内容。
@@ -93,7 +94,7 @@ struct BlindOrderHero: Equatable {
             )
         case .matching:
             return Self(eyebrow: startEyebrow(start, now: now) ?? "匹配中", headline: presentation.title,
-                        lines: lines, warning: presentation.warning, rope: .invited)
+                        lines: lines, warning: presentation.warning, rope: .invited, tone: .matching)
         case .departed:
             // 进度固定一段，**不是算出来的**：盲人 token 拿不到 `eta.progress`。
             // 与 v1 那道固定 0.35 的进度环同一个意思 —— 表达「在路上」，不表达「走了多少」。
@@ -121,8 +122,8 @@ struct BlindOrderHero: Equatable {
 ///
 /// 跑步中 / 已完成也在这里：那两幕的头卡由跑步卡承担，但用同一套色。
 enum BlindHeroTone: Equatable {
-    /// 白卡：匹配中（还没有陪跑员，`RopeState.invited`）。
-    case light
+    /// 匹配中（还没有陪跑员，`RopeState.invited`）。与陪跑员端「邀请」同一个钢蓝。
+    case matching
     case agreed
     case departed
     case arrived

@@ -334,6 +334,10 @@ final class FlowDesignSystemTests: XCTestCase {
         (AppColors.Flow.stateRunningTone, "跑步中"),
         // FE-3：跑步中暂停时整张头卡换这个色，上面是同一套半透明白字。
         (AppColors.Flow.statePausedTone, "跑步中 · 已暂停"),
+        // 2026-10-13 定稿 v6：不再有白卡。
+        (AppColors.Flow.stateMatchingTone, "匹配 / 邀请"),
+        (AppColors.Flow.stateCallingTone, "先通个电话 · 通话前"),
+        (AppColors.Flow.stateCalledTone, "先通个电话 · 通话后"),
     ]
 
     /// 钉住跑步中青绿**这个色值**：`heroStates` 只验对比度，取值被改成别的深色也照样绿。
@@ -363,6 +367,33 @@ final class FlowDesignSystemTests: XCTestCase {
                 assertContrast(Self.white(F.ropeLineOpacity, over: bg), bg, Self.nonTextMinimum, appearance, "\(name)：引导绳")
             }
         }
+    }
+
+    /// 邀请头卡（钢蓝，定稿 v6）里那块三格数据：白以 `inviteMetricTileWhiteOpacity` 叠在钢蓝上做底，
+    /// 数值白字、标签是副文那一档半透明白。标签只有 13pt，走正文阈值。
+    func testInviteMetricTileOnTheMatchingHeroClearsTheBodyThreshold() {
+        let F = AppColors.Flow.self
+        for (appearance, hero) in [("亮色", F.stateMatchingTone.light), ("暗色", F.stateMatchingTone.dark)] {
+            let tile = Self.white(FlowMetrics.inviteMetricTileWhiteOpacity, over: hero)
+            assertContrast(0xFFFFFF, tile, Self.textMinimum, appearance, "三格数值")
+            assertContrast(Self.white(F.onHeroBodyOpacity, over: tile), tile, Self.textMinimum, appearance, "三格标签")
+        }
+    }
+
+    /// 「还剩 X 秒回复」最后 10 秒在钢蓝上转金色 —— 它是 15pt 正文，金色在这里要过 4.5，不是大字的 3。
+    func testUrgentReplyGoldIsReadableOnTheMatchingHero() {
+        let F = AppColors.Flow.self
+        assertContrast(F.goldTone.light, F.stateMatchingTone.light, Self.textMinimum, "亮色", "邀请倒计时 · 紧迫")
+        assertContrast(F.goldTone.dark, F.stateMatchingTone.dark, Self.textMinimum, "暗色", "邀请倒计时 · 紧迫")
+    }
+
+    /// 汇合页「打电话给<陪跑员>」：白底深蓝字、主色描边。字走正文阈值，描边走控件边界 3:1。
+    func testCallButtonTextAndBorderClearTheirThresholds() {
+        let F = AppColors.Flow.self
+        assertContrast(F.bluePressedTone.light, F.surfaceTone.light, Self.textMinimum, "亮色", "打电话按钮文字")
+        assertContrast(F.bluePressedTone.dark, F.surfaceTone.dark, Self.textMinimum, "暗色", "打电话按钮文字")
+        assertContrast(F.accentTone.light, F.surfaceTone.light, Self.nonTextMinimum, "亮色", "打电话按钮描边")
+        assertContrast(F.accentTone.dark, F.surfaceTone.dark, Self.nonTextMinimum, "暗色", "打电话按钮描边")
     }
 
     /// 金色只当**大字**（80pt 主角数字、20pt 粗体单位、28pt 过点标题）和**图形**（光环、并肩绳），

@@ -149,13 +149,13 @@ struct FlowOrderNavBar: View {
 
 // MARK: 头卡
 
-/// 订单页最上面那张卡。`.tinted` 的底色随订单状态变（交付包 v2 C01）；`.light` 只给邀请态。
+/// 订单页最上面那张卡。底色随订单状态变（交付包 v2 C01）。
+/// 2026-10-13 定稿 v6 起没有白卡了（邀请也是钢蓝），`.light` 随之删掉。
 ///
 /// 底色变化做 0.35 秒 easeInOut（C05）。只挂在底色那一层：卡内的绳子、数字各有自己的动画。
 /// 颜色过渡不是位移 / 缩放，「减弱动态效果」下照常做（03 §四只管位移、缩放、画线）。
 enum FlowHeroCardStyle: Equatable {
     case tinted(Color)
-    case light
 }
 
 struct FlowHeroCard<Content: View>: View {
@@ -172,7 +172,6 @@ struct FlowHeroCard<Content: View>: View {
     private var background: Color {
         switch style {
         case .tinted(let color): return color
-        case .light: return AppColors.Flow.surface
         }
     }
 
@@ -666,12 +665,12 @@ private struct FlowV2ComponentGallery: View {
                         ],
                         onTap: { sent.insert($0.id) }
                     )
-                    FlowHeroCard(style: .light) {
+                    FlowHeroCard(style: .tinted(AppColors.Flow.stateMatching)) {
                         Text("新的陪跑邀请")
                             .flowFont(FlowV2Fonts.subhead(bold: true))
-                            .foregroundColor(AppColors.Flow.accent)
+                            .foregroundColor(AppColors.Flow.onHeroEyebrow)
                         Text("周六 7:00").flowHeroNumber(FlowV2Fonts.heroS)
-                            .foregroundColor(AppColors.Flow.primaryText)
+                            .foregroundColor(AppColors.Flow.onHeroStrong)
                     }
                     HStack {
                         FlowTag(text: "待认证", background: AppColors.Flow.blueTint, foreground: AppColors.Flow.bluePressed)

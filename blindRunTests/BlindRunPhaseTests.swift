@@ -405,18 +405,51 @@ final class BlindRunPhaseTests: XCTestCase {
         }
     }
 
+    // MARK: - 汇合页「打电话给<陪跑员>」（2026-10-13，`unify-order-progress-rope`）
+
+    /// 汇合时给第二个版位，名字去掉掩码星号、**不带号码**（VoiceOver 外放）。
+    func testMetUpOffersCallingTheVolunteerByNameWithoutTheNumber() throws {
+        let title = try XCTUnwrap(make(.driverArrived, volunteerName: "张*").callTitle)
+        XCTAssertEqual(title, "打电话给张")
+        XCTAssertFalse(title.contains("*"))
+        XCTAssertFalse(title.contains("138"), "号码不进标题")
+        XCTAssertEqual(make(.driverArrived).primaryAction, .startRun, "主按钮仍是开始跑步，打电话不抢它的位置")
+    }
+
+    /// 判据是「拼得出 tel: URL」：null 不给，掩码串也不给（拼出来是一个七位、可能真打给别人的号码）。
+    func testCallButtonNeedsADialableNumber() {
+        XCTAssertNil(make(.driverArrived, volunteerPhone: nil).callTitle)
+        XCTAssertNil(make(.driverArrived, volunteerPhone: "138****0001").callTitle)
+        XCTAssertNotNil(make(.driverArrived, volunteerPhone: "138 0000 0001").callTitle, "带空格的明文号照样能拨")
+    }
+
+    /// 倒计时那三秒按钮留着：一消失「求助与安全」就往下跳一格，而视障用户靠位置记忆按钮。
+    func testCallButtonStaysThroughTheCountdown() {
+        XCTAssertEqual(make(.inProgress, countdown: 3).callTitle, make(.driverArrived).callTitle)
+    }
+
+    /// 只有汇合那一屏（含倒计时）有。约好态的**主按钮**本身就是打电话，再给一枚是重复；
+    /// 跑起来之后三个数字那一屏不放额外按钮。
+    func testOnlyTheMetUpSceneHasTheExtraCallButton() {
+        for status in [RunOrderStatus.pendingMatch, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .completed] {
+            XCTAssertNil(make(status).callTitle, "\(status)")
+        }
+        XCTAssertNil(make(.inProgress).callTitle, "跑步中")
+    }
+
     // MARK: - 辅助
 
     private func make(
         _ status: RunOrderStatus,
         volunteerName: String? = "张*",
+        volunteerPhone: String? = "13800000001",
         countdown: Int? = nil
     ) -> BlindOrderFlowPresentation {
         let order = OrderDetailResponse.preview(
             status: status,
             volunteerName: volunteerName,
             volunteerTotalCompleted: volunteerName == nil ? nil : 32,
-            volunteerPhone: "13800000001"
+            volunteerPhone: volunteerPhone
         )
         guard let presentation = BlindOrderFlowPresentation.make(
             order: order,

@@ -122,7 +122,8 @@ enum VolunteerOrderTimeCopy {
 struct VolunteerOrderHero: Equatable {
     /// 头卡底色（交付包 v2 C01）。视图按它取 `AppColors.Flow.state*`，这里只管「是哪一种」。
     /// 跑者取消与其他终止状态用约好的藏青；跑步中 / 暂停不走这个页面（V4）。
-    enum Style: Equatable { case light, agreed, departed, arrived, done }
+    /// 邀请原先是白卡，2026-10-13 定稿 v6 起与盲人端匹配中同一个钢蓝（`matching`）。
+    enum Style: Equatable { case matching, agreed, departed, arrived, done }
 
     var style: Style = .agreed
     var rope: RopeState
@@ -337,10 +338,10 @@ extension VolunteerOrderHero {
         order.runnerAtMeetingPoint == true ? "\(name)已到集合点附近" : nil
     }
 
-    /// 邀请态（派单推送）。白色头卡、虚线绳子。
+    /// 邀请态（派单推送）。钢蓝头卡、虚线绳子。
     static func make(invite presentation: VolunteerOrderFlowPresentation) -> Self {
         Self(
-            style: .light,
+            style: .matching,
             rope: .invited,
             eyebrow: VolunteerOrderFlowCopy.inviteTitleFallback,
             number: presentation.title,

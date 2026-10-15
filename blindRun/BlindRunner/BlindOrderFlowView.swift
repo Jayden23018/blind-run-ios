@@ -41,6 +41,8 @@ struct BlindOrderFlowView<Footer: View>: View {
     let onLastRowTapped: () -> Void
     let onPrimaryAction: () -> Void
     let onOpenSafetyHub: () -> Void
+    /// 汇合页「打电话给<陪跑员>」按下去做什么。按钮出不出现由 `presentation.callTitle` 决定。
+    var onCallVolunteer: (() -> Void)? = nil
     /// 「给陪跑员留言」那一行点下去做什么。`nil` = 这一态不能留言，整行不出现
     /// （判据 `RunOrderStatus.acceptsRunnerMessage`）。
     var onEditRunnerMessage: (() -> Void)? = nil
@@ -106,31 +108,37 @@ struct BlindOrderFlowView<Footer: View>: View {
     /// → 头卡正文（这一页最重要的那个元素）。
     private func heroCard(_ hero: BlindOrderHero) -> some View {
         let palette = BlindHeroPalette(tone: hero.tone)
+        // 汇合（含倒计时）画的是并肩插图，整卡居中 —— 与陪跑员完成页同一个排法（定稿 v6）。
+        let centered = hero.rope == .arrived
         return FlowHeroCard(style: palette.cardStyle) {
-            // 小标题画在绳子上面（与陪跑员端同一个排法），但**不单独进读屏** ——
-            // 它已经是正文合成标签的第一句，单独一站会被念两遍。
-            Text(hero.eyebrow)
-                .flowFont(FlowV2Fonts.subhead(bold: true))
-                .foregroundColor(palette.eyebrow)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityHidden(true)
-            RopeView(
-                state: hero.rope,
-                theme: palette.ropeTheme,
-                volunteerInitial: volunteerInitial,
-                perspective: .runner
-            )
-            // 限宽：绳子按 342×56 等比铺满容器，横屏下会长成占满整张头卡的大图，
-            // 把正文挤到滚动区底边以外（2026-10-06 横屏审计因此判「正在匹配陪跑员」对比度不足 ——
-            // 取到的是被切开的半行字）。竖屏容器本来就比这个窄，不受影响。
-            .frame(maxWidth: RopeGeometry.width * 1.2)
-            .frame(maxWidth: .infinity)
-            heroBody(hero, palette: palette)
+            VStack(alignment: centered ? .center : .leading, spacing: 12) {
+                // 小标题画在绳子上面（与陪跑员端同一个排法），但**不单独进读屏** ——
+                // 它已经是正文合成标签的第一句，单独一站会被念两遍。
+                Text(hero.eyebrow)
+                    .flowFont(FlowV2Fonts.subhead(bold: true))
+                    .foregroundColor(palette.eyebrow)
+                    .multilineTextAlignment(centered ? .center : .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+                RopeView(
+                    state: hero.rope,
+                    theme: palette.ropeTheme,
+                    volunteerInitial: volunteerInitial,
+                    perspective: .runner
+                )
+                // 限宽：绳子按 342×96 等比铺满容器，横屏下会长成占满整张头卡的大图，
+                // 把正文挤到滚动区底边以外（2026-10-06 横屏审计因此判「正在匹配陪跑员」对比度不足 ——
+                // 取到的是被切开的半行字）。竖屏容器本来就比这个窄，不受影响。
+                .frame(maxWidth: RopeGeometry.width * 1.2)
+                .frame(maxWidth: .infinity)
+                heroBody(hero, palette: palette, centered: centered)
+            }
+            .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
         }
     }
 
-    private func heroBody(_ hero: BlindOrderHero, palette: BlindHeroPalette) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func heroBody(_ hero: BlindOrderHero, palette: BlindHeroPalette, centered: Bool) -> some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 8) {
             if let number = hero.number {
                 heroNumber(number, unit: hero.unit, beat: hero.countdownBeat, palette: palette)
             }
@@ -162,8 +170,8 @@ struct BlindOrderFlowView<Footer: View>: View {
                 .foregroundColor(palette.warning)
             }
         }
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(centered ? .center : .leading)
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
         // 🔴 正文合成**一个**元素，而且是这一页最重要的那个。
         // 拆开的后果是读屏用户要滑几次才听全「现在是什么情况」。
         .accessibilityElement(children: .ignore)
@@ -449,8 +457,15 @@ struct BlindOrderFlowView<Footer: View>: View {
                     action: onPrimaryAction
                 )
             },
+            call: callAction,
             safetyHub: OrderFlowSafetyHubAction(action: onOpenSafetyHub)
         )
+    }
+
+    private var callAction: OrderFlowCallAction? {
+        guard let title = presentation.callTitle, let onCallVolunteer else { return nil }
+        // 刻意**不念号码**（理由同 `primaryActionHint` 的 `.callVolunteer`）。
+        return OrderFlowCallAction(title: title, accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出", action: onCallVolunteer)
     }
 
     /// `nil` = 这一档不加提示。`FlowActionButton` 走 `accessibilityHintIfPresent`，
@@ -486,14 +501,15 @@ struct BlindOrderFlowView<Footer: View>: View {
 
 // MARK: - 头卡配色
 
-/// `BlindHeroTone` → 头卡的全部颜色。白卡沿用 #349 的浅色取值；彩色档沿用陪跑员端头卡
-/// 已逐色验过的 `onHero*`（`FlowDesignSystemTests.testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`）。
+/// `BlindHeroTone` → 头卡的全部颜色。彩色档沿用陪跑员端头卡已逐色验过的 `onHero*`
+/// （`FlowDesignSystemTests.testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`）。
+/// 2026-10-13 定稿 v6 起没有白卡了，每一档都是彩色底、白字。
 struct BlindHeroPalette {
     let tone: BlindHeroTone
 
-    var stateColor: Color? {
+    var stateColor: Color {
         switch tone {
-        case .light: return nil
+        case .matching: return AppColors.Flow.stateMatching
         case .agreed: return AppColors.Flow.stateAgreed
         case .departed: return AppColors.Flow.stateDeparted
         case .arrived: return AppColors.Flow.stateArrived
@@ -502,14 +518,15 @@ struct BlindHeroPalette {
         }
     }
 
-    var cardStyle: FlowHeroCardStyle { stateColor.map { .tinted($0) } ?? .light }
-    var ropeTheme: RopeView.Theme { stateColor.map { .onHero($0) } ?? .light }
-    var eyebrow: Color { stateColor == nil ? AppColors.Flow.accent : AppColors.Flow.onHeroEyebrow }
-    var strong: Color { stateColor == nil ? AppColors.Flow.primaryText : AppColors.Flow.onHeroStrong }
-    var body: Color { stateColor == nil ? AppColors.Flow.secondaryText : AppColors.Flow.onHeroBody }
-    var warning: Color { stateColor == nil ? AppColors.destructive : AppColors.Flow.onHeroStrong }
-    /// 倒计时那三个数字。白卡上是品牌蓝；琥珀底上用金色 —— 它只当 heroXL 大字（WCAG 大字 3:1）。
-    var countdown: Color { stateColor == nil ? AppColors.Flow.accent : AppColors.Flow.gold }
+    var cardStyle: FlowHeroCardStyle { .tinted(stateColor) }
+    var ropeTheme: RopeView.Theme { .onHero(stateColor) }
+    var eyebrow: Color { AppColors.Flow.onHeroEyebrow }
+    var strong: Color { AppColors.Flow.onHeroStrong }
+    var body: Color { AppColors.Flow.onHeroBody }
+    /// 彩色底上不用红字：`destructive` 压琥珀 / 出发蓝都不到 4.5。白色粗体 + 三角图标。
+    var warning: Color { AppColors.Flow.onHeroStrong }
+    /// 倒计时那三个数字：琥珀底上用金色 —— 它只当 heroXL 大字（WCAG 大字 3:1）。
+    var countdown: Color { AppColors.Flow.gold }
 }
 
 // MARK: - Previews

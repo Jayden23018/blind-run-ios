@@ -116,10 +116,31 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     heroBody
                 }
                 .frame(maxWidth: .infinity)
+            } else if hero.rope == .arrived {
+                // 汇合：绳子画的是同一张并肩插图（换汇合橙，`RopeView` 的 `.illustration`），
+                // 所以整卡与完成页同样居中；小标题保留（「已到集合点」/「等待时间已满」不在导航栏里）。
+                VStack(spacing: 12) {
+                    Text(hero.eyebrow)
+                        .flowFont(FlowV2Fonts.subhead(bold: true))
+                        .foregroundColor(AppColors.Flow.onHeroEyebrow)
+                        .multilineTextAlignment(.center)
+                    rope
+                    heroBody
+                }
+                .frame(maxWidth: .infinity)
             } else {
                 standardHeroContent
             }
         }
+    }
+
+    private var rope: some View {
+        RopeView(
+            state: hero.rope,
+            theme: hero.style.ropeTheme,
+            runnerName: order?.blindName,
+            remainingMinutes: hero.remainingMinutes
+        )
     }
 
     @ViewBuilder
@@ -127,22 +148,17 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         HStack(alignment: .firstTextBaseline) {
             Text(hero.eyebrow)
                 .flowFont(FlowV2Fonts.subhead(bold: true))
-                .foregroundColor(hero.style == .light ? AppColors.Flow.accent : AppColors.Flow.onHeroEyebrow)
+                .foregroundColor(AppColors.Flow.onHeroEyebrow)
             Spacer(minLength: 8)
             replyNotice
         }
-        RopeView(
-            state: hero.rope,
-            theme: hero.style.ropeTheme,
-            runnerName: order?.blindName,
-            remainingMinutes: hero.remainingMinutes
-        )
+        rope
         heroBody
     }
 
     /// 头卡正文合成**一个**读屏元素（绳子与回复倒计时各是一个）。
     private var heroBody: some View {
-        let centered = phase == .completed
+        let centered = phase == .completed || hero.rope == .arrived
         return VStack(alignment: centered ? .center : .leading, spacing: 8) {
             if let number = hero.number {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -166,7 +182,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             ForEach(hero.lines, id: \.self) { line in
                 Text(line)
                     .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(hero.style == .light ? AppColors.Flow.secondaryText : AppColors.Flow.onHeroBody)
+                    .foregroundColor(AppColors.Flow.onHeroBody)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !inviteMetrics.isEmpty { metricsTriple }
@@ -184,7 +200,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     private var heroForeground: Color {
         if hero.isGold { return AppColors.Flow.gold }
-        return hero.style == .light ? AppColors.Flow.primaryText : AppColors.Flow.onHeroStrong
+        return AppColors.Flow.onHeroStrong
     }
 
     /// 「还剩 25 秒回复」。只有邀请态有；每秒都变，所以是独立读屏元素。
@@ -200,7 +216,9 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 }
                 Text(notice).flowFont(FlowV2Fonts.subhead(), monospacedDigit: true)
             }
-            .foregroundColor(presentation.isReplyUrgent ? AppColors.Flow.replyUrgentText : AppColors.Flow.secondaryText)
+            // 2026-10-13 起邀请头卡是钢蓝底（定稿 v6）：常态 90% 白、最后 10 秒转金色
+            // （金色在本 App 里就是「快到点 / 过点」，压钢蓝 5.20）。红字压彩色底不到 4.5。
+            .foregroundColor(presentation.isReplyUrgent ? AppColors.Flow.gold : AppColors.Flow.onHeroEyebrow)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("volunteerOrderFlowReplyCountdown")
         }
@@ -217,16 +235,18 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                         Text(metric.value).flowFont(FlowV2Fonts.metricValue(), monospacedDigit: true)
                         if let unit = metric.unit { Text(unit).flowFont(FlowV2Fonts.tag()) }
                     }
-                    .foregroundColor(AppColors.Flow.primaryText)
+                    .foregroundColor(AppColors.Flow.onHeroStrong)
                     Text(metric.label)
                         .flowFont(FlowV2Fonts.tag())
-                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .foregroundColor(AppColors.Flow.onHeroBody)
                 }
                 .frame(maxWidth: .infinity)
             }
         }
         .padding(.vertical, 12)
-        .background(AppColors.Flow.surfaceSubtle, in: RoundedRectangle(cornerRadius: FlowMetrics.v2ChipRadius, style: .continuous))
+        // 头卡是钢蓝底（定稿 v6）：浅灰块压在彩色卡里成了一块补丁，改成 12% 白。
+        // 白字 5.24、副文 4.85（`FlowDesignSystemTests.testInviteMetricTileOnTheMatchingHero`）。
+        .background(Color.white.opacity(FlowMetrics.inviteMetricTileWhiteOpacity), in: RoundedRectangle(cornerRadius: FlowMetrics.v2ChipRadius, style: .continuous))
     }
 
     private var metricsSpoken: String {
@@ -540,9 +560,9 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
 extension VolunteerOrderHero.Style {
     /// 交付包 v2 C01。纯类型那边只说「是哪一种」，取色在视图层。
-    var color: Color? {
+    var color: Color {
         switch self {
-        case .light: return nil
+        case .matching: return AppColors.Flow.stateMatching
         case .agreed: return AppColors.Flow.stateAgreed
         case .departed: return AppColors.Flow.stateDeparted
         case .arrived: return AppColors.Flow.stateArrived
@@ -550,13 +570,9 @@ extension VolunteerOrderHero.Style {
         }
     }
 
-    var cardStyle: FlowHeroCardStyle {
-        color.map { .tinted($0) } ?? .light
-    }
+    var cardStyle: FlowHeroCardStyle { .tinted(color) }
 
-    var ropeTheme: RopeView.Theme {
-        color.map { .onHero($0) } ?? .light
-    }
+    var ropeTheme: RopeView.Theme { .onHero(color) }
 }
 
 private extension View {

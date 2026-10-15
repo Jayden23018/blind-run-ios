@@ -121,6 +121,11 @@ enum FlowMetrics {
 
     /// 主按钮与「求助与安全」的最小高度。设计稿 58，见类型注释第 1 条。
     static let actionButtonMinHeight: CGFloat = 64
+    /// 盲人端汇合页「打电话给<陪跑员>」（定稿 v6，负责人 2026-10-13 定的 80pt）：
+    /// 比主按钮矮一档、比次要按钮高一档 —— 它是这一屏第二重要的事。
+    static let callButtonMinHeight: CGFloat = 80
+    /// 邀请头卡里三格数据那块底：白以这个透明度叠在钢蓝上（定稿 v6）。
+    static let inviteMetricTileWhiteOpacity: Double = 0.12
     /// 两个按钮之间的间距。设计稿 10，提到 12 以吸收 58→64 的增量。
     static let actionButtonSpacing: CGFloat = 12
 
