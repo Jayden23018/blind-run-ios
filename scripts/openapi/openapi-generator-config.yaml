@@ -67,6 +67,7 @@ filter:
     - /api/orders/{id}/intro-call
     - /api/orders/{id}/intro-call/decision
     - /api/orders/{id}/intro-call/notify-incoming
+    - /api/orders/{id}/intro-call/plan
     - /api/orders/{id}/intro-call/unreachable
     - /api/orders/{id}/keep-rematching
     - /api/orders/{id}/keep-waiting

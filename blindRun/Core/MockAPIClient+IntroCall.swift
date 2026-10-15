@@ -2,9 +2,10 @@
 //  MockAPIClient+IntroCall.swift
 //  blindRun
 //
-//  从 MockAPIClient.swift 原样搬出的 接单前通话磨合与订单流转 分段。行为零改动，只改文件位置。
+//  从 MockAPIClient.swift 搬出的 接单前通话磨合与订单流转 分段。见面安排单（#755）是 #432 新加的。
 //
 
+import CoreLocation
 import Foundation
 
 extension MockAPIClient {
@@ -31,14 +32,17 @@ extension MockAPIClient {
             counterpartPhoneMasked: isBlind ? nil : "138****0001",
             myDecision: introCallDecisions[orderId]?[mockRole ?? .unset]?.rawValue,
             windowEndsAt: ISO8601DateFormatter.aidRunFormatter.string(
-                from: Date().addingTimeInterval(20 * 60)
+                from: Date().addingTimeInterval(Self.mockIntroCallWindowMinutes * 60)
             ),
             // 这三项**双方角色都给**（契约：它们是「这一单的信息」不是「对方的信息」），
             // 且必须从真实订单取而不是写死 —— 冷启动恢复出来的通话页正是靠它们才不是一片空白，
             // 写死会让「恢复出来的页面显示的是不是这一单」在开发期永远验不出来。
             startAddress: order.startAddress,
             plannedStartTime: order.plannedStart,
-            plannedEndTime: order.plannedEnd
+            plannedEndTime: order.plannedEnd,
+            startLatitude: order.startLatitude,
+            startLongitude: order.startLongitude,
+            plan: introCallPlans[orderId]
         )
     }
 
@@ -59,13 +63,16 @@ extension MockAPIClient {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
         }
         let role = mockRole ?? .unset
+        if request.decision == .accept {
+            try checkIntroCallPlanGate(orderId: orderId, role: role, planVersion: request.planVersion)
+        }
         var decisions = introCallDecisions[orderId] ?? [:]
         decisions[role] = request.decision
         introCallDecisions[orderId] = decisions
 
         if request.decision == .decline {
             orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
-            introCallDecisions[orderId] = nil
+            endIntroCallRound(orderId: orderId)
         } else if decisions[.blind] == .accept, decisions[.volunteer] == .accept {
             // 🚩 **这里也要问 `isFarFuture`。** 后端 `OrderStatus.java` 逐字写着
             // 「两个接单入口都要问它 —— 这个仓库已经为『接单入口有两个』漏过两次」，
@@ -78,9 +85,10 @@ extension MockAPIClient {
             orders[index] = updateOrderStatus(
                 orders[index],
                 to: target,
-                volunteerPhone: "13800000002"
+                volunteerPhone: "13800000002",
+                meetupPlan: introCallPlans[orderId]
             )
-            introCallDecisions[orderId] = nil
+            endIntroCallRound(orderId: orderId)
         }
         return ApiSuccessResponse(success: true, message: nil)
     }
@@ -94,7 +102,7 @@ extension MockAPIClient {
                 code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
-        introCallDecisions[orderId] = nil
+        endIntroCallRound(orderId: orderId)
         return ApiSuccessResponse(success: true, message: nil)
     }
 
@@ -107,6 +115,195 @@ extension MockAPIClient {
                 code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         }
         return ApiSuccessResponse(success: true, message: nil)
+    }
+
+    // MARK: - 见面安排单（#755）
+
+    /// Mock 的通话窗口。`GET /intro-call` 每次都回「现在 + 这么多分钟」，安排单的提前量也按它算。
+    static let mockIntroCallWindowMinutes: TimeInterval = 20
+    /// 镜像 `app.intro-call.plan-max-submissions-per-round`（默认 10）。
+    static let mockIntroCallPlanMaxSubmissions = 10
+    /// 镜像 `app.intro-call.plan-max-relocation-meters`（默认 3000）。
+    static let mockIntroCallPlanMaxRelocationMeters: CLLocationDistance = 3000
+
+    /// 本轮结束（没约成或约成）：表态、安排单、提交次数一起清掉。后端没约成时删掉本轮全部版本，
+    /// 约成时把安排单写进订单 —— 两种情况下「这一轮的安排单」都不再存在。
+    func endIntroCallRound(orderId: Int64) {
+        introCallDecisions[orderId] = nil
+        introCallPlans[orderId] = nil
+        introCallPlanSubmissionCounts[orderId] = nil
+    }
+
+    /// `decision=ACCEPT` 前的安排单闸门，逐行照契约 `POST /intro-call/decision` 那张两态表：
+    ///
+    /// | | 开关关（缺省） | 开关开 |
+    /// |---|---|---|
+    /// | 陪跑员 `ACCEPT` | 照旧可用 | 没提交过安排单 → `REQUIRED` |
+    /// | 跑者 `ACCEPT`、本轮没有安排单 | 不带版本照旧成单 | `REQUIRED` |
+    /// | 跑者 `ACCEPT`、本轮有安排单 | 必带最新版本，否则 `STALE` | 同左 |
+    /// | 带了 `planVersion` | 没有安排单 → `REQUIRED`，不是最新 → `STALE` | 同左 |
+    func checkIntroCallPlanGate(orderId: Int64, role: UserRole, planVersion: Int?) throws {
+        let latest = introCallPlans[orderId]
+        switch role {
+        case .volunteer:
+            if introCallPlanRequired && latest == nil { throw Self.introCallPlanError("INTRO_CALL_PLAN_REQUIRED") }
+        case .blind:
+            if let planVersion {
+                guard let latest else { throw Self.introCallPlanError("INTRO_CALL_PLAN_REQUIRED") }
+                guard latest.version == planVersion else { throw Self.introCallPlanError("INTRO_CALL_PLAN_STALE") }
+            } else if latest != nil {
+                throw Self.introCallPlanError("INTRO_CALL_PLAN_STALE")
+            } else if introCallPlanRequired {
+                throw Self.introCallPlanError("INTRO_CALL_PLAN_REQUIRED")
+            }
+        default:
+            break
+        }
+    }
+
+    private static func introCallPlanError(_ code: String) -> APIError {
+        let messages = [
+            "INTRO_CALL_PLAN_REQUIRED": "这一轮还没有见面安排单",
+            "INTRO_CALL_PLAN_STALE": "见面安排已更新，请重新确认",
+        ]
+        return APIError.serverError(ErrorResponse(code: code, message: messages[code] ?? code))
+    }
+
+    /// `PUT /api/orders/{id}/intro-call/plan`（仅陪跑员）。
+    ///
+    /// 演后端的几条规矩：提交即陪跑员「合适」、每次 `version + 1` 并作废盲人之前的确认、
+    /// 与最新一版内容相同的重发不加版本、与原约相同的值归一成 `null`、被拒的提交也计数。
+    /// 时段冲突（`INTRO_CALL_PLAN_TIME_UNAVAILABLE` / `VOLUNTEER_ALREADY_ENGAGED`）Mock 没有别的单可撞，不演。
+    func handleSubmitIntroCallPlan(orderId: Int64, body: (any Encodable & Sendable)?) throws -> IntroCallPlanView {
+        guard mockRole == .volunteer else {
+            throw APIError.serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "不是这一轮通话的候选陪跑员"))
+        }
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }),
+              orders[index].status == .pendingIntroCall else {
+            throw APIError.serverError(ErrorResponse(
+                code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
+        }
+        guard let data = try? JSONEncoder().encode(MockAnyEncodable(body)),
+              let submitted = try? JSONDecoder().decode(IntroCallPlanView.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        let used = introCallPlanSubmissionCounts[orderId] ?? 0
+        let tooMany = APIError.serverError(ErrorResponse(
+            code: "INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS", message: "这一轮提交次数已到上限"))
+        let normalized: IntroCallPlanView
+        do {
+            normalized = try Self.normalizedIntroCallPlan(submitted, original: orders[index])
+        } catch {
+            guard used < Self.mockIntroCallPlanMaxSubmissions else { throw tooMany }
+            introCallPlanSubmissionCounts[orderId] = used + 1
+            throw error
+        }
+        // 弱网重发先于上限判：到顶之后重发上一版，拿回的应当是那一版而不是「次数到顶」。
+        let latest = introCallPlans[orderId]
+        if let latest, Self.sameIntroCallPlanContent(latest, normalized) {
+            return latest
+        }
+        guard used < Self.mockIntroCallPlanMaxSubmissions else { throw tooMany }
+        introCallPlanSubmissionCounts[orderId] = used + 1
+        var stored = normalized
+        stored.version = (latest?.version ?? 0) + 1
+        stored.submittedAt = DateFormatter.aidRunBackendLocalDateTime.string(from: Date())
+        introCallPlans[orderId] = stored
+        var decisions = introCallDecisions[orderId] ?? [:]
+        decisions[.volunteer] = .accept
+        decisions[.blind] = nil
+        introCallDecisions[orderId] = decisions
+        return stored
+    }
+
+    #if DEBUG
+    /// 替陪跑员那一侧提交安排单。单设备上没有它，盲人端「听安排、做确认」那一步在 Mock 里走不到 ——
+    /// 与 `simulateIntroCallDecisionForTesting` 同一个理由。
+    @discardableResult
+    func simulateIntroCallPlanSubmissionForTesting(
+        orderId: Int64,
+        plan: IntroCallPlanRequest
+    ) throws -> IntroCallPlanView {
+        let savedRole = mockRole
+        mockRole = .volunteer
+        defer { mockRole = savedRole }
+        return try handleSubmitIntroCallPlan(orderId: orderId, body: plan)
+    }
+    #endif
+
+    private static func normalizedIntroCallPlan(
+        _ submitted: IntroCallPlanView,
+        original: OrderDetailResponse
+    ) throws -> IntroCallPlanView {
+        func reject(_ code: String, _ message: String) -> APIError {
+            APIError.serverError(ErrorResponse(code: code, message: message))
+        }
+        // 地点三项同传同不传。
+        let address = submitted.startAddress?.nilIfBlank
+        let placeParts = [address != nil, submitted.startLatitude != nil, submitted.startLongitude != nil]
+        guard placeParts.allSatisfy({ $0 }) || placeParts.allSatisfy({ !$0 }) else {
+            throw reject("BAD_REQUEST", "地址与坐标需要一起传")
+        }
+        var result = IntroCallPlanView(version: nil)
+        if let address, let lat = submitted.startLatitude, let lng = submitted.startLongitude {
+            let meters: CLLocationDistance? = original.startLatitude.flatMap { originalLat in
+                original.startLongitude.map { originalLng in
+                    CLLocation(latitude: lat, longitude: lng)
+                        .distance(from: CLLocation(latitude: originalLat, longitude: originalLng))
+                }
+            }
+            if let meters, meters > mockIntroCallPlanMaxRelocationMeters {
+                throw reject("INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL", "新集合点离原约太远")
+            }
+            let samePlace = address == original.startAddress?.nilIfBlank && (meters ?? 0) < 1
+            if !samePlace {
+                result.startAddress = address
+                result.startLatitude = lat
+                result.startLongitude = lng
+            }
+        }
+        // 时间：只传开始时按原时长平移结束；与原约相同的值归一成 null。
+        let originalStart = original.plannedStart?.nilIfBlank?.backendTimestamp
+        let originalEnd = original.plannedEnd?.nilIfBlank?.backendTimestamp
+        // 传了却解析不出就拒（后端是 400），不许静默当成「按原约」—— 否则客户端时间格式写错在开发期永远看不出来。
+        func parsedTime(_ raw: String?) throws -> Date? {
+            guard let raw = raw?.nilIfBlank else { return nil }
+            guard let date = raw.backendTimestamp else { throw reject("VALIDATION_ERROR", "时间格式不正确") }
+            return date
+        }
+        let submittedStart = try parsedTime(submitted.plannedStartTime)
+        let submittedEnd = try parsedTime(submitted.plannedEndTime)
+        let start = submittedStart ?? originalStart
+        var end = submittedEnd ?? originalEnd
+        if submittedEnd == nil, let submittedStart, let originalStart, let originalEnd {
+            end = submittedStart.addingTimeInterval(originalEnd.timeIntervalSince(originalStart))
+        }
+        if let start, start != originalStart {
+            let lead = (TimeInterval(AppConstants.Timing.minimumBookingLeadMinutes) + mockIntroCallWindowMinutes) * 60
+            guard start.timeIntervalSinceNow >= lead else {
+                throw reject("APPOINTMENT_TOO_SOON", "新时间离现在太近")
+            }
+            result.plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: start)
+        }
+        if let end, end != originalEnd {
+            result.plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: end)
+        }
+        if let note = submitted.meetSpotNote?.nilIfBlank {
+            guard note.count <= IntroCallMeetupPlan.meetSpotNoteMaxLength else {
+                throw reject("VALIDATION_ERROR", "具体见面位置不超过 30 字")
+            }
+            result.meetSpotNote = note
+        }
+        result.volunteerTopColor = submitted.volunteerTopColor
+        result.runnerTopColor = submitted.runnerTopColor
+        return result
+    }
+
+    private static func sameIntroCallPlanContent(_ lhs: IntroCallPlanView, _ rhs: IntroCallPlanView) -> Bool {
+        var left = lhs, right = rhs
+        left.version = nil; right.version = nil
+        left.submittedAt = nil; right.submittedAt = nil
+        return left == right
     }
 
     /// 接单时距开跑超过这个分钟数就落 `SCHEDULED_CONFIRMED`（跨天预约，后端迁移 `0041`）。

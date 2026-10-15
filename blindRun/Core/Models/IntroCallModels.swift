@@ -60,9 +60,28 @@ nonisolated struct IntroCallView: Decodable, Sendable, Equatable {
 
     /// 计划结束时间。
     ///
-    /// ⚠️ 契约在这个字段上钉了一条边界，别越过：**不要往这个 DTO 里加自由文本**
+    /// ⚠️ 契约在这个字段上钉了一条边界，别越过：**不要往这个 DTO 里加盲人写的自由文本**
     /// （`specialNotes` / `routeNotes`）—— 通话发生在接单前，`AGENTS.md §8` 那条不变。
+    ///
+    /// 🚩 **`plan.meetSpotNote` 是这条边界唯一的破例，而且方向相反**（#755，负责人 2026-10-15 批准）：
+    /// 它由**陪跑员**写、在接单前**给盲人**看 —— §8 防的是「盲人的话交给这一单碰到的每一个候选人」，
+    /// 这一条的作者是候选人自己，读者是订单主人，盲人那一侧的信息一个字都没多给出去。
+    /// 能放行的理由只有这一个；任何「盲人写、陪跑员读」的字段照旧不许加。
     let plannedEndTime: String?
+
+    // ⚠️ 以下三项一律 `var` + 默认 `nil` 加在末尾：memberwise init 自动带默认值，
+    // 既有的构造点（Mock 与用例）不必各补一行。理由同 `OrderDetailResponse.volunteerId`。
+
+    /// 原约集合点坐标（GCJ-02，#755）。安排单里地点改没改、离原地点多远，都对着它算。
+    var startLatitude: Double? = nil
+    var startLongitude: Double? = nil
+
+    /// 这一轮见面安排单的**最新一版**，陪跑员还没提交时为 `nil`。两端内容相同。
+    ///
+    /// 解码不会因为它带崩整条响应：`IntroCallPlanView` 逐字段宽容解码，颜色是开放枚举。
+    /// 用的时候走 `meetupPlan`（已映射成本地类型）；`plan != nil` 而 `meetupPlan == nil`
+    /// 说明这一版读不懂，见 `hasUnreadablePlan`。
+    var plan: IntroCallPlanView? = nil
 
     /// 唯一允许拼 `tel:` 的来源。掩码串永远进不来 —— 它在另一个字段上。
     var dialableCounterpartPhone: String? {
@@ -96,6 +115,11 @@ nonisolated enum IntroCallDecision: String, Codable, Sendable {
 
 nonisolated struct IntroCallDecisionRequest: Codable, Sendable {
     let decision: IntroCallDecision
+
+    /// 盲人确认的那一版见面安排单（#755）。**只在盲人 `ACCEPT` 时带**，入口是
+    /// `OrderServing.confirmIntroCallPlan`；`DECLINE` 与陪跑员一侧后端不看它。
+    /// `nil` 时整个键不发（合成的 `encodeIfPresent`），与旧请求体逐字节相同。
+    var planVersion: Int? = nil
 }
 
 /// 通话磨合的四条端点。
@@ -115,6 +139,8 @@ enum IntroCallEndpoint {
     case decision
     case unreachable
     case notifyIncoming
+    /// `PUT` 见面安排单（#755）**仅陪跑员**。提交本身就是他的「合适」，见 `SafetyServing.submitIntroCallPlan`。
+    case plan
 
     func request(orderId: Int64) -> EndpointRequest {
         switch self {
@@ -126,6 +152,8 @@ enum IntroCallEndpoint {
             return EndpointRequest(.post, "/api/orders/\(orderId)/intro-call/unreachable")
         case .notifyIncoming:
             return EndpointRequest(.post, "/api/orders/\(orderId)/intro-call/notify-incoming")
+        case .plan:
+            return EndpointRequest(.put, "/api/orders/\(orderId)/intro-call/plan")
         }
     }
 

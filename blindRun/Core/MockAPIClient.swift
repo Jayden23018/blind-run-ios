@@ -41,6 +41,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// （`blindDecision` / `volunteerDecision`），而 `IntroCallView.myDecision` 只回自己那一列 ——
     /// 存成一个值会让「只有一方表了态」这条最要紧的中间态在 Mock 里根本演不出来。
     var introCallDecisions: [Int64: [UserRole: IntroCallDecision]] = [:]
+    /// 这一轮见面安排单的最新一版（#755）。本轮没约成 / 约成都清掉 —— 后端也是随本轮删除、约成后写进订单。
+    var introCallPlans: [Int64: IntroCallPlanView] = [:]
+    /// 这一轮 `PUT /plan` 的提交次数，**被拒的也算**（契约原话）。
+    var introCallPlanSubmissionCounts: [Int64: Int] = [:]
+    /// 镜像后端开关 `app.intro-call.plan-required`，缺省 `false` 与后端一致。
+    /// 新版客户端两种状态下都必须走得通（陪跑员一律 `PUT /plan`、盲人一律带 `planVersion`），
+    /// 所以用例要能把它拨到 `true` 验一遍：关着时老路也通，会把「新客户端漏发 planVersion」藏起来。
+    var introCallPlanRequired = false
     private var emergencyEventSequence: Int64 = 9000
     /// 当前未终态的紧急事件，`GET /api/emergency/active` 的回放源。撤销后置 nil。
     private var activeEmergencyEvent: EmergencyEventResponse?
@@ -166,19 +174,25 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     ) {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }),
               orders[index].status == .pendingIntroCall else { return }
+        // 与真实入口同一道安排单闸门：开关打开时，代打的「合适」也不许绕过安排单成单。
+        if decision == .accept,
+           (try? checkIntroCallPlanGate(orderId: orderId, role: role, planVersion: introCallPlans[orderId]?.version)) == nil {
+            return
+        }
         var decisions = introCallDecisions[orderId] ?? [:]
         decisions[role] = decision
         introCallDecisions[orderId] = decisions
         if decision == .decline {
             orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
-            introCallDecisions[orderId] = nil
+            endIntroCallRound(orderId: orderId)
         } else if decisions[.blind] == .accept, decisions[.volunteer] == .accept {
             orders[index] = updateOrderStatus(
                 orders[index],
                 to: .pendingAccept,
-                volunteerPhone: "13800000002"
+                volunteerPhone: "13800000002",
+                meetupPlan: introCallPlans[orderId]
             )
-            introCallDecisions[orderId] = nil
+            endIntroCallRound(orderId: orderId)
         }
     }
     #endif
@@ -550,6 +564,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             if path.hasSuffix("/intro-call/notify-incoming") && method == .post {
                 return try handleIntroCallNotifyIncoming(orderId: orderId)
+            }
+            if path.hasSuffix("/intro-call/plan") && method == .put {
+                return try handleSubmitIntroCallPlan(orderId: orderId, body: body)
             }
             if path.hasSuffix("/intro-call") && method == .get {
                 return try handleGetIntroCall(orderId: orderId)
@@ -967,10 +984,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Helpers
 
+    /// - Parameter meetupPlan: 通话磨合约成时传这一轮的安排单：改过的时间、地点覆盖订单原有那几列，
+    ///   见面位置与颜色写进三个新列（后端 #755 口径）。其余调用点不传。
     func updateOrderStatus(
         _ order: OrderDetailResponse,
         to newStatus: RunOrderStatus,
-        volunteerPhone: String? = nil
+        volunteerPhone: String? = nil,
+        meetupPlan: IntroCallPlanView? = nil
     ) -> OrderDetailResponse {
         appendStatusLog(
             orderId: order.orderId,
@@ -982,14 +1002,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return OrderDetailResponse(
             orderId: order.orderId,
             status: newStatus,
-            startAddress: order.startAddress,
-            startLatitude: order.startLatitude,
-            startLongitude: order.startLongitude,
+            startAddress: meetupPlan?.startAddress ?? order.startAddress,
+            startLatitude: meetupPlan?.startLatitude ?? order.startLatitude,
+            startLongitude: meetupPlan?.startLongitude ?? order.startLongitude,
             endAddress: order.endAddress,
             endLatitude: order.endLatitude,
             endLongitude: order.endLongitude,
-            plannedStart: order.plannedStart,
-            plannedEnd: order.plannedEnd,
+            plannedStart: meetupPlan?.plannedStartTime ?? order.plannedStart,
+            plannedEnd: meetupPlan?.plannedEndTime ?? order.plannedEnd,
             blindName: order.blindName,
             blindPhone: order.blindPhone,
             volunteerPhone: volunteerPhone ?? order.volunteerPhone,
@@ -1010,7 +1030,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             // （`api_spec.yaml` 的 `OrderDetailResponse`），所以 Mock 给它一个值是在
             // 镜像现实 —— 不是 `updatedAt` 那种 Mock 自己造、后端从来没发过的字段
             // （记忆 `mock-fabricates-fields-the-backend-never-sends`，PR #48）。
-            volunteerTotalCompleted: hasAcceptedVolunteer ? Self.mockOrderVolunteerCompletedRuns : nil
+            volunteerTotalCompleted: hasAcceptedVolunteer ? Self.mockOrderVolunteerCompletedRuns : nil,
+            // 三项是订单列，状态往后走时要带着（约好页之后的每一页都可能显示）。
+            // 换陪跑员时清掉陪跑员上衣颜色 —— 说的是走掉的那位；另两项描述地点和跑者，保留（后端同口径）。
+            meetSpotNote: meetupPlan?.meetSpotNote ?? order.meetSpotNote,
+            runnerTopColor: meetupPlan?.runnerTopColor ?? order.runnerTopColor,
+            volunteerTopColor: newStatus == .rematching ? nil : (meetupPlan?.volunteerTopColor ?? order.volunteerTopColor)
         )
     }
 

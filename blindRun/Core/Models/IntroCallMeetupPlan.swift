@@ -9,8 +9,8 @@ import SwiftUI
 /// 行为依据 `docs/design/2026-10-15-intro-call-meetup-plan-design.md` §1.2；
 /// 文案与读屏原话以视觉稿 v2 `docs/ui/mockups/intro-call-meetup-plan-20261015/index.html` 为准。
 ///
-/// 🚩 **这里只是本地类型，刻意不实现 `Decodable`。** 后端端点（blind-run-backend#755）未合并，
-/// 字段名与颜色取值都没定。#432 接契约时只加一层「响应 → 本类型」的映射，下面的纯函数不用动。
+/// 🚩 **这里只是本地类型，刻意不实现 `Decodable`。** 契约 DTO 是 `IntroCallPlanView`（本文件下方），
+/// 由 `IntroCallPlanView.meetupPlan` 映射过来（#432）；下面的纯函数只认本类型，不碰线上的字符串。
 ///
 /// 每个可改字段 `nil` = **按原约**，不是「清空」。陪跑员一个字段都不改也要提交 ——
 /// 提交本身就是他的「合适」。
@@ -94,11 +94,15 @@ nonisolated struct IntroCallMeetupChanges: Sendable, Equatable {
 /// 🚨 **未知值降级为 `.unknown`，不许把整张单带崩** —— 与 `RunOrderStatus.unknown` 同一条红线。
 /// 降级之后那一行**不念、不显示颜色名**（`spokenName == nil`）。
 ///
-/// ⚠️ 原始取值是占位：契约未定，#432 对齐时只改这张 `rawValue` 表。
+/// 取值逐字对齐契约 `IntroCallPlanRequest.runnerTopColor` 的十个值（#432 核对，后端 origin/main 2026-10-15）。
 ///
 /// 刻意不遵循 `CaseIterable`：合成的 `allCases` 会把 `.unknown` 带进陪跑员的颜色单选。
 /// #433 要列表时照 `RunOrderStatus.allCases` 手写一份排除 `.unknown` 的。
-nonisolated enum MeetupTopColor: String, Sendable {
+///
+/// `Codable` 只为订单详情（`OrderDetailResponse.runnerTopColor`）能直接持有它：
+/// 解码永不抛错（认不出、类型不对一律 `.unknown`），编码只会在请求体里出现，
+/// 而 `IntroCallPlanRequest` 在构造时就把 `.unknown` 换成 `nil` —— `UNKNOWN` 永远发不上去。
+nonisolated enum MeetupTopColor: String, Codable, Sendable {
     case black = "BLACK"
     case white = "WHITE"
     case gray = "GRAY"
@@ -112,9 +116,15 @@ nonisolated enum MeetupTopColor: String, Sendable {
     /// 后端新增颜色时的兜底。**不是后端会发的值**。
     case unknown = "UNKNOWN"
 
-    /// 解码入口（#432 接）。认不出的一律 `.unknown`。
+    /// 认不出的一律 `.unknown`。
     init(lenientRawValue rawValue: String) {
         self = MeetupTopColor(rawValue: rawValue.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) ?? .unknown
+    }
+
+    /// 开放枚举：后端加颜色、或者这个键的类型变了，都只让这一项降级，不带崩外层整条响应。
+    init(from decoder: Decoder) throws {
+        let raw = try? decoder.singleValueContainer().decode(String.self)
+        self = raw.map(MeetupTopColor.init(lenientRawValue:)) ?? .unknown
     }
 
     /// 视觉稿 v2 的颜色名（「红色」）。`.unknown` 返回 `nil` ⇒ 调用方整句不念。
@@ -434,4 +444,271 @@ nonisolated struct IntroCallMeetupPlanSpeech: Sendable, Equatable {
 
     /// 「重复当前状态」念的整张单。
     var fullText: String { ([title] + items).joined() }
+}
+
+// MARK: - 契约 DTO（blind-run-backend#755，#432 接入）
+
+/// `IntroCallView.plan` 与 `PUT /api/orders/{id}/intro-call/plan` 的响应：见面安排单的**最新一版**，两端内容相同。
+///
+/// 🚩 **时间、地点两组：非 null = 改了，null = 按原约**（服务端已归一化，与原约相同的值不会出现在这里）。
+/// 原约是 `IntroCallView` 顶层的 `plannedStartTime` / `plannedEndTime` / `startAddress` / 坐标，通话期间不变。
+///
+/// 🚨 **逐字段宽容解码，任何一项形状不对都不许带崩外层 `IntroCallView`** —— 那一页还承载着
+/// 盲人唯一能拨通的号码（`dialableCounterpartPhone`），整条解不出来等于电话也没了。
+/// 读不懂的那几项落 `nil`，再由 `meetupPlan` 判这一版还能不能念给盲人听。
+nonisolated struct IntroCallPlanView: Decodable, Sendable, Equatable {
+    /// 这一轮内的版本号，从 1 起。盲人确认时必须带上它（`IntroCallDecisionRequest.planVersion`）。
+    var version: Int?
+    var plannedStartTime: String?
+    var plannedEndTime: String?
+    var startAddress: String?
+    var startLatitude: Double?
+    var startLongitude: Double?
+    /// 具体在哪儿见，陪跑员写的（≤30 字）。为什么允许它出现在接单前，见 `IntroCallView.plannedEndTime` 的注释。
+    var meetSpotNote: String?
+    var volunteerTopColor: MeetupTopColor?
+    var runnerTopColor: MeetupTopColor?
+    var submittedAt: String?
+    /// 解码时有字段**在、但形状不对**（或 `plan` 本身不是对象）。这种单不许念：
+    /// 时间、地点的 `nil` 表示「按原约」，把一个读坏的字段落成 `nil` 就是把改期念成没改。
+    /// 颜色与 `submittedAt` 不算 —— 前者是开放枚举，读坏了只是那一句不念；后者不进朗读和确认。
+    private(set) var hasMalformedField = false
+
+    init(
+        version: Int?,
+        plannedStartTime: String? = nil,
+        plannedEndTime: String? = nil,
+        startAddress: String? = nil,
+        startLatitude: Double? = nil,
+        startLongitude: Double? = nil,
+        meetSpotNote: String? = nil,
+        volunteerTopColor: MeetupTopColor? = nil,
+        runnerTopColor: MeetupTopColor? = nil,
+        submittedAt: String? = nil
+    ) {
+        self.version = version
+        self.plannedStartTime = plannedStartTime
+        self.plannedEndTime = plannedEndTime
+        self.startAddress = startAddress
+        self.startLatitude = startLatitude
+        self.startLongitude = startLongitude
+        self.meetSpotNote = meetSpotNote
+        self.volunteerTopColor = volunteerTopColor
+        self.runnerTopColor = runnerTopColor
+        self.submittedAt = submittedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, plannedStartTime, plannedEndTime, startAddress, startLatitude, startLongitude
+        case meetSpotNote, volunteerTopColor, runnerTopColor, submittedAt
+    }
+
+    /// 永不抛错：`plan` 连对象都不是时也只是得到一张「读不懂」的单 —— 外层 `IntroCallView`
+    /// 是合成解码，这里一抛，盲人那一页的号码就跟着没了。
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else {
+            hasMalformedField = true
+            return
+        }
+        var malformed = false
+        /// 键缺失或 `null` → `nil`；键在但解不出 → `nil` 并记一笔。
+        func field<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            guard c.contains(key), (try? c.decodeNil(forKey: key)) == false else { return nil }
+            if let value = try? c.decode(T.self, forKey: key) { return value }
+            malformed = true
+            return nil
+        }
+        version = field(Int.self, .version)
+        plannedStartTime = field(String.self, .plannedStartTime)
+        plannedEndTime = field(String.self, .plannedEndTime)
+        startAddress = field(String.self, .startAddress)
+        startLatitude = field(Double.self, .startLatitude)
+        startLongitude = field(Double.self, .startLongitude)
+        meetSpotNote = field(String.self, .meetSpotNote)
+        // 提交时刻只用于展示、不进朗读也不进确认，读坏了不该拦住整张单。颜色同理，
+        // 而且颜色解码本身永不失败（认不出就是 `.unknown`）。这三项都不参与 `malformed`。
+        submittedAt = (try? c.decodeIfPresent(String.self, forKey: .submittedAt)) ?? nil
+        volunteerTopColor = (try? c.decodeIfPresent(MeetupTopColor.self, forKey: .volunteerTopColor)) ?? nil
+        runnerTopColor = (try? c.decodeIfPresent(MeetupTopColor.self, forKey: .runnerTopColor)) ?? nil
+        hasMalformedField = malformed
+    }
+
+    /// 映射成第 1 组纯函数认的本地类型。**读不懂就整张返回 `nil`，不猜**：
+    ///
+    /// - 有字段形状不对（`hasMalformedField`）：那一项落成了 `nil`，而 `nil` 在这里的意思是「按原约」。
+    /// - 没有版本号（或 < 1）：盲人没法确认它，念了也白念。
+    /// - 时间是非 null 但解析不出的串：落成 `nil` 会被当成「按原约」念出去 —— 把一次改期念成没改，
+    ///   盲人会按旧时间去集合点。所以宁可整张不认，让页面说「暂时拿不到」。
+    /// - 地点三项不是「同有同无」：契约保证一起出现，缺一项说明形状坏了。只有坐标没有地址时，
+    ///   朗读会念出原地址再报一个距离（「仍为南门，约 800 米」），比不念更误导。
+    @MainActor var meetupPlan: IntroCallMeetupPlan? {
+        guard !hasMalformedField, let version, version >= 1 else { return nil }
+        guard case .readable(let start) = Self.changedTime(plannedStartTime),
+              case .readable(let end) = Self.changedTime(plannedEndTime) else { return nil }
+        let address = startAddress?.nilIfBlank
+        let placeParts = [address != nil, startLatitude != nil, startLongitude != nil]
+        guard placeParts.allSatisfy({ $0 }) || placeParts.allSatisfy({ !$0 }) else { return nil }
+        return IntroCallMeetupPlan(
+            version: version,
+            plannedStartTime: start,
+            plannedEndTime: end,
+            startAddress: address,
+            startLatitude: startLatitude,
+            startLongitude: startLongitude,
+            meetSpotNote: meetSpotNote?.nilIfBlank,
+            volunteerTopColor: volunteerTopColor,
+            runnerTopColor: runnerTopColor
+        )
+    }
+
+    /// `.readable(nil)` = 没改（按原约）；`.unreadable` = 有值但解析不出。
+    private enum TimeField { case readable(Date?), unreadable }
+
+    @MainActor private static func changedTime(_ raw: String?) -> TimeField {
+        guard let raw = raw?.nilIfBlank else { return .readable(nil) }
+        return raw.backendTimestamp.map { .readable($0) } ?? .unreadable
+    }
+}
+
+extension IntroCallView {
+    /// 原约。时间读不出来就当没有（朗读那一项随之省掉），不编一个。
+    @MainActor var originalArrangement: IntroCallOriginalArrangement {
+        IntroCallOriginalArrangement(
+            plannedStartTime: plannedStartTime?.nilIfBlank?.backendTimestamp,
+            plannedEndTime: plannedEndTime?.nilIfBlank?.backendTimestamp,
+            startAddress: startAddress?.nilIfBlank,
+            startLatitude: startLatitude,
+            startLongitude: startLongitude
+        )
+    }
+
+    /// 最新一版安排单（本地类型）。`nil` = 还没提交，**或**这一版读不懂 —— 两者用 `hasUnreadablePlan` 区分。
+    @MainActor var meetupPlan: IntroCallMeetupPlan? {
+        plan?.meetupPlan
+    }
+
+    /// 服务端说有安排单，客户端读不懂。🚨 这时**不许**退回「等安排」或「待通话」：
+    /// 陪跑员已经提交了，盲人以为对方还没动静会一直等到窗口超时。页面应当说拿不到、给重试。
+    @MainActor var hasUnreadablePlan: Bool {
+        plan != nil && meetupPlan == nil
+    }
+}
+
+/// `PUT /api/orders/{id}/intro-call/plan` 的请求体。**全部可选，不填 = 按原约**；
+/// 一项不改也要提交 —— 提交本身就是陪跑员的「合适」。
+///
+/// 两条契约规则在类型上就做死，不交给每个调用点去记：
+/// - 地点三项（地址 + 两个坐标）**同传同不传**：只能整体给一个 `Place`，拆不开。
+///   契约原话：没有一起传 → 400 `BAD_REQUEST`。
+/// - 颜色 `.unknown` 不会被发出去：构造时换成 `nil`（「未确认」）。它是本地兜底值，不是后端认的颜色。
+nonisolated struct IntroCallPlanRequest: Encodable, Sendable, Equatable {
+    nonisolated struct Place: Sendable, Equatable {
+        /// 高德 POI 名称。
+        let address: String
+        /// GCJ-02，与原约同一坐标系，**不做转换**。
+        let latitude: Double
+        let longitude: Double
+    }
+
+    /// 后端 `LocalDateTime` 形状（`2026-10-16T07:30:00`，北京时间）。
+    let plannedStartTime: String?
+    let plannedEndTime: String?
+    let place: Place?
+    let meetSpotNote: String?
+    let volunteerTopColor: MeetupTopColor?
+    let runnerTopColor: MeetupTopColor?
+
+    /// - Parameter plannedEnd: 只改开始时间时传 `nil`，后端按原时长平移结束时间。
+    /// - Parameter meetSpotNote: 去首尾空白，空串按没填。**不在这里截断** —— 超长由界面挡、后端兜，
+    ///   静默截掉陪跑员写的半句话会让盲人听到一个他没写过的位置。
+    @MainActor init(
+        plannedStart: Date? = nil,
+        plannedEnd: Date? = nil,
+        place: Place? = nil,
+        meetSpotNote: String? = nil,
+        volunteerTopColor: MeetupTopColor? = nil,
+        runnerTopColor: MeetupTopColor? = nil
+    ) {
+        let formatter = DateFormatter.aidRunBackendLocalDateTime
+        plannedStartTime = plannedStart.map(formatter.string(from:))
+        plannedEndTime = plannedEnd.map(formatter.string(from:))
+        self.place = place.flatMap { place in
+            place.address.nilIfBlank.map { Place(address: $0, latitude: place.latitude, longitude: place.longitude) }
+        }
+        self.meetSpotNote = meetSpotNote?.nilIfBlank
+        self.volunteerTopColor = volunteerTopColor == .unknown ? nil : volunteerTopColor
+        self.runnerTopColor = runnerTopColor == .unknown ? nil : runnerTopColor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plannedStartTime, plannedEndTime, startAddress, startLatitude, startLongitude
+        case meetSpotNote, volunteerTopColor, runnerTopColor
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(plannedStartTime, forKey: .plannedStartTime)
+        try c.encodeIfPresent(plannedEndTime, forKey: .plannedEndTime)
+        try c.encodeIfPresent(place?.address, forKey: .startAddress)
+        try c.encodeIfPresent(place?.latitude, forKey: .startLatitude)
+        try c.encodeIfPresent(place?.longitude, forKey: .startLongitude)
+        try c.encodeIfPresent(meetSpotNote, forKey: .meetSpotNote)
+        try c.encodeIfPresent(volunteerTopColor, forKey: .volunteerTopColor)
+        try c.encodeIfPresent(runnerTopColor, forKey: .runnerTopColor)
+    }
+}
+
+/// 盲人确认安排单的结果。**`planChanged` 不是错误**（契约原话「`INTRO_CALL_PLAN_STALE` 不是错误」）：
+/// 陪跑员在盲人听完之后又改了一版，盲人要重新拉 `GET /intro-call` 把新版本念一遍再确认。
+/// 做成返回值而不是让 409 抛出去，是为了让调用方**没法**把它和「确认未送达」走同一条红条。
+nonisolated enum IntroCallPlanConfirmation: Sendable, Equatable {
+    case confirmed
+    case planChanged
+}
+
+// MARK: - 安排单的错误文案（视觉稿 v2「④ 等待、临期与出错」）
+
+extension IntroCallMeetupCopy {
+
+    /// 409 `INTRO_CALL_PLAN_STALE` / 拉到的版本号变了。逐字取视觉稿读屏原话。
+    /// 🚩 **不是错误**：不配红条、不念「失败」，焦点回到标题重新念。
+    static let planChangedRelisten = "陪跑员已修改见面安排，请重新收听。"
+
+    /// 盲人确认没送到（网络、5xx 等 `planChanged` 以外的一切）。逐字取视觉稿。
+    static let confirmNotDelivered = "确认未送达，请重试。"
+
+    /// 409 `INTRO_CALL_PLAN_REQUIRED`。两端都可能碰到：盲人确认时这一轮没有安排单；
+    /// 开关打开后陪跑员走老入口直接说「合适」。所以**不点名是谁没提交**，两端读起来都是真话。
+    static let planNotSubmittedYet = "这一轮还没有提交见面安排。"
+
+    /// 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`。🚨 **刻意不说原因**：真实原因是跑者在该时段另有一单，
+    /// 告诉陪跑员等于泄露跑者的行程。逐字取视觉稿「该时段不可用，请调整时间」。
+    static let planTimeUnavailable = "该时段不可用，请调整时间。"
+
+    /// 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`。**不写死「3 公里」**：上限是后端配置
+    /// （`app.intro-call.plan-max-relocation-meters`），与 `APPOINTMENT_TOO_FAR` 不写死天数同一条理由。
+    /// 视觉稿那句带实际距离的版本（「距原集合地点 8.4 公里，超出 3 公里调整上限」）由 V2 表单就地拼。
+    static let planTooFarFromOriginal = "新的集合地点离原来的地点太远，超出了调整上限，请选近一些的地点。"
+
+    /// 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。不说「上一版仍有效」：被拒的提交也计数，
+    /// 这一轮可能一版都没成功过。
+    static let planTooManySubmissions = "这一轮的见面安排已经提交太多次，不能再修改了。"
+
+    /// `PUT /plan` 改了时间、被 `APPOINTMENT_TOO_SOON` 拒时说的话。
+    ///
+    /// 🚨 **不能用 `ErrorCode.appointmentTooSoon` 那句「至少30分钟之后」**：安排单的提前量是
+    /// 30 分钟 **加上这一轮通话窗口剩下的分钟数**（契约），照念 30 分钟陪跑员会改到 31 分钟后再被拒一次。
+    /// 后端 message 里有算好的分钟数，但形状不在契约里，不拿来拼。
+    static let planStartTooSoon = "新的开跑时间离现在太近了，请往后多调一些。"
+
+    /// `PUT /plan` 失败时给陪跑员念的那句。只替换在安排单语境下意思会错的码，其余照 `APIError.localizedMessage`。
+    static func planSubmitErrorMessage(for error: Error) -> String {
+        guard let apiError = error as? APIError else { return APIError.networkError(error).localizedMessage }
+        switch apiError.errorCode {
+        case .appointmentTooSoon:
+            return planStartTooSoon
+        default:
+            return apiError.localizedMessage
+        }
+    }
 }

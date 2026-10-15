@@ -95,6 +95,12 @@ protocol OrderServing: Sendable {
     func introCallView(orderId: Int64) async throws -> IntroCallView
     func submitIntroCallDecision(_ decision: IntroCallDecision, orderId: Int64) async throws
     func notifyIntroCallIncoming(orderId: Int64) async throws
+    /// 盲人确认见面安排单的第 `version` 版（#755）＝ 盲人的「合适」。新版客户端**一律**走这里，不判后端开关。
+    ///
+    /// 409 `INTRO_CALL_PLAN_STALE` 在这一层接住、返回 `.planChanged`（契约原话「它不是错误」）——
+    /// 这是本层「不吞错误」的唯一例外，而且不算吞：结果照样交给调用方，只是换成它没法和失败混用的形状。
+    /// 其余失败照旧抛出。生产调用点随 #434（盲人 B3 确认）落地。
+    func confirmIntroCallPlan(orderId: Int64, version: Int) async throws -> IntroCallPlanConfirmation
 
     // 行程实时分享
     func startLiveShare(orderId: Int64) async throws -> ShareLinkResponse
@@ -259,6 +265,18 @@ struct OrderService: OrderServing {
         let _: EmptyResponse = try await transport.send(
             OrderEndpoint.introCall(.notifyIncoming, orderId: orderId).request
         )
+    }
+
+    func confirmIntroCallPlan(orderId: Int64, version: Int) async throws -> IntroCallPlanConfirmation {
+        do {
+            let _: EmptyResponse = try await transport.send(
+                OrderEndpoint.introCall(.decision, orderId: orderId).request,
+                body: IntroCallDecisionRequest(decision: .accept, planVersion: version)
+            )
+            return .confirmed
+        } catch let error as APIError where error.errorCode == .introCallPlanStale {
+            return .planChanged
+        }
     }
 
     func startLiveShare(orderId: Int64) async throws -> ShareLinkResponse {
