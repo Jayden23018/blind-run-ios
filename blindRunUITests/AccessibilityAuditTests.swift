@@ -2350,6 +2350,11 @@ final class AccessibilityAuditTests: XCTestCase {
         let placeRow = app.descendants(matching: .any)["blindIntroCallPlanRowPlace"].firstMatch
         XCTAssertTrue(placeRow.label.contains("距原地点约"), "改过的集合点没念离原地点多远：\(placeRow.label)")
 
+        // 审计在**落地位置**跑，先于下面的滚动。滚到底之后再审，头部那几行会落到导航栏后面与它下沿的
+        // 渐隐区里，取到的是模糊底色 —— 2026-10-16 真机首轮「剩余 19 分钟」「开跑时间」「已变更」三条
+        // Contrast 就是这样来的（元素截图只有蓝灰底）。与 `occludingBarTop` 处理底栏是同一类遮挡。
+        try audit(app)
+
         // 求助与安全：不滚动就在屏内、点得到。
         let safetyHub = app.descendants(matching: .any)["blindIntroCallSafetyHubButton"].firstMatch
         XCTAssertTrue(safetyHub.waitForExistence(timeout: 5))
@@ -2375,8 +2380,6 @@ final class AccessibilityAuditTests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(decline.frame.height, Self.minimumBlindPrimaryButtonHeight)
         XCTAssertLessThan(confirm.frame.minY, dispute.frame.minY, "「确认」要在「有异议」上面")
-
-        try audit(app)
     }
 
     /// 按「确认见面安排」→ 订单约好，通话页收起，订单页信息卡多出「具体见面位置」「陪跑员上衣」两行。

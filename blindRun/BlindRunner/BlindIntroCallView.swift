@@ -352,22 +352,30 @@ struct BlindIntroCallView: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
             }
+            // 撑满行宽、左对齐：frame 贴着字宽时，行尾的全角括号会画出 frame 外，
+            // 审计判「放大字号后可能被截断」（2026-10-16 真机：「你：蓝色（通话中确认）」）。
             ForEach(row.values, id: \.self) { value in
                 Text(value)
                     .flowFont(FlowFonts.rowValue())
                     .foregroundColor(AppColors.Flow.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let original = row.original {
                 Text(original)
                     .flowFont(FlowFonts.rowDetail())
                     .foregroundColor(AppColors.Flow.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, FlowMetrics.infoRowHorizontalPadding)
         .padding(.vertical, 14)
+        // 与 `FlowInfoRow` 同一个下限，并让整行（含 padding）成为这个读屏元素的范围。
+        // 不加时元素 frame 只有文字那么高 —— 单行的固定句只有 19pt，审计判「可点区太小」（2026-10-16 真机）。
+        .frame(minHeight: FlowMetrics.infoRowDisplayMinHeight) // guard:allow small-touch-target
+        .contentShape(Rectangle())
         // 🔴 每项**一个**读屏元素，标签取 `planSpeech` 那一句：改过的项念「已变更：由 X 改为 Y」，地点再报距离。
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.speech)
