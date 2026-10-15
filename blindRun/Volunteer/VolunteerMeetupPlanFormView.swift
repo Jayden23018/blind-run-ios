@@ -50,6 +50,7 @@ struct VolunteerMeetupPlanFormView: View {
     /// 本地校验没过时主按钮置灰（走 `.disabled`，读屏念「变暗」）—— 错误已经写在对应那一块下面了。
     private var canSubmit: Bool {
         !isSubmitting && draft.timeError(now: Date(), windowEndsAt: windowEndsAt) == nil && draft.placeError == nil
+            && !draft.isMeetSpotNoteTooLong
     }
 
     var body: some View {
@@ -124,13 +125,9 @@ struct VolunteerMeetupPlanFormView: View {
                     .foregroundColor(AppColors.Flow.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // 只展开选择器，**不改时间**：只有陪跑员真的拨动了滚轮才算改（`valueChanged` 只在用户操作时触发）。
+                // 若在展开那一刻就写入一个值，原约早于最早可选时刻时「看一眼再收起」就会变成一次改期发给跑者。
                 editButton(accessibilityLabel: "修改开跑时间") {
-                    if !isEditingTime, draft.plannedStart == nil {
-                        // 第一次展开：从原约（或已过时的原约之后的最早一档）开始，不让选择器停在一个选不了的值上。
-                        let earliest = VolunteerMeetupPlanDraft.earliestStart(now: Date(), windowEndsAt: windowEndsAt)
-                        let base = draft.original.plannedStartTime.map { VolunteerMeetupPlanDraft.roundedUp($0) } ?? earliest
-                        draft.plannedStart = max(base, earliest)
-                    }
                     isEditingTime.toggle()
                 }
                 .accessibilityIdentifier("volunteerMeetupPlanEditTimeButton")
@@ -144,7 +141,7 @@ struct VolunteerMeetupPlanFormView: View {
             if isEditingTime {
                 MinuteIntervalDatePicker(
                     date: Binding(
-                        get: { draft.plannedStart ?? VolunteerMeetupPlanDraft.earliestStart(now: Date(), windowEndsAt: windowEndsAt) },
+                        get: { draft.plannedStart ?? pickerStartingPoint },
                         set: { draft.plannedStart = $0; clearSubmitError(.time) }
                     ),
                     minimumDate: VolunteerMeetupPlanDraft.earliestStart(now: Date(), windowEndsAt: windowEndsAt),
@@ -165,6 +162,13 @@ struct VolunteerMeetupPlanFormView: View {
                     .accessibilityIdentifier("volunteerMeetupPlanTimeError")
             }
         }
+    }
+
+    /// 选择器展开时停在哪：原约（取整到 5 分钟一档），原约已早于最早可选时刻就停在最早那一档。
+    private var pickerStartingPoint: Date {
+        let earliest = VolunteerMeetupPlanDraft.earliestStart(now: Date(), windowEndsAt: windowEndsAt)
+        let base = draft.original.plannedStartTime.map { VolunteerMeetupPlanDraft.roundedUp($0) } ?? earliest
+        return max(base, earliest)
     }
 
     private var timeValue: String {
@@ -213,19 +217,16 @@ struct VolunteerMeetupPlanFormView: View {
         sectionCard {
             sectionHeader(VolunteerMeetupPlanCopy.meetSpotLabel, changed: false)
             HStack(spacing: 8) {
-                TextField(VolunteerMeetupPlanCopy.meetSpotPlaceholder, text: Binding(
-                    get: { draft.meetSpotNote },
-                    set: { draft.meetSpotNote = VolunteerMeetupPlanDraft.limitedMeetSpotNote($0) }
-                ))
+                TextField(VolunteerMeetupPlanCopy.meetSpotPlaceholder, text: $draft.meetSpotNote)
                 .flowFont(FlowV2Fonts.callout())
                 .foregroundColor(AppColors.Flow.primaryText)
                 .submitLabel(.done)
                 .accessibilityLabel(VolunteerMeetupPlanCopy.meetSpotLabel)
                 .accessibilityHint("最多 \(IntroCallMeetupPlan.meetSpotNoteMaxLength) 个字")
                 .accessibilityIdentifier("volunteerMeetupPlanMeetSpotField")
-                Text("\(draft.meetSpotNote.count) / \(IntroCallMeetupPlan.meetSpotNoteMaxLength)")
+                Text("\(draft.meetSpotNoteCount) / \(IntroCallMeetupPlan.meetSpotNoteMaxLength)")
                     .flowFont(FlowV2Fonts.subhead(), monospacedDigit: true)
-                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .foregroundColor(draft.isMeetSpotNoteTooLong ? AppColors.destructive : AppColors.Flow.secondaryText)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, 14)
@@ -234,6 +235,10 @@ struct VolunteerMeetupPlanFormView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(AppColors.Flow.separator, lineWidth: 1)
             )
+            if draft.isMeetSpotNoteTooLong {
+                errorText(VolunteerMeetupPlanCopy.meetSpotTooLong)
+                    .accessibilityIdentifier("volunteerMeetupPlanMeetSpotError")
+            }
         }
     }
 

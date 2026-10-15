@@ -301,9 +301,6 @@ enum IntroCallCopy {
     static let volunteerRoundClosed = "本次沟通已结束，感谢你的响应。"
     static let volunteerBackHomeButtonTitle = "返回首页"
 
-    /// 约好时没有订单详情可念（极少见：成单那一刻详情读失败）的兜底。
-    static let volunteerMatched = "约定完成。"
-
     /// 通话数据还没拉回来时的标题（理由同 `blindLoadingNotice`：整屏空白对读屏用户等同于死机）。
     static let volunteerLoadingNotice = "正在获取跑者的通话信息"
 

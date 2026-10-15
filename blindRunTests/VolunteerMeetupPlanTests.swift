@@ -101,10 +101,14 @@ final class VolunteerMeetupPlanTests: XCTestCase {
         XCTAssertEqual(draft.runnerTopColor, .blue)
     }
 
-    func testMeetSpotNoteIsCappedAtThirtyCharacters() {
-        let long = String(repeating: "门", count: 35)
-        XCTAssertEqual(VolunteerMeetupPlanDraft.limitedMeetSpotNote(long).count, 30)
-        XCTAssertEqual(VolunteerMeetupPlanDraft.limitedMeetSpotNote("东门"), "东门")
+    /// 30 字整是上限内、31 字超限；首尾空白不算（与请求体去空白一致）。超限不截断，由界面挡住提交。
+    func testMeetSpotNoteOverThirtyCharactersIsFlaggedNotTruncated() {
+        var draft = VolunteerMeetupPlanDraft(original: original)
+        draft.meetSpotNote = "  " + String(repeating: "门", count: 30) + "  "
+        XCTAssertFalse(draft.isMeetSpotNoteTooLong)
+        draft.meetSpotNote = String(repeating: "门", count: 31)
+        XCTAssertTrue(draft.isMeetSpotNoteTooLong)
+        XCTAssertEqual(draft.meetSpotNote.count, 31, "不许静默截掉陪跑员写的字")
     }
 
     // MARK: - 提前量含窗口剩余
@@ -386,7 +390,7 @@ final class VolunteerMeetupPlanTests: XCTestCase {
             WSAppNotification(
                 type: WSMessageType.appNotification.rawValue, eventId: Int64.random(in: 1...1_000_000),
                 eventType: "INTRO_CALL_INCOMING", title: nil, body: "跑者正在打给你，请留意来电",
-                ttsText: nil, priority: "HIGH", timestamp: "2026-10-15T20:00:00Z"
+                ttsText: nil, priority: "HIGH", timestamp: "2026-10-15T20:00:00"
             )
         }
         let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
@@ -396,13 +400,19 @@ final class VolunteerMeetupPlanTests: XCTestCase {
         let subscription = coordinator.introCallIncomingPublisher.sink { received.append($0) }
         defer { subscription.cancel() }
 
-        coordinator.isIntroCallPageShowingIncomingCalls = true
+        // 两处入口各开过一页，关掉一页后另一页仍在 ⇒ 仍不进横幅。
+        coordinator.introCallPageDidAppear()
+        coordinator.introCallPageDidAppear()
+        coordinator.introCallPageDidDisappear()
         service.simulateIncomingEventForTesting(.notification(notification()))
         await Task.yield()
         XCTAssertEqual(received.count, 1)
+        // 信封 timestamp 是无时区的 LocalDateTime：必须按后端时刻解出来，不能落回「收到的时刻」——
+        // 否则重连补读来的旧提醒会被当成刚刚打来的。
+        XCTAssertEqual(received.first, "2026-10-15T20:00:00".backendTimestamp)
         XCTAssertNil(coordinator.currentNotification, "通话页开着时由页面自己念，横幅再念一遍就是两遍")
 
-        coordinator.isIntroCallPageShowingIncomingCalls = false
+        coordinator.introCallPageDidDisappear()
         service.simulateIncomingEventForTesting(.notification(notification()))
         await Task.yield()
         XCTAssertEqual(received.count, 2)

@@ -351,11 +351,11 @@ struct VolunteerIntroCallView: View {
                 speechService: speechService
             )
             viewModel.startPolling()
-            appState.realtimeCoordinator.isIntroCallPageShowingIncomingCalls = true
+            appState.realtimeCoordinator.introCallPageDidAppear()
         }
         .onDisappear {
             viewModel.stopPolling()
-            appState.realtimeCoordinator.isIntroCallPageShowingIncomingCalls = false
+            appState.realtimeCoordinator.introCallPageDidDisappear()
         }
         .onReceive(appState.realtimeCoordinator.introCallIncomingPublisher) { sentAt in
             viewModel.noteIncomingCall(sentAt: sentAt)
@@ -490,23 +490,31 @@ struct VolunteerIntroCallView: View {
         .accessibilityIdentifier("volunteerIntroCallHeader")
     }
 
-    /// 倒计时（或来电提醒）胶囊。**单独一个读屏元素**，按分钟静默更新（`updatesFrequently`），
-    /// 只在剩 5 / 1 分钟时由 view model 主动播。并进头卡标签会让整段标题每 15 秒被重念一遍。
+    /// 倒计时胶囊。**单独一个读屏元素、常驻**（来电提醒期间也在，只是上面多一枚来电胶囊），
+    /// 按分钟静默更新（`updatesFrequently`），只在剩 5 / 1 分钟时由 view model 主动播。
+    /// 并进头卡标签会让整段标题每 15 秒被重念一遍。
     @ViewBuilder
     private func heroPill(now: Date, incoming: Bool) -> some View {
-        if isClosed {
-            EmptyView()
-        } else if incoming {
-            HStack { FlowHeroPill(text: IntroCallCopy.volunteerIncomingCallPill, systemImage: "phone.fill") }
-                .padding(.top, 4)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(IntroCallCopy.volunteerIncomingCallPill.replacingOccurrences(of: " · ", with: "，"))
-                .accessibilityIdentifier("volunteerIntroCallCountdown")
-        } else if let text = IntroCallCopy.volunteerWindowPillText(
+        if !isClosed {
+            VStack(alignment: .leading, spacing: 8) {
+                if incoming {
+                    HStack { FlowHeroPill(text: IntroCallCopy.volunteerIncomingCallPill, systemImage: "phone.fill") }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(IntroCallCopy.volunteerIncomingCallPill.replacingOccurrences(of: " · ", with: "，"))
+                        .accessibilityIdentifier("volunteerIntroCallIncomingPill")
+                }
+                countdownPill(now: now)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func countdownPill(now: Date) -> some View {
+        if let text = IntroCallCopy.volunteerWindowPillText(
             windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
         ) {
             HStack { FlowHeroPill(text: text, systemImage: "clock") }
-                .padding(.top, 4)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(IntroCallCopy.volunteerWindowPillAccessibilityLabel(
                     windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now

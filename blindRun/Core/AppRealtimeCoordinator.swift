@@ -469,7 +469,13 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 陪跑员通话页开着时为 true：那一页自己显示「跑者王*正在来电」并播一次，
     /// 这条通知就**不再进横幅** —— 两处各念一遍，读屏用户会听到同一件事两次。
     /// 页面不在时照旧走横幅（陪跑员在首页也要知道有人在打给他）。
-    var isIntroCallPageShowingIncomingCalls = false
+    ///
+    /// 计数而不是一个 Bool：通话页能从首页和派单中心两处进，一处的实例消失时不能把另一处还开着的那页也算没了。
+    var isIntroCallPageShowingIncomingCalls: Bool { introCallPagesShowingIncomingCalls > 0 }
+    private var introCallPagesShowingIncomingCalls = 0
+
+    func introCallPageDidAppear() { introCallPagesShowingIncomingCalls += 1 }
+    func introCallPageDidDisappear() { introCallPagesShowingIncomingCalls = max(0, introCallPagesShowingIncomingCalls - 1) }
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
     var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
@@ -914,7 +920,9 @@ final class AppRealtimeCoordinator: ObservableObject {
         if Self.refreshOnlyEventTypes.contains(eventType) { return }
         if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
         if eventType == Self.introCallIncomingEventType {
-            introCallIncomingSubject.send(Self.parseISO8601(message.timestamp) ?? now())
+            // `backendTimestamp` 而不是 `parseISO8601`：WS 信封的 timestamp 是无时区的 LocalDateTime，
+            // ISO8601DateFormatter 解不出来，会让重连补读来的旧提醒一律当成「刚刚」。
+            introCallIncomingSubject.send(message.timestamp?.nilIfBlank?.backendTimestamp ?? now())
             if isIntroCallPageShowingIncomingCalls { return }
         }
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {

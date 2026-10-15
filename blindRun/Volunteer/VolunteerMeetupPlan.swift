@@ -121,10 +121,11 @@ struct VolunteerMeetupPlanDraft: Equatable {
 
     var meetSpotNoteCount: Int { meetSpotNote.trimmingCharacters(in: .whitespacesAndNewlines).count }
 
-    /// 输入框挡在 30 字（`IntroCallPlanRequest` 的注释：超长由界面挡、后端兜，**不在请求里静默截断**）。
-    static func limitedMeetSpotNote(_ text: String) -> String {
-        String(text.prefix(IntroCallMeetupPlan.meetSpotNoteMaxLength))
-    }
+    /// 超过 30 字：界面挡住提交并说明（`IntroCallPlanRequest` 的注释：超长由界面挡、后端兜，**不静默截断**）。
+    ///
+    /// 🚩 不在输入框的 setter 里截：中文输入法组字时拼音字母也算进长度，27 个字之后打「baoan」
+    /// 会被截成「bao」并打断组字 —— 接近上限时最后两个字打不出来。
+    var isMeetSpotNoteTooLong: Bool { meetSpotNoteCount > IntroCallMeetupPlan.meetSpotNoteMaxLength }
 
     // MARK: 时间范围
 
@@ -312,6 +313,7 @@ enum VolunteerMeetupPlanCopy {
     static let volunteerColorLabel = "本人上衣颜色"
     static let runnerColorLabel = "跑者上衣颜色（通话中确认）"
     static let unconfirmedColor = "未确认"
+    static let meetSpotTooLong = "具体见面位置最多 \(IntroCallMeetupPlan.meetSpotNoteMaxLength) 个字，请删减。"
     static let greetingReminder = "见面时请主动上前，并告知跑者你的姓氏。"
     static let placeSearchTitle = "选择集合地点"
     static let placeSearchPrompt = "搜索地点名称"
@@ -324,15 +326,15 @@ enum VolunteerMeetupPlanCopy {
     /// 不写死「7 天」以外的理由同 `ErrorCode.appointmentTooFar`：选择器已按 7 天挡，这句只在竞态里出现。
     static let tooFarAhead = "这个日期太远了，请改到近一些的日子。"
 
-    /// 视觉稿 ④：「距原集合地点 8.4 公里，超出 3 公里调整上限。」
+    /// 视觉稿 ④：「距原集合地点 8.4 公里，超出 3 公里调整上限。」实际距离走 `DistanceCalculator.formattedDistance`
+    /// （与「距原地点约 800 米」同一套舍入）；上限是配置值，按整公里说。
     static func tooFarFromOriginal(meters: CLLocationDistance) -> String {
-        "距原集合地点 \(kilometers(meters)) 公里，超出 \(kilometers(VolunteerMeetupPlanDraft.relocationLimitMeters)) 公里调整上限。"
+        "距原集合地点 \(DistanceCalculator.formattedDistance(meters))，超出 \(relocationLimitKilometers) 公里调整上限。"
     }
 
-    /// 「8.4」「3」。整数公里不带小数。
-    static func kilometers(_ meters: CLLocationDistance) -> String {
-        let km = meters / 1000
-        return km == km.rounded() ? String(Int(km)) : String(format: "%.1f", km)
+    /// 「3」。
+    static var relocationLimitKilometers: String {
+        String(format: "%g", VolunteerMeetupPlanDraft.relocationLimitMeters / 1000)
     }
 
     /// 「原定 7:00 – 8:00」。
@@ -345,8 +347,7 @@ enum VolunteerMeetupPlanCopy {
     static func originalPlaceLine(address: String?, distance: CLLocationDistance?) -> String? {
         guard let address = address?.nilIfBlank else { return nil }
         guard let distance, distance >= 10 else { return "原定 \(address)" }
-        let limit = kilometers(VolunteerMeetupPlanDraft.relocationLimitMeters)
-        return "原定 \(address) · 距原地点约 \(DistanceCalculator.formattedDistance(distance))（调整上限 \(limit) 公里）"
+        return "原定 \(address) · 距原地点约 \(DistanceCalculator.formattedDistance(distance))（调整上限 \(relocationLimitKilometers) 公里）"
     }
 
     /// 「明天 7:30 – 8:30」。

@@ -529,7 +529,10 @@ final class IntroCallTests: XCTestCase {
         for word in ["拒绝", "不合适", "没选你", "失败", "安排好了"] {
             XCTAssertFalse(IntroCallCopy.volunteerRoundClosed.contains(word), word)
         }
-        XCTAssertFalse(IntroCallCopy.volunteerMatched.contains("这一单是你的"), "负责人 10-13：这一句不要")
+        XCTAssertFalse(
+            IntroCallCopy.volunteerMatchedAnnouncement(order: .preview(status: .pendingAccept)).contains("这一单是你的"),
+            "负责人 10-13：这一句不要"
+        )
     }
 
     // MARK: - 通话页重做（2026-10-13 定稿 v6）
