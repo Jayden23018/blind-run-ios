@@ -234,6 +234,95 @@ final class VolunteerAchievementsTests: XCTestCase {
         XCTAssertNil(next.progressText)
     }
 
+    // MARK: - nextBadge.blockedBy（#366）
+
+    /// 🔴 满格（10/10）却没解锁：后端用 `blockedBy = RATING` 说「卡在评分」。
+    /// 只看 `current` / `target` 的实现在三处都会给出「10/10」—— 读起来就是「快好了」。
+    /// 三处（成就页文本、读屏、首屏徽章格）都要换成「评分还差一点」，且不提阈值 4.8。
+    func testFullProgressBlockedByRatingSaysRatingIsShortInEveryPlace() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 10, "target": 10, "blockedBy": "RATING"}"#
+        )
+
+        XCTAssertEqual(next.progressText, "已完成 10 / 10 条评价，评分还差一点")
+        XCTAssertEqual(
+            VolunteerAchievementsCopy.nextBadgeAccessibilityLabel(next),
+            "下一枚勋章，口碑之星，已完成 10 / 10 条评价，评分还差一点"
+        )
+        XCTAssertEqual(
+            VolunteerProfileBadgeRow.nextBadgeCaption(next),
+            .init(title: "口碑之星", detail: "评分还差一点")
+        )
+
+        let spoken = [
+            next.progressText ?? "",
+            VolunteerAchievementsCopy.nextBadgeAccessibilityLabel(next),
+            VolunteerProfileBadgeRow.nextBadgeCaption(next).detail ?? ""
+        ]
+        for text in spoken {
+            XCTAssertFalse(text.contains("解锁"), "满格卡在评分时不能暗示快解锁了：\(text)")
+            XCTAssertFalse(text.contains("4.8"), "阈值后端刻意不下发，客户端不许抄：\(text)")
+        }
+    }
+
+    /// 后端在评分和条数**都不够**时报 `RATING`（`VolunteerBadge.blockedBy`）。
+    /// 所以条数不能丢 —— 只说评分会把「条数也不够」藏起来。
+    func testRatingBlockKeepsTheCountWhenTheCountIsAlsoShort() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 7, "target": 10, "blockedBy": "RATING"}"#
+        )
+        XCTAssertEqual(next.progressText, "已完成 7 / 10 条评价，评分还差一点")
+    }
+
+    /// `RATINGS_COUNT` 与进度条是同一维，进度本身已经在说了 —— 照原样显示。
+    /// 这条区分「只对 RATING 补一句」与「blockedBy 非空就补一句」两种实现。
+    func testRatingsCountBlockShowsPlainProgress() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 7, "target": 10, "blockedBy": "RATINGS_COUNT"}"#
+        )
+        XCTAssertEqual(next.progressText, "已完成 7 / 10 条评价")
+        XCTAssertEqual(VolunteerProfileBadgeRow.nextBadgeCaption(next).detail, "7/10")
+    }
+
+    /// 开放枚举：不认识的值当 null。把 `blockedBy` 解成严格的 Swift 枚举会让**整份**响应
+    /// 解码失败 —— 首屏影响力区、徽章一排、成就页一起空白（AGENTS.md「未知枚举值不许整条崩」）。
+    func testUnknownBlockedByDoesNotBreakTheWholeResponse() throws {
+        let json = #"""
+        {
+          "totalCompleted": 120,
+          "totalServiceMinutes": 7200,
+          "avgRating": 4.1,
+          "totalRatings": 20,
+          "badges": [{"code": "RUNS_100", "name": "陪跑达人 · 100 次"}],
+          "nextBadge": {"code": "HIGH_RATED", "name": "口碑之星", "current": 10, "target": 10, "blockedBy": "RESPONSE_RATE"}
+        }
+        """#
+        let response = try JSONDecoder().decode(VolunteerAchievementsResponse.self, from: Data(json.utf8))
+
+        XCTAssertEqual(response.completedCount, 120)
+        XCTAssertEqual(response.unlockedBadges.map(\.code), ["RUNS_100"])
+        let next = try XCTUnwrap(response.nextBadge)
+        XCTAssertEqual(next.progressText, "已完成 10 / 10 条评价", "不认识的值按 null 显示")
+    }
+
+    /// 首屏「我的贡献」的主角是最大的那个数。卡在评分时拿满格的「10 / 10」当主角
+    /// 正是要避免的误导 —— 让给下面那一行，那一行会说「评分还差一点」。
+    func testRatingBlockedBadgeIsNotTheHomeHero() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 10, "target": 10, "blockedBy": "RATING"}"#
+        )
+        let summary = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 0, nextBadge: next, streak: nil, streakPartnerName: nil
+        )
+
+        XCTAssertNil(summary.hero)
+        XCTAssertTrue(summary.showsBadgeRow)
+        XCTAssertTrue(summary.isRenderable)
+        XCTAssertTrue(
+            VolunteerHomeIncentiveCopy.accessibilityLabel(summary).contains("评分还差一点")
+        )
+    }
+
     private func decodeNextBadge(_ badgeJSON: String) throws -> VolunteerNextBadgeDto {
         let response = try JSONDecoder().decode(
             VolunteerAchievementsResponse.self,
