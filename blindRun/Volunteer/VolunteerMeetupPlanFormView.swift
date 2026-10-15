@@ -19,7 +19,13 @@ enum VolunteerMeetupPlanSubmitOutcome: Equatable {
 
 struct VolunteerMeetupPlanFormView: View {
     let windowEndsAt: Date?
-    let onSubmit: (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
+    /// 🔴 **必须显式标 `@MainActor`。** 工程开了 `SWIFT_APPROACHABLE_CONCURRENCY`，不标注隔离的 async 闭包类型
+    /// 默认是 `nonisolated(nonsending)`；调用方（通话页，MainActor）传进来的闭包要经过一层转换 thunk，
+    /// 2026-10-16 真机上这层 thunk 交出去的 `IntroCallPlanRequest` 已经被释放（`EXC_BAD_ACCESS`，
+    /// 崩在 `SafetyService.submitIntroCallPlan` 拷贝请求体）—— 点「提交」就闪退。
+    /// 单测直接调 `submitPlan` 不经过这层，抓不到；守它的是
+    /// `VolunteerMeetupPlanTests.testSubmittingThroughTheFormClosureDeliversTheRequestIntact`。
+    let onSubmit: @MainActor (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
 
     @Environment(\.dismiss) private var dismiss
     @State private var draft: VolunteerMeetupPlanDraft
@@ -32,7 +38,7 @@ struct VolunteerMeetupPlanFormView: View {
         original: IntroCallOriginalArrangement,
         editing plan: IntroCallMeetupPlan?,
         windowEndsAt: Date?,
-        onSubmit: @escaping (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
+        onSubmit: @escaping @MainActor (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
     ) {
         self.windowEndsAt = windowEndsAt
         self.onSubmit = onSubmit

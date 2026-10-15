@@ -87,6 +87,7 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 | 绕开一条既有红灯另写用例 / 安全控件只在长链用例中段有断言 | `routed-around-red-light-must-be-filed` |
 | 真机 UI 用例报 App 不在前台，或面板高度 0 | `ui-test-device-orientation-is-not-fixed` |
 | UI 用例失败现场弹出「紧急呼叫」拨号单 / 全屏遮罩「没出来」 | `ui-test-tap-lands-on-persistent-sos-bar` |
+| 单测全绿、真机点按钮就 `EXC_BAD_ACCESS`，栈里有带 `Builtin.ImplicitActor` 的 thunk | `unannotated-async-closure-property-crashes-on-device` |
 
 > 2026-09-17 从长条目压成表。原因：这 7 条各自**存了三份**（本文件长版 + `MEMORY.md` 一行版 +
 > 记忆文件全文），而本文件每个会话常驻、每一轮按 cache read 价重读一遍。

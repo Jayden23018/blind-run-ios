@@ -357,6 +357,32 @@ final class VolunteerMeetupPlanTests: XCTestCase {
         XCTAssertEqual(h.speech.lastSpokenText, IntroCallCopy.volunteerPlanSubmittedAnnouncement)
     }
 
+    /// 真机崩溃复现（2026-10-16 合并跑测，`EXC_BAD_ACCESS` 在 `SafetyService.submitIntroCallPlan` 拷贝请求体时）：
+    /// 表单的 `onSubmit` 是一个存起来的 async 闭包，提交走的是「表单 → 闭包 → view model」这条链，
+    /// 而上面那条用例直接调 `submitPlan`，从不经过闭包的类型转换 thunk —— 所以它绿、真机红。
+    /// 这条照通话页的写法造一张表单、从 MainActor 上的 Task 调它的 `onSubmit`，与按钮按下去走的是同一条路。
+    func testSubmittingThroughTheFormClosureDeliversTheRequestIntact() async {
+        let safety = FakeSafetyService()
+        safety.introCallResult = .success(introCall(windowEndsAt: nil))
+        safety.submitIntroCallPlanResult = .success(IntroCallPlanView(version: 1, meetSpotNote: "东门保安亭左侧"))
+        let h = makeHarness(safety)
+        await h.viewModel.refresh(now: now)
+        let form = VolunteerMeetupPlanFormView(original: original, editing: nil, windowEndsAt: nil) { request, distance in
+            await h.viewModel.submitPlan(request, distanceFromOriginal: distance)
+        }
+        var draft = VolunteerMeetupPlanDraft(original: original)
+        draft.meetSpotNote = "东门保安亭左侧"
+        draft.place = place("朝阳公园东门", northMeters: 800)
+        draft.runnerTopColor = .blue
+        let request = draft.request()
+
+        let outcome = await Task { await form.onSubmit(request, draft.distanceFromOriginal) }.value
+
+        XCTAssertEqual(outcome, .submitted)
+        XCTAssertEqual(safety.lastIntroCallPlan, request, "请求体经过闭包后要原样到达服务层")
+        XCTAssertEqual(h.viewModel.step, .awaitingRunnerConfirmation)
+    }
+
     /// 服务端说有安排单、但这一版读不懂：仍是 V3，不退回 V1 让陪跑员再交一版（每交一版跑者的确认就作废一次）。
     func testUnreadablePlanStillCountsAsSubmitted() async {
         let safety = FakeSafetyService()
