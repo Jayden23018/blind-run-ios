@@ -177,6 +177,28 @@ final class SessionExpiryDeferralTests: XCTestCase {
         }
     }
 
+    /// #438：陪跑员跑步页的轮询拿到 401 要进暂缓 —— 此前 `catch` 一并吞掉，跑步中过期基本进不了暂缓。
+    /// 对照组（同样拉取失败、但不是 401）不进暂缓：只断「进了」的话，把所有错误都当 401 的实现也会绿。
+    func testVolunteerRunningPollRoutesUnauthorizedIntoTheDeferral() async {
+        let cases: [(error: APIError, defers: Bool)] = [(.unauthorized, true), (.unknown(statusCode: 500), false)]
+        for (error, defers) in cases {
+            let service = FakeOrderService()
+            service.orderDetailResult = .failure(error)
+            let appState = Self.loggedInAppState(role: .volunteer, orders: service)
+            let viewModel = VolunteerInServiceViewModel()
+            viewModel.configure(
+                with: appState,
+                speechService: SpeechService(),
+                initialOrder: OrderDetailResponse.preview(orderId: 42, status: .inProgress)
+            )
+
+            await viewModel.load(orderId: 42, speakChanges: false)
+
+            XCTAssertEqual(appState.isSessionExpiryDeferred, defers, "\(error)")
+            XCTAssertEqual(appState.accessToken, "token-7", "跑步中两种失败都不许登出：\(error)")
+        }
+    }
+
     func testEndingWithoutADeferralDoesNothing() {
         let appState = Self.loggedInAppState(role: .blind)
         appState.endDeferredSessionExpiry()
@@ -250,6 +272,53 @@ final class SessionExpiryDeferralTests: XCTestCase {
         // 原有两档的映射不许被这次改动带偏。
         XCTAssertEqual(EmergencyCallContext.runner(for: .cloudTrigger), .cloudFailed)
         XCTAssertEqual(EmergencyCallContext.runner(for: .localCall), .homeIdle)
+    }
+
+    /// #381：陪跑员跑步中求助面板。暂缓 → 紧急按钮换成本地拨号（120 / 110）；没暂缓 → 照旧云端。
+    ///
+    /// 从 `AppState` 走一遍而不是直接喂 `true`：宿主传的就是 `appState.isSessionExpiryDeferred`，
+    /// 陪跑员角色进不进暂缓、进了这个开关是不是真的翻过来，是这条链上第一个能断的地方。
+    func testVolunteerRunHelpPanelOffersLocalCallOnlyWhileTheSessionExpiryIsDeferred() {
+        let appState = Self.loggedInAppState(role: .volunteer)
+        appState.liveEscortCoordinator.updateOwnedOrder(orderID: 42, status: .inProgress)
+        XCTAssertEqual(
+            VolunteerRunEmergencyMode.resolve(isSessionExpired: appState.isSessionExpiryDeferred),
+            .cloud,
+            "没过期：照旧走云端（长按直发 / 轻点确认）"
+        )
+
+        appState.handleAuthenticatedAPIError(.unauthorized)
+        XCTAssertEqual(
+            VolunteerRunEmergencyMode.resolve(isSessionExpired: appState.isSessionExpiryDeferred),
+            .localCallSessionExpired,
+            "陪跑员跑步中 401：紧急按钮必须换成本地拨号"
+        )
+        XCTAssertTrue(appState.emergencyCoordinator.blocksCloudSOSForExpiredSession, "云端那条路同时被协调器关着")
+
+        // 弹窗语境：说清登录已过期、App 不会代你发送求助；不说「不在跑步中」；陪跑员这里不列联系人。
+        let context = EmergencyCallContext.volunteerSessionExpired
+        XCTAssertFalse(context.appendsNoContactHint, "陪跑员不列联系人，不许追加「尚未设置主紧急联系人」")
+        // 弹窗正文与按钮上那行字（也是读屏标签的后半句）都要说全；读屏提示只补「能拨哪两个号」，见下。
+        for sentence in [context.dialogMessage, VolunteerRunCopy.localCallSessionExpiredSubtitle] {
+            XCTAssertTrue(sentence.contains("登录已过期"), sentence)
+            XCTAssertTrue(sentence.contains("App 不会代你发送求助"), sentence)
+        }
+        for sentence in [context.dialogMessage, context.accessibilityHint, VolunteerRunCopy.localCallSessionExpiredSubtitle] {
+            XCTAssertFalse(sentence.contains("不在跑步中"), sentence)
+            XCTAssertFalse(sentence.contains("紧急联系人"), sentence)
+        }
+        XCTAssertTrue(context.accessibilityHint.contains("120") && context.accessibilityHint.contains("110"))
+        // 入口提示在两种模式下共用，不许点名只属于云端那一档的「紧急求助」。
+        XCTAssertFalse(VolunteerRunCopy.navButtonHint.contains("紧急求助"), VolunteerRunCopy.navButtonHint)
+        XCTAssertNotEqual(context.accessibilityHint, EmergencyCallContext.volunteerBeforeRun.accessibilityHint)
+        // 按钮标题：「紧急求助」在本 App 里专指云端链路（§6），本地拨号这一档不许带「求助」。
+        XCTAssertFalse(EmergencySafetyCopy.homeCallTitle.contains("求助"))
+
+        // 原有几档的联系人提示不许被这次的穷举改写带偏。
+        XCTAssertFalse(EmergencyCallContext.volunteerBeforeRun.appendsNoContactHint)
+        XCTAssertTrue(EmergencyCallContext.runnerSessionExpired.appendsNoContactHint)
+        XCTAssertTrue(EmergencyCallContext.homeIdle.appendsNoContactHint)
+        XCTAssertTrue(EmergencyCallContext.cloudFailed.appendsNoContactHint)
     }
 
     // MARK: - Helpers

@@ -1139,6 +1139,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
             await refreshBlindStatsIfNeeded(for: loaded, appState: appState)
         } catch {
             isLoading = false
+            // 401 必须交出去（#438）：跑步中这是暂缓退出最常见的入口（#376），此前被这里一并吞掉，
+            // 横幅不出、求助面板停在云端那一档，要等陪跑员按了别的按钮撞上 401 才进暂缓。
+            if let apiError = error as? APIError, appState.handleAuthenticatedAPIError(apiError) { return }
             if order == nil {
                 errorMessage = "获取订单状态失败"
             }
@@ -1976,6 +1979,7 @@ struct VolunteerInServiceView: View {
                         isTogglingPause: viewModel.isTogglingPause,
                         supportState: viewModel.supportRequestState,
                         ringingUntil: viewModel.ringingUntil,
+                        isSessionExpired: appState.isSessionExpiryDeferred,
                         onPause: { Task { await viewModel.pauseRun() } },
                         onRing: { Task { await viewModel.ringRunner() } },
                         onContactSupport: { Task { await viewModel.requestSupportCallback() } },

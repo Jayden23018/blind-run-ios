@@ -52,10 +52,14 @@ enum VolunteerRunCopy {
     static let emergencySubtitle = "求助会附带你的当前位置"
     static func emergencyHolding(remaining: Int) -> String { "继续按住，还剩 \(remaining) 秒" }
     static let emergencyAccessibilityHint = "双击会先弹出确认框，确认后才发出"
+    /// 登录已过期那一档（#381）。标题用 `EmergencySafetyCopy.homeCallTitle`「紧急呼叫」——
+    /// 「紧急求助」在本 App 里专指云端链路，这一按只是打电话（`AGENTS.md` §6）。
+    static let localCallSessionExpiredSubtitle = "登录已过期，App 不会代你发送求助"
     static let dismiss = "没事了，继续跑"
 
     static let navButtonLabel = "求助与安全"
-    static let navButtonHint = "打开求助面板：暂停、让对方手机响、联系客服或紧急求助"
+    /// 不点名「紧急求助」：登录过期时面板里那一枚是本地拨号「紧急呼叫」（#381），同一屏不许两个词混用（§6）。
+    static let navButtonHint = "打开求助面板：暂停、让对方手机响、联系客服，紧急情况也从这里处理"
 }
 
 // MARK: - 提示条
@@ -179,6 +183,20 @@ struct VolunteerRunVoiceToggle: View {
 
 enum VolunteerSupportRequestState: Equatable { case idle, submitting, submitted, failed }
 
+/// 面板底部那枚红色按钮按下去去哪。与跑者端 `BlindHomeSOSMode.localCallSessionExpired` 同构（#376 / #381）。
+enum VolunteerRunEmergencyMode: Equatable {
+    /// 现有云端链路：长按 3 秒直发，轻点与读屏双击弹 §6 锁定文案的确认框。
+    case cloud
+    /// 跑步中登录已过期（`AppState.isSessionExpiryDeferred`）：本地拨号 120 / 110，**绝不调求助接口**。
+    /// 云端那条路此刻本来就发不出去（`EmergencyCoordinator.blockCloudSOSForExpiredSession`），
+    /// 留着它只会让陪跑员按完、确认完、等完，才听到「请直接拨打120或110」。
+    case localCallSessionExpired
+
+    static func resolve(isSessionExpired: Bool) -> Self {
+        isSessionExpired ? .localCallSessionExpired : .cloud
+    }
+}
+
 /// 跑步中右上角「求助」打开的面板。**其他状态的「求助」不走这里**（它们在 v2 页面上本地拨号）。
 ///
 /// 🔴 紧急按钮：长按 3 秒直接走现有云端链路；轻点与读屏双击弹 `AGENTS.md` §6 锁定文案的确认框。
@@ -192,6 +210,8 @@ struct VolunteerRunHelpPanel: View {
     let supportState: VolunteerSupportRequestState
     /// 后端 `ringingUntil`。之前这一行不可点（同汇合期的响铃按钮）。
     let ringingUntil: Date?
+    /// `AppState.isSessionExpiryDeferred`。判据只在 `VolunteerRunEmergencyMode.resolve`。
+    let isSessionExpired: Bool
     let onPause: () -> Void
     let onRing: () -> Void
     let onContactSupport: () -> Void
@@ -200,6 +220,9 @@ struct VolunteerRunHelpPanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showsConfirm = false
     @State private var pressStartedAt: Date?
+    @State private var showsLocalCall = false
+
+    private var emergencyMode: VolunteerRunEmergencyMode { .resolve(isSessionExpired: isSessionExpired) }
 
     var body: some View {
         ScrollView {
@@ -229,8 +252,13 @@ struct VolunteerRunHelpPanel: View {
                 }
                 ringRow
                 supportRow
-                emergencyButton
-                    .padding(.top, 4)
+                Group {
+                    switch emergencyMode {
+                    case .cloud: emergencyButton
+                    case .localCallSessionExpired: localCallButton
+                    }
+                }
+                .padding(.top, 4)
 
                 // frame 要挂在 label 里面：挂在 Button 外面只撑大布局，不撑大点击区（真机审计报过 18pt）。
                 Button { dismiss() } label: {
@@ -378,5 +406,39 @@ struct VolunteerRunHelpPanel: View {
         // 读屏双击 = 确认框，不是直接发（V6）。显式挂上，不赌 SwiftUI 把激活映射到哪个手势。
         .accessibilityAction { showsConfirm = true }
         .accessibilityIdentifier("volunteerRunHelpEmergency")
+    }
+
+    /// 登录已过期那一档（#381）。拨号框弹在面板里，不在宿主里「先收起面板再弹」——
+    /// 那样要在 sheet 收起动画和拨号框之间排时序，#376 就是因此没做。
+    ///
+    /// 没有长按、不经 §6 确认框：那句锁定文案说的是「进入求助状态」，这里什么状态都不会进入；
+    /// 拨号框要选号码，本身就是一次确认。也不随 `coordinator.state.isBusy` 置灰 —— 拨号与协调器无关。
+    private var localCallButton: some View {
+        Button { showsLocalCall = true } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "phone.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .frame(width: 36, height: 36)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(EmergencySafetyCopy.homeCallTitle)
+                        .flowFont((18, .heavy, .headline))
+                    Text(VolunteerRunCopy.localCallSessionExpiredSubtitle)
+                        .flowFont((13, .regular, .footnote))
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 72)
+            .background(AppColors.Flow.helpText, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(EmergencySafetyCopy.homeCallTitle)，\(VolunteerRunCopy.localCallSessionExpiredSubtitle)")
+        .accessibilityHint(EmergencyCallContext.volunteerSessionExpired.accessibilityHint)
+        .accessibilityIdentifier("volunteerRunHelpLocalCall")
+        .emergencyCallOptionsDialog(isPresented: $showsLocalCall, context: .volunteerSessionExpired, primaryContact: nil)
     }
 }
