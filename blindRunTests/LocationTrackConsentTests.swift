@@ -396,6 +396,97 @@ final class LocationTrackConsentTests: XCTestCase {
         XCTAssertEqual(reports, 1)
     }
 
+    // MARK: - 接单开着又有同行态的单（#420）
+
+    /// 两处都要问同一件事时只问一次：同行态那张（根部）问，首页那张不弹。
+    func testStandbyAndEscortOverlapAsksOnlyOnceThroughTheEscortConsent() async {
+        let (appState, viewModel, _) = Self.makeVolunteerHome(orders: FakeOrderService())
+        let service = WebSocketService()
+        appState.webSocketService = service
+        let coordinator = appState.liveEscortCoordinator
+
+        viewModel.apply(summary: Self.summary(wantsDispatch: true, activeStatus: "DRIVER_EN_ROUTE"))
+        XCTAssertNil(viewModel.trackConsentRequest, "同行态那张要问，首页这张不该同时弹")
+
+        let asked = await Self.waitUntil { coordinator.pendingTrackConsent == .volunteerLocationTrack }
+        XCTAssertTrue(asked, "对照：同行态那张确实在问 —— 不是两张都没弹")
+        XCTAssertNil(viewModel.trackConsentRequest)
+        coordinator.reset()
+        withExtendedLifetime(service) {}
+    }
+
+    /// 同行态那张上拒绝，也算拒绝恢复待命（负责人 2026-10-15 定）：关掉服务端开关、滑块上方留下那句，
+    /// 但不念 —— 根部横幅在念这一单的后果。之后不再追问，单结束了也不问。
+    func testDecliningTheEscortConsentAlsoTurnsStandbyOffSilentlyAndDoesNotAskAgain() async {
+        let orders = FakeOrderService()
+        orders.setDispatchStatusResult = .success(())
+        orders.dispatchSummaryResult = .success(Self.summary(wantsDispatch: false))
+        let (appState, viewModel, speech) = Self.makeVolunteerHome(orders: orders)
+        let service = WebSocketService()
+        appState.webSocketService = service
+        let coordinator = appState.liveEscortCoordinator
+        viewModel.apply(summary: Self.summary(wantsDispatch: true, activeStatus: "DRIVER_EN_ROUTE"))
+        _ = await Self.waitUntil { coordinator.pendingTrackConsent != nil }
+
+        coordinator.declineTrackConsent()
+        let turnedOff = await Self.waitUntil(timeout: 2) { orders.lastWantsDispatch == false }
+
+        XCTAssertTrue(turnedOff, "同行态那张上拒绝，服务端开关没有跟着关")
+        let feedback = PrivacyConsentPurpose.volunteerLocationTrack.declinedFeedback
+        XCTAssertEqual(viewModel.trackConsentDeclinedNotice, feedback, "滑块上方要留下这句")
+        XCTAssertNotEqual(speech.lastSpokenText, feedback, "这句不念：会切断横幅正在念的同行态后果")
+        XCTAssertEqual(coordinator.healthState, .locationSharingDeclined(.volunteerLocationTrack))
+        XCTAssertFalse(appState.hasLocationTrackConsent(.volunteerLocationTrack), "拒绝不许写成同意")
+
+        // 关开关的请求失败或摘要仍说「开着」时，也不追问；单结束之后同样不问。
+        viewModel.apply(summary: Self.summary(wantsDispatch: true, activeStatus: "DRIVER_EN_ROUTE"))
+        XCTAssertNil(viewModel.trackConsentRequest, "拒绝是完整的答案，不追问")
+        viewModel.apply(summary: Self.summary(wantsDispatch: true))
+        XCTAssertNil(viewModel.trackConsentRequest, "单结束后又把恢复待命那一问弹出来了")
+        coordinator.reset()
+        withExtendedLifetime(service) {}
+    }
+
+    /// 同行态那张上同意：同一条同意记录，接单照常开着，首页不再另问。
+    func testAgreeingTheEscortConsentKeepsStandbyAndAsksNothingElse() async {
+        let orders = FakeOrderService()
+        let (appState, viewModel, _) = Self.makeVolunteerHome(orders: orders)
+        let service = WebSocketService()
+        appState.webSocketService = service
+        let coordinator = appState.liveEscortCoordinator
+        viewModel.apply(summary: Self.summary(wantsDispatch: true, activeStatus: "DRIVER_EN_ROUTE"))
+        _ = await Self.waitUntil { coordinator.pendingTrackConsent != nil }
+
+        coordinator.agreeTrackConsent()
+        viewModel.apply(summary: Self.summary(wantsDispatch: true))
+
+        XCTAssertTrue(appState.hasLocationTrackConsent(.volunteerLocationTrack))
+        XCTAssertNil(viewModel.trackConsentRequest, "已经同意过了，首页又问一遍")
+        XCTAssertTrue(viewModel.isAvailable)
+        XCTAssertEqual(orders.callCount("setDispatchStatus(wantsDispatch:)"), 0, "同意不该动接单开关")
+        coordinator.reset()
+        withExtendedLifetime(service) {}
+    }
+
+    /// 首页那张已经弹着，单在这时被推进了同行态：首页那张让开，只剩同行态那一张。
+    func testShowingStandbyConsentYieldsWhenTheOrderEntersTheEscortState() async {
+        let (appState, viewModel, _) = Self.makeVolunteerHome(orders: FakeOrderService())
+        let service = WebSocketService()
+        appState.webSocketService = service
+        let coordinator = appState.liveEscortCoordinator
+        viewModel.apply(summary: Self.summary(wantsDispatch: true))
+        XCTAssertEqual(viewModel.trackConsentRequest, .resumeStandby, "前提：没有同行态的单时照常问恢复待命")
+
+        viewModel.apply(summary: Self.summary(wantsDispatch: true, activeStatus: "DRIVER_EN_ROUTE"))
+        let yielded = await Self.waitUntil {
+            coordinator.pendingTrackConsent == .volunteerLocationTrack && viewModel.trackConsentRequest == nil
+        }
+
+        XCTAssertTrue(yielded, "两张同意页叠在一起：首页 \(String(describing: viewModel.trackConsentRequest))，同行态 \(String(describing: coordinator.pendingTrackConsent))")
+        coordinator.reset()
+        withExtendedLifetime(service) {}
+    }
+
     // MARK: - Helpers
 
     /// 协调器的同意替身：记下写入，`granted` 决定读到什么（写入后也读到 true，与真实存储一致）。
@@ -473,8 +564,10 @@ final class LocationTrackConsentTests: XCTestCase {
         return (appState, viewModel, speech)
     }
 
-    private static func summary(wantsDispatch: Bool) -> VolunteerDispatchSummaryResponse {
-        let json = #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":\#(wantsDispatch)}"#
+    /// `activeStatus` 非 nil 时带一张进行中的单（契约原文的状态字面量，如 `DRIVER_EN_ROUTE`）。
+    private static func summary(wantsDispatch: Bool, activeStatus: String? = nil) -> VolunteerDispatchSummaryResponse {
+        let active = activeStatus.map { #","activeOrders":[{"orderId":4200,"status":"\#($0)"}]"# } ?? ""
+        let json = #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":\#(wantsDispatch)\#(active)}"#
         // swiftlint:disable:next force_try 桩数据解不出说明这条用例本身写坏了，该当场炸。
         return try! JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: Data(json.utf8))
     }

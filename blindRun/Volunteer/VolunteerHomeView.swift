@@ -289,6 +289,9 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.speechService = speechService
         self.currentLocationProvider = currentLocationProvider
         self.locationAuthorizedProvider = locationAuthorizedProvider
+        appState.liveEscortCoordinator.onTrackConsentQuestion = { [weak self] event in
+            self?.escortTrackConsentQuestion(event)
+        }
         apply(profile: appState.volunteerProfile)
         subscribeToRealtimeCoordinator(appState)
         seedInvitesForUITestsIfNeeded()
@@ -1439,14 +1442,38 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     /// 服务端说还在接单、而本机没有同意记录（重装、换手机、在安卓上同意过）：先问，再恢复待命。
     /// 后端不存这项同意，所以「服务端开着」不等于「同意过」。
+    ///
+    /// #420：等首份摘要到了再判 —— 摘要才说得出手上有没有同行态的单，而同行态的单要问同一件事
+    /// （根部 `EscortTrackConsentOverlay`）。那边要问就让给那边，同一个问题只问一次；那边的回答经
+    /// `escortTrackConsentQuestion` 回到这里。`configure` 时用缓存的个人资料判的话，会先闪出一张再收起。
     private func requestTrackConsentIfStandbyResumesWithoutIt() {
         guard isAvailable,
               !isUpdatingAvailability,
               !declinedResumeTrackConsent,
               trackConsentRequest == nil,
+              dispatchSummary != nil,
               let appState,
+              !appState.liveEscortCoordinator.needsTrackConsentForActiveOrder,
               !appState.hasLocationTrackConsent(.volunteerLocationTrack) else { return }
         trackConsentRequest = .resumeStandby
+    }
+
+    /// 同行态的同意页在问同一件事（#420）。
+    /// - 开始问：手上这张让开（单在这张弹着的时候被推进了同行态）。
+    /// - 拒绝：也算拒绝恢复待命（负责人 2026-10-15 定）—— 开关开着就替他关掉，滑块上方留下那句后果，
+    ///   但**不念**：根部横幅正在念这一单的后果，后到的 `speak` 会把它切断。
+    func escortTrackConsentQuestion(_ event: LiveEscortSessionCoordinator.TrackConsentQuestionEvent) {
+        switch event {
+        case .asked(let purpose):
+            guard purpose == .volunteerLocationTrack else { return }
+            trackConsentRequest = nil
+        case .declined(let purpose):
+            guard purpose == .volunteerLocationTrack else { return }
+            declinedResumeTrackConsent = true
+            guard isAvailable else { return }
+            trackConsentDeclinedNotice = purpose.declinedFeedback
+            setAvailability(false)
+        }
     }
 
     /// 同意页上按了「同意共享位置」。`requestLocationPermission` 由视图传入 ——
@@ -1499,7 +1526,6 @@ final class VolunteerHomeViewModel: ObservableObject {
         let previousOrderID = activeOrder?.orderId
         dispatchSummary = summary
         isAvailable = summary.wantsDispatch ?? isAvailable
-        requestTrackConsentIfStandbyResumesWithoutIt()
         if let active = summary.activeOrders?.first {
             let candidate = active.orderDetail
             if let statusRequestToken,
@@ -1535,6 +1561,8 @@ final class VolunteerHomeViewModel: ObservableObject {
         } else {
             appState?.liveEscortCoordinator.clearOwnedOrder()
         }
+        // 订单交给协调器之后再判：协调器这时才答得出这一单要不要问同一件事（#420）。
+        requestTrackConsentIfStandbyResumesWithoutIt()
         recoverIntroCallIfNeeded(summary: summary)
         // 三岔路的「有进行中订单」那一岔在这里就判得了，不必等预约单那条请求回来。
         // 另一岔（2 小时内开始的陪跑）在 `startAuxiliaryLoad` 的收尾里。
