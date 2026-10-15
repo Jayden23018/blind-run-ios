@@ -112,6 +112,9 @@ final class AppState: ObservableObject {
     /// 由 `blindRunApp.configurePushNotifications()` 注入。`weak` 是因为真正持有它的是那边的
     /// `@StateObject` —— 这里只是为了让登出流程能在**拉黑 JWT 之前**解绑本机 APNs token。
     weak var pushNotificationsManager: PushNotificationsManager?
+    /// 由 `blindRunApp` 根视图注入，`weak` 的理由同上。持续定位按账号 + 角色的位置轨迹同意收（#417）：
+    /// 退出登录、换到没同意的角色时，这里替整个 App 停掉 —— 没有别的地方会停。
+    weak var locationService: LocationService?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Session
@@ -161,6 +164,7 @@ final class AppState: ObservableObject {
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
                 emergencyCoordinator.reset()
+                stopLocationUpdatesWithoutTrackConsent()
             }
         }
     }
@@ -1012,6 +1016,20 @@ final class AppState: ObservableObject {
         // 常用出发地点通常就是家庭住址。它不在 `persistence` 里（见 `FavoritePlaceStore`），
         // 但同样是按账号的：换账号登录后，上一个人「什么时候会在哪」不该原样留在这台设备上。
         FavoritePlaceStore.clearPersistedPlaces()
+        // 上面 `activeRole = nil` 已经会停，但退出时角色本来就是 nil（停在角色选择页）不经过那一道。
+        // `stopUpdating` 连意图一起撤回：只停硬件的话，下一个账号改一次系统权限，授权回调就会把它开回来（#417）。
+        locationService?.stopUpdating()
+    }
+
+    /// 换角色 / 退出登录时，新角色在本机没有位置轨迹同意就停掉持续定位（#417）。
+    /// 有同意时不停：`ContentView` 的 `onChange(of: activeRole)` 会照常开，停了再开只是白折腾一次硬件。
+    /// 同行会话不受影响：换角色本来就会 `liveEscortCoordinator.reset`，新角色的会话由它自己 `startUpdating()`。
+    private func stopLocationUpdatesWithoutTrackConsent() {
+        if let purpose = PrivacyConsentPurpose.locationTrack(for: activeRole),
+           hasLocationTrackConsent(purpose) {
+            return
+        }
+        locationService?.stopUpdating()
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。

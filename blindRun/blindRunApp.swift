@@ -91,6 +91,8 @@ struct blindRunApp: App {
                 .background(KeyboardDismissTapInstaller().allowsHitTesting(false))
                 .preferredColorScheme(Self.uiTestColorScheme)
                 .onAppear {
+                    // 排在 `restoreSession` 之前：会话恢复里的角色变化也要能停定位（#417）。
+                    appState.locationService = locationService
                     #if DEBUG
                     // #414：授权框不早于位置轨迹同意。拿不到角色时不判（那时没有任何一页会请求定位）。
                     locationService.trackConsentPreconditionForDebug = { [weak appState] in
