@@ -161,6 +161,17 @@ enum ErrorCode: String, Codable, Sendable {
     // `BLIND_CONFIRMATION_PENDING`：盲人还没点头。⚠️ 不是死锁（约定开跑 + 宽限后可单方面开始），
     // 页面据此显示「等待对方确认」，**不置灰按钮** —— 对方随时可能点。
     case blindConfirmationPending = "BLIND_CONFIRMATION_PENDING"
+    // 通话后的见面安排单（后端 #755 / #757，2026-10-15）。文案在 `IntroCallMeetupCopy`，取自视觉稿 v2。
+    //
+    // 🚩 `INTRO_CALL_PLAN_STALE` **不是错误**：盲人确认时陪跑员又改了一版。它在服务层就被接住，
+    // `OrderServing.confirmIntroCallPlan` 返回 `.planChanged`，正常路径下不会走到 `localizedMessage`；
+    // 映射它只为别处（例如老入口 `submitIntroCallDecision`）碰到时也念对的话，而不是「未知错误 (409)」。
+    case introCallPlanStale = "INTRO_CALL_PLAN_STALE"
+    case introCallPlanRequired = "INTRO_CALL_PLAN_REQUIRED"
+    // 🚨 刻意不说原因：真实原因是跑者在该时段另有一单。
+    case introCallPlanTimeUnavailable = "INTRO_CALL_PLAN_TIME_UNAVAILABLE"
+    case introCallPlanTooFarFromOriginal = "INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL"
+    case introCallPlanTooManySubmissions = "INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS"
 
     var localizedMessage: String {
         switch self {
@@ -327,6 +338,16 @@ enum ErrorCode: String, Codable, Sendable {
         case .blindConfirmationPending:
             // 说出跑者那一端的按钮名：两人此刻站在一起，陪跑员可以直接告诉对方按哪个。
             return "还需要跑者在手机上按「开始跑步」。可以请对方按一下，或稍等再试。"
+        case .introCallPlanStale:
+            return IntroCallMeetupCopy.planChangedRelisten
+        case .introCallPlanRequired:
+            return IntroCallMeetupCopy.planNotSubmittedYet
+        case .introCallPlanTimeUnavailable:
+            return IntroCallMeetupCopy.planTimeUnavailable
+        case .introCallPlanTooFarFromOriginal:
+            return IntroCallMeetupCopy.planTooFarFromOriginal
+        case .introCallPlanTooManySubmissions:
+            return IntroCallMeetupCopy.planTooManySubmissions
         }
     }
 

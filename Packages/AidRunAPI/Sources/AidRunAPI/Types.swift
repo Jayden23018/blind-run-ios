@@ -550,6 +550,23 @@ public protocol APIProtocol: Sendable {
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
     /// 订单退回派单队列派给下一个候选人。
     ///
+    /// 🚩 **见面安排单（#755）与开关 `app.intro-call.plan-required`**（负责人 2026-10-15 拍板，**缺省关**，
+    /// iOS 新版本 blind-run-ios#432/#433/#434 发布后由负责人打开）。两种状态下 `ACCEPT` 的行为：
+    ///
+    /// | | 开关**关**（缺省，当前线上） | 开关**开** |
+    /// |---|---|---|
+    /// | 陪跑员 `ACCEPT` | 照旧可用（资质门同 `/respond`）；提交安排单也算「合适」 | 409 `INTRO_CALL_PLAN_REQUIRED`，「合适」只能是 `PUT /intro-call/plan` |
+    /// | 跑者 `ACCEPT`、这一轮**没有**安排单 | 不带 `planVersion` 照旧成单（按原约） | 409 `INTRO_CALL_PLAN_REQUIRED` |
+    /// | 跑者 `ACCEPT`、这一轮**有**安排单 | 必带最新 `planVersion`，否则 409 `INTRO_CALL_PLAN_STALE` | 同左 |
+    /// | 带了 `planVersion` | 一律校验（没有安排单 → `REQUIRED`，不是最新 → `STALE`） | 同左 |
+    ///
+    /// - 新版客户端**不必判断开关**：陪跑员一律提交安排单、跑者一律带版本确认，两种状态下都能成单。
+    ///   开关只决定旧版客户端还能不能用老方式成单
+    /// - 已提交过安排单的陪跑员再发 `ACCEPT` 按幂等返回 200；陪跑员的 `DECLINE` 不变
+    /// - `INTRO_CALL_PLAN_STALE` **不是错误**：重新 `GET /intro-call` 把新版本念一遍再确认
+    /// - 盲人确认最新一版即成单，安排单里改过的时间、地点和见面点、颜色随成单写进订单。
+    ///   成单前会用改后的时段把下单门槛与跑者时段冲突重跑一遍，不过就按本轮超时处理（两边中性文案）
+    ///
     /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
     /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
     ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
@@ -578,15 +595,16 @@ public protocol APIProtocol: Sendable {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
-    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
-    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 🚩 **志愿者表「合适」（#755 起即提交安排单）= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1，这道门现在在 `PUT /intro-call/plan`）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
     /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
     /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
     ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 409 `INTRO_CALL_PLAN_REQUIRED` / `INTRO_CALL_PLAN_STALE` — 见上方见面安排单一节
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
-    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
-    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
+    /// - ⚠️ #755 起本端点**不再**返回 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`：
+    ///   志愿者的「合适」挪到了 `PUT /intro-call/plan`，资质门跟着过去了
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -606,6 +624,36 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
     func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output
+    /// 通话后提交见面安排单（VOLUNTEER）
+    ///
+    /// 接单前通话聊完后，陪跑员把电话里说好的写下来（#755，负责人 2026-10-15 批准）：可改开跑时间、集合点，
+    /// 补「具体在哪儿见」（≤30 字）和双方上衣颜色。**全部字段可选，不填 = 按原约**；一个都不改也要提交 ——
+    /// **提交本身就是陪跑员的「合适」**。开关 `app.intro-call.plan-required` 打开后这是陪跑员表示合适的唯一方式
+    /// （`decision=ACCEPT` 会 409 `INTRO_CALL_PLAN_REQUIRED`）；关着时（缺省）本端点同样可用、行为相同，只是不强制，见 `POST /intro-call/decision`。
+    ///
+    /// 每次提交是新的一版：`version + 1`，**盲人之前的确认作废**，他要按新版本重新确认（`decision=ACCEPT` 带 `planVersion`）。
+    /// 内容与最新一版完全相同的重复提交（弱网重发）不加版本号，原样返回那一版。
+    /// 订单状态不变，仍是 `PENDING_INTRO_CALL`；盲人确认最新版那一刻成单，安排单随之写进订单。
+    ///
+    /// 提交时校验：
+    /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
+    /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
+    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
+    /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
+    /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
+    ///   用途是不让「时段不可用」被拿来逐个时段探测跑者日程，也不让无限改版让跑者一直确认不了
+    ///
+    /// 🚩 安排单的每一版都留作历史（客服可查）；没约成随本轮删除，约成后订单结束 `app.intro-call.plan-retention-days` 天删除。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是这一轮通话的候选陪跑员
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/intro-call/plan`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)`.
+    func submitIntroCallPlan(_ input: Operations.submitIntroCallPlan.Input) async throws -> Operations.submitIntroCallPlan.Output
     /// 志愿者报告「一直没接到电话」（VOLUNTEER）
     ///
     /// 与 `decision=DECLINE` 分开是因为**统计口径相反**：本端点计志愿者 timeout
@@ -2103,6 +2151,23 @@ extension APIProtocol {
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
     /// 订单退回派单队列派给下一个候选人。
     ///
+    /// 🚩 **见面安排单（#755）与开关 `app.intro-call.plan-required`**（负责人 2026-10-15 拍板，**缺省关**，
+    /// iOS 新版本 blind-run-ios#432/#433/#434 发布后由负责人打开）。两种状态下 `ACCEPT` 的行为：
+    ///
+    /// | | 开关**关**（缺省，当前线上） | 开关**开** |
+    /// |---|---|---|
+    /// | 陪跑员 `ACCEPT` | 照旧可用（资质门同 `/respond`）；提交安排单也算「合适」 | 409 `INTRO_CALL_PLAN_REQUIRED`，「合适」只能是 `PUT /intro-call/plan` |
+    /// | 跑者 `ACCEPT`、这一轮**没有**安排单 | 不带 `planVersion` 照旧成单（按原约） | 409 `INTRO_CALL_PLAN_REQUIRED` |
+    /// | 跑者 `ACCEPT`、这一轮**有**安排单 | 必带最新 `planVersion`，否则 409 `INTRO_CALL_PLAN_STALE` | 同左 |
+    /// | 带了 `planVersion` | 一律校验（没有安排单 → `REQUIRED`，不是最新 → `STALE`） | 同左 |
+    ///
+    /// - 新版客户端**不必判断开关**：陪跑员一律提交安排单、跑者一律带版本确认，两种状态下都能成单。
+    ///   开关只决定旧版客户端还能不能用老方式成单
+    /// - 已提交过安排单的陪跑员再发 `ACCEPT` 按幂等返回 200；陪跑员的 `DECLINE` 不变
+    /// - `INTRO_CALL_PLAN_STALE` **不是错误**：重新 `GET /intro-call` 把新版本念一遍再确认
+    /// - 盲人确认最新一版即成单，安排单里改过的时间、地点和见面点、颜色随成单写进订单。
+    ///   成单前会用改后的时段把下单门槛与跑者时段冲突重跑一遍，不过就按本轮超时处理（两边中性文案）
+    ///
     /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
     /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
     ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
@@ -2131,15 +2196,16 @@ extension APIProtocol {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
-    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
-    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 🚩 **志愿者表「合适」（#755 起即提交安排单）= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1，这道门现在在 `PUT /intro-call/plan`）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
     /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
     /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
     ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 409 `INTRO_CALL_PLAN_REQUIRED` / `INTRO_CALL_PLAN_STALE` — 见上方见面安排单一节
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
-    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
-    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
+    /// - ⚠️ #755 起本端点**不再**返回 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`：
+    ///   志愿者的「合适」挪到了 `PUT /intro-call/plan`，资质门跟着过去了
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -2175,6 +2241,46 @@ extension APIProtocol {
         try await notifyIntroCallIncoming(Operations.notifyIntroCallIncoming.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// 通话后提交见面安排单（VOLUNTEER）
+    ///
+    /// 接单前通话聊完后，陪跑员把电话里说好的写下来（#755，负责人 2026-10-15 批准）：可改开跑时间、集合点，
+    /// 补「具体在哪儿见」（≤30 字）和双方上衣颜色。**全部字段可选，不填 = 按原约**；一个都不改也要提交 ——
+    /// **提交本身就是陪跑员的「合适」**。开关 `app.intro-call.plan-required` 打开后这是陪跑员表示合适的唯一方式
+    /// （`decision=ACCEPT` 会 409 `INTRO_CALL_PLAN_REQUIRED`）；关着时（缺省）本端点同样可用、行为相同，只是不强制，见 `POST /intro-call/decision`。
+    ///
+    /// 每次提交是新的一版：`version + 1`，**盲人之前的确认作废**，他要按新版本重新确认（`decision=ACCEPT` 带 `planVersion`）。
+    /// 内容与最新一版完全相同的重复提交（弱网重发）不加版本号，原样返回那一版。
+    /// 订单状态不变，仍是 `PENDING_INTRO_CALL`；盲人确认最新版那一刻成单，安排单随之写进订单。
+    ///
+    /// 提交时校验：
+    /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
+    /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
+    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
+    /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
+    /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
+    ///   用途是不让「时段不可用」被拿来逐个时段探测跑者日程，也不让无限改版让跑者一直确认不了
+    ///
+    /// 🚩 安排单的每一版都留作历史（客服可查）；没约成随本轮删除，约成后订单结束 `app.intro-call.plan-retention-days` 天删除。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是这一轮通话的候选陪跑员
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/intro-call/plan`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)`.
+    public func submitIntroCallPlan(
+        path: Operations.submitIntroCallPlan.Input.Path,
+        headers: Operations.submitIntroCallPlan.Input.Headers = .init(),
+        body: Operations.submitIntroCallPlan.Input.Body
+    ) async throws -> Operations.submitIntroCallPlan.Output {
+        try await submitIntroCallPlan(Operations.submitIntroCallPlan.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// 志愿者报告「一直没接到电话」（VOLUNTEER）
@@ -7191,15 +7297,352 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallDecisionRequest/decision`.
             public var decision: Components.Schemas.IntroCallDecisionRequest.decisionPayload
+            /// （#755）盲人 `ACCEPT` 时他听过、要确认的那一版见面安排单的 `version`。新版客户端**一律带上**。带了就校验：不是最新 → 409 `INTRO_CALL_PLAN_STALE`（重新拉取再念一遍）；这一轮还没有安排单 → 409 `INTRO_CALL_PLAN_REQUIRED`。不带：开关 `app.intro-call.plan-required` 打开时一律 409；关着时（缺省）这一轮没有安排单就按原约成单，有安排单仍 409 `INTRO_CALL_PLAN_STALE`。`DECLINE` 与陪跑员一侧都不看这个字段
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallDecisionRequest/planVersion`.
+            public var planVersion: Swift.Int32?
             /// Creates a new `IntroCallDecisionRequest`.
             ///
             /// - Parameters:
             ///   - decision: 请求向枚举保持**闭合**（客户端只发已知值），与响应向的开放枚举规则相反
-            public init(decision: Components.Schemas.IntroCallDecisionRequest.decisionPayload) {
+            ///   - planVersion: （#755）盲人 `ACCEPT` 时他听过、要确认的那一版见面安排单的 `version`。新版客户端**一律带上**。带了就校验：不是最新 → 409 `INTRO_CALL_PLAN_STALE`（重新拉取再念一遍）；这一轮还没有安排单 → 409 `INTRO_CALL_PLAN_REQUIRED`。不带：开关 `app.intro-call.plan-required` 打开时一律 409；关着时（缺省）这一轮没有安排单就按原约成单，有安排单仍 409 `INTRO_CALL_PLAN_STALE`。`DECLINE` 与陪跑员一侧都不看这个字段
+            public init(
+                decision: Components.Schemas.IntroCallDecisionRequest.decisionPayload,
+                planVersion: Swift.Int32? = nil
+            ) {
                 self.decision = decision
+                self.planVersion = planVersion
             }
             public enum CodingKeys: String, CodingKey {
                 case decision
+                case planVersion
+            }
+        }
+        /// 见面安排单（#755）。**全部字段可选，不填 = 按原约**；一个都不改也要提交，提交本身就代表陪跑员「合适」。
+        /// 时间只传 `plannedStartTime` 时按原时长平移结束时间；地点三项（地址 + 两个坐标）要么一起传、要么都不传。
+        ///
+        /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest`.
+        public struct IntroCallPlanRequest: Codable, Hashable, Sendable {
+            /// 具体在哪儿见，≤30 字（如「南门保安亭左边」）。空串或纯空白按没填处理
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/meetSpotNote`.
+            public var meetSpotNote: Swift.String?
+            /// 改后的结束时间。不传：若改了开跑时间则按原时长平移，否则按原约
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/plannedEndTime`.
+            public var plannedEndTime: Swift.String?
+            /// 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 7 天、时长 ≤300 分钟、不碰 22:00–05:00）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/plannedStartTime`.
+            public var plannedStartTime: Swift.String?
+            /// 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就不传
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/runnerTopColor`.
+            @frozen public enum runnerTopColorPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case BLACK = "BLACK"
+                case WHITE = "WHITE"
+                case GRAY = "GRAY"
+                case RED = "RED"
+                case ORANGE = "ORANGE"
+                case YELLOW = "YELLOW"
+                case GREEN = "GREEN"
+                case BLUE = "BLUE"
+                case PURPLE = "PURPLE"
+                case PINK = "PINK"
+            }
+            /// 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就不传
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/runnerTopColor`.
+            public var runnerTopColor: Components.Schemas.IntroCallPlanRequest.runnerTopColorPayload?
+            /// 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。超过 255 字服务端截断
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/startAddress`.
+            public var startAddress: Swift.String?
+            /// 改后的集合点纬度（GCJ-02）。与原约集合点直线距离不得超过 `app.intro-call.plan-max-relocation-meters`（默认 3000 米）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/startLatitude`.
+            public var startLatitude: Swift.Double?
+            /// 改后的集合点经度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/startLongitude`.
+            public var startLongitude: Swift.Double?
+            /// 陪跑员当天上衣颜色。不传 = 未确认
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/volunteerTopColor`.
+            @frozen public enum volunteerTopColorPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case BLACK = "BLACK"
+                case WHITE = "WHITE"
+                case GRAY = "GRAY"
+                case RED = "RED"
+                case ORANGE = "ORANGE"
+                case YELLOW = "YELLOW"
+                case GREEN = "GREEN"
+                case BLUE = "BLUE"
+                case PURPLE = "PURPLE"
+                case PINK = "PINK"
+            }
+            /// 陪跑员当天上衣颜色。不传 = 未确认
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/volunteerTopColor`.
+            public var volunteerTopColor: Components.Schemas.IntroCallPlanRequest.volunteerTopColorPayload?
+            /// Creates a new `IntroCallPlanRequest`.
+            ///
+            /// - Parameters:
+            ///   - meetSpotNote: 具体在哪儿见，≤30 字（如「南门保安亭左边」）。空串或纯空白按没填处理
+            ///   - plannedEndTime: 改后的结束时间。不传：若改了开跑时间则按原时长平移，否则按原约
+            ///   - plannedStartTime: 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 7 天、时长 ≤300 分钟、不碰 22:00–05:00）
+            ///   - runnerTopColor: 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就不传
+            ///   - startAddress: 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。超过 255 字服务端截断
+            ///   - startLatitude: 改后的集合点纬度（GCJ-02）。与原约集合点直线距离不得超过 `app.intro-call.plan-max-relocation-meters`（默认 3000 米）
+            ///   - startLongitude: 改后的集合点经度（GCJ-02）
+            ///   - volunteerTopColor: 陪跑员当天上衣颜色。不传 = 未确认
+            public init(
+                meetSpotNote: Swift.String? = nil,
+                plannedEndTime: Swift.String? = nil,
+                plannedStartTime: Swift.String? = nil,
+                runnerTopColor: Components.Schemas.IntroCallPlanRequest.runnerTopColorPayload? = nil,
+                startAddress: Swift.String? = nil,
+                startLatitude: Swift.Double? = nil,
+                startLongitude: Swift.Double? = nil,
+                volunteerTopColor: Components.Schemas.IntroCallPlanRequest.volunteerTopColorPayload? = nil
+            ) {
+                self.meetSpotNote = meetSpotNote
+                self.plannedEndTime = plannedEndTime
+                self.plannedStartTime = plannedStartTime
+                self.runnerTopColor = runnerTopColor
+                self.startAddress = startAddress
+                self.startLatitude = startLatitude
+                self.startLongitude = startLongitude
+                self.volunteerTopColor = volunteerTopColor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case meetSpotNote
+                case plannedEndTime
+                case plannedStartTime
+                case runnerTopColor
+                case startAddress
+                case startLatitude
+                case startLongitude
+                case volunteerTopColor
+            }
+        }
+        /// 见面安排单的最新一版（#755），两端内容相同。
+        /// 🚩 **时间、地点两组：非 null = 改了，null = 按原约**（服务端已归一化，与原约相同的值不会出现在这里）。
+        /// 原约就是 `IntroCallView` 顶层的 `plannedStartTime` / `plannedEndTime` / `startAddress` / 坐标，通话期间不变。
+        ///
+        /// - Remark: Generated from `#/components/schemas/IntroCallPlanView`.
+        public struct IntroCallPlanView: Codable, Hashable, Sendable {
+            /// 具体在哪儿见（陪跑员写，≤30 字）；null = 没填
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/meetSpotNote`.
+            public var meetSpotNote: Swift.String?
+            /// 改后的结束时间；null = 按原约
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/plannedEndTime`.
+            public var plannedEndTime: Swift.String?
+            /// 改后的开跑时间；null = 按原约
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/plannedStartTime`.
+            public var plannedStartTime: Swift.String?
+            /// 陪跑员记下的跑者上衣颜色；null = 未确认。开放枚举，同上
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/runnerTopColor`.
+            public struct runnerTopColorPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/runnerTopColor/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case BLACK = "BLACK"
+                    case WHITE = "WHITE"
+                    case GRAY = "GRAY"
+                    case RED = "RED"
+                    case ORANGE = "ORANGE"
+                    case YELLOW = "YELLOW"
+                    case GREEN = "GREEN"
+                    case BLUE = "BLUE"
+                    case PURPLE = "PURPLE"
+                    case PINK = "PINK"
+                }
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/runnerTopColor/value1`.
+                public var value1: Components.Schemas.IntroCallPlanView.runnerTopColorPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/runnerTopColor/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `runnerTopColorPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.IntroCallPlanView.runnerTopColorPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 陪跑员记下的跑者上衣颜色；null = 未确认。开放枚举，同上
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/runnerTopColor`.
+            public var runnerTopColor: Components.Schemas.IntroCallPlanView.runnerTopColorPayload?
+            /// 改后的集合点地址；null = 按原约（此时两个坐标也是 null）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/startAddress`.
+            public var startAddress: Swift.String?
+            /// 改后的集合点纬度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/startLatitude`.
+            public var startLatitude: Swift.Double?
+            /// 改后的集合点经度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/startLongitude`.
+            public var startLongitude: Swift.Double?
+            /// 这一版的提交时刻
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/submittedAt`.
+            public var submittedAt: Swift.String?
+            /// 这一轮内的版本号，从 1 起。盲人 `decision=ACCEPT` 必须带上它，不是最新会 409 `INTRO_CALL_PLAN_STALE`
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/version`.
+            public var version: Swift.Int32?
+            /// 陪跑员当天上衣颜色；null = 未确认。开放枚举：不认识的值那一行不念，整张单照常
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/volunteerTopColor`.
+            public struct volunteerTopColorPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/volunteerTopColor/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case BLACK = "BLACK"
+                    case WHITE = "WHITE"
+                    case GRAY = "GRAY"
+                    case RED = "RED"
+                    case ORANGE = "ORANGE"
+                    case YELLOW = "YELLOW"
+                    case GREEN = "GREEN"
+                    case BLUE = "BLUE"
+                    case PURPLE = "PURPLE"
+                    case PINK = "PINK"
+                }
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/volunteerTopColor/value1`.
+                public var value1: Components.Schemas.IntroCallPlanView.volunteerTopColorPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/volunteerTopColor/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `volunteerTopColorPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.IntroCallPlanView.volunteerTopColorPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 陪跑员当天上衣颜色；null = 未确认。开放枚举：不认识的值那一行不念，整张单照常
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/volunteerTopColor`.
+            public var volunteerTopColor: Components.Schemas.IntroCallPlanView.volunteerTopColorPayload?
+            /// Creates a new `IntroCallPlanView`.
+            ///
+            /// - Parameters:
+            ///   - meetSpotNote: 具体在哪儿见（陪跑员写，≤30 字）；null = 没填
+            ///   - plannedEndTime: 改后的结束时间；null = 按原约
+            ///   - plannedStartTime: 改后的开跑时间；null = 按原约
+            ///   - runnerTopColor: 陪跑员记下的跑者上衣颜色；null = 未确认。开放枚举，同上
+            ///   - startAddress: 改后的集合点地址；null = 按原约（此时两个坐标也是 null）
+            ///   - startLatitude: 改后的集合点纬度（GCJ-02）
+            ///   - startLongitude: 改后的集合点经度（GCJ-02）
+            ///   - submittedAt: 这一版的提交时刻
+            ///   - version: 这一轮内的版本号，从 1 起。盲人 `decision=ACCEPT` 必须带上它，不是最新会 409 `INTRO_CALL_PLAN_STALE`
+            ///   - volunteerTopColor: 陪跑员当天上衣颜色；null = 未确认。开放枚举：不认识的值那一行不念，整张单照常
+            public init(
+                meetSpotNote: Swift.String? = nil,
+                plannedEndTime: Swift.String? = nil,
+                plannedStartTime: Swift.String? = nil,
+                runnerTopColor: Components.Schemas.IntroCallPlanView.runnerTopColorPayload? = nil,
+                startAddress: Swift.String? = nil,
+                startLatitude: Swift.Double? = nil,
+                startLongitude: Swift.Double? = nil,
+                submittedAt: Swift.String? = nil,
+                version: Swift.Int32? = nil,
+                volunteerTopColor: Components.Schemas.IntroCallPlanView.volunteerTopColorPayload? = nil
+            ) {
+                self.meetSpotNote = meetSpotNote
+                self.plannedEndTime = plannedEndTime
+                self.plannedStartTime = plannedStartTime
+                self.runnerTopColor = runnerTopColor
+                self.startAddress = startAddress
+                self.startLatitude = startLatitude
+                self.startLongitude = startLongitude
+                self.submittedAt = submittedAt
+                self.version = version
+                self.volunteerTopColor = volunteerTopColor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case meetSpotNote
+                case plannedEndTime
+                case plannedStartTime
+                case runnerTopColor
+                case startAddress
+                case startLatitude
+                case startLongitude
+                case submittedAt
+                case version
+                case volunteerTopColor
             }
         }
         /// 通话磨合页数据。**同一端点对两种角色返回不同内容**，这是有意的。
@@ -7279,7 +7722,9 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision`.
             public var myDecision: Components.Schemas.IntroCallView.myDecisionPayload?
-            /// 计划结束时间。⚠️ **不要往这个 DTO 里加自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/plan`.
+            public var plan: Components.Schemas.IntroCallPlanView?
+            /// 计划结束时间。⚠️ **不要往这个 DTO 里加盲人写的自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedEndTime`.
             public var plannedEndTime: Swift.String?
@@ -7287,7 +7732,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedStartTime`.
             public var plannedStartTime: Swift.String?
-            /// 起跑点文字地址。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+            /// 起跑点文字地址（**原约**，通话期间不变，#755）。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/startAddress`.
             public var startAddress: Swift.String?
@@ -7310,9 +7755,10 @@ public enum Components {
             ///   - counterpartPhone: 对方能直接拨通的**明文号**——**仅盲人侧有值，志愿者侧恒为 null**。 ⚠️ 与 `OrderDetailResponse.volunteerPhone` 同一条硬不变量：**要么明文可拨，要么 null， 绝不下发掩码串**。客户端拼 `tel:` 时只取数字位，`138****1234` 会被拨成 `1381234` 打成空号。
             ///   - counterpartPhoneMasked: 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
             ///   - myDecision: 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
-            ///   - plannedEndTime: 计划结束时间。⚠️ **不要往这个 DTO 里加自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
+            ///   - plan:
+            ///   - plannedEndTime: 计划结束时间。⚠️ **不要往这个 DTO 里加盲人写的自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
             ///   - plannedStartTime: 计划开始时间
-            ///   - startAddress: 起跑点文字地址。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+            ///   - startAddress: 起跑点文字地址（**原约**，通话期间不变，#755）。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
             ///   - startLatitude: 起跑点纬度（GCJ-02）
             ///   - startLongitude: 起跑点经度（GCJ-02）
             ///   - windowEndsAt: 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
@@ -7321,6 +7767,7 @@ public enum Components {
                 counterpartPhone: Swift.String? = nil,
                 counterpartPhoneMasked: Swift.String? = nil,
                 myDecision: Components.Schemas.IntroCallView.myDecisionPayload? = nil,
+                plan: Components.Schemas.IntroCallPlanView? = nil,
                 plannedEndTime: Swift.String? = nil,
                 plannedStartTime: Swift.String? = nil,
                 startAddress: Swift.String? = nil,
@@ -7332,6 +7779,7 @@ public enum Components {
                 self.counterpartPhone = counterpartPhone
                 self.counterpartPhoneMasked = counterpartPhoneMasked
                 self.myDecision = myDecision
+                self.plan = plan
                 self.plannedEndTime = plannedEndTime
                 self.plannedStartTime = plannedStartTime
                 self.startAddress = startAddress
@@ -7344,6 +7792,7 @@ public enum Components {
                 case counterpartPhone
                 case counterpartPhoneMasked
                 case myDecision
+                case plan
                 case plannedEndTime
                 case plannedStartTime
                 case startAddress
@@ -7776,6 +8225,10 @@ public enum Components {
             public var hasGuideDogThisRun: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/meet`.
             public var meet: Components.Schemas.MeetView?
+            /// （2026-10-15 新增，#755）具体在哪儿见（陪跑员在见面安排单里写的，≤30 字，如「南门保安亭左边」）。null = 没有约成过安排单或没填。订单结束后 `app.intro-call.plan-retention-days` 天清空。安排单改过的时间与集合点已直接写进 `plannedStartTime` / `startAddress` 等字段，不在这里
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/meetSpotNote`.
+            public var meetSpotNote: Swift.String?
             /// （2026-09-26 新增）约好后跑者给陪跑员留的一句话（≤40 字），经 `PUT /api/orders/{id}/runner-message` 写，未留为 `null`
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/messageToVolunteer`.
@@ -7923,6 +8376,72 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerAtMeetingPoint`.
             public var runnerAtMeetingPoint: Swift.Bool?
+            /// （2026-10-15 新增，#755）跑者上衣颜色（陪跑员在通话里问来、写进见面安排单）。null = 未确认 / 没有安排单。开放枚举，同上
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerTopColor`.
+            public struct runnerTopColorPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerTopColor/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case BLACK = "BLACK"
+                    case WHITE = "WHITE"
+                    case GRAY = "GRAY"
+                    case RED = "RED"
+                    case ORANGE = "ORANGE"
+                    case YELLOW = "YELLOW"
+                    case GREEN = "GREEN"
+                    case BLUE = "BLUE"
+                    case PURPLE = "PURPLE"
+                    case PINK = "PINK"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerTopColor/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.runnerTopColorPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerTopColor/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `runnerTopColorPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.runnerTopColorPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// （2026-10-15 新增，#755）跑者上衣颜色（陪跑员在通话里问来、写进见面安排单）。null = 未确认 / 没有安排单。开放枚举，同上
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerTopColor`.
+            public var runnerTopColor: Components.Schemas.OrderDetailResponse.runnerTopColorPayload?
             /// 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareActive`.
@@ -8153,6 +8672,72 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerSurname`.
             public var volunteerSurname: Swift.String?
+            /// （2026-10-15 新增，#755）陪跑员当天上衣颜色（见面安排单）。null = 未确认 / 没有安排单。**换陪跑员（REMATCHING）后清空**——说的是走掉的那位。开放枚举：不认识的值那一行不念
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTopColor`.
+            public struct volunteerTopColorPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTopColor/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case BLACK = "BLACK"
+                    case WHITE = "WHITE"
+                    case GRAY = "GRAY"
+                    case RED = "RED"
+                    case ORANGE = "ORANGE"
+                    case YELLOW = "YELLOW"
+                    case GREEN = "GREEN"
+                    case BLUE = "BLUE"
+                    case PURPLE = "PURPLE"
+                    case PINK = "PINK"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTopColor/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.volunteerTopColorPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTopColor/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `volunteerTopColorPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.volunteerTopColorPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// （2026-10-15 新增，#755）陪跑员当天上衣颜色（见面安排单）。null = 未确认 / 没有安排单。**换陪跑员（REMATCHING）后清空**——说的是走掉的那位。开放枚举：不认识的值那一行不念
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTopColor`.
+            public var volunteerTopColor: Components.Schemas.OrderDetailResponse.volunteerTopColorPayload?
             /// 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTotalCompleted`.
@@ -8192,6 +8777,7 @@ public enum Components {
             ///   - guidePreferenceText: （2026-09-26 新增，陪跑员端订单页 v2）跑者用自己的话写给陪跑员的引导偏好（≤80 字），取自盲人资料，未填为 `null`。 详情只对本单参与者开放，所以陪跑员接单后才看得到
             ///   - hasGuideDogThisRun:
             ///   - meet:
+            ///   - meetSpotNote: （2026-10-15 新增，#755）具体在哪儿见（陪跑员在见面安排单里写的，≤30 字，如「南门保安亭左边」）。null = 没有约成过安排单或没填。订单结束后 `app.intro-call.plan-retention-days` 天清空。安排单改过的时间与集合点已直接写进 `plannedStartTime` / `startAddress` 等字段，不在这里
             ///   - messageToVolunteer: （2026-09-26 新增）约好后跑者给陪跑员留的一句话（≤40 字），经 `PUT /api/orders/{id}/runner-message` 写，未留为 `null`
             ///   - orderId:
             ///   - paceMaxSecondsPerKm: 配速区间上限（最慢），秒/公里。见 `paceMinSecondsPerKm`
@@ -8205,6 +8791,7 @@ public enum Components {
             ///   - routePreference:
             ///   - run:
             ///   - runnerAtMeetingPoint: 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
+            ///   - runnerTopColor: （2026-10-15 新增，#755）跑者上衣颜色（陪跑员在通话里问来、写进见面安排单）。null = 未确认 / 没有安排单。开放枚举，同上
             ///   - shareActive: 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。 订单进终态后该值会被收紧：完成 → 缩短到「完成时刻 + ttl」；取消 / 无人接单 → 链接直接撤销（`shareActive` 变 false）。
             ///   - specialNotes:
@@ -8221,6 +8808,7 @@ public enum Components {
             ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
             ///   - volunteerPhone: 志愿者手机号，**明文、可直接拨打**（客户端拿它拼 `tel:`）。
             ///   - volunteerSurname: （2026-09-26 新增，陪跑员端订单页 v2）陪跑员**姓氏**，给跑者端用。口径同 `blindSurname`：只在已接单时下发，缺失时客户端改说「陪跑员」
+            ///   - volunteerTopColor: （2026-10-15 新增，#755）陪跑员当天上衣颜色（见面安排单）。null = 未确认 / 没有安排单。**换陪跑员（REMATCHING）后清空**——说的是走掉的那位。开放枚举：不认识的值那一行不念
             ///   - volunteerTotalCompleted: 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
             ///   - volunteerTotalRatings: 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
             ///   - volunteerVerified: 已接单志愿者的资质审核是否已通过（2026-09-25 新增，#337）。取 `VolunteerProfile.verified`。 **与志愿者自己看到的 `verificationStatus == APPROVED` 是同一件事**：两者在管理员审核时同时置位、 在志愿者重新上传证件时同时重置。⚠️ 例外：迁移 `0007` 把资质门槛恢复前已注册完成的存量志愿者 **未经人工审核**直接置成了 `true`，所以 `true` 不严格等于「被人审过」。它也是接单硬门槛，所以接单那一刻恒为 `true`； 之后被管理员驳回会变成 `false`。 🚨 **`null` = 不知道**（未接单，或档案查不到），**不是**「未认证」。 客户端在 `null` 时不显示认证标识，也不要给默认值 —— 默认印「已认证」就是伪造信任标识。
@@ -8249,6 +8837,7 @@ public enum Components {
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDogThisRun: Swift.Bool? = nil,
                 meet: Components.Schemas.MeetView? = nil,
+                meetSpotNote: Swift.String? = nil,
                 messageToVolunteer: Swift.String? = nil,
                 orderId: Swift.Int64,
                 paceMaxSecondsPerKm: Swift.Int32? = nil,
@@ -8262,6 +8851,7 @@ public enum Components {
                 routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload? = nil,
                 run: Components.Schemas.RunView? = nil,
                 runnerAtMeetingPoint: Swift.Bool? = nil,
+                runnerTopColor: Components.Schemas.OrderDetailResponse.runnerTopColorPayload? = nil,
                 shareActive: Swift.Bool? = nil,
                 shareExpiresAt: Swift.String? = nil,
                 specialNotes: Swift.String? = nil,
@@ -8278,6 +8868,7 @@ public enum Components {
                 volunteerName: Swift.String? = nil,
                 volunteerPhone: Swift.String? = nil,
                 volunteerSurname: Swift.String? = nil,
+                volunteerTopColor: Components.Schemas.OrderDetailResponse.volunteerTopColorPayload? = nil,
                 volunteerTotalCompleted: Swift.Int32? = nil,
                 volunteerTotalRatings: Swift.Int32? = nil,
                 volunteerVerified: Swift.Bool? = nil
@@ -8306,6 +8897,7 @@ public enum Components {
                 self.guidePreferenceText = guidePreferenceText
                 self.hasGuideDogThisRun = hasGuideDogThisRun
                 self.meet = meet
+                self.meetSpotNote = meetSpotNote
                 self.messageToVolunteer = messageToVolunteer
                 self.orderId = orderId
                 self.paceMaxSecondsPerKm = paceMaxSecondsPerKm
@@ -8319,6 +8911,7 @@ public enum Components {
                 self.routePreference = routePreference
                 self.run = run
                 self.runnerAtMeetingPoint = runnerAtMeetingPoint
+                self.runnerTopColor = runnerTopColor
                 self.shareActive = shareActive
                 self.shareExpiresAt = shareExpiresAt
                 self.specialNotes = specialNotes
@@ -8335,6 +8928,7 @@ public enum Components {
                 self.volunteerName = volunteerName
                 self.volunteerPhone = volunteerPhone
                 self.volunteerSurname = volunteerSurname
+                self.volunteerTopColor = volunteerTopColor
                 self.volunteerTotalCompleted = volunteerTotalCompleted
                 self.volunteerTotalRatings = volunteerTotalRatings
                 self.volunteerVerified = volunteerVerified
@@ -8364,6 +8958,7 @@ public enum Components {
                 case guidePreferenceText
                 case hasGuideDogThisRun
                 case meet
+                case meetSpotNote
                 case messageToVolunteer
                 case orderId
                 case paceMaxSecondsPerKm
@@ -8377,6 +8972,7 @@ public enum Components {
                 case routePreference
                 case run
                 case runnerAtMeetingPoint
+                case runnerTopColor
                 case shareActive
                 case shareExpiresAt
                 case specialNotes
@@ -8393,6 +8989,7 @@ public enum Components {
                 case volunteerName
                 case volunteerPhone
                 case volunteerSurname
+                case volunteerTopColor
                 case volunteerTotalCompleted
                 case volunteerTotalRatings
                 case volunteerVerified
@@ -21135,6 +21732,23 @@ public enum Operations {
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
     /// 订单退回派单队列派给下一个候选人。
     ///
+    /// 🚩 **见面安排单（#755）与开关 `app.intro-call.plan-required`**（负责人 2026-10-15 拍板，**缺省关**，
+    /// iOS 新版本 blind-run-ios#432/#433/#434 发布后由负责人打开）。两种状态下 `ACCEPT` 的行为：
+    ///
+    /// | | 开关**关**（缺省，当前线上） | 开关**开** |
+    /// |---|---|---|
+    /// | 陪跑员 `ACCEPT` | 照旧可用（资质门同 `/respond`）；提交安排单也算「合适」 | 409 `INTRO_CALL_PLAN_REQUIRED`，「合适」只能是 `PUT /intro-call/plan` |
+    /// | 跑者 `ACCEPT`、这一轮**没有**安排单 | 不带 `planVersion` 照旧成单（按原约） | 409 `INTRO_CALL_PLAN_REQUIRED` |
+    /// | 跑者 `ACCEPT`、这一轮**有**安排单 | 必带最新 `planVersion`，否则 409 `INTRO_CALL_PLAN_STALE` | 同左 |
+    /// | 带了 `planVersion` | 一律校验（没有安排单 → `REQUIRED`，不是最新 → `STALE`） | 同左 |
+    ///
+    /// - 新版客户端**不必判断开关**：陪跑员一律提交安排单、跑者一律带版本确认，两种状态下都能成单。
+    ///   开关只决定旧版客户端还能不能用老方式成单
+    /// - 已提交过安排单的陪跑员再发 `ACCEPT` 按幂等返回 200；陪跑员的 `DECLINE` 不变
+    /// - `INTRO_CALL_PLAN_STALE` **不是错误**：重新 `GET /intro-call` 把新版本念一遍再确认
+    /// - 盲人确认最新一版即成单，安排单里改过的时间、地点和见面点、颜色随成单写进订单。
+    ///   成单前会用改后的时段把下单门槛与跑者时段冲突重跑一遍，不过就按本轮超时处理（两边中性文案）
+    ///
     /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
     /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
     ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
@@ -21163,15 +21777,16 @@ public enum Operations {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
-    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
-    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 🚩 **志愿者表「合适」（#755 起即提交安排单）= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1，这道门现在在 `PUT /intro-call/plan`）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
     /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
     /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
     ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 409 `INTRO_CALL_PLAN_REQUIRED` / `INTRO_CALL_PLAN_STALE` — 见上方见面安排单一节
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
-    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
-    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
+    /// - ⚠️ #755 起本端点**不再**返回 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`：
+    ///   志愿者的「合适」挪到了 `PUT /intro-call/plan`，资质门跟着过去了
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -21305,7 +21920,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）/ 志愿者表「合适」时已不具备接单资质（VOLUNTEER_NOT_VERIFIED / TRAINING_NOT_COMPLETED / VOLUNTEER_NOT_AVAILABLE）
+            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)/responses/403`.
             ///
@@ -21356,7 +21971,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）
+            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）/ 还没有安排单（INTRO_CALL_PLAN_REQUIRED）/ 盲人确认的不是最新一版（INTRO_CALL_PLAN_STALE）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)/responses/409`.
             ///
@@ -21614,6 +22229,372 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 通话后提交见面安排单（VOLUNTEER）
+    ///
+    /// 接单前通话聊完后，陪跑员把电话里说好的写下来（#755，负责人 2026-10-15 批准）：可改开跑时间、集合点，
+    /// 补「具体在哪儿见」（≤30 字）和双方上衣颜色。**全部字段可选，不填 = 按原约**；一个都不改也要提交 ——
+    /// **提交本身就是陪跑员的「合适」**。开关 `app.intro-call.plan-required` 打开后这是陪跑员表示合适的唯一方式
+    /// （`decision=ACCEPT` 会 409 `INTRO_CALL_PLAN_REQUIRED`）；关着时（缺省）本端点同样可用、行为相同，只是不强制，见 `POST /intro-call/decision`。
+    ///
+    /// 每次提交是新的一版：`version + 1`，**盲人之前的确认作废**，他要按新版本重新确认（`decision=ACCEPT` 带 `planVersion`）。
+    /// 内容与最新一版完全相同的重复提交（弱网重发）不加版本号，原样返回那一版。
+    /// 订单状态不变，仍是 `PENDING_INTRO_CALL`；盲人确认最新版那一刻成单，安排单随之写进订单。
+    ///
+    /// 提交时校验：
+    /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
+    /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
+    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
+    /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
+    /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
+    ///   用途是不让「时段不可用」被拿来逐个时段探测跑者日程，也不让无限改版让跑者一直确认不了
+    ///
+    /// 🚩 安排单的每一版都留作历史（客服可查）；没约成随本轮删除，约成后订单结束 `app.intro-call.plan-retention-days` 天删除。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是这一轮通话的候选陪跑员
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/intro-call/plan`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)`.
+    public enum submitIntroCallPlan {
+        public static let id: Swift.String = "submitIntroCallPlan"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.submitIntroCallPlan.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.submitIntroCallPlan.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.submitIntroCallPlan.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.submitIntroCallPlan.Input.Headers
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.IntroCallPlanRequest)
+            }
+            public var body: Operations.submitIntroCallPlan.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.submitIntroCallPlan.Input.Path,
+                headers: Operations.submitIntroCallPlan.Input.Headers = .init(),
+                body: Operations.submitIntroCallPlan.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.IntroCallPlanView)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.IntroCallPlanView {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallPlan.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallPlan.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK，返回这一版安排单
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.submitIntroCallPlan.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.submitIntroCallPlan.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/400/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallPlan.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallPlan.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// 参数不合法（VALIDATION_ERROR / BAD_REQUEST：地址与坐标没有一起传、结束不晚于开始等）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.submitIntroCallPlan.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.submitIntroCallPlan.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallPlan.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallPlan.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是这一轮的候选陪跑员（NOT_ORDER_PARTICIPANT）/ 已不具备接单资质（VOLUNTEER_NOT_VERIFIED / TRAINING_NOT_COMPLETED / VOLUNTEER_NOT_AVAILABLE）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.submitIntroCallPlan.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.submitIntroCallPlan.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallPlan.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallPlan.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）/ 新时段跑者不可用（INTRO_CALL_PLAN_TIME_UNAVAILABLE）/ 陪跑员自己时段冲突（VOLUNTEER_ALREADY_ENGAGED）/ 这一轮提交次数到顶（INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.submitIntroCallPlan.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.submitIntroCallPlan.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/plan/PUT/responses/422/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallPlan.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallPlan.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// 新时间不满足下单门槛（APPOINTMENT_TOO_SOON / TOO_FAR / TOO_LONG / IN_NIGHT_WINDOW）/ 新集合点离原约太远（INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.submitIntroCallPlan.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.submitIntroCallPlan.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
                             response: self
                         )
                     }

@@ -64,8 +64,9 @@ enum SafetyEndpoint {
 /// 唯一的客观记录。它们和订单状态机是正交的：**求助不是订单状态**（`AGENTS.md` §6），
 /// 通话磨合期后端连订单详情都不给志愿者看。
 ///
-/// 与 `AuthServing` 同两条规矩：**每个方法都必须有生产调用点**（当前 8 个，
-/// 与迁移前的 8 个 `apiClient.<verb>` 一一对应）；错误一律 `throws` 抛出去，**这一层不吞** ——
+/// 与 `AuthServing` 同两条规矩：**每个方法都必须有生产调用点**（迁移时的 8 个与迁移前的
+/// 8 个 `apiClient.<verb>` 一一对应；唯一的例外是 `submitIntroCallPlan`，#432 先落服务层，
+/// 调用点随 #433 落地 —— #433 合并后这句例外删掉）；错误一律 `throws` 抛出去，**这一层不吞** ——
 /// 吞在这里的错误在 UI 上表现成「点了没反应」，而这一片的每一条失败都必须被盲人**听见**。
 protocol SafetyServing: Sendable {
     // 求助（`POST /api/emergency/trigger` 只记事件，不动订单状态）
@@ -78,6 +79,10 @@ protocol SafetyServing: Sendable {
     func introCall(orderId: Int64) async throws -> IntroCallView
     func submitIntroCallDecision(orderId: Int64, decision: IntroCallDecision) async throws
     func reportIntroCallUnreachable(orderId: Int64) async throws
+    /// 陪跑员提交见面安排单（#755）。**提交本身就是他的「合适」**；返回服务端存下的这一版。
+    /// 内容与最新一版相同的重复提交（弱网重发）后端不加版本号，原样返回那一版。
+    /// 生产调用点随 #433（陪跑员 V2 填写见面安排）落地。
+    func submitIntroCallPlan(orderId: Int64, plan: IntroCallPlanRequest) async throws -> IntroCallPlanView
     func matchedOrder(orderId: Int64) async throws -> OrderDetailResponse
 
     // 轨迹
@@ -138,6 +143,10 @@ struct SafetyService: SafetyServing {
         let _: EmptyResponse = try await transport.send(
             IntroCallEndpoint.unreachable.request(orderId: orderId)
         )
+    }
+
+    func submitIntroCallPlan(orderId: Int64, plan: IntroCallPlanRequest) async throws -> IntroCallPlanView {
+        try await transport.send(IntroCallEndpoint.plan.request(orderId: orderId), body: plan)
     }
 
     /// `GET /api/orders/{id}`，但用途只有一个：**判本轮通话磨合成没成**。

@@ -10,7 +10,7 @@
 - 「打完电话回来」只认 App 从**后台**回到前台；拨号确认框取消、权限弹窗造成的短暂失活不算。
 - 通话窗口倒计时常驻显示，平时静默，只在剩 5 分钟、剩 1 分钟各主动播报一次；不足 1 分钟显示「不到 1 分钟」而不是消失。
 - 陪跑员主按钮从「合适，接这一单」改为「填写见面安排」；盲人端去掉 v6 的「聊过了，合适」。
-- 依赖后端新端点 `PUT /api/orders/{id}/intro-call/plan` 与 `decision` / `GET /intro-call` 的改动（Jayden23018/blind-run-backend#755），新增错误码 `INTRO_CALL_PLAN_STALE` / `INTRO_CALL_PLAN_REQUIRED`。
+- 依赖后端新端点 `PUT /api/orders/{id}/intro-call/plan` 与 `decision` / `GET /intro-call` 的改动（Jayden23018/blind-run-backend#755），新增错误码 `INTRO_CALL_PLAN_STALE` / `INTRO_CALL_PLAN_REQUIRED` / `INTRO_CALL_PLAN_TIME_UNAVAILABLE` / `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL` / `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`（后端 #757 已合并，#432 接入）。
 
 ## Capabilities
 

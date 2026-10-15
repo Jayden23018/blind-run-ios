@@ -522,6 +522,18 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     var blindSurname: String?
     var volunteerSurname: String?
 
+    // MARK: 见面安排单约成后写进订单的三项（后端 #755，2026-10-15）
+    //
+    // 两端订单页「约好」要显示。安排单改过的时间与集合点已直接写进 `plannedStart` / `startAddress` 等字段，不在这里。
+    // `nil` = 没有约成过安排单 / 没填 / 未确认；订单结束 `app.intro-call.plan-retention-days` 天后后端清空。
+
+    /// 具体在哪儿见（陪跑员写的，≤30 字）。
+    var meetSpotNote: String?
+    /// 跑者上衣颜色。开放枚举：认不出的值是 `.unknown`，那一行不念不显示，整张订单照常。
+    var runnerTopColor: MeetupTopColor?
+    /// 陪跑员上衣颜色。**换陪跑员（`REMATCHING`）后后端清空** —— 说的是走掉的那位。
+    var volunteerTopColor: MeetupTopColor?
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -589,7 +601,11 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             // 同一条理由：漏掉会让暂停态与节奏卡在每次状态推送后闪回「未暂停 / 没有节奏」。
             run: run,
             blindSurname: blindSurname,
-            volunteerSurname: volunteerSurname
+            volunteerSurname: volunteerSurname,
+            // 同一条理由：漏掉会让约好页的见面位置与颜色在每次 5 秒轮询后静默消失。
+            meetSpotNote: meetSpotNote,
+            runnerTopColor: runnerTopColor,
+            volunteerTopColor: volunteerTopColor
         )
     }
 }

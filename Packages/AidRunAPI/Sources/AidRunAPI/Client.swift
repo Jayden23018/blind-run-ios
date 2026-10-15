@@ -3307,6 +3307,23 @@ public struct Client: APIProtocol {
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
     /// 订单退回派单队列派给下一个候选人。
     ///
+    /// 🚩 **见面安排单（#755）与开关 `app.intro-call.plan-required`**（负责人 2026-10-15 拍板，**缺省关**，
+    /// iOS 新版本 blind-run-ios#432/#433/#434 发布后由负责人打开）。两种状态下 `ACCEPT` 的行为：
+    ///
+    /// | | 开关**关**（缺省，当前线上） | 开关**开** |
+    /// |---|---|---|
+    /// | 陪跑员 `ACCEPT` | 照旧可用（资质门同 `/respond`）；提交安排单也算「合适」 | 409 `INTRO_CALL_PLAN_REQUIRED`，「合适」只能是 `PUT /intro-call/plan` |
+    /// | 跑者 `ACCEPT`、这一轮**没有**安排单 | 不带 `planVersion` 照旧成单（按原约） | 409 `INTRO_CALL_PLAN_REQUIRED` |
+    /// | 跑者 `ACCEPT`、这一轮**有**安排单 | 必带最新 `planVersion`，否则 409 `INTRO_CALL_PLAN_STALE` | 同左 |
+    /// | 带了 `planVersion` | 一律校验（没有安排单 → `REQUIRED`，不是最新 → `STALE`） | 同左 |
+    ///
+    /// - 新版客户端**不必判断开关**：陪跑员一律提交安排单、跑者一律带版本确认，两种状态下都能成单。
+    ///   开关只决定旧版客户端还能不能用老方式成单
+    /// - 已提交过安排单的陪跑员再发 `ACCEPT` 按幂等返回 200；陪跑员的 `DECLINE` 不变
+    /// - `INTRO_CALL_PLAN_STALE` **不是错误**：重新 `GET /intro-call` 把新版本念一遍再确认
+    /// - 盲人确认最新一版即成单，安排单里改过的时间、地点和见面点、颜色随成单写进订单。
+    ///   成单前会用改后的时段把下单门槛与跑者时段冲突重跑一遍，不过就按本轮超时处理（两边中性文案）
+    ///
     /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
     /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
     ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
@@ -3335,15 +3352,16 @@ public struct Client: APIProtocol {
     /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
     /// 要求填理由等于要求当面说「不」。
     ///
-    /// 🚩 **志愿者表「合适」= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
-    /// （#616 L1）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
+    /// 🚩 **志愿者表「合适」（#755 起即提交安排单）= 他在接单，与 `POST /{id}/respond` 的 `ACCEPT` 过同一道资质门、给同一句错误**
+    /// （#616 L1，这道门现在在 `PUT /intro-call/plan`）：通话窗口最长 20 分钟，期间资质证件可能被驳回、可能新上了必修课、他也可能关了可服务。
     /// 「不合适」不查资质。若志愿者先表了合适、之后才失去资质，**盲人**点下最后那个「合适」时
     /// **不报错**（他处置不了这个错误）：本轮作废、订单退回派单，与「志愿者这个时段已答应了别人」同一种处置。
     ///
     /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 409 `INTRO_CALL_PLAN_REQUIRED` / `INTRO_CALL_PLAN_STALE` — 见上方见面安排单一节
     /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
-    /// - 403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE` —
-    ///   仅志愿者表「合适」时：此刻已不具备接单资质，含义与 `POST /{id}/respond` 的同名错误码一致
+    /// - ⚠️ #755 起本端点**不再**返回 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`：
+    ///   志愿者的「合适」挪到了 `PUT /intro-call/plan`，资质门跟着过去了
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
@@ -3562,6 +3580,190 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 通话后提交见面安排单（VOLUNTEER）
+    ///
+    /// 接单前通话聊完后，陪跑员把电话里说好的写下来（#755，负责人 2026-10-15 批准）：可改开跑时间、集合点，
+    /// 补「具体在哪儿见」（≤30 字）和双方上衣颜色。**全部字段可选，不填 = 按原约**；一个都不改也要提交 ——
+    /// **提交本身就是陪跑员的「合适」**。开关 `app.intro-call.plan-required` 打开后这是陪跑员表示合适的唯一方式
+    /// （`decision=ACCEPT` 会 409 `INTRO_CALL_PLAN_REQUIRED`）；关着时（缺省）本端点同样可用、行为相同，只是不强制，见 `POST /intro-call/decision`。
+    ///
+    /// 每次提交是新的一版：`version + 1`，**盲人之前的确认作废**，他要按新版本重新确认（`decision=ACCEPT` 带 `planVersion`）。
+    /// 内容与最新一版完全相同的重复提交（弱网重发）不加版本号，原样返回那一版。
+    /// 订单状态不变，仍是 `PENDING_INTRO_CALL`；盲人确认最新版那一刻成单，安排单随之写进订单。
+    ///
+    /// 提交时校验：
+    /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
+    /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
+    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
+    /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
+    /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
+    ///   用途是不让「时段不可用」被拿来逐个时段探测跑者日程，也不让无限改版让跑者一直确认不了
+    ///
+    /// 🚩 安排单的每一版都留作历史（客服可查）；没约成随本轮删除，约成后订单结束 `app.intro-call.plan-retention-days` 天删除。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是这一轮通话的候选陪跑员
+    ///
+    /// - Remark: HTTP `PUT /api/orders/{id}/intro-call/plan`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)`.
+    public func submitIntroCallPlan(_ input: Operations.submitIntroCallPlan.Input) async throws -> Operations.submitIntroCallPlan.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.submitIntroCallPlan.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/intro-call/plan",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallPlan.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.IntroCallPlanView.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallPlan.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallPlan.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallPlan.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                case 422:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallPlan.Output.UnprocessableContent.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unprocessableContent(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,

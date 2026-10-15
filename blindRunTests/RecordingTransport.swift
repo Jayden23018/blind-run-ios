@@ -25,6 +25,8 @@ final class RecordingTransport: APIClientProtocol, @unchecked Sendable {
     }
 
     var nextResponse: Any?
+    /// 设了就在记完这一笔之后抛它（演后端回错误码）。同样不含判定：不看路径、不看入参。
+    var nextError: Error?
     private(set) var requests: [Recorded] = []
 
     func request<T: Decodable>(
@@ -44,6 +46,7 @@ final class RecordingTransport: APIClientProtocol, @unchecked Sendable {
                 body: body
             )
         )
+        if let nextError { throw nextError }
         guard let typed = nextResponse as? T else { throw APIError.unknown(statusCode: -1) }
         return typed
     }

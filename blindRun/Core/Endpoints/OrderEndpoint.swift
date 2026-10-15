@@ -147,6 +147,8 @@ enum OrderEndpoint {
                 return EndpointRequest(.get, path)
             case .decision, .unreachable, .notifyIncoming:
                 return EndpointRequest(.post, path)
+            case .plan:
+                return EndpointRequest(.put, path)
             }
         }
     }

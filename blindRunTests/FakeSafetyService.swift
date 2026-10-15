@@ -28,6 +28,8 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
     var introCallResult: Result<IntroCallView, Error> = .failure(NotStubbed(method: "introCall"))
     var submitIntroCallDecisionResult: Result<Void, Error> = .success(())
     var reportIntroCallUnreachableResult: Result<Void, Error> = .success(())
+    var submitIntroCallPlanResult: Result<IntroCallPlanView, Error> = .failure(NotStubbed(method: "submitIntroCallPlan"))
+    private(set) var lastIntroCallPlan: IntroCallPlanRequest?
     /// `.failure` = 订单详情读不到（通话磨合期后端对志愿者就是 403）。
     var matchedOrderResult: Result<OrderDetailResponse, Error> = .failure(NotStubbed(method: "matchedOrder"))
     var orderTrackResult: Result<OrderTrackResponse, Error> = .failure(NotStubbed(method: "orderTrack"))
@@ -96,6 +98,14 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
         lastOrderId = orderId
         orderIds.append(orderId)
         return try reportIntroCallUnreachableResult.get()
+    }
+
+    func submitIntroCallPlan(orderId: Int64, plan: IntroCallPlanRequest) async throws -> IntroCallPlanView {
+        record()
+        lastOrderId = orderId
+        lastIntroCallPlan = plan
+        orderIds.append(orderId)
+        return try submitIntroCallPlanResult.get()
     }
 
     func matchedOrder(orderId: Int64) async throws -> OrderDetailResponse {

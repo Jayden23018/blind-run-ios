@@ -80,6 +80,8 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var introCallViewResult: Result<IntroCallView, Error> = .failure(NotStubbed(method: "introCallView"))
     var submitIntroCallDecisionResult: Result<Void, Error> = .failure(NotStubbed(method: "submitIntroCallDecision"))
     var notifyIntroCallIncomingResult: Result<Void, Error> = .failure(NotStubbed(method: "notifyIntroCallIncoming"))
+    var confirmIntroCallPlanResult: Result<IntroCallPlanConfirmation, Error> = .failure(NotStubbed(method: "confirmIntroCallPlan"))
+    private(set) var lastConfirmedPlanVersion: Int?
     var startLiveShareResult: Result<ShareLinkResponse, Error> = .failure(NotStubbed(method: "startLiveShare"))
     var stopLiveShareResult: Result<Void, Error> = .failure(NotStubbed(method: "stopLiveShare"))
     var volunteerLocationResult: Result<VolunteerLocationResponse, Error> = .failure(NotStubbed(method: "volunteerLocation"))
@@ -286,6 +288,13 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastOrderId = orderId
         return try notifyIntroCallIncomingResult.get()
+    }
+
+    func confirmIntroCallPlan(orderId: Int64, version: Int) async throws -> IntroCallPlanConfirmation {
+        record()
+        lastOrderId = orderId
+        lastConfirmedPlanVersion = version
+        return try confirmIntroCallPlanResult.get()
     }
 
     func startLiveShare(orderId: Int64) async throws -> ShareLinkResponse {

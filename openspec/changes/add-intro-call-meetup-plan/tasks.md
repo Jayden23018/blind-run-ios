@@ -9,12 +9,12 @@
 
 ## 2. 端点、解码、Mock、错误码（#432，依赖 Jayden23018/blind-run-backend#755）
 
-- [ ] 2.1 `PUT /api/orders/{id}/intro-call/plan` 端点与请求体；`decision` 盲人 ACCEPT 带 `planVersion`
-- [ ] 2.2 `GET /intro-call` 解码 `plan` 与原约，映射到第 1 组的本地类型；颜色取值按契约对齐
-- [ ] 2.3 `MockAPIClient` 支持安排单提交、版本递增、确认
-- [ ] 2.4 错误码 `INTRO_CALL_PLAN_STALE`（走「请重新收听」，不当错误）/ `INTRO_CALL_PLAN_REQUIRED` / 距离超限 / 跑者时段不可用（不泄露原因）
-- [ ] 2.5 `IntroCallView` 注释里「不要往这个 DTO 里加自由文本」改写为破例说明（见面点由陪跑员写）
-- [ ] 2.6 security-reviewer 审端点、用户输入与地点变更
+- [x] 2.1 `PUT /api/orders/{id}/intro-call/plan` 端点与请求体；`decision` 盲人 ACCEPT 带 `planVersion`
+- [x] 2.2 `GET /intro-call` 解码 `plan` 与原约，映射到第 1 组的本地类型；颜色取值按契约对齐
+- [x] 2.3 `MockAPIClient` 支持安排单提交、版本递增、确认
+- [x] 2.4 错误码 `INTRO_CALL_PLAN_STALE`（走「请重新收听」，不当错误）/ `INTRO_CALL_PLAN_REQUIRED` / 距离超限 / 跑者时段不可用（不泄露原因）
+- [x] 2.5 `IntroCallView` 注释里「不要往这个 DTO 里加自由文本」改写为破例说明（见面点由陪跑员写）
+- [x] 2.6 security-reviewer 审端点、用户输入与地点变更
 
 ## 3. 陪跑员端 V1–V4（#433）
 
