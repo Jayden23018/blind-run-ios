@@ -458,6 +458,18 @@ final class AppRealtimeCoordinator: ObservableObject {
         blindStartConfirmedSubject.eraseToAnyPublisher()
     }
     static let blindStartConfirmedEventType = "BLIND_START_CONFIRMED"
+    /// 跑者在接单前通话里按了拨号（`INTRO_CALL_INCOMING`，#433 V1′）。值是**后端发出的时刻**
+    /// （解析不出用收到的时刻）：重连补读会把几分钟前的那条再投一次，消费方据此判断提醒还在不在 2 分钟内。
+    /// **不带订单号**（后端发这条时 `orderId` 为 null）；陪跑员同一时刻只可能锁在一轮通话里。
+    private let introCallIncomingSubject = PassthroughSubject<Date, Never>()
+    var introCallIncomingPublisher: AnyPublisher<Date, Never> {
+        introCallIncomingSubject.eraseToAnyPublisher()
+    }
+    static let introCallIncomingEventType = "INTRO_CALL_INCOMING"
+    /// 陪跑员通话页开着时为 true：那一页自己显示「跑者王*正在来电」并播一次，
+    /// 这条通知就**不再进横幅** —— 两处各念一遍，读屏用户会听到同一件事两次。
+    /// 页面不在时照旧走横幅（陪跑员在首页也要知道有人在打给他）。
+    var isIntroCallPageShowingIncomingCalls = false
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
     var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
@@ -901,6 +913,10 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
         if Self.refreshOnlyEventTypes.contains(eventType) { return }
         if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
+        if eventType == Self.introCallIncomingEventType {
+            introCallIncomingSubject.send(Self.parseISO8601(message.timestamp) ?? now())
+            if isIntroCallPageShowingIncomingCalls { return }
+        }
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
             routeEscortAlert(message, eventType: eventType)
             return

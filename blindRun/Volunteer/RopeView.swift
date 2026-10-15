@@ -21,6 +21,16 @@ enum IntroCallRopeStage: Equatable {
     case afterCall
     /// 「我」已经说了合适：「我」头像上一个小勾。**只画自己的表态**，对方的不画（无声拒绝）。
     case decided
+
+    // 见面安排单（视觉稿 v2 `intro-call-meetup-plan-20261015`，#433 新增，#434 盲人端接着用）。
+    // 子状态靠头卡那句话 + 绳子上的小图标区分（电话 → 单子），**不靠换色**。
+
+    /// 等见面安排（盲人端 B2）：电话那个位置换成一张**灰色**单子 —— 单子还没来。
+    case awaitingPlan
+    /// 见面安排已提交、等跑者确认（陪跑员端 V3）：白底单子 + 「我」头像上的小勾（提交就是他的「合适」）。
+    case planSubmitted
+    /// 本轮结束、没约成（陪跑员端 V4′）：对方头像退回空心虚线，不挂任何图标。
+    case ended
 }
 
 enum RopeState: Equatable {
@@ -98,11 +108,17 @@ enum RopeState: Equatable {
         switch stage {
         case .beforeCall, .afterCall: return "先通个电话"
         case .decided: return "你已说合适"
+        case .awaitingPlan: return "等待见面安排"
+        case .planSubmitted: return "见面安排已提交"
+        case .ended: return "本次沟通已结束"
         }
     }
 
     private func nextStepsSuffix(perspective: RopePerspective) -> String {
         switch self {
+        // 沟通已结束：这一单不会再往下走，念「接下来：约好…」是在许诺一件不会发生的事。
+        case .introCall(.ended):
+            return ""
         case .invited, .introCall, .agreed, .departed:
             let rest = Self.stepTitles(perspective: perspective).dropFirst(step + 1)
             return "。接下来：" + rest.joined(separator: "、")
@@ -179,6 +195,15 @@ struct RopeGeometry: Equatable {
     var showsPhone = false
     /// 先通个电话 · 已说合适：「我」头像右上角一个小勾。
     var showsSelfCheck = false
+    /// 见面安排单图标，挂在电话那个位置（`phoneX`）。`nil` = 不画。
+    var planSheet: PlanSheetStyle?
+
+    enum PlanSheetStyle: Equatable {
+        /// 灰色：单子还没来（盲人端等安排）。
+        case pending
+        /// 白底、头卡色图形：单子已提交（与电话图标同一种画法）。
+        case submitted
+    }
     /// 电话图标挂在哪：第 2、3 个刻度中间（「我」与对方之间那段绳子的正中附近，不压任何刻度）。
     static let phoneX: CGFloat = (ticks[1] + ticks[2]) / 2
 
@@ -203,8 +228,11 @@ struct RopeGeometry: Equatable {
             return RopeGeometry(step: 0, selfX: ticks[0], ropeStyle: .dashed, otherStyle: .hollow)
         case .introCall(let stage):
             return RopeGeometry(
-                step: 0, selfX: ticks[0], ropeStyle: .dashed, otherStyle: .solid,
-                showsPhone: stage == .beforeCall, showsSelfCheck: stage == .decided
+                step: 0, selfX: ticks[0], ropeStyle: .dashed,
+                otherStyle: stage == .ended ? .hollow : .solid,
+                showsPhone: stage == .beforeCall,
+                showsSelfCheck: stage == .decided || stage == .planSubmitted,
+                planSheet: stage == .awaitingPlan ? .pending : (stage == .planSubmitted ? .submitted : nil)
             )
         case .agreed:
             return RopeGeometry(step: 1, selfX: ticks[1], ropeStyle: .solid)
@@ -435,6 +463,12 @@ struct RopeView: View {
                     .transition(.opacity)
             }
 
+            if let sheet = g.planSheet {
+                planSheetIcon(sheet, scale: s)
+                    .position(x: RopeGeometry.phoneX * s, y: RopeGeometry.curveY(atX: RopeGeometry.phoneX) * s)
+                    .transition(.opacity)
+            }
+
             if g.showsDepartureHalo && perspective == .volunteer {
                 Circle()
                     .fill(Color.white)
@@ -458,6 +492,29 @@ struct RopeView: View {
                     .position(x: (g.selfX + 17) * s, y: (g.selfY - 17) * s)
                     .transition(.opacity)
             }
+        }
+    }
+
+    /// 见面安排单。已提交的与电话图标同一种画法（白圆、头卡色图形）；还没来的只画一圈虚描边 +
+    /// 半透明白图形 —— 「灰」靠形状和透明度表达，不新增颜色（`design-direction.md`「不新增强调色」）。
+    @ViewBuilder
+    private func planSheetIcon(_ style: RopeGeometry.PlanSheetStyle, scale s: CGFloat) -> some View {
+        switch style {
+        case .submitted:
+            Image(systemName: "doc.text.fill")
+                .font(.system(size: 12 * s, weight: .semibold))
+                .foregroundColor(stateColor)
+                .frame(width: 26 * s, height: 26 * s)
+                .background(Circle().fill(Color.white))
+        case .pending:
+            Image(systemName: "doc.text")
+                .font(.system(size: 12 * s, weight: .semibold))
+                .foregroundColor(AppColors.Flow.onHeroEyebrow)
+                .frame(width: 26 * s, height: 26 * s)
+                .background(Circle().fill(stateColor))
+                .overlay(
+                    Circle().strokeBorder(AppColors.Flow.ropeMuted, style: StrokeStyle(lineWidth: 1.5 * s, dash: [3 * s, 3 * s]))
+                )
         }
     }
 
@@ -656,7 +713,7 @@ struct RopeTogetherIllustration: View {
 private extension RopeGeometry {
     /// 「减弱动态效果」时用它当 `.id`：几何变了就整幅交叉淡入，而不是插值位置。
     var animationKey: String {
-        "\(layout)-\(step)-\(ropeStyle)-\(otherStyle)-\(showsPhone)-\(showsSelfCheck)"
+        "\(layout)-\(step)-\(ropeStyle)-\(otherStyle)-\(showsPhone)-\(showsSelfCheck)-\(String(describing: planSheet))"
     }
 }
 

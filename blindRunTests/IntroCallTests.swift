@@ -552,10 +552,29 @@ final class IntroCallTests: XCTestCase {
         XCTAssertNil(EmergencyDialer.telURL(for: "138****0001"), "掩码串必须被拨号闸拦下")
     }
 
-    func testVolunteerWindowEndsTextIsAClockOrNothing() {
-        XCTAssertEqual(IntroCallCopy.volunteerWindowEndsText(windowEndsAt: "2026-10-13T22:42:00"), "22:42 前聊完")
-        XCTAssertNil(IntroCallCopy.volunteerWindowEndsText(windowEndsAt: nil))
-        XCTAssertNil(IntroCallCopy.volunteerWindowEndsText(windowEndsAt: "坏数据"))
+    /// 视觉稿 v2：V1「22:42 前完成沟通 · 剩余 14 分钟」、V3「22:42 前 · 剩余 9 分钟」；
+    /// 不足 1 分钟说「剩余不到 1 分钟」而**不整行消失**；解析不出就不显示（不摆占位）。
+    func testVolunteerWindowPillShowsDeadlineAndRemainingOrNothing() throws {
+        let raw = "2026-10-13T22:42:00"
+        let endsAt = try XCTUnwrap(raw.backendTimestamp)
+        XCTAssertEqual(
+            IntroCallCopy.volunteerWindowPillText(windowEndsAt: raw, isAwaitingConfirmation: false, now: endsAt.addingTimeInterval(-14 * 60)),
+            "22:42 前完成沟通 · 剩余 14 分钟"
+        )
+        XCTAssertEqual(
+            IntroCallCopy.volunteerWindowPillText(windowEndsAt: raw, isAwaitingConfirmation: true, now: endsAt.addingTimeInterval(-9 * 60)),
+            "22:42 前 · 剩余 9 分钟"
+        )
+        XCTAssertEqual(
+            IntroCallCopy.volunteerWindowPillText(windowEndsAt: raw, isAwaitingConfirmation: false, now: endsAt.addingTimeInterval(-30)),
+            "22:42 前完成沟通 · 剩余不到 1 分钟"
+        )
+        XCTAssertEqual(
+            IntroCallCopy.volunteerWindowPillAccessibilityLabel(windowEndsAt: raw, isAwaitingConfirmation: false, now: endsAt.addingTimeInterval(-14 * 60)),
+            "请在 22 点 42 分前完成沟通，剩余 14 分钟"
+        )
+        XCTAssertNil(IntroCallCopy.volunteerWindowPillText(windowEndsAt: nil, isAwaitingConfirmation: false))
+        XCTAssertNil(IntroCallCopy.volunteerWindowPillText(windowEndsAt: "坏数据", isAwaitingConfirmation: true))
     }
 
     // MARK: - 志愿者接单前只看得到导盲犬

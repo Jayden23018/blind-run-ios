@@ -725,6 +725,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
         case .invited, .metUp:
             break
         }
+        rows.append(contentsOf: meetupRows(order: order))
 
         rows.append(
             Row(
@@ -753,6 +754,34 @@ struct VolunteerOrderFlowPresentation: Equatable {
     }
 
     // MARK: 内部
+
+    /// 见面安排单约成后写进订单的三项（#755 / #433 V4）：具体见面位置、跑者上衣、本人上衣。
+    /// 约好与出发两格都给 —— 赶去集合点的路上正是要认人的时候。
+    ///
+    /// 都是**陪跑员自己在通话后写的**，不是盲人的自由文本，不受 `disclosesBlindRunnerNotesToVolunteer` 闸管。
+    /// 取不到（没走过安排单、没填、颜色认不出 `.unknown`）就不出这一行，不摆「未确认」占位。
+    static func meetupRows(order: OrderDetailResponse) -> [Row] {
+        var rows: [Row] = []
+        if let note = order.meetSpotNote?.nilIfBlank {
+            rows.append(Row(
+                id: "meetSpotNote", label: VolunteerMeetupPlanCopy.meetSpotLabel, value: note, detail: nil, action: nil,
+                accessibilityLabel: "\(VolunteerMeetupPlanCopy.meetSpotLabel)，\(note)", accessibilityHint: nil
+            ))
+        }
+        if let color = order.runnerTopColor?.spokenName {
+            rows.append(Row(
+                id: "runnerTopColor", label: "跑者上衣", value: color, detail: nil, action: nil,
+                accessibilityLabel: "跑者上衣，\(color)", accessibilityHint: nil
+            ))
+        }
+        if let color = order.volunteerTopColor?.spokenName {
+            rows.append(Row(
+                id: "volunteerTopColor", label: "本人上衣", value: color, detail: nil, action: nil,
+                accessibilityLabel: "本人上衣，\(color)", accessibilityHint: nil
+            ))
+        }
+        return rows
+    }
 
     private static func title(order: OrderDetailResponse, step: VolunteerOrderFlowStep, now: Date) -> String {
         switch step {
