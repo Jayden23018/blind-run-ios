@@ -442,6 +442,10 @@ enum EmergencySafetyCopy {
         "登录已过期，云端求助发不出去，App 不会代你发送求助。请选择要拨打的号码。"
     static let sessionExpiredCallAccessibilityHint =
         "登录已过期。点击后由你选择拨打紧急联系人、120或110，App 不会代你发送求助。"
+    /// 陪跑员版（#381）。只列 120 / 110：陪跑员这里本来就不列联系人（同 `volunteerBeforeRun`）。
+    /// 不再说「登录已过期 / App 不会代你发送求助」：按钮的读屏标签已经说了，而那一句必须留在标签里 ——
+    /// 读屏可以在设置里关掉提示，标签关不掉。
+    static let volunteerSessionExpiredCallAccessibilityHint = "点击后由你选择拨打120或110。"
 
     static let cloudFailedCallDialogMessage =
         "求助没有发出去，App 不会代你发送求助。请选择要拨打的号码。"
@@ -804,6 +808,10 @@ enum EmergencyCallContext {
     case volunteerBeforeRun
     /// 跑者端，跑步中登录已过期（#376，`BlindHomeSOSMode.localCallSessionExpired`）。
     case runnerSessionExpired
+    /// 陪跑员跑步中求助面板，登录已过期（#381，`VolunteerRunEmergencyMode.localCallSessionExpired`）。
+    ///
+    /// 不复用 `volunteerBeforeRun`：「现在不在跑步中」此刻是假的。
+    case volunteerSessionExpired
 
     /// 跑者端求助模式 → 拨号弹窗该用哪一句。**两个入口（「我的」tab 求助条、订单页求助中心）都走这里**，
     /// 此前各写一个三元表达式 `== .cloudTrigger ? .cloudFailed : .homeIdle` —— 加一档模式时
@@ -821,7 +829,8 @@ enum EmergencyCallContext {
         case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallDialogMessage
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallDialogMessage
-        case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallDialogMessage
+        // 这句不提联系人，两端都成立。
+        case .runnerSessionExpired, .volunteerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallDialogMessage
         }
     }
 
@@ -831,11 +840,18 @@ enum EmergencyCallContext {
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallAccessibilityHint
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallAccessibilityHint
         case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallAccessibilityHint
+        case .volunteerSessionExpired: return EmergencySafetyCopy.volunteerSessionExpiredCallAccessibilityHint
         }
     }
 
     /// 「尚未设置唯一的主紧急联系人」那句只对跑者成立 —— 陪跑员这里本来就不列联系人。
-    var appendsNoContactHint: Bool { self != .volunteerBeforeRun }
+    /// 穷举而不是 `!=`：再加一档陪跑员语境时，编译器会逼一次决策。
+    var appendsNoContactHint: Bool {
+        switch self {
+        case .homeIdle, .cloudFailed, .runnerSessionExpired: return true
+        case .volunteerBeforeRun, .volunteerSessionExpired: return false
+        }
+    }
 }
 
 /// 拨号 URL 的唯一构造点。

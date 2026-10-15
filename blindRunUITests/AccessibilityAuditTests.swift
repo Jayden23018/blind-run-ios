@@ -1916,6 +1916,67 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(panel.exists, "取消之后面板还在，什么都没发出")
     }
 
+    /// #381：陪跑员跑到一半凭证过期 → 求助面板底部是本地拨号「紧急呼叫」，不是云端「紧急求助」；
+    /// 轻点弹的是只列 120 / 110 的拨号框，**不是** §6 的云端确认框。
+    /// 拨号在 UI 测试构建里被 `EmergencyDialer` 拦着，这里也只点「取消」。
+    @MainActor
+    func testVolunteerRunHelpPanelOffersLocalCallAfterTheTokenExpiresMidRun() throws {
+        let app = launchVolunteerHome(
+            seedOrderStatus: "IN_PROGRESS",
+            extraEnvironment: ["AIDRUN_UI_TEST_UNAUTHORIZED_AFTER_FIRST_ORDER_DETAIL": "1"]
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
+        )
+        // 第二次轮询（约 5 秒后）拿到 401。
+        let banner = app.descendants(matching: .any)["sessionExpiryDeferralBanner"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), "陪跑员跑步中 401 之后没有进入暂缓")
+        XCTAssertFalse(app.buttons["获取验证码"].exists, "跑步中 401 不许退回登录页")
+
+        app.buttons["volunteerServiceSOSButton"].firstMatch.tap()
+        let panel = app.descendants(matching: .any)["volunteerRunHelpPanel"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 5), "跑步中「求助」没有打开求助面板")
+
+        let localCall = app.descendants(matching: .any)["volunteerRunHelpLocalCall"].firstMatch
+        XCTAssertTrue(localCall.waitForExistence(timeout: 5), "登录过期后面板里没有本地拨号「紧急呼叫」")
+        scrollTo(localCall, in: app)
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerRunHelpEmergency"].firstMatch.exists,
+            "登录过期后面板里还留着云端「紧急求助」—— 按下去只会在确认、等待之后告诉你没发出"
+        )
+        XCTAssertTrue(localCall.label.hasPrefix("紧急呼叫"), localCall.label)
+        XCTAssertTrue(localCall.isHittable, "「紧急呼叫」存在但点不到")
+        XCTAssertGreaterThanOrEqual(localCall.frame.height, 63.5, "「紧急呼叫」触达高度不足 64")
+
+        localCall.tap()
+        let medical = app.buttons["拨打120"].firstMatch
+        XCTAssertTrue(medical.waitForExistence(timeout: 5), "轻点「紧急呼叫」没有弹出本地拨号框")
+        XCTAssertTrue(app.buttons["拨打110"].firstMatch.exists, "拨号框缺 110")
+        XCTAssertFalse(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", Self.lockedConfirmationPrefix)).firstMatch.exists,
+            "弹的是云端求助确认框，不是本地拨号框"
+        )
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "App 不会代你发送求助")).firstMatch.exists,
+            "拨号框必须说清 App 不会代你发送求助"
+        )
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(panel.waitForExistence(timeout: 5), "取消之后面板还在")
+
+        // 「不调云端」的行为证据：云端那条路在暂缓期会落到「求助未发出」并显示在跑步页上。
+        // 只断言拨号框弹出来了的话，按钮同时把 `onEmergency` 也调了，这条照样绿。
+        app.descendants(matching: .any)["volunteerRunHelpDismiss"].firstMatch.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 5),
+            "收起面板后没回到跑步页"
+        )
+        XCTAssertFalse(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "未发出")).firstMatch.exists,
+            "按的是本地拨号，却走了一遍云端求助（页面上出现了「求助未发出」）"
+        )
+    }
+
     /// 长按 2 秒结束陪跑 —— 这一条只量**形状**：读屏取得到、触达够大、标签带着「要按多久」。
     ///
     /// 行为那一半在 `blindRunUITests.testMockVolunteerOrderFlowSmoke` 里走指针路径
