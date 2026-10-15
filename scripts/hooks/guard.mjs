@@ -738,6 +738,36 @@ function main() {
       );
     }
 
+    // 7.5 Markdown 里教人传写死的团队号（2026-10-15，#441）
+    //
+    // 上一条规则要求**脚本**显式传团队号，结果文档也跟着把号抄了进去：项目 CLAUDE.md 写过
+    // 「命令行要传 `DEVELOPMENT_TEAM=<某个号>`」。团队号随人、随机器变（2026-10-03 一天换过团队，
+    // 工程团队又是个人类型账号、成员签不了），2026-10-15 三个并行会话照抄全部报
+    // `No Account for Team`，而常驻的 CLAUDE.md 优先被照做，压过了 skill `aidrun-device-test`
+    // 「不写死任何 id」的说法。第二次以上的同类错误，按 AGENTS.md §1 落成守卫。
+    //
+    // 只管 `.md` 里「NAME=<10 位团队号>」这种可原样粘贴的命令行写法，两个变量名都查：
+    // `DEVELOPMENT_TEAM`（xcodebuild 构建设置）与 `AIDRUN_TEAM`（device-test.sh 的覆盖变量）。
+    // 不拦：脚本里的默认值 `${AIDRUN_TEAM:-…}`（脚本得有默认）、pbxproj 里的 `DEVELOPMENT_TEAM = X;`
+    // （带空格、不是命令行）、报错原文里的 `No Account for Team "X"`、`<团队号>` 之类占位符。
+    // 只看本次写入的内容，所以历史文档里已有的号不会让无关编辑被拦。
+    const TEAM_ID_ARG = /\b(?:DEVELOPMENT_TEAM|AIDRUN_TEAM)=["']?[A-Z0-9]{10}\b/;
+    const hardcodedTeamLine = isDocument
+      ? body
+          .split('\n')
+          .find((l) => TEAM_ID_ARG.test(l) && !l.includes('guard:allow hardcoded-team-id'))
+      : undefined;
+    if (hardcodedTeamLine) {
+      fail(
+        'hardcoded-team-id',
+        `${filePath}\n  ${hardcodedTeamLine.trim().slice(0, 160)}\n\n` +
+          `文档里不要写 \`DEVELOPMENT_TEAM=<具体团队号>\` / \`AIDRUN_TEAM=<具体团队号>\`：团队号随人、随机器变，\n` +
+          `被照抄的下场是 \`No Account for Team\`（2026-10-15 三个会话同时中招，#441）。\n` +
+          `改成指向 skill \`aidrun-device-test\`（第二节有当场查团队的命令），或写占位符 \`<你的团队号>\`。\n` +
+          `确实是在引用一段历史原文，行尾加 \`guard:allow hardcoded-team-id\`。`
+      );
+    }
+
     // 8. UI 测试与 App 的 accessibilityIdentifier 对不上（2026-08-22）
     //
     // 2026-08-14 `30b0770` 把盲人首页装饰地图对读屏隐藏，连同
