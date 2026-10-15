@@ -112,11 +112,44 @@ struct VolunteerBadgeDto: Decodable, Sendable, Equatable, Identifiable {
 /// ≥ 10 条评价），进度条跟的是条数，所以会出现**进度条满格但勋章仍未解锁**
 /// （20 条评价、均分 4.0）。因此这一栏的文案**一律不写「还差 N 就解锁」** ——
 /// 只陈述已完成多少，不承诺达到分母就会解锁。
+///
+/// 满格却没解锁时卡在哪一维，由 `blockedBy` 单独说（#366）。
 struct VolunteerNextBadgeDto: Decodable, Sendable, Equatable {
     let code: String?
     let name: String?
     let current: Int64?
     let target: Int64?
+
+    /// 多条件勋章卡在哪一维（`RATING` / `RATINGS_COUNT`），单条件勋章为 null。
+    ///
+    /// 🔴 **开放枚举，按原始字符串收。** 解成严格的 Swift 枚举的话，后端加一个值就让
+    /// **整份**成就响应解码失败 —— 首屏影响力区、徽章一排、成就页一起空白。
+    /// 契约原话：「遇到不认识的值当 null 处理」。判定只走 `isBlockedByRating`。
+    let blockedBy: String?
+
+    /// 手写 init 只为给 `blockedBy` 一个默认值，既有调用点不用改。
+    init(code: String?, name: String?, current: Int64?, target: Int64?, blockedBy: String? = nil) {
+        self.code = code
+        self.name = name
+        self.current = current
+        self.target = target
+        self.blockedBy = blockedBy
+    }
+
+    /// 卡在评分上：进度条（评价条数）**可能已满格**，勋章却没解锁。
+    ///
+    /// 只认 `RATING`。`RATINGS_COUNT` 与进度条是同一维、进度本身已经在说了，
+    /// 与 null、不认识的值一样按原样显示。
+    ///
+    /// ⚠️ 后端在评分与条数**都不够**时报的是 `RATING`（`VolunteerBadge.blockedBy`），
+    /// 所以这时条数不一定满格 —— 文案只能**补**一句评分，不能把条数换掉。
+    var isBlockedByRating: Bool { blockedBy == "RATING" }
+
+    /// 卡在评分时补的那一句。
+    ///
+    /// 🔴 **不写阈值 4.8**：后端刻意不下发，抄进客户端会一改就漂移。
+    /// **也不写「快解锁了」**：满格的进度条已经在暗示这句话了，正是要纠正的误会。
+    static let ratingShortNote = "评分还差一点"
 
     var displayName: String { name?.nilIfBlank ?? code?.nilIfBlank ?? "下一枚勋章" }
 
@@ -176,11 +209,13 @@ struct VolunteerNextBadgeDto: Decodable, Sendable, Equatable {
     }
 
     /// **不写「还差 N 就解锁」** —— `HIGH_RATED` 满格也可能不解锁。
+    /// 卡在评分时在条数后面补一句（理由见 `isBlockedByRating`）。成就页上屏与读屏都用这一句。
     var progressText: String? {
         guard let unit = progressUnit, let target, target > 0, let current, current >= 0 else {
             return nil
         }
-        return "已完成 \(unit.display(current)) / \(unit.display(target)) \(unit.suffix)"
+        let count = "已完成 \(unit.display(current)) / \(unit.display(target)) \(unit.suffix)"
+        return isBlockedByRating ? "\(count)，\(Self.ratingShortNote)" : count
     }
 }
 

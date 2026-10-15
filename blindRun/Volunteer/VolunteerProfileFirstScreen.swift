@@ -254,11 +254,18 @@ enum VolunteerProfileBadgeRow {
     /// （理由逐字在 `VolunteerNextBadgeDto` 顶部）。
     ///
     /// 未知 `code` 拿不到量词时只给名字，不拼一个猜的分母。
+    ///
+    /// 卡在评分时**换掉**分数（#366）：格子里只有这一行小字，没有进度条 ——
+    /// 「10/10」念起来就是「满了」，而勋章没解锁。条数在读屏那句里照常保留
+    /// （`VolunteerAchievementsCopy.nextBadgeAccessibilityLabel`）。
     static func nextBadgeCaption(_ next: VolunteerNextBadgeDto) -> Caption {
         guard let unit = next.progressUnit,
               let target = next.target, target > 0,
               let current = next.current, current >= 0 else {
             return caption(name: next.displayName)
+        }
+        if next.isBlockedByRating {
+            return caption(name: next.displayName, progress: VolunteerNextBadgeDto.ratingShortNote)
         }
         return caption(name: next.displayName, progress: "\(unit.display(current))/\(unit.display(target))")
     }

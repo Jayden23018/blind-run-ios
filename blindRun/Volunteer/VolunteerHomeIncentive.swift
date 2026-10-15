@@ -80,7 +80,10 @@ struct VolunteerHomeIncentiveSummary: Equatable {
             return .partners(count: favoritedByCount)
         }
         // 未知 `code` 的勋章拿不到量词，契约要求整块进度隐藏 —— 那就更不能拿它当主角。
+        // 卡在评分时也不当主角：主角只有一个大分数，满格的「10 / 10」正是要纠正的误会；
+        // 让给下面那一行，那一行会补「评分还差一点」（#366）。
         if let nextBadge,
+           !nextBadge.isBlockedByRating,
            let unit = nextBadge.progressUnit,
            let target = nextBadge.target, target > 0,
            let current = nextBadge.current, current >= 0 {
