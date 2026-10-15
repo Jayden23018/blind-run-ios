@@ -377,6 +377,52 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(hubPill.waitForExistence(timeout: 20), "同意后没有开启并进入接单主页")
     }
 
+    /// 同行态的根部同意页（#414）：已约好的单在出发态、本机没有志愿者位置轨迹同意 ⇒ 同意页盖住整个界面，
+    /// 背后订单页的主按钮不在读屏树里；拒绝 ⇒ 根视图横幅说清「没有共享位置」。
+    ///
+    /// `AIDRUN_UI_TEST_MOCK_ESCORT_SESSION`：Mock 没有 WebSocket，不开它同行会话根本不跑（#368 时这条红在这里）。
+    /// 同一条也守着「系统授权框不早于告知」：冷启动进订单页的路上任何一处无闸的 `requestPermission()`
+    /// 都会撞上 `LocationService.trackConsentPreconditionForDebug` 的断言，App 当场崩掉。
+    @MainActor
+    func testVolunteerEscortStateCoversScreenWithTrackConsentAndDeclineShowsBanner() {
+        // `available: false`：接单开关开着时，「服务端说还在接单、本机没有同意」会另弹一张同目的、同 identifier 的
+        // 同意页（`requestTrackConsentIfStandbyResumesWithoutIt`），两张叠着，拒绝一张另一张还在 —— 测的就不是根部这张了。
+        let app = launchVolunteerHome(
+            seedOrderStatus: "DRIVER_EN_ROUTE",
+            available: false,
+            extraEnvironment: [
+                "AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1",
+                "AIDRUN_UI_TEST_MOCK_ESCORT_SESSION": "1",
+            ]
+        )
+        let consent = app.descendants(matching: .any)["volunteerLocationTrackConsentView"].firstMatch
+        XCTAssertTrue(
+            consent.waitForExistence(timeout: 25),
+            "进入出发态时没有盖上位置轨迹同意页（App 状态 \(app.state.rawValue)；1 = 没在运行，多半是某处无闸的 requestPermission() 撞上了调试断言）"
+        )
+        XCTAssertEqual(app.state, .runningForeground,
+                       "App 不在前台 —— 多半是同意页之前调了 requestPermission()，撞上了调试断言")
+        // 等满一段而不是只看一眼：同意页常在根路由还在「正在恢复账号资料」时就盖上来，订单页是之后才加载的。
+        // 只看一眼会在订单页出现之前就判过（2026-10-15 真机首跑正是这样：随后订单页整棵回到了读屏树里）。
+        let primary = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        XCTAssertFalse(primary.waitForExistence(timeout: 8), "同意页盖着时背后订单页的主按钮出现在读屏树里")
+
+        // 两个按钮在长文案下面、屏幕之外，`tap()` 不会替这一页滚动（首跑点空了）。
+        let decline = app.buttons["volunteerLocationTrackConsentDeclineButton"].firstMatch
+        XCTAssertTrue(decline.exists)
+        for _ in 0..<6 where !decline.isHittable { consent.swipeUp() }
+        XCTAssertTrue(decline.isHittable, "滚到底了「先不同意」仍点不到")
+        decline.tap()
+
+        let banner = app.descendants(matching: .any)["liveEscortHealthBanner"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), "拒绝后根视图没有出现同行位置横幅")
+        XCTAssertTrue(banner.label.contains("没有共享位置"), "横幅说的不是拒绝的后果：\(banner.label)")
+        XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
+        // 反向钉住上面那条 `exists == false`：主按钮本来就在这一页上，不是因为页面没加载出来才找不到。
+        XCTAssertTrue(primary.waitForExistence(timeout: 10), "拒绝后订单页的主按钮没有回到读屏树里")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     // MARK: - 静态审计抓不到的语义要求
 
     /// `AGENTS.md`：盲人端关键主按钮高度 ≥ 64pt。

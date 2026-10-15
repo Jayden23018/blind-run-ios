@@ -271,6 +271,15 @@ final class LocationService: NSObject, ObservableObject {
     private var isUsingUITestDemoLocation: Bool {
         ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] == "1"
     }
+
+    /// 「系统定位授权框不早于位置轨迹同意」（#368）的调试期断言（#414）。由根视图装配成
+    /// 「当前角色在本机有没有位置轨迹同意」；`requestPermission()` 在它答 false 时直接崩。
+    ///
+    /// 断言排在演示定位的早退**之前**：UI 用例都强制演示定位，`requestPermission()` 在那种构建里
+    /// 什么都不做，于是重新加回一行无闸的调用不会让任何用例变红。专测同意页的用例
+    /// （`AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT=1`）会走到这里，App 崩掉 = 用例红。
+    /// 其余 UI 用例跳过同意，这里恒为 true，不受影响。只在 DEBUG 里装，不改发布包的行为。
+    var trackConsentPreconditionForDebug: (() -> Bool)?
     #endif
 
     // MARK: - Init
@@ -308,6 +317,9 @@ final class LocationService: NSObject, ObservableObject {
     /// 请求定位权限（仅在用户尚未决定时有效）
     func requestPermission() {
         #if DEBUG
+        if let precondition = trackConsentPreconditionForDebug, !precondition() {
+            assertionFailure("系统定位授权框早于位置轨迹同意：这一处 requestPermission() 前要先判 hasLocationTrackConsent（#368）")
+        }
         guard !isUsingUITestDemoLocation else { return }
         #endif
         guard isNotDetermined else { return }

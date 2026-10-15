@@ -91,6 +91,14 @@ struct blindRunApp: App {
                 .background(KeyboardDismissTapInstaller().allowsHitTesting(false))
                 .preferredColorScheme(Self.uiTestColorScheme)
                 .onAppear {
+                    #if DEBUG
+                    // #414：授权框不早于位置轨迹同意。拿不到角色时不判（那时没有任何一页会请求定位）。
+                    locationService.trackConsentPreconditionForDebug = { [weak appState] in
+                        guard let appState,
+                              let purpose = PrivacyConsentPurpose.locationTrack(for: appState.activeRole) else { return true }
+                        return appState.hasLocationTrackConsent(purpose)
+                    }
+                    #endif
                     #if DEBUG || DEMO
                     applyUITestLaunchConfigurationIfNeeded()
                     injectUITestRealtimeNotificationsIfNeeded()
