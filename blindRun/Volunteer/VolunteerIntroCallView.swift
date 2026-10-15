@@ -55,11 +55,17 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     /// 成单后交给 `VolunteerInServiceView` 的首帧订单。成单那一刻 `order.volunteer` 才被写上，
     /// 也正是从那一刻起志愿者才读得到订单详情。
     @Published private(set) var matchedOrder: OrderDetailResponse?
+    /// 「跑者王*正在来电」显示到几点（收到 `INTRO_CALL_INCOMING` 的发出时刻 + 2 分钟）。
+    @Published private(set) var incomingCallUntil: Date?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
     private var orderId: Int64?
+    /// 剩 5 分钟 / 1 分钟各播一次。轮询再多也不重复（去重逻辑在 #440 的 `IntroCallCountdownAnnouncer`）。
+    private var countdownAnnouncer = IntroCallCountdownAnnouncer()
+    /// 上一条来电提醒的发出时刻。重连补读会把同一条再投一次，同一条不重播。
+    private var lastIncomingSentAt: Date?
 
     /// 与盲人订单页同一个 5 秒兜底：这一页的状态由**对方**的动作驱动，
     /// 而 WebSocket 只保证「大概率到」。
@@ -90,11 +96,17 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         pollingTask = nil
     }
 
-    private func load() async {
+    /// 拉一次通话数据。轮询用它，用例也直接调它（不必等 5 秒一轮）。
+    func refresh(now: Date = Date()) async {
+        await load(now: now)
+    }
+
+    private func load(now: Date = Date()) async {
         guard let orderId, let appState else { return }
         do {
             introCall = try await appState.safety.introCall(orderId: orderId)
             clearLoadFailure()
+            announceCountdownIfDue(now: now)
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
             guard Self.endsTheRound(error) else {
@@ -106,6 +118,44 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         } catch {
             noteLoadFailure()
         }
+    }
+
+    // MARK: 子状态
+
+    /// V1 等来电 / V3 等跑者确认。
+    ///
+    /// 🚩 **服务端说有安排单就是 V3，哪怕这一版读不懂**（`hasUnreadablePlan`）：退回 V1 会让陪跑员以为
+    /// 自己还没提交、再提交一版 —— 而每提交一版跑者之前的确认就作废一次。
+    var step: IntroCallVolunteerStep {
+        introCall?.plan != nil ? .awaitingRunnerConfirmation : IntroCallVolunteerStep.resolve(plan: introCall?.meetupPlan)
+    }
+
+    /// 「跑者王*正在来电」那 2 分钟。
+    func isShowingIncomingCall(now: Date) -> Bool {
+        guard outcome == .active, let incomingCallUntil else { return false }
+        return incomingCallUntil > now
+    }
+
+    // MARK: 倒计时
+
+    /// 剩 5 分钟 / 1 分钟各主动播一次（视觉稿时间线第 7 行，陪跑员端只报剩余时间）。平时静默。
+    func announceCountdownIfDue(now: Date = Date()) {
+        guard outcome == .active,
+              let endsAt = introCall?.windowEndsAt?.nilIfBlank?.backendTimestamp,
+              countdownAnnouncer.nodeToAnnounce(windowEndsAt: endsAt, now: now) != nil else { return }
+        speechService?.speak(IntroCallMeetupCopy.countdownAnnouncement(windowEndsAt: endsAt, now: now, isReviewingPlan: false))
+    }
+
+    // MARK: 跑者正在来电（V1′）
+
+    /// 收到 `INTRO_CALL_INCOMING`。`sentAt` 是后端发出的时刻：重连补读来的旧提醒若已过 2 分钟，不显示也不播。
+    func noteIncomingCall(sentAt: Date, now: Date = Date()) {
+        // 发出时刻晚于本机「现在」（两端时钟偏差）按现在算，免得「正在来电」挂得比 2 分钟还久。
+        let until = min(sentAt, now).addingTimeInterval(IntroCallCopy.incomingCallDisplaySeconds)
+        guard outcome == .active, until > now, sentAt != lastIncomingSentAt else { return }
+        lastIncomingSentAt = sentAt
+        incomingCallUntil = until
+        speechService?.speak(IntroCallCopy.volunteerIncomingCallAnnouncement(counterpartName: introCall?.counterpartName))
     }
 
     /// 服务端明说「这一轮结束了」的回答。契约 `GET /api/orders/{id}/intro-call` 只列了两种：
@@ -148,10 +198,11 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     /// 这不是取巧，是这个契约下唯一存在的判据：通话端点刻意不回对方的表态。
     private func resolveFinishedRound(orderId: Int64, appState: AppState) async {
         introCall = nil
+        incomingCallUntil = nil
         if let order = try? await appState.safety.matchedOrder(orderId: orderId) {
             matchedOrder = order
             outcome = .matched
-            speechService?.speak(IntroCallCopy.volunteerMatched)
+            speechService?.speak(IntroCallCopy.volunteerMatchedAnnouncement(order: order))
         } else {
             outcome = .closed
             speechService?.speak(IntroCallCopy.volunteerRoundClosed)
@@ -159,7 +210,44 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         stopPolling()
     }
 
-    /// 「合适，接这一单」/「不合适」。
+    // MARK: 提交见面安排（V2）
+
+    /// `PUT /intro-call/plan`。**提交本身就是陪跑员的「合适」**（契约），所以这一侧不再发 `decision=ACCEPT`。
+    ///
+    /// 成功后就地把这一版挂到 `introCall.plan` 上 —— 页面立刻切到 V3，不等下一轮轮询（5 秒的空档里
+    /// 陪跑员会以为没交上去、再点一次）。
+    func submitPlan(_ request: IntroCallPlanRequest, distanceFromOriginal: Double?) async -> VolunteerMeetupPlanSubmitOutcome {
+        guard let orderId, let appState else { return .roundEnded }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            let stored = try await appState.safety.submitIntroCallPlan(orderId: orderId, plan: request)
+            if var current = introCall {
+                current.plan = stored
+                introCall = current
+            }
+            clearLoadFailure()
+            speechService?.speak(IntroCallCopy.volunteerPlanSubmittedAnnouncement)
+            return .submitted
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return .roundEnded }
+            if Self.endsTheRound(error) {
+                await resolveFinishedRound(orderId: orderId, appState: appState)
+                return .roundEnded
+            }
+            let mapped = VolunteerMeetupPlanSubmitError.make(for: error, distanceFromOriginal: distanceFromOriginal)
+            speechService?.speakError(mapped.message)
+            return .failed(mapped)
+        } catch {
+            let mapped = VolunteerMeetupPlanSubmitError.make(for: error, distanceFromOriginal: distanceFromOriginal)
+            speechService?.speakError(mapped.message)
+            return .failed(mapped)
+        }
+    }
+
+    // MARK: 退出
+
+    /// 「不合适」。
     ///
     /// ⚠️ 请求体**没有 reason 字段**，这是后端刻意的：要求填理由等于要求当面说「不」。
     func submit(_ decision: IntroCallDecision) async {
@@ -168,7 +256,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         }
     }
 
-    /// 「一直没接到电话」。
+    /// 「未接到来电」。
     ///
     /// 🚩 **与「不合适」是两个端点，不能合并。** 后端的统计口径相反：这条只增
     /// dispatched + timeout，不动 declined —— 他并没有拒绝任何人，而 `acceptanceRate`
@@ -188,8 +276,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         do {
             try await call(appState.safety, orderId)
             isSubmitting = false
-            // 表态之后本轮的落点由**对方**决定（我说合适 ≠ 成单）。让下一次轮询把结果带回来，
-            // 不在本地假设任何结论。
+            // 表态之后本轮的落点由服务端宣布。让下一次轮询把结果带回来，不在本地假设任何结论。
             await load()
         } catch let error as APIError {
             isSubmitting = false
@@ -210,35 +297,37 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     }
 }
 
-/// 志愿者侧通话磨合页。**一次给全三个动作**，不分阶段。
-///
-/// 与盲人侧的两阶段不对称是刻意的：盲人那边阶段 A 唯一该做的事是拨号，多摆两个结果按钮
-/// 只会让读屏用户先滑过两个此刻按不得的东西；志愿者这边不拨号（他在等来电），
-/// 三个动作从一开始就都可能是对的。
-///
-/// 🚩 **「一直没接到电话」只在这一侧。** 对盲人来说「聊完不合适」和「没打通」结果完全一样
-/// （换一位），分成两个按钮只是多一次读屏滑动；而后端确实要区分这两种口径 ——
-/// 那就由这一侧提供，不让盲人替系统的统计需求多按一个键。
+/// 志愿者侧通话磨合页。
 ///
 /// 数据来源是**派单载荷 + 通话端点**，不是订单详情：通话期 `order.volunteer` 恒为 null，
 /// `GET /api/orders/{id}` 会 403（见 `VolunteerHomeViewModel.pendingIntroCallOrder`）。
 ///
-/// 🔄 2026-10-13 按订单页同一套样式重做（定稿 v6，负责人：通话页与其余页面割裂）：
-/// 订单页的导航栏（左返回、右求助胶囊）+ 彩色头卡（等来电紫、已说合适梅红）+ 进度绳 + 同一条底栏。
-/// 两张结局页一并去掉（负责人：「这一单是你的了」「这一单已经安排好了」不要）——
-/// 成单时**这一页原地变成订单页**（约好那一屏），没成时自己关掉回首页、由语音说一句。
+/// 🔄 2026-10-15 按见面安排单视觉稿 v2 重做（`docs/ui/mockups/intro-call-meetup-plan-20261015/`，#433）：
+/// - V1 等来电：主按钮「填写见面安排」（v6 是「合适，接这一单」）；次「不合适」；文字「未接到来电」
+/// - V1′ 跑者正在来电：收到 `INTRO_CALL_INCOMING` 后 2 分钟，标题换句话、播一次
+/// - V2 填写见面安排：`VolunteerMeetupPlanFormView`（表单页）
+/// - V3 等跑者确认：安排摘要；「修改见面安排」（先提示需跑者重新确认）；文字「不合适」。**不显示跑者听没听、同不同意**
+/// - V4 约好：原地变成订单页「约好」（新增见面位置与两人上衣，见 `VolunteerOrderFlowPresentation.meetupRows`）
+/// - V4′ 没约成：「本次沟通已结束」+「返回首页」，**不自动跳转**（v6 停 3 秒自动关页，会截断播报）
+/// 头卡整步沿用匹配钢蓝 `stateMatching`，去掉 v6 的通话前紫与通话后梅红；子状态靠那句话与绳子上的图标区分。
 struct VolunteerIntroCallView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerIntroCallViewModel()
     /// 求助胶囊按下去：这一态不是 `IN_PROGRESS`，一律本地拨号（`VolunteerOrderSOSMode`）。
     @State private var showsLocalHelp = false
+    @State private var showsPlanForm = false
+    @State private var showsEditConfirm = false
 
     let route: VolunteerIntroCallRoute
 
     /// 派单载荷。冷启动恢复路径上是 nil —— 那两块信息没有数据源，见 `VolunteerIntroCallRoute`。
     private var dispatchOrder: WSNewOrder? { route.dispatchOrder }
+
+    /// 倒计时胶囊与「正在来电」两分钟的刷新粒度。只换屏幕上的字，播报由 view model 在轮询里判。
+    private static let clockTick: TimeInterval = 15
 
     var body: some View {
         Group {
@@ -263,25 +352,23 @@ struct VolunteerIntroCallView: View {
                 speechService: speechService
             )
             viewModel.startPolling()
+            appState.realtimeCoordinator.introCallPageDidAppear()
         }
         .onDisappear {
             viewModel.stopPolling()
+            appState.realtimeCoordinator.introCallPageDidDisappear()
         }
-        // 没成：头卡上停 3 秒那句中性的话（view model 在落定那一刻已经播了），然后自己关掉回首页。
-        // 不是一整屏结局页（负责人不要），但也**不能一闪就没**：静音的陪跑员只看得到页面消失、
-        // 不知道为什么；而且首页一出现若自己也念东西，会把那句话切断（记忆 `later-speak-silently-cuts-the-earlier-one`）。
-        .task(id: viewModel.outcome) {
-            guard viewModel.outcome == .closed else { return }
-            try? await Task.sleep(nanoseconds: Self.closedNoticeNanoseconds)
-            guard !Task.isCancelled else { return }
-            dismiss()
+        .onReceive(appState.realtimeCoordinator.introCallIncomingPublisher) { sentAt in
+            viewModel.noteIncomingCall(sentAt: sentAt)
+        }
+        .onChange(of: viewModel.outcome) { outcome in
+            // 表单开着时这一轮结束了：没有可改的了，收起表单让人看到结局。
+            if outcome != .active { showsPlanForm = false }
         }
     }
 
-    /// 没约成那句话在头卡上停多久再回首页。够念完一句十几个字的话。
-    static let closedNoticeNanoseconds: UInt64 = 3_000_000_000
-
     private var isClosed: Bool { viewModel.outcome == .closed }
+    private var isAwaitingConfirmation: Bool { !isClosed && viewModel.step == .awaitingRunnerConfirmation }
 
     private var callPage: some View {
         VStack(spacing: 0) {
@@ -293,14 +380,20 @@ struct VolunteerIntroCallView: View {
             .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
             ScrollView {
                 VStack(spacing: FlowMetrics.v2SectionGap) {
-                    heroCard
-                    // 复用接单后那块「本单为视障跑者」提示位，不新建组件。
-                    // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走
-                    // `disclosesBlindRunnerNotesToVolunteer` 闸，通话发生在接单之前。
-                    // 恢复路径上是空数组，该组件对空数组本来就什么都不渲染。
-                    VolunteerRunnerNeedsBanner(needs: dispatchOrder?.escortNeeds ?? [])
-                    paceCard
-                    if let errorMessage = viewModel.errorMessage {
+                    TimelineView(.periodic(from: Date(), by: Self.clockTick)) { context in
+                        heroCard(now: context.date)
+                    }
+                    if isAwaitingConfirmation {
+                        planSummaryCard
+                    } else if !isClosed {
+                        // 复用接单后那块「本单为视障跑者」提示位，不新建组件。
+                        // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走
+                        // `disclosesBlindRunnerNotesToVolunteer` 闸，通话发生在接单之前。
+                        // 恢复路径上是空数组，该组件对空数组本来就什么都不渲染。
+                        VolunteerRunnerNeedsBanner(needs: dispatchOrder?.escortNeeds ?? [])
+                        paceCard
+                    }
+                    if let errorMessage = viewModel.errorMessage, !isClosed {
                         Text(errorMessage)
                             .flowFont(FlowV2Fonts.callout(bold: true))
                             .foregroundColor(AppColors.destructive)
@@ -318,26 +411,38 @@ struct VolunteerIntroCallView: View {
         .background(AppColors.Flow.page.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomActions }
         .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
+        .alert(IntroCallCopy.volunteerEditPlanConfirmTitle, isPresented: $showsEditConfirm) {
+            Button("取消", role: .cancel) {}
+            Button(IntroCallCopy.volunteerEditPlanConfirmButton) { showsPlanForm = true }
+        }
+        .sheet(isPresented: $showsPlanForm) {
+            planForm
+        }
+    }
+
+    @ViewBuilder
+    private var planForm: some View {
+        if let introCall = viewModel.introCall {
+            VolunteerMeetupPlanFormView(
+                original: introCall.originalArrangement,
+                editing: introCall.meetupPlan,
+                windowEndsAt: introCall.windowEndsAt?.nilIfBlank?.backendTimestamp
+            ) { request, distance in
+                await viewModel.submitPlan(request, distanceFromOriginal: distance)
+            }
+            .environmentObject(amapGeocodingService)
+        }
     }
 
     // MARK: 头卡
 
-    /// 已经说了「合适」，在等对方。**只看自己的表态**，对方的拿不到也不该拿到。
-    private var isWaiting: Bool {
-        viewModel.introCall?.isWaitingForCounterpart == true
+    private var runnerName: String? {
+        viewModel.introCall?.counterpartName?.nilIfBlank
     }
 
-    /// 等来电紫，已说合适梅红（定稿 v6，与盲人端同一套）。
-    private var heroColor: Color {
-        isWaiting || isClosed ? AppColors.Flow.stateCalled : AppColors.Flow.stateCalling
-    }
-
-    private var runnerName: String {
-        viewModel.introCall?.counterpartDisplayName(fallback: "跑者") ?? "跑者"
-    }
-
-    private var heroCard: some View {
-        FlowHeroCard(style: .tinted(heroColor)) {
+    private func heroCard(now: Date) -> some View {
+        let incoming = viewModel.isShowingIncomingCall(now: now)
+        return FlowHeroCard(style: .tinted(AppColors.Flow.stateMatching)) {
             if let eyebrow {
                 Text(eyebrow)
                     .flowFont(FlowV2Fonts.subhead(bold: true))
@@ -346,16 +451,24 @@ struct VolunteerIntroCallView: View {
                     .accessibilityHidden(true)
             }
             RopeView(
-                state: .introCall(isWaiting ? .decided : (isClosed ? .afterCall : .beforeCall)),
-                theme: .onHero(heroColor),
-                runnerName: viewModel.introCall?.counterpartName
+                state: .introCall(ropeStage),
+                theme: .onHero(AppColors.Flow.stateMatching),
+                runnerName: runnerName
             )
-            heroBody
+            heroBody(incoming: incoming)
+            heroPill(now: now, incoming: incoming)
         }
     }
 
-    private var heroBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var ropeStage: IntroCallRopeStage {
+        if isClosed { return .ended }
+        return isAwaitingConfirmation ? .planSubmitted : .beforeCall
+    }
+
+    private func heroBody(incoming: Bool) -> some View {
+        let title = title(incoming: incoming)
+        let lines = lines(incoming: incoming)
+        return VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .flowFont(FlowV2Fonts.title())
                 .foregroundColor(AppColors.Flow.onHeroStrong)
@@ -366,51 +479,134 @@ struct VolunteerIntroCallView: View {
                     .foregroundColor(AppColors.Flow.onHeroBody)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let windowEnds = IntroCallCopy.volunteerWindowEndsText(windowEndsAt: viewModel.introCall?.windowEndsAt) {
-                FlowHeroPill(text: windowEnds, systemImage: "clock")
-                    .padding(.top, 4)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(heroAccessibilityLabel)
+        .accessibilityLabel(
+            ([eyebrow?.replacingOccurrences(of: " · ", with: "，"), title.unmaskedForSpeech] + lines.map(Optional.some))
+                .compactMap { $0?.nilIfBlank }
+                .joined(separator: "，")
+        )
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("volunteerIntroCallHeader")
     }
 
-    private var title: String {
-        if isClosed { return IntroCallCopy.volunteerRoundClosed }
-        if isWaiting { return IntroCallCopy.waitingForCounterpart }
+    /// 倒计时胶囊。**单独一个读屏元素、常驻**（来电提醒期间也在，只是上面多一枚来电胶囊），
+    /// 按分钟静默更新（`updatesFrequently`），只在剩 5 / 1 分钟时由 view model 主动播。
+    /// 并进头卡标签会让整段标题每 15 秒被重念一遍。
+    @ViewBuilder
+    private func heroPill(now: Date, incoming: Bool) -> some View {
+        if !isClosed {
+            VStack(alignment: .leading, spacing: 8) {
+                if incoming {
+                    HStack { FlowHeroPill(text: IntroCallCopy.volunteerIncomingCallPill, systemImage: "phone.fill") }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(IntroCallCopy.volunteerIncomingCallPill.replacingOccurrences(of: " · ", with: "，"))
+                        .accessibilityIdentifier("volunteerIntroCallIncomingPill")
+                }
+                countdownPill(now: now)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func countdownPill(now: Date) -> some View {
+        if let text = IntroCallCopy.volunteerWindowPillText(
+            windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
+        ) {
+            HStack { FlowHeroPill(text: text, systemImage: "clock") }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(IntroCallCopy.volunteerWindowPillAccessibilityLabel(
+                    windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
+                ) ?? text)
+                .accessibilityAddTraits(.updatesFrequently)
+                .accessibilityIdentifier("volunteerIntroCallCountdown")
+        }
+    }
+
+    private func title(incoming: Bool) -> String {
+        if isClosed { return IntroCallCopy.volunteerRoundClosedTitle }
         // 还在拉：整屏不许空白（理由同盲人侧 `blindLoadingNotice`）。
         if viewModel.introCall == nil, viewModel.errorMessage == nil { return IntroCallCopy.volunteerLoadingNotice }
+        // V3 时跑者又打来（他点了「有异议，致电沟通」）：同样换成来电那句 —— 不告诉陪跑员「跑者不同意」。
+        if incoming { return IntroCallCopy.volunteerIncomingCallTitle(counterpartName: runnerName) }
+        if isAwaitingConfirmation { return IntroCallCopy.volunteerAwaitingConfirmationTitle(counterpartName: runnerName) }
         return IntroCallCopy.volunteerWaitingForCallTitle(counterpartName: runnerName)
     }
 
     /// 🚨 掩码号只用来**认人**，这一页刻意**没有**拨号按钮：号码在这一侧是单向的，
     /// 后端恒不下发志愿者能拨通的明文号（`IntroCallView.counterpartPhoneMasked` 的注释）。
     /// 把 `138****1234` 拼进 `tel:` 会拼成一个七位的、可能真打给别人的号码。
-    private var lines: [String] {
-        if isClosed { return [] }
-        if isWaiting { return [IntroCallCopy.blindAfterCallSubtitle] }
-        guard let masked = viewModel.introCall?.counterpartPhoneMasked?.nilIfBlank else { return [] }
+    private func lines(incoming: Bool) -> [String] {
+        if isClosed { return [IntroCallCopy.volunteerRoundClosedSubtitle] }
+        let masked = viewModel.introCall?.counterpartPhoneMasked?.nilIfBlank
+        if incoming, let masked { return [IntroCallCopy.volunteerIncomingCallNumberLine(masked: masked)] }
+        if isAwaitingConfirmation { return [IntroCallCopy.volunteerAwaitingConfirmationSubtitle] }
+        guard let masked else { return [] }
         return [IntroCallCopy.volunteerIncomingNumberLine(masked: masked)]
     }
 
     /// 出发地与时间**优先取派单载荷，取不到回落 `IntroCallView`**（两个来源同源，契约逐字）。
     /// 距离**没有回落** —— `IntroCallView` 里没有它，而编一个比空着更糟。
+    ///
+    /// V3 改成安排单里的生效时间与地点（视觉稿「明天 7:30 · 朝阳公园东门」），并且**不再带距离**：
+    /// 派单载荷的距离量的是原集合点，地点改了之后那个数字就不对了。
     private var eyebrow: String? {
-        IntroCallCopy.eyebrow(
+        if isAwaitingConfirmation, let summary = planSummary {
+            return IntroCallCopy.eyebrow(
+                plannedStart: summary.start.map(DateFormatter.aidRunBackendLocalDateTime.string(from:)),
+                address: summary.address
+            )
+        }
+        return IntroCallCopy.eyebrow(
             plannedStart: dispatchOrder?.plannedStart?.nilIfBlank ?? viewModel.introCall?.plannedStartTime,
             address: dispatchOrder?.startAddress?.nilIfBlank ?? viewModel.introCall?.startAddress,
             distanceKm: dispatchOrder?.distanceKm
         )
     }
 
-    private var heroAccessibilityLabel: String {
-        let windowEnds = IntroCallCopy.volunteerWindowEndsText(windowEndsAt: viewModel.introCall?.windowEndsAt)
-        return ([eyebrow?.replacingOccurrences(of: " · ", with: "，"), title.unmaskedForSpeech] + lines.map(Optional.some) + [windowEnds])
-            .compactMap { $0?.nilIfBlank }
-            .joined(separator: "，")
+    // MARK: V3 安排摘要
+
+    private var planSummary: VolunteerMeetupPlanSummary? {
+        guard let introCall = viewModel.introCall, let plan = introCall.meetupPlan else { return nil }
+        return VolunteerMeetupPlanSummary.make(plan: plan, original: introCall.originalArrangement)
+    }
+
+    /// 改过的项标「已变更」（浅蓝小标签，不用删除线 —— 读屏念不出删除线）。
+    /// 这一版读不懂（`hasUnreadablePlan`）时不画：读坏的时间会被当成「按原约」，摘要会说错。
+    @ViewBuilder
+    private var planSummaryCard: some View {
+        if let summary = planSummary, !summary.rows.isEmpty {
+            FlowCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(summary.rows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { FlowSeparator() }
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Text(row.label)
+                                    .flowFont(FlowV2Fonts.subhead())
+                                    .foregroundColor(AppColors.Flow.secondaryText)
+                                if row.isChanged {
+                                    FlowTag(text: VolunteerMeetupPlanCopy.changedTag)
+                                }
+                            }
+                            Text(row.value)
+                                .flowFont(FlowV2Fonts.headline())
+                                .foregroundColor(AppColors.Flow.primaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 14)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(row.accessibilityLabel)
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("volunteerIntroCallPlanSummary")
+        }
     }
 
     /// 配速。只在派单载荷里有（恢复路径上没有就不画，**不摆「暂无」占位**）。
@@ -435,55 +631,91 @@ struct VolunteerIntroCallView: View {
 
     @ViewBuilder
     private var bottomActions: some View {
-        // 没约成那 3 秒里一个按钮都不给：这一单已经不是他的了，任何一枚都按不出结果。
-        if !isClosed {
-            activeBottomActions
+        if isClosed {
+            // V4′：留在这一页，等陪跑员自己点（v6 停 3 秒自动关页，会截断那句播报）。
+            OrderFlowBottomActions(
+                owner: .volunteer,
+                primary: OrderFlowPrimaryAction(title: IntroCallCopy.volunteerBackHomeButtonTitle) { dismiss() },
+                safetyHub: nil
+            )
+        } else if isAwaitingConfirmation {
+            // V3：此刻没有该他做的主动作 —— 不放黄色主按钮。
+            OrderFlowBottomActions(
+                owner: .volunteer,
+                primary: nil,
+                secondary: AnyView(awaitingConfirmationButtons),
+                safetyHub: nil
+            )
+        } else {
+            OrderFlowBottomActions(
+                owner: .volunteer,
+                primary: OrderFlowPrimaryAction(
+                    title: IntroCallCopy.volunteerFillPlanButtonTitle,
+                    isLoading: viewModel.isSubmitting,
+                    isEnabled: !viewModel.isSubmitting && viewModel.introCall != nil,
+                    accessibilityHint: IntroCallCopy.volunteerFillPlanAccessibilityHint
+                ) {
+                    showsPlanForm = true
+                },
+                secondary: AnyView(awaitingCallButtons),
+                safetyHub: nil
+            )
         }
     }
 
-    private var activeBottomActions: some View {
-        OrderFlowBottomActions(
-            owner: .volunteer,
-            primary: isWaiting ? nil : OrderFlowPrimaryAction(
-                title: IntroCallCopy.volunteerAcceptButtonTitle,
-                isLoading: viewModel.isSubmitting,
-                isEnabled: !viewModel.isSubmitting,
-                accessibilityHint: "双方都说合适才算接单"
-            ) {
-                Task { await viewModel.submit(.accept) }
-            },
-            secondary: AnyView(secondaryButtons),
-            safetyHub: nil
-        )
-    }
-
-    /// 「不合适」与「一直没接到电话」。
+    /// V1：「不合适」与「未接到来电」。
     ///
     /// 🚩 **两个端点，不能合并**（`reportUnreachable` 的注释：统计口径相反）。
-    /// 已经说了合适之后只留「不合适」—— 说合适意味着电话打通了，「没接到电话」此刻不成立。
     @ViewBuilder
-    private var secondaryButtons: some View {
+    private var awaitingCallButtons: some View {
+        VStack(spacing: FlowMetrics.actionButtonSpacing) {
+            declineButton(style: .ghost)
+            FlowTextButton(
+                title: IntroCallCopy.volunteerUnreachableButtonTitle,
+                accessibilityHint: IntroCallCopy.volunteerUnreachableAccessibilityHint
+            ) {
+                Task { await viewModel.reportUnreachable() }
+            }
+            .disabled(viewModel.isSubmitting)
+            .accessibilityIdentifier("volunteerIntroCallUnreachableButton")
+        }
+    }
+
+    /// V3：「修改见面安排」（先提示需跑者重新确认）与文字「不合适」。
+    /// 已经提交过安排单 = 电话打通了，「未接到来电」此刻不成立，不给。
+    @ViewBuilder
+    private var awaitingConfirmationButtons: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
             FlowActionButton(
-                IntroCallCopy.volunteerDeclineButtonTitle,
-                style: .ghost,
+                IntroCallCopy.volunteerEditPlanButtonTitle,
+                style: .outlined,
                 isEnabled: !viewModel.isSubmitting,
+                accessibilityHint: IntroCallCopy.volunteerEditPlanConfirmTitle
+            ) {
+                showsEditConfirm = true
+            }
+            .accessibilityIdentifier("volunteerIntroCallEditPlanButton")
+
+            FlowTextButton(
+                title: IntroCallCopy.volunteerDeclineButtonTitle,
                 accessibilityHint: "结束这次通话确认，系统会把这一单派给下一位"
             ) {
                 Task { await viewModel.submit(.decline) }
             }
+            .disabled(viewModel.isSubmitting)
             .accessibilityIdentifier("volunteerIntroCallDeclineButton")
-
-            if !isWaiting {
-                FlowTextButton(
-                    title: IntroCallCopy.volunteerUnreachableButtonTitle,
-                    accessibilityHint: IntroCallCopy.volunteerUnreachableAccessibilityHint
-                ) {
-                    Task { await viewModel.reportUnreachable() }
-                }
-                .disabled(viewModel.isSubmitting)
-                .accessibilityIdentifier("volunteerIntroCallUnreachableButton")
-            }
         }
+    }
+
+    private func declineButton(style: FlowActionButton.Style) -> some View {
+        FlowActionButton(
+            IntroCallCopy.volunteerDeclineButtonTitle,
+            style: style,
+            isEnabled: !viewModel.isSubmitting,
+            accessibilityHint: "结束这次通话确认，系统会把这一单派给下一位"
+        ) {
+            Task { await viewModel.submit(.decline) }
+        }
+        .accessibilityIdentifier("volunteerIntroCallDeclineButton")
     }
 }

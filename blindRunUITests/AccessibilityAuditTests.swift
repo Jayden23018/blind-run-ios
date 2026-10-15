@@ -997,6 +997,46 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    // MARK: 先通个电话 · 见面安排单（#433 陪跑员端）
+
+    /// V1 主按钮「填写见面安排」→ V2 一个字不改、点一下就能提交（「按原约定提交跑者确认」）→
+    /// V3「等待跑者确认」：没有黄色主按钮，只有「修改见面安排」与「不合适」。
+    /// 主路径就是这一条：陪跑员单手操作，提交本身就是他的「合适」。
+    @MainActor
+    func testVolunteerIntroCallSubmitsTheMeetupPlanAndWaitsForTheRunner() throws {
+        let app = launchVolunteerHome(seedOrderStatus: "PENDING_INTRO_CALL")
+        let header = app.descendants(matching: .any)["volunteerIntroCallHeader"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 25), "有通话中的单时冷启动没有自动进通话页")
+        XCTAssertTrue(header.label.contains("等待跑者") && header.label.contains("来电"), "V1 标题不对：\(header.label)")
+
+        let fill = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        XCTAssertTrue(fill.waitForExistence(timeout: 10))
+        XCTAssertEqual(fill.label, "填写见面安排")
+        XCTAssertTrue(app.buttons["volunteerIntroCallUnreachableButton"].exists, "「未接到来电」要和「不合适」分开")
+        fill.tap()
+
+        let submit = app.buttons["volunteerMeetupPlanSubmitButton"].firstMatch
+        XCTAssertTrue(submit.waitForExistence(timeout: 10), "没有打开见面安排表单")
+        XCTAssertEqual(submit.label, "按原约定提交跑者确认", "一项没改时主按钮要说按原约定")
+        XCTAssertTrue(submit.isHittable, "主按钮被挡住了")
+        XCTAssertGreaterThanOrEqual(submit.frame.height, 44)
+        let editTime = app.buttons["volunteerMeetupPlanEditTimeButton"].firstMatch
+        XCTAssertTrue(editTime.exists)
+        XCTAssertGreaterThanOrEqual(editTime.frame.height, 44, "「修改」触达不足 44pt")
+        submit.tap()
+
+        let edit = app.buttons["volunteerIntroCallEditPlanButton"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 10), "提交后没有进「等待跑者确认」")
+        XCTAssertTrue(header.label.contains("确认"), "V3 标题不对：\(header.label)")
+        XCTAssertFalse(app.buttons["volunteerOrderFlowPrimaryButton"].exists, "V3 此刻没有该陪跑员做的主动作，不放黄色主按钮")
+        XCTAssertFalse(app.buttons["volunteerIntroCallUnreachableButton"].exists, "提交过安排单 = 电话打通了，不再给「未接到来电」")
+        XCTAssertTrue(app.buttons["volunteerIntroCallDeclineButton"].exists)
+
+        // 修改前先提示需跑者重新确认。
+        edit.tap()
+        XCTAssertTrue(app.alerts["修改后需跑者重新确认"].waitForExistence(timeout: 5), "修改前没有提示需重新确认")
+    }
+
     // MARK: 跑后留言（阶段 6）
 
     @MainActor

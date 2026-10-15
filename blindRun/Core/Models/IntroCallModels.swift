@@ -279,43 +279,138 @@ enum IntroCallCopy {
 
     // MARK: 志愿者侧
 
-    static let volunteerAcceptButtonTitle = "合适，接这一单"
+    // 🔄 2026-10-15 按见面安排单视觉稿 v2（`docs/ui/mockups/intro-call-meetup-plan-20261015/`，#433）改：
+    // 界面文案书面化；陪跑员的「合适」不再是一个按钮，而是**提交见面安排单**（`PUT /intro-call/plan`）。
+
+    /// V1 主按钮。按下去打开「见面安排」表单，提交即是他的「合适」。
+    static let volunteerFillPlanButtonTitle = "填写见面安排"
+    static let volunteerFillPlanAccessibilityHint = "填写通话中商定的时间和地点，提交后由跑者确认"
     static let volunteerDeclineButtonTitle = "不合适"
 
-    /// 🚩 **「一直没接到电话」只在志愿者侧**，这处不对称是刻意的（见 `IntroCallEndpoint`）。
-    static let volunteerUnreachableButtonTitle = "一直没接到电话"
+    /// 🚩 **「未接到来电」只在志愿者侧**，这处不对称是刻意的（见 `IntroCallEndpoint`）。
+    static let volunteerUnreachableButtonTitle = "未接到来电"
     static let volunteerUnreachableAccessibilityHint = "告诉系统这通电话没有打通，系统会把这一单派给下一位"
 
-    /// 志愿者侧对号码的唯一说明。**掩码串只用于认人，不是拨号入口。**
-    static let volunteerPhoneHint = "跑者会用这个号码打给你，请留意来电"
-
-    /// 本轮结束、但这一单不是你的。中性、不归因 —— 志愿者同样不该被告知自己被拒了。
+    /// 本轮结束、但这一单不是你的（V4′）。中性、不归因 —— 跑者不合适、超时、跑者取消**全部同一句**。
     ///
-    /// 2026-10-13 起只播报、不再有一整屏（负责人：「这一单已经安排好了」那一屏不要）：
-    /// 通话页自己关掉回首页，这一句由语音说。措辞也换了 —— 原句「这一单已经安排好了」
-    /// 在**窗口超时**与**跑者取消**时并不成立（那两种情况下这一单没有被安排给任何人）。
-    static let volunteerRoundClosed = "这次通话确认已结束，感谢你的响应。"
-
-    /// 双方都说合适。2026-10-13 起通话页原地变成订单页「约好」，不再停在一句「这一单是你的」上。
-    static let volunteerMatched = "已约好。"
+    /// 2026-10-15 起**不自动跳转**：v6 停 3 秒自己关页，会截断这句播报，静音的陪跑员也只看到页面消失。
+    /// 现在留在这一页，由「返回首页」按钮离开。
+    static let volunteerRoundClosedTitle = "本次沟通已结束"
+    static let volunteerRoundClosedSubtitle = "感谢你的响应"
+    /// V4′ 的播报（视觉稿读屏原话）。
+    static let volunteerRoundClosed = "本次沟通已结束，感谢你的响应。"
+    static let volunteerBackHomeButtonTitle = "返回首页"
 
     /// 通话数据还没拉回来时的标题（理由同 `blindLoadingNotice`：整屏空白对读屏用户等同于死机）。
     static let volunteerLoadingNotice = "正在获取跑者的通话信息"
 
-    /// 陪跑员端等来电时的标题。屏幕上姓名保留掩码，读屏传 `unmaskedForSpeech` 版。
-    static func volunteerWaitingForCallTitle(counterpartName: String) -> String {
-        "等\(counterpartName)打电话给你"
+    /// V1 标题「等待跑者王*来电」。屏幕上姓名保留掩码，读屏传 `unmaskedForSpeech` 版。
+    /// 拿不到称呼时是「等待跑者来电」，不念成「跑者跑者」。
+    static func volunteerWaitingForCallTitle(counterpartName: String?) -> String {
+        "等待跑者\(counterpartName?.nilIfBlank ?? "")来电"
     }
 
     /// 掩码号只用来**认人**（他会接到陌生号码来电），不是拨号入口。
     static func volunteerIncomingNumberLine(masked: String) -> String {
-        "来电号码 \(masked)，请留意来电"
+        "来电号码 \(masked)"
     }
 
-    /// 「22:42 前聊完」。拿不到或解析不出就不显示这一行（不摆占位）。
-    static func volunteerWindowEndsText(windowEndsAt: String?) -> String? {
+    // MARK: 陪跑员侧 · 跑者正在来电（V1′）
+
+    /// 收到 `INTRO_CALL_INCOMING` 之后这么久内，标题换成「跑者王*正在来电」。
+    ///
+    /// 🚩 只说「正在来电」，不说「通话中」—— 后端只知道跑者按了拨号，不知道接通没有。
+    static let incomingCallDisplaySeconds: TimeInterval = 120
+
+    static func volunteerIncomingCallTitle(counterpartName: String?) -> String {
+        "跑者\(counterpartName?.nilIfBlank ?? "")正在来电"
+    }
+
+    static func volunteerIncomingCallNumberLine(masked: String) -> String {
+        "来电号码 \(masked)，请留意接听"
+    }
+
+    static let volunteerIncomingCallPill = "来电提醒 · 2 分钟内有效"
+
+    /// 收到提醒时播一次。姓名去星号（朗读通道）。
+    static func volunteerIncomingCallAnnouncement(counterpartName: String?) -> String {
+        "\(volunteerIncomingCallTitle(counterpartName: counterpartName?.unmaskedForSpeech))，请留意接听。"
+    }
+
+    // MARK: 陪跑员侧 · 等跑者确认（V3）
+
+    static func volunteerAwaitingConfirmationTitle(counterpartName: String?) -> String {
+        "等待跑者\(counterpartName?.nilIfBlank ?? "")确认"
+    }
+
+    static let volunteerAwaitingConfirmationSubtitle = "见面安排已提交，跑者确认后即完成约定"
+    /// 提交成功那一刻播一次。
+    static let volunteerPlanSubmittedAnnouncement = "见面安排已提交，等待跑者确认。"
+    static let volunteerEditPlanButtonTitle = "修改见面安排"
+    /// 点「修改见面安排」先弹的那句（视觉稿 V3 说明）。
+    static let volunteerEditPlanConfirmTitle = "修改后需跑者重新确认"
+    static let volunteerEditPlanConfirmButton = "继续修改"
+
+    // MARK: 陪跑员侧 · 倒计时胶囊
+
+    /// V1「22:42 前完成沟通 · 剩余 14 分钟」/ V3「22:42 前 · 剩余 9 分钟」。
+    /// 解析不出就不显示这一行（不摆占位）。剩余时间走 `IntroCallMeetupCopy.remainingText`
+    /// （不足 1 分钟显示「剩余不到 1 分钟」，不整行消失）。
+    static func volunteerWindowPillText(windowEndsAt: String?, isAwaitingConfirmation: Bool, now: Date = Date()) -> String? {
         guard let endsAt = windowEndsAt?.nilIfBlank?.backendTimestamp else { return nil }
-        return "\(DateFormatter.aidRunDisplayClock.string(from: endsAt)) 前聊完"
+        let clock = DateFormatter.aidRunDisplayClock.string(from: endsAt)
+        let deadline = isAwaitingConfirmation ? "\(clock) 前" : "\(clock) 前完成沟通"
+        return "\(deadline) · \(IntroCallMeetupCopy.remainingText(windowEndsAt: endsAt, now: now))"
+    }
+
+    /// 倒计时胶囊的读屏版：「请在 22 点 42 分前完成沟通，剩余 14 分钟」。
+    /// 钟点念成「22 点 42 分」而不是「22:42」：过 TTS 时念数字冒号不稳（与 `appointmentInNightWindow` 同一条理由）。
+    static func volunteerWindowPillAccessibilityLabel(
+        windowEndsAt: String?,
+        isAwaitingConfirmation: Bool,
+        now: Date = Date()
+    ) -> String? {
+        guard let endsAt = windowEndsAt?.nilIfBlank?.backendTimestamp else { return nil }
+        let clock = spokenClockWithMinutes(endsAt)
+        let remaining = IntroCallMeetupCopy.remainingText(windowEndsAt: endsAt, now: now)
+        return isAwaitingConfirmation
+            ? "\(clock)前，\(remaining)"
+            : "请在 \(clock)前完成沟通，\(remaining)"
+    }
+
+    // MARK: 陪跑员侧 · 约好（V4）
+
+    /// 约好那一刻的播报（视觉稿读屏原话）：
+    /// 「约定完成。明天 7 点 30 分，朝阳公园东门，东门保安亭左侧。跑者王上衣为蓝色。」
+    /// 每一段取不到就省掉那一段；颜色认不出（`.unknown`）或没填不念。
+    static func volunteerMatchedAnnouncement(
+        order: OrderDetailResponse,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String {
+        var arrangement: [String] = []
+        if let start = order.plannedStart?.nilIfBlank?.backendTimestamp {
+            arrangement.append(
+                "\(IntroCallMeetupCopy.spokenDay(start, now: now, calendar: calendar)) \(spokenClockWithMinutes(start, calendar: calendar))"
+            )
+        }
+        if let address = order.startAddress?.nilIfBlank { arrangement.append(address) }
+        if let note = order.meetSpotNote?.nilIfBlank { arrangement.append(note) }
+
+        var sentences = ["约定完成。"]
+        if !arrangement.isEmpty { sentences.append(arrangement.joined(separator: "，") + "。") }
+        if let color = order.runnerTopColor?.spokenName {
+            // 不用 `blindNameForSpeech`：它的兜底「这位跑者」接在「跑者」后面会念成「跑者这位跑者」。
+            sentences.append("跑者\(order.blindName?.unmaskedForSpeech.nilIfBlank ?? "")上衣为\(color)。")
+        }
+        return sentences.joined()
+    }
+
+    /// 「7 点 30 分」「7 点」。视觉稿约好那一句带「分」，与 `IntroCallMeetupCopy.spokenClock`（「7 点 30」）不同。
+    static func spokenClockWithMinutes(_ date: Date, calendar: Calendar = .current) -> String {
+        let hour = calendar.component(.hour, from: date)
+        let minute = calendar.component(.minute, from: date)
+        return minute == 0 ? "\(hour) 点" : "\(hour) 点 \(minute) 分"
     }
 
     // MARK: 两侧共用
