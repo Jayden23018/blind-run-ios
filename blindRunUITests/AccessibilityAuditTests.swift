@@ -385,8 +385,8 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 都会撞上 `LocationService.trackConsentPreconditionForDebug` 的断言，App 当场崩掉。
     @MainActor
     func testVolunteerEscortStateCoversScreenWithTrackConsentAndDeclineShowsBanner() {
-        // `available: false`：接单开关开着时，「服务端说还在接单、本机没有同意」会另弹一张同目的、同 identifier 的
-        // 同意页（`requestTrackConsentIfStandbyResumesWithoutIt`），两张叠着，拒绝一张另一张还在 —— 测的就不是根部这张了。
+        // `available: false`：只测根部这张本身。接单开关开着时两处要问同一件事，那一种由
+        // `testVolunteerStandbyAndEscortStateAskTrackConsentOnlyOnce` 守着（#420）。
         let app = launchVolunteerHome(
             seedOrderStatus: "DRIVER_EN_ROUTE",
             available: false,
@@ -420,6 +420,47 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
         // 反向钉住上面那条 `exists == false`：主按钮本来就在这一页上，不是因为页面没加载出来才找不到。
         XCTAssertTrue(primary.waitForExistence(timeout: 10), "拒绝后订单页的主按钮没有回到读屏树里")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    /// #420：接单开关开着 + 出发态的单 + 本机没有同意 ⇒ 「自动恢复待命」与「同行态」要问同一件事，
+    /// 界面上任何时刻只许有一张同意页；在那一张上拒绝之后，两处都算答过，不再出现第二张。
+    ///
+    /// 2026-10-15 真机首跑上一条用例时用的是 `available: true`：拒绝最上面那张后它收起，
+    /// 露出底下一模一样的另一张 —— 「点了先不同意，页面重绘回顶部、同意页还在」。
+    @MainActor
+    func testVolunteerStandbyAndEscortStateAskTrackConsentOnlyOnce() {
+        let app = launchVolunteerHome(
+            seedOrderStatus: "DRIVER_EN_ROUTE",
+            available: true,
+            extraEnvironment: [
+                "AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1",
+                "AIDRUN_UI_TEST_MOCK_ESCORT_SESSION": "1",
+            ]
+        )
+        let consents = app.descendants(matching: .any).matching(identifier: "volunteerLocationTrackConsentView")
+        let consent = consents.firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 25), "进入出发态时没有盖上位置轨迹同意页")
+        // 等满一段、反复数：首页那张靠接单摘要触发，可能比同行态那张晚到几秒再叠上来。
+        for _ in 0..<8 {
+            XCTAssertEqual(consents.count, 1, "同一个问题叠了两张同意页")
+            Thread.sleep(forTimeInterval: 1)
+        }
+
+        // 两个按钮在长文案下面、屏幕之外，`tap()` 不会替这一页滚动（#414 首跑点空了）。
+        let decline = app.buttons["volunteerLocationTrackConsentDeclineButton"].firstMatch
+        for _ in 0..<6 where !decline.isHittable { consent.swipeUp() }
+        XCTAssertTrue(decline.isHittable, "滚到底了「先不同意」仍点不到")
+        decline.tap()
+
+        let banner = app.descendants(matching: .any)["liveEscortHealthBanner"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), "拒绝后根视图没有出现同行位置横幅")
+        XCTAssertTrue(banner.label.contains("没有共享位置"), "横幅说的不是同行态拒绝的后果：\(banner.label)")
+        // 拒绝之后同样等满一段：接单摘要每拍刷新一次，追问会在下一拍冒出来。
+        for _ in 0..<8 {
+            XCTAssertEqual(consents.count, 0, "答过一次之后同意页又出现了")
+            Thread.sleep(forTimeInterval: 1)
+        }
         XCTAssertEqual(app.state, .runningForeground)
     }
 

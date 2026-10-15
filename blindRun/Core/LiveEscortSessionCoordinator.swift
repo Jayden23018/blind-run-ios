@@ -84,6 +84,25 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         activeDeclineKey.map(declinedTrackConsentKeys.contains) ?? false
     }
 
+    /// 同行态同意页上发生的、陪跑员首页要跟着处理的两件事（#420）。
+    enum TrackConsentQuestionEvent: Equatable {
+        /// 同意页盖上来了。首页手上那张同目的的同意页要让开，同一个问题只问一次。
+        case asked(PrivacyConsentPurpose)
+        /// 按了「先不同意」。陪跑员这边也算拒绝恢复待命（负责人 2026-10-15 定）。
+        case declined(PrivacyConsentPurpose)
+    }
+
+    /// 只有陪跑员首页挂（`VolunteerHomeViewModel.configure`）。同意不发事件：同意记录是同一条，首页那一问的守卫自然不成立。
+    var onTrackConsentQuestion: (@MainActor (TrackConsentQuestionEvent) -> Void)?
+
+    /// 这一单此刻要不要（或正在）问位置轨迹同意。**同步判**，不等下一拍的 reconcile ——
+    /// 陪跑员首页刚把订单交进来就要知道该不该让开，等 `pendingTrackConsent` 置上再收会先闪出一张（#420）。
+    /// `evaluateSession` 置 `pendingTrackConsent` 也只读它，两处不会漂开。
+    var needsTrackConsentForActiveOrder: Bool {
+        identityKey != nil && role != nil && isSessionEligible
+            && !hasTrackConsent && !hasDeclinedTrackConsentForActiveOrder
+    }
+
     private let realtimeCoordinator: AppRealtimeCoordinator
     private let reportInterval: TimeInterval
     private let sendLocation: @MainActor @Sendable (WebSocketService, LocatedCoordinate, RunMotionSnapshot?) async -> Void
@@ -200,10 +219,11 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     /// 同意页上按了「先不同意」：这一单不再问，横幅说清后果（`healthState` 变化时根视图会念）。
     func declineTrackConsent() {
-        guard pendingTrackConsent != nil, let key = activeDeclineKey else { return }
+        guard let purpose = pendingTrackConsent, let key = activeDeclineKey else { return }
         declinedTrackConsentKeys.insert(key)
         pendingTrackConsent = nil
         refreshHealth(now: Date())
+        onTrackConsentQuestion?(.declined(purpose))
     }
 
     func configure(
@@ -344,8 +364,13 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         // 等用户在同意页上回答；拒绝过的单不再问。后端不存这项同意，所以没有记录就当没同意过。
         guard hasTrackConsent else {
             clearRuntimeSession()
-            pendingTrackConsent = hasDeclinedTrackConsentForActiveOrder ? nil : PrivacyConsentPurpose.locationTrack(for: role)
+            let wasAsking = pendingTrackConsent != nil
+            // 判据只走 `needsTrackConsentForActiveOrder` 一处：陪跑员首页靠它同步判该不该让开，两处一漂移就又叠两张（#420）。
+            pendingTrackConsent = needsTrackConsentForActiveOrder ? PrivacyConsentPurpose.locationTrack(for: role) : nil
             refreshHealth(now: Date())
+            if !wasAsking, let purpose = pendingTrackConsent {
+                onTrackConsentQuestion?(.asked(purpose))
+            }
             return
         }
         pendingTrackConsent = nil
