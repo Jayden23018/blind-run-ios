@@ -1,0 +1,9 @@
+## 1. 实现
+
+- [x] 1.1 `VolunteerNextBadgeDto` 解码 `blockedBy`（开放枚举，未知值当 null）
+- [x] 1.2 `RATING` 时进度文本、读屏、首屏徽章格小字说「评分还差一点」，不说「快解锁」，不显示阈值
+- [x] 1.3 `hero` 在 `RATING` 时不拿勋章进度当主角
+
+## 2. 验证
+
+- [x] 2.1 单测：满格 + `RATING` 不出现「解锁」类文案且三处都说「评分还差一点」；`RATINGS_COUNT` 与未知值按原样显示、不影响整份解码；真机执行并验红 —— 2026-10-15 iPhone 16 Pro（iOS 27.0.1）`VolunteerAchievementsTests` passed=35 failed=0，5 条新用例逐条 passed；验红在 Mac 上用 swiftc 编真源码跑同一组断言：测试先提交的基线 7 条红，两个错误变体（严格枚举 / 非空就补句）都红
