@@ -183,6 +183,27 @@ final class ScheduledOrderTests: XCTestCase {
         XCTAssertFalse(BlindBookingViewModel.overlapsNightWindow(start: at(10, 9), end: at(10, 10)))
     }
 
+    /// UI 测试固定的开跑时间在一天里任何时刻都能约（#418）。
+    /// 00:35 是 #418 真实复现的时刻：那时「现在 + 31 分钟」整段落在夜间窗口里。
+    func testUITestDaytimeAppointmentIsBookableWhateverTimeTheSuiteRuns() {
+        for (hour, minute) in [(0, 35), (4, 59), (12, 0), (20, 40), (21, 40), (23, 59)] {
+            var components = DateComponents()
+            components.year = 2026
+            components.month = 10
+            components.day = 15
+            components.hour = hour
+            components.minute = minute
+            let now = Calendar.aidRunBackend.date(from: components)!
+            let start = BlindBookingViewModel.uiTestDaytimeAppointment(now: now)
+            let end = start.addingTimeInterval(TimeInterval(AppConstants.Timing.defaultBookingDurationMinutes * 60))
+            let lead = start.timeIntervalSince(now)
+
+            XCTAssertGreaterThanOrEqual(lead, TimeInterval(AppConstants.Timing.minimumBookingLeadMinutes * 60), "\(hour):\(minute)")
+            XCTAssertLessThanOrEqual(lead, TimeInterval(AppConstants.Timing.maximumBookingLeadDays * 24 * 3600), "\(hour):\(minute)")
+            XCTAssertFalse(BlindBookingViewModel.overlapsNightWindow(start: start, end: end), "\(hour):\(minute)")
+        }
+    }
+
     // MARK: - 打开 App 的三岔路（设计交付 v3 §4.1）
 
     /// 在途订单优先于任何预约单。
