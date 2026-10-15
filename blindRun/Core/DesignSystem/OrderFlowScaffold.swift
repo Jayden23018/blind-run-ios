@@ -63,6 +63,9 @@ struct OrderFlowBottomActions: View {
     /// 所以这里按 owner 分支、两边各写一个字面量。多三行，换守卫继续看得见。
     enum Owner {
         case blindRunner
+        /// 盲人端「先通个电话」页。它是盖在订单页上的全屏页，与订单页用同一个 id
+        /// 会让找订单页主按钮的 UI 用例摸到通话页的「打电话」上。
+        case blindIntroCall
         case volunteer
     }
 
@@ -70,6 +73,11 @@ struct OrderFlowBottomActions: View {
     let primary: OrderFlowPrimaryAction?
     /// 主按钮与「求助与安全」之间的「打电话给<对方>」。`nil` = 不出现（只有盲人端汇合页给）。
     var call: OrderFlowCallAction? = nil
+    /// 主按钮下面的次要按钮（「先通个电话」页的「再打一次」「换一位」「不合适」）。`nil` = 没有。
+    ///
+    /// 是一块视图而不是一组参数：每枚按钮的 `accessibilityIdentifier` 必须以字面量写在调用方
+    /// （理由同 `Owner`），参数化就会弄瞎 `stale-ui-test-identifier` 守卫。
+    var secondary: AnyView? = nil
     /// `nil` = 这一屏不提供求助与安全。
     let safetyHub: OrderFlowSafetyHubAction?
 
@@ -103,6 +111,10 @@ struct OrderFlowBottomActions: View {
                         action: primary.action
                     )
                 )
+            }
+
+            if let secondary {
+                secondary
             }
 
             if let call {
@@ -161,6 +173,7 @@ struct OrderFlowBottomActions: View {
     private func tagPrimary<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowPrimaryButton")
+        case .blindIntroCall: view.accessibilityIdentifier("blindIntroCallPrimaryButton")
         case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
         }
     }
@@ -169,6 +182,7 @@ struct OrderFlowBottomActions: View {
     private func tagCall<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowCallButton")
+        case .blindIntroCall: view.accessibilityIdentifier("blindIntroCallCallButton")
         case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowCallButton")
         }
     }
@@ -177,6 +191,7 @@ struct OrderFlowBottomActions: View {
     private func tagSafetyHub<V: View>(_ view: V) -> some View {
         switch owner {
         case .blindRunner: view.accessibilityIdentifier("blindOrderFlowSafetyHubButton")
+        case .blindIntroCall: view.accessibilityIdentifier("blindIntroCallSafetyHubButton")
         case .volunteer: view.accessibilityIdentifier("volunteerOrderFlowSafetyHubButton")
         }
     }
@@ -189,6 +204,7 @@ private struct BottomBarIdentifier: ViewModifier {
     func body(content: Content) -> some View {
         switch owner {
         case .blindRunner: content.accessibilityIdentifier("blindOrderFlowBottomBar")
+        case .blindIntroCall: content.accessibilityIdentifier("blindIntroCallBottomBar")
         case .volunteer: content.accessibilityIdentifier("volunteerOrderFlowBottomBar")
         }
     }

@@ -1699,6 +1699,8 @@ struct BlindOrderStatusView: View {
     /// 转移规则（关过一次不再弹、离开通话态复位）在 `BlindIntroCallPresentation` 上，
     /// 连同它们各自防的那个缺陷一起。
     @State private var introCallPresentation = BlindIntroCallPresentation()
+    /// 通话页里按了「求助与安全」：通话页收起之后要接着打开求助中心。
+    @State private var opensSafetyHubAfterIntroCall = false
     /// 状态推进后把 VoiceOver 焦点接到状态卡上。
     ///
     /// 这一页每 5 秒轮询一次，重绘时焦点会被系统收走，落点不确定 —— 而状态卡恰恰是
@@ -2345,8 +2347,22 @@ struct BlindOrderStatusView: View {
         // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。
         // 关闭只走「返回订单」按钮（`fullScreenCover` 本来就不能下滑关掉），
         // 于是「用户主动关过」这个事实能被可靠地记下来，不会与「系统因状态变化收起」混淆。
-        .fullScreenCover(isPresented: $introCallPresentation.isShowing) {
-            BlindIntroCallView(viewModel: viewModel) {
+        //
+        // 通话页底部的「求助与安全」（定稿 v6）：全屏页盖着时这一层弹不出求助中心，
+        // 所以先按「用户主动关」收起通话页（本轮不再自动弹，用户可从订单页主按钮再进），
+        // 等收起动画结束（`onDismiss`）再打开。同一帧里两件事一起做，第二件会被系统丢掉 —— 按了没反应。
+        .fullScreenCover(isPresented: $introCallPresentation.isShowing, onDismiss: {
+            guard opensSafetyHubAfterIntroCall else { return }
+            opensSafetyHubAfterIntroCall = false
+            showSafetyHub = true
+        }) {
+            BlindIntroCallView(
+                viewModel: viewModel,
+                onOpenSafetyHub: {
+                    opensSafetyHubAfterIntroCall = true
+                    introCallPresentation.dismiss()
+                }
+            ) {
                 introCallPresentation.dismiss()
             }
         }

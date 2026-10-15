@@ -524,10 +524,38 @@ final class IntroCallTests: XCTestCase {
     }
 
     /// 志愿者侧的结束文案同样中性、不归因 —— 他也不该被告知「跑者拒绝了你」。
+    /// 2026-10-13 起也不说「这一单已经安排好了」（负责人不要；且窗口超时、跑者取消时那句话不成立）。
     func testVolunteerClosingCopyDoesNotAttributeTheOutcome() {
-        for word in ["拒绝", "不合适", "没选你", "失败"] {
-            XCTAssertFalse(IntroCallCopy.volunteerRoundClosed.contains(word))
+        for word in ["拒绝", "不合适", "没选你", "失败", "安排好了"] {
+            XCTAssertFalse(IntroCallCopy.volunteerRoundClosed.contains(word), word)
         }
+        XCTAssertFalse(IntroCallCopy.volunteerMatched.contains("这一单是你的"), "负责人 10-13：这一句不要")
+    }
+
+    // MARK: - 通话页重做（2026-10-13 定稿 v6）
+
+    /// 小标题「明天早上 7:00 · 朝阳公园南门 · 3.2 公里」：缺哪段省哪段，全缺返回 nil，**不摆占位**。
+    func testIntroCallEyebrowSkipsMissingPartsInsteadOfInventingThem() {
+        let now = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 13, hour: 20))!
+        XCTAssertEqual(
+            IntroCallCopy.eyebrow(plannedStart: "2026-10-14T07:00:00", address: "朝阳公园南门", distanceKm: 3.24, now: now),
+            "明天早上 7:00 · 朝阳公园南门 · 3.2 公里"
+        )
+        XCTAssertEqual(IntroCallCopy.eyebrow(plannedStart: nil, address: "朝阳公园南门", now: now), "朝阳公园南门")
+        XCTAssertEqual(IntroCallCopy.eyebrow(plannedStart: "不是时间", address: "  ", now: now), nil)
+    }
+
+    /// 陪跑员端那一行只用来认人：带掩码号，**不拼 tel:**（掩码串拼出来是七位、可能真打给别人的号码）。
+    func testVolunteerIncomingLineShowsTheMaskedNumberOnlyForRecognition() {
+        let line = IntroCallCopy.volunteerIncomingNumberLine(masked: "138****0001")
+        XCTAssertTrue(line.contains("138****0001"))
+        XCTAssertNil(EmergencyDialer.telURL(for: "138****0001"), "掩码串必须被拨号闸拦下")
+    }
+
+    func testVolunteerWindowEndsTextIsAClockOrNothing() {
+        XCTAssertEqual(IntroCallCopy.volunteerWindowEndsText(windowEndsAt: "2026-10-13T22:42:00"), "22:42 前聊完")
+        XCTAssertNil(IntroCallCopy.volunteerWindowEndsText(windowEndsAt: nil))
+        XCTAssertNil(IntroCallCopy.volunteerWindowEndsText(windowEndsAt: "坏数据"))
     }
 
     // MARK: - 志愿者接单前只看得到导盲犬

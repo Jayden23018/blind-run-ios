@@ -93,6 +93,13 @@ struct BlindOrderHero: Equatable {
                 tone: .agreed
             )
         case .matching:
+            // 先通个电话（`PENDING_INTRO_CALL`）也落在第 1 格，但是一个**不同的状态**：
+            // 头卡换「通话前」紫、对方头像实心（已经有候选人）。不挂电话图标 —— 订单页不知道
+            // 用户打没打过（那在通话页的本地状态里），挂了就可能是错的。
+            if order.status == .pendingIntroCall {
+                return Self(eyebrow: startEyebrow(start, now: now) ?? "先通个电话", headline: presentation.title,
+                            lines: lines, warning: presentation.warning, rope: .introCall(.afterCall), tone: .calling)
+            }
             return Self(eyebrow: startEyebrow(start, now: now) ?? "匹配中", headline: presentation.title,
                         lines: lines, warning: presentation.warning, rope: .invited, tone: .matching)
         case .departed:
@@ -124,6 +131,10 @@ struct BlindOrderHero: Equatable {
 enum BlindHeroTone: Equatable {
     /// 匹配中（还没有陪跑员，`RopeState.invited`）。与陪跑员端「邀请」同一个钢蓝。
     case matching
+    /// 先通个电话 · 还没打（订单页的 `PENDING_INTRO_CALL` 也用它）。
+    case calling
+    /// 先通个电话 · 打过了 / 已说合适。
+    case called
     case agreed
     case departed
     case arrived

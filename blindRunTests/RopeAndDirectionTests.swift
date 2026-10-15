@@ -104,6 +104,44 @@ final class RopeAndDirectionTests: XCTestCase {
         XCTAssertEqual(RopeState.cancelled(after: .agreed).accessibilityLabel(), "这次陪跑已取消")
     }
 
+    /// 先通个电话：第 1 格、虚线、对方实心。电话只在「还没打」挂，小勾只在「已说合适」画。
+    /// 电话挂在第 2、3 个刻度正中（171），不压任何刻度 —— v3 初稿挂在「我」与对方中点，压在了刻度上。
+    func testIntroCallStaysOnTheFirstTickAndOnlyDrawsItsOwnSide() {
+        for stage in [IntroCallRopeStage.beforeCall, .afterCall, .decided] {
+            let g = RopeGeometry.make(for: .introCall(stage))
+            XCTAssertEqual(g.step, 0, "\(stage)")
+            XCTAssertEqual(g.selfX, 24)
+            XCTAssertEqual(g.ropeStyle, .dashed, "通话阶段还没约好")
+            XCTAssertEqual(g.otherStyle, .solid, "候选人已经有名字了，不是空心")
+            XCTAssertEqual(g.showsPhone, stage == .beforeCall)
+            XCTAssertEqual(g.showsSelfCheck, stage == .decided)
+        }
+        XCTAssertEqual(RopeGeometry.phoneX, 171)
+        for tick in RopeGeometry.ticks {
+            XCTAssertGreaterThan(abs(RopeGeometry.phoneX - tick), 26, "电话图标不压刻度 \(tick)")
+        }
+    }
+
+    /// 读屏只说自己这一侧：「你已说合适」。🚨 不许出现对方的表态（无声拒绝）。
+    func testIntroCallRopeSpeaksOnlyAboutItsOwnSide() {
+        XCTAssertEqual(
+            RopeState.introCall(.beforeCall).accessibilityLabel(perspective: .runner),
+            "第 1 步，共 4 步，匹配中，先通个电话。接下来：约好、出发、汇合"
+        )
+        XCTAssertEqual(
+            RopeState.introCall(.decided).accessibilityLabel(),
+            "第 1 步，共 4 步，邀请，你已说合适。接下来：约好、出发、汇合"
+        )
+        for stage in [IntroCallRopeStage.beforeCall, .afterCall, .decided] {
+            for perspective in [RopePerspective.runner, .volunteer] {
+                let label = RopeState.introCall(stage).accessibilityLabel(perspective: perspective)
+                for word in ["对方", "拒绝", "第 2 位", "第二位"] {
+                    XCTAssertFalse(label.contains(word), "\(stage) \(perspective)：\(word)")
+                }
+            }
+        }
+    }
+
     func testFirstStepIsNamedForEachSide() {
         XCTAssertEqual(RopeState.stepTitles(perspective: .runner), ["匹配", "约好", "出发", "汇合"])
         XCTAssertEqual(RopeState.stepTitles(perspective: .volunteer), ["邀请", "约好", "出发", "汇合"])

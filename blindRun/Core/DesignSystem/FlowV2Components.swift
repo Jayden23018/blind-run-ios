@@ -95,6 +95,34 @@ struct FlowHelpPill: View {
     }
 }
 
+// MARK: 头卡里的小胶囊
+
+/// 彩色头卡里的一枚小胶囊：「这一轮通话还剩 18 分钟」「22:42 前聊完」（定稿 v6）。
+/// 白字压 12% 白底（`FlowMetrics.heroChipWhiteOpacity`）。**只给紫 / 梅红 / 钢蓝三种头卡用** ——
+/// 压出发蓝、完成绿时白字不到 4.5（`FlowDesignSystemTests.testHeroChipTextClearsTheBodyThreshold`）。
+/// 不单独进读屏：它总在一段合成标签里。
+struct FlowHeroPill: View {
+    let text: String
+    var systemImage: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            Text(text)
+                .flowFont(FlowV2Fonts.subhead(bold: true), monospacedDigit: true)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundColor(AppColors.Flow.onHeroStrong)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(FlowMetrics.heroChipWhiteOpacity), in: Capsule())
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: 导航栏
 
 /// 订单页导航栏：左返回、中标题、右求助。左右各一个固定宽度的槽，

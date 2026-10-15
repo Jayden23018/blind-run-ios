@@ -369,15 +369,31 @@ final class FlowDesignSystemTests: XCTestCase {
         }
     }
 
-    /// 邀请头卡（钢蓝，定稿 v6）里那块三格数据：白以 `inviteMetricTileWhiteOpacity` 叠在钢蓝上做底，
+    /// 邀请头卡（钢蓝，定稿 v6）里那块三格数据：白以 `heroChipWhiteOpacity` 叠在钢蓝上做底，
     /// 数值白字、标签是副文那一档半透明白。标签只有 13pt，走正文阈值。
     func testInviteMetricTileOnTheMatchingHeroClearsTheBodyThreshold() {
         let F = AppColors.Flow.self
         for (appearance, hero) in [("亮色", F.stateMatchingTone.light), ("暗色", F.stateMatchingTone.dark)] {
-            let tile = Self.white(FlowMetrics.inviteMetricTileWhiteOpacity, over: hero)
+            let tile = Self.white(FlowMetrics.heroChipWhiteOpacity, over: hero)
             assertContrast(0xFFFFFF, tile, Self.textMinimum, appearance, "三格数值")
             assertContrast(Self.white(F.onHeroBodyOpacity, over: tile), tile, Self.textMinimum, appearance, "三格标签")
         }
+    }
+
+    /// 通话页的剩余时间胶囊（`FlowHeroPill`）：白字压「白 12% 叠头卡色」。只用在紫 / 梅红上；
+    /// 16% 时压紫只有 4.70 —— 那个取值在这里会红（见最后一行）。
+    func testHeroChipTextClearsTheBodyThreshold() {
+        let F = AppColors.Flow.self
+        for (tone, name) in [(F.stateCallingTone, "通话前"), (F.stateCalledTone, "通话后"), (F.stateMatchingTone, "匹配")] {
+            for (appearance, hero) in [("亮色", tone.light), ("暗色", tone.dark)] {
+                let chip = Self.white(FlowMetrics.heroChipWhiteOpacity, over: hero)
+                assertContrast(0xFFFFFF, chip, Self.textMinimum, appearance, "\(name)：头卡小胶囊")
+            }
+        }
+        XCTAssertLessThan(
+            Self.contrastRatio(0xFFFFFF, Self.white(0.16, over: F.stateCallingTone.light)), 4.75,
+            "16% 的余量太薄，别为了「更显眼」调回去"
+        )
     }
 
     /// 「还剩 X 秒回复」最后 10 秒在钢蓝上转金色 —— 它是 15pt 正文，金色在这里要过 4.5，不是大字的 3。
