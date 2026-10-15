@@ -487,7 +487,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         XCTAssertTrue(
             app.navigationBars["订单详情"].waitForExistence(timeout: 20),
-            "点了「近期服务」的订单行没有进订单详情页"
+            "点了「近期服务」的订单行没有进订单详情页（App 状态 \(app.state.rawValue)；1 = 没在运行，多半是详情页在没有位置轨迹同意时调了 requestPermission()，撞上了调试断言）"
         )
         // 详情页的 `.task` 在出现时就跑；给它一段时间，崩溃（assertionFailure）会让 App 离开前台。
         Thread.sleep(forTimeInterval: 3)
