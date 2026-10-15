@@ -33,4 +33,21 @@ final class AMapPrivacyComplianceTests: XCTestCase {
         appState.acceptPrivacyConsent()
         XCTAssertTrue(AMapManager.isPrivacyAgreed, "用户按下「同意」后要补发声明")
     }
+
+    /// #408 的另一半：本机已有同意记录的冷启动，要在配置时就声明；没有记录则不声明。
+    /// 断的是 `blindRunApp.init` 唯一调用的入口 `configureAtLaunch`，删掉里面读记录那一步这条就红。
+    @MainActor
+    func testAMapColdLaunchDeclaresAgreementOnlyWhenConsentWasAlreadyRecorded() {
+        AMapManager.resetPrivacyAgreementForTesting()
+        addTeardownBlock { AMapManager.resetPrivacyAgreementForTesting() }
+
+        let fresh = AppStatePersistenceFactory.makeIsolatedTest()
+        AMapManager.configureAtLaunch(persistence: fresh, environment: [:])
+        XCTAssertFalse(AMapManager.isPrivacyAgreed, "全新安装的冷启动不能声明已同意")
+
+        let returning = AppStatePersistenceFactory.makeIsolatedTest()
+        PrivacyConsentStore(persistence: returning).recordConsent(to: .appLaunch, scope: .device)
+        AMapManager.configureAtLaunch(persistence: returning, environment: [:])
+        XCTAssertTrue(AMapManager.isPrivacyAgreed, "已同意过的用户冷启动必须声明，否则地图静默失效")
+    }
 }

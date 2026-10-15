@@ -29,6 +29,20 @@ enum AMapManager {
         if isConfigured { declarePrivacyShownAndAgreed() }
     }
 
+    /// 冷启动入口：按本机已有的同意记录先置位，再配置（#408）。
+    /// 首次安装的用户在同意页按下按钮时，由 `AppState.acceptPrivacyConsent()` 补发。
+    /// 读同意记录放在这里而不是 `blindRunApp.init` 里，是为了让「冷启动已同意 ⇒ 要声明」有用例可守。
+    @MainActor
+    static func configureAtLaunch(
+        persistence: any AppStatePersistence = AppStatePersistenceFactory.makeDefault(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        setUserAcceptedPrivacy(
+            AppState.resolveInitialPrivacyConsent(persistence: persistence, environment: environment)
+        )
+        configure()
+    }
+
     #if DEBUG
     /// 单测专用：`isPrivacyAgreed` 是进程级状态，别的用例点过同意就回不去了。
     static func resetPrivacyAgreementForTesting() { isPrivacyAgreed = false }
