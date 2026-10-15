@@ -185,7 +185,8 @@ enum BlindBookingGate: Equatable {
         case .startPoint:
             return "请选择出发地点。"
         case .appointmentTime:
-            return "预约时间需至少在 30 分钟后。"
+            // 只是兜底：要说「具体哪里不行」走 `BlindBookingViewModel.message(for:)`，它读 `appointmentTimeProblem`。
+            return "预约时间需至少在 \(AppConstants.Timing.minimumBookingLeadMinutes) 分钟后。"
         }
     }
 }
@@ -346,6 +347,16 @@ final class BlindBookingViewModel: ObservableObject {
         )
     }
 
+    /// 某道门槛现在该对用户说的话。
+    ///
+    /// `.appointmentTime` 门槛背后有三种原因（太近 / 超过 7 天 / 撞夜间窗口），`BlindBookingGate.message`
+    /// 是个无状态枚举，只能说其中一种；所以凡是把门槛念给用户的地方都走这里，
+    /// 时间门槛读 `appointmentTimeProblem`，与时间那一步的阻断语同一句话（#424）。
+    func message(for gate: BlindBookingGate) -> String {
+        guard gate == .appointmentTime, let problem = appointmentTimeProblem else { return gate.message }
+        return problem.message
+    }
+
     var canSubmit: Bool {
         !isSubmitting && firstMissingGate == nil
     }
@@ -430,7 +441,7 @@ final class BlindBookingViewModel: ObservableObject {
             //
             // 曾经这里手抄了后三道门槛（定位 / 起点 / 时间），顺序与 `firstMissingGate` 一致，
             // 少的正是要去别的页面才能补的前三道。
-            return firstMissingGate?.message
+            return firstMissingGate.map(message(for:))
         }
     }
 
@@ -1037,7 +1048,7 @@ final class BlindBookingViewModel: ObservableObject {
         guard let appState, locationService != nil else { return nil }
         // 出发地点缺失要在 makeCreateOrderRequest 之后单独报，所以这里跳过 .startPoint。
         if let gate = firstMissingGate, gate != .startPoint {
-            return fail(gate.message)
+            return fail(message(for: gate))
         }
 
         isSubmitting = true

@@ -71,6 +71,11 @@ struct blindRunApp: App {
     @StateObject private var amapGeocodingService: AMapGeocodingService
 
     init() {
+        // 高德隐私声明要等用户真同意之后才发（#408）：冷启动时按本机已有的同意记录先置位，再配置。
+        // 首次安装的用户在同意页按下按钮时，由 `AppState.acceptPrivacyConsent()` 补发。
+        AMapManager.setUserAcceptedPrivacy(
+            AppState.resolveInitialPrivacyConsent(persistence: AppStatePersistenceFactory.makeDefault())
+        )
         AMapManager.configure()
         RuntimeDiagnosticMonitor.shared.start()
         MainRunLoopWatchdog.shared.start()

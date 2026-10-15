@@ -464,6 +464,40 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    /// #421：志愿者订单详情页（首页「近期服务」点进来）里那处 `requestPermission()` 也要排在同意之后。
+    ///
+    /// 上面几条同意页用例走的都是同行态的根部同意页，不经过这一页。把 `VolunteerOrderDetailView.task`
+    /// 里包着它的 `hasLocationTrackConsent` 判断删掉，那些用例一条都不会红；这条走真实路径：
+    /// 强制同意闸 + 没有同意记录 ⇒ 进详情页 ⇒ 无闸的 `requestPermission()` 会撞上
+    /// `LocationService.trackConsentPreconditionForDebug` 的断言、App 当场崩掉。
+    @MainActor
+    func testVolunteerOrderDetailFromRecentServicesDoesNotRequestLocationBeforeConsent() {
+        let app = launchVolunteerHome(
+            available: false,
+            extraEnvironment: ["AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1"]
+        )
+        // Mock 的第二张种子单是已完成的，必然落在「近期服务」里。按前缀找而不是写死单号。
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "volunteerProfileRecentRow."))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 25), "首页「近期服务」没有可点的订单行")
+        scrollTo(row, in: app)
+        XCTAssertTrue(row.isHittable, "滚到底了「近期服务」的订单行仍点不到")
+        row.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["订单详情"].waitForExistence(timeout: 20),
+            "点了「近期服务」的订单行没有进订单详情页"
+        )
+        // 详情页的 `.task` 在出现时就跑；给它一段时间，崩溃（assertionFailure）会让 App 离开前台。
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(
+            app.state, .runningForeground,
+            "App 不在前台 —— 多半是订单详情页在没有位置轨迹同意时调了 requestPermission()，撞上了调试断言"
+        )
+        XCTAssertTrue(app.navigationBars["订单详情"].exists, "详情页在等待期间消失了")
+    }
+
     // MARK: - 静态审计抓不到的语义要求
 
     /// `AGENTS.md`：盲人端关键主按钮高度 ≥ 64pt。

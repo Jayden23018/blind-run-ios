@@ -407,6 +407,8 @@ final class AppState: ObservableObject {
         didAcceptPrivacyConsent = true
         PrivacyConsentStore(persistence: persistence)
             .recordConsent(to: .appLaunch, scope: .device)
+        // 高德要「用户同意之后」才声明已同意（#408）；这是冷启动时尚未同意的用户唯一的补发点。
+        AMapManager.setUserAcceptedPrivacy(true)
     }
 
     /// 启动时的初值。**在 `init` 里解析而不是等 `onAppear`** —— 晚一帧的代价是 UI 用例先看到

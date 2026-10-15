@@ -14,6 +14,26 @@ enum AMapManager {
     /// SDK 是否已成功配置（Key 有效且 SDK 初始化完成）
     private(set) static var isConfigured = false
 
+    /// 用户是否已真实同意首启隐私告知（#408）。
+    ///
+    /// 高德合规方案要求「用户同意隐私政策**之后**」才向 SDK 声明已同意。此前 `configure()` 在 `App.init`
+    /// 里无条件声明，首装用户还停在同意页时高德那边已是「已同意」。现在声明只在这个标志为真时发出：
+    /// 冷启动已同意 ⇒ `blindRunApp.init` 在 `configure()` 之前置位；首次同意 ⇒ `AppState.acceptPrivacyConsent()` 置位。
+    private(set) static var isPrivacyAgreed = false
+
+    /// 同步「用户是否已同意首启告知」。可早于或晚于 `configure()` 调用：
+    /// 已配置就立刻向 SDK 声明，没配置则由 `configure()` 末尾补发。只会从未同意变成已同意，不撤回。
+    static func setUserAcceptedPrivacy(_ accepted: Bool) {
+        guard accepted, !isPrivacyAgreed else { return }
+        isPrivacyAgreed = true
+        if isConfigured { declarePrivacyShownAndAgreed() }
+    }
+
+    #if DEBUG
+    /// 单测专用：`isPrivacyAgreed` 是进程级状态，别的用例点过同意就回不去了。
+    static func resetPrivacyAgreementForTesting() { isPrivacyAgreed = false }
+    #endif
+
     /// 初始化高德地图 SDK。
     /// 应在 App 启动时调用一次（如 blindRunApp.onAppear）。
     static func configure() {
@@ -27,10 +47,11 @@ enum AMapManager {
             return
         }
 
-        configurePrivacyCompliance()
+        disableOptionalExtensions()
         AMapServices.shared().apiKey = key
         AMapServices.shared().enableHTTPS = true
         isConfigured = true
+        if isPrivacyAgreed { declarePrivacyShownAndAgreed() }
 
         #if DEBUG
         print("[AMapManager] 高德地图 SDK 初始化成功")
@@ -52,14 +73,20 @@ enum AMapManager {
 
     // MARK: - Private
 
-    private static func configurePrivacyCompliance() {
-        // App privacy policy includes AMap SDK usage; these calls must happen before creating SDK clients/views.
+    /// 向高德声明「告知已展示、用户已同意」。必须在创建任何 SDK 对象（地图 / 搜索 / 定位）之前发出；
+    /// 首启同意页之后才会有这些对象，所以只在 `isPrivacyAgreed` 为真时调用（#408）。
+    private static func declarePrivacyShownAndAgreed() {
+        // App privacy policy includes AMap SDK usage.
         MAMapView.updatePrivacyShow(.didShow, privacyInfo: .didContain)
         MAMapView.updatePrivacyAgree(.didAgree)
         AMapSearchAPI.updatePrivacyShow(.didShow, privacyInfo: .didContain)
         AMapSearchAPI.updatePrivacyAgree(.didAgree)
         AMapLocationManager.updatePrivacyShow(.didShow, privacyInfo: .didContain)
         AMapLocationManager.updatePrivacyAgree(.didAgree)
+    }
+
+    /// 关掉两项扩展功能。与「用户是否同意」无关，配置时一律先关。
+    private static func disableOptionalExtensions() {
         // 高德两项扩展功能（安全保障、数据用于统计分析）按高德合规方案「由开发者提供给用户选择」；
         // 我们没问过用户，而统计分析的用途原文含「帮助优化广告投放营销效果」，与首启告知「不做广告」冲突。
         // 🔴 iOS 基础库里两者**默认 YES**（`AMapServices.h`：「默认为YES。since 1.8.7」），与安卓默认关相反 ——
