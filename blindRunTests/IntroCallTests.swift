@@ -402,6 +402,127 @@ final class IntroCallTests: XCTestCase {
         XCTAssertNil(closedViewModel.matchedOrder)
     }
 
+    // MARK: - 志愿者侧：这次没拿到 ≠ 这一轮结束了（#428）
+
+    /// 只有服务端明说「这一轮结束了」才收尾：409 `INTRO_CALL_NOT_ACTIVE`、403 `NOT_ORDER_PARTICIPANT`。
+    ///
+    /// 🚨 改动前**所有** `APIError` 都进 `resolveFinishedRound`，而那里的 `matchedOrder` 是 `try?` ——
+    /// 弱网下它同样失败 ⇒ 判「没成」、停轮询、播「已结束」，而盲人可能正在给他打电话。
+    /// 下面每一条「不算结束」的取值，在旧实现下都会被判成结束。
+    func testVolunteerIntroCallOnlyTreatsServerSaidRoundEndAsTheEnd() {
+        let roundEnded: [APIError] = [
+            .serverError(ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了")),
+            .serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "不是本次通话的参与者")),
+            // 后端没回可解码的错误体时，同样两个状态码落成 `.unknown`。
+            .unknown(statusCode: 403),
+            .unknown(statusCode: 409),
+        ]
+        for error in roundEnded {
+            XCTAssertTrue(VolunteerIntroCallViewModel.endsTheRound(error), "\(error) 应判本轮结束")
+        }
+
+        let notYetKnown: [APIError] = [
+            .networkError(URLError(.notConnectedToInternet)),
+            .rateLimited(RateLimitInfo(message: "请求太频繁", retryAfterSeconds: 5)),
+            .decodingError(DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "坏数据"))),
+            .unknown(statusCode: 500),
+            .unknown(statusCode: 502),
+            .serverError(ErrorResponse(code: "INTERNAL_ERROR", message: "服务器开小差了")),
+            .missingCredentials,
+            .invalidURL,
+        ]
+        for error in notYetKnown {
+            XCTAssertFalse(
+                VolunteerIntroCallViewModel.endsTheRound(error),
+                "\(error) 只是这次没拿到，判成结束会把志愿者踢出通话页"
+            )
+        }
+    }
+
+    /// 网络失败：留在通话里、继续轮询、只播一次「暂时拿不到」。
+    ///
+    /// 订单详情也打桩成网络失败 —— 旧实现正是靠它失败才判成「没成」，
+    /// 打成 `.success` 的话旧实现会判「成了」，这条用例就分不出两种实现。
+    func testVolunteerIntroCallKeepsPollingThroughANetworkErrorAndAnnouncesItOnce() async {
+        let safety = FakeSafetyService()
+        safety.introCallResult = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
+        safety.matchedOrderResult = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
+        let appState = AppState(safety: safety)
+        let firstRound = SpeechService()
+        let viewModel = VolunteerIntroCallViewModel()
+        viewModel.configure(orderId: 609, appState: appState, speechService: firstRound)
+
+        viewModel.startPolling()
+        _ = await Self.waitUntil { viewModel.errorMessage != nil || viewModel.outcome != .active }
+
+        XCTAssertEqual(viewModel.outcome, .active, "一次网络失败就判本轮结束了")
+        XCTAssertEqual(viewModel.errorMessage, IntroCallCopy.loadFailed)
+        XCTAssertEqual(firstRound.lastSpokenText, IntroCallCopy.loadFailed)
+
+        // ⚠️ 换一个实例验第二轮：`SpeechService.lastSpokenText` 不会被清，复用会让「没再播」恒假地通过。
+        let secondRound = SpeechService()
+        viewModel.configure(orderId: 609, appState: appState, speechService: secondRound)
+        let polledAgain = await Self.waitUntil(timeout: AppConstants.Timing.orderPollingInterval + 3) {
+            safety.calls.filter { $0 == "introCall(orderId:)" }.count >= 2
+        }
+        viewModel.stopPolling()
+
+        XCTAssertTrue(polledAgain, "轮询停了 —— 网络恢复后他也回不到通话里")
+        XCTAssertEqual(viewModel.outcome, .active)
+        XCTAssertFalse(
+            safety.calls.contains("matchedOrder(orderId:)"),
+            "网络失败走进了「本轮结束」的判定"
+        )
+        XCTAssertNil(secondRound.lastSpokenText, "第二轮轮询又播了一遍，读屏用户会被同一句话淹掉")
+    }
+
+    /// 网络恢复后，下一次轮询拿到数据就把「暂时拿不到」撤掉，否则红字一直挂着。
+    func testVolunteerIntroCallClearsTheLoadFailureOnceAPollSucceeds() async {
+        let safety = FakeSafetyService()
+        safety.introCallResult = .failure(APIError.rateLimited(RateLimitInfo(message: "请求太频繁", retryAfterSeconds: nil)))
+        let appState = AppState(safety: safety)
+        let viewModel = VolunteerIntroCallViewModel()
+        viewModel.configure(orderId: 610, appState: appState, speechService: SpeechService())
+
+        viewModel.startPolling()
+        _ = await Self.waitUntil { viewModel.errorMessage != nil || viewModel.outcome != .active }
+        XCTAssertEqual(viewModel.errorMessage, IntroCallCopy.loadFailed)
+
+        safety.introCallResult = .success(Self.volunteerSideView)
+        let recovered = await Self.waitUntil(timeout: AppConstants.Timing.orderPollingInterval + 3) {
+            viewModel.introCall != nil
+        }
+        viewModel.stopPolling()
+
+        XCTAssertTrue(recovered, "失败之后没有再轮询")
+        XCTAssertNil(viewModel.errorMessage, "数据已经回来了，「暂时拿不到」还挂在屏幕上")
+        XCTAssertEqual(viewModel.outcome, .active)
+    }
+
+    /// 防修过头：服务端明说结束的两种回答**仍然**走 `resolveFinishedRound`。
+    func testVolunteerIntroCallStillResolvesTheRoundWhenTheServerSaysItEnded() async {
+        let serverSaidEnded: [APIError] = [
+            .serverError(ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了")),
+            .serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "不是本次通话的参与者")),
+        ]
+        for error in serverSaidEnded {
+            let safety = FakeSafetyService()
+            safety.introCallResult = .failure(error)
+            safety.matchedOrderResult = .failure(APIError.unknown(statusCode: 403))
+            let appState = AppState(safety: safety)
+            let viewModel = VolunteerIntroCallViewModel()
+            viewModel.configure(orderId: 611, appState: appState, speechService: SpeechService())
+
+            viewModel.startPolling()
+            let didClose = await Self.waitUntil { viewModel.outcome == .closed }
+            viewModel.stopPolling()
+
+            XCTAssertTrue(didClose, "\(error) 没有收尾")
+            XCTAssertTrue(safety.calls.contains("matchedOrder(orderId:)"), "\(error) 没去判这一单是不是我的")
+            XCTAssertNil(viewModel.errorMessage, "\(error) 是正常结束，不该挂「暂时拿不到」")
+        }
+    }
+
     /// 志愿者侧的结束文案同样中性、不归因 —— 他也不该被告知「跑者拒绝了你」。
     func testVolunteerClosingCopyDoesNotAttributeTheOutcome() {
         for word in ["拒绝", "不合适", "没选你", "失败"] {
