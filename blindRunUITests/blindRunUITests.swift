@@ -19,7 +19,8 @@ final class blindRunUITests: XCTestCase {
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
             preseedBlindProfile: true,
-            emptyMockOrders: true
+            emptyMockOrders: true,
+            daytimeAppointment: true
         )
 
         createBookingAndAssertMatching(app)
@@ -1741,7 +1742,8 @@ final class blindRunUITests: XCTestCase {
         let app = launchApp(
             apiEnvironment: "demoCloud",
             disableMap: false,
-            disableWebSocket: false
+            disableWebSocket: false,
+            daytimeAppointment: true
         )
         let cloudPhone = "13800000001"
 
@@ -1852,6 +1854,9 @@ final class blindRunUITests: XCTestCase {
         unregisteredVolunteer: Bool = false,
         legacyTrainingStatusAfterFaceVerify: Bool = false,
         emptyMockOrders: Bool = false,
+        /// 默认开跑时间固定成北京时间明天 10:00（`AIDRUN_UI_TEST_DAYTIME_APPOINTMENT`）。
+        /// 「现在 + 31 分钟」在晚上跑会撞夜间窗口，要提交预约的用例都该打开（#418）。
+        daytimeAppointment: Bool = false,
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
         mockLogoutFailure: Bool = false,
@@ -1939,6 +1944,9 @@ final class blindRunUITests: XCTestCase {
         }
         if emptyMockOrders {
             app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
+        }
+        if daytimeAppointment {
+            app.launchEnvironment["AIDRUN_UI_TEST_DAYTIME_APPOINTMENT"] = "1"
         }
         if mockLogoutFailure {
             app.launchEnvironment["AIDRUN_MOCK_LOGOUT_FAILURE"] = "1"
