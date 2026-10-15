@@ -401,6 +401,73 @@ const cases = [
     }
   },
   {
+    // 2026-10-15（#441）：CLAUDE.md 教人命令行传某个写死的团队号，三个并行会话照抄、全部
+    // `No Account for Team`。团队号用 10 位占位串，拦的是「NAME=十位大写字母数字」这个形状。
+    name: 'Markdown 里教人传写死的 DEVELOPMENT_TEAM=<团队号>',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/CLAUDE.md',
+        old_string: 'a',
+        new_string: '- 命令行跑测试要显式传 team id：`DEVELOPMENT_TEAM=ABCDE12345`'
+      }
+    }
+  },
+  {
+    // 覆盖变量 AIDRUN_TEAM 同样是「会被照抄的号」，只拦 DEVELOPMENT_TEAM 会让它从旁边穿过去。
+    name: 'Markdown 里教人传写死的 AIDRUN_TEAM=<团队号>',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/docs/some-note.md',
+        content: '# 跑测\n\n```bash\nAIDRUN_TEAM=ABCDE12345 scripts/device-test.sh -only-testing:blindRunTests/Foo\n```\n'
+      }
+    }
+  },
+  {
+    // 占位符、pbxproj 带空格的写法、报错原文都不是「可原样粘贴的命令行」，拦它们是误报。
+    // 这条与上面两条成对：只有「该拦的拦、不该拦的放」同时成立，才说明规则的边界落在对的位置。
+    name: 'Markdown 里的占位符、pbxproj 写法、报错原文（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/CLAUDE.md',
+        old_string: 'a',
+        new_string:
+          '`AIDRUN_TEAM=<你的个人团队> scripts/device-test.sh`；pbxproj 里是 `DEVELOPMENT_TEAM = ABCDE12345;`；报错 `No Account for Team "ABCDE12345"`；守卫拦 `DEVELOPMENT_TEAM=<10 位团队号>`'
+      }
+    }
+  },
+  {
+    // 引用历史原文时留的口，与其它规则的 `guard:allow <id>` 一致。
+    name: 'Markdown 里写死团队号但行尾带 guard:allow（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/docs/research/some-report.md',
+        old_string: 'a',
+        new_string: '当时的原话：`DEVELOPMENT_TEAM=ABCDE12345` guard:allow hardcoded-team-id'
+      }
+    }
+  },
+  {
+    // 脚本得有默认团队号（device-test.sh 就是），规则只管文档，不管脚本。
+    name: '脚本里写团队号（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/some-wrapper.sh',
+        old_string: 'a',
+        new_string: 'AIDRUN_TEAM=ABCDE12345 scripts/device-test.sh -only-testing:blindRunTests/Foo'
+      }
+    }
+  },
+  {
     // 2026-08-14：误触让真机 UI 测试走到了 tel://110，只有双卡选号单挡了一下。
     // 拨号已收敛到 EmergencyDialer.dial（DEBUG 下可拦截），这条守卫防的是有人再开一个出口。
     name: '生产代码里裸的 UIApplication.shared.open（绕开拨号拦截）',
