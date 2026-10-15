@@ -12,6 +12,9 @@
 - 新增陪跑员版「登录已过期」拨号语境 `EmergencyCallContext.volunteerSessionExpired`：
   说清登录已过期、App 不会代你发送求助；不复用 `volunteerBeforeRun` 的「现在不在跑步中」，也不列紧急联系人。
 - 非暂缓时面板行为一个字不变（长按 3 秒直发、轻点弹 §6 锁定文案确认框）。
+- 顺带修 #438（负责人 2026-10-15 拍板并入本变更）：陪跑员跑步页的订单轮询 `VolunteerInServiceViewModel.load(orderId:speakChanges:)`
+  吞掉了所有错误，401 从不交给 `handleAuthenticatedAPIError`，于是跑步中过期最常见的入口进不了暂缓，
+  本变更的面板也就永远停在云端那一档。真机验收正是因此红出来的。
 
 ## Capabilities
 

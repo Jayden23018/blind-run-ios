@@ -1961,8 +1961,19 @@ final class AccessibilityAuditTests: XCTestCase {
             app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "App 不会代你发送求助")).firstMatch.exists,
             "拨号框必须说清 App 不会代你发送求助"
         )
-        app.buttons["取消"].firstMatch.tap()
-        XCTAssertTrue(panel.waitForExistence(timeout: 5), "取消之后面板还在")
+        // iOS 26 起这个拨号框在 iPhone 上是锚在按钮上的浮层，**没有「取消」**，
+        // 点浮层外任意处关闭（iOS 27.0.1 真机现场：只有一块铺满全屏的系统关闭区）。
+        // 点屏幕下方 90% 处：面板内容（止于约 540pt）下面的空白，离每个按钮都远。
+        // 别点顶部 —— 那里是状态栏，触点不进 App，浮层关不掉（真机试过）。
+        let cancel = app.buttons["取消"].firstMatch
+        if cancel.exists {
+            cancel.tap()
+        } else {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        }
+        let dialogGone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: medical)
+        wait(for: [dialogGone], timeout: 5)
+        XCTAssertTrue(panel.exists, "关掉拨号框之后面板还在")
 
         // 「不调云端」的行为证据：云端那条路在暂缓期会落到「求助未发出」并显示在跑步页上。
         // 只断言拨号框弹出来了的话，按钮同时把 `onEmergency` 也调了，这条照样绿。
