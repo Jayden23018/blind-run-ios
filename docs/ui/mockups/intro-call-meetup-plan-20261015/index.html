@@ -136,7 +136,7 @@ table.tl{border-collapse:separate;border-spacing:0;background:#fff;border-radius
 <template id="sb"><div class="sb"><span>9:41</span><svg viewBox="0 0 64 13"><rect x="0" y="8" width="3" height="5" rx="1" fill="#151A26"/><rect x="5" y="5.5" width="3" height="7.5" rx="1" fill="#151A26"/><rect x="10" y="3" width="3" height="10" rx="1" fill="#151A26"/><rect x="15" y="0.5" width="3" height="12.5" rx="1" fill="#151A26"/><rect x="36" y="1" width="23" height="11" rx="3.5" fill="none" stroke="#151A26" stroke-opacity=".4"/><rect x="38" y="3" width="19" height="7" rx="2" fill="#151A26"/></svg></div></template>
 
 <header>
- <h1>先通个电话 + 见面安排单 · 视觉稿 v1（待负责人确认）</h1>
+ <h1>先通个电话 + 见面安排单 · 视觉稿 v2（文案书面化，待负责人确认）</h1>
  <p class="lede">依据设计文档 <code>docs/design/2026-10-15-intro-call-meetup-plan-design.md</code>（已批准）。本稿只回答「长什么样」：屏幕结构、按钮、文案、读屏顺序与原话。紫色框里是读屏会念的话。
  名字、时间、地点都是示例：原约「明天 7:00–8:00，朝阳公园南门」，陪跑员在电话里和跑者商量改成「7:30，东门」。</p>
 </header>
@@ -160,67 +160,67 @@ table.tl{border-collapse:separate;border-spacing:0;background:#fff;border-radius
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
 <div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
  <svg class="rope" data-rope='{"icon":"phone","other":"王","labels":["邀请","约好","出发","汇合"]}'></svg>
- <div class="say">等王*打电话给你</div><div class="say-sub">来电号码 138****0001</div>
- <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前聊完 · 还剩 14 分钟</div></div>
+ <div class="say">等待跑者王*来电</div><div class="say-sub">来电号码 138****0001</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前完成沟通 · 剩余 14 分钟</div></div>
 <div class="card"><div class="kv"><span>导盲犬</span><span>同行</span></div><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
-<div class="bottom"><div class="cta">聊过了，填见面安排</div><div class="ghost">不合适</div><div class="textbtn">一直没接到电话</div></div><div class="hi"></div></div>
-<div class="cap">V1 等来电<small>主按钮从「合适，接这一单」改成「聊过了，填见面安排」</small></div>
-<div class="speak"><b>读屏 · 进入时</b><q>等王*打电话给你。来电号码 138 星星星星 0001。22 点 42 分前聊完，还剩 14 分钟。</q></div></div>
+<div class="bottom"><div class="cta">填写见面安排</div><div class="ghost">不合适</div><div class="textbtn">未接到来电</div></div><div class="hi"></div></div>
+<div class="cap">V1 等来电<small>主按钮从「合适，接这一单」改成「填写见面安排」</small></div>
+<div class="speak"><b>读屏 · 进入时</b><q>等待跑者王*来电。来电号码 138 星星星星 0001。请在 22 点 42 分前完成沟通，剩余 14 分钟。</q></div></div>
 
 <div class="col"><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
 <div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门 · 3.2 公里</div>
  <svg class="rope" data-rope='{"icon":"phone","other":"王","labels":["邀请","约好","出发","汇合"]}'></svg>
- <div class="say">王*正在给你打电话</div><div class="say-sub">来电号码 138****0001，请接听</div>
+ <div class="say">跑者王*正在来电</div><div class="say-sub">来电号码 138****0001，请留意接听</div>
  <div class="incoming"><svg class="i"><use href="#phone"/></svg>来电提醒 · 2 分钟内有效</div></div>
 <div class="card"><div class="kv"><span>导盲犬</span><span>同行</span></div><div class="kv"><span>配速</span><span>每公里 6′30″–7′30″</span></div></div>
-<div class="bottom"><div class="cta">聊过了，填见面安排</div><div class="ghost">不合适</div><div class="textbtn">一直没接到电话</div></div><div class="hi"></div></div>
+<div class="bottom"><div class="cta">填写见面安排</div><div class="ghost">不合适</div><div class="textbtn">未接到来电</div></div><div class="hi"></div></div>
 <div class="cap">V1′ 跑者正在打来<small>收到后端 <code>INTRO_CALL_INCOMING</code> 后的 2 分钟。只说「正在打」，不说「通话中」—— 系统不知道接通没有</small></div>
-<div class="speak"><b>读屏 · 收到提醒时</b><q>王*正在给你打电话，请接听。</q></div></div>
+<div class="speak"><b>读屏 · 收到提醒时</b><q>跑者王*正在来电，请留意接听。</q></div></div>
 
 <div class="col"><div class="phone tall" data-sb>
 <div class="nav"><div class="navtxt">取消</div><div class="t">见面安排</div><div style="width:44px"></div></div>
-<div class="sheetHead">把电话里说好的写下来，跑者听完确认就算约好。没改的项不用动。</div>
-<div class="sec"><h4>开跑时间<span class="tag">已改</span></h4><div class="now"><span>明天 7:30 – 8:30</span><span class="chg">改</span></div><div class="was">原来 7:00 – 8:00</div></div>
-<div class="sec"><h4>集合地点<span class="tag">已改</span></h4><div class="now"><span>朝阳公园东门</span><span class="chg">改</span></div><div class="was">原来 朝阳公园南门 · 相距约 800 米（上限 3 公里）</div></div>
-<div class="sec"><h4>具体在哪儿见</h4><div class="input"><span>东门保安亭左边</span><span class="cnt">7 / 30</span></div></div>
-<div class="sec"><h4>你今天穿的上衣</h4><div class="chips">
- <div class="chip"><i style="background:#111"></i>黑</div><div class="chip"><i style="background:#fff"></i>白</div><div class="chip"><i style="background:#9AA0A6"></i>灰</div><div class="chip on"><i style="background:#D93025"></i>红</div><div class="chip"><i style="background:#F29900"></i>橙</div><div class="chip"><i style="background:#F9D71C"></i>黄</div><div class="chip"><i style="background:#188038"></i>绿</div><div class="chip"><i style="background:#1A73E8"></i>蓝</div><div class="chip"><i style="background:#8E24AA"></i>紫</div><div class="chip"><i style="background:#F48FB1"></i>粉</div><div class="chip unk">不确定</div></div></div>
-<div class="sec"><h4>跑者说他穿的上衣</h4><div class="chips">
- <div class="chip"><i style="background:#111"></i>黑</div><div class="chip"><i style="background:#fff"></i>白</div><div class="chip"><i style="background:#9AA0A6"></i>灰</div><div class="chip"><i style="background:#D93025"></i>红</div><div class="chip"><i style="background:#F29900"></i>橙</div><div class="chip"><i style="background:#F9D71C"></i>黄</div><div class="chip"><i style="background:#188038"></i>绿</div><div class="chip on"><i style="background:#1A73E8"></i>蓝</div><div class="chip"><i style="background:#8E24AA"></i>紫</div><div class="chip"><i style="background:#F48FB1"></i>粉</div><div class="chip unk">他不确定</div></div></div>
-<div class="remind">见面时请你主动走过去，先报自己的姓。</div>
-<div class="bottom"><div class="cta stack">发给跑者确认<small>改了时间、地点</small></div></div><div class="hi"></div></div>
-<div class="cap">V2 填见面安排（整页展开，实际可滚动）<small>色块是这一页唯一出现「内容颜色」的地方，只给明眼的陪跑员看；盲人端只念颜色名。一项不改时主按钮是「按原约，发给跑者确认」</small></div></div>
+<div class="sheetHead">请填写通话中商定的见面安排。跑者确认后即完成约定；未变更的项目无需修改。</div>
+<div class="sec"><h4>开跑时间<span class="tag">已变更</span></h4><div class="now"><span>明天 7:30 – 8:30</span><span class="chg">修改</span></div><div class="was">原定 7:00 – 8:00</div></div>
+<div class="sec"><h4>集合地点<span class="tag">已变更</span></h4><div class="now"><span>朝阳公园东门</span><span class="chg">修改</span></div><div class="was">原定 朝阳公园南门 · 距原地点约 800 米（调整上限 3 公里）</div></div>
+<div class="sec"><h4>具体见面位置</h4><div class="input"><span>东门保安亭左侧</span><span class="cnt">7 / 30</span></div></div>
+<div class="sec"><h4>本人上衣颜色</h4><div class="chips">
+ <div class="chip"><i style="background:#111"></i>黑</div><div class="chip"><i style="background:#fff"></i>白</div><div class="chip"><i style="background:#9AA0A6"></i>灰</div><div class="chip on"><i style="background:#D93025"></i>红</div><div class="chip"><i style="background:#F29900"></i>橙</div><div class="chip"><i style="background:#F9D71C"></i>黄</div><div class="chip"><i style="background:#188038"></i>绿</div><div class="chip"><i style="background:#1A73E8"></i>蓝</div><div class="chip"><i style="background:#8E24AA"></i>紫</div><div class="chip"><i style="background:#F48FB1"></i>粉</div><div class="chip unk">未确认</div></div></div>
+<div class="sec"><h4>跑者上衣颜色（通话中确认）</h4><div class="chips">
+ <div class="chip"><i style="background:#111"></i>黑</div><div class="chip"><i style="background:#fff"></i>白</div><div class="chip"><i style="background:#9AA0A6"></i>灰</div><div class="chip"><i style="background:#D93025"></i>红</div><div class="chip"><i style="background:#F29900"></i>橙</div><div class="chip"><i style="background:#F9D71C"></i>黄</div><div class="chip"><i style="background:#188038"></i>绿</div><div class="chip on"><i style="background:#1A73E8"></i>蓝</div><div class="chip"><i style="background:#8E24AA"></i>紫</div><div class="chip"><i style="background:#F48FB1"></i>粉</div><div class="chip unk">未确认</div></div></div>
+<div class="remind">见面时请主动上前，并告知跑者你的姓氏。</div>
+<div class="bottom"><div class="cta stack">提交跑者确认<small>已变更：开跑时间、集合地点</small></div></div><div class="hi"></div></div>
+<div class="cap">V2 填见面安排（整页展开，实际可滚动）<small>色块是这一页唯一出现「内容颜色」的地方，只给明眼的陪跑员看；盲人端只念颜色名。未变更任何项目时主按钮为「按原约定提交跑者确认」</small></div></div>
 
 <div class="col"><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
 <div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:30 · 朝阳公园东门</div>
  <svg class="rope" data-rope='{"icon":"doc","other":"王","meCheck":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
- <div class="say">已发给王*，等他确认</div><div class="say-sub">他确认后就算约好</div>
- <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前 · 还剩 9 分钟</div></div>
-<div class="card plan"><div class="item"><div class="lbl">开跑时间 <span class="tag">已改</span></div><div class="val">明天 7:30 – 8:30</div></div><div class="item"><div class="lbl">集合地点 <span class="tag">已改</span></div><div class="val">朝阳公园东门 · 东门保安亭左边</div></div><div class="item"><div class="lbl">上衣</div><div class="val" style="font-size:17px">你 红色 · 王* 蓝色</div></div></div>
-<div class="bottom"><div class="ghost">修改安排</div><div class="textbtn">不合适</div></div><div class="hi"></div></div>
-<div class="cap">V3 等跑者确认<small>不显示跑者在不在听、同不同意。点「修改安排」会先提示「改了之后跑者要重新确认」</small></div>
-<div class="speak"><b>读屏 · 提交成功</b><q>已发给王*确认。</q></div></div>
+ <div class="say">等待跑者王*确认</div><div class="say-sub">见面安排已提交，跑者确认后即完成约定</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>22:42 前 · 剩余 9 分钟</div></div>
+<div class="card plan"><div class="item"><div class="lbl">开跑时间 <span class="tag">已变更</span></div><div class="val">明天 7:30 – 8:30</div></div><div class="item"><div class="lbl">集合地点 <span class="tag">已变更</span></div><div class="val">朝阳公园东门 · 东门保安亭左侧</div></div><div class="item"><div class="lbl">上衣颜色</div><div class="val" style="font-size:17px">本人 红色 · 跑者 蓝色</div></div></div>
+<div class="bottom"><div class="ghost">修改见面安排</div><div class="textbtn">不合适</div></div><div class="hi"></div></div>
+<div class="cap">V3 等跑者确认<small>不显示跑者在不在听、同不同意。点「修改见面安排」会先提示「修改后需跑者重新确认」</small></div>
+<div class="speak"><b>读屏 · 提交成功</b><q>见面安排已提交，等待跑者确认。</q></div></div>
 
 <div class="col"><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">陪跑订单</div><div class="pill-help"><svg class="i"><use href="#shield"/></svg>求助</div></div>
 <div class="hero" style="background:var(--navy)"><div class="eyebrow">已约好</div>
  <svg class="rope" data-rope='{"cur":1,"other":"王","agreed":true,"labels":["邀请","约好","出发","汇合"]}'></svg>
- <div class="say">明天 7:30</div><div class="say-sub">请提前 10 分钟到东门保安亭左边</div></div>
-<div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园东门</span></div><div class="kv"><span>具体在哪儿见</span><span>东门保安亭左边</span></div><div class="kv"><span>王* 穿</span><span>蓝色上衣</span></div><div class="kv"><span>你说你穿</span><span>红色上衣</span></div></div>
+ <div class="say">明天 7:30</div><div class="say-sub">请提前 10 分钟到达东门保安亭左侧</div></div>
+<div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园东门</span></div><div class="kv"><span>具体见面位置</span><span>东门保安亭左侧</span></div><div class="kv"><span>跑者上衣</span><span>蓝色</span></div><div class="kv"><span>本人上衣</span><span>红色</span></div></div>
 <div class="bottom"></div><div class="hi"></div></div>
 <div class="cap">V4 约好<small>订单页「约好」新增见面点与两人上衣颜色，其余同现有陪跑员订单页</small></div>
-<div class="speak"><b>读屏 · 约好时</b><q>已约好。明天 7 点 30 分，朝阳公园东门，东门保安亭左边。王*穿蓝色上衣。</q></div></div>
+<div class="speak"><b>读屏 · 约好时</b><q>约定完成。明天 7 点 30 分，朝阳公园东门，东门保安亭左侧。跑者王*上衣为蓝色。</q></div></div>
 
 <div class="col"><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div style="width:44px"></div></div>
 <div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
  <svg class="rope" data-rope='{"other":"王","otherState":"none","labels":["邀请","约好","出发","汇合"]}'></svg>
- <div class="say m">这次通话确认已结束</div><div class="say-sub">感谢你的响应</div></div>
-<div class="bottom"><div class="cta">回首页</div></div><div class="hi"></div></div>
+ <div class="say m">本次沟通已结束</div><div class="say-sub">感谢你的响应</div></div>
+<div class="bottom"><div class="cta">返回首页</div></div><div class="hi"></div></div>
 <div class="cap">V4′ 没约成<small>跑者不合适 / 超时 / 跑者取消，全部同一句。v6 是停 3 秒自动跳走，本稿改为留在这里等陪跑员自己点</small></div>
-<div class="speak"><b>读屏</b><q>这次通话确认已结束，感谢你的响应。</q></div></div>
+<div class="speak"><b>读屏</b><q>本次沟通已结束，感谢你的响应。</q></div></div>
 </div>
 
 <!-- ================= 盲人端 ================= -->
@@ -232,48 +232,48 @@ table.tl{border-collapse:separate;border-spacing:0;background:#fff;border-radius
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
 <div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
  <svg class="rope" data-rope='{"icon":"phone","other":"李"}'></svg>
- <div class="say">李*想陪你跑</div><div class="say-sub">先打个电话，聊完他会把约定发给你确认</div>
- <div class="timer"><svg class="i"><use href="#clock"/></svg>还剩 19 分钟</div></div>
-<div class="bottom"><div class="cta big"><svg class="i"><use href="#phone"/></svg>打电话给李*</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
+ <div class="say">陪跑员李*已响应</div><div class="say-sub">请先与陪跑员通话。通话后，对方将提交见面安排供你确认。</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>剩余 19 分钟</div></div>
+<div class="bottom"><div class="cta big"><svg class="i"><use href="#phone"/></svg>致电陪跑员李*</div><div class="ghost">更换陪跑员</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
 <div class="cap">B1 待通话<small>同 v6 结构，副标题改为预告下一步</small></div>
-<div class="speak"><b>读屏 · 进入时</b><q>李*想陪你跑。先打个电话，聊完他会把约定发给你确认。还剩 19 分钟。</q></div></div>
+<div class="speak"><b>读屏 · 进入时</b><q>陪跑员李*已响应。请先与陪跑员通话。通话后，对方将提交见面安排供你确认。剩余 19 分钟。</q></div></div>
 
 <div class="col"><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">先通个电话</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
 <div class="hero" style="background:var(--matching)"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div>
  <svg class="rope" data-rope='{"icon":"doc","iconDim":true,"other":"李"}'></svg>
- <div class="say">等李*发来见面安排</div><div class="say-sub">他会把电话里说好的时间、地点写下来发给你。你听完点确认，就算约好。</div>
- <div class="timer"><svg class="i"><use href="#clock"/></svg>还剩 12 分钟</div></div>
-<div class="bottom"><div class="call"><svg class="i"><use href="#phone"/></svg>再打一次</div><div class="ghost">换一位</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
+ <div class="say">等待见面安排</div><div class="say-sub">陪跑员将按通话内容填写见面时间与地点，提交后由你确认。确认后即完成约定。</div>
+ <div class="timer"><svg class="i"><use href="#clock"/></svg>剩余 12 分钟</div></div>
+<div class="bottom"><div class="call"><svg class="i"><use href="#phone"/></svg>再次致电</div><div class="ghost">更换陪跑员</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
 <div class="cap">B2 等安排<small>只在 App 从<b>后台</b>回到前台时进入（拨号确认框点取消不算）。v6 的「聊过了，合适」去掉；这一屏没有黄色主按钮，因为此刻没有该你做的事</small></div>
-<div class="speak"><b>读屏 · 打完电话回来</b><q>等李*发来见面安排。他会把电话里说好的时间、地点写下来发给你。你听完点确认，就算约好。</q></div></div>
+<div class="speak"><b>读屏 · 打完电话回来</b><q>等待见面安排。陪跑员将按通话内容填写见面时间与地点，提交后由你确认。确认后即完成约定。</q></div></div>
 
 <div class="col"><div class="phone tall" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">见面安排</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
-<div class="foWrap"><div class="hero" style="background:var(--matching);padding-bottom:18px"><span class="fo">1</span><div class="eyebrow">李* 发来的</div>
- <div class="say m" style="margin-top:6px">见面安排，改了 2 项</div>
- <div class="timer" style="margin-top:10px"><svg class="i"><use href="#clock"/></svg>还剩 9 分钟</div></div></div>
+<div class="foWrap"><div class="hero" style="background:var(--matching);padding-bottom:18px"><span class="fo">1</span><div class="eyebrow">陪跑员李*已提交</div>
+ <div class="say m" style="margin-top:6px">见面安排（2 项变更）</div>
+ <div class="timer" style="margin-top:10px"><svg class="i"><use href="#clock"/></svg>剩余 9 分钟</div></div></div>
 <div class="card plan" style="margin-left:46px">
- <div class="item"><span class="fo">2</span><div class="lbl">开跑时间 <span class="tag">改了</span></div><div class="val">明天 7:30 – 8:30</div><div class="old">原来 7:00 – 8:00</div></div>
- <div class="item"><span class="fo">3</span><div class="lbl">集合地点 <span class="tag">改了</span></div><div class="val">朝阳公园东门</div><div class="old">原来南门，离原来的地方约 800 米</div></div>
- <div class="item"><span class="fo">4</span><div class="lbl">具体在哪儿见</div><div class="val">东门保安亭左边</div></div>
- <div class="item"><span class="fo">5</span><div class="lbl">上衣</div><div class="val" style="font-size:18px">李* 红色 · 他记下你穿蓝色</div></div>
- <div class="item"><span class="fo">6</span><div class="fixed">见面时他会走过来，先报自己的姓。</div></div>
+ <div class="item"><span class="fo">2</span><div class="lbl">开跑时间 <span class="tag">已变更</span></div><div class="val">明天 7:30 – 8:30</div><div class="old">原定 7:00 – 8:00</div></div>
+ <div class="item"><span class="fo">3</span><div class="lbl">集合地点 <span class="tag">已变更</span></div><div class="val">朝阳公园东门</div><div class="old">原定南门，距原地点约 800 米</div></div>
+ <div class="item"><span class="fo">4</span><div class="lbl">具体见面位置</div><div class="val">东门保安亭左侧</div></div>
+ <div class="item"><span class="fo">5</span><div class="lbl">上衣颜色</div><div class="val" style="font-size:18px">陪跑员：红色</div><div class="val" style="font-size:18px;margin-top:2px">你：蓝色（通话中确认）</div></div>
+ <div class="item"><span class="fo">6</span><div class="fixed">见面时由陪跑员主动上前，并告知姓氏。</div></div>
 </div>
-<div class="bottom" style="padding-left:46px"><div class="foWrap"><span class="fo btn">7</span><div class="cta big">对，就这样</div></div><div class="foWrap"><span class="fo btn">8</span><div class="call"><svg class="i"><use href="#phone"/></svg>不对，再打电话说</div></div><div class="foWrap"><span class="fo btn">9</span><div class="ghost">换一位</div></div><div class="foWrap"><span class="fo btn">10</span><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div></div><div class="hi"></div></div>
-<div class="cap">B3 听安排、做确认（核心）<small>「对」与「不对」同样高（84pt），避免让人觉得被迫同意。顺序固定：时间 → 地点 → 见面点 → 上衣 → 固定句。整页展开画出，实际可滚动，「求助与安全」常驻底部。左侧缩进只是为了放读屏序号，实现时不缩进</small></div>
-<div class="speak"><b>读屏 · 安排一到（焦点落 ①）</b><q>李*发来了见面安排，改了 2 项。</q><br>
-<b style="margin-top:6px">往右滑依次念</b>② <q>开跑时间，改了：从明天 7 点改为 7 点 30，到 8 点 30 结束。</q> ③ <q>集合地点，改了：从朝阳公园南门改为东门，离原来的地方约 800 米。</q> ④ <q>具体在哪儿见：东门保安亭左边。</q> ⑤ <q>李*今天穿红色上衣。他记下你穿蓝色上衣，不对可以打电话告诉他。</q> ⑥ <q>见面时他会走过来，先报自己的姓。</q></div></div>
+<div class="bottom" style="padding-left:46px"><div class="foWrap"><span class="fo btn">7</span><div class="cta big">确认见面安排</div></div><div class="foWrap"><span class="fo btn">8</span><div class="call"><svg class="i"><use href="#phone"/></svg>有异议，致电沟通</div></div><div class="foWrap"><span class="fo btn">9</span><div class="ghost">更换陪跑员</div></div><div class="foWrap"><span class="fo btn">10</span><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div></div><div class="hi"></div></div>
+<div class="cap">B3 听安排、做确认（核心）<small>「确认」与「有异议」同样高（84pt），避免让人觉得被迫同意。顺序固定：时间 → 地点 → 见面点 → 上衣 → 固定句。整页展开画出，实际可滚动，「求助与安全」常驻底部。左侧缩进只是为了放读屏序号，实现时不缩进</small></div>
+<div class="speak"><b>读屏 · 安排一到（焦点落 ①）</b><q>陪跑员李*已提交见面安排，共 2 项变更。</q><br>
+<b style="margin-top:6px">往右滑依次念</b>② <q>开跑时间，已变更：由明天 7 点改为 7 点 30，8 点 30 结束。</q> ③ <q>集合地点，已变更：由朝阳公园南门改为东门，距原地点约 800 米。</q> ④ <q>具体见面位置：东门保安亭左侧。</q> ⑤ <q>陪跑员上衣为红色。你的上衣记录为蓝色，如有误请致电更正。</q> ⑥ <q>见面时由陪跑员主动上前，并告知姓氏。</q></div></div>
 
 <div class="col"><div class="phone" data-sb>
 <div class="nav"><div class="circ"><svg class="i"><use href="#back"/></svg></div><div class="t">陪跑订单</div><div class="circ"><svg class="i"><use href="#speaker"/></svg></div></div>
 <div class="hero" style="background:var(--navy)"><div class="eyebrow">已约好</div>
  <svg class="rope" data-rope='{"cur":1,"other":"李","agreed":true}'></svg>
- <div class="say">明天 7:30</div><div class="say-sub">请提前 10 分钟到东门保安亭左边</div></div>
-<div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园东门</span></div><div class="kv"><span>具体在哪儿见</span><span>东门保安亭左边</span></div><div class="kv"><span>李* 穿</span><span>红色上衣</span></div></div>
-<div class="bottom"><div class="cta"><svg class="i"><use href="#phone"/></svg>打电话给李*</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
+ <div class="say">明天 7:30</div><div class="say-sub">请提前 10 分钟到达东门保安亭左侧</div></div>
+<div class="card"><div class="kv"><span>集合地点</span><span>朝阳公园东门</span></div><div class="kv"><span>具体见面位置</span><span>东门保安亭左侧</span></div><div class="kv"><span>陪跑员上衣</span><span>红色</span></div></div>
+<div class="bottom"><div class="cta"><svg class="i"><use href="#phone"/></svg>致电陪跑员李*</div><div class="help"><svg class="i"><use href="#shield"/></svg>求助与安全</div></div><div class="hi"></div></div>
 <div class="cap">约好<small>沿用订单页「约好」（藏青），信息卡新增两行</small></div>
-<div class="speak"><b>读屏 · 约好时</b><q>约好了。明天 7 点 30 分，朝阳公园东门，东门保安亭左边。李*穿红色上衣，见面时他会先报姓。</q></div></div>
+<div class="speak"><b>读屏 · 约好时</b><q>约定完成。明天 7 点 30 分，朝阳公园东门，东门保安亭左侧。陪跑员李*上衣为红色，见面时将主动上前并告知姓氏。</q></div></div>
 </div>
 
 <!-- ================= 异常与临期 ================= -->
@@ -282,34 +282,34 @@ table.tl{border-collapse:separate;border-spacing:0;background:#fff;border-radius
 <div class="row">
 
 <div class="col"><div class="snip">
-<div class="hero" style="background:var(--matching);margin-top:0"><div class="eyebrow">李* 发来的</div><div class="say m" style="margin-top:6px">李*改了安排，请再听一遍</div><div class="timer" style="margin-top:10px"><svg class="i"><use href="#clock"/></svg>还剩 6 分钟</div></div>
-<div class="card plan"><div class="item"><div class="lbl">开跑时间 <span class="tag">改了</span></div><div class="val">明天 7:20 – 8:20</div><div class="old">原来 7:00 – 8:00</div></div></div></div>
-<div class="cap">盲人在 B3 时陪跑员又改了<small>或点「对」时后端回 409（版本过期）。不当错误念，焦点回到标题</small></div>
-<div class="speak"><b>读屏</b><q>李*改了安排，请再听一遍。</q></div></div>
+<div class="hero" style="background:var(--matching);margin-top:0"><div class="eyebrow">陪跑员李*已提交</div><div class="say m" style="margin-top:6px">见面安排已修改，请重新收听</div><div class="timer" style="margin-top:10px"><svg class="i"><use href="#clock"/></svg>剩余 6 分钟</div></div>
+<div class="card plan"><div class="item"><div class="lbl">开跑时间 <span class="tag">已变更</span></div><div class="val">明天 7:20 – 8:20</div><div class="old">原定 7:00 – 8:00</div></div></div></div>
+<div class="cap">盲人在 B3 时陪跑员又改了<small>或点「确认见面安排」时后端回 409（版本过期）。不当错误念，焦点回到标题</small></div>
+<div class="speak"><b>读屏</b><q>陪跑员已修改见面安排，请重新收听。</q></div></div>
 
 <div class="col"><div class="snip">
-<div class="banner"><div style="display:flex;gap:8px"><svg class="i"><use href="#alert"/></svg><span>没有发出去，请再点一次「对，就这样」。</span></div></div>
-<div class="bottom" style="padding-bottom:0"><div class="cta big">对，就这样</div></div></div>
-<div class="cap">盲人点「对」失败<small>留在 B3，红条出现在按钮上方并播报</small></div>
-<div class="speak"><b>读屏</b><q>没有发出去，请再点一次。</q></div></div>
+<div class="banner"><div style="display:flex;gap:8px"><svg class="i"><use href="#alert"/></svg><span>确认未送达，请重新点按「确认见面安排」。</span></div></div>
+<div class="bottom" style="padding-bottom:0"><div class="cta big">确认见面安排</div></div></div>
+<div class="cap">盲人确认失败<small>留在 B3，红条出现在按钮上方并播报</small></div>
+<div class="speak"><b>读屏</b><q>确认未送达，请重试。</q></div></div>
 
 <div class="col"><div class="snip">
-<div class="sec" style="margin-top:0"><h4>开跑时间<span class="tag">已改</span></h4><div class="now"><span>今天 21:30 – 22:30</span><span class="chg">改</span></div>
-<div class="err"><svg class="i" style="width:18px;height:18px"><use href="#alert"/></svg><span>整段跑步不能跨过晚上 10 点到早上 5 点，换一个时间。</span></div></div>
-<div class="sec"><h4>集合地点<span class="tag">已改</span></h4><div class="now"><span>奥林匹克森林公园南门</span><span class="chg">改</span></div>
-<div class="err"><svg class="i" style="width:18px;height:18px"><use href="#alert"/></svg><span>离原来的地方 8.4 公里，最远只能改到 3 公里内。</span></div></div></div>
-<div class="cap">陪跑员提交被拦<small>错误写在对应那一块下面，已填内容保留。跑者那边时段冲突只说「这个时间不行，换一个试试」，不说原因</small></div></div>
+<div class="sec" style="margin-top:0"><h4>开跑时间<span class="tag">已变更</span></h4><div class="now"><span>今天 21:30 – 22:30</span><span class="chg">修改</span></div>
+<div class="err"><svg class="i" style="width:18px;height:18px"><use href="#alert"/></svg><span>行程时段不得与 22:00–05:00 重叠，请调整时间。</span></div></div>
+<div class="sec"><h4>集合地点<span class="tag">已变更</span></h4><div class="now"><span>奥林匹克森林公园南门</span><span class="chg">修改</span></div>
+<div class="err"><svg class="i" style="width:18px;height:18px"><use href="#alert"/></svg><span>距原集合地点 8.4 公里，超出 3 公里调整上限。</span></div></div></div>
+<div class="cap">陪跑员提交被拦<small>错误写在对应那一块下面，已填内容保留。跑者那边时段冲突只说「该时段不可用，请调整时间」，不说原因</small></div></div>
 
 <div class="col"><div class="snip">
-<div class="banner warm"><b>还剩 5 分钟</b><br>听完安排，请点「对，就这样」。</div>
-<div class="banner warm" style="margin-top:10px"><b>李*发来的见面安排还没确认</b><br>发来 10 分钟了。没离开 App 也会收到这条通知。</div></div>
-<div class="cap">临期提醒（盲人端）<small>倒计时平时静默，只在剩 5 分钟、剩 1 分钟各播一次；安排单发来 10 分钟未确认提醒一次。不足 1 分钟显示「不到 1 分钟」，不再整行消失</small></div>
-<div class="speak"><b>读屏</b><q>还剩 5 分钟，听完安排请点确认。</q></div></div>
+<div class="banner warm"><b>剩余 5 分钟</b><br>请收听见面安排并确认。</div>
+<div class="banner warm" style="margin-top:10px"><b>见面安排待确认</b><br>陪跑员已提交 10 分钟，请尽快确认。</div></div>
+<div class="cap">临期提醒（盲人端）<small>倒计时平时静默，只在剩 5 分钟、剩 1 分钟各播一次；安排单发来 10 分钟未确认提醒一次（App 不在前台时以本地通知送达）。不足 1 分钟显示「不到 1 分钟」，不再整行消失</small></div>
+<div class="speak"><b>读屏</b><q>剩余 5 分钟，请确认见面安排。</q></div></div>
 
 <div class="col"><div class="snip">
-<div class="hero" style="background:var(--matching);margin-top:0"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div><div class="say m" style="margin-top:6px">这次安排没有生效</div><div class="say-sub">正在为你寻找合适的陪跑伙伴</div></div></div>
+<div class="hero" style="background:var(--matching);margin-top:0"><div class="eyebrow">明天 7:00 · 朝阳公园南门</div><div class="say m" style="margin-top:6px">本次见面安排未生效</div><div class="say-sub">正在为你寻找合适的陪跑伙伴</div></div></div>
 <div class="cap">盲人在 B3 时超时<small>先说「没有生效」，免得以为刚听的安排已经定了；再接现有那句继续寻找</small></div>
-<div class="speak"><b>读屏</b><q>这次安排没有生效。正在为你寻找合适的陪跑伙伴。</q></div></div>
+<div class="speak"><b>读屏</b><q>本次见面安排未生效。正在为你寻找合适的陪跑伙伴。</q></div></div>
 </div>
 
 <!-- ================= 时间线 ================= -->
@@ -317,25 +317,25 @@ table.tl{border-collapse:separate;border-spacing:0;background:#fff;border-radius
 <p class="h2sub">中间一列是系统真正知道的事。界面只说这一列里有的事 —— 例如系统不知道电话接通没有，所以两端都不说「通话中」。</p>
 <table class="tl">
 <tr><th>#</th><th>盲人端</th><th>系统知道什么</th><th>陪跑员端</th></tr>
-<tr><td>1</td><td>B1 弹出，播 <span class="sayq">「有一位志愿者想陪您跑步……」</span>（后端 <code>INTRO_CALL_READY</code>）</td><td class="sys">陪跑员点了「有意向」，20 分钟窗口开始</td><td>V1「等王*打电话给你」</td></tr>
-<tr><td>2</td><td>点「打电话给李*」→ 系统拨号确认框 → 进入系统电话</td><td class="sys">盲人按了拨号（<code>notify-incoming</code>，客户端 60 秒内最多发一次）</td><td>V1′ 播 <span class="sayq">「王*正在给你打电话，请接听」</span>，持续 2 分钟</td></tr>
+<tr><td>1</td><td>B1 弹出，播 <span class="sayq">「有一位志愿者想陪您跑步……」</span>（后端 <code>INTRO_CALL_READY</code>）</td><td class="sys">陪跑员点了「有意向」，20 分钟窗口开始</td><td>V1「等待跑者王*来电」</td></tr>
+<tr><td>2</td><td>点「致电陪跑员李*」→ 系统拨号确认框 → 进入系统电话</td><td class="sys">盲人按了拨号（<code>notify-incoming</code>，客户端 60 秒内最多发一次）</td><td>V1′ 播 <span class="sayq">「跑者王*正在来电，请留意接听」</span>，持续 2 分钟</td></tr>
 <tr><td>3</td><td>（在系统电话里，App 不显示）</td><td class="sys"><b>不知道</b>接通没有、聊了多久</td><td>（在接电话）</td></tr>
-<tr><td>4</td><td>挂断回到 App → B2「等李*发来见面安排」</td><td class="sys">只知道 App 从后台回到了前台</td><td>点「聊过了，填见面安排」→ V2</td></tr>
-<tr><td>5</td><td>B3 自动出现，焦点落标题，播 <span class="sayq">「李*发来了见面安排，改了 2 项」</span></td><td class="sys">收到安排单第 1 版；校验通过（提前量、7 天、时长、夜间、3 公里、时段）</td><td>V3，播 <span class="sayq">「已发给王*确认」</span></td></tr>
-<tr class="branch"><td>5a</td><td>点「不对，再打电话说」→ 直接拨号</td><td class="sys">又一次 <code>notify-incoming</code>；安排单保留</td><td>再次 V1′ 来电提醒 —— <b>不告诉他「跑者不同意」</b></td></tr>
-<tr class="branch"><td>5b</td><td>（若在听）焦点回标题，播 <span class="sayq">「李*改了安排，请再听一遍」</span></td><td class="sys">安排单第 2 版，盲人之前的确认作废</td><td>点「修改安排」重新提交</td></tr>
+<tr><td>4</td><td>挂断回到 App → B2「等待见面安排」</td><td class="sys">只知道 App 从后台回到了前台</td><td>点「填写见面安排」→ V2</td></tr>
+<tr><td>5</td><td>B3 自动出现，焦点落标题，播 <span class="sayq">「陪跑员李*已提交见面安排，共 2 项变更」</span></td><td class="sys">收到安排单第 1 版；校验通过（提前量、7 天、时长、夜间、3 公里、时段）</td><td>V3，播 <span class="sayq">「见面安排已提交，等待跑者确认」</span></td></tr>
+<tr class="branch"><td>5a</td><td>点「有异议，致电沟通」→ 直接拨号</td><td class="sys">又一次 <code>notify-incoming</code>；安排单保留</td><td>再次 V1′ 来电提醒 —— <b>不告诉他「跑者不同意」</b></td></tr>
+<tr class="branch"><td>5b</td><td>（若在听）焦点回标题，播 <span class="sayq">「陪跑员已修改见面安排，请重新收听」</span></td><td class="sys">安排单第 2 版，盲人之前的确认作废</td><td>点「修改见面安排」重新提交</td></tr>
 <tr><td>6</td><td>安排单发来 10 分钟未确认 → 提醒一次（播报 + 本地通知）</td><td class="sys">安排单版本与盲人确认状态</td><td>不提醒，不显示跑者状态</td></tr>
-<tr><td>7</td><td>剩 5 分钟、剩 1 分钟各播一次，内容按当前屏说下一步</td><td class="sys"><code>windowEndsAt</code></td><td>同样两次，<span class="sayq">「还剩 5 分钟」</span></td></tr>
-<tr><td>8</td><td>点「对，就这样」→ 订单页「约好」，播整句约定</td><td class="sys">盲人确认最新版本 → 成单前复检 → 写入订单 → 成单</td><td>V4 约好，播 <span class="sayq">「已约好……」</span></td></tr>
-<tr class="branch"><td>8′</td><td>超时 / 换一位 → <span class="sayq">「这次安排没有生效。正在为你寻找……」</span></td><td class="sys">本轮结束，安排单删除</td><td>V4′ 没约成（同一句，不说原因）</td></tr>
+<tr><td>7</td><td>剩 5 分钟、剩 1 分钟各播一次，内容按当前屏说下一步</td><td class="sys"><code>windowEndsAt</code></td><td>同样两次，<span class="sayq">「剩余 5 分钟」</span></td></tr>
+<tr><td>8</td><td>点「确认见面安排」→ 订单页「约好」，播整句约定</td><td class="sys">盲人确认最新版本 → 成单前复检 → 写入订单 → 成单</td><td>V4 约好，播 <span class="sayq">「约定完成……」</span></td></tr>
+<tr class="branch"><td>8′</td><td>超时 / 更换陪跑员 → <span class="sayq">「本次见面安排未生效。正在为你寻找……」</span></td><td class="sys">本轮结束，安排单删除</td><td>V4′ 没约成（同一句，不说原因）</td></tr>
 </table>
 
 <div class="notes">
 <h3>请负责人确认的视觉决定</h3>
 <b>1. 颜色</b>　通话整步沿用「匹配 / 邀请」灰蓝，去掉 v6 的紫和梅红（头卡色 8 → 6）。⚠️ 灰蓝本身来自在途 PR #399；若 #399 最终不用灰蓝，通话步骤跟随匹配页（main 上盲人端匹配页是白卡）。<br>
-<b>2. 子状态怎么区分</b>　靠头卡那句话 + 绳子第一段上的小图标：电话（等通话）→ 灰色单子（等安排）→ 不画绳子、改成大标题「见面安排，改了 N 项」（听安排）。<br>
-<b>3. B3 的两个大按钮</b>　「对，就这样」黄、「不对，再打电话说」白底蓝框，<b>同样 84pt 高</b>。<br>
-<b>4. 「改了」标记</b>　浅蓝小标签 + 下面一行「原来 …」。不用删除线（读屏念不出删除线）。<br>
+<b>2. 子状态怎么区分</b>　靠头卡那句话 + 绳子第一段上的小图标：电话（等通话）→ 灰色单子（等安排）→ 不画绳子、改成大标题「见面安排（N 项变更）」（听安排）。<br>
+<b>3. B3 的两个大按钮</b>　「确认见面安排」黄、「有异议，致电沟通」白底蓝框，<b>同样 84pt 高</b>。<br>
+<b>4. 「已变更」标记</b>　浅蓝小标签 + 下面一行「原定 …」。不用删除线（读屏念不出删除线）。<br>
 <b>5. 上衣颜色</b>　陪跑员表单里用色块（内容颜色，不是界面装饰色）；盲人端只出现颜色名。
 
 <h3>不变的规则</h3>
