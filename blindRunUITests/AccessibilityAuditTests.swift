@@ -2299,6 +2299,112 @@ final class AccessibilityAuditTests: XCTestCase {
     // 那条红的根因不是按钮太小，是**阈值写成了与屏高绑定的固定比例**。
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
+    // MARK: 先通个电话 · 见面安排单（#434）
+
+    /// 打开一张 `PENDING_INTRO_CALL` 的单，陪跑员已交一版安排单（Mock 种子：开跑推迟 30 分钟、集合点挪到东门）。
+    /// 订单页一进来就自动弹通话页，安排单在第一次拉通话数据时就有 ⇒ 直接落在 B3。
+    @MainActor
+    private func openBlindIntroCallPlanReview() -> XCUIApplication {
+        let app = launchBlindHome(
+            emptyOrders: false,
+            seedOrderStatus: "PENDING_INTRO_CALL",
+            extraEnvironment: ["AIDRUN_UI_TEST_SEED_INTRO_CALL_PLAN": "1"]
+        )
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+        return app
+    }
+
+    /// B3「确认见面安排」（视觉稿 v2 ③ B3）：
+    /// - 标题是一个读屏元素，念「陪跑员李已提交见面安排，共 2 项变更。」（去星号）；
+    /// - 下面五项各自一个元素，**从上到下**是 开跑时间 → 集合地点 → 具体见面位置 → 上衣颜色 → 固定句；
+    /// - 「确认见面安排」「有异议，致电沟通」滚到之后**同高**且 ≥ 84pt，「更换陪跑员」≥ 64pt；
+    /// - 「求助与安全」不滚动就在屏内、点得到（底栏常驻，不被内容盖住）；
+    /// - 整页过一遍无障碍审计。
+    ///
+    /// ⚠️ 「焦点落在标题上」XCUITest 读不到（没有读 VoiceOver 焦点的接口）：这里钉的是焦点要落的那个元素
+    /// 存在、是标题、文案对；焦点本身要开 VoiceOver 真机听。
+    @available(iOS 17.0, *)
+    @MainActor
+    func testBlindIntroCallPlanReviewReadsInOrderKeepsTheDecisionButtonsBigAndPassesAudit() throws {
+        let app = openBlindIntroCallPlanReview()
+
+        let title = app.descendants(matching: .any)["blindIntroCallPlanTitle"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "没有落到 B3 —— 安排单种子没生效，或子状态没以服务端安排单为准")
+        XCTAssertEqual(title.label, "陪跑员李已提交见面安排，共 2 项变更。")
+
+        let rowIds = [
+            "blindIntroCallPlanRowTime", "blindIntroCallPlanRowPlace", "blindIntroCallPlanRowMeetSpot",
+            "blindIntroCallPlanRowColors", "blindIntroCallPlanRowGreeting"
+        ]
+        var lastMinY = title.frame.minY
+        for id in rowIds {
+            let row = app.descendants(matching: .any)[id].firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "B3 缺了 \(id) 这一项")
+            XCTAssertGreaterThan(row.frame.minY, lastMinY, "\(id) 不在上一项下面 —— 朗读顺序被打乱了")
+            lastMinY = row.frame.minY
+        }
+        let timeRow = app.descendants(matching: .any)["blindIntroCallPlanRowTime"].firstMatch
+        XCTAssertTrue(timeRow.label.hasPrefix("开跑时间，已变更："), "改过的时间没念「已变更」：\(timeRow.label)")
+        let placeRow = app.descendants(matching: .any)["blindIntroCallPlanRowPlace"].firstMatch
+        XCTAssertTrue(placeRow.label.contains("距原地点约"), "改过的集合点没念离原地点多远：\(placeRow.label)")
+
+        // 求助与安全：不滚动就在屏内、点得到。
+        let safetyHub = app.descendants(matching: .any)["blindIntroCallSafetyHubButton"].firstMatch
+        XCTAssertTrue(safetyHub.waitForExistence(timeout: 5))
+        XCTAssertTrue(safetyHub.isHittable, "底部「求助与安全」被盖住了")
+        XCTAssertLessThanOrEqual(safetyHub.frame.maxY, app.frame.maxY, "「求助与安全」要下滑才够得到")
+        XCTAssertGreaterThanOrEqual(safetyHub.frame.height, Self.minimumBlindPrimaryButtonHeight)
+
+        // 三枚决定按钮：滚到之后再量（SwiftUI 不渲染屏外的东西，记忆 `snapshot-timeout-means-a-system-app-took-over`）。
+        let confirm = app.descendants(matching: .any)["blindIntroCallConfirmPlanButton"].firstMatch
+        let dispute = app.descendants(matching: .any)["blindIntroCallDisputePlanButton"].firstMatch
+        let decline = app.descendants(matching: .any)["blindIntroCallDeclineButton"].firstMatch
+        for button in [confirm, dispute, decline] {
+            XCTAssertTrue(button.waitForExistence(timeout: 5))
+            scrollTo(button, in: app)
+            XCTAssertTrue(button.isHittable, "\(button.identifier) 滚到底也点不到 —— 被底栏盖住了")
+        }
+        XCTAssertEqual(confirm.label, "确认见面安排")
+        XCTAssertEqual(dispute.label, "有异议，致电沟通")
+        XCTAssertGreaterThanOrEqual(confirm.frame.height, 84, "「确认见面安排」低于视觉稿的 84pt")
+        XCTAssertEqual(
+            confirm.frame.height, dispute.frame.height, accuracy: 0.5,
+            "「确认」与「有异议」不一样高 —— 视觉稿要求同高，免得让人觉得被迫同意"
+        )
+        XCTAssertGreaterThanOrEqual(decline.frame.height, Self.minimumBlindPrimaryButtonHeight)
+        XCTAssertLessThan(confirm.frame.minY, dispute.frame.minY, "「确认」要在「有异议」上面")
+
+        try audit(app)
+    }
+
+    /// 按「确认见面安排」→ 订单约好，通话页收起，订单页信息卡多出「具体见面位置」「陪跑员上衣」两行。
+    /// 这一条钉的是中间那根线：按钮 → `confirmIntroCallPlan`（带版本）→ Mock 成单写入安排单 → 订单页渲染。
+    @MainActor
+    func testConfirmingTheMeetupPlanLandsOnTheAgreedOrderWithTheMeetSpot() throws {
+        let app = openBlindIntroCallPlanReview()
+        let title = app.descendants(matching: .any)["blindIntroCallPlanTitle"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "没有落到 B3")
+
+        let confirm = app.descendants(matching: .any)["blindIntroCallConfirmPlanButton"].firstMatch
+        scrollTo(confirm, in: app)
+        XCTAssertTrue(confirm.isHittable, "「确认见面安排」点不到，下面那一下会点到底栏的求助")
+        confirm.tap()
+
+        XCTAssertTrue(
+            title.waitForNonExistence(timeout: 15),
+            "确认之后通话页没有收起 —— 订单没转到「约好」"
+        )
+        let meetSpot = app.descendants(matching: .any)["blindOrderFlowMeetSpotRow"].firstMatch
+        for _ in 0..<6 where !meetSpot.exists { app.swipeUp() }
+        XCTAssertTrue(meetSpot.waitForExistence(timeout: 10), "约好页没有「具体见面位置」那一行")
+        XCTAssertEqual(meetSpot.label, "具体见面位置，东门保安亭左侧")
+        let colour = app.descendants(matching: .any)["blindOrderFlowVolunteerTopColorRow"].firstMatch
+        XCTAssertTrue(colour.exists, "约好页没有「陪跑员上衣」那一行")
+        XCTAssertEqual(colour.label, "陪跑员上衣，红色")
+    }
+
     @available(iOS 17.0, *)
     private func audit(_ app: XCUIApplication) throws {
         // iOS 侧七个审计类型**全部**启用。少一项就少一类缺陷，而少了哪一项从测试结果上
@@ -2317,7 +2423,8 @@ final class AccessibilityAuditTests: XCTestCase {
         // 2026-10-06（#349）盲人订单页的底栏同理：「求助与安全」那条是不透明栏，横屏下 v2 头卡把副文与信息卡
         // 推到它后面，元素截图里只有栏的红边与粉底（「系统正在派单，请稍候。」「时间」两条）。
         let occludingBarTop: CGFloat? = {
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar"] {
+            // 盲人通话页（#434）同一条底栏组件：B3 的安排单在「求助与安全」后面滚动。
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
                 if bar.exists { return bar.frame.minY }
             }

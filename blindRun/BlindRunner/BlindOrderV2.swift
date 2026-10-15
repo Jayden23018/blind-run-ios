@@ -94,11 +94,11 @@ struct BlindOrderHero: Equatable {
             )
         case .matching:
             // 先通个电话（`PENDING_INTRO_CALL`）也落在第 1 格，但是一个**不同的状态**：
-            // 头卡换「通话前」紫、对方头像实心（已经有候选人）。不挂电话图标 —— 订单页不知道
-            // 用户打没打过（那在通话页的本地状态里），挂了就可能是错的。
+            // 对方头像实心（已经有候选人）。不挂电话图标 —— 订单页不知道用户打没打过，挂了就可能是错的。
+            // 头卡颜色与匹配中**相同**（视觉稿 v2 决定 1，#434）：通话这一步不再加颜色，状态由那句话承担。
             if order.status == .pendingIntroCall {
                 return Self(eyebrow: startEyebrow(start, now: now) ?? "先通个电话", headline: presentation.title,
-                            lines: lines, warning: presentation.warning, rope: .introCall(.afterCall), tone: .calling)
+                            lines: lines, warning: presentation.warning, rope: .introCall(.afterCall), tone: .matching)
             }
             return Self(eyebrow: startEyebrow(start, now: now) ?? "匹配中", headline: presentation.title,
                         lines: lines, warning: presentation.warning, rope: .invited, tone: .matching)

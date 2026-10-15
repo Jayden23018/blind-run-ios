@@ -172,8 +172,12 @@ enum IntroCallCopy {
 
     // MARK: 盲人侧
 
-    static let callButtonTitle = "打电话给这位志愿者"
-    static let callAgainButtonTitle = "再打一次"
+    /// B1 主按钮（视觉稿 v2「致电陪跑员李*」）。拿不到称呼时用这一句，不留空。
+    static let callButtonTitle = "致电陪跑员"
+    static func callButtonTitle(counterpartName: String?) -> String {
+        counterpartName?.nilIfBlank.map { "致电陪跑员\($0)" } ?? callButtonTitle
+    }
+    static let callAgainButtonTitle = "再次致电"
 
     /// 🚨 **hint 里不许出现号码。**
     ///
@@ -183,14 +187,11 @@ enum IntroCallCopy {
     /// 唯一有用的信息是「会先弹确认」。
     static let callAccessibilityHint = "系统会先弹出拨号确认，确认后才会拨出"
 
-    static let acceptButtonTitle = "聊过了，合适"
-    static let acceptAccessibilityHint = "告诉系统你觉得这位志愿者合适。双方都说合适才算约好"
-
     /// 盲人侧的「不合适」。
     ///
-    /// 措辞是「换一位」而不是「拒绝这位志愿者」：后者把一次退出说成一次否定他人，
-    /// 而这个功能的全部意义就是让退出不带评判。
-    static let declineButtonTitle = "换一位"
+    /// 措辞是「更换陪跑员」而不是「拒绝这位志愿者」：后者把一次退出说成一次否定他人，
+    /// 而这个功能的全部意义就是让退出不带评判。2026-10-15 视觉稿 v2 由「换一位」书面化而来。
+    static let declineButtonTitle = "更换陪跑员"
     static let declineAccessibilityHint = "结束这次通话确认，系统继续为你寻找陪跑伙伴"
 
     /// 我已表态、等对方时的进行时文案。
@@ -223,23 +224,56 @@ enum IntroCallCopy {
     static let blindEntryButtonTitle = "和这位志愿者通话确认"
     static let blindEntryAccessibilityHint = "打开通话确认页，在那里拨号并告诉系统合不合适"
 
-    /// 阶段 A 的页面标题。与 `blindCallSectionAnnouncement` 拆成标题 + 副标题两截，
-    /// 不是新写一套措辞：整屏只有一件事时，「谁」和「要做什么」该是两个 VoiceOver 焦点，
-    /// 用户滑一下就能跳过已经听过的那半句直接到按钮。
-    static func blindPageTitle(counterpartName: String) -> String {
-        "\(counterpartName)想陪你跑"
+    // MARK: 盲人侧 B1–B3（#434，视觉稿 v2 `docs/ui/mockups/intro-call-meetup-plan-20261015/` ③④，逐字）
+
+    /// B1 待通话的标题。`counterpartName` 传后端的掩码称呼（`李*`），读屏那一路调用方自己去星号。
+    static func blindAwaitingCallTitle(counterpartName: String) -> String {
+        "陪跑员\(counterpartName)已响应"
     }
 
-    static let blindPageSubtitle = "先打个电话聊聊，双方都觉得合适就算约好了。"
+    /// B1 副标题：预告下一步（对方会发安排单来），而不是 v6 的「双方都觉得合适就算约好」——
+    /// 那句话在安排单之后已经不成立：约不约好由盲人确认安排单决定。
+    static let blindAwaitingCallSubtitle = "请先与陪跑员通话。通话后，对方将提交见面安排供你确认。"
 
-    /// 阶段 B（拨号返回后）的标题。
-    ///
-    /// 🚩 措辞是**开放式提问**而不是「请确认是否合适」：后者预设了「该说合适」，
-    /// 而这一屏的两个出口是平权的 —— 说「换一位」不需要理由，也不该显得像是拒绝了谁。
-    static func blindAfterCallTitle(counterpartName: String) -> String {
-        "和\(counterpartName)聊得怎么样"
+    /// B2 等安排。**这一屏刻意没有主按钮**：此刻没有该盲人做的事（视觉稿 B2 注）。
+    static let blindAwaitingPlanTitle = "等待见面安排"
+    static let blindAwaitingPlanSubtitle = "陪跑员将按通话内容填写见面时间与地点，提交后由你确认。确认后即完成约定。"
+
+    /// B3 的导航栏标题。
+    static let blindPlanPageTitle = "见面安排"
+
+    /// B3 头部第一行「陪跑员李*已提交」。
+    static func blindPlanSubmittedBy(counterpartName: String) -> String {
+        "陪跑员\(counterpartName)已提交"
     }
 
+    /// B3 头部大字「见面安排（2 项变更）」。读屏不念这一行 —— 标题元素念 `planSpeech.title`。
+    static func blindPlanHeadline(changeCount: Int) -> String {
+        changeCount > 0 ? "见面安排（\(changeCount) 项变更）" : "见面安排（无变更）"
+    }
+
+    /// 陪跑员改了一版之后头部那一行（视觉稿 ④ 第一块）。读屏念的是 `IntroCallMeetupCopy.planChangedRelisten`。
+    static let blindPlanChangedHeadline = "见面安排已修改，请重新收听"
+
+    static let blindConfirmPlanButtonTitle = "确认见面安排"
+    static let blindConfirmPlanAccessibilityHint = "确认后即完成约定"
+    /// 「有异议」直接拨号，安排单保留。陪跑员那边只会再收到一次「跑者正在给你打电话」，
+    /// **不暴露「跑者不同意」**（设计文档 §3）。
+    static let blindDisputePlanButtonTitle = "有异议，致电沟通"
+
+    /// 确认没送到时**屏幕上**那一条红字（视觉稿 ④）。读屏念的是更短的
+    /// `IntroCallMeetupCopy.confirmNotDelivered`（「确认未送达，请重试。」）—— 两句不同是视觉稿原样。
+    static let blindConfirmNotDeliveredBanner = "确认未送达，请重新点按「确认见面安排」。"
+
+    /// 本轮没约成、盲人听过安排单时，在 `continuedSearch` 之前先说的那半句。
+    static let blindPlanNotTakenEffect = "本次见面安排未生效。"
+
+    /// 安排单发来 10 分钟未确认的提醒（视觉稿 ④「临期提醒」）。
+    static let blindPlanReminderTitle = "见面安排待确认"
+    static let blindPlanReminderBody = "陪跑员已提交 10 分钟，请尽快确认。"
+    static let blindPlanReminderSpeech = "见面安排待确认。陪跑员已提交 10 分钟，请尽快确认。"
+
+    /// 拨号回来之后的副标题。⚠️ **陪跑员端还在用**（`VolunteerIntroCallView`，#433 会换掉），盲人端已不用。
     static let blindAfterCallSubtitle = "双方都说合适才算约好。"
 
     /// 通话数据还没拉回来时整屏该显示的那句。
