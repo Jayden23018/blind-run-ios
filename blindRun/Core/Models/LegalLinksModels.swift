@@ -100,8 +100,10 @@ extension LegalDocumentKind {
 
 /// 内置回退文案。
 ///
-/// 正式法律文本未上线时的过渡版本：只陈述本应用当前真实的数据处理方式和使用要点，
-/// 不编造法律条款，不承诺尚未实现的能力。
+/// 拿不到正式文本链接时（断网、请求失败、后端下发空值或非法地址）的回退版本：
+/// 只陈述本应用当前真实的数据处理方式和使用要点，不编造法律条款，不承诺尚未实现的能力。
+/// 正式文本已上线（`legal-links` 两个 URL 非空），所以这里**不许再写「正在上线中」「过渡版本」**
+/// —— 审核指南 2.1 要求清掉占位内容（2026-10-08 上线前审计 S15）。
 enum LegalFallbackCopy {
 
     struct Section: Identifiable, Equatable, Sendable {
@@ -119,12 +121,12 @@ enum LegalFallbackCopy {
         let url: URL
     }
 
-    static let amapPrivacyURL = URL(string: "https://lbs.amap.com/pages/privacy/")!
+    static let amapPrivacyURL = URL(string: "https://lbs.amap.com/pages/privacy/")! // guard:allow server-addr 第三方隐私政策页，用浏览器打开，不是 API
     static let aliyunCloudAuthPrivacyURL = URL(string: "https://terms.aliyun.com/legal-agreement/terms/suit_bu1_ali_cloud/suit_bu1_ali_cloud202107281509_18386.html")!
 
     struct Document: Equatable, Sendable {
         let title: String
-        /// 页首的状态说明，明确告知用户这是过渡版本。
+        /// 页首的状态说明，告诉用户为什么看到的是这一份而不是完整版。
         let notice: String
         let sections: [Section]
     }
@@ -138,11 +140,12 @@ enum LegalFallbackCopy {
 
     private static let privacyPolicy = Document(
         title: "隐私政策",
-        notice: "正式版隐私政策全文正在上线中。以下是本应用当前版本实际收集和使用信息的说明。",
+        // 不写「稍后再试」：`loadLegalLinksIfNeeded` 每次启动只请求一次、失败不重试，
+        // 同一次运行里再点入口还是这一页。
+        notice: "暂时打不开完整的隐私政策，可能是网络问题。以下是本应用当前版本实际收集和使用信息的摘要。",
         sections: [
-            // 这份文案不是摆设：后端的 `privacyPolicyUrl` 目前返回 null，**用户和 App Store
-            // 审核员实际读到的就是这一份**。漏列一项等于「未公开收集使用规则」——
-            // 收集项有增减时先改这里，不要等正式文本。
+            // 这份文案不是摆设：断网或拉链接失败时，**用户和 App Store 审核员读到的就是这一份**。
+            // 漏列一项等于「未公开收集使用规则」—— 收集项有增减时这里和线上正式文本一起改。
             Section(
                 heading: "我们收集的信息",
                 bullets: [
@@ -219,8 +222,8 @@ enum LegalFallbackCopy {
             Section(
                 heading: "关于本说明",
                 bullets: [
-                    "本说明为正式文本上线前的过渡版本，内容与应用当前行为一致。",
-                    "正式隐私政策和对外联系方式将随正式文本一同发布。在此之前，你可以使用「设置 - 删除账户」自助删除账户及相关数据。"
+                    "本说明是完整隐私政策的摘要，内容与应用当前行为一致。联网后重新打开本应用，可以从同一入口查看完整版。",
+                    "你可以随时在「设置 - 删除账户」中自助删除账户及相关数据。"
                 ]
             )
         ]
@@ -228,7 +231,7 @@ enum LegalFallbackCopy {
 
     private static let userAgreement = Document(
         title: "用户协议",
-        notice: "正式版用户协议全文正在上线中。以下是本应用当前版本的使用要点。",
+        notice: "暂时打不开完整的用户协议，可能是网络问题。以下是本应用当前版本的使用要点。",
         sections: [
             Section(
                 heading: "服务内容",
@@ -259,7 +262,7 @@ enum LegalFallbackCopy {
                 heading: "账户",
                 bullets: [
                     "你可以随时在「设置 - 删除账户」中删除账户。",
-                    "本要点为正式协议上线前的过渡版本，内容与应用当前行为一致。"
+                    "本要点是完整用户协议的摘要，内容与应用当前行为一致。联网后重新打开本应用，可以从同一入口查看完整版。"
                 ]
             )
         ]

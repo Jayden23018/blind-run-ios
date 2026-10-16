@@ -10,7 +10,7 @@
 
 | 项 | 状态 |
 |---|---|
-| 审核专用账号（盲人 + 陪跑员各一） | ⏳ 等后端 [blind-run-backend#454](https://github.com/Jayden23018/blind-run-backend/issues/454)。答复后填 §2.3 |
+| 审核专用账号（盲人 + 陪跑员各一） | ✅ 后端已建好（[blind-run-backend#454](https://github.com/Jayden23018/blind-run-backend/issues/454) 2026-09-30 答复；[#641](https://github.com/Jayden23018/blind-run-backend/issues/641) 2026-10-15 核对，生产固定验证码名单只剩这一对）。号码与验证码**只填进 ASC 的 Sign-in 字段，不写进本仓库**（公开仓库），原文去 #454 看。要点见 §2.3 |
 | 录屏链接 | ⏳ 按 §3 录完上传后替换 §2.2 里的 `<VIDEO_URL>` |
 | 联系人姓名 / 电话 / 邮箱、Feedback Email | ⏳ 负责人定 |
 | 时区问题 | 🟡 代码已修（formatter 固定按 `Asia/Shanghai` 生成与解析，见 §4 第 1 条，跟踪 [#236](https://github.com/Jayden23018/blind-run-ios/issues/236)），**但要等含该修复的构建上传后才对审核员生效**。在那之前，§2.2 里「把设备时区切到北京」那一段**仍要保留**；新构建上传并验过后可删 |
@@ -80,7 +80,7 @@ To report a problem, just reply to the invitation email.
 
 ASC 的 Sign-in 字段只有一组用户名 + 密码，所以填**跑者**账号；陪跑员账号写不进专用字段。
 ⚠️ 检索说明要求账号不进备注（`research/testflight-readiness-delta-20260927.md` §4），
-而核心流程必须两个账号。**陪跑员账号放哪里**等 #454 答复后与负责人一起定：
+而核心流程必须两个账号。#454 已答复，**陪跑员账号放哪里仍待负责人定**：
 要么在备注里写陪跑员号码（只写号码、不写验证码，验证码与跑者相同），要么请审核员通过联系方式索取。
 下面的草稿按「备注里只写 See Sign-in field」写，没有泄露任何号码。
 
@@ -122,9 +122,16 @@ HELP / SOS - PLEASE DO NOT TRIGGER
 The help (SOS) button only sends an alert while a run is in progress. The alert goes to our real support staff, and the server tries to text the account's emergency contact. At any other time the help button only offers to dial the emergency contact or local emergency numbers (110/120). Please do not dial them either.
 ```
 
-### 2.3 账号（⏳ 等 #454）
+### 2.3 账号（✅ 后端已建好；号码不进本仓库）
 
-<!-- #454 答复后填：跑者号码 / 陪跑员号码 / 固定验证码是否长期开启 / 紧急联系人填的是谁的号 -->
+号码和验证码见后端私有仓库 [#454](https://github.com/Jayden23018/blind-run-backend/issues/454) 2026-09-30 的答复，填 ASC 时从那里复制。
+本仓库是公开的，这里只记会影响填表和审核的事实：
+
+- **跑者审核号**（填进 Sign-in 字段）：已实名；紧急联系人 1 个，填的是团队自己的号码 —— 审核员误触求助时短信发到我们自己手里；没有未完成的订单。
+- **陪跑员审核号**：已认证，人脸和资质已批，必修培训已完成，上报位置后可以收到派单。
+- **验证码固定，内测期内不关**。唯一开关是生产启动参数 `-Dsms.test-phones`。**审核结束后通知后端把这对号移除**：两个号连号、可枚举，等于免密登录（#454、#641）。
+- 两个号码属于真实可分配的号段，不保证是空号 ⇒ §2.2 里「Please do not dial any number shown」要保留。
+- 这两个号第一次配对会走通话磨合，审核员两边各点一次「合适」就能过，后端不需要预置磨合记录。
 
 ## 3. 录屏脚本（两台手机）
 
