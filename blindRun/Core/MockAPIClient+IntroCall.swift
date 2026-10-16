@@ -26,6 +26,9 @@ extension MockAPIClient {
                 code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         }
         let isBlind = mockRole == .blind
+        #if DEBUG
+        seedIntroCallPlanForUITestIfNeeded(orderId: orderId)
+        #endif
         return IntroCallView(
             counterpartName: isBlind ? "李*" : "王*",
             counterpartPhone: isBlind ? "13800000002" : nil,
@@ -228,6 +231,35 @@ extension MockAPIClient {
         mockRole = .volunteer
         defer { mockRole = savedRole }
         return try handleSubmitIntroCallPlan(orderId: orderId, body: plan)
+    }
+
+    /// 演示用的一版安排单，照视觉稿 v2 的示例：开跑推迟 30 分钟（时长不变）、集合点往北挪约 800 米到东门、
+    /// 填见面位置与两人上衣颜色。订单页 Mock 面板「模拟陪跑员提交见面安排」与 UI 用例都用它。
+    static func demoIntroCallPlan(for order: OrderDetailResponse) -> IntroCallPlanRequest {
+        let start = order.plannedStart?.nilIfBlank?.backendTimestamp.map { $0.addingTimeInterval(30 * 60) }
+        let place = order.startLatitude.flatMap { lat in
+            order.startLongitude.map { lng in
+                // 纬度 +0.0072° ≈ 800 米，在 3 公里上限之内。
+                IntroCallPlanRequest.Place(address: "朝阳公园东门", latitude: lat + 0.0072, longitude: lng)
+            }
+        }
+        return IntroCallPlanRequest(
+            plannedStart: start,
+            place: place,
+            meetSpotNote: "东门保安亭左侧",
+            volunteerTopColor: .red,
+            runnerTopColor: .blue
+        )
+    }
+
+    /// UI 用例要直接落在 B3：`AIDRUN_UI_TEST_SEED_INTRO_CALL_PLAN=1` 时，种子单第一次被拉通话数据就替陪跑员交一版。
+    /// 「第一次」= 这一轮还没有任何提交记录 —— 确认 / 换人之后本轮结束、记录清空，不会在下一轮自己冒出来
+    /// （下一轮要先回到 `PENDING_INTRO_CALL`，UI 用例不走到那一步）。
+    func seedIntroCallPlanForUITestIfNeeded(orderId: Int64) {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_INTRO_CALL_PLAN"] == "1",
+              introCallPlanSubmissionCounts[orderId] == nil,
+              let order = orders.first(where: { $0.orderId == orderId }) else { return }
+        _ = try? simulateIntroCallPlanSubmissionForTesting(orderId: orderId, plan: Self.demoIntroCallPlan(for: order))
     }
     #endif
 

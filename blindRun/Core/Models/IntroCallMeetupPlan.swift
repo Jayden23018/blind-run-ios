@@ -397,7 +397,8 @@ enum IntroCallMeetupCopy {
         return "集合地点，已变更：由\(originalAddress)改为\(address)\(distance)。"
     }
 
-    private static let minimumSpokenDistanceMeters: CLLocationDistance = 10
+    /// 盲人端 B3 屏幕上那行「距原地点约 X」也用它（#434），看见的与听到的同一个下限。
+    static let minimumSpokenDistanceMeters: CLLocationDistance = 10
 
     private static func colorItem(plan: IntroCallMeetupPlan) -> String? {
         var sentences: [String] = []

@@ -75,16 +75,17 @@ final class BlindOrderHeroTests: XCTestCase {
         XCTAssertEqual(result.eyebrow, "匹配中")
     }
 
-    /// 先通个电话也在第 1 格，但是不同的状态：紫色头卡、对方实心（已有候选人）、**不挂电话**
-    /// （订单页不知道用户打没打过）。改成与匹配中同一个样子，这条会红。
-    func testIntroCallOnTheOrderPageIsPurpleWithACandidateAndNoPhone() throws {
+    /// 先通个电话也在第 1 格，但是不同的状态：对方实心（已有候选人）、**不挂电话**
+    /// （订单页不知道用户打没打过）。头卡颜色与匹配中**相同**（视觉稿 v2 决定 1，#434）——
+    /// 状态由那句话与绳子上的实心头像区分，不靠换色。
+    func testIntroCallOnTheOrderPageKeepsTheMatchingColourWithACandidateAndNoPhone() throws {
         let result = try XCTUnwrap(hero(.pendingIntroCall, plannedStart: Self.noStart, volunteerName: nil).0)
-        XCTAssertEqual(result.tone, .calling)
+        XCTAssertEqual(result.tone, .matching)
+        XCTAssertEqual(BlindHeroPalette(tone: result.tone).stateColor, AppColors.Flow.stateMatching)
         XCTAssertEqual(result.rope, .introCall(.afterCall))
+        XCTAssertNotEqual(result.rope, .invited, "绳子要画出已有候选人，不能与匹配中同一个样子")
         XCTAssertFalse(RopeGeometry.make(for: result.rope).showsPhone)
         XCTAssertEqual(RopeGeometry.make(for: result.rope).otherStyle, .solid)
-        XCTAssertEqual(BlindHeroPalette(tone: .calling).stateColor, AppColors.Flow.stateCalling)
-        XCTAssertEqual(BlindHeroPalette(tone: .called).stateColor, AppColors.Flow.stateCalled)
     }
 
     func testStepsOtherThanBookedPutTheStartTimeInTheEyebrow() throws {

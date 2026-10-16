@@ -62,6 +62,60 @@ final class BlindOrderStatusViewModel: ObservableObject {
         submittedIntroCallDecision == .accept || introCall?.isWaitingForCounterpart == true
     }
 
+    // MARK: 见面安排单（#434）
+
+    /// 拨过号、并且 App 之后**从后台**回到了前台 ⇒ B2「等待见面安排」。
+    ///
+    /// 放在 view model 而不是通话页的 `@State`：页面关掉再进来时不该退回 B1（审查 #4）。
+    /// 它仍只是**本地推断** —— 服务端有安排单时一律以安排单为准（`IntroCallRunnerStep.resolve`）。
+    @Published private(set) var hasReturnedFromIntroCallDialer = false
+    /// 这一轮按过拨号。`(.background → .active)` 之前**没拨过号**的那次回前台不算「打完电话回来」。
+    private var didDialThisIntroCallRound = false
+    private var introCallForegroundDetector = IntroCallForegroundReturnDetector()
+    /// 本地确认成功的那一版。只在「确认成功 → 订单转走」之间的那几秒有意义；换版本即失效。
+    @Published private(set) var confirmedIntroCallPlanVersion: Int?
+    /// 确认没送到。屏幕上按钮上方那条红字的开关（视觉稿 ④，修审查 #3：此前只有语音）。
+    @Published private(set) var introCallConfirmFailed = false
+    /// 陪跑员改过一版、盲人还没重新听完：头部换成「见面安排已修改，请重新收听」。
+    @Published private(set) var introCallPlanChangedNotice = false
+    /// 每次 +1 = 通话页要把读屏焦点挪回 B3 标题（安排单刚到、或改了一版）。
+    @Published private(set) var introCallPlanFocusRequest = 0
+    /// 上一次看到的安排单版本。用来认出「陪跑员改了一版」。
+    private var lastSeenIntroCallPlanVersion: Int?
+    /// 409 `INTRO_CALL_PLAN_STALE` 时已经播过「请重新收听」的那一版（旧版本号）。
+    /// 紧接着那次刷新会看到版本变了，不许再播第二遍。
+    private var planChangeAnnouncedFromVersion: Int?
+    private var introCallCountdownAnnouncer = IntroCallCountdownAnnouncer()
+    private var introCallPlanReminder = IntroCallPlanReminder()
+    private var introCallNotifyThrottle = IntroCallIncomingNotifyThrottle()
+    /// App 在不在前台。10 分钟提醒在前台播报、不在前台走本地通知。
+    private var isAppActive = true
+    /// 这次离开前台时真排出去的那条提醒的到点时刻。`nil` = 没排（回前台时就不撤、也不记「已送达」）。
+    private var introCallReminderScheduledFor: Date?
+    /// 安排单读不懂这件事已经念过了。只在 false → true 那一跳念一次，理由同 `introCallUnavailable`。
+    private var didAnnounceUnreadableIntroCallPlan = false
+    /// 10 分钟提醒的本地通知。单测换成假的（真排一条是系统级副作用）。
+    var introCallPlanReminderNotifier: any IntroCallPlanReminderNotifying = IntroCallPlanReminderNotifier.shared
+    /// 时钟。单测拨它验 10 分钟提醒与 60 秒节流。
+    var introCallNow: () -> Date = { Date() }
+
+    /// 盲人端此刻在 B1 / B2 / B3 / 已确认 哪一屏。**服务端安排单优先**（`IntroCallRunnerStep.resolve`）。
+    ///
+    /// `myDecision == ACCEPT` 却没有安排单：开关关着时旧版陪跑员客户端直接说了合适、或盲人此前在旧版上说过合适 ——
+    /// 这一刻盲人能做的也只有等安排单，所以归 B2，不回 B1 再让他打一遍。
+    var introCallRunnerStep: IntroCallRunnerStep {
+        // 确认成功之后那一次刷新拉不到通话数据（`introCall` 被清成 nil）：仍是「已确认」，
+        // 不许掉回 B2 让人以为还要等安排单。理由同 `submittedIntroCallDecision`。
+        if confirmedIntroCallPlanVersion != nil, introCall?.meetupPlan == nil {
+            return .confirmed
+        }
+        return IntroCallRunnerStep.resolve(
+            plan: introCall?.meetupPlan,
+            confirmedPlanVersion: confirmedIntroCallPlanVersion,
+            hasReturnedFromBackground: hasReturnedFromIntroCallDialer || isWaitingForIntroCallCounterpart
+        )
+    }
+
     /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
     @Published private(set) var keepWaitingLimitReached = false
 
@@ -457,6 +511,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // 服务端说了话就以它为准。换了候选人时它是 nil，本地记号跟着作废 ——
             // 见 `submittedIntroCallDecision` 的注释。
             submittedIntroCallDecision = view.myDecisionValue
+            handleIntroCallViewUpdate(view)
         } catch {
             introCall = nil
             // 🚩 **已经表过态就不算失败。** 表态服务端已经记下了，拉不到 view 不改变这件事，
@@ -479,6 +534,144 @@ final class BlindOrderStatusViewModel: ObservableObject {
         introCall = nil
         introCallUnavailable = false
         submittedIntroCallDecision = nil
+        clearIntroCallPlanState()
+    }
+
+    /// 见面安排单那一族本地状态，**与上面三个同生同灭**：它们都是「这一轮」的，
+    /// 留到下一位候选人身上就是在他还没打电话时显示 B2、或者念上一位的安排单。
+    private func clearIntroCallPlanState() {
+        // 每 5 秒轮询都会经过这里（非通话态）。只在这一轮真看到过安排单时才去撤通知，
+        // 免得每轮都打一次系统通知中心。
+        if lastSeenIntroCallPlanVersion != nil, let orderId = order?.orderId ?? currentOrderId {
+            introCallPlanReminderNotifier.cancel(orderId: orderId)
+        }
+        hasReturnedFromIntroCallDialer = false
+        didDialThisIntroCallRound = false
+        confirmedIntroCallPlanVersion = nil
+        introCallConfirmFailed = false
+        introCallPlanChangedNotice = false
+        lastSeenIntroCallPlanVersion = nil
+        planChangeAnnouncedFromVersion = nil
+        introCallCountdownAnnouncer = IntroCallCountdownAnnouncer()
+        introCallPlanReminder = IntroCallPlanReminder()
+        introCallNotifyThrottle = IntroCallIncomingNotifyThrottle()
+        introCallReminderScheduledFor = nil
+        didAnnounceUnreadableIntroCallPlan = false
+    }
+
+    /// 每次成功拉到通话数据之后：认出「安排单刚到 / 改了一版」、5 / 1 分钟播报、10 分钟提醒。
+    private func handleIntroCallViewUpdate(_ view: IntroCallView) {
+        let now = introCallNow()
+        let plan = view.meetupPlan
+        // 服务端说了话就以它为准：我的表态不是 ACCEPT（换了候选人、或陪跑员改版作废了我的确认），
+        // 本地「已确认」跟着作废。
+        if view.myDecisionValue != .accept {
+            confirmedIntroCallPlanVersion = nil
+        }
+        // 看过安排单、现在服务端说没有了：同一个 `PENDING_INTRO_CALL` 里换了候选人
+        // （后端 `INTRO_CALL_NOT_ACTIVE` 的说明：「本轮候选人已换人」）。上一位的 B2 标记、提醒、
+        // 节流都是那一轮的，不许带到新的人身上。
+        if view.plan == nil, lastSeenIntroCallPlanVersion != nil {
+            clearIntroCallPlanState()
+        }
+        // 服务端说有安排单、客户端读不懂：通话页显示「暂时拿不到」+ 重新加载（`hasUnreadablePlan`），
+        // 这里补上听得到的那半 —— 只在 false → true 那一跳念一次，每 5 秒一遍会把人淹掉。
+        if view.hasUnreadablePlan {
+            if !didAnnounceUnreadableIntroCallPlan {
+                didAnnounceUnreadableIntroCallPlan = true
+                speechService?.speakError(IntroCallCopy.loadFailed)
+            }
+        } else {
+            didAnnounceUnreadableIntroCallPlan = false
+        }
+        if let plan {
+            if let last = lastSeenIntroCallPlanVersion {
+                if last != plan.version {
+                    if planChangeAnnouncedFromVersion == last {
+                        // 409 那一刻已经播过「请重新收听」，这是紧接着的那次刷新。
+                        planChangeAnnouncedFromVersion = nil
+                    } else {
+                        announceIntroCallPlanChanged()
+                    }
+                }
+            } else {
+                // 安排单第一次出现（含关页重进、杀进程重启）：焦点落标题，并念标题那一句。
+                introCallPlanFocusRequest += 1
+                let speech = IntroCallMeetupCopy.planSpeech(
+                    plan: plan,
+                    original: view.originalArrangement,
+                    volunteerName: view.counterpartDisplayName(fallback: ""),
+                    now: now
+                )
+                speechService?.speak(speech.title)
+            }
+            lastSeenIntroCallPlanVersion = plan.version
+        }
+
+        let step = introCallRunnerStep
+        let windowEndsAt = view.windowEndsAt?.nilIfBlank?.backendTimestamp
+        if let windowEndsAt,
+           introCallCountdownAnnouncer.nodeToAnnounce(windowEndsAt: windowEndsAt, now: now) != nil {
+            speechService?.speak(IntroCallMeetupCopy.countdownAnnouncement(
+                windowEndsAt: windowEndsAt, now: now, isReviewingPlan: step == .reviewingPlan
+            ))
+        }
+
+        introCallPlanReminder.observe(
+            planVersion: plan?.version,
+            submittedAt: view.plan?.submittedAt?.nilIfBlank?.backendTimestamp,
+            isAwaitingConfirmation: step == .reviewingPlan,
+            windowEndsAt: windowEndsAt,
+            now: now
+        )
+        if isAppActive, introCallPlanReminder.consumeIfDue(now: now) {
+            speechService?.speak(IntroCallCopy.blindPlanReminderSpeech)
+        }
+    }
+
+    /// 陪跑员改了一版（轮询看到版本变了，或确认时 409 `INTRO_CALL_PLAN_STALE`）。
+    /// **不是错误**：不配红条、不念「失败」，焦点回标题、念「请重新收听」。
+    private func announceIntroCallPlanChanged() {
+        introCallConfirmFailed = false
+        introCallPlanChangedNotice = true
+        introCallPlanFocusRequest += 1
+        speechService?.speak(IntroCallMeetupCopy.planChangedRelisten)
+    }
+
+    /// App 前后台切换。由订单页的 `scenePhase` 喂进来 —— 通话页盖在它上面时它也一直在。
+    ///
+    /// - 回前台判据只认「进过后台」（`IntroCallForegroundReturnDetector`）：拨号确认框点取消、
+    ///   权限弹窗走的是 `.inactive → .active`，不许把它们当成「打完电话回来了」（修审查 #8）。
+    /// - 10 分钟提醒：进后台时排本地通知，回前台时撤掉；**真排过通知**、且离开期间已经到点的，
+    ///   才记成「已提醒」不补播。只走过 `.inactive`（控制中心）、或进后台时已经过点没排上的，
+    ///   回来照样由前台轮询念出来 —— 否则这一轮的提醒一次都没响就被记成响过了。
+    func observeScenePhase(_ phase: ScenePhase) {
+        let returnedFromBackground = introCallForegroundDetector.observe(phase)
+        let orderId = order?.orderId
+        switch phase {
+        case .background:
+            isAppActive = false
+            let now = introCallNow()
+            if let orderId, let dueAt = introCallPlanReminder.dueAt, dueAt > now {
+                introCallPlanReminderNotifier.schedule(orderId: orderId, at: dueAt)
+                introCallReminderScheduledFor = dueAt
+            }
+        case .active:
+            isAppActive = true
+            if let scheduledFor = introCallReminderScheduledFor {
+                introCallReminderScheduledFor = nil
+                if introCallNow() >= scheduledFor {
+                    introCallPlanReminder.markDeliveredWhileAway(now: introCallNow())
+                }
+                if let orderId { introCallPlanReminderNotifier.cancel(orderId: orderId) }
+            }
+            guard returnedFromBackground, order?.status == .pendingIntroCall else { return }
+            if didDialThisIntroCallRound { hasReturnedFromIntroCallDialer = true }
+            // 打完电话回来，陪跑员很可能已经填好了：马上拉一次，别让人对着 B2 等下一轮轮询。
+            Task { [weak self] in await self?.reloadIntroCall() }
+        default:
+            break
+        }
     }
 
     /// 「重新加载」按下时走这里。也是单测的入口：正常路径下通话数据跟着订单轮询一起拉，
@@ -502,42 +695,91 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// `EmergencyDialer.telURL` 取成 `1381234` 拨出去 —— 空号，而界面上看不出任何异常。
     func introCallDialURL() -> URL? {
         guard let order, let appState, let phone = introCall?.dialableCounterpartPhone else { return nil }
-        let orders = appState.orders
-        let orderId = order.orderId
-        Task {
-            // 唯一一处刻意吞掉的错误，理由在上面：这是给对方的一条**预告推送**，
-            // 不是拨号的前置条件。它失败时用户该做的事（打这通电话）没有任何变化，
-            // 屏幕上也不该多出任何东西 —— 拨号 URL 已经返回，电话照打。
-            try? await orders.notifyIntroCallIncoming(orderId: orderId)
+        // 在这里就记下「拨过号」，而不是等 `openURL` 回调 —— 系统拨号确认框弹出本身就会让 App 离开前台，
+        // 回来时要能认出「刚才去拨号了」（`observeScenePhase`）。
+        didDialThisIntroCallRound = true
+        // `notify-incoming` 60 秒内最多一次（修审查 #10）。**拨号本身从不拦。**
+        if introCallNotifyThrottle.shouldNotify(now: introCallNow()) {
+            let orders = appState.orders
+            let orderId = order.orderId
+            Task {
+                // 唯一一处刻意吞掉的错误，理由在上面：这是给对方的一条**预告推送**，
+                // 不是拨号的前置条件。它失败时用户该做的事（打这通电话）没有任何变化，
+                // 屏幕上也不该多出任何东西 —— 拨号 URL 已经返回，电话照打。
+                try? await orders.notifyIntroCallIncoming(orderId: orderId)
+            }
         }
         return EmergencyDialer.telURL(for: phone)
     }
 
-    /// 通话后的表态。`.accept` = 合适；`.decline` = 换一位。
+    /// B3「确认见面安排」＝ 盲人的「合适」。**带版本号确认**，取代 v6 的「聊过了，合适」
+    /// （那条走老入口 `submitIntroCallDecision(.accept)`、不带版本，开关打开后会被 409 `INTRO_CALL_PLAN_REQUIRED`）。
+    ///
+    /// 三种结局，屏幕与声音各不相同（视觉稿 ④）：
+    /// - `.confirmed`：刷订单，订单页那边状态一变就念「约定完成……」（`statusChangeAnnouncement`）；
+    /// - `.planChanged`（409 `INTRO_CALL_PLAN_STALE`）：**不是错误**，焦点回标题、念「请重新收听」；
+    /// - 其余失败：留在 B3，按钮上方红条 + 念「确认未送达，请重试」（修审查 #3）。
+    func confirmIntroCallPlan() async {
+        guard let order, let appState, let plan = introCall?.meetupPlan else { return }
+        isPerformingAction = true
+        errorMessage = nil
+        introCallConfirmFailed = false
+        do {
+            let result = try await appState.orders.confirmIntroCallPlan(orderId: order.orderId, version: plan.version)
+            isPerformingAction = false
+            switch result {
+            case .confirmed:
+                confirmedIntroCallPlanVersion = plan.version
+                // 理由同 `submittedIntroCallDecision` 的注释：表过态之后再拉不到通话数据不算失败。
+                submittedIntroCallDecision = .accept
+                introCallPlanChangedNotice = false
+                introCallPlanReminderNotifier.cancel(orderId: order.orderId)
+                await loadOrder(orderId: order.orderId, speakChanges: true)
+            case .planChanged:
+                planChangeAnnouncedFromVersion = plan.version
+                announceIntroCallPlanChanged()
+                await reloadIntroCall()
+            }
+        } catch let error as APIError {
+            isPerformingAction = false
+            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.errorCode == .introCallNotActive {
+                // 窗口刚好到点：这一轮已经结束，刷订单让页面回到真实状态，念的是后端的那句。
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+                await loadOrder(orderId: order.orderId, speakChanges: true)
+                return
+            }
+            introCallConfirmFailed = true
+            speechService?.speakError(IntroCallMeetupCopy.confirmNotDelivered)
+        } catch {
+            isPerformingAction = false
+            introCallConfirmFailed = true
+            speechService?.speakError(IntroCallMeetupCopy.confirmNotDelivered)
+        }
+    }
+
+    /// 「更换陪跑员」（`DECLINE`）。盲人侧的「合适」**只剩** `confirmIntroCallPlan` 一条路，
+    /// 所以这里不再收 `IntroCallDecision` 参数 —— 老的 `ACCEPT` 入口在类型上就调不到了。
     ///
     /// ⚠️ 请求体**没有 reason 字段**，这是后端刻意的：要求填理由等于要求当面说「不」。
-    /// 成功后不改本地状态 —— 订单是不是转 `PENDING_ACCEPT` 取决于对方，而我们拿不到对方的表态。
-    /// 让 5 秒轮询把真实状态带回来。
-    func submitIntroCallDecision(_ decision: IntroCallDecision) async {
+    func declineIntroCall() async {
         guard let order, let appState else { return }
         isPerformingAction = true
         errorMessage = nil
+        // 听过安排单再换人：先说「本次见面安排未生效」。在刷订单之前取，刷完这一轮的数据就清了。
+        let hadPlan = introCall?.plan != nil
         do {
-            try await appState.orders.submitIntroCallDecision(decision, orderId: order.orderId)
+            try await appState.orders.submitIntroCallDecision(.decline, orderId: order.orderId)
             isPerformingAction = false
             // 先落本地记号，再刷订单 —— `loadOrder` 紧接着就会去拉通话数据，
             // 而那一步拉失败时要靠这个记号判「已经表过态，不算失败」。
-            // 顺带把失败态收掉：用户是从失败块里按的「换一位」时，那个块该消失了。
-            submittedIntroCallDecision = decision
+            // 顺带把失败态收掉：用户是从失败块里按的「更换陪跑员」时，那个块该消失了。
+            submittedIntroCallDecision = .decline
             introCallUnavailable = false
-            switch decision {
-            case .accept:
-                speechService?.speak(IntroCallCopy.waitingForCounterpart)
-            case .decline:
-                // 🚨 中性、进行时，与常规等待读起来完全一样：不许出现「重新」「换了一位」
-                // 这类暗示前面失败过的措辞（无声拒绝）。
-                speechService?.speak(IntroCallCopy.continuedSearch)
-            }
+            // 🚨 中性、进行时，与常规等待读起来完全一样：不许出现「重新」「换了一位」
+            // 这类暗示前面失败过的措辞（无声拒绝）。
+            speechService?.speak(BlindIntroCallOutcomeCopy.roundEnded(hadPlan: hadPlan))
             await loadOrder(orderId: order.orderId, speakChanges: false)
         } catch let error as APIError {
             isPerformingAction = false
@@ -1156,7 +1398,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
     ) -> String {
         if previousStatus == .pendingIntroCall,
            updated.status == .pendingMatch || updated.status == .rematching {
-            return IntroCallCopy.continuedSearch
+            // 盲人听过安排单（多半是在 B3 时窗口到点）：先说「本次见面安排未生效」，
+            // 免得以为刚听的安排已经定了。`introCall` 此刻还是上一轮的 —— `apply` 播完才清。
+            return BlindIntroCallOutcomeCopy.roundEnded(hadPlan: introCall?.plan != nil)
+        }
+        // 盲人确认安排单那一刻成单：念整句约定（时间、地点、见面位置、陪跑员上衣），
+        // 取代「志愿者已接单，请前往……」—— 那句不知道见面位置，也不知道该认哪件衣服。
+        if previousStatus == .pendingIntroCall,
+           updated.status == .pendingAccept || updated.status == .scheduledConfirmed {
+            return BlindIntroCallOutcomeCopy.agreed(order: updated)
         }
         return updated.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
     }
@@ -1673,6 +1923,9 @@ struct BlindOrderStatusView: View {
     /// view model 那一侧是 `weak` 持有，临时对象传进去等于传 nil（守卫 `weak-temporary`）。
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
+    /// 喂给 `viewModel.observeScenePhase`：通话页 B2 判据与 10 分钟提醒都靠它。
+    /// 挂在订单页而不是通话页上 —— 通话页可以被关掉，订单页在整个通话期都在。
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
@@ -2342,6 +2595,9 @@ struct BlindOrderStatusView: View {
             guard let status else { return }
             statusHeaderFocused = true
             introCallPresentation.apply(status: status)
+        }
+        .onChange(of: scenePhase) { phase in
+            viewModel.observeScenePhase(phase)
         }
         // 全屏，不是 sheet：这一态盲人只有一件该做的事，而 sheet 会把订单页的内容
         // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。
@@ -3198,19 +3454,19 @@ struct BlindOrderStatusView: View {
                     .accessibilityLabel("模拟志愿者想先聊聊")
                 }
 
-                // 通话磨合期只有盲人这一侧能在 Mock 里操作，志愿者那半边由这个按钮代打 ——
-                // 否则「双方都说合适」在单设备上永远凑不齐。
+                // 通话磨合期只有盲人这一侧能在 Mock 里操作，陪跑员那半边由这个按钮代打 ——
+                // 否则盲人端 B3「确认见面安排」在单设备上永远走不到（#434）。
+                // 陪跑员的「合适」自 #755 起就是提交安排单，所以代打的是这件事，不再是 `ACCEPT`。
                 if order.status == .pendingIntroCall {
-                    Button("模拟志愿者说合适") {
-                        (appState.apiClient as? MockAPIClient)?.simulateIntroCallDecisionForTesting(
+                    Button("模拟陪跑员提交见面安排") {
+                        _ = try? (appState.apiClient as? MockAPIClient)?.simulateIntroCallPlanSubmissionForTesting(
                             orderId: order.orderId,
-                            role: .volunteer,
-                            decision: .accept
+                            plan: MockAPIClient.demoIntroCallPlan(for: order)
                         )
                         viewModel.startPolling(orderId: order.orderId)
                     }
                     .buttonStyle(.bordered)
-                    .accessibilityLabel("模拟志愿者说合适")
+                    .accessibilityLabel("模拟陪跑员提交见面安排")
                 }
 
                 // 跨天预约单：先让志愿者「确认出发」把它推到 `PENDING_ACCEPT`，

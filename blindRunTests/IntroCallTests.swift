@@ -185,7 +185,7 @@ final class IntroCallTests: XCTestCase {
 
     /// 「换一位」是盲人自己的退出，不是对他人的否定 —— 措辞里不许有「拒绝」。
     func testDeclineButtonIsFramedAsSwitchingNotRejecting() {
-        XCTAssertEqual(IntroCallCopy.declineButtonTitle, "换一位")
+        XCTAssertEqual(IntroCallCopy.declineButtonTitle, "更换陪跑员")
         XCTAssertFalse(IntroCallCopy.declineAccessibilityHint.contains("拒绝"))
     }
 
@@ -277,16 +277,23 @@ final class IntroCallTests: XCTestCase {
     /// 读屏滑动。后端确实要区分（timeout vs declined 直接进 `acceptanceRate`），
     /// 但那个口径由志愿者侧提供。这条用例守的是「别哪天顺手给盲人也加一个」。
     func testBlindRunnerNeverHitsTheVolunteerOnlyUnreachableEndpoint() async {
-        for decision in [IntroCallDecision.accept, .decline] {
+        // 盲人侧的两个结果动作：确认见面安排（#434 起「合适」只有这一条路）、更换陪跑员。
+        for confirms in [true, false] {
             let client = IntroCallAPIClientStub()
             client.order = Self.makeOrder(orderId: 603, status: .pendingMatch)
+            client.introCall = Self.blindSideViewWithPlan()
             let appState = AppState(apiClient: client)
             appState.currentEnvironment = .mock
             let viewModel = BlindOrderStatusViewModel()
             viewModel.configure(appState: appState, speechService: SpeechService())
             viewModel.order = Self.makeOrder(orderId: 603, status: .pendingIntroCall)
+            await viewModel.reloadIntroCall()
 
-            await viewModel.submitIntroCallDecision(decision)
+            if confirms {
+                await viewModel.confirmIntroCallPlan()
+            } else {
+                await viewModel.declineIntroCall()
+            }
 
             XCTAssertTrue(client.paths.contains("/api/orders/603/intro-call/decision"))
             XCTAssertFalse(
@@ -296,21 +303,26 @@ final class IntroCallTests: XCTestCase {
         }
     }
 
-    /// 表态之后**不在本地假设结论**：我说合适 ≠ 成单，那取决于对方，而我们拿不到对方的表态。
-    func testAcceptingDoesNotFakeALocalStatusAdvance() async {
+    /// 确认之后**不在本地假设结论**：成没成单（成单前后端还要用改后的时段重跑门槛）以订单状态为准，
+    /// 本地只记「这一版我确认过了」。
+    func testConfirmingThePlanDoesNotFakeALocalStatusAdvance() async {
         let client = IntroCallAPIClientStub()
         client.order = Self.makeOrder(orderId: 604, status: .pendingIntroCall)
+        client.introCall = Self.blindSideViewWithPlan()
         let appState = AppState(apiClient: client)
         appState.currentEnvironment = .mock
-        let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.configure(appState: appState, speechService: SpeechService())
         viewModel.order = Self.makeOrder(orderId: 604, status: .pendingIntroCall)
+        await viewModel.reloadIntroCall()
+        // 后端记下了盲人的确认：之后每次拉通话数据 `myDecision` 都是 ACCEPT。
+        client.introCall = Self.blindSideViewWithPlan(myDecision: "ACCEPT")
 
-        await viewModel.submitIntroCallDecision(.accept)
+        await viewModel.confirmIntroCallPlan()
 
         XCTAssertEqual(viewModel.order?.status, .pendingIntroCall)
-        XCTAssertEqual(speechService.lastSpokenText, IntroCallCopy.waitingForCounterpart)
+        XCTAssertEqual(viewModel.confirmedIntroCallPlanVersion, 1)
+        XCTAssertEqual(viewModel.introCallRunnerStep, .confirmed)
     }
 
     // MARK: - 退回派单队列的播报
@@ -781,28 +793,33 @@ final class IntroCallTests: XCTestCase {
     /// **屏幕上还会冒出一个「换一位」—— 他刚说完合适**。
     ///
     /// 表态服务端已经记下了，拉不到 view 不改变这件事，此刻他也没有任何该做而做不了的事。
-    func testFailedRefreshAfterAcceptingIsNotReportedAsAFailure() async {
+    func testFailedRefreshAfterConfirmingThePlanIsNotReportedAsAFailure() async {
         let client = IntroCallAPIClientStub()
-        // introCall 不设 ⇒ GET /intro-call 抛错，正是表态成功后那一次刷新会走的路。
         client.order = Self.makeOrder(orderId: 705, status: .pendingIntroCall)
+        client.introCall = Self.blindSideViewWithPlan()
         let appState = AppState(apiClient: client)
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.order = Self.makeOrder(orderId: 705, status: .pendingIntroCall)
+        await viewModel.reloadIntroCall()
+        // 确认成功后那一次刷新拉不到。
+        client.introCallError = .networkError(URLError(.notConnectedToInternet))
 
-        await viewModel.submitIntroCallDecision(.accept)
+        await viewModel.confirmIntroCallPlan()
 
-        XCTAssertEqual(
+        XCTAssertNotEqual(
             speechService.lastSpokenText,
-            IntroCallCopy.waitingForCounterpart,
-            "表态成功的确认被那次刷新失败盖掉了"
+            IntroCallCopy.loadFailed,
+            "确认成功之后，那次刷新失败被当成了「拿不到通话信息」念出来"
         )
         XCTAssertFalse(viewModel.introCallUnavailable, "表过态之后还把拉不到当成失败")
-        XCTAssertTrue(
-            viewModel.isWaitingForIntroCallCounterpart,
-            "拉不到就不知道自己在等对方了 —— 这件事本地已经知道，不该依赖再拉一次"
+        XCTAssertFalse(viewModel.introCallConfirmFailed, "确认是成功的，不许亮「确认未送达」红条")
+        XCTAssertEqual(
+            viewModel.introCallRunnerStep,
+            .confirmed,
+            "拉不到就掉回 B2「等待见面安排」—— 他刚确认完，这件事本地已经知道，不该依赖再拉一次"
         )
     }
 
@@ -817,8 +834,11 @@ final class IntroCallTests: XCTestCase {
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
         viewModel.order = Self.makeOrder(orderId: 706, status: .pendingIntroCall)
+        client.introCall = Self.blindSideViewWithPlan()
+        await viewModel.reloadIntroCall()
+        client.introCall = Self.blindSideViewWithPlan(myDecision: "ACCEPT")
 
-        await viewModel.submitIntroCallDecision(.accept)
+        await viewModel.confirmIntroCallPlan()
         XCTAssertTrue(viewModel.isWaitingForIntroCallCounterpart)
 
         // 换了候选人：后端这一轮回的 myDecision 是 nil。
@@ -826,6 +846,11 @@ final class IntroCallTests: XCTestCase {
         await viewModel.reloadIntroCall()
 
         XCTAssertNil(viewModel.submittedIntroCallDecision)
+        XCTAssertEqual(
+            viewModel.introCallRunnerStep,
+            .awaitingCall,
+            "上一位的「已确认」带到了新的候选人身上"
+        )
         XCTAssertFalse(
             viewModel.isWaitingForIntroCallCounterpart,
             "新一轮开局就显示成「正在等对方」，而用户还没打那通电话"
@@ -1178,6 +1203,21 @@ final class IntroCallTests: XCTestCase {
         plannedStartTime: "2026-08-27T07:30:00",
         plannedEndTime: "2026-08-27T08:30:00"
     )
+
+    /// 陪跑员已交了第 `version` 版安排单（只填了见面位置）。
+    private static func blindSideViewWithPlan(myDecision: String? = nil, version: Int = 1) -> IntroCallView {
+        IntroCallView(
+            counterpartName: "李*",
+            counterpartPhone: "13800000002",
+            counterpartPhoneMasked: nil,
+            myDecision: myDecision,
+            windowEndsAt: nil,
+            startAddress: "朝阳公园南门",
+            plannedStartTime: "2026-08-27T07:30:00",
+            plannedEndTime: "2026-08-27T08:30:00",
+            plan: IntroCallPlanView(version: version, meetSpotNote: "南门保安亭左侧")
+        )
+    }
 
     private static let volunteerSideView = IntroCallView(
         counterpartName: "王*",

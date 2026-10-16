@@ -349,6 +349,17 @@ struct BlindOrderFlowView<Footer: View>: View {
                     placeRow
                     FlowSeparator()
                 }
+                // 见面安排单约成后写进订单的两项（视觉稿 v2「约好」信息卡，#434）。没有就整行不出现。
+                if let meetSpot = order.meetSpotNote?.nilIfBlank {
+                    meetupDetailRow(label: "具体见面位置", value: meetSpot)
+                        .accessibilityIdentifier("blindOrderFlowMeetSpotRow")
+                    FlowSeparator()
+                }
+                if let color = order.volunteerTopColor?.spokenName {
+                    meetupDetailRow(label: "陪跑员上衣", value: color)
+                        .accessibilityIdentifier("blindOrderFlowVolunteerTopColorRow")
+                    FlowSeparator()
+                }
                 if let onEditRunnerMessage {
                     runnerMessageRow(onEditRunnerMessage)
                     FlowSeparator()
@@ -397,6 +408,17 @@ struct BlindOrderFlowView<Footer: View>: View {
 
     private var placeText: String {
         order.startAddress?.nilIfBlank ?? "出发地点待确认"
+    }
+
+    /// 纯展示行。读屏念「具体见面位置，东门保安亭左侧」，与时间、集合地点两行同一种说法。
+    private func meetupDetailRow(label: String, value: String) -> some View {
+        FlowInfoRow(label: label, accessibilityLabel: "\(label)，\(value)") {
+            Text(value)
+                .flowFont(FlowFonts.rowValue())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     /// 出发前给陪跑员留的一句话。行内直接显示原文 —— 跑者要能听到自己留过什么。

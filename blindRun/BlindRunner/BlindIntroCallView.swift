@@ -39,19 +39,21 @@ struct BlindIntroCallPresentation: Equatable {
     }
 }
 
-// MARK: - 盲人侧「接单前通话磨合」独立页
+// MARK: - 盲人侧「先通个电话」独立页
 
-/// 盲人侧通话磨合页。**整屏只有一件事。**
+/// 盲人侧通话页，三屏（#434，视觉稿 v2 `docs/ui/mockups/intro-call-meetup-plan-20261015/` ③④）：
 ///
-/// 2026-09-05 从 `BlindOrderStatusView.introCallSection` 提出来。此前它是订单状态页里的
-/// 一段，与「把行程告诉家人」「地图」「预约信息」「状态变更记录」共用一条滚动 ——
-/// 而这一态盲人只有一件该做的事（打这通电话），下面那些全是跑起来之后才用得上的。
-/// 志愿者侧从一开始就是独立页（`VolunteerIntroCallView`），两端不对称没有产品理由。
+/// - **B1 待通话**：「陪跑员李*已响应」，主按钮「致电陪跑员李*」，次「更换陪跑员」。
+/// - **B2 等待见面安排**：只在拨过号、App **从后台**回到前台之后进入。**没有主按钮** ——
+///   此刻没有该盲人做的事。v6 的「聊过了，合适」去掉了：「合适」现在是确认陪跑员发来的安排单。
+/// - **B3 确认见面安排**：标题 + 每项一个读屏元素（顺序固定）+ 两个同为 84pt 的大按钮
+///   「确认见面安排」「有异议，致电沟通」+「更换陪跑员」；只有「求助与安全」常驻底部。
 ///
-/// 🔄 2026-10-13 按订单页同一套样式重做（定稿 v6，`docs/ui/mockups/intro-call-20261013/`，
-/// 负责人：通话页与其余页面割裂）：彩色头卡（打电话前紫、打完回来 / 已说合适梅红）+ 进度绳
-/// （第 1 格，对方是候选人）+ 订单页同一条底栏（主按钮、次要按钮、求助与安全）。
-/// 「重复当前状态」从底部挪到导航栏右侧，与订单页同一个位置。**判定一行没改**，只换了外观。
+/// 哪一屏由 `BlindOrderStatusViewModel.introCallRunnerStep` 决定，**服务端安排单优先**于
+/// 本地「回过前台」标记 —— 关页重进、杀进程重启都回得到 B3（修审查 #4）。
+///
+/// 2026-09-05 从 `BlindOrderStatusView.introCallSection` 提出来；2026-10-13 按订单页样式重做（v6）；
+/// 2026-10-15 视觉稿 v2：通话整步沿用进度绳上「匹配 / 邀请」那一格的颜色，去掉 v6 的紫与梅红。
 ///
 /// 🚩 **它共用 `BlindOrderStatusViewModel`，不另起一个 view model、也不另起一条轮询。**
 /// 与志愿者侧的不对称是**契约造成的**，不是实现选择：通话期 `order.volunteer` 恒为 null，
@@ -59,16 +61,11 @@ struct BlindIntroCallPresentation: Equatable {
 /// 而盲人读得到订单详情，`loadOrder` 每 5 秒一轮本来就会顺带把通话数据刷回来
 /// （`refreshIntroCallIfNeeded`）。再起一条轮询等于对同一个端点每 5 秒打两次。
 ///
-/// 直接后果：订单一离开 `PENDING_INTRO_CALL`（双方都说合适 → `PENDING_ACCEPT`，
+/// 直接后果：订单一离开 `PENDING_INTRO_CALL`（约好 → `PENDING_ACCEPT`，
 /// 或本轮没成 → `PENDING_MATCH`），订单页那边的 `status` 一变就会把这一页收起来，
 /// 这一页自己不需要判断「本轮结束了没有」。
-///
-/// 阶段的判定顺序**逐条搬自原 `introCallSection`**，不许重排（每条的理由见分支内注释）。
 struct BlindIntroCallView: View {
     @EnvironmentObject private var speechService: SpeechService
-    /// 两阶段切换的唯一信号源。iOS 不告诉 App「这通电话打完了」——
-    /// 能观察到的只有「拨号确认框把我推到后台、然后我回来了」。
-    @Environment(\.scenePhase) private var scenePhase
 
     /// 与订单状态页**同一个实例**。见类型注释。
     @ObservedObject var viewModel: BlindOrderStatusViewModel
@@ -77,25 +74,26 @@ struct BlindIntroCallView: View {
     var onOpenSafetyHub: () -> Void = {}
     let onClose: () -> Void
 
-    /// 用户按过拨号按钮。
-    @State private var didDial = false
-    /// 拨号之后 App 回到前台了 ⇒ 进入阶段 B（给出「聊过了，合适」）。
-    ///
-    /// ⚠️ 这是**推断，不是事实**：在系统拨号确认框上点「取消」走的是同一条路径。
-    /// 所以阶段 B 一定要保留「再打一次」，见 `stageBActions`。
-    @State private var returnedFromDialer = false
-    /// 进页面时把 VoiceOver 焦点钉在头卡正文上。
+    /// 进页面、安排单刚到、陪跑员改了一版时，把 VoiceOver 焦点钉在标题上。
     ///
     /// 这一页是**自动弹出来**的，焦点落点不确定的代价比在订单页上更大：用户可能正在听
     /// 别的东西，屏幕换了而焦点还在旧位置，他会以为按钮没出现。
     @AccessibilityFocusState private var titleFocused: Bool
 
+    /// B3 两枚大按钮的高度（视觉稿决定 3：「确认」与「有异议」同样高，避免让人觉得被迫同意）。
+    /// 现有 `FlowActionButton` 最高是 `.call` 的 80pt，而共用设计组件归 #433，所以这两枚在本文件里画。
+    static let planDecisionButtonMinHeight: CGFloat = 84
+
     var body: some View {
         NavigationStack {
             OrderFlowScaffold(bottom: bottomActions) {
-                heroCard
+                if isReviewingPlan, let layout = planLayout {
+                    planContent(layout)
+                } else {
+                    heroCard
+                }
             }
-            .navigationTitle(IntroCallCopy.pageTitle)
+            .navigationTitle(isReviewingPlan ? IntroCallCopy.blindPlanPageTitle : IntroCallCopy.pageTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -115,9 +113,7 @@ struct BlindIntroCallView: View {
                 // 「重复当前状态」在盲人端每一页都在。它是读屏用户确认「我现在在哪一步」的唯一手段
                 // （系统的 Speak Screen 读不到一次性的 announcement）。位置与订单页那枚相同。
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        viewModel.repeatStatus()
-                    } label: {
+                    Button(action: repeatCurrentState) {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(AppColors.Flow.accent)
@@ -127,43 +123,57 @@ struct BlindIntroCallView: View {
                             .contentShape(Rectangle().size(width: 64, height: 64))
                     }
                     .accessibilityLabel("重复当前状态")
-                    .accessibilityHint("点击后重新播报当前订单状态")
+                    .accessibilityHint("点击后重新播报这一步的内容")
                     .accessibilityIdentifier("blindIntroCallRepeatStatusButton")
                 }
             }
         }
         .onAppear { titleFocused = true }
-        .onChange(of: scenePhase) { phase in
-            guard phase == .active, didDial else { return }
-            returnedFromDialer = true
+        .onChange(of: viewModel.introCallPlanFocusRequest) { _ in
+            refocusTitle()
         }
     }
 
-    // MARK: - 头卡
+    // MARK: - 子状态
 
-    /// 绳子上这一页处在哪一档。**只用自己知道的事**：拨没拨过（本地）、自己表没表态（服务端回的 `myDecision`）。
-    private var ropeStage: IntroCallRopeStage {
-        if viewModel.isWaitingForIntroCallCounterpart { return .decided }
-        return returnedFromDialer ? .afterCall : .beforeCall
+    private var step: IntroCallRunnerStep { viewModel.introCallRunnerStep }
+
+    /// B3（含刚确认成功、订单还没转走的那几秒）。
+    private var isReviewingPlan: Bool {
+        step == .reviewingPlan || step == .confirmed
     }
 
-    /// 打电话前紫，打完回来 / 已说合适梅红（定稿 v6：「聊前和聊后颜色不同」）。
-    private var tone: BlindHeroTone {
-        ropeStage == .beforeCall ? .calling : .called
+    /// 拉不到，或拉到了但安排单读不懂。🚨 后者**不许**退回 B1 / B2：陪跑员已经提交了，
+    /// 盲人以为对方还没动静会一直等到窗口超时（`IntroCallView.hasUnreadablePlan`）。
+    private var isUnavailable: Bool {
+        (viewModel.introCall == nil && viewModel.introCallUnavailable)
+            || viewModel.introCall?.hasUnreadablePlan == true
+    }
+
+    private var isLoading: Bool {
+        viewModel.introCall == nil && !viewModel.introCallUnavailable && !viewModel.isWaitingForIntroCallCounterpart
+    }
+
+    // MARK: - B1 / B2 头卡
+
+    private var palette: BlindHeroPalette {
+        // 视觉稿 v2 决定 1：通话这一步不再加颜色，整步沿用「匹配 / 邀请」那一格。
+        BlindHeroPalette(tone: .matching)
     }
 
     private var heroCard: some View {
-        let palette = BlindHeroPalette(tone: tone)
-        return FlowHeroCard(style: palette.cardStyle) {
+        FlowHeroCard(style: palette.cardStyle) {
             if let eyebrow {
-                // 不单独进读屏：它是正文合成标签的第一句。
                 Text(eyebrow)
                     .flowFont(FlowV2Fonts.subhead(bold: true))
                     .foregroundColor(palette.eyebrow)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityHidden(true)
+                    // 自成一个读屏元素：视觉稿的进入朗读从标题开始，但时间地点不能因此听不到。
+                    .accessibilityLabel(eyebrow.replacingOccurrences(of: " · ", with: "，"))
+                    .accessibilityIdentifier("blindIntroCallEyebrow")
             }
             RopeView(
+                // 绳子第一格上的小图标区分子状态：B1 电话；B2 不画电话（「单子」图标随 #433 加）。
                 state: .introCall(ropeStage),
                 theme: palette.ropeTheme,
                 volunteerInitial: counterpartInitial,
@@ -171,11 +181,19 @@ struct BlindIntroCallView: View {
             )
             .frame(maxWidth: RopeGeometry.width * 1.2)
             .frame(maxWidth: .infinity)
-            heroBody(palette: palette)
+            heroBody
         }
     }
 
-    private func heroBody(palette: BlindHeroPalette) -> some View {
+    private var ropeStage: IntroCallRopeStage {
+        switch step {
+        case .awaitingCall: return .beforeCall
+        case .awaitingPlan, .reviewingPlan: return .afterCall
+        case .confirmed: return .decided
+        }
+    }
+
+    private var heroBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(headerTitle)
                 .flowFont(FlowV2Fonts.title())
@@ -189,8 +207,8 @@ struct BlindIntroCallView: View {
                 FlowHeroPill(text: remaining, systemImage: "clock")
                     .padding(.top, 4)
             }
-            if viewModel.introCall == nil, !viewModel.introCallUnavailable, !viewModel.isWaitingForIntroCallCounterpart {
-                // 还在拉。**整屏不许空白** —— 标题位已经在说「正在获取」，转圈只给眼睛看。
+            if isLoading {
+                // 还在拉。**整屏不许空白** —— 副标题已经在说「正在获取」，转圈只给眼睛看。
                 ProgressView()
                     .tint(.white)
                     .accessibilityHidden(true)
@@ -198,22 +216,25 @@ struct BlindIntroCallView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // 🔴 正文合成**一个**元素：「谁 / 现在该干什么 / 还剩多久」一站听完，再滑一下就是主按钮。
+        // 🔴 正文合成**一个**元素：「谁 / 现在该干什么 / 还剩多久」一站听完，再滑一下就是按钮。
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(heroAccessibilityLabel)
         .accessibilityAddTraits(.isHeader)
+        // 倒计时按分钟静默更新：读屏不主动念，只在剩 5 / 1 分钟时由 view model 播报。
+        .accessibilityAddTraits(.updatesFrequently)
         .accessibilityFocused($titleFocused)
         .accessibilityIdentifier("blindIntroCallTitle")
     }
 
+    /// 视觉稿 B1 原话：「陪跑员李*已响应。请先与陪跑员通话。通话后，对方将提交见面安排供你确认。剩余 19 分钟。」
     private var heroAccessibilityLabel: String {
-        [eyebrow?.replacingOccurrences(of: " · ", with: "，"), headerTitle.unmaskedForSpeech,
-         headerSubtitle, remaining]
+        let title = headerTitle.unmaskedForSpeech
+        return [title.hasSuffix("。") ? title : title + "。", headerSubtitle, remaining.map { $0 + "。" }]
             .compactMap { $0?.nilIfBlank }
-            .joined(separator: "，")
+            .joined()
     }
 
-    /// 「明天早上 7:00 · 朝阳公园南门」。原先在一张单独的信息卡里，现在与订单页一样放在头卡小标题。
+    /// 「明天早上 7:00 · 朝阳公园南门」。
     private var eyebrow: String? {
         IntroCallCopy.eyebrow(
             plannedStart: viewModel.introCall?.plannedStartTime,
@@ -221,70 +242,212 @@ struct BlindIntroCallView: View {
         )
     }
 
-    /// 本轮还剩几分钟。每轮订单轮询都会重新赋值 `introCall`，所以这个数字跟着一起重算 ——
-    /// 不需要（也不该）为它单起一条每秒跳一次的计时器：分钟级的精度对「要不要现在打」已经足够。
+    /// 「剩余 19 分钟」/「剩余不到 1 分钟」。每轮订单轮询都会重新赋值 `introCall`，所以这个数字跟着重算 ——
+    /// 分钟级的精度对「要不要现在打」已经足够，不单起每秒一跳的计时器。
     private var remaining: String? {
-        IntroCallCopy.blindWindowRemainingText(windowEndsAt: viewModel.introCall?.windowEndsAt)
+        guard let endsAt = viewModel.introCall?.windowEndsAt?.nilIfBlank?.backendTimestamp else { return nil }
+        // 已过期而服务端还没转走的那几秒也落「不到 1 分钟」，不说「已超时」（超时由服务端宣布）。
+        return IntroCallMeetupCopy.remainingText(windowEndsAt: endsAt, now: Date())
     }
 
+    /// 屏幕上的称呼保留掩码（`李*`），读屏一路各自去星号。
     private var counterpartName: String {
-        viewModel.introCall?.counterpartDisplayName(fallback: "这位志愿者") ?? "这位志愿者"
+        viewModel.introCall?.counterpartName?.nilIfBlank ?? ""
     }
 
     /// 绳子右边那个头像里的字：候选人的姓。拿不到写「陪」（同订单页）。
     private var counterpartInitial: String {
-        viewModel.introCall?.counterpartName?.nilIfBlank?.unmaskedForSpeech.first.map(String.init) ?? "陪"
+        counterpartName.nilIfBlank?.unmaskedForSpeech.first.map(String.init) ?? "陪"
     }
 
     private var headerTitle: String {
-        if viewModel.isWaitingForIntroCallCounterpart {
-            return IntroCallCopy.waitingForCounterpart
-        }
-        if viewModel.introCall == nil {
-            // 失败与加载中共用这个标题位，各自的说明在副标题里分开。
-            return IntroCallCopy.blindPageTitle(counterpartName: counterpartName)
-        }
-        return returnedFromDialer
-            ? IntroCallCopy.blindAfterCallTitle(counterpartName: counterpartName)
-            : IntroCallCopy.blindPageTitle(counterpartName: counterpartName)
+        // 已确认、但确认之后那次刷新没拉到安排单（订单马上就会转走）：不画 B1 / B2 的话。
+        if step == .confirmed { return IntroCallCopy.blindPlanPageTitle }
+        return step == .awaitingPlan && !isUnavailable
+            ? IntroCallCopy.blindAwaitingPlanTitle
+            : IntroCallCopy.blindAwaitingCallTitle(counterpartName: counterpartName)
     }
 
     private var headerSubtitle: String {
-        if viewModel.isWaitingForIntroCallCounterpart {
-            // 🚨 标题已经是那句进行时了，副标题不许再补一句「等待对方确认」——
-            // 我们拿不到对方的表态，说了就是编（`IntroCallView` 的类型注释）。
-            return IntroCallCopy.blindPageSubtitle
+        // 「已经告诉系统你觉得合适，约好之后会通知你。」—— 进行时，不说对方的表态（那句的注释）。
+        if step == .confirmed { return IntroCallCopy.waitingForCounterpart }
+        if isUnavailable { return IntroCallCopy.loadFailed }
+        if isLoading { return IntroCallCopy.blindLoadingNotice }
+        return step == .awaitingPlan ? IntroCallCopy.blindAwaitingPlanSubtitle : IntroCallCopy.blindAwaitingCallSubtitle
+    }
+
+    // MARK: - B3 确认见面安排
+
+    private var planLayout: (titleSpeech: String, changeCount: Int, rows: [BlindMeetupPlanRow])? {
+        guard let view = viewModel.introCall, let plan = view.meetupPlan else { return nil }
+        return BlindMeetupPlanLayout.rows(
+            plan: plan,
+            original: view.originalArrangement,
+            volunteerName: view.counterpartDisplayName(fallback: "")
+        )
+    }
+
+    @ViewBuilder
+    private func planContent(_ layout: (titleSpeech: String, changeCount: Int, rows: [BlindMeetupPlanRow])) -> some View {
+        planHeader(layout)
+        FlowCard {
+            VStack(spacing: 0) {
+                ForEach(Array(layout.rows.enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { FlowSeparator() }
+                    planRow(row)
+                }
+            }
         }
-        if viewModel.introCall == nil {
-            return viewModel.introCallUnavailable
-                ? IntroCallCopy.loadFailed
-                : IntroCallCopy.blindLoadingNotice
+        planDecisionButtons
+    }
+
+    /// 头部：「陪跑员李*已提交」+ 大字「见面安排（2 项变更）」+ 剩余时间。不画绳子（视觉稿决定 2）。
+    /// **读屏只念一句**：`planSpeech.title`（「陪跑员李*已提交见面安排，共 2 项变更。」，去星号）。
+    private func planHeader(_ layout: (titleSpeech: String, changeCount: Int, rows: [BlindMeetupPlanRow])) -> some View {
+        FlowHeroCard(style: palette.cardStyle) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(IntroCallCopy.blindPlanSubmittedBy(counterpartName: counterpartName))
+                    .flowFont(FlowV2Fonts.subhead(bold: true))
+                    .foregroundColor(palette.eyebrow)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(viewModel.introCallPlanChangedNotice
+                     ? IntroCallCopy.blindPlanChangedHeadline
+                     : IntroCallCopy.blindPlanHeadline(changeCount: layout.changeCount))
+                    .flowFont(FlowV2Fonts.title())
+                    .foregroundColor(palette.strong)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let remaining {
+                    FlowHeroPill(text: remaining, systemImage: "clock")
+                        .padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 视觉稿 B3 ① 只念标题这一句。剩余时间靠剩 5 / 1 分钟那两次播报与 10 分钟提醒，
+            // 不塞进 ①：标题之后紧接着就是 ② 开跑时间，顺序是视觉稿钉死的。
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(layout.titleSpeech)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused($titleFocused)
+            .accessibilityIdentifier("blindIntroCallPlanTitle")
         }
-        return returnedFromDialer
-            ? IntroCallCopy.blindAfterCallSubtitle
-            : IntroCallCopy.blindPageSubtitle
+    }
+
+    private func planRow(_ row: BlindMeetupPlanRow) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let title = row.title {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .flowFont(FlowFonts.rowLabel())
+                        .foregroundColor(AppColors.Flow.secondaryText)
+                    if row.isChanged {
+                        // 「已变更」浅蓝小标签 + 下面一行「原定 …」。不用删除线：读屏念不出删除线（视觉稿决定 4）。
+                        Text("已变更")
+                            .flowFont(FlowFonts.rowDetail())
+                            .foregroundColor(AppColors.Flow.onBlueTint)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(AppColors.Flow.blueTint)
+                            .clipShape(Capsule())
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            // 撑满行宽、左对齐：frame 贴着字宽时，行尾的全角括号会画出 frame 外，
+            // 审计判「放大字号后可能被截断」（2026-10-16 真机：「你：蓝色（通话中确认）」）。
+            ForEach(row.values, id: \.self) { value in
+                Text(value)
+                    .flowFont(FlowFonts.rowValue())
+                    .foregroundColor(AppColors.Flow.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let original = row.original {
+                Text(original)
+                    .flowFont(FlowFonts.rowDetail())
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, FlowMetrics.infoRowHorizontalPadding)
+        .padding(.vertical, 14)
+        // 与 `FlowInfoRow` 同一个下限，并让整行（含 padding）成为这个读屏元素的范围。
+        // 不加时元素 frame 只有文字那么高 —— 单行的固定句只有 19pt，审计判「可点区太小」（2026-10-16 真机）。
+        .frame(minHeight: FlowMetrics.infoRowDisplayMinHeight) // guard:allow small-touch-target
+        .contentShape(Rectangle())
+        // 🔴 每项**一个**读屏元素，标签取 `planSpeech` 那一句：改过的项念「已变更：由 X 改为 Y」，地点再报距离。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.speech)
+        .modifier(PlanRowIdentifier(kind: row.kind))
+    }
+
+    /// 红条 +「确认见面安排」+「有异议，致电沟通」+「更换陪跑员」。放在滚动区里，不进底栏 ——
+    /// 两枚 84pt 再加两枚 64pt 贴底会吃掉半屏，而视觉稿只让「求助与安全」常驻底部。
+    private var planDecisionButtons: some View {
+        VStack(spacing: FlowMetrics.actionButtonSpacing) {
+            if viewModel.introCallConfirmFailed {
+                // 修审查 #3：此前确认失败只有语音。屏幕上这一条与播报**同时**出现；
+                // 读屏也滑得到它（紧挨在「确认见面安排」前面），漏听了那句播报还能在这里再听一次。
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .accessibilityHidden(true)
+                    Text(IntroCallCopy.blindConfirmNotDeliveredBanner)
+                        .flowFont(FlowFonts.rowValue())
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundColor(AppColors.Flow.helpText)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppColors.Flow.helpBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+                        .strokeBorder(AppColors.Flow.helpStroke, lineWidth: 1.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("blindIntroCallConfirmFailedBanner")
+            }
+
+            PlanDecisionButton(
+                title: IntroCallCopy.blindConfirmPlanButtonTitle,
+                systemImage: "checkmark",
+                kind: .confirm,
+                isEnabled: !viewModel.isPerformingAction && step == .reviewingPlan,
+                accessibilityHint: IntroCallCopy.blindConfirmPlanAccessibilityHint
+            ) {
+                Task { await viewModel.confirmIntroCallPlan() }
+            }
+            .accessibilityIdentifier("blindIntroCallConfirmPlanButton")
+
+            // 「有异议」直接拨号，安排单保留；陪跑员那边只会再收到一次「跑者正在给你打电话」。
+            PlanDecisionButton(
+                title: IntroCallCopy.blindDisputePlanButtonTitle,
+                systemImage: "phone.fill",
+                kind: .dispute,
+                isEnabled: !viewModel.isPerformingAction,
+                accessibilityHint: IntroCallCopy.callAccessibilityHint,
+                action: dial
+            )
+            .accessibilityIdentifier("blindIntroCallDisputePlanButton")
+
+            declineButton
+        }
     }
 
     // MARK: - 底栏
 
-    /// 主按钮 + 次要按钮 + 求助与安全。四个分支，**顺序逐条搬自原 `introCallSection`**，判定条件一字未改。
     private var bottomActions: OrderFlowBottomActions {
         OrderFlowBottomActions(
             owner: .blindIntroCall,
             primary: primaryAction,
-            secondary: AnyView(secondaryButtons),
+            secondary: isReviewingPlan ? nil : AnyView(secondaryButtons),
             safetyHub: OrderFlowSafetyHubAction(action: onOpenSafetyHub)
         )
     }
 
     private var primaryAction: OrderFlowPrimaryAction? {
-        if viewModel.isWaitingForIntroCallCounterpart {
-            // 🚩 **表过态之后这一支优先，且不依赖再拉一次 view。**
-            // 已表态、在等对方。**这一屏刻意没有主动作** —— 此刻用户没有该做的事，
-            // 摆一个大按钮只会让他以为还要再做点什么。
-            return nil
-        }
-        if viewModel.introCall == nil, viewModel.introCallUnavailable {
+        if isUnavailable {
             // 🚨 播报由 `refreshIntroCallIfNeeded` 在失败那一跳负责（只播一次），这里只管看得见的那半。
             return OrderFlowPrimaryAction(
                 title: IntroCallCopy.retryButtonTitle,
@@ -294,19 +457,10 @@ struct BlindIntroCallView: View {
                 Task { await viewModel.reloadIntroCall() }
             }
         }
-        guard viewModel.introCall != nil else { return nil }
-        if returnedFromDialer {
-            return OrderFlowPrimaryAction(
-                title: IntroCallCopy.acceptButtonTitle,
-                systemImage: "hand.thumbsup.fill",
-                isEnabled: !viewModel.isPerformingAction,
-                accessibilityHint: IntroCallCopy.acceptAccessibilityHint
-            ) {
-                Task { await viewModel.submitIntroCallDecision(.accept) }
-            }
-        }
+        // B2 / B3 / 还在拉：没有黄色主按钮。B2 此刻没有该你做的事；B3 的两枚大按钮在滚动区里。
+        guard viewModel.introCall != nil, step == .awaitingCall else { return nil }
         return OrderFlowPrimaryAction(
-            title: IntroCallCopy.callButtonTitle,
+            title: IntroCallCopy.callButtonTitle(counterpartName: counterpartName),
             systemImage: "phone.fill",
             isEnabled: !viewModel.isPerformingAction,
             accessibilityHint: IntroCallCopy.callAccessibilityHint,
@@ -314,17 +468,15 @@ struct BlindIntroCallView: View {
         )
     }
 
-    /// 次要按钮。
+    /// B2 的「再次致电」+ 每一屏都有的「更换陪跑员」。
     ///
-    /// 🚩 阶段 B **必须保留「再打一次」**：阶段切换的判定（点过拨号按钮 + `scenePhase` 回到
-    /// `.active`）是**推断不是事实**，用户在系统拨号确认框上点「取消」会走同一条路径。
-    /// 保留拨号入口 = 推断错了也有退路。**这处冗余是刻意的。**
+    /// 🚩 B2 **必须保留「再次致电」**：拨号后对方可能没接（审查 #9），而 B2 只说明 App 回过前台。
     ///
-    /// 「换一位」在每一支都在：数据拉多久用户都有权结束这一轮，不该被一个转圈按在原地等 20 分钟窗口超时。
+    /// 「更换陪跑员」在每一支都在：数据拉多久用户都有权结束这一轮，不该被一个转圈按在原地等 20 分钟窗口超时。
     @ViewBuilder
     private var secondaryButtons: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
-            if showsDialAgain {
+            if step == .awaitingPlan, !isUnavailable, viewModel.introCall?.dialableCounterpartPhone != nil {
                 FlowActionButton(
                     IntroCallCopy.callAgainButtonTitle,
                     systemImage: "phone.fill",
@@ -335,32 +487,27 @@ struct BlindIntroCallView: View {
                 )
                 .accessibilityIdentifier("blindIntroCallDialAgainButton")
             }
-            // 不用红色：「换一位」是平权的退出，不是拒绝谁（`IntroCallCopy.declineButtonTitle` 的注释）；
-            // 红色在本 App 里专指求助与阻断，用在这里等于替用户说了一句「不行」。
-            FlowActionButton(
-                IntroCallCopy.declineButtonTitle,
-                style: .ghost,
-                isEnabled: !viewModel.isPerformingAction,
-                accessibilityHint: IntroCallCopy.declineAccessibilityHint
-            ) {
-                Task { await viewModel.submitIntroCallDecision(.decline) }
-            }
-            .accessibilityIdentifier("blindIntroCallDeclineButton")
+            declineButton
         }
     }
 
-    /// 阶段 B 必给；已表态时**拿得到号码**才给（等待期间对方可能想再聊两句）。
-    private var showsDialAgain: Bool {
-        if viewModel.isWaitingForIntroCallCounterpart {
-            return viewModel.introCall?.dialableCounterpartPhone != nil
+    /// 不用红色：「更换陪跑员」是平权的退出，不是拒绝谁（`IntroCallCopy.declineButtonTitle` 的注释）；
+    /// 红色在本 App 里专指求助与阻断，用在这里等于替用户说了一句「不行」。
+    private var declineButton: some View {
+        FlowActionButton(
+            IntroCallCopy.declineButtonTitle,
+            style: .ghost,
+            isEnabled: !viewModel.isPerformingAction,
+            accessibilityHint: IntroCallCopy.declineAccessibilityHint
+        ) {
+            Task { await viewModel.declineIntroCall() }
         }
-        return viewModel.introCall != nil && returnedFromDialer
+        .accessibilityIdentifier("blindIntroCallDeclineButton")
     }
+
+    // MARK: - 动作
 
     /// 拨号。**先通知对方再立刻拨**，不等响应（理由在 `introCallDialURL` 上）。
-    ///
-    /// `didDial` 在这里就置 true，而不是等 `openURL` 回调 —— 系统拨号确认框弹出
-    /// 本身就会把 App 推到后台，回来时要能认出「刚才去拨号了」。
     ///
     /// 🚨 拿不到 URL 时**必须出声**。这条路的唯一成因是通话数据没拉回来，
     /// 而静默 return 的表现是「按了没反应」—— 对盲人端就是事故。
@@ -369,7 +516,102 @@ struct BlindIntroCallView: View {
             speechService.speakError(IntroCallCopy.loadFailed)
             return
         }
-        didDial = true
         EmergencyDialer.dial(url)
+    }
+
+    /// 「重复当前状态」按这一屏念（修审查 #12：此前只念订单级文案，不知道自己在 B1 还是 B2）。
+    /// B3 重念整张安排单。
+    private func repeatCurrentState() {
+        if isReviewingPlan, let view = viewModel.introCall, let plan = view.meetupPlan {
+            let speech = IntroCallMeetupCopy.planSpeech(
+                plan: plan,
+                original: view.originalArrangement,
+                volunteerName: view.counterpartDisplayName(fallback: "")
+            )
+            speechService.speak(speech.fullText)
+            return
+        }
+        speechService.speak(heroAccessibilityLabel)
+    }
+
+    /// 焦点挪回标题。先放开再落下：已经是 true 时再赋 true 不会触发移动；
+    /// 隔一拍是给 B2 → B3 换屏留出布局时间，标题元素还不在树里时设焦点会落空。
+    private func refocusTitle() {
+        titleFocused = false
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            titleFocused = true
+        }
+    }
+}
+
+// MARK: - B3 的两枚大按钮
+
+/// 「确认见面安排」（黄）与「有异议，致电沟通」（白底蓝框），**同为 84pt**。
+/// 外观逐项对齐 `FlowActionButton` 的 `.primary` / `.call`，只有高度不同（理由见 `planDecisionButtonMinHeight`）。
+private struct PlanDecisionButton: View {
+    enum Kind { case confirm, dispute }
+
+    let title: String
+    let systemImage: String?
+    let kind: Kind
+    let isEnabled: Bool
+    let accessibilityHint: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 20, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                    .flowFont(FlowFonts.actionButton())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundColor(kind == .confirm ? AppColors.Flow.onCTA : AppColors.Flow.bluePressed)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            // 挂在 label 里面：挂在 Button 外面撑不大可点区（记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
+            .frame(minHeight: BlindIntroCallView.planDecisionButtonMinHeight)
+            .background(background)
+            .overlay(
+                RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+                    .strokeBorder(kind == .confirm ? Color.clear : AppColors.Flow.accent, lineWidth: kind == .confirm ? 0 : 2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(title)
+        .accessibilityHintIfPresent(accessibilityHint)
+        // 挂在 `.accessibilityElement(children: .ignore)` 之后，读屏才念「变暗」（`FlowActionButton.body` 里那段）。
+        .disabled(!isEnabled)
+    }
+
+    private var background: Color {
+        switch kind {
+        case .confirm: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
+        case .dispute: return AppColors.Flow.surface
+        }
+    }
+}
+
+/// B3 每一行的 identifier。字面量分支的理由同 `OrderFlowBottomActions.Owner`（`stale-ui-test-identifier` 只认字面量）。
+private struct PlanRowIdentifier: ViewModifier {
+    let kind: BlindMeetupPlanRow.Kind
+
+    func body(content: Content) -> some View {
+        switch kind {
+        case .time: content.accessibilityIdentifier("blindIntroCallPlanRowTime")
+        case .place: content.accessibilityIdentifier("blindIntroCallPlanRowPlace")
+        case .meetSpot: content.accessibilityIdentifier("blindIntroCallPlanRowMeetSpot")
+        case .colors: content.accessibilityIdentifier("blindIntroCallPlanRowColors")
+        case .greeting: content.accessibilityIdentifier("blindIntroCallPlanRowGreeting")
+        }
     }
 }
