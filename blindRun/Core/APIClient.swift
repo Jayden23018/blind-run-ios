@@ -250,6 +250,8 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
     private let tokenProvider: @Sendable () -> String?
+    /// 401 时先续期再重试一次、发请求时顺手主动续期（#391）。nil = 不续期（锁屏卡以外的独立用法、测试）。
+    private let sessionRenewer: SessionTokenRefresher?
 
     /// 非 private：`APIClientCachePolicyTests` 要读它的 configuration 守住下面那条缓存设置。
     static let defaultSession: URLSession = {
@@ -297,11 +299,65 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
     init(
         baseURL: URL,
         session: URLSession = URLSessionAPIClient.defaultSession,
-        tokenProvider: @escaping @Sendable () -> String?
+        tokenProvider: @escaping @Sendable () -> String?,
+        sessionRenewer: SessionTokenRefresher? = nil
     ) {
         self.baseURL = baseURL
         self.session = session
         self.tokenProvider = tokenProvider
+        self.sessionRenewer = sessionRenewer
+    }
+
+    /// 需要登录的请求统一从这里过：带上 access 发一次；401 就先续期，续上了用新 access **只重试一次**。
+    ///
+    /// 续期的三种结果（`SessionRenewalOutcome`）：
+    /// - 续上了 → 重试；重试还是 401 就照常抛 `.unauthorized`，不再续第二次。
+    /// - 登录已结束 → 抛 `.unauthorized`，调用方照旧交给 `AppState.handleAuthenticatedAPIError`
+    ///   （跑步中暂缓，否则登出）。这一层不碰会话。
+    /// - 暂时续不了（429 / 5xx / 断网）→ 抛续期那条错误。**不能抛 `.unauthorized`**：
+    ///   那会让调用方把一次服务端故障当成登录失效，在跑道上把人踢回登录页。
+    ///
+    /// 请求被 401 打回 = 服务端在过滤器那一层就拒了、业务没执行，所以 POST 重试一次是安全的。
+    private func withSessionRenewal<T>(
+        requiresAuth: Bool,
+        _ send: (_ accessToken: String?) async throws -> T
+    ) async throws -> T {
+        guard requiresAuth else { return try await send(nil) }
+        // 需要鉴权却拿不到 Token 时**不发请求**。
+        //
+        // 旧写法是「没 Token 就静默不带头发出去」，后果是一条闭合的自噬链：
+        // 服务端理所当然回 401 → 客户端把它当成「服务端撤销了会话」→ `expireSession()`
+        // → `performLocalSessionCleanup()` 清掉 Token → 弹「登录状态已失效」。
+        // 于是**本地状态错误被伪装成服务端拒绝**，且清 Token 顺手销毁了现场：
+        // 抓包看到的是 401，服务端日志看到的是「没带 Authorization 头」，
+        // 两边都指向对方。2026-08-16 排查志愿者登不进去时，这条链把方向带偏了大半天。
+        //
+        // 空串一并挡住 —— 那是 Keychain 读失败的常见返回值，发出去就是个空的 `Bearer `，
+        // 与没带头同样是 401，却更难看出来（`BearerTokenMiddleware` 那边早就挡了，这里漏了）。
+        //
+        // 上传更该早退：多几 MB 的证件照传上去再被 401 打回，白烧一次流量。
+        guard let token = tokenProvider(), !token.isEmpty else {
+            throw APIError.missingCredentials
+        }
+        sessionRenewer?.scheduleRenewalIfDue()
+        // 记下发请求时是哪一次登录：401 回来时换了账号的话，绝不能拿新会话的 token 重发这条旧请求。
+        let requestEpoch = sessionRenewer?.sessionEpoch
+        do {
+            return try await send(token)
+        } catch APIError.unauthorized {
+            guard let sessionRenewer else { throw APIError.unauthorized }
+            switch await sessionRenewer.renewAfterUnauthorized(rejectedAccessToken: token, requestEpoch: requestEpoch) {
+            case .renewed(let renewedToken):
+                return try await send(renewedToken)
+            case .invalid:
+                throw APIError.unauthorized
+            case .unavailable(let error):
+                throw error
+            case .sessionChanged:
+                // 不抛 `.unauthorized`：调用方会据此 `expireSession()`，踢掉的是新登录的那个人。
+                throw APIError.networkError(CancellationError())
+            }
+        }
     }
 
     func request<T: Decodable>(
@@ -311,8 +367,6 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         body: (any Encodable & Sendable)?,
         requiresAuth: Bool
     ) async throws -> T {
-        let diagnosticID = String(UUID().uuidString.prefix(8))
-        let diagnosticStart = Date()
         let endpointCategory = Self.endpointCategory(for: path)
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)
 
@@ -329,28 +383,23 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        // 需要鉴权却拿不到 Token 时**不发请求**。
-        //
-        // 旧写法是「没 Token 就静默不带头发出去」，后果是一条闭合的自噬链：
-        // 服务端理所当然回 401 → 客户端把它当成「服务端撤销了会话」→ `expireSession()`
-        // → `performLocalSessionCleanup()` 清掉 Token → 弹「登录状态已失效」。
-        // 于是**本地状态错误被伪装成服务端拒绝**，且清 Token 顺手销毁了现场：
-        // 抓包看到的是 401，服务端日志看到的是「没带 Authorization 头」，
-        // 两边都指向对方。2026-08-16 排查志愿者登不进去时，这条链把方向带偏了大半天。
-        //
-        // 空串一并挡住 —— 那是 Keychain 读失败的常见返回值，发出去就是个空的 `Bearer `，
-        // 与没带头同样是 401，却更难看出来（`BearerTokenMiddleware` 那边早就挡了，这里漏了）。
-        if requiresAuth {
-            guard let token = tokenProvider(), !token.isEmpty else {
-                throw APIError.missingCredentials
-            }
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
         if let body {
             request.httpBody = try encoder.encode(body)
         }
 
+        return try await withSessionRenewal(requiresAuth: requiresAuth) { accessToken in
+            var request = request
+            if let accessToken {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+            return try await self.performOnce(request, endpointCategory: endpointCategory)
+        }
+    }
+
+    /// 发一次、按状态码分类。401 只抛 `.unauthorized`，续期与重试在 `withSessionRenewal`。
+    private func performOnce<T: Decodable>(_ request: URLRequest, endpointCategory: String) async throws -> T {
+        let diagnosticID = String(UUID().uuidString.prefix(8))
+        let diagnosticStart = Date()
         let data: Data
         let response: URLResponse
         do {
@@ -439,15 +488,6 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        // 同 `request(...)`，理由见那里。上传更该早退：多几 MB 的证件照传上去再被 401 打回，
-        // 白烧一次流量。
-        if requiresAuth {
-            guard let token = tokenProvider(), !token.isEmpty else {
-                throw APIError.missingCredentials
-            }
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
         var body = Data()
         for (name, value) in (fields ?? [:]).sorted(by: { $0.key < $1.key }) {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -465,6 +505,16 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
+        return try await withSessionRenewal(requiresAuth: requiresAuth) { accessToken in
+            var request = request
+            if let accessToken {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+            return try await self.performUploadOnce(request)
+        }
+    }
+
+    private func performUploadOnce<T: Decodable>(_ request: URLRequest) async throws -> T {
         let data: Data
         let response: URLResponse
         do {

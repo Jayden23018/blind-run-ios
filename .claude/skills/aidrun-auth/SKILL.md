@@ -32,6 +32,12 @@ Token 存 Keychain（`blindRun/Core/KeychainTokenStore.swift`，`kSecAttrAccessi
 
 **不要把 access token 写进 `UserDefaults`。** 目前唯一残留的 `UserDefaults` 访问是 `restoreSession()` 里对历史值的一次性迁移。
 
+refresh token（#391）存同一个 Keychain service 的 `refreshSession` 条目（`RefreshCredentialStore`，连同收到时刻与 `expiresIn`），只出现在 `POST /api/auth/refresh` 的请求体里。续期集中在 `SessionTokenRefresher`，`URLSessionAPIClient` 的 401 分支调它。
+
+- **换 token 只走 `AppState.applyRenewedAccessToken`**，别直接给 `accessToken` 赋值：后者的 `didSet` 会断 WebSocket、重置陪跑会话。
+- **判「会话还是不是刚才那个」比 `AppState.sessionGeneration`，别比 token 值**：一次登录里 token 会换好几次。
+- 登出无论服务端成败都清本地会话（契约 blind-run-backend#669）。
+
 ## 角色切换：当前无端点
 
 一个账号可以同时拥有盲人与志愿者身份。

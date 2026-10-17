@@ -127,6 +127,8 @@ struct blindRunApp: App {
                         // （AppRealtimeCoordinator.swift:1046-1055），错过的通知就永远补不回来。
                         // 补读没有服务端游标，`after` 完全由客户端给，重复调用只会被 `missed:{id}` 去重。
                         Task { await appState.catchUpMissedNotifications() }
+                        // 契约：回到前台时检查 access 是否过了半衰期，过了就续（#391）。
+                        Task { await appState.renewSessionIfDue() }
                     }
                 }
         }

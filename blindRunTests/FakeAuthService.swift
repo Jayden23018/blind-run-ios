@@ -24,6 +24,7 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     var sendVerificationCodeResult: Result<SendCodeResponse, Error> = .failure(NotStubbed(method: "sendVerificationCode"))
     var verifyCodeResult: Result<LoginResponse, Error> = .failure(NotStubbed(method: "verifyCode"))
     var currentUserResult: Result<CurrentUserResponse, Error> = .failure(NotStubbed(method: "currentUser"))
+    var refreshSessionResult: Result<LoginResponse, Error> = .failure(NotStubbed(method: "refreshSession"))
     var logoutResult: Result<LogoutResponse, Error> = .failure(NotStubbed(method: "logout"))
     var deleteAccountResult: Result<DeleteAccountResponse, Error> = .failure(NotStubbed(method: "deleteAccount"))
     var legalLinksResult: Result<LegalLinksResponse, Error> = .failure(NotStubbed(method: "legalLinks"))
@@ -61,6 +62,11 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     func currentUser() async throws -> CurrentUserResponse {
         record()
         return try currentUserResult.get()
+    }
+
+    func refreshSession(refreshToken: String) async throws -> LoginResponse {
+        record()
+        return try refreshSessionResult.get()
     }
 
     func logout() async throws -> LogoutResponse {

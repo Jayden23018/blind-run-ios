@@ -2747,7 +2747,9 @@ final class blindRunTests: XCTestCase {
         }
     }
 
-    func testLogoutFailurePreservesSessionUntilConfirmedLocalOnlySignOut() async {
+    /// #391 起：服务端登出没成也照样清本地会话（契约 blind-run-backend#669「用户的意图是退出」）。
+    /// 此前这里保留会话、等用户确认「仅退出本机」。断网不重试（`AppState.logoutIsWorthRetrying`）。
+    func testLogoutNetworkFailureStillSignsOutLocally() async {
         let persistence = AppStatePersistenceFactory.makeIsolatedTest()
         defer { persistence.reset() }
         let client = AuthLifecycleAPIClient(logoutResult: .failure(.networkError(URLError(.notConnectedToInternet))))
@@ -2756,12 +2758,9 @@ final class blindRunTests: XCTestCase {
 
         await appState.logout()
 
-        XCTAssertTrue(appState.isLoggedIn)
-        guard case .revocationFailed = appState.logoutState else {
-            return XCTFail("Expected retryable revocation failure")
-        }
-        appState.confirmLocalOnlySignOut()
         XCTAssertFalse(appState.isLoggedIn)
+        XCTAssertEqual(appState.logoutState, .idle)
+        XCTAssertEqual(appState.sessionRestorationState, .unauthenticated)
     }
 
     func testLocalCleanupIsIdempotentAndClearsUserScopedMetadata() {

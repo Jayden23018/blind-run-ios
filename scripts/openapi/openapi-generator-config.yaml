@@ -29,6 +29,7 @@ filter:
   paths:
     - /api/auth/logout
     - /api/auth/me
+    - /api/auth/refresh
     - /api/auth/send-code
     - /api/auth/verify-code
     - /api/blind/favorite-volunteers

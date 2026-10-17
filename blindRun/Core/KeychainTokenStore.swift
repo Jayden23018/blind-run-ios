@@ -38,8 +38,15 @@ final class KeychainTokenStore: TokenStoring {
 
     private static let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "keychain")
 
+    /// 同一个 service 下的两条条目：access token，以及 refresh token 连同签发时刻（`RefreshCredentialStore`）。
+    /// 两条用同一个 accessibility —— 锁屏后台续期同样要读得到 refresh token。
+    enum Account: String {
+        case accessToken
+        case refreshSession
+    }
+
     private let service: String
-    private let account = "accessToken"
+    private let account: String
     private let itemAdd: (CFDictionary) -> OSStatus
     private let onWriteFailure: (OSStatus) -> Void
 
@@ -48,10 +55,12 @@ final class KeychainTokenStore: TokenStoring {
     ///   - onWriteFailure: 写入失败的留痕出口。默认写系统日志；测试注入闭包来断言它被调用。
     init(
         service: String = AppCredentialNamespace.productionService,
+        account: Account = .accessToken,
         itemAdd: ((CFDictionary) -> OSStatus)? = nil,
         onWriteFailure: ((OSStatus) -> Void)? = nil
     ) {
         self.service = service
+        self.account = account.rawValue
         self.itemAdd = itemAdd ?? { SecItemAdd($0, nil) }
         self.onWriteFailure = onWriteFailure ?? KeychainTokenStore.logWriteFailure
     }
@@ -126,16 +135,59 @@ final class InMemoryTokenStore: TokenStoring {
 /// 与 `AppStatePersistenceFactory.makeDefault` 一一对应的凭据侧工厂。
 enum TokenStoreFactory {
     static func makeDefault(
+        account: KeychainTokenStore.Account = .accessToken,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> any TokenStoring {
         // UI 测试跑的是真 App，必须走真实 Keychain 才能覆盖"重启后仍登录"的路径，
         // 但落在独立 service，且由 `AppState.resetUITestPersistence()` 显式清除。
         if environment["AIDRUN_UI_TEST_RESET_STATE"] == "1" {
-            return KeychainTokenStore(service: AppCredentialNamespace.uiTestService)
+            return KeychainTokenStore(service: AppCredentialNamespace.uiTestService, account: account)
         }
         if environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil {
             return InMemoryTokenStore()
         }
-        return KeychainTokenStore.shared
+        return account == .accessToken ? KeychainTokenStore.shared : KeychainTokenStore(account: account)
+    }
+}
+
+// MARK: - Refresh token（#391）
+
+/// refresh token 与「这一对 token 是什么时候收到的、access 能用多久」。三者一起换、一起删，所以存一条。
+///
+/// `issuedAt` 是**本地收到响应的时刻**，不是解析 JWT 得到的签发时间（契约：不必解析 JWT）。
+/// 本机时钟被拨过只会让续期早一点或晚一点；晚了也有 401 那条路兜住。
+struct RefreshCredential: Codable, Equatable {
+    let refreshToken: String
+    let issuedAt: Date
+    let expiresIn: TimeInterval
+
+    /// 契约：「`token` 剩余有效期不足一半时」主动续期。
+    var renewalDueAt: Date { issuedAt.addingTimeInterval(expiresIn / 2) }
+}
+
+/// `RefreshCredential` 的读写。底层就是又一条 `TokenStoring`（Keychain 的 `refreshSession` 条目），
+/// 存的是 JSON —— 这样单测照旧用 `InMemoryTokenStore`，不用再多一种 fake。
+final class RefreshCredentialStore {
+    private let storage: any TokenStoring
+
+    init(storage: any TokenStoring) {
+        self.storage = storage
+    }
+
+    func save(_ credential: RefreshCredential) {
+        guard let data = try? JSONEncoder().encode(credential),
+              let json = String(data: data, encoding: .utf8) else { return }
+        storage.save(json)
+    }
+
+    /// 解不开（例如以后改了格式）就当没有 —— 结果是这次登录不能续期，401 时回登录页，
+    /// 与接续期之前一样，不会更糟。
+    func read() -> RefreshCredential? {
+        guard let json = storage.read(), let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(RefreshCredential.self, from: data)
+    }
+
+    func delete() {
+        storage.delete()
     }
 }

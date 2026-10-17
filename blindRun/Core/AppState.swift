@@ -106,6 +106,8 @@ final class AppState: ObservableObject {
     private let ordersOverride: (any OrderServing)?
     let persistence: AppStatePersistence
     private let tokenStore: any TokenStoring
+    /// refresh token 续期（#391）。每次新建的 `URLSessionAPIClient` 都带上它，single-flight 才是全 App 一份。
+    let tokenRefresher: SessionTokenRefresher
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
     let emergencyCoordinator: EmergencyCoordinator
@@ -120,10 +122,15 @@ final class AppState: ObservableObject {
     // MARK: - Session
 
     /// JWT 访问令牌（持久化在 Keychain，见 `KeychainTokenStore`）
+    ///
+    /// 🔴 **续期换 token 不走下面那段重置**（`applyRenewedAccessToken`）。值变了就断实时通道、
+    /// 重置陪跑会话与求助协调器，是为登录 / 登出 / 换账号写的 —— 续期也走它的话，
+    /// 跑步途中每次续期都会把正在进行的会话清一遍，比被踢回登录页还隐蔽。
     @Published var accessToken: String? {
         didSet {
             persistToken()
-            if oldValue != accessToken {
+            if oldValue != accessToken, !isApplyingRenewedAccessToken {
+                sessionGeneration &+= 1
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
                 emergencyCoordinator.reset()
@@ -132,6 +139,16 @@ final class AppState: ObservableObject {
             }
         }
     }
+
+    /// 「这是哪一次登录」。登录 / 登出 / 换账号时变，**续期换 token 时不变**。
+    ///
+    /// 凡是想判「会话还是不是刚才那个」的地方用它，别拿 access token 的值比：
+    /// token 现在会在一次登录里换好几次（`ContentView.rootRoutingKey`、资料加载的过期判据、
+    /// `sessionIdentityKey` 原来都比 token 值，续期一次就会重跑根路由、丢掉加载结果、重置陪跑会话）。
+    @Published private(set) var sessionGeneration: UInt64 = 0
+
+    /// `applyRenewedAccessToken` 写 `accessToken` 期间为真，让 `didSet` 只持久化、不重置会话。
+    private var isApplyingRenewedAccessToken = false
 
     /// 当前用户 ID
     @Published var userId: Int64? {
@@ -203,8 +220,8 @@ final class AppState: ObservableObject {
 
     /// 跑步中收到 401 后的「登录过期、暂缓退出」状态（#376）。nil = 没有暂缓。
     ///
-    /// 后端 JWT 24 小时有效且没有续期（blind-run-backend#642），订单页每 5 秒轮询一次，
-    /// 所以跑步途中过期是现实场景。此前任何 401 都立刻 `expireSession()`：盲人在跑道上被踢回登录页、
+    /// 后端 JWT 有有效期，订单页每 5 秒轮询一次，所以跑步途中过期是现实场景。#391 起 401 会先续期
+    /// （`SessionTokenRefresher`），只有续期也被拒（refresh 过期 / 登出 / 被强制下线）才走到这里。此前任何 401 都立刻 `expireSession()`：盲人在跑道上被踢回登录页、
     /// WebSocket 断开、云端求助不可用，还要重新收短信。暂缓期间：会话保留，订单页停轮询，
     /// 云端求助一律不发（`EmergencyCoordinator.blocksCloudSOSForExpiredSession`），横幅可见可听。
     @Published private(set) var sessionExpiryDeferral: SessionExpiryDeferral?
@@ -466,7 +483,8 @@ final class AppState: ObservableObject {
             }
             return URLSessionAPIClient(
                 baseURL: baseURL,
-                tokenProvider: { [weak self] in self?.accessToken }
+                tokenProvider: { [weak self] in self?.accessToken },
+                sessionRenewer: tokenRefresher
             )
         }
     }
@@ -648,7 +666,9 @@ final class AppState: ObservableObject {
         safety: (any SafetyServing)? = nil,
         orders: (any OrderServing)? = nil,
         persistence: AppStatePersistence? = nil,
-        tokenStore: (any TokenStoring)? = nil
+        tokenStore: (any TokenStoring)? = nil,
+        refreshTokenStore: (any TokenStoring)? = nil,
+        renewalClock: @escaping () -> Date = { Date() }
     ) {
         let persistence = persistence ?? AppStatePersistenceFactory.makeDefault()
         let realtimeCoordinator = AppRealtimeCoordinator()
@@ -662,7 +682,15 @@ final class AppState: ObservableObject {
         self.safetyOverride = safety
         self.ordersOverride = orders
         self.persistence = persistence
-        self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
+        let tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
+        self.tokenStore = tokenStore
+        self.tokenRefresher = SessionTokenRefresher(
+            accessStore: tokenStore,
+            credentialStore: RefreshCredentialStore(
+                storage: refreshTokenStore ?? TokenStoreFactory.makeDefault(account: .refreshSession)
+            ),
+            now: renewalClock
+        )
         self.currentEnvironment = AppState.initialEnvironment(persistence: persistence)
         self.didDismissBlindIdentityPrompt =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
@@ -724,6 +752,16 @@ final class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // 续期（#391）。provider 形态，理由同上：环境可以运行时切换，续期必须打当下那一个。
+        tokenRefresher.exchange = { [weak self] refreshToken in
+            guard let self else { throw CancellationError() }
+            return try await self.auth.refreshSession(refreshToken: refreshToken)
+        }
+        tokenRefresher.onAccessTokenRenewed = { [weak self] token in
+            self?.applyRenewedAccessToken(token)
+        }
+        SessionTokenRefresher.appSessionRenewer = tokenRefresher
+
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
         realtimeCoordinator.recoveryPublisher
             .receive(on: DispatchQueue.main)
@@ -733,9 +771,10 @@ final class AppState: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// 不含 token 值：续期换 token 不该让陪跑会话以为换了个人（见 `sessionGeneration`）。
     private var sessionIdentityKey: String? {
-        guard let accessToken, let userId else { return nil }
-        return "\(userId):\(activeRole?.rawValue ?? "none"):\(accessToken)"
+        guard accessToken != nil, let userId else { return nil }
+        return "\(userId):\(activeRole?.rawValue ?? "none"):\(sessionGeneration)"
     }
 
     // MARK: - 重连补读
@@ -904,6 +943,7 @@ final class AppState: ObservableObject {
 
     /// 登录成功后保存会话（新后端: LoginResponse{token, userId, role}）
     func handleLoginSuccess(response: LoginResponse) {
+        tokenRefresher.storeCredential(from: response)
         accessToken = response.token
         userId = response.userId
         activeRole = Self.resolvedLoginRole(from: response.role)
@@ -913,7 +953,28 @@ final class AppState: ObservableObject {
         connectWebSocketIfNeeded()
     }
 
+    /// 续期拿到新 access 后由 `tokenRefresher` 调。只换值、持久化，**不重置会话**（见 `accessToken`）。
+    ///
+    /// WebSocket 不断开：契约说已建立的连接不受续期影响，只要下次重连握手用新的。
+    /// 已经登出（`accessToken == nil`）就什么都不做 —— 迟到的续期结果不能把会话复活。
+    func applyRenewedAccessToken(_ token: String) {
+        guard accessToken != nil, accessToken != token, !token.isEmpty else { return }
+        isApplyingRenewedAccessToken = true
+        accessToken = token
+        isApplyingRenewedAccessToken = false
+        webSocketService?.updateAccessTokenForReconnect(token)
+    }
+
+    /// 回前台时调（`blindRunApp`）：过了半衰期就续。续不了也不打扰用户 —— 旧 access 此刻还能用，
+    /// 真过期时 401 那条路会再试。
+    func renewSessionIfDue() async {
+        guard isLoggedIn else { return }
+        await tokenRefresher.renewIfDue()
+    }
+
     /// 角色切换成功后替换 token（新后端: SetRoleResponse 包含新 token）
+    ///
+    /// refresh token 不动：选角色换发的 access 属于同一次登录（契约：登出时一起撤）。
     func handleRoleSwitchSuccess(response: SetRoleResponse, requestedRole: UserRole) {
         if let newToken = response.token {
             accessToken = newToken
@@ -932,6 +993,13 @@ final class AppState: ObservableObject {
     }
 
     /// 所有用户退出入口使用该服务端撤销操作。
+    ///
+    /// 契约（后端 #642 / #669）：登出撤销**这一次登录**的全部 token，仍要求 access 有效。
+    /// - access 已过期：`APIClient` 的 401 分支会先续期、再用新 access 重试一次 —— 这里不用另写。
+    ///   只删本地不调登出的话，服务器上的 refresh 还能用 30 天。
+    /// - 5xx：服务端什么都还没撤，拿同一个 token 原样重试一次。
+    /// - **无论成败都清本地会话**（用户的意图是退出）。原来的「服务端退出失败 → 重试 / 仅退出本机」
+    ///   弹窗因此删除：它保留会话的前提是「客户端拿着 token 才有机会再撤」，而契约改为由客户端放手。
     func logout() async {
         guard logoutState != .inProgress else { return }
         logoutState = .inProgress
@@ -942,24 +1010,25 @@ final class AppState: ObservableObject {
         await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
         do {
             _ = try await auth.logout()
-            performLocalSessionCleanup()
-        } catch APIError.unauthorized {
-            performLocalSessionCleanup()
-        } catch let error as APIError {
-            logoutState = .revocationFailed(message: error.localizedMessage)
+        } catch let error as APIError where Self.logoutIsWorthRetrying(error) {
+            _ = try? await auth.logout()
         } catch {
-            logoutState = .revocationFailed(message: "未能确认服务端退出，请重试。")
+            // 401（续期也救不回来）= 这次登录本来就结束了；断网 = 服务端没收到。都照样清本地。
         }
-    }
-
-    /// 仅在服务端撤销失败且用户再次明确确认后调用。
-    func confirmLocalOnlySignOut() {
-        guard case .revocationFailed = logoutState else { return }
         performLocalSessionCleanup()
     }
 
-    func dismissLogoutFailure() {
-        if case .revocationFailed = logoutState { logoutState = .idle }
+    /// 服务端那边的错重试一次可能就过了。`.serverError` 不带状态码，4xx 业务错误也会落在这里 ——
+    /// 登出幂等，多发一次无害，所以不再细分。断网不重试：超时要 15 秒，重试会让用户对着遮罩再等一轮。
+    static func logoutIsWorthRetrying(_ error: APIError) -> Bool {
+        switch error {
+        case .serverError:
+            return true
+        case .unknown(let statusCode):
+            return (500...599).contains(statusCode)
+        case .unauthorized, .missingCredentials, .rateLimited, .networkError, .decodingError, .invalidURL:
+            return false
+        }
     }
 
     func dismissAccountDeletionFailure() {
@@ -988,6 +1057,9 @@ final class AppState: ObservableObject {
     private func performLocalSessionCleanup() {
         // 排在最前：下面清 token 会触发 `liveEscortCoordinator.reset`，进而触发结束暂缓的订阅。
         sessionExpiryDeferral = nil
+        // refresh token 与 access 一起删（契约：登出、注销、`REFRESH_TOKEN_INVALID` 时一起删）。
+        // 在清 access 之前：进行中的续期回来时先看 refresh 还在不在，不在就丢弃结果。
+        tokenRefresher.clearCredential()
         disconnectWebSocket()
         accessToken = nil
         userId = nil
