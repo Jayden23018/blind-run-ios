@@ -85,7 +85,8 @@ final class ContentRootRouter: ObservableObject {
     }
 
     private func hydrate(role: UserRole, appState: AppState, generation: UInt64) async {
-        let token = appState.accessToken
+        // 比会话代号而不是 token 值：续期会在一次登录里换 token（#391），换了不代表会话变了。
+        let token = appState.sessionGeneration
         let userID = appState.userId
 
         switch role {
@@ -182,14 +183,14 @@ final class ContentRootRouter: ObservableObject {
 
     private func isCurrent(
         appState: AppState,
-        token: String?,
+        token: UInt64,
         userID: Int64?,
         role: UserRole,
         generation: UInt64
     ) -> Bool {
         !Task.isCancelled &&
         self.generation == generation &&
-        appState.accessToken == token &&
+        appState.sessionGeneration == token &&
         appState.userId == userID &&
         appState.activeRole == role
     }
@@ -198,7 +199,7 @@ final class ContentRootRouter: ObservableObject {
         _ error: Error,
         role: UserRole,
         appState: AppState,
-        token: String?,
+        token: UInt64,
         userID: Int64?,
         generation: UInt64
     ) {
@@ -254,7 +255,8 @@ struct ContentView: View {
         case .choosingRole: restoration = "choosing-role"
         case .authenticated: restoration = "authenticated"
         }
-        return "\(restoration)-\(appState.accessToken?.hashValue ?? 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.didDismissBlindIdentityPrompt)-\(appState.isVolunteerProfileApproved)"
+        // 会话代号而不是 token 值：续期换 token 时这把键不能变，否则跑步途中会重跑一遍根路由（#391）。
+        return "\(restoration)-\(appState.isLoggedIn ? appState.sessionGeneration : 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.didDismissBlindIdentityPrompt)-\(appState.isVolunteerProfileApproved)"
     }
 
     /// 同意隐私告知之后的正文。抽成独立属性只是为了给 `body` 里的同意门腾出 if/else 的位置，
@@ -591,13 +593,6 @@ private struct EscortTrackConsentOverlay: ViewModifier {
 private struct SessionLifecycleStatusModifier: ViewModifier {
     @EnvironmentObject private var appState: AppState
 
-    private var logoutFailure: Binding<Bool> {
-        Binding(
-            get: { if case .revocationFailed = appState.logoutState { return true }; return false },
-            set: { if !$0 { appState.dismissLogoutFailure() } }
-        )
-    }
-
     private var deletionFailure: Binding<Bool> {
         Binding(
             get: { if case .revocationFailed = appState.accountDeletionState { return true }; return false },
@@ -627,17 +622,6 @@ private struct SessionLifecycleStatusModifier: ViewModifier {
                             .accessibilityLabel("请求正在处理中，请稍候")
                     }
                 }
-            }
-            .alert("服务端退出失败", isPresented: logoutFailure) {
-                Button("重试") { Task { await appState.logout() } }
-                Button("仅退出本机", role: .destructive) { appState.confirmLocalOnlySignOut() }
-                Button("取消", role: .cancel) { appState.dismissLogoutFailure() }
-            } message: {
-                let message: String = {
-                    if case .revocationFailed(let value) = appState.logoutState { return value }
-                    return "未能确认服务端 Token 已撤销。"
-                }()
-                Text("\(message) 仅退出本机可能使远端 Token 继续有效。")
             }
             .alert("删除账户失败", isPresented: deletionFailure) {
                 Button("重试") { Task { await appState.deleteCurrentAccount() } }

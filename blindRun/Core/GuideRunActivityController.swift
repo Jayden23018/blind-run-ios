@@ -235,7 +235,16 @@ extension GuideRunActivityController {
         guard environment == .demoCloud,
               AppBuildChannel.current.allows(environment),
               let baseURL = environment.baseURL,
-              let token = TokenStoreFactory.makeDefault().read() else { return nil }
-        return OrderService(transport: URLSessionAPIClient(baseURL: baseURL, tokenProvider: { token }))
+              TokenStoreFactory.makeDefault().read() != nil else { return nil }
+        // 每次发请求都重读 Keychain，并接上续期器（#391）：跑步中锁屏卡的请求遇到 401 也要能续期，
+        // 否则会一直 401。App 已装好就借 `AppState` 那个续期器（single-flight 与内存 token 一起走），
+        // 没装好就起一个只读写 Keychain 的。
+        let renewer = SessionTokenRefresher.appSessionRenewer ?? SessionTokenRefresher.standalone(baseURL: baseURL)
+        let tokenStore = TokenStoreFactory.makeDefault()
+        return OrderService(transport: URLSessionAPIClient(
+            baseURL: baseURL,
+            tokenProvider: { tokenStore.read() },
+            sessionRenewer: renewer
+        ))
     }
 }

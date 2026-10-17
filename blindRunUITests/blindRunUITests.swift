@@ -1382,8 +1382,10 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["正在验证登录状态"].exists)
     }
 
+    /// 服务端登出失败也照样退回登录页（#391 起，契约 blind-run-backend#669：无论成败都清本地会话）。
+    /// 此前这里弹「服务端退出失败」让用户在重试 / 仅退出本机之间选 —— 那个弹窗已删。
     @MainActor
-    func testAuthLifecycleLogoutFailureOffersWarnedLocalOnlyFallback() throws {
+    func testAuthLifecycleLogoutFailureStillSignsOutLocally() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "logout-failure-token",
@@ -1396,13 +1398,8 @@ final class blindRunUITests: XCTestCase {
         app.buttons["退出登录"].tap()
         app.buttons["确认退出"].tap()
 
-        let alert = app.alerts["服务端退出失败"].firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 8))
-        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "远端 Token 继续有效")).firstMatch.exists)
-        XCTAssertTrue(app.buttons["重试"].exists)
-        XCTAssertTrue(app.buttons["仅退出本机"].exists)
-        app.buttons["仅退出本机"].tap()
         XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.alerts["服务端退出失败"].exists)
     }
 
     /// 🔴 退出登录 / 删除账户进行中那层进度遮罩盖住的整个根视图，必须退出无障碍树；
@@ -1475,11 +1472,13 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
-    /// 从设置页触发退出登录（慢退出 + 失败），断言遮罩期间背景不在树里、失败后点取消背景回来。
+    /// 从设置页触发退出登录（慢退出 + 失败），断言遮罩期间背景不在树里、结束后登录页在树里。
+    ///
+    /// #391 起服务端登出失败也照样清本地会话（契约 blind-run-backend#669），所以遮罩收起后到的是登录页，
+    /// 不再是「失败弹窗 → 取消 → 回到设置页」—— 收起后要验的是 hider 放开了新挂上的登录页。
     private func assertLogoutOverlayHidesTheScreenBehindIt(_ app: XCUIApplication) {
         openSettings(app)
         let logoutButton = app.buttons["退出登录"].firstMatch
-        let tabBar = app.tabBars.firstMatch
         // 志愿者设置页更长，`List` 不渲染屏幕外的行 —— 不滚就不在树里（同 `assertLogoutRequiresConfirmation`）。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         logoutButton.tap()
@@ -1489,16 +1488,11 @@ final class blindRunUITests: XCTestCase {
 
         assertSessionOverlayIsUpAndHidesTheScreenBehindIt(app, backgroundProbe: logoutButton)
 
-        // 慢退出到点后走失败分支（`mockLogoutFailure`）→ 取消 → 回到 idle，遮罩收起。
-        let failure = app.alerts["服务端退出失败"].firstMatch
-        XCTAssertTrue(failure.waitForExistence(timeout: 12))
-        failure.buttons["取消"].tap()
-
+        // 慢退出到点后走失败分支（`mockLogoutFailure`）→ 照样清本地会话 → 登录页。
         XCTAssertTrue(
-            logoutButton.waitForExistence(timeout: 3),
-            "遮罩收起后设置页要回到无障碍树里\n\(app.debugDescription)"
+            app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 15),
+            "退出完成回到登录页后，登录页必须在无障碍树里\n\(app.debugDescription)"
         )
-        XCTAssertTrue(tabBar.exists, "遮罩收起后标签栏要回到无障碍树里\n\(app.debugDescription)")
     }
 
     /// 进度提示在树里，设置页上的某个按钮（push 页，在 NavigationStack 里）与 UIKit 标签栏都不在。

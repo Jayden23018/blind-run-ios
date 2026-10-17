@@ -45,6 +45,9 @@ enum VolunteerRunCopy {
     static let supportSubmittedTitle = "已提交"
     static let supportSubmitted = "客服会尽快联系你"
     static let supportFailed = "没有提交成功，再点一次重试"
+    /// 跑步中登录已过期（#437）：暂停 / 响铃 / 联系客服都要带登录凭证调云端，按下去必然 401。
+    /// 不叫人重试 —— 重试一个必然失败的请求，对一只手握着引导绳的人是纯负担。
+    static let cloudRowSessionExpiredSubtitle = "登录已过期，暂时用不了"
     /// 固定内容：跑步中一只手握着引导绳，填不了表（design.md D5）。
     static let supportTicketContent = "跑步中，陪跑员请求客服联系。"
     static let emergencyTitle = "长按 3 秒，紧急求助"
@@ -224,6 +227,19 @@ struct VolunteerRunHelpPanel: View {
 
     private var emergencyMode: VolunteerRunEmergencyMode { .resolve(isSessionExpired: isSessionExpired) }
 
+    /// 暂停 / 响铃 / 联系客服三行的副标题（#437）。登录过期时三行一律不可按，说同一句话。
+    static func cloudRowSubtitle(normal: String, isSessionExpired: Bool) -> String {
+        isSessionExpired ? VolunteerRunCopy.cloudRowSessionExpiredSubtitle : normal
+    }
+
+    static func supportRowSubtitle(state: VolunteerSupportRequestState, isSessionExpired: Bool) -> String {
+        if state == .submitted { return VolunteerRunCopy.supportSubmitted }
+        return cloudRowSubtitle(
+            normal: state == .failed ? VolunteerRunCopy.supportFailed : VolunteerRunCopy.supportRowSubtitle,
+            isSessionExpired: isSessionExpired
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -242,8 +258,10 @@ struct VolunteerRunHelpPanel: View {
                     row(
                         systemImage: "pause.circle.fill",
                         title: VolunteerRunCopy.pauseRowTitle(runnerName),
-                        subtitle: VolunteerRunCopy.pauseRowSubtitle,
+                        subtitle: Self.cloudRowSubtitle(normal: VolunteerRunCopy.pauseRowSubtitle, isSessionExpired: isSessionExpired),
+                        subtitleIsProblem: isSessionExpired,
                         isBusy: isTogglingPause,
+                        isEnabled: !isSessionExpired,
                         identifier: "volunteerRunHelpPause"
                     ) {
                         dismiss()
@@ -288,9 +306,10 @@ struct VolunteerRunHelpPanel: View {
             row(
                 systemImage: "bell.and.waves.left.and.right.fill",
                 title: isRinging ? VolunteerRunCopy.ringingRowTitle : VolunteerRunCopy.ringRowTitle(runnerName),
-                subtitle: VolunteerRunCopy.ringRowSubtitle,
+                subtitle: Self.cloudRowSubtitle(normal: VolunteerRunCopy.ringRowSubtitle, isSessionExpired: isSessionExpired),
+                subtitleIsProblem: isSessionExpired,
                 isBusy: false,
-                isEnabled: !isRinging,
+                isEnabled: !isRinging && !isSessionExpired,
                 identifier: "volunteerRunHelpRing"
             ) {
                 dismiss()
@@ -304,12 +323,10 @@ struct VolunteerRunHelpPanel: View {
         return row(
             systemImage: submitted ? "checkmark.circle.fill" : "phone.circle.fill",
             title: submitted ? VolunteerRunCopy.supportSubmittedTitle : VolunteerRunCopy.supportRowTitle,
-            subtitle: submitted
-                ? VolunteerRunCopy.supportSubmitted
-                : supportState == .failed ? VolunteerRunCopy.supportFailed : VolunteerRunCopy.supportRowSubtitle,
-            subtitleIsProblem: supportState == .failed,
+            subtitle: Self.supportRowSubtitle(state: supportState, isSessionExpired: isSessionExpired),
+            subtitleIsProblem: !submitted && (supportState == .failed || isSessionExpired),
             isBusy: supportState == .submitting,
-            isEnabled: !submitted,
+            isEnabled: !submitted && !isSessionExpired,
             identifier: "volunteerRunHelpSupport",
             action: onContactSupport
         )

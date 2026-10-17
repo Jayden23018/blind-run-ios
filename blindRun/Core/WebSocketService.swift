@@ -230,6 +230,17 @@ final class WebSocketService: ObservableObject {
         performConnect()
     }
 
+    /// 续期换了 access 之后调（#391）：只换**下次握手**要用的 token，不断开当前连接。
+    /// 契约：续期不需要重连，已建立的连接不受影响；重连时用最新的 access。
+    func updateAccessTokenForReconnect(_ token: String) {
+        guard self.token != nil, !token.isEmpty else { return }
+        self.token = token
+    }
+
+    #if DEBUG
+    var accessTokenForTesting: String? { token }
+    #endif
+
     /// Disconnect and stop all tasks
     func disconnect() {
         connectionGeneration &+= 1

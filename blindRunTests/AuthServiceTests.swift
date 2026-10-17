@@ -78,23 +78,24 @@ final class AuthServiceTests: XCTestCase {
 
     // MARK: - 失败必须穿过 service 层
 
-    /// 登出失败**不能**被当成登出成功。吞掉的话用户以为退了、token 其实还活着。
+    /// 登出 5xx 的失败要**穿过** service 层到 `AppState`：那里据此原样重试一次（服务端什么都还没撤）。
+    /// 无论重试成败都清本地会话 —— #391 起的契约（blind-run-backend#669），此前是保留会话等用户确认。
     @MainActor
-    func testLogoutFailureSurfacesRevocationFailedInsteadOfSigningOut() async {
+    func testLogoutServerFailureIsRetriedOnceThenSignsOut() async {
         let fake = FakeAuthService()
         fake.logoutResult = .failure(APIError.unknown(statusCode: 500))
         let persistence = AppStatePersistenceFactory.makeIsolatedTest()
         defer { persistence.reset() }
-        let appState = AppState(auth: fake, persistence: persistence, tokenStore: InMemoryTokenStore())
-        appState.handleLoginSuccess(response: LoginResponse(token: "t", userId: 7, role: "BLIND"))
+        let refreshStore = InMemoryTokenStore()
+        let appState = AppState(auth: fake, persistence: persistence, tokenStore: InMemoryTokenStore(), refreshTokenStore: refreshStore)
+        appState.handleLoginSuccess(response: LoginResponse(token: "t", userId: 7, role: "BLIND", refreshToken: "r", expiresIn: 3600))
 
         await appState.logout()
 
-        XCTAssertEqual(fake.calls, ["logout()"])
-        guard case .revocationFailed = appState.logoutState else {
-            return XCTFail("服务端撤销失败必须让用户看得到，实际：\(appState.logoutState)")
-        }
-        XCTAssertEqual(appState.accessToken, "t", "没确认撤销就清本地 token，等于把现场毁掉")
+        XCTAssertEqual(fake.calls, ["logout()", "logout()"], "5xx 原样重试一次")
+        XCTAssertNil(appState.accessToken, "无论成败都清本地会话")
+        XCTAssertNil(refreshStore.read(), "refresh token 一起删")
+        XCTAssertEqual(appState.logoutState, .idle)
     }
 
     /// 注销失败同理：屏幕上必须**多**出一条失败文案，而不是只是没跳转。

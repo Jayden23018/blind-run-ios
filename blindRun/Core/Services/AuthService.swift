@@ -25,6 +25,9 @@ enum AuthEndpoint {
     case sendVerificationCode
     case verifyCode
     case currentUser
+    /// refresh token 续期（#391）。**必须 requiresAuth: false**：access 过期时正要调它，
+    /// 而且 refresh token 当 Bearer 用一律 401 —— 它只走请求体。
+    case refreshSession
     case logout
     case deleteAccount(userId: Int64)
     case legalLinks
@@ -48,6 +51,8 @@ enum AuthEndpoint {
             return EndpointRequest(.post, "/api/auth/verify-code", requiresAuth: false)
         case .currentUser:
             return EndpointRequest(.get, "/api/auth/me")
+        case .refreshSession:
+            return EndpointRequest(.post, "/api/auth/refresh", requiresAuth: false)
         case .logout:
             return EndpointRequest(.post, "/api/auth/logout")
         case .deleteAccount(let userId):
@@ -90,6 +95,8 @@ protocol AuthServing: Sendable {
 
     // 会话
     func currentUser() async throws -> CurrentUserResponse
+    /// 只由 `SessionTokenRefresher` 调（经 `AppState` 接线），业务代码不直接用。
+    func refreshSession(refreshToken: String) async throws -> LoginResponse
     func logout() async throws -> LogoutResponse
     func deleteAccount(userId: Int64) async throws -> DeleteAccountResponse
     func legalLinks() async throws -> LegalLinksResponse
@@ -134,6 +141,13 @@ struct AuthService: AuthServing {
 
     func currentUser() async throws -> CurrentUserResponse {
         try await transport.send(AuthEndpoint.currentUser.request)
+    }
+
+    func refreshSession(refreshToken: String) async throws -> LoginResponse {
+        try await transport.send(
+            AuthEndpoint.refreshSession.request,
+            body: RefreshTokenRequest(refreshToken: refreshToken)
+        )
     }
 
     func logout() async throws -> LogoutResponse {

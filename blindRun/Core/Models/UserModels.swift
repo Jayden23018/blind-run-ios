@@ -71,10 +71,27 @@ struct VerifyCodeRequest: Codable, Sendable {
 
 // MARK: - Auth Response
 
+/// 验证码登录与 `POST /api/auth/refresh` 共用的响应（契约同一个 `LoginResponse`）。
+///
+/// `refreshToken` / `expiresIn` 契约标必有（后端 #642），这里仍按可选解：缺了就只是不续期，
+/// 回到接续期之前的行为，而不是整条登录解码失败（`AGENTS.md` 枚举 / 解码降级那条）。
 struct LoginResponse: Codable, Sendable {
     let token: String
     let userId: Int64
     let role: String?
+    /// 只用来调 `POST /api/auth/refresh`，存 Keychain（`RefreshCredentialStore`）。
+    /// **不进 `Authorization` 头、不进任何 URL、不打日志。**
+    let refreshToken: String?
+    /// `token` 的有效期（秒，从签发起算）。不是常量：后端等 iOS 接完续期就会改短。
+    let expiresIn: Int64?
+
+    init(token: String, userId: Int64, role: String?, refreshToken: String? = nil, expiresIn: Int64? = nil) {
+        self.token = token
+        self.userId = userId
+        self.role = role
+        self.refreshToken = refreshToken
+        self.expiresIn = expiresIn
+    }
 }
 
 /// `GET /api/auth/me` 的当前会话用户。首次选角色前 role 可缺省、为 null 或 UNSET。
@@ -138,6 +155,11 @@ struct SetRoleRequest: Codable, Sendable {
         self.role = role
         self.inviteCode = inviteCode
     }
+}
+
+/// `POST /api/auth/refresh` 的请求体。refresh token 只出现在这里（契约：不进头、不进 URL）。
+struct RefreshTokenRequest: Codable, Sendable {
+    let refreshToken: String
 }
 
 /// Response from POST /api/user/role - contains new token
