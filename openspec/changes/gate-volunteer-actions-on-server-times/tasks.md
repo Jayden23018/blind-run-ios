@@ -6,3 +6,4 @@
 - [x] 1.4 首页预约卡「确认我还会去」接同一道闸（只看 `SCHEDULED_CONFIRMED`）。
 - [x] 2.1 单测 `VolunteerActionGateTests`；验红。
 - [x] 2.2 `build-for-testing`；真机跑覆盖的 suite。
+- [ ] 2.3 UI 用例 `blindRunUITests.testVolunteerDepartureButtonStaysDisabledUntilTheServerReleaseTime` 真机执行并验红（iPhone 两次 `Timed out while enabling automation mode`；负责人 10-17：先挂着）。
