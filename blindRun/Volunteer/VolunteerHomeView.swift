@@ -2133,8 +2133,9 @@ struct VolunteerScheduledOrdersSection: View {
                         .accessibilityLabel(message)
                 }
 
-                // 每分钟一拍：放行时刻（`confirmGate`）到点后按钮自己亮起，文案只到分钟。
-                TimelineView(.everyMinute) { context in
+                // 每 10 秒一拍：放行时刻（`confirmGate`）到点后按钮自己亮起。不用 `.everyMinute`：
+                // 它只在整分钟拍，放行时刻带秒时会晚开将近一分钟。
+                TimelineView(.periodic(from: .now, by: 10)) { context in
                     ForEach(orders) { order in
                         card(order, now: context.date)
                     }

@@ -64,6 +64,23 @@ final class VolunteerStartConsentGateTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(service.callCount("orderDetail(orderId:)"), 1, "收到点头后要立刻重拉订单")
     }
 
+    /// 跑者点了头、紧接着那次重拉却失败：手上那份订单的 `blindConfirmDeadlineAt` 已经过时，
+    /// 按钮上方不能还说「跑者还没按开始跑步」（#340）。
+    func testConsentNotificationDropsTheStaleConsentDeadlineEvenIfTheRefetchFails() async throws {
+        var order = Self.makeOrder(status: .driverArrived)
+        order.blindConfirmDeadlineAt = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(600))
+        let (viewModel, service, socket) = makeViewModel(startError: "BLIND_CONFIRMATION_PENDING")
+        viewModel.order = order
+        service.orderDetailResult = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
+
+        socket.simulateIncomingEventForTesting(.notification(Self.consentNotification()))
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertNil(viewModel.order?.blindConfirmDeadlineAt)
+        let gate = VolunteerActionGate.resolve(action: .startRun, order: try XCTUnwrap(viewModel.order), now: Date())
+        XCTAssertEqual(gate, .open, "跑者已经按了，小字还在说等跑者")
+    }
+
     /// 信封不带 `orderId`，所以「别的订单」的点头只能靠「当前不是汇合态」挡掉。
     /// 判据是**不重拉订单**：该状态下标志本来就被 `didSet` 清成 false，唯一可观察的差别就是有没有去拉。
     func testConsentNotificationIsIgnoredWhenTheCurrentOrderIsNotArrived() async throws {

@@ -1282,6 +1282,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 chatPreference: "PREFER_CHAT"
             ))
         }
+        // 后端放行时刻（#546）：把种子订单的 `earliestDepartureAt` 放到「现在 + N 分钟」，
+        // UI 用例据此验陪跑员主按钮原位不可按。不设就是 `nil`（不锁），其余用例照旧。
+        if let minutes = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_EARLIEST_DEPARTURE_MINUTES"].flatMap(Int.init) {
+            orders[0].earliestDepartureAt = formatter.string(from: Date().addingTimeInterval(TimeInterval(minutes * 60)))
+        }
         nextOrderId = 10
     }
 }

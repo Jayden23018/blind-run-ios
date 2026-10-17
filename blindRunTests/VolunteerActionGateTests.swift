@@ -79,6 +79,32 @@ final class VolunteerActionGateTests: XCTestCase {
         XCTAssertEqual(VolunteerActionGate.resolve(action: nil, order: order(.driverArrived), now: now), .open)
     }
 
+    /// 跨天预约单的放行时刻可能在几天后：只说「7:00 起可以按」会被听成今天 7:00。
+    func testReleaseTimeOnAnotherDaySaysWhichDay() throws {
+        let gate = VolunteerActionGate.resolve(
+            action: .confirmDeparture,
+            order: order(.scheduledConfirmed, earliestDeparture: 2 * 86_400),
+            now: now
+        )
+        let caption = try XCTUnwrap(gate.caption)
+        let dayWords = ["明天", "周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        XCTAssertTrue(dayWords.contains { caption.contains($0) }, "两天后的放行时刻没说是哪天：\(caption)")
+    }
+
+    func testDayClockOnlyNamesTheDayWhenItIsNotToday() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        // 2026-10-19 是周一。
+        let monday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 19, hour: 9)))
+        let later = monday.addingTimeInterval(2 * 3_600)
+        let tuesday = monday.addingTimeInterval(86_400)
+        let wednesday = monday.addingTimeInterval(2 * 86_400)
+        let clock = VolunteerOrderTimeCopy.clock
+        XCTAssertEqual(VolunteerOrderTimeCopy.dayClock(later, now: monday, calendar: calendar), clock(later))
+        XCTAssertEqual(VolunteerOrderTimeCopy.dayClock(tuesday, now: monday, calendar: calendar), "明天 \(clock(tuesday))")
+        XCTAssertEqual(VolunteerOrderTimeCopy.dayClock(wednesday, now: monday, calendar: calendar), "周三 \(clock(wednesday))")
+    }
+
     /// 首页「我的预约」卡上的「确认我还会去」同样调 `confirm-departure`，同一道闸。
     func testScheduledCardConfirmLocksUntilTheServerTime() {
         let locked = VolunteerScheduledOrdersSection.confirmGate(

@@ -1051,6 +1051,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 .sink { [weak self] in
                     guard let self, let order = self.order, order.status == .driverArrived else { return }
                     self.awaitingBlindConfirmation = false
+                    // 跑者确认后后端把它置 `null`。先在本地清掉：下面那次重拉失败时，
+                    // 按钮上方不能还说「跑者还没按开始跑步」（`VolunteerActionGate`）。
+                    self.order?.blindConfirmDeadlineAt = nil
                     Task { await self.load(orderId: order.orderId, speakChanges: false) }
                 }
         }
