@@ -157,7 +157,8 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5))
         app.buttons["volunteerScheduleEditorDone"].tap()
 
-        let today = Calendar.current.dateComponents([.month, .day, .weekday], from: Date())
+        // App 按本机时区的公历日取「今天」（`VolunteerAvailableTimeSlot.todayString`），这里同口径。
+        let today = Calendar(identifier: .gregorian).dateComponents([.month, .day, .weekday], from: Date())
         let weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
         let expected = "仅 \(today.month ?? 0)月\(today.day ?? 0)日（\(weekdayNames[(today.weekday ?? 1) - 1])）"
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", expected)).firstMatch

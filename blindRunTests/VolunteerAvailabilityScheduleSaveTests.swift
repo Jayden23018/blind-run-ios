@@ -204,6 +204,29 @@ final class VolunteerAvailabilityScheduleSaveTests: XCTestCase {
         XCTAssertEqual(viewModel.slots.map(\.dayText), ["周六", "仅 10月24日（周六）", "仅 10月20日（周二）"])
         XCTAssertNil(viewModel.errorMessage)
     }
+
+    /// 本机日历是佛历 / 日本历时，「今天」仍是公历串 —— 它会被原样当作 `date` 发给后端。
+    func testTodayIsAGregorianDayEvenOnANonGregorianDevice() throws {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        // 2026-10-17 01:00 北京时间 = 2026-10-16 17:00 UTC：同时钉住「按本机时区取日」。
+        let now = Date(timeIntervalSince1970: 1_792_170_000)
+        XCTAssertEqual(VolunteerAvailableTimeSlot.todayString(now: now, calendar: buddhist), "2026-10-17")
+        var japanese = Calendar(identifier: .japanese)
+        japanese.timeZone = buddhist.timeZone
+        XCTAssertEqual(VolunteerAvailableTimeSlot.todayString(now: now, calendar: japanese), "2026-10-17")
+    }
+
+    /// 页脚的匹配规则：没有每周时段 = 随时可接（后端 #410），只填了按日期的也一样。
+    func testFooterOnlyPromisesNoInvitesOutsideSlotsWhenAWeeklySlotExists() {
+        let weekly = VolunteerAvailabilityDraftSlot.makeDefault()
+        let oneOff = VolunteerAvailabilityDraftSlot.makeOneOffDefault(today: "2026-10-17")
+        let strict = "空闲时间以外不会给你发邀请。"
+        XCTAssertTrue(VolunteerAvailabilityScheduleEditing.footerText(for: [weekly, oneOff]).hasPrefix(strict))
+        XCTAssertFalse(VolunteerAvailabilityScheduleEditing.footerText(for: [oneOff]).contains(strict))
+        XCTAssertFalse(VolunteerAvailabilityScheduleEditing.footerText(for: []).contains(strict))
+        XCTAssertTrue(VolunteerAvailabilityScheduleEditing.footerText(for: [oneOff]).contains("任何时间都可能收到邀请"))
+    }
 }
 
 // MARK: - 替身
