@@ -947,6 +947,57 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    // MARK: 陪跑员首页「我的预约」卡（#463）
+
+    /// 首页预约卡的前后对比图：亮 / 暗、默认字号 / 最大字号，各截卡片本身与「我去不了」的确认层。
+    /// 种子订单 `earliestDepartureAt` 在 90 分钟后，所以截到的是「确认我还会去」锁着、带时刻小字的样子。
+    /// 末尾断言两枚按钮都够 64pt（#463 要求；改前的「我去不了」是 52pt）。
+    @MainActor
+    func testVolunteerScheduledCardScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax5-light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+            ("ax5-dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        for variant in variants {
+            let app = launchVolunteerHome(
+                seedOrderStatus: "SCHEDULED_CONFIRMED",
+                extraEnvironment: variant.environment.merging(
+                    ["AIDRUN_UI_TEST_SEED_EARLIEST_DEPARTURE_MINUTES": "90"]
+                ) { _, new in new },
+                extraArguments: variant.arguments
+            )
+            // 种子单的开跑时间已过，启动时会先自动进订单页（三岔路），退回首页才看得到预约区块。
+            let orderPage = app.descendants(matching: .any)["volunteerOrderFlowStatusCard"].firstMatch
+            if orderPage.waitForExistence(timeout: 20) {
+                let back = app.buttons["返回"].firstMatch
+                if back.exists { back.tap() } else { app.navigationBars.firstMatch.buttons.firstMatch.tap() }
+            }
+            let confirm = app.buttons["volunteerScheduledConfirm-1"].firstMatch
+            XCTAssertTrue(confirm.waitForExistence(timeout: 20), "\(variant.name)：首页没有预约卡")
+            for _ in 0..<8 where !confirm.isHittable { app.swipeUp() }
+            let release = app.buttons["volunteerScheduledRelease-1"].firstMatch
+            for _ in 0..<4 where !release.isHittable { app.swipeUp() }
+            sleep(1)
+            attachScreenshot(app, name: "scheduled-card-\(variant.name)")
+
+            let confirmHeight = confirm.frame.height
+            let releaseHeight = release.frame.height
+            release.tap()
+            sleep(2)
+            attachScreenshot(app, name: "scheduled-card-release-confirm-\(variant.name)")
+            app.terminate()
+
+            XCTAssertGreaterThanOrEqual(confirmHeight, 63.99, "\(variant.name)：「确认我还会去」只有 \(confirmHeight)pt")
+            XCTAssertGreaterThanOrEqual(releaseHeight, 63.99, "\(variant.name)：「我去不了」只有 \(releaseHeight)pt")
+        }
+    }
+
     // MARK: 视障跑者跑后详情（阶段 5）
 
     @MainActor
