@@ -1732,7 +1732,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
             if updated.status == .completed, let appState {
                 refreshDispatchSummary(using: appState)
             }
-            if updated.status == .cancelled, !isEndingWait, !didEndWaiting {
+            if !isEndingWait, !didEndWaiting,
+               let sentence = VolunteerOrderFlowCopy.runnerCancelledAnnouncement(
+                   from: previousStatus, to: updated.status, name: updated.blindNameForSpeech
+               ) {
                 // 🔴 **`order` 留着，不再置 nil。** 此前这里一置 nil，两个渲染分支就都取不到
                 // 订单 ⇒ 屏幕退化成一片空白背景，只播一句 TTS，志愿者得自己按返回才能离开。
                 // 现在它落在骨架的「跑者已取消」那一屏（`cancelledByRunner`）。
@@ -1740,10 +1743,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 // `didCancelOrder` 也**不在这里置位**：它的含义是「这一单是我自己退掉的，
                 // 关页面吧」（`REMATCHING` 那条分支），而这一次是盲人取消的，
                 // 要留在页面上把「不算你的取消」说清楚。
-                speechService?.speak(VolunteerOrderFlowCopy.runnerCancelledAnnouncement(
-                    name: updated.blindNameForSpeech,
-                    afterArrival: previousStatus == .driverArrived
-                ))
+                speechService?.speak(sentence)
             }
         }
     }

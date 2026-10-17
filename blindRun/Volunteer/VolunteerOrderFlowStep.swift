@@ -218,6 +218,15 @@ enum VolunteerOrderFlowCopy {
     /// **「可以离开了」是这一刻唯一要紧的信息**，所以换一句说。同一刻后端的
     /// `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL` 通知也会念它的 `ttsText`（同样带这句），
     /// 两句谁后到打断谁，人都听得到能离开。
+    ///
+    /// 🔴 **只在进入 `CANCELLED` 那一次念**（`previous != status`）。WS 推送先 apply 一次
+    /// （上一态 `DRIVER_ARRIVED`），紧接着重拉详情再 apply 一次（上一态已是 `CANCELLED`）——
+    /// 第二次若照念，`afterArrival` 已经是 false，后到的通用句会把「可以离开」那句从半句切断。
+    static func runnerCancelledAnnouncement(from previous: RunOrderStatus?, to status: RunOrderStatus, name: String) -> String? {
+        guard status == .cancelled, previous != status else { return nil }
+        return runnerCancelledAnnouncement(name: name, afterArrival: previous == .driverArrived)
+    }
+
     static func runnerCancelledAnnouncement(name: String, afterArrival: Bool) -> String {
         guard afterArrival else { return "\(runnerCancelledTitle(name: name))。\(runnerCancelledSubtitle)" }
         return "\(name)没能和你碰上，已取消这次陪跑。你可以离开集合点了，不算你的取消。"

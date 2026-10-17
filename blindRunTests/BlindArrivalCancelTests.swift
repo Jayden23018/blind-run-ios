@@ -224,6 +224,67 @@ final class BlindArrivalCancelTests: XCTestCase {
         XCTAssertEqual(coordinator.currentNotification?.priority, .high)
     }
 
+    /// 推送先 apply（上一态 `DRIVER_ARRIVED`），重拉再 apply（上一态已是 `CANCELLED`）。
+    /// 第二次若再念，后到的通用句会把「可以离开」切断 —— 所以只在进入那一次念。
+    func testVolunteerPageSpeaksTheCancellationOnlyOnEntering() {
+        let entering = VolunteerOrderFlowCopy.runnerCancelledAnnouncement(from: .driverArrived, to: .cancelled, name: "李")
+        XCTAssertTrue(entering?.contains("你可以离开集合点了") == true, String(describing: entering))
+        XCTAssertNil(
+            VolunteerOrderFlowCopy.runnerCancelledAnnouncement(from: .cancelled, to: .cancelled, name: "李"),
+            "同态重拉又念一遍 = 把刚才那句「可以离开」切断"
+        )
+        XCTAssertNil(VolunteerOrderFlowCopy.runnerCancelledAnnouncement(from: .driverArrived, to: .inProgress, name: "李"))
+        XCTAssertNotNil(
+            VolunteerOrderFlowCopy.runnerCancelledAnnouncement(from: nil, to: .cancelled, name: "李"),
+            "冷启动进一张已取消的单仍要说清楚「不算你的取消」"
+        )
+    }
+
+    // MARK: - 跨点播报的接线
+
+    /// 纯函数之外那一段：`apply` 真的在置灰 → 可按那一轮念了，而且只念一次。
+    /// 用真实轮询（5 秒一轮）走两轮：第一轮置灰，第二轮已过点。
+    func testOpenPageAnnouncesTheUnlockOnceWhenThePollCrossesTheTime() async {
+        let orders = FakeOrderService()
+        var order = OrderDetailResponse.preview(orderId: 61, status: .driverArrived, volunteerName: "张*")
+        order.earliestBlindCancelAt = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(2))
+        orders.orderDetailResult = .success(order)
+
+        let appState = AppState(safety: FakeSafetyService(), orders: orders)
+        appState.currentEnvironment = .mock
+        let speech = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speech)
+
+        viewModel.startPolling(orderId: 61)
+        await Self.waitUntil(timeout: 3) { viewModel.order != nil }
+        XCTAssertFalse(
+            speech.spokenHistoryForTesting.contains(BlindArrivalCancelCopy.unlockedAnnouncement),
+            "还没到点就说可以取消了"
+        )
+
+        let interval = AppConstants.Timing.orderPollingInterval
+        await Self.waitUntil(timeout: interval * 2 + 3) {
+            speech.spokenHistoryForTesting.contains(BlindArrivalCancelCopy.unlockedAnnouncement)
+        }
+        // 再等一轮，确认同态刷新不重播。
+        try? await Task.sleep(nanoseconds: UInt64((interval + 1) * 1_000_000_000))
+        viewModel.stopPolling()
+
+        XCTAssertEqual(
+            speech.spokenHistoryForTesting.filter { $0 == BlindArrivalCancelCopy.unlockedAnnouncement }.count, 1,
+            "跨点那一句要念且只念一次。实际：\(speech.spokenHistoryForTesting)"
+        )
+    }
+
+    private static func waitUntil(timeout: TimeInterval, _ condition: @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await MainActor.run(body: condition) { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     func testVolunteerPageSentenceTellsThemToLeaveOnlyAfterArrival() {
         let afterArrival = VolunteerOrderFlowCopy.runnerCancelledAnnouncement(name: "李", afterArrival: true)
         XCTAssertTrue(afterArrival.contains("你可以离开集合点了"), afterArrival)
