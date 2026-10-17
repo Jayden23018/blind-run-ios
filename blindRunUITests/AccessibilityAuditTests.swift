@@ -1766,6 +1766,9 @@ final class AccessibilityAuditTests: XCTestCase {
 
     // MARK: - 汇合态取消（后端 #682，iOS #395）
 
+    /// XCUI 回报的 frame 带浮点误差。只用于「撑满最小高度」这类断言。
+    private static let frameRoundingTolerance: CGFloat = 0.01
+
     /// 打开汇合态订单页。`cancelAfterSeconds` = 可取消时刻距现在多少秒（负数 = 已到点），
     /// `nil` = 后端没给（出口关着）。
     @MainActor
@@ -1805,7 +1808,11 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertFalse(row.isEnabled, "没到点就能按 —— 按下去只会听到 409")
         XCTAssertTrue(row.label.hasPrefix("取消本单，"), "实际：\(row.label)")
         XCTAssertTrue(row.label.hasSuffix("之后可以取消，先给陪跑员打电话"), "读屏没说出几点可以取消：\(row.label)")
-        XCTAssertGreaterThanOrEqual(row.frame.height, Self.minimumBlindPrimaryButtonHeight, "触达高度低于 64pt")
+        // 行是 `.frame(minHeight: 64)` 撑出来的，XCUI 量回来是 63.99999999999994（浮点误差，2026-10-17 真机）。
+        // 容差 0.01pt 只吃这一点误差；真缺陷（例如退化成 52pt 的纯展示行）照样红。
+        XCTAssertGreaterThanOrEqual(
+            row.frame.height, Self.minimumBlindPrimaryButtonHeight - Self.frameRoundingTolerance, "触达高度低于 64pt"
+        )
 
         row.tap()
         XCTAssertFalse(app.buttons["确认取消"].waitForExistence(timeout: 2), "置灰的行点下去弹出了取消确认")
