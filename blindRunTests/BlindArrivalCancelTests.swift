@@ -294,4 +294,49 @@ final class BlindArrivalCancelTests: XCTestCase {
         XCTAssertFalse(earlier.contains("集合点"), "约好阶段取消时人多半还在家，说「离开集合点」是假话")
         XCTAssertEqual(earlier, "李取消了这次陪跑。不算你的取消，不需要做什么")
     }
+    // MARK: - 首页那条取消路径（#458）
+
+    private func arrivedOrder(cancelOpensIn offset: TimeInterval?) -> OrderDetailResponse {
+        var order = OrderDetailResponse.preview(orderId: 58, status: .driverArrived)
+        order.earliestBlindCancelAt = offset.map {
+            DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval($0))
+        }
+        return order
+    }
+
+    /// 首页与订单页那一行用同一道判定：到点前说几点可以取消，到点后可以取消，后端没给时刻才说「不能取消」。
+    func testHomeCancelPathFollowsTheArrivalCancelGate() throws {
+        let now = Date()
+        XCTAssertNil(
+            BlindRunnerHomeViewModel.cancelBlockMessage(for: arrivedOrder(cancelOpensIn: -60), now: now),
+            "满了后端给的时刻，首页还说不能取消"
+        )
+        let locked = try XCTUnwrap(
+            BlindRunnerHomeViewModel.cancelBlockMessage(for: arrivedOrder(cancelOpensIn: 600), now: now)
+        )
+        XCTAssertTrue(locked.contains("之后可以取消"), locked)
+        XCTAssertEqual(
+            BlindRunnerHomeViewModel.cancelBlockMessage(for: arrivedOrder(cancelOpensIn: nil), now: now),
+            "当前订单状态不能由盲人取消。"
+        )
+        XCTAssertNil(BlindRunnerHomeViewModel.cancelBlockMessage(for: .preview(status: .pendingMatch), now: now))
+        XCTAssertNotNil(BlindRunnerHomeViewModel.cancelBlockMessage(for: .preview(status: .inProgress), now: now))
+    }
+
+    func testHomeCancelActuallyCancelsAnArrivedOrderPastTheGate() async {
+        let service = FakeOrderService()
+        service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
+        service.orderDetailResult = .success(.preview(orderId: 58, status: .cancelled))
+        let appState = AppState(orders: service)
+        let speech = SpeechService()
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speech)
+        viewModel.activeOrder = arrivedOrder(cancelOpensIn: -60)
+        XCTAssertTrue(viewModel.canCancelActiveOrder)
+
+        await viewModel.cancelActiveOrder()
+
+        XCTAssertEqual(service.callCount("cancel(orderId:)"), 1)
+        XCTAssertNotEqual(viewModel.errorMessage, "当前订单状态不能由盲人取消。")
+    }
 }

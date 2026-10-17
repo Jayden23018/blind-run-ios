@@ -250,6 +250,79 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
         XCTAssertTrue(speech.spokenHistoryForTesting.first?.contains("不算你的取消") == true, "\(speech.spokenHistoryForTesting)")
     }
 
+    // MARK: - 跑者取消：首页与订单页都收到推送时只念一句（#462）
+
+    private func pushCancelled(_ appState: AppState, orderId: Int64, from: RunOrderStatus) {
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(
+            .orderStatusChanged(WSOrderStatusChanged(
+                type: WSMessageType.orderStatusChanged.rawValue,
+                orderId: orderId,
+                fromStatus: from.rawValue,
+                toStatus: RunOrderStatus.cancelled.rawValue,
+                message: nil,
+                ttsText: nil,
+                priority: "HIGH",
+                timestamp: "2026-10-17T12:00:00Z"
+            ))
+        )
+    }
+
+    /// 两个订阅谁先收到推送不固定，所以两种顺序各跑一遍。修之前首页那句「这一单已取消。」
+    /// 和订单页的整句同档，先念的被切成半句。
+    ///
+    /// ⚠️ 用 `PENDING_ACCEPT → CANCELLED`，不用汇合态：实时推送的状态表里 `DRIVER_ARRIVED`
+    /// 没有 `CANCELLED` 这条后继，那条推送会被判非法、退回重拉详情，首页根本收不到（另记 issue）。
+    /// 用汇合态的话，这条用例在修之前也是绿的。
+    func testRunnerCancelIsSpokenOnceWhenTheHomeAndTheOrderPageBothHearThePush() async throws {
+        for homeSubscribesFirst in [true, false] {
+            let service = FakeOrderService()
+            service.orderDetailResult = .success(.preview(orderId: 35, status: .cancelled))
+            let appState = AppState(orders: service)
+            appState.currentEnvironment = .mock
+            let speech = SpeechService()
+            let order = OrderDetailResponse.preview(orderId: 35, status: .pendingAccept)
+            let home = VolunteerHomeViewModel()
+            let page = VolunteerInServiceViewModel()
+            if homeSubscribesFirst {
+                home.configure(with: appState, speechService: speech)
+                page.configure(with: appState, speechService: speech, initialOrder: order)
+            } else {
+                page.configure(with: appState, speechService: speech, initialOrder: order)
+                home.configure(with: appState, speechService: speech)
+            }
+            home.activeOrder = order
+            appState.realtimeCoordinator.registerActiveOrder(35, status: .pendingAccept)
+            speech.resetSpokenHistoryForTesting()
+
+            pushCancelled(appState, orderId: 35, from: .pendingAccept)
+            try await Task.sleep(nanoseconds: 300_000_000)
+
+            let spoken = speech.spokenHistoryForTesting
+            // 首页收到 `CANCELLED` 推送会把当前订单清掉 —— 没清就是推送没送到首页，这条用例就没在测推送。
+            XCTAssertNil(home.activeOrder, "首页先订阅=\(homeSubscribesFirst)：首页没收到推送")
+            XCTAssertEqual(spoken.count, 1, "首页先订阅=\(homeSubscribesFirst)：\(spoken)")
+            XCTAssertTrue(spoken.first?.contains("不算你的取消") == true, "首页先订阅=\(homeSubscribesFirst)：\(spoken)")
+        }
+    }
+
+    /// 反例：订单页没开时，首页那句照常念（推迟一拍不等于不念）。
+    func testHomeStillSpeaksTheCancellationWhenNoOrderPageIsOpen() async throws {
+        let appState = AppState(orders: FakeOrderService())
+        appState.currentEnvironment = .mock
+        let speech = SpeechService()
+        let home = VolunteerHomeViewModel()
+        home.configure(with: appState, speechService: speech)
+        home.activeOrder = .preview(orderId: 36, status: .pendingAccept)
+        // 生产上首页加载当前订单时会登记；协调器只把推送发给登记过的订单。
+        appState.realtimeCoordinator.registerActiveOrder(36, status: .pendingAccept)
+        speech.resetSpokenHistoryForTesting()
+
+        pushCancelled(appState, orderId: 36, from: .pendingAccept)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(speech.spokenHistoryForTesting, [RunOrderStatus.cancelled.volunteerAnnouncement])
+    }
+
     // MARK: - Mock 与契约对齐
 
     func testMockCountsAVolunteerCancelInsideTheWindowOnly() throws {

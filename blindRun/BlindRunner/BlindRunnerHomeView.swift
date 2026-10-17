@@ -50,7 +50,25 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     }
 
     var canCancelActiveOrder: Bool {
-        activeOrder?.status.canBlindRunnerCancel == true
+        guard let activeOrder else { return false }
+        return Self.cancelBlockMessage(for: activeOrder, now: Date()) == nil
+    }
+
+    /// 首页这条取消路径此刻为什么不能取消；`nil` = 可以取消（#458）。
+    ///
+    /// 汇合态（`DRIVER_ARRIVED`）不在 `canBlindRunnerCancel` 里，但满后端给的时刻后跑者可以取消
+    /// （#395，`BlindArrivalCancelGate`）。这里复用那道判定，不另写一套，
+    /// 否则首页会说「不能由盲人取消」，而订单页那一行已经可以按了。
+    static func cancelBlockMessage(for order: OrderDetailResponse, now: Date) -> String? {
+        if order.status.canBlindRunnerCancel { return nil }
+        switch BlindArrivalCancelGate.resolve(order: order, now: now) {
+        case .open:
+            return nil
+        case .locked(let opensAt):
+            return BlindArrivalCancelCopy.lockedDetail(opensAt: opensAt)
+        case nil:
+            return "当前订单状态不能由盲人取消。"
+        }
     }
 
     /// 能不能开始一次新的预约。
@@ -413,8 +431,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     func cancelActiveOrder() async {
         guard let activeOrder, let appState else { return }
-        guard activeOrder.status.canBlindRunnerCancel else {
-            let message = "当前订单状态不能由盲人取消。"
+        if let message = Self.cancelBlockMessage(for: activeOrder, now: Date()) {
             errorMessage = message
             speechService?.speakError(message)
             return

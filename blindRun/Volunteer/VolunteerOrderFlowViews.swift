@@ -1750,6 +1750,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 // 关页面吧」（`REMATCHING` 那条分支），而这一次是盲人取消的，
                 // 要留在页面上把「不算你的取消」说清楚。
                 speechService?.speak(sentence)
+                // 首页也订阅了这条推送，会补一句通用的「这一单已取消。」（推迟一拍才念）。
+                // 记下去重键让它被挡掉，否则两句同档、前一句被切成半句（#462）。
+                speechService?.markStatusAnnounced(.cancelled)
             }
         }
     }
