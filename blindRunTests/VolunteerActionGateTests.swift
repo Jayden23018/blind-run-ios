@@ -79,6 +79,28 @@ final class VolunteerActionGateTests: XCTestCase {
         XCTAssertEqual(VolunteerActionGate.resolve(action: nil, order: order(.driverArrived), now: now), .open)
     }
 
+    /// 首页「我的预约」卡上的「确认我还会去」同样调 `confirm-departure`，同一道闸。
+    func testScheduledCardConfirmLocksUntilTheServerTime() {
+        let locked = VolunteerScheduledOrdersSection.confirmGate(
+            order: order(.scheduledConfirmed, earliestDeparture: 600), now: now
+        )
+        XCTAssertTrue(locked.isLocked, "预约卡没到放行时刻却能按")
+        XCTAssertTrue(locked.caption?.contains("起可以按") == true)
+
+        let open = VolunteerScheduledOrdersSection.confirmGate(
+            order: order(.scheduledConfirmed, earliestDeparture: -1), now: now
+        )
+        XCTAssertEqual(open, .open, "过了放行时刻预约卡还锁着")
+    }
+
+    /// `PENDING_ACCEPT` 时 `earliestDepartureAt` 管的是 `en-route`，不是预约卡上那枚确认按钮。
+    func testScheduledCardIgnoresTheEnRouteTimeOnceConfirmed() {
+        let gate = VolunteerScheduledOrdersSection.confirmGate(
+            order: order(.pendingAccept, earliestDeparture: 600), now: now
+        )
+        XCTAssertEqual(gate, .open)
+    }
+
     /// 状态推送换状态时这两个字段要带过去，否则推送与重拉之间那几秒按钮会闪成可按。
     func testReplacingStatusKeepsTheGateTimes() {
         var order = OrderDetailResponse.preview(status: .scheduledConfirmed)

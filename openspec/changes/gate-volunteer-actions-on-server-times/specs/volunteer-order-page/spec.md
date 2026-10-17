@@ -8,6 +8,11 @@ The volunteer order page SHALL disable a primary action in place until the backe
 - **THEN** the departure action SHALL be disabled and the caption SHALL read "{H:mm} 起可以按"
 - **AND** after that time the action SHALL become enabled without user action
 
+#### Scenario: Confirming from the home scheduled card
+- **WHEN** a `SCHEDULED_CONFIRMED` card on the volunteer home is shown and `earliestDepartureAt` is in the future
+- **THEN** its "确认我还会去" button SHALL be disabled with the caption "{H:mm} 起可以按"
+- **AND** a `PENDING_ACCEPT` card SHALL NOT apply `earliestDepartureAt` to that button
+
 #### Scenario: Waiting for the runner's consent
 - **WHEN** the order is `DRIVER_ARRIVED`, the start time has passed, and `blindConfirmDeadlineAt` is in the future
 - **THEN** "开始跑步" SHALL stay enabled

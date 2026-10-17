@@ -10,11 +10,13 @@ iOS #334 接 `earliestServiceStartAt`；陪跑员端还没接（iOS issue #340�
 - 陪跑员订单页主按钮按后端放行时刻锁：没到时刻时原位不可按，按钮上方小字与读屏提示说「{H:mm} 起可以按」，到点后随页面每秒一拍自己亮起。
   - 「确认还去」「我出发了」「我已经出发了」读 `earliestDepartureAt`
   - 「开始跑步」读 `earliestServiceStartAt`
+- 首页「我的预约」卡上的「确认我还会去」（同一个 `confirm-departure`）同样按 `earliestDepartureAt` 锁，只对 `SCHEDULED_CONFIRMED` 的卡；
+  `PENDING_ACCEPT` 时这个字段管的是 `en-route`，不套到确认按钮上。每分钟一拍刷新。
 - 同意闸**不锁**（契约：不要置灰）：`blindConfirmDeadlineAt` 在未来时小字说「跑者还没按开始跑步。{H:mm} 起你也可以直接开始」。
 - 字段缺失时不锁（由后端判，409 文案兜底）。时间闸先于同意闸的提示。
 
 ## Impact
 
 - `blindRun/Core/Models/OrderModels.swift`（两个字段）、`blindRun/Volunteer/VolunteerOrderV2.swift`（`VolunteerActionGate`）、
-  `VolunteerOrderFlowPage.swift`、`VolunteerOrderFlowViews.swift`、`VolunteerOrderFlowStep.swift`（文案）
+  `VolunteerOrderFlowPage.swift`、`VolunteerOrderFlowViews.swift`、`VolunteerHomeView.swift`（预约卡）、`VolunteerOrderFlowStep.swift`（文案）
 - 契约：后端 `docs/api_spec.yaml` 的 `OrderDetailResponse`（#546）

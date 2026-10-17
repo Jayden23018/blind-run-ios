@@ -2133,8 +2133,11 @@ struct VolunteerScheduledOrdersSection: View {
                         .accessibilityLabel(message)
                 }
 
-                ForEach(orders) { order in
-                    card(order)
+                // 每分钟一拍：放行时刻（`confirmGate`）到点后按钮自己亮起，文案只到分钟。
+                TimelineView(.everyMinute) { context in
+                    ForEach(orders) { order in
+                        card(order, now: context.date)
+                    }
                 }
             }
             .confirmationDialog(
@@ -2155,9 +2158,17 @@ struct VolunteerScheduledOrdersSection: View {
 
     /// 一张预约卡。整块 `children: .contain` —— 容器上的无障碍设置会向下盖掉子元素，
     /// 而这张卡上的两个按钮必须各自可被读屏聚焦、也必须能被 UI 测试分别找到。
-    private func card(_ order: OrderDetailResponse) -> some View {
+    /// 卡上「确认我还会去」的后端放行时刻（后端 #546）：没到 `earliestDepartureAt` 时原位不可按、说出几点可以按。
+    /// **只看 `SCHEDULED_CONFIRMED`** —— `PENDING_ACCEPT` 时同一个字段管的是 `en-route`，不是这枚按钮。
+    static func confirmGate(order: OrderDetailResponse, now: Date) -> VolunteerActionGate {
+        guard order.status == .scheduledConfirmed else { return .open }
+        return VolunteerActionGate.resolve(action: .confirmDeparture, order: order, now: now)
+    }
+
+    private func card(_ order: OrderDetailResponse, now: Date) -> some View {
         let isSubmitting = submittingOrderID == order.orderId
         let anySubmitting = submittingOrderID != nil
+        let gate = Self.confirmGate(order: order, now: now)
         return VStack(alignment: .leading, spacing: 10) {
             // 缺 `plannedStart` 时给一句话而不是空串：这一行是整张卡最重要的内容
             // （「什么时候」就是这一态的全部），空 `Text` 对读屏用户等于这张卡没有时间。
@@ -2174,14 +2185,27 @@ struct VolunteerScheduledOrdersSection: View {
             // 竖直堆叠而不是并排：对标产品无一把两个动作并排放
             // （`blind-ui-visual-benchmark-20260808.md`「次级操作一律整行铺满竖直堆叠」），
             // 而且并排会让每个按钮的可点宽度减半，AX5 下文字直接被压成省略号。
+            if let caption = gate.caption {
+                Text(caption)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // 已经拼进按钮的 hint，不再单独念一遍。
+                    .accessibilityHidden(true)
+            }
             PrimaryButton(
                 VolunteerServiceActionKind.confirmDeparture.title,
                 isLoading: isSubmitting,
                 action: { onConfirm(order.orderId) }
             )
-            .disabled(anySubmitting)
+            .disabled(anySubmitting || gate.isLocked)
+            // `PrimaryButton` 的底色是写死的，`.disabled` 不会让它变暗。
+            .opacity(gate.isLocked ? 0.45 : 1)
             .accessibilityLabel(VolunteerServiceActionKind.confirmDeparture.title)
-            .accessibilityHint("告诉跑者你仍然会来。不确认这一单会转给其他志愿者")
+            .accessibilityHint(
+                [gate.caption, "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"]
+                    .compactMap { $0 }.joined(separator: "。")
+            )
             .accessibilityIdentifier("volunteerScheduledConfirm-\(order.orderId)")
 
             Button(role: .destructive) {
