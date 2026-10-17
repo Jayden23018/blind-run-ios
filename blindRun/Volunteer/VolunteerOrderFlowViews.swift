@@ -1740,10 +1740,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 // `didCancelOrder` 也**不在这里置位**：它的含义是「这一单是我自己退掉的，
                 // 关页面吧」（`REMATCHING` 那条分支），而这一次是盲人取消的，
                 // 要留在页面上把「不算你的取消」说清楚。
-                speechService?.speak(
-                    "\(VolunteerOrderFlowCopy.runnerCancelledTitle(name: updated.blindNameForSpeech))。"
-                    + VolunteerOrderFlowCopy.runnerCancelledSubtitle
-                )
+                speechService?.speak(VolunteerOrderFlowCopy.runnerCancelledAnnouncement(
+                    name: updated.blindNameForSpeech,
+                    afterArrival: previousStatus == .driverArrived
+                ))
             }
         }
     }

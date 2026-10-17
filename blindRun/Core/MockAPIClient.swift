@@ -1218,7 +1218,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 // 造一份所有状态都有里程的假数据，等于让已完成屏的降级路径永远走不到。
                 actualDistanceMeters: activeOrderStatus == .completed ? 5120 : nil,
                 actualDurationSeconds: activeOrderStatus == .completed ? 2360 : nil,
-                actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil
+                actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil,
+                earliestBlindCancelAt: Self.seededBlindCancelAt(for: activeOrderStatus)
             ),
             OrderDetailResponse(
                 orderId: 2,

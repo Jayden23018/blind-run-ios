@@ -449,6 +449,18 @@ extension MockAPIClient {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
+        // 汇合态的跑者取消（后端 #682）：只在后端给了时刻时放行，早于它回 409，message 带时刻。
+        if mockRole == .blind, orders[index].status == .driverArrived,
+           let raw = orders[index].earliestBlindCancelAt?.nilIfBlank {
+            if let opensAt = raw.backendTimestamp, opensAt > Date() {
+                let clock = DateFormatter.aidRunDisplayClock.string(from: opensAt)
+                throw APIError.serverError(ErrorResponse(
+                    code: "BLIND_CANCEL_TOO_EARLY",
+                    message: "陪跑员刚到不久，请先打电话联系对方；若一直没碰上，\(clock)之后可以取消"))
+            }
+            orders[index] = updateOrderStatus(orders[index], to: .cancelled)
+            return CancelOrderResponse(success: true, countedAsLateCancel: false)
+        }
         guard let role = mockRole, orders[index].status.canCancel(as: role) else {
             throw APIError.serverError(ErrorResponse(
                 code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许取消"))
@@ -458,6 +470,16 @@ extension MockAPIClient {
         let nextStatus: RunOrderStatus = role == .volunteer ? .rematching : .cancelled
         orders[index] = updateOrderStatus(orders[index], to: nextStatus)
         return CancelOrderResponse(success: true, countedAsLateCancel: countedAsLateCancel)
+    }
+
+    /// UI 用例把汇合态的可取消时刻钉在「现在 + N 秒」（`AIDRUN_UI_TEST_BLIND_CANCEL_AFTER_SECONDS`，
+    /// 负数 = 已经可以取消）。不设 ⇒ `nil`，正是「后端关了这条出口」那一支 ——
+    /// 其余 UI 用例按现有行数断言，凭空多一行会假失败（同种子订单「刻意不带终点」）。
+    static func seededBlindCancelAt(for status: RunOrderStatus) -> String? {
+        guard status == .driverArrived,
+              let raw = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_BLIND_CANCEL_AFTER_SECONDS"],
+              let seconds = Double(raw) else { return nil }
+        return DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(seconds))
     }
 
     /// 没有开跑时间的单按「不在窗口内」算 —— Mock 不编一个时间去判罚。

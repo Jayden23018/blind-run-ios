@@ -172,6 +172,21 @@ enum ErrorCode: String, Codable, Sendable {
     case introCallPlanTimeUnavailable = "INTRO_CALL_PLAN_TIME_UNAVAILABLE"
     case introCallPlanTooFarFromOriginal = "INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL"
     case introCallPlanTooManySubmissions = "INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS"
+    // 跑者在汇合态取消得太早（后端 #682，iOS #395）：距「这一次到达」与「计划开跑」中较晚的那个
+    // 还不足后端配置的分钟数。后端 `message` 带着可取消的时刻，**念它**（`prefersServerMessage`）——
+    // 本地文案说不出时刻。正常路径下按钮到点前是置灰的，走到这里多半是两端时钟有偏差。
+    case blindCancelTooEarly = "BLIND_CANCEL_TOO_EARLY"
+
+    /// 识别出这个码之后，仍优先念后端 `message`（非空时）。
+    ///
+    /// 默认是本地文案优先：后端 message 常是开发口径（「当前订单状态不允许该操作」）。
+    /// 只有契约明写「message 可直接朗读、且含本地算不出的信息」的码才进这里。
+    var prefersServerMessage: Bool {
+        switch self {
+        case .blindCancelTooEarly: return true
+        default: return false
+        }
+    }
 
     var localizedMessage: String {
         switch self {
@@ -348,6 +363,9 @@ enum ErrorCode: String, Codable, Sendable {
             return IntroCallMeetupCopy.planTooFarFromOriginal
         case .introCallPlanTooManySubmissions:
             return IntroCallMeetupCopy.planTooManySubmissions
+        case .blindCancelTooEarly:
+            // 只在后端 message 为空时才会被念到（`prefersServerMessage`）。
+            return BlindArrivalCancelCopy.tooEarlyFallback
         }
     }
 

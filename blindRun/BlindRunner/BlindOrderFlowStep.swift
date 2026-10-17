@@ -255,6 +255,10 @@ struct BlindOrderFlowPresentation: Equatable {
     /// 而人到了却找不到对方，正是这一刻最可能要打的电话。它不抢主按钮的位置，是第二个版位。
     /// 判据与约好态的主按钮相同：**拼得出 `tel:` URL** 才给（掩码串会被 `telURL` 拦掉）。
     var callTitle: String? = nil
+    /// 汇合页信息卡里那一行「取消本单」（后端 #682）。`nil` = 不出现。
+    ///
+    /// 只在跑步前那一幕给：倒计时那三秒订单已是 `IN_PROGRESS`，那一态跑者不能取消。
+    var arrivalCancel: BlindArrivalCancelGate? = nil
 
     enum Visual: Equatable {
         /// 匹配态：雷达。
@@ -435,7 +439,8 @@ struct BlindOrderFlowPresentation: Equatable {
                     order: order, name: name, canKeepWaiting: canKeepWaiting, isStartingRun: isStartingRun, now: now
                 ),
                 warning: locationWarning,
-                callTitle: metUpCallTitle(order: order, name: name)
+                callTitle: metUpCallTitle(order: order, name: name),
+                arrivalCancel: BlindArrivalCancelGate.resolve(order: order, now: now)
             )
         }
     }
@@ -538,8 +543,9 @@ struct BlindOrderFlowPresentation: Equatable {
     /// 信息列表最后一行。
     ///
     /// 🔴 **设计稿在出发态写的是「修改或取消预约」，两处都不成立**：
-    /// ① 盲人在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` **不能取消**（`AGENTS.md` §5 的
-    ///    可取消状态集合里没有这两态，后端会拒）；
+    /// ① 盲人在 `DRIVER_EN_ROUTE` **不能取消**（`AGENTS.md` §5，后端会拒）；`DRIVER_ARRIVED`
+    ///    只在后端给的时刻之后能取消，那个入口是**另一行**（`arrivalCancel`），不占这一行 ——
+    ///    这一行在汇合态仍是「遇到问题」，置灰它会让到点前那条去求助中心的路一起消失；
     /// ② 后端**没有任何改单端点**（`/api/orders` 下 `put`/`patch` 命中 0）——
     ///    「修改」这个词承诺了一个不存在的功能。
     /// 所以：能取消的态说「取消」，不能取消的态说「遇到问题」。

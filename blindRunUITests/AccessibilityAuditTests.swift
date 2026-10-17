@@ -1764,6 +1764,102 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    // MARK: - 汇合态取消（后端 #682，iOS #395）
+
+    /// 打开汇合态订单页。`cancelAfterSeconds` = 可取消时刻距现在多少秒（负数 = 已到点），
+    /// `nil` = 后端没给（出口关着）。
+    @MainActor
+    private func openArrivedOrderPage(cancelAfterSeconds: Int?) -> XCUIApplication {
+        var environment: [String: String] = [:]
+        if let cancelAfterSeconds {
+            environment["AIDRUN_UI_TEST_BLIND_CANCEL_AFTER_SECONDS"] = String(cancelAfterSeconds)
+        }
+        let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "DRIVER_ARRIVED", extraEnvironment: environment)
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindOrderFlowLastRowButton"].firstMatch.waitForExistence(timeout: 15),
+            "汇合态订单页没起来"
+        )
+        return app
+    }
+
+    /// 信息卡在汇合态排得长，那一行可能在首屏下面。只在内容区滑，不碰底栏（求助与安全在那里）。
+    @MainActor
+    private func scrollArrivalCancelRowIntoView(_ row: XCUIElement, app: XCUIApplication) {
+        var swipes = 0
+        while swipes < 5, !(row.exists && row.isHittable && row.frame.maxY <= app.frame.maxY * 0.75) {
+            app.scrollViews.firstMatch.swipeUp(velocity: .slow)
+            swipes += 1
+        }
+    }
+
+    /// 没到点：行在、置灰、读屏标签说出几点可以取消并建议先打电话（负责人 2026-10-17 拍板）。
+    @MainActor
+    func testArrivalCancelIsDisabledAndSaysWhenBeforeTheServerTime() throws {
+        let app = openArrivedOrderPage(cancelAfterSeconds: 10 * 60)
+        let row = app.descendants(matching: .any)["blindOrderFlowArrivalCancelRow"].firstMatch
+        scrollArrivalCancelRowIntoView(row, app: app)
+        XCTAssertTrue(row.exists, "汇合态后端给了时刻，却没有「取消本单」")
+        XCTAssertFalse(row.isEnabled, "没到点就能按 —— 按下去只会听到 409")
+        XCTAssertTrue(row.label.hasPrefix("取消本单，"), "实际：\(row.label)")
+        XCTAssertTrue(row.label.hasSuffix("之后可以取消，先给陪跑员打电话"), "读屏没说出几点可以取消：\(row.label)")
+        XCTAssertGreaterThanOrEqual(row.frame.height, Self.minimumBlindPrimaryButtonHeight, "触达高度低于 64pt")
+
+        row.tap()
+        XCTAssertFalse(app.buttons["确认取消"].waitForExistence(timeout: 2), "置灰的行点下去弹出了取消确认")
+    }
+
+    /// 到点：可按，走既有二次确认，确认后订单取消、这一行随之消失。
+    @MainActor
+    func testArrivalCancelIsTappableAfterTheServerTimeAndConfirmsFirst() throws {
+        let app = openArrivedOrderPage(cancelAfterSeconds: -60)
+        let row = app.descendants(matching: .any)["blindOrderFlowArrivalCancelRow"].firstMatch
+        scrollArrivalCancelRowIntoView(row, app: app)
+        XCTAssertTrue(row.exists)
+        XCTAssertTrue(row.isEnabled, "到点之后仍是灰的")
+        XCTAssertTrue(row.isHittable)
+
+        row.tap()
+        let confirm = app.buttons["确认取消"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "取消是不可逆动作，必须先确认一次")
+        XCTAssertFalse(app.staticTexts["紧急呼叫"].exists, "点到了常驻求助条")
+        confirm.tap()
+
+        let gone = NSPredicate(format: "exists == false")
+        wait(for: [expectation(for: gone, evaluatedWith: row)], timeout: 15)
+    }
+
+    /// 后端没给时刻（出口关着）：不出现。「遇到问题」那一行照旧在。
+    @MainActor
+    func testArrivalCancelIsAbsentWhenTheServerGivesNoTime() throws {
+        let app = openArrivedOrderPage(cancelAfterSeconds: nil)
+        let lastRow = app.descendants(matching: .any)["blindOrderFlowLastRowButton"].firstMatch
+        scrollArrivalCancelRowIntoView(lastRow, app: app)
+        XCTAssertTrue(lastRow.exists)
+        XCTAssertEqual(lastRow.label, "遇到问题")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindOrderFlowArrivalCancelRow"].firstMatch.exists,
+            "后端关了这条出口，页面却给了取消入口 —— 按下去必然 403"
+        )
+    }
+
+    /// 页面开着跨过可取消时刻：不用任何操作，最多一轮轮询（5 秒）后变可按。
+    @MainActor
+    func testArrivalCancelBecomesTappableWhileThePageStaysOpen() throws {
+        // 45 秒：种子时刻在 App 启动时算，启动 + 进订单页在真机上要 10–20 秒，留足「起点是灰的」那一段。
+        let app = openArrivedOrderPage(cancelAfterSeconds: 45)
+        let row = app.descendants(matching: .any)["blindOrderFlowArrivalCancelRow"].firstMatch
+        scrollArrivalCancelRowIntoView(row, app: app)
+        XCTAssertTrue(row.exists)
+        XCTAssertFalse(row.isEnabled, "这条用例要从置灰开始，起点不对就什么都没验")
+
+        let enabled = NSPredicate(format: "isEnabled == true")
+        wait(for: [expectation(for: enabled, evaluatedWith: row)], timeout: 70)
+        XCTAssertFalse(row.label.contains("之后可以取消"), "变可按了，读屏还在说要等：\(row.label)")
+    }
+
     /// 求助中心（屏 2）打开后，**读屏第一个念到的必须是「一键求助」**。
     ///
     /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠两样东西，各管一个系统版本

@@ -1446,6 +1446,10 @@ final class AppRealtimeCoordinator: ObservableObject {
     ///   而这三条**必然**在有活跃订单时触发 ⇒ 映射进去就是 100% 静默吞掉。
     ///   其中 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` 被吞掉的代价最重：志愿者收不到提醒 ⇒
     ///   60 分钟后被判未确认、订单转走，而他并没有拒绝过。
+    /// - 🔴 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（后端 #682，HIGH）**不许加**，虽然它也宣布 `CANCELLED`。
+    ///   它只发给标了「已到达」的陪跑员 ⇒ 必然有活跃订单 ⇒ 映射进来就是 100% 被吞。而它的 `ttsText`
+    ///   带着「你可以离开集合点了」，这一刻人正站在集合点 —— 订单页那句通用状态句不说这个。
+    ///   用例 `RealtimeNotificationRoutingTests` 钉住。
     static func lifecycleStatus(forEventType eventType: String) -> RunOrderStatus? {
         switch eventType {
         case "ORDER_ACCEPTED": return .pendingAccept
