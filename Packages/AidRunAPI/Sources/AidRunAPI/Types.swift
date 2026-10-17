@@ -26,6 +26,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/auth/me`.
     /// - Remark: Generated from `#/paths//api/auth/me/get(getCurrentUser)`.
     func getCurrentUser(_ input: Operations.getCurrentUser.Input) async throws -> Operations.getCurrentUser.Output
+    /// 用 refresh token 换一组新 token（#642）。**不需要** `Authorization` 头 —— access 已过期时正是要调它。
+    ///
+    /// 返回结构与验证码登录相同：新的 `token`、新的 `refreshToken`、`expiresIn`，`role` 取库里的当前角色。
+    /// 客户端用返回的两个 token **同时覆盖**本地存的旧值。
+    ///
+    /// **什么时候调**：
+    /// - 主动：`token` 剩余有效期不足一半时（回到前台、跑步中都算），别等它真过期
+    /// - 被动：业务请求返回 401 时先调一次，成功就用新 token 重试原请求，**只重试一次**
+    /// - 并发的多个请求同时 401 时只调一次，其他请求等这一次的结果
+    ///
+    /// **旧 token 不会被作废**：换发后旧的 access / refresh 在各自有效期内仍能用。
+    /// 所以「响应没收到」可以放心用旧 refresh 再调一次；已建立的 WebSocket 不用重连。
+    ///
+    /// **失败处理**：401 `REFRESH_TOKEN_INVALID` = 这次登录已结束（登出 / 注销 / refresh 过期），回登录页。
+    /// 网络错误、429、5xx **不是**登录失效，保留会话稍后再试 —— 跑步中尤其不能因此退回登录页。
+    ///
+    /// 🚨 refresh token 只能放在请求体里，不能当 `Authorization: Bearer` 用（一律 401），也不能放进任何 URL。
+    ///
+    /// - Remark: HTTP `POST /api/auth/refresh`.
+    /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)`.
+    func refresh(_ input: Operations.refresh.Input) async throws -> Operations.refresh.Output
     /// - Remark: HTTP `POST /api/auth/send-code`.
     /// - Remark: Generated from `#/paths//api/auth/send-code/post(sendCode)`.
     func sendCode(_ input: Operations.sendCode.Input) async throws -> Operations.sendCode.Output
@@ -155,7 +176,7 @@ public protocol APIProtocol: Sendable {
     func getRules(_ input: Operations.getRules.Input) async throws -> Operations.getRules.Output
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。APNs 只发给 `IOS` 设备；`ANDROID` 设备走个推（#459），与 APNs 同一批事件补发。⚠️ 个推只在部署时设了 `getui.provider=getui` 并配齐 AppId / AppKey / MasterSecret 后才真发，缺省 `test` 只打日志不发。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -1401,6 +1422,35 @@ extension APIProtocol {
     public func getCurrentUser(headers: Operations.getCurrentUser.Input.Headers = .init()) async throws -> Operations.getCurrentUser.Output {
         try await getCurrentUser(Operations.getCurrentUser.Input(headers: headers))
     }
+    /// 用 refresh token 换一组新 token（#642）。**不需要** `Authorization` 头 —— access 已过期时正是要调它。
+    ///
+    /// 返回结构与验证码登录相同：新的 `token`、新的 `refreshToken`、`expiresIn`，`role` 取库里的当前角色。
+    /// 客户端用返回的两个 token **同时覆盖**本地存的旧值。
+    ///
+    /// **什么时候调**：
+    /// - 主动：`token` 剩余有效期不足一半时（回到前台、跑步中都算），别等它真过期
+    /// - 被动：业务请求返回 401 时先调一次，成功就用新 token 重试原请求，**只重试一次**
+    /// - 并发的多个请求同时 401 时只调一次，其他请求等这一次的结果
+    ///
+    /// **旧 token 不会被作废**：换发后旧的 access / refresh 在各自有效期内仍能用。
+    /// 所以「响应没收到」可以放心用旧 refresh 再调一次；已建立的 WebSocket 不用重连。
+    ///
+    /// **失败处理**：401 `REFRESH_TOKEN_INVALID` = 这次登录已结束（登出 / 注销 / refresh 过期），回登录页。
+    /// 网络错误、429、5xx **不是**登录失效，保留会话稍后再试 —— 跑步中尤其不能因此退回登录页。
+    ///
+    /// 🚨 refresh token 只能放在请求体里，不能当 `Authorization: Bearer` 用（一律 401），也不能放进任何 URL。
+    ///
+    /// - Remark: HTTP `POST /api/auth/refresh`.
+    /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)`.
+    public func refresh(
+        headers: Operations.refresh.Input.Headers = .init(),
+        body: Operations.refresh.Input.Body
+    ) async throws -> Operations.refresh.Output {
+        try await refresh(Operations.refresh.Input(
+            headers: headers,
+            body: body
+        ))
+    }
     /// - Remark: HTTP `POST /api/auth/send-code`.
     /// - Remark: Generated from `#/paths//api/auth/send-code/post(sendCode)`.
     public func sendCode(
@@ -1578,7 +1628,7 @@ extension APIProtocol {
     }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。APNs 只发给 `IOS` 设备；`ANDROID` 设备走个推（#459），与 APNs 同一批事件补发。⚠️ 个推只在部署时设了 `getui.provider=getui` 并配齐 AppId / AppKey / MasterSecret 后才真发，缺省 `test` 只打日志不发。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -3391,21 +3441,21 @@ public enum Servers {
             variables: []
         )
     }
-    /// 阿里云生产环境（Swagger 已关闭，仅用于请求地址参考）
+    /// 阿里云生产环境（只走 HTTPS，WebSocket 用 wss://；Swagger 已关闭，仅用于请求地址参考）
     public enum Server2 {
-        /// 阿里云生产环境（Swagger 已关闭，仅用于请求地址参考）
+        /// 阿里云生产环境（只走 HTTPS，WebSocket 用 wss://；Swagger 已关闭，仅用于请求地址参考）
         public static func url() throws -> Foundation.URL {
             try Foundation.URL(
-                validatingOpenAPIServerURL: "http://47.114.113.171",
+                validatingOpenAPIServerURL: "https://47.114.113.171",
                 variables: []
             )
         }
     }
-    /// 阿里云生产环境（Swagger 已关闭，仅用于请求地址参考）
+    /// 阿里云生产环境（只走 HTTPS，WebSocket 用 wss://；Swagger 已关闭，仅用于请求地址参考）
     @available(*, deprecated, renamed: "Servers.Server2.url")
     public static func server2() throws -> Foundation.URL {
         try Foundation.URL(
-            validatingOpenAPIServerURL: "http://47.114.113.171",
+            validatingOpenAPIServerURL: "https://47.114.113.171",
             variables: []
         )
     }
@@ -5759,20 +5809,30 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/guidePreferenceText`.
             public var guidePreferenceText: Swift.String?
+            /// 不带这个键或传 `null` = 保留原值。目前没有「未提供」取值，已填过的无法撤回（#773）
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/name`.
             public var name: Swift.String
+            /// ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/runningPace`.
             public var runningPace: Swift.String?
+            /// ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/specialNeeds`.
             public var specialNeeds: Swift.String?
+            /// 不带这个键或传 `null` = 保留原值。建档时默认 `TETHER_ROPE`
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/tetherPreference`.
             @frozen public enum tetherPreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case TETHER_ROPE = "TETHER_ROPE"
                 case ARM_HOLD = "ARM_HOLD"
                 case VERBAL_ONLY = "VERBAL_ONLY"
             }
+            /// 不带这个键或传 `null` = 保留原值。建档时默认 `TETHER_ROPE`
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/tetherPreference`.
             public var tetherPreference: Components.Schemas.BlindProfileUpdateRequest.tetherPreferencePayload?
             /// 可显式传 `NOT_SPECIFIED`（未提供，#326）；不带这个键则保留原值
@@ -5793,11 +5853,11 @@ public enum Components {
             ///   - chatPreference:
             ///   - defaultPace:
             ///   - guidePreferenceText: （2026-09-26 新增，陪跑员端订单页 v2）跑者用自己的话写给陪跑员的引导偏好。不带这个键 = 保留原值； 传空串（或全空白）= 清空。首尾空白会去掉。本期只限长度，不做内容审核。 经订单详情 `guidePreferenceText` 给到**已接单**的陪跑员（接单前的候选列表 / `NEW_ORDER` 里没有）
-            ///   - hasGuideDog:
+            ///   - hasGuideDog: 不带这个键或传 `null` = 保留原值。目前没有「未提供」取值，已填过的无法撤回（#773）
             ///   - name:
-            ///   - runningPace:
-            ///   - specialNeeds:
-            ///   - tetherPreference:
+            ///   - runningPace: ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
+            ///   - specialNeeds: ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
+            ///   - tetherPreference: 不带这个键或传 `null` = 保留原值。建档时默认 `TETHER_ROPE`
             ///   - visionLevel: 可显式传 `NOT_SPECIFIED`（未提供，#326）；不带这个键则保留原值
             public init(
                 chatPreference: Components.Schemas.BlindProfileUpdateRequest.chatPreferencePayload? = nil,
@@ -7354,7 +7414,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/runnerTopColor`.
             public var runnerTopColor: Components.Schemas.IntroCallPlanRequest.runnerTopColorPayload?
-            /// 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。超过 255 字服务端截断
+            /// 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。最长 255 字，超过返回 400
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/startAddress`.
             public var startAddress: Swift.String?
@@ -7392,7 +7452,7 @@ public enum Components {
             ///   - plannedEndTime: 改后的结束时间。不传：若改了开跑时间则按原时长平移，否则按原约
             ///   - plannedStartTime: 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 7 天、时长 ≤300 分钟、不碰 22:00–05:00）
             ///   - runnerTopColor: 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就不传
-            ///   - startAddress: 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。超过 255 字服务端截断
+            ///   - startAddress: 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。最长 255 字，超过返回 400
             ///   - startLatitude: 改后的集合点纬度（GCJ-02）。与原约集合点直线距离不得超过 `app.intro-call.plan-max-relocation-meters`（默认 3000 米）
             ///   - startLongitude: 改后的集合点经度（GCJ-02）
             ///   - volunteerTopColor: 陪跑员当天上衣颜色。不传 = 未确认
@@ -10558,6 +10618,23 @@ public enum Components {
                 case delivered
                 case orderId
                 case success
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RefreshTokenRequest`.
+        public struct RefreshTokenRequest: Codable, Hashable, Sendable {
+            /// 登录或上次续期响应里的 `refreshToken`
+            ///
+            /// - Remark: Generated from `#/components/schemas/RefreshTokenRequest/refreshToken`.
+            public var refreshToken: Swift.String
+            /// Creates a new `RefreshTokenRequest`.
+            ///
+            /// - Parameters:
+            ///   - refreshToken: 登录或上次续期响应里的 `refreshToken`
+            public init(refreshToken: Swift.String) {
+                self.refreshToken = refreshToken
+            }
+            public enum CodingKeys: String, CodingKey {
+                case refreshToken
             }
         }
         /// 志愿者注册状态（`GET /api/volunteer/registration/status` 的 `data` 字段）。
@@ -15193,6 +15270,245 @@ public enum Operations {
             }
         }
     }
+    /// 用 refresh token 换一组新 token（#642）。**不需要** `Authorization` 头 —— access 已过期时正是要调它。
+    ///
+    /// 返回结构与验证码登录相同：新的 `token`、新的 `refreshToken`、`expiresIn`，`role` 取库里的当前角色。
+    /// 客户端用返回的两个 token **同时覆盖**本地存的旧值。
+    ///
+    /// **什么时候调**：
+    /// - 主动：`token` 剩余有效期不足一半时（回到前台、跑步中都算），别等它真过期
+    /// - 被动：业务请求返回 401 时先调一次，成功就用新 token 重试原请求，**只重试一次**
+    /// - 并发的多个请求同时 401 时只调一次，其他请求等这一次的结果
+    ///
+    /// **旧 token 不会被作废**：换发后旧的 access / refresh 在各自有效期内仍能用。
+    /// 所以「响应没收到」可以放心用旧 refresh 再调一次；已建立的 WebSocket 不用重连。
+    ///
+    /// **失败处理**：401 `REFRESH_TOKEN_INVALID` = 这次登录已结束（登出 / 注销 / refresh 过期），回登录页。
+    /// 网络错误、429、5xx **不是**登录失效，保留会话稍后再试 —— 跑步中尤其不能因此退回登录页。
+    ///
+    /// 🚨 refresh token 只能放在请求体里，不能当 `Authorization: Bearer` 用（一律 401），也不能放进任何 URL。
+    ///
+    /// - Remark: HTTP `POST /api/auth/refresh`.
+    /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)`.
+    public enum refresh {
+        public static let id: Swift.String = "refresh"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/auth/refresh/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.refresh.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.refresh.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.refresh.Input.Headers
+            /// - Remark: Generated from `#/paths/api/auth/refresh/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/auth/refresh/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RefreshTokenRequest)
+            }
+            public var body: Operations.refresh.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.refresh.Input.Headers = .init(),
+                body: Operations.refresh.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/auth/refresh/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/auth/refresh/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LoginResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LoginResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.refresh.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.refresh.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// 续期成功，返回新的 token 与 refreshToken
+            ///
+            /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.refresh.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.refresh.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/auth/refresh/POST/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/auth/refresh/POST/responses/400/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.refresh.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.refresh.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// `refreshToken` 为空或过长，errorCode `VALIDATION_ERROR`
+            ///
+            /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.refresh.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.refresh.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/auth/refresh/POST/responses/401/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/auth/refresh/POST/responses/401/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.refresh.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.refresh.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// refresh token 用不了，errorCode `REFRESH_TOKEN_INVALID`：回登录页
+            ///
+            /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.refresh.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.refresh.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// - Remark: HTTP `POST /api/auth/send-code`.
     /// - Remark: Generated from `#/paths//api/auth/send-code/post(sendCode)`.
     public enum sendCode {
@@ -16753,7 +17069,7 @@ public enum Operations {
     }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。APNs 只发给 `IOS` 设备；`ANDROID` 设备走个推（#459），与 APNs 同一批事件补发。⚠️ 个推只在部署时设了 `getui.provider=getui` 并配齐 AppId / AppKey / MasterSecret 后才真发，缺省 `test` 只打日志不发。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
@@ -28906,7 +29222,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 这次登录已登出（服务端撤销记录在库里），errorCode `REFRESH_TOKEN_INVALID`：回登录页（#642）
+            /// 这次登录已登出或已被管理员强制下线（服务端撤销记录在库里），errorCode `REFRESH_TOKEN_INVALID`：回登录页（#642、#671）
             ///
             /// - Remark: Generated from `#/paths//api/user/role/post(setRole)/responses/401`.
             ///

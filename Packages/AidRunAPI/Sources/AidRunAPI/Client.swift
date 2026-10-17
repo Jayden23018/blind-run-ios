@@ -169,6 +169,135 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 用 refresh token 换一组新 token（#642）。**不需要** `Authorization` 头 —— access 已过期时正是要调它。
+    ///
+    /// 返回结构与验证码登录相同：新的 `token`、新的 `refreshToken`、`expiresIn`，`role` 取库里的当前角色。
+    /// 客户端用返回的两个 token **同时覆盖**本地存的旧值。
+    ///
+    /// **什么时候调**：
+    /// - 主动：`token` 剩余有效期不足一半时（回到前台、跑步中都算），别等它真过期
+    /// - 被动：业务请求返回 401 时先调一次，成功就用新 token 重试原请求，**只重试一次**
+    /// - 并发的多个请求同时 401 时只调一次，其他请求等这一次的结果
+    ///
+    /// **旧 token 不会被作废**：换发后旧的 access / refresh 在各自有效期内仍能用。
+    /// 所以「响应没收到」可以放心用旧 refresh 再调一次；已建立的 WebSocket 不用重连。
+    ///
+    /// **失败处理**：401 `REFRESH_TOKEN_INVALID` = 这次登录已结束（登出 / 注销 / refresh 过期），回登录页。
+    /// 网络错误、429、5xx **不是**登录失效，保留会话稍后再试 —— 跑步中尤其不能因此退回登录页。
+    ///
+    /// 🚨 refresh token 只能放在请求体里，不能当 `Authorization: Bearer` 用（一律 401），也不能放进任何 URL。
+    ///
+    /// - Remark: HTTP `POST /api/auth/refresh`.
+    /// - Remark: Generated from `#/paths//api/auth/refresh/post(refresh)`.
+    public func refresh(_ input: Operations.refresh.Input) async throws -> Operations.refresh.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.refresh.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/auth/refresh",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.refresh.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.LoginResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.refresh.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.refresh.Output.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// - Remark: HTTP `POST /api/auth/send-code`.
     /// - Remark: Generated from `#/paths//api/auth/send-code/post(sendCode)`.
     public func sendCode(_ input: Operations.sendCode.Input) async throws -> Operations.sendCode.Output {
@@ -1000,7 +1129,7 @@ public struct Client: APIProtocol {
     }
     /// 上报推送设备标识（iOS 的 APNs token 离线推送兜底，B5；#458 起也接收 Android）
     ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。⚠️ APNs 只会发给 `IOS` 设备，Android 标识本期只是存下来（发送通道见 #459）。路径沿用 `/apns`，改名是破坏性变更。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。`platform` 缺省为 `IOS`；`ANDROID` 的标识不做 hex 校验。APNs 只发给 `IOS` 设备；`ANDROID` 设备走个推（#459），与 APNs 同一批事件补发。⚠️ 个推只在部署时设了 `getui.provider=getui` 并配齐 AppId / AppKey / MasterSecret 后才真发，缺省 `test` 只打日志不发。路径沿用 `/apns`，改名是破坏性变更。
     ///
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
