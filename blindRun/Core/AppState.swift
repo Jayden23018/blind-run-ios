@@ -220,8 +220,8 @@ final class AppState: ObservableObject {
 
     /// 跑步中收到 401 后的「登录过期、暂缓退出」状态（#376）。nil = 没有暂缓。
     ///
-    /// 后端 JWT 24 小时有效且没有续期（blind-run-backend#642），订单页每 5 秒轮询一次，
-    /// 所以跑步途中过期是现实场景。此前任何 401 都立刻 `expireSession()`：盲人在跑道上被踢回登录页、
+    /// 后端 JWT 有有效期，订单页每 5 秒轮询一次，所以跑步途中过期是现实场景。#391 起 401 会先续期
+    /// （`SessionTokenRefresher`），只有续期也被拒（refresh 过期 / 登出 / 被强制下线）才走到这里。此前任何 401 都立刻 `expireSession()`：盲人在跑道上被踢回登录页、
     /// WebSocket 断开、云端求助不可用，还要重新收短信。暂缓期间：会话保留，订单页停轮询，
     /// 云端求助一律不发（`EmergencyCoordinator.blocksCloudSOSForExpiredSession`），横幅可见可听。
     @Published private(set) var sessionExpiryDeferral: SessionExpiryDeferral?

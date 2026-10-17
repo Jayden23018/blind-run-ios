@@ -1978,6 +1978,14 @@ final class AccessibilityAuditTests: XCTestCase {
         let panel = app.descendants(matching: .any)["volunteerRunHelpPanel"].firstMatch
         XCTAssertTrue(panel.waitForExistence(timeout: 5), "跑步中「求助」没有打开求助面板")
 
+        // #437：另外三行都要带登录凭证调云端，登录过期时按下去必然 401 —— 不可按，且说清为什么。
+        for identifier in ["volunteerRunHelpPause", "volunteerRunHelpRing", "volunteerRunHelpSupport"] {
+            let row = app.descendants(matching: .any)[identifier].firstMatch
+            XCTAssertTrue(row.exists, "面板里缺 \(identifier)")
+            XCTAssertFalse(row.isEnabled, "\(identifier) 登录过期后还能按")
+            XCTAssertTrue(row.label.contains("登录已过期，暂时用不了"), "\(identifier) 没说为什么按不了：\(row.label)")
+        }
+
         let localCall = app.descendants(matching: .any)["volunteerRunHelpLocalCall"].firstMatch
         XCTAssertTrue(localCall.waitForExistence(timeout: 5), "登录过期后面板里没有本地拨号「紧急呼叫」")
         scrollTo(localCall, in: app)

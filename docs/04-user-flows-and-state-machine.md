@@ -417,9 +417,14 @@ COMPLETED -> GET /api/orders/{id}/track
   -> 有效且角色缺省/UNSET -> 不建立角色 WebSocket -> 角色选择
   -> 401/已删除账户 -> 完整清理本地会话 -> 登录
 
-确认退出 -> POST /api/auth/logout
-  -> 200/401 -> 完整本地清理 -> 登录
-  -> 网络/5xx -> 保留会话 -> 重试 / 二次确认“仅退出本机”
+确认退出 -> POST /api/auth/logout（401 时先 POST /api/auth/refresh 再重试一次）
+  -> 200 / 401（续期也失败）/ 网络 -> 完整本地清理 -> 登录
+  -> 5xx -> 原样重试一次 -> 无论成败完整本地清理 -> 登录
+
+任一需要登录的请求 401 -> POST /api/auth/refresh（并发只发一次）
+  -> 200 -> 两个 token 一起覆盖 -> 原请求用新 access 重试一次（不断 WebSocket、不重置会话）
+  -> 401 REFRESH_TOKEN_INVALID / 400 -> 删 refresh -> 按 401 处理（跑步中暂缓，否则清会话回登录页并播报）
+  -> 429 / 5xx / 网络 -> 保留会话，冷却后再试
 
 账户删除第一阶段确认 -> 活动订单预检 -> 第二阶段确认 -> DELETE /api/users/{currentUser.id}
   -> 成功 -> 完整本地清理 -> 登录
