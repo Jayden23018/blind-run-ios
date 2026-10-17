@@ -340,17 +340,22 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.missingCredentials
         }
         sessionRenewer?.scheduleRenewalIfDue()
+        // 记下发请求时是哪一次登录：401 回来时换了账号的话，绝不能拿新会话的 token 重发这条旧请求。
+        let requestEpoch = sessionRenewer?.sessionEpoch
         do {
             return try await send(token)
         } catch APIError.unauthorized {
             guard let sessionRenewer else { throw APIError.unauthorized }
-            switch await sessionRenewer.renewAfterUnauthorized(rejectedAccessToken: token) {
+            switch await sessionRenewer.renewAfterUnauthorized(rejectedAccessToken: token, requestEpoch: requestEpoch) {
             case .renewed(let renewedToken):
                 return try await send(renewedToken)
             case .invalid:
                 throw APIError.unauthorized
             case .unavailable(let error):
                 throw error
+            case .sessionChanged:
+                // 不抛 `.unauthorized`：调用方会据此 `expireSession()`，踢掉的是新登录的那个人。
+                throw APIError.networkError(CancellationError())
             }
         }
     }

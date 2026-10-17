@@ -1018,7 +1018,8 @@ final class AppState: ObservableObject {
         performLocalSessionCleanup()
     }
 
-    /// 服务端的错，重试一次可能就过了。断网不重试：超时要 15 秒，重试会让用户对着遮罩再等一轮。
+    /// 服务端那边的错重试一次可能就过了。`.serverError` 不带状态码，4xx 业务错误也会落在这里 ——
+    /// 登出幂等，多发一次无害，所以不再细分。断网不重试：超时要 15 秒，重试会让用户对着遮罩再等一轮。
     static func logoutIsWorthRetrying(_ error: APIError) -> Bool {
         switch error {
         case .serverError:

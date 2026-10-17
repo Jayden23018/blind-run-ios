@@ -239,6 +239,8 @@ extension GuideRunActivityController {
         // 每次发请求都重读 Keychain，并接上续期器（#391）：跑步中锁屏卡的请求遇到 401 也要能续期，
         // 否则会一直 401。App 已装好就借 `AppState` 那个续期器（single-flight 与内存 token 一起走），
         // 没装好就起一个只读写 Keychain 的。
+        // ponytail: 独立实例每次按钮都新建，两次并发的锁屏动作会各续一次（契约允许，结果一致，只是多一次请求）；
+        // 真成问题时把独立实例缓存成静态单例。
         let renewer = SessionTokenRefresher.appSessionRenewer ?? SessionTokenRefresher.standalone(baseURL: baseURL)
         let tokenStore = TokenStoreFactory.makeDefault()
         return OrderService(transport: URLSessionAPIClient(

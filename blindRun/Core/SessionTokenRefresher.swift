@@ -12,6 +12,9 @@ enum SessionRenewalOutcome {
     case invalid
     /// 429 / 5xx / 网络 / 超时：**不是登录失效**，会话必须保留，原请求按这条错误失败。
     case unavailable(APIError)
+    /// 被拒的那条请求属于**上一次登录**（期间登出了 / 换了账号）。不重试、也不能按 401 处理 ——
+    /// 用新会话的 token 重发旧请求是身份串用，按 401 处理会把新会话踢掉。
+    case sessionChanged
 }
 
 /// 按契约续期：到期前主动续，401 时被动续，并发只发一次（single-flight）。
@@ -38,8 +41,12 @@ final class SessionTokenRefresher {
     private let accessStore: any TokenStoring
     private let credentialStore: RefreshCredentialStore
     private let now: () -> Date
-    private var inFlight: Task<SessionRenewalOutcome, Never>?
+    private var inFlight: (epoch: UInt64, task: Task<SessionRenewalOutcome, Never>)?
     private var cooldown: (until: Date, error: APIError)?
+
+    /// 「这是哪一次登录」。存 / 清凭据时加一。发请求时记下它，401 回来时对不上 = 这条请求属于上一次登录
+    /// （code review 2026-10-17：只比 token 值的话，A 登出、B 登录后 A 的迟到 401 会拿 B 的 token 重发）。
+    private(set) var sessionEpoch: UInt64 = 0
 
     private static let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "session-renewal")
 
@@ -75,7 +82,7 @@ final class SessionTokenRefresher {
     /// 登录成功时调。`response` 不带 refresh token（老后端 / Mock）就把旧的删掉 —— 留着别人的旧 refresh
     /// 等于让下一次 401 去续一个不属于这次登录的会话。
     func storeCredential(from response: LoginResponse) {
-        cooldown = nil
+        beginNewSession()
         guard let credential = Self.credential(from: response, receivedAt: now()) else {
             credentialStore.delete()
             return
@@ -86,8 +93,16 @@ final class SessionTokenRefresher {
     /// 登出 / 注销 / 会话失效时调。进行中的续期不取消（它不持有调用方的任何东西），
     /// 但它回来时会发现 Keychain 里的 refresh 没了，结果被丢弃（见 `perform`）。
     func clearCredential() {
-        cooldown = nil
+        beginNewSession()
         credentialStore.delete()
+    }
+
+    /// 在途的续期属于上一次登录：新请求不许再去等它（它可能回一个 `.invalid`，把新会话踢掉）。
+    /// 它自己跑完时发现 epoch 变了，结果丢弃。
+    private func beginNewSession() {
+        sessionEpoch &+= 1
+        inFlight = nil
+        cooldown = nil
     }
 
     var hasCredential: Bool { credentialStore.read() != nil }
@@ -97,7 +112,7 @@ final class SessionTokenRefresher {
     /// 过了半衰期就起一个续期任务，**不等它**：此刻旧 access 还能用，没必要让手上这条请求跟着等。
     /// 真过期了的那条路由 `renewAfterUnauthorized` 兜住，它会等同一个任务。
     func scheduleRenewalIfDue() {
-        guard inFlight == nil, isCoolingDown == false,
+        guard inFlight?.epoch != sessionEpoch, isCoolingDown == false,
               let credential = credentialStore.read(), now() >= credential.renewalDueAt else { return }
         _ = startRenewal()
     }
@@ -105,7 +120,7 @@ final class SessionTokenRefresher {
     /// 测试与回前台用：过了半衰期就续，并等结果。
     @discardableResult
     func renewIfDue() async -> SessionRenewalOutcome? {
-        if let inFlight { return await inFlight.value }
+        if let inFlight, inFlight.epoch == sessionEpoch { return await inFlight.task.value }
         guard isCoolingDown == false,
               let credential = credentialStore.read(), now() >= credential.renewalDueAt else { return nil }
         return await startRenewal().value
@@ -113,14 +128,16 @@ final class SessionTokenRefresher {
 
     // MARK: - 被动续期
 
-    /// 需要登录的请求被 401 打回时调。`rejectedAccessToken` 是那条请求带出去的 access。
-    func renewAfterUnauthorized(rejectedAccessToken: String) async -> SessionRenewalOutcome {
-        // 别的请求或锁屏卡已经换好了：直接用新的重试，不再续一次。
+    /// 需要登录的请求被 401 打回时调。`rejectedAccessToken` 是那条请求带出去的 access，
+    /// `requestEpoch` 是发请求那一刻的 `sessionEpoch`（nil = 调用方没记，按当前会话算）。
+    func renewAfterUnauthorized(rejectedAccessToken: String, requestEpoch: UInt64? = nil) async -> SessionRenewalOutcome {
+        if let requestEpoch, requestEpoch != sessionEpoch { return .sessionChanged }
+        // 同一次登录里，别的请求或锁屏卡已经换好了：直接用新的重试，不再续一次。
         if let current = accessStore.read(), !current.isEmpty, current != rejectedAccessToken {
             onAccessTokenRenewed?(current)
             return .renewed(accessToken: current)
         }
-        if let inFlight { return await inFlight.value }
+        if let inFlight, inFlight.epoch == sessionEpoch { return await inFlight.task.value }
         if let cooldown, now() < cooldown.until { return .unavailable(cooldown.error) }
         return await startRenewal().value
     }
@@ -133,23 +150,29 @@ final class SessionTokenRefresher {
     }
 
     private func startRenewal() -> Task<SessionRenewalOutcome, Never> {
+        let epoch = sessionEpoch
         let task = Task { [weak self] () -> SessionRenewalOutcome in
             guard let self else { return .invalid }
-            let outcome = await self.perform()
-            self.inFlight = nil
+            let outcome = await self.perform(epoch: epoch)
+            if self.inFlight?.epoch == epoch { self.inFlight = nil }
             return outcome
         }
-        inFlight = task
+        inFlight = (epoch, task)
         return task
     }
 
-    private func perform() async -> SessionRenewalOutcome {
+    private func perform(epoch: UInt64) async -> SessionRenewalOutcome {
         guard let credential = credentialStore.read(), let exchange else { return .invalid }
         let response: LoginResponse
         do {
             response = try await exchange(credential.refreshToken)
         } catch {
+            guard epoch == sessionEpoch else { return .sessionChanged }
             return handleFailure(error, sentRefreshToken: credential.refreshToken)
+        }
+        guard epoch == sessionEpoch else {
+            Self.logger.info("续期结果被丢弃：期间换了一次登录")
+            return .sessionChanged
         }
 
         // 写回前再看一眼：续期在路上时用户登出了（refresh 已删）或换了账号（refresh 已换），
@@ -170,7 +193,8 @@ final class SessionTokenRefresher {
             ?? RefreshCredential(
                 refreshToken: response.refreshToken.flatMap { $0.isEmpty ? nil : $0 } ?? credential.refreshToken,
                 issuedAt: now(),
-                expiresIn: response.expiresIn.map { TimeInterval($0) } ?? credential.expiresIn
+                // ≤0 不收：那会让 `renewalDueAt` 永远在过去，之后每条请求都触发一次续期。
+                expiresIn: response.expiresIn.flatMap { $0 > 0 ? TimeInterval($0) : nil } ?? credential.expiresIn
             )
         credentialStore.save(renewed)
         Self.logger.info("续期成功")
@@ -211,7 +235,11 @@ final class SessionTokenRefresher {
         case .unauthorized:
             return true
         case .serverError(let response):
+            // `serverError` 不带状态码：网关 / 框架默认的 400 会落成 `BAD_REQUEST` 或合成的 `HTTP_400`
+            // （`APIErrorEnvelope.resolvedErrorResponse`）。漏判的话一个永远续不上的 refresh 会每 15 秒打一次。
             return response.errorCode == .validationFailed
+                || response.errorCode == .badRequest
+                || response.code == "HTTP_400"
         case .unknown(let statusCode):
             return statusCode == 400
         case .rateLimited, .missingCredentials, .networkError, .decodingError, .invalidURL:

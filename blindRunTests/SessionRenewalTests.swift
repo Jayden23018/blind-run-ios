@@ -105,10 +105,58 @@ final class SessionRenewalTests: XCTestCase {
         harness.accessStore.delete()
         let result = await outcome
 
-        XCTAssertTrue(result.isInvalid)
+        XCTAssertTrue(result.isSessionChanged, "那一次登录已经结束，结果作废")
         XCTAssertNil(harness.accessStore.read(), "登出后不许复活 access")
         XCTAssertNil(harness.credential, "登出后不许复活 refresh")
         XCTAssertTrue(harness.renewedNotifications.isEmpty)
+    }
+
+    /// code review A：A 登出、B 登录后，A 的迟到 401 不许拿 B 的 token 重发（身份串用），也不许按 401 把 B 踢掉。
+    func testUnauthorizedFromAPreviousLoginIsNotReplayedWithTheNewSessionsToken() async {
+        let harness = RefresherHarness(access: "access-A", refresh: "refresh-A")
+        let epochOfRequestA = harness.refresher.sessionEpoch
+        harness.refresher.storeCredential(from: Self.renewal(access: "access-B", refresh: "refresh-B"))
+        harness.accessStore.save("access-B")
+
+        let outcome = await harness.refresher.renewAfterUnauthorized(
+            rejectedAccessToken: "access-A",
+            requestEpoch: epochOfRequestA
+        )
+
+        XCTAssertTrue(outcome.isSessionChanged)
+        XCTAssertTrue(harness.sentRefreshTokens.isEmpty)
+        XCTAssertTrue(harness.renewedNotifications.isEmpty)
+    }
+
+    /// code review A：上一次登录在途的续期，新会话的 401 不许去等它（它可能回 `.invalid` 把新会话踢掉）。
+    func testNewLoginDoesNotWaitForThePreviousLoginsRenewal() async {
+        let harness = RefresherHarness(access: "access-A", refresh: "refresh-A")
+        harness.exchangeResult = .success(Self.renewal(access: "access-A2", refresh: "refresh-A2"))
+        harness.exchangeDelayNanoseconds = 50_000_000
+        let refresher: SessionTokenRefresher = harness.refresher
+
+        async let old = refresher.renewAfterUnauthorized(rejectedAccessToken: "access-A", requestEpoch: refresher.sessionEpoch)
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        refresher.storeCredential(from: Self.renewal(access: "access-B", refresh: "refresh-B"))
+        harness.accessStore.save("access-B")
+        harness.exchangeResult = .success(Self.renewal(access: "access-B2", refresh: "refresh-B2"))
+        let fresh = await refresher.renewAfterUnauthorized(rejectedAccessToken: "access-B", requestEpoch: refresher.sessionEpoch)
+        let stale = await old
+
+        XCTAssertEqual(harness.sentRefreshTokens, ["refresh-A", "refresh-B"], "新会话自己续一次，不等旧的")
+        XCTAssertEqual(fresh.renewedToken, "access-B2")
+        XCTAssertTrue(stale.isSessionChanged)
+        XCTAssertEqual(harness.credential?.refreshToken, "refresh-B2", "旧会话的迟到结果不许覆盖新会话的凭据")
+    }
+
+    func testNonPositiveExpiresInDoesNotMakeRenewalPermanentlyDue() async {
+        let harness = RefresherHarness(access: "old-access", refresh: "old-refresh", expiresIn: 3600)
+        harness.exchangeResult = .success(Self.renewal(access: "new-access", refresh: "new-refresh", expiresIn: 0))
+
+        _ = await harness.refresher.renewAfterUnauthorized(rejectedAccessToken: "old-access")
+
+        XCTAssertEqual(harness.credential?.refreshToken, "new-refresh")
+        XCTAssertEqual(harness.credential?.expiresIn, 3600, "0 秒不收，否则之后每条请求都触发续期")
     }
 
     func testProactiveRenewalWaitsForHalfOfTheLifetime() async {
@@ -142,6 +190,8 @@ final class SessionRenewalTests: XCTestCase {
         XCTAssertTrue(SessionTokenRefresher.meansSessionEnded(.unauthorized))
         XCTAssertTrue(SessionTokenRefresher.meansSessionEnded(.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "x"))))
         XCTAssertTrue(SessionTokenRefresher.meansSessionEnded(.unknown(statusCode: 400)))
+        XCTAssertTrue(SessionTokenRefresher.meansSessionEnded(.serverError(ErrorResponse(code: "BAD_REQUEST", message: "x"))))
+        XCTAssertTrue(SessionTokenRefresher.meansSessionEnded(.serverError(ErrorResponse(code: "HTTP_400", message: "x"))))
 
         XCTAssertFalse(SessionTokenRefresher.meansSessionEnded(.unknown(statusCode: 503)))
         XCTAssertFalse(SessionTokenRefresher.meansSessionEnded(.serverError(ErrorResponse(code: "INTERNAL_ERROR", message: "x"))))
@@ -271,10 +321,9 @@ final class SessionRenewalTests: XCTestCase {
         let refreshStore = InMemoryTokenStore()
         let appState = makeAppState(refreshStore: refreshStore)
 
-        appState.handleLoginSuccess(response: Self.renewal(access: "a", refresh: "r", expiresIn: 7200))
-        XCTAssertEqual(RefreshCredentialStore(storage: refreshStore).read()?.refreshToken, "r")
-        XCTAssertNotEqual(refreshStore.read(), nil)
-        XCTAssertFalse(refreshStore.read()?.contains("\"a\"") ?? true, "access 不和 refresh 存在同一条里")
+        appState.handleLoginSuccess(response: Self.renewal(access: "access-9f3c", refresh: "refresh-71ab", expiresIn: 7200))
+        XCTAssertEqual(RefreshCredentialStore(storage: refreshStore).read()?.refreshToken, "refresh-71ab")
+        XCTAssertFalse(refreshStore.read()?.contains("access-9f3c") ?? true, "access 不和 refresh 存在同一条里")
 
         appState.clearSession()
         XCTAssertNil(refreshStore.read(), "登出要连 refresh 一起删")
@@ -412,6 +461,11 @@ extension SessionRenewalOutcome {
 
     var isInvalid: Bool {
         if case .invalid = self { return true }
+        return false
+    }
+
+    var isSessionChanged: Bool {
+        if case .sessionChanged = self { return true }
         return false
     }
 
