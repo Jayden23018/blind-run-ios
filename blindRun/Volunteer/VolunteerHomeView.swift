@@ -1005,9 +1005,11 @@ final class VolunteerHomeViewModel: ObservableObject {
                 let status = updated.status
                 if status == .cancelled {
                     // 推迟一拍（#462）：订单页若开着，同一条推送会让它念带「不算你的取消」的整句
-                    // 并记下去重键（`markStatusAnnounced`）。两个订阅谁先收到不固定，
-                    // 推迟之后不管谁先，这句通用的都排在它后面、被去重挡掉；订单页没开时照常念。
-                    Task { @MainActor [weak self] in
+                    // 并记下去重键（`markStatusAnnounced`）。两个订阅谁先收到不固定，但两边的
+                    // `receive(on: DispatchQueue.main)` 在推送那一刻都已入队 —— 再排一次主队列，
+                    // 这句通用的就一定在订单页之后、被去重挡掉；订单页没开时照常念。
+                    // 用主队列而不是 `Task`：先后顺序要和 Combine 的投递排在同一条 FIFO 上。
+                    DispatchQueue.main.async { [weak self] in
                         self?.speechService?.speakStatusChange(status, text: status.volunteerAnnouncement)
                     }
                 } else {

@@ -1343,6 +1343,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
             if #available(iOS 16.2, *) { GuideRunActivityController.shared.end() }
             stopPolling()
             speechService?.speak("已结束等待。这一单取消了，不算你的取消。")
+            // 随后到的 `CANCELLED` 推送会让首页补一句通用的「这一单已取消。」，同档切断这一句（#462）。
+            speechService?.markStatusAnnounced(.cancelled)
             didEndWaiting = true
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }

@@ -298,6 +298,30 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
         }
     }
 
+    /// 陪跑员自己结束等待：订单页念「已结束等待……不算你的取消」，随后到的 `CANCELLED` 推送
+    /// 不能再让首页补一句通用的把它切断。
+    func testEndingTheWaitIsNotCutOffByTheHomeCancellationSentence() async throws {
+        let service = FakeOrderService()
+        service.endWaitingResult = .success(())
+        service.orderDetailResult = .success(.preview(orderId: 37, status: .cancelled))
+        let appState = AppState(orders: service)
+        appState.currentEnvironment = .mock
+        let speech = SpeechService()
+        let order = OrderDetailResponse.preview(orderId: 37, status: .driverArrived)
+        let home = VolunteerHomeViewModel()
+        home.configure(with: appState, speechService: speech)
+        home.activeOrder = order
+        let page = VolunteerInServiceViewModel()
+        page.configure(with: appState, speechService: speech, initialOrder: order)
+        speech.resetSpokenHistoryForTesting()
+
+        await page.endWaiting()
+        pushCancelled(appState, orderId: 37, from: .driverArrived)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(speech.spokenHistoryForTesting, ["已结束等待。这一单取消了，不算你的取消。"])
+    }
+
     /// 反例：订单页没开时，首页那句照常念（推迟一拍不等于不念）。
     func testHomeStillSpeaksTheCancellationWhenNoOrderPageIsOpen() async throws {
         let appState = AppState(orders: FakeOrderService())
