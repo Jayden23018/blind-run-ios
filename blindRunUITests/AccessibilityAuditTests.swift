@@ -121,8 +121,8 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
     }
 
-    /// 「按日期添加」（#455）：弹出的是**日期**选择不是星期选择，日期一行不小于 64pt；
-    /// 取消不加，完成后列表多一行「仅 M月D日（周X）」—— 预选日期是今天。
+    /// 「按日期添加」（#455）：弹出的是**日期**选择不是星期选择，日期一行与每个日期选项不小于 64pt；
+    /// 取消不加；改选明天后完成，列表多一行「仅 M月D日（周X）」，星期是明天的。
     @MainActor
     func testAddingOneOffAvailabilitySlotPicksADate() throws {
         let app = launchVolunteerHome()
@@ -153,14 +153,27 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 5), "取消后没回到空闲时间页")
         XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
 
+        // 第二次：把预选的今天换成明天 —— 走一遍日期列表，并验星期跟着日期换。
+        // App 按本机时区的公历日取「今天」（`VolunteerAvailableTimeSlot.todayString`），这里同口径。
+        let calendar = Calendar(identifier: .gregorian)
+        let tomorrowDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: Date()))
+        let tomorrow = calendar.dateComponents([.month, .day, .weekday], from: tomorrowDate)
+        let weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        let tomorrowText = "\(tomorrow.month ?? 0)月\(tomorrow.day ?? 0)日（\(weekdayNames[(tomorrow.weekday ?? 1) - 1])）"
+
         add.tap()
         XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5))
+        datePicker.tap()
+        let option = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", tomorrowText)).firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5), "日期列表里没有明天「\(tomorrowText)」")
+        if !option.isHittable { app.swipeUp() }
+        XCTAssertGreaterThanOrEqual(option.frame.height, 64, "日期选项一行触达不足 64pt")
+        option.tap()
+        XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "选完日期没回到编辑页")
         app.buttons["volunteerScheduleEditorDone"].tap()
 
-        // App 按本机时区的公历日取「今天」（`VolunteerAvailableTimeSlot.todayString`），这里同口径。
-        let today = Calendar(identifier: .gregorian).dateComponents([.month, .day, .weekday], from: Date())
-        let weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-        let expected = "仅 \(today.month ?? 0)月\(today.day ?? 0)日（\(weekdayNames[(today.weekday ?? 1) - 1])）"
+        let expected = "仅 \(tomorrowText)"
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", expected)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "完成后列表里没有「\(expected)」这一行")
         if !row.isHittable { app.swipeUp() }

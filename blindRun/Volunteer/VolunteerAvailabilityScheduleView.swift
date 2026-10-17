@@ -484,17 +484,22 @@ private struct VolunteerAvailabilitySlotEditor: View {
     /// 一次性时段的日期选择：今天起固定天数，**没有过去的日期**；星期随日期一起换。
     ///
     /// ponytail: 用 `Picker` 列日期串而不是 `DatePicker`，理由同下面的时间选择 ——
-    /// 不在 `Date` 与「哪一天」之间换算，读屏是可调节元素；紧凑 `DatePicker` 在 `Form` 里
-    /// 是一枚远小于 64pt 的胶囊。
+    /// 不在 `Date` 与「哪一天」之间换算；读屏下是一行按钮，双击推出一页日期列表逐行可念可选。
+    /// 紧凑 `DatePicker` 在 `Form` 里是一枚远小于 64pt 的胶囊。
     private func datePicker(_ options: [String]) -> some View {
         Picker("日期", selection: Binding(
             get: { draft.date ?? options[0] },
             set: { draft.setDate($0) }
         )) {
             ForEach(options, id: \.self) { day in
-                Text(Self.dateOptionText(day)).tag(day)
+                Text(Self.dateOptionText(day))
+                    .frame(minHeight: 64) // guard:allow small-touch-target
+                    .tag(day)
             }
         }
+        // 菜单样式（`Form` 默认）真机量过：外挂 `.frame(minHeight: 64)` 只撑高了行，
+        // 可点的那颗按钮仍是 34pt。推一页列表的样式整行可点，选项行也各自 64pt。
+        .pickerStyle(.navigationLink)
         .frame(minHeight: 64) // guard:allow small-touch-target
         .accessibilityIdentifier("volunteerScheduleEditorDatePicker")
     }
