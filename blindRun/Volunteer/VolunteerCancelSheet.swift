@@ -17,54 +17,58 @@ struct VolunteerCancelSheet: View {
     let onCancelOrder: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(copy.title)
-                .font(AppFonts.title())
-                .accessibilityAddTraits(.isHeader)
+        // 外面一层 `ScrollView`：弹层停在半屏（`.medium`）时，最大字号下标题会被顶出上沿、
+        // 两枚按钮被挤到下沿外，读屏够不到「保留这次陪跑」（#463 的 AX5 截图里实测）。
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(copy.title)
+                    .font(AppFonts.title())
+                    .accessibilityAddTraits(.isHeader)
 
-            if let lateNotice = copy.lateNotice {
-                Text(lateNotice)
-                    .font(AppFonts.body())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("volunteerCancelSheetLateNotice")
-            }
-
-            Text(copy.message)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            FlowActionButton(
-                copy.keep,
-                style: .primary,
-                accessibilityHint: "关掉这一层，这一单仍然是你的"
-            ) {
-                onKeep()
-            }
-            .accessibilityIdentifier("volunteerCancelSheetKeep")
-
-            Button(action: onCancelOrder) {
-                Group {
-                    if isSubmitting {
-                        ProgressView()
-                    } else {
-                        Text(copy.cancel)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.textSecondary)
-                    }
+                if let lateNotice = copy.lateNotice {
+                    Text(lateNotice)
+                        .font(AppFonts.body())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("volunteerCancelSheetLateNotice")
                 }
-                // 灰字按钮也要够得着：64pt 是本仓库盲人端的最小触达（低视力志愿者同样受益）。
-                .frame(maxWidth: .infinity, minHeight: 64)
-                .contentShape(Rectangle())
+
+                Text(copy.message)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                FlowActionButton(
+                    copy.keep,
+                    style: .primary,
+                    accessibilityHint: "关掉这一层，这一单仍然是你的"
+                ) {
+                    onKeep()
+                }
+                .accessibilityIdentifier("volunteerCancelSheetKeep")
+
+                Button(action: onCancelOrder) {
+                    Group {
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text(copy.cancel)
+                                .font(AppFonts.body())
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+                    }
+                    // 灰字按钮也要够得着：64pt 是本仓库盲人端的最小触达（低视力志愿者同样受益）。
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .contentShape(Rectangle())
+                }
+                .disabled(isSubmitting)
+                .accessibilityLabel(copy.cancel)
+                .accessibilityHint("这一单会转给其他志愿者")
+                .accessibilityIdentifier("volunteerCancelSheetConfirm")
             }
-            .disabled(isSubmitting)
-            .accessibilityLabel(copy.cancel)
-            .accessibilityHint("这一单会转给其他志愿者")
-            .accessibilityIdentifier("volunteerCancelSheetConfirm")
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .readableContentColumn()
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .readableContentColumn()
     }
 }
 

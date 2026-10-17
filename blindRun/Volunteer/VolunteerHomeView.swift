@@ -2139,8 +2139,12 @@ struct VolunteerScheduledOrdersSection: View {
     let onRelease: (Int64) -> Void
     /// `PENDING_ACCEPT` 的卡：打开这一单的订单页（`CardAction.openOrder`）。
     let onOpen: (OrderDetailResponse) -> Void
+    /// 「我去不了」确认层里「会记一次临时取消」那句的窗口，取自 `AppState.ruleParams`。
+    /// **不给默认值**，理由同 `VolunteerOrderFlowCopy.cancelSheet`。
+    let lateCancelWindowHours: Int
 
-    /// 要释放的那一单。二次确认是因为释放不可逆 —— 订单回派单池，抢不回同一个盲人。
+    /// 要释放的那一单。二次确认是因为释放不可逆 —— 订单回派单池，抢不回同一个盲人
+    /// （负责人 2026-10-17：保留二次确认，不跟邀请卡的「5 秒撤销」，#463）。
     @State private var pendingReleaseOrder: OrderDetailResponse?
 
     var body: some View {
@@ -2168,18 +2172,24 @@ struct VolunteerScheduledOrdersSection: View {
                     }
                 }
             }
-            .confirmationDialog(
-                "确认去不了？",
-                isPresented: Binding(
-                    get: { pendingReleaseOrder != nil },
-                    set: { if !$0 { pendingReleaseOrder = nil } }
-                ),
-                presenting: pendingReleaseOrder
-            ) { order in
-                Button("确认去不了", role: .destructive) { onRelease(order.orderId) }
-                Button("再想想", role: .cancel) {}
-            } message: { _ in
-                Text("这一单会转给其他志愿者，之后不一定还能接回来。")
+            // 与订单页「约好」屏同一个确认层（`VolunteerCancelSheet`，#463）：
+            // 默认动作是黄色的「保留这次陪跑」，「仍然取消」是一行灰字，不用红色。
+            .sheet(item: $pendingReleaseOrder) { order in
+                VolunteerCancelSheet(
+                    copy: VolunteerOrderFlowCopy.cancelSheet(
+                        for: order.status,
+                        plannedStart: order.plannedStart?.nilIfBlank?.backendTimestamp,
+                        lateCancelWindowHours: lateCancelWindowHours
+                    ),
+                    isSubmitting: submittingOrderID == order.orderId,
+                    onKeep: { pendingReleaseOrder = nil },
+                    onCancelOrder: {
+                        pendingReleaseOrder = nil
+                        onRelease(order.orderId)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         }
     }
@@ -2206,77 +2216,85 @@ struct VolunteerScheduledOrdersSection: View {
 
     /// 一张预约卡。整块 `children: .contain` —— 容器上的无障碍设置会向下盖掉子元素，
     /// 而这张卡上的两个按钮必须各自可被读屏聚焦、也必须能被 UI 测试分别找到。
+    ///
+    /// 🎨 **照订单页 v2「约好」屏做**（负责人 2026-10-17 拍板，#463；`docs/ui/mockups/INDEX.md`）：
+    /// 卡片是订单页行卡的底、圆角与阴影；按钮是那一屏底部同一组 —— 黄色主按钮
+    /// `FlowActionButton(.raisedPrimary)` + 灰字 `FlowTextButton`；时刻小字也同样摆在主按钮正上方。
+    /// 唯一不同：「我去不了」可点区撑到 64pt —— 44pt 只是订单页的例外（`design-direction.md` §6.1），首页不在其内。
+    /// 读屏顺序就是视觉顺序：时间 → 跑者 · 地点 → 主按钮（时刻在它的提示里）→「我去不了」。
     private func card(_ order: OrderDetailResponse, now: Date) -> some View {
         let isSubmitting = submittingOrderID == order.orderId
         let anySubmitting = submittingOrderID != nil
         let gate = Self.confirmGate(order: order, now: now)
-        return VStack(alignment: .leading, spacing: 10) {
-            // 缺 `plannedStart` 时给一句话而不是空串：这一行是整张卡最重要的内容
-            // （「什么时候」就是这一态的全部），空 `Text` 对读屏用户等于这张卡没有时间。
-            Text(order.plannedStart?.nilIfBlank?.displayDateTime ?? "开跑时间待同步")
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                // 缺 `plannedStart` 时给一句话而不是空串：这一行是整张卡最重要的内容
+                // （「什么时候」就是这一态的全部），空 `Text` 对读屏用户等于这张卡没有时间。
+                Text(order.plannedStart?.nilIfBlank?.displayDateTime ?? "开跑时间待同步")
+                    .flowFont(FlowV2Fonts.headline())
+                    .foregroundColor(AppColors.Flow.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Text("\(order.blindName ?? "盲人跑者") · \(order.startAddress ?? "出发地待同步")")
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text("\(order.blindName ?? "盲人跑者") · \(order.startAddress ?? "出发地待同步")")
+                    .flowFont(FlowV2Fonts.subhead())
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // 竖直堆叠而不是并排：对标产品无一把两个动作并排放
             // （`blind-ui-visual-benchmark-20260808.md`「次级操作一律整行铺满竖直堆叠」），
             // 而且并排会让每个按钮的可点宽度减半，AX5 下文字直接被压成省略号。
-            switch Self.cardAction(for: order) {
-            case .confirmDeparture:
-                if let caption = gate.caption {
-                    Text(caption)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        // 已经拼进按钮的 hint，不再单独念一遍。
-                        .accessibilityHidden(true)
-                }
-                PrimaryButton(
-                    VolunteerServiceActionKind.confirmDeparture.title,
-                    isLoading: isSubmitting,
-                    action: { onConfirm(order.orderId) }
-                )
-                .disabled(anySubmitting || gate.isLocked)
-                // `PrimaryButton` 的底色是写死的，`.disabled` 不会让它变暗。
-                .opacity(gate.isLocked ? 0.45 : 1)
-                .accessibilityLabel(VolunteerServiceActionKind.confirmDeparture.title)
-                .accessibilityHint(
-                    [gate.caption, "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"]
-                        .compactMap { $0 }.joined(separator: "。")
-                )
-                .accessibilityIdentifier("volunteerScheduledConfirm-\(order.orderId)")
-            case .openOrder:
-                PrimaryButton(VolunteerScheduledOrderCopy.openOrder, action: { onOpen(order) })
-                    .disabled(anySubmitting)
-                    .accessibilityLabel(VolunteerScheduledOrderCopy.openOrder)
-                    .accessibilityHint(VolunteerScheduledOrderCopy.openOrderHint)
+            VStack(spacing: 8) {
+                switch Self.cardAction(for: order) {
+                case .confirmDeparture:
+                    if let caption = gate.caption {
+                        Text(caption)
+                            .flowFont(FlowV2Fonts.subhead())
+                            .foregroundColor(AppColors.Flow.secondaryText)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .fixedSize(horizontal: false, vertical: true)
+                            // 已经拼进按钮的 hint，不再单独念一遍。
+                            .accessibilityHidden(true)
+                    }
+                    FlowActionButton(
+                        VolunteerServiceActionKind.confirmDeparture.title,
+                        style: .raisedPrimary,
+                        isLoading: isSubmitting,
+                        isEnabled: !anySubmitting && !gate.isLocked,
+                        accessibilityHint: [gate.caption, "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"]
+                            .compactMap { $0 }.joined(separator: "。"),
+                        action: { onConfirm(order.orderId) }
+                    )
+                    .accessibilityIdentifier("volunteerScheduledConfirm-\(order.orderId)")
+                case .openOrder:
+                    // 白色次要按钮：订单页 `PENDING_ACCEPT` 解锁前那枚「我已经出发了」同一个样子。
+                    FlowActionButton(
+                        VolunteerScheduledOrderCopy.openOrder,
+                        style: .outlined,
+                        isEnabled: !anySubmitting,
+                        accessibilityHint: VolunteerScheduledOrderCopy.openOrderHint,
+                        action: { onOpen(order) }
+                    )
                     .accessibilityIdentifier("volunteerScheduledOpen-\(order.orderId)")
-            }
+                }
 
-            Button(role: .destructive) {
-                pendingReleaseOrder = order
-            } label: {
-                Text(VolunteerServiceActionKind.releaseScheduled.title)
-                    .font(AppFonts.body().weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 52)
-                    .background(AppColors.destructive.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile, style: .continuous))
+                FlowTextButton(
+                    title: VolunteerServiceActionKind.releaseScheduled.title,
+                    tone: .neutral,
+                    accessibilityHint: "这一单会转给其他志愿者，需要确认后释放",
+                    minHeight: AppTouchTarget.blindPrimary,
+                    action: { pendingReleaseOrder = order }
+                )
+                .disabled(anySubmitting)
+                .accessibilityIdentifier("volunteerScheduledRelease-\(order.orderId)")
             }
-            .disabled(anySubmitting)
-            .accessibilityLabel(VolunteerServiceActionKind.releaseScheduled.title)
-            .accessibilityHint("这一单会转给其他志愿者，需要确认后释放")
-            .accessibilityIdentifier("volunteerScheduledRelease-\(order.orderId)")
         }
-        .padding(14)
+        .padding(FlowMetrics.v2CardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
+        .background(AppColors.Flow.surface)
+        .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.v2RowRadius, style: .continuous))
+        .flowCardShadow()
         .accessibilityElement(children: .contain)
     }
 }

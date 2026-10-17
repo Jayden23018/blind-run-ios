@@ -991,7 +991,14 @@ final class AccessibilityAuditTests: XCTestCase {
             release.tap()
             sleep(2)
             attachScreenshot(app, name: "scheduled-card-release-confirm-\(variant.name)")
+            // 确认层的默认动作必须够得到：最大字号下半屏弹层曾把它挤到下沿外（#463）。
+            let keep = app.buttons["volunteerCancelSheetKeep"].firstMatch
+            XCTAssertTrue(keep.waitForExistence(timeout: 5), "\(variant.name)：「我去不了」没弹出确认层")
+            for _ in 0..<4 where !keep.isHittable { app.swipeUp() }
+            let keepReachable = keep.isHittable
+            attachScreenshot(app, name: "scheduled-card-release-keep-\(variant.name)")
             app.terminate()
+            XCTAssertTrue(keepReachable, "\(variant.name)：「保留这次陪跑」够不到")
 
             XCTAssertGreaterThanOrEqual(confirmHeight, 63.99, "\(variant.name)：「确认我还会去」只有 \(confirmHeight)pt")
             XCTAssertGreaterThanOrEqual(releaseHeight, 63.99, "\(variant.name)：「我去不了」只有 \(releaseHeight)pt")

@@ -25,6 +25,10 @@ struct FlowTextButton: View {
     let title: String
     var tone: Tone = .neutral
     var accessibilityHint: String?
+    /// 可点区的最小高度。默认 44 只在陪跑员订单页成立（`design-direction.md` §6.1 的例外）；
+    /// 别处用它时传 `AppTouchTarget.blindPrimary`（64），样子不变、只是可点区更高（#463 首页预约卡）。
+    /// 挂在 label 里而不是按钮外：按钮外挂 frame 撑不大可点区。
+    var minHeight: CGFloat = FlowMetrics.v2TextButtonMinHeight
     let action: () -> Void
 
     var body: some View {
@@ -34,7 +38,7 @@ struct FlowTextButton: View {
                 .foregroundColor(tone == .neutral ? AppColors.Flow.secondaryText : AppColors.Flow.accent)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: FlowMetrics.v2TextButtonMinHeight)
+                .frame(minHeight: minHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
