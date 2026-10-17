@@ -40,6 +40,65 @@ enum VolunteerAvailabilityScheduleEditing {
     }
 
     static let invalidRangeMessage = "结束时间要晚于开始时间。跨午夜的时段请拆成两段。"
+
+    /// 页脚那句匹配规则。后端（#410）：**一条每周时段都没有 = 随时可接**，一次性时段只放宽、
+    /// 不算「填过」。所以只有存在每周时段时才能说「空闲时间以外不发邀请」；只填了按日期的、
+    /// 或一段都没填时那句话是错的 —— 照它理解，他会以为别的日子收不到邀请（#455）。
+    static func footerText(for slots: [VolunteerAvailabilityDraftSlot]) -> String {
+        let rule = slots.contains { !$0.isOneOff }
+            ? "空闲时间以外不会给你发邀请。"
+            : "还没有每周重复的时段，任何时间都可能收到邀请；按日期添加的只是多加那一天。"
+        return rule + "改完自动保存，没有保存按钮。"
+    }
+
+    // MARK: 一次性时段的日期（#455）
+
+    /// 「按日期添加」能选几天：今天起 30 天（含今天）。
+    ///
+    /// ponytail: 契约与后端都没给上限（后端只校验星期对不对得上），这是 iOS 自己定的。
+    /// 不取下单上限 7 天：更远那天的时段，等那天的订单进来时照样有用；
+    /// 30 个选项读屏还划得完，再远的空闲用每周时段更合适。要改只改这一处。
+    static let oneOffDateWindowDays = 30
+
+    /// 日期加减与星期查表只用 UTC 公历：每天都是 24 小时，没有夏令时那一跳。
+    /// 「今天」本身按本机时区取公历日（`VolunteerAvailableTimeSlot.todayString()`，与过期过滤同源），
+    /// 一个日历日是星期几与时区无关。
+    private static let dayCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        return calendar
+    }()
+
+    /// `"2026-10-03"` → `"SATURDAY"`。认不出的日期（含 `2026-02-30`）返回 `nil`。
+    static func weekday(forDate raw: String) -> String? {
+        guard let date = dayDate(raw) else { return nil }
+        // Calendar 的 weekday：1 = 周日 … 7 = 周六；`weekdays` 从周一开始。
+        let index = dayCalendar.component(.weekday, from: date)
+        return weekdays[(index + 5) % 7]
+    }
+
+    /// 从 `today` 起连续 `count` 天，第一个就是今天 —— **不含任何过去的日期**。
+    static func selectableOneOffDates(today: String, count: Int = oneOffDateWindowDays) -> [String] {
+        guard let start = dayDate(today) else { return [] }
+        return (0..<max(count, 0)).compactMap { offset in
+            dayCalendar.date(byAdding: .day, value: offset, to: start).map { dayString($0) }
+        }
+    }
+
+    private static func dayDate(_ raw: String) -> Date? {
+        let parts = raw.split(separator: "-")
+        guard parts.count == 3,
+              let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2])
+        else { return nil }
+        let components = DateComponents(year: year, month: month, day: day)
+        guard components.isValidDate(in: dayCalendar) else { return nil }
+        return dayCalendar.date(from: components)
+    }
+
+    private static func dayString(_ date: Date) -> String {
+        let parts = dayCalendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
 }
 
 // MARK: - 编辑中的一段
@@ -60,9 +119,11 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
         VolunteerAvailabilityScheduleEditing.isValid(startMinutes: startMinutes, endMinutes: endMinutes)
     }
 
+    /// 一次性时段的 `dayOfWeek` **在这里再由 `date` 推一次**，不只信 `weekday`：
+    /// 两者对不上后端回 400（#455）。日期认不出时退回 `weekday`，让后端的 400 把错报出来。
     var payload: VolunteerAvailableTimeSlot {
         VolunteerAvailableTimeSlot(
-            dayOfWeek: weekday,
+            dayOfWeek: date.flatMap { VolunteerAvailabilityScheduleEditing.weekday(forDate: $0) } ?? weekday,
             startTime: VolunteerAvailabilityScheduleEditing.raw(fromMinutes: startMinutes),
             endTime: VolunteerAvailabilityScheduleEditing.raw(fromMinutes: endMinutes),
             date: date
@@ -93,8 +154,15 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
     /// 列表与编辑页上的「哪一天」：每周的说「周六」，一次性的说「仅 10月3日（周六）」。
     var dayText: String {
         let weekdayName = VolunteerAvailabilitySlotSummary.weekdayName(weekday) ?? weekday
-        guard let date, let dateName = VolunteerAvailabilitySlotSummary.dateName(date) else { return weekdayName }
-        return "仅 \(dateName)（\(weekdayName)）"
+        guard let date, let dateName = Self.dateLabel(date, weekday: weekday) else { return weekdayName }
+        return "仅 \(dateName)"
+    }
+
+    /// 「10月3日（周六）」—— 列表行与编辑页的日期选项共用这一种说法。
+    static func dateLabel(_ date: String, weekday: String?) -> String? {
+        guard let dateName = VolunteerAvailabilitySlotSummary.dateName(date) else { return nil }
+        guard let weekdayName = VolunteerAvailabilitySlotSummary.weekdayName(weekday) else { return dateName }
+        return "\(dateName)（\(weekdayName)）"
     }
 
     /// 新增时编辑页**预选**的值：周六 07:00–09:00。取周末早晨是因为它是助盲跑最常见的时段
@@ -103,6 +171,21 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
     /// 真机反馈「只能添加一个固定的周六七点到九点」。
     static func makeDefault() -> Self {
         Self(weekday: "SATURDAY", startMinutes: 7 * 60, endMinutes: 9 * 60)
+    }
+
+    /// 「按日期添加」的预选值：今天 07:00–09:00，时间与每周那一档相同。
+    static func makeOneOffDefault(today: String) -> Self {
+        var slot = makeDefault()
+        slot.setDate(today)
+        return slot
+    }
+
+    /// 换日期时星期跟着换 —— 一次性时段的星期只从日期来，界面上没有别的入口改它。
+    mutating func setDate(_ newDate: String) {
+        date = newDate
+        if let derived = VolunteerAvailabilityScheduleEditing.weekday(forDate: newDate) {
+            weekday = derived
+        }
     }
 }
 
@@ -130,6 +213,16 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
         slots = (appState.volunteerProfile?.availableTimeSlots ?? [])
             .filter { !$0.isExpired(today: today) }
             .compactMap(VolunteerAvailabilityDraftSlot.init)
+    }
+
+    /// 「按日期添加」的预选值与可选日期。「今天」与过期过滤同一来源，
+    /// 所以可选的第一天永远不会被保存时那道过期过滤滤掉。
+    func makeOneOffDraft() -> VolunteerAvailabilityDraftSlot {
+        .makeOneOffDefault(today: today())
+    }
+
+    func selectableOneOffDates() -> [String] {
+        VolunteerAvailabilityScheduleEditing.selectableOneOffDates(today: today())
     }
 
     func add(_ slot: VolunteerAvailabilityDraftSlot) {
@@ -237,12 +330,25 @@ struct VolunteerAvailabilityScheduleView: View {
                 }
                 .accessibilityHint("选择星期几和开始、结束时间，新增一段每周重复的空闲时间")
                 .accessibilityIdentifier("volunteerScheduleAddButton")
+
+                // 只放宽、不收紧（后端 #410）：加一段某天的时段不会让别的日子变成「不接」，
+                // 所以这里没有、也不做「这一天不空」。
+                Button {
+                    newSlot = viewModel.makeOneOffDraft()
+                } label: {
+                    Label("按日期添加", systemImage: "calendar")
+                        .frame(minHeight: 64) // guard:allow small-touch-target
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityHint("选一个具体日期和开始、结束时间，只在那一天有效")
+                .accessibilityIdentifier("volunteerScheduleAddOneOffButton")
             } header: {
                 Text("这些时间里有合适的陪跑，会邀请你")
             } footer: {
                 // 「空闲时间以外不发邀请」是后端的匹配规则，写出来是因为它解释了
                 // 「我为什么收不到单」——这一屏最可能被打开的原因。
-                Text("空闲时间以外不会给你发邀请。改完自动保存，没有保存按钮。")
+                Text(VolunteerAvailabilityScheduleEditing.footerText(for: viewModel.slots))
             }
 
             if let message = viewModel.errorMessage {
@@ -278,7 +384,14 @@ struct VolunteerAvailabilityScheduleView: View {
         }
         .sheet(item: $newSlot) { slot in
             NavigationStack {
-                VolunteerAvailabilitySlotEditor(slot: slot, title: "添加空闲时段", onCancel: { newSlot = nil }) { added in
+                // 新增的一次性时段给日期选择；编辑已有的那一段仍是只读日期行（#357），
+                // 要换日期就删掉重加。
+                VolunteerAvailabilitySlotEditor(
+                    slot: slot,
+                    title: slot.isOneOff ? "按日期添加" : "添加空闲时段",
+                    dateOptions: slot.isOneOff ? viewModel.selectableOneOffDates() : nil,
+                    onCancel: { newSlot = nil }
+                ) { added in
                     viewModel.add(added)
                     newSlot = nil
                 }
@@ -302,24 +415,36 @@ struct VolunteerAvailabilityScheduleView: View {
 private struct VolunteerAvailabilitySlotEditor: View {
     @State private var draft: VolunteerAvailabilityDraftSlot
     private let title: String
+    /// 非 nil = 新增一次性时段，日期可选；nil 时一次性时段的日期只读。
+    private let dateOptions: [String]?
     private let onCancel: () -> Void
     private let onDone: (VolunteerAvailabilityDraftSlot) -> Void
 
     init(
         slot: VolunteerAvailabilityDraftSlot,
         title: String = "空闲时段",
+        dateOptions: [String]? = nil,
         onCancel: @escaping () -> Void,
         onDone: @escaping (VolunteerAvailabilityDraftSlot) -> Void
     ) {
-        _draft = State(initialValue: slot)
+        // 预选日期与可选列表是两次取的「今天」，跨零点时预选那天可能已不在列表里 ——
+        // 不对齐的话选择器显示空白，而点「完成」存下的那天会被保存时的过期过滤静默丢掉。
+        var initial = slot
+        if let first = dateOptions?.first, let date = slot.date, dateOptions?.contains(date) == false {
+            initial.setDate(first)
+        }
+        _draft = State(initialValue: initial)
         self.title = title
+        self.dateOptions = dateOptions
         self.onCancel = onCancel
         self.onDone = onDone
     }
 
     var body: some View {
         Form {
-            if draft.isOneOff {
+            if draft.isOneOff, let dateOptions, !dateOptions.isEmpty {
+                datePicker(dateOptions)
+            } else if draft.isOneOff {
                 // 一次性时段的星期由日期决定，改了就和日期对不上（后端 400）。只读一行。
                 LabeledContent("日期", value: draft.dayText)
             } else {
@@ -354,6 +479,34 @@ private struct VolunteerAvailabilitySlotEditor: View {
                     .accessibilityIdentifier("volunteerScheduleEditorDone")
             }
         }
+    }
+
+    /// 一次性时段的日期选择：今天起固定天数，**没有过去的日期**；星期随日期一起换。
+    ///
+    /// ponytail: 用 `Picker` 列日期串而不是 `DatePicker`，理由同下面的时间选择 ——
+    /// 不在 `Date` 与「哪一天」之间换算；读屏下是一行按钮，双击推出一页日期列表逐行可念可选。
+    /// 紧凑 `DatePicker` 在 `Form` 里是一枚远小于 64pt 的胶囊。
+    private func datePicker(_ options: [String]) -> some View {
+        Picker("日期", selection: Binding(
+            get: { draft.date ?? options[0] },
+            set: { draft.setDate($0) }
+        )) {
+            ForEach(options, id: \.self) { day in
+                Text(Self.dateOptionText(day))
+                    .frame(minHeight: 64) // guard:allow small-touch-target
+                    .tag(day)
+            }
+        }
+        // 菜单样式（`Form` 默认）真机量过：外挂 `.frame(minHeight: 64)` 只撑高了行，
+        // 可点的那颗按钮仍是 34pt。推一页列表的样式整行可点，选项行也各自 64pt。
+        .pickerStyle(.navigationLink)
+        .frame(minHeight: 64) // guard:allow small-touch-target
+        .accessibilityIdentifier("volunteerScheduleEditorDatePicker")
+    }
+
+    /// `"2026-10-03"` →「10月3日（周六）」，与列表的「仅 10月3日（周六）」同一口径。
+    static func dateOptionText(_ day: String) -> String {
+        VolunteerAvailabilityDraftSlot.dateLabel(day, weekday: VolunteerAvailabilityScheduleEditing.weekday(forDate: day)) ?? day
     }
 
     /// 15 分钟一档的时间选择。

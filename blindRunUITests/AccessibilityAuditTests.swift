@@ -121,6 +121,65 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
     }
 
+    /// 「按日期添加」（#455）：弹出的是**日期**选择不是星期选择，日期一行与每个日期选项不小于 64pt；
+    /// 取消不加；改选明天后完成，列表多一行「仅 M月D日（周X）」，星期是明天的。
+    @MainActor
+    func testAddingOneOffAvailabilitySlotPicksADate() throws {
+        let app = launchVolunteerHome()
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["我的"].tap()
+
+        let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "设置页没有空闲时间入口")
+        entry.tap()
+
+        let add = app.buttons["volunteerScheduleAddOneOffButton"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "空闲时间页没有「按日期添加」")
+        if !add.isHittable { app.swipeUp() }
+        XCTAssertGreaterThanOrEqual(add.frame.height, 64, "「按日期添加」触达不足 64pt")
+        let rowsBefore = app.cells.count
+
+        add.tap()
+        XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "没弹出按日期添加页")
+        let datePicker = app.descendants(matching: .any)["volunteerScheduleEditorDatePicker"].firstMatch
+        XCTAssertTrue(datePicker.waitForExistence(timeout: 5), "按日期添加页没有日期选择")
+        XCTAssertGreaterThanOrEqual(datePicker.frame.height, 64, "日期选择触达不足 64pt")
+        XCTAssertFalse(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "星期")).firstMatch.exists,
+            "一次性时段不该能选星期"
+        )
+        app.buttons["volunteerScheduleEditorCancel"].tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "取消后没回到空闲时间页")
+        XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
+
+        // 第二次：把预选的今天换成明天 —— 走一遍日期列表，并验星期跟着日期换。
+        // App 按本机时区的公历日取「今天」（`VolunteerAvailableTimeSlot.todayString`），这里同口径。
+        let calendar = Calendar(identifier: .gregorian)
+        let tomorrowDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: Date()))
+        let tomorrow = calendar.dateComponents([.month, .day, .weekday], from: tomorrowDate)
+        let weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        let tomorrowText = "\(tomorrow.month ?? 0)月\(tomorrow.day ?? 0)日（\(weekdayNames[(tomorrow.weekday ?? 1) - 1])）"
+
+        add.tap()
+        XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5))
+        datePicker.tap()
+        let option = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", tomorrowText)).firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5), "日期列表里没有明天「\(tomorrowText)」")
+        if !option.isHittable { app.swipeUp() }
+        XCTAssertGreaterThanOrEqual(option.frame.height, 64, "日期选项一行触达不足 64pt")
+        option.tap()
+        XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "选完日期没回到编辑页")
+        app.buttons["volunteerScheduleEditorDone"].tap()
+
+        let expected = "仅 \(tomorrowText)"
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", expected)).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "完成后列表里没有「\(expected)」这一行")
+        if !row.isHittable { app.swipeUp() }
+        XCTAssertTrue(row.label.contains("07:00 – 09:00"), "读屏没念出时间段：\(row.label)")
+    }
+
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
     /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏

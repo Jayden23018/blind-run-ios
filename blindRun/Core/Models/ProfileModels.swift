@@ -329,8 +329,13 @@ struct VolunteerAvailableTimeSlot: Codable, Sendable {
         return date < today
     }
 
+    /// 只借 `calendar` 的时区，年月日一律按公历取：本机日历设成佛历 / 日本历时，
+    /// `Calendar.current` 的年份不是公历年（佛历 2569 = 公历 2026），拼出来的串会被当成
+    /// 公历日期发给后端（#455 按日期添加）、也会让过期比较整体错位。
     static func todayString(now: Date = Date(), calendar: Calendar = .current) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day], from: now)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: now)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 }

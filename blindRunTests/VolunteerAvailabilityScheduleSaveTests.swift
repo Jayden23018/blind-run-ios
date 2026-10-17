@@ -118,6 +118,115 @@ final class VolunteerAvailabilityScheduleSaveTests: XCTestCase {
         XCTAssertEqual(VolunteerAvailabilitySlotSummary.text(for: slots, today: "2026-10-07"), "10月10日早、周三晚")
         XCTAssertEqual(VolunteerAvailabilitySlotSummary.fullText(for: slots[1]), "10月10日 07:00 – 09:00")
     }
+
+    // MARK: - 按日期添加（iOS #455）
+
+    /// 后端规则：给了 `date`，`dayOfWeek` 必须是那天的星期几，否则 400。
+    /// 预选值是周六，挑 10-20（周二）就能分出「星期跟着日期走」与「星期停在预选的周六」。
+    func testOneOffRequestBodyDerivesDayOfWeekFromTheDate() throws {
+        var slot = VolunteerAvailabilityDraftSlot.makeOneOffDefault(today: "2026-10-17")
+        XCTAssertEqual(slot.weekday, "SATURDAY", "2026-10-17 是周六")
+        slot.setDate("2026-10-20")
+        XCTAssertEqual(slot.dayText, "仅 10月20日（周二）")
+
+        let json = String(decoding: try JSONEncoder().encode(slot.payload), as: UTF8.self)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: String], json)
+        XCTAssertEqual(body, [
+            "dayOfWeek": "TUESDAY",
+            "date": "2026-10-20",
+            "startTime": "07:00:00",
+            "endTime": "09:00:00",
+        ])
+
+        // 即使有代码只改了 `date` 没改 `weekday`，发出去的星期仍由日期推出。
+        var stale = VolunteerAvailabilityDraftSlot(weekday: "SATURDAY", startMinutes: 420, endMinutes: 540)
+        stale.date = "2026-10-19"
+        XCTAssertEqual(stale.payload.dayOfWeek, "MONDAY")
+
+        XCTAssertEqual(
+            ["2026-10-18", "2026-10-21", "2026-10-22", "2026-10-23", "2026-02-28", "2028-02-29"]
+                .map { VolunteerAvailabilityScheduleEditing.weekday(forDate: $0) },
+            ["SUNDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "TUESDAY"]
+        )
+        XCTAssertNil(VolunteerAvailabilityScheduleEditing.weekday(forDate: "2026-02-30"))
+        XCTAssertNil(VolunteerAvailabilityScheduleEditing.weekday(forDate: "10/20"))
+    }
+
+    /// 能选的日期从今天开始，没有过去的一天；跨月跨年连续。
+    func testSelectableDatesStartTodayAndNeverIncludeThePast() {
+        let viewModel = VolunteerAvailabilityScheduleViewModel(today: { "2026-12-31" })
+        let options = viewModel.selectableOneOffDates()
+        XCTAssertEqual(options.count, VolunteerAvailabilityScheduleEditing.oneOffDateWindowDays)
+        XCTAssertEqual(options.first, "2026-12-31", "第一个可选日期必须是今天")
+        XCTAssertEqual(Array(options.prefix(3)), ["2026-12-31", "2027-01-01", "2027-01-02"])
+        XCTAssertEqual(options.last, "2027-01-29")
+        XCTAssertTrue(options.allSatisfy { $0 >= "2026-12-31" }, "出现了过去的日期：\(options)")
+        XCTAssertEqual(Set(options).count, options.count, "日期有重复")
+        XCTAssertEqual(viewModel.makeOneOffDraft().date, "2026-12-31", "预选日期必须在可选范围内")
+
+        XCTAssertEqual(
+            VolunteerAvailabilityScheduleEditing.selectableOneOffDates(today: "2028-02-28", count: 3),
+            ["2028-02-28", "2028-02-29", "2028-03-01"]
+        )
+    }
+
+    /// 新增一段一次性时段后整体 PUT：已有的每周 / 一次性时段原样带回，过期的不带。
+    func testAddingAOneOffSlotKeepsExistingSlotsIntactOnSave() async throws {
+        let client = ProfileUpdateSpy()
+        let appState = AppState(apiClient: client, tokenStore: ScheduleInMemoryTokenStore())
+        appState.updateVolunteerProfile(
+            VolunteerProfileResponse(
+                name: "张伟",
+                availableTimeSlots: [
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "07:00:00", endTime: "09:00:00"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "18:00:00", endTime: "20:00:00", date: "2026-10-24"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "THURSDAY", startTime: "07:00:00", endTime: "09:00:00", date: "2026-10-15"),
+                ]
+            )
+        )
+        client.response = VolunteerProfileResponse(name: "张伟")
+
+        let viewModel = VolunteerAvailabilityScheduleViewModel(today: { "2026-10-17" })
+        viewModel.configure(with: appState)
+        var added = viewModel.makeOneOffDraft()
+        added.setDate("2026-10-20")
+        added.startMinutes = 6 * 60
+        added.endMinutes = 7 * 60
+        viewModel.add(added)
+        await viewModel.save()
+
+        let sent = try XCTUnwrap(client.lastProfileUpdate?.availableTimeSlots)
+        XCTAssertEqual(sent.map(\.date), [nil, "2026-10-24", "2026-10-20"])
+        XCTAssertEqual(sent.map(\.dayOfWeek), ["SATURDAY", "SATURDAY", "TUESDAY"])
+        XCTAssertEqual(sent.map(\.startTime), ["07:00:00", "18:00:00", "06:00:00"])
+        XCTAssertEqual(sent.map(\.endTime), ["09:00:00", "20:00:00", "07:00:00"])
+        XCTAssertEqual(client.lastProfileUpdate?.name, "张伟")
+        XCTAssertEqual(viewModel.slots.map(\.dayText), ["周六", "仅 10月24日（周六）", "仅 10月20日（周二）"])
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// 本机日历是佛历 / 日本历时，「今天」仍是公历串 —— 它会被原样当作 `date` 发给后端。
+    func testTodayIsAGregorianDayEvenOnANonGregorianDevice() throws {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        // 2026-10-17 01:00 北京时间 = 2026-10-16 17:00 UTC：同时钉住「按本机时区取日」。
+        let now = Date(timeIntervalSince1970: 1_792_170_000)
+        XCTAssertEqual(VolunteerAvailableTimeSlot.todayString(now: now, calendar: buddhist), "2026-10-17")
+        var japanese = Calendar(identifier: .japanese)
+        japanese.timeZone = buddhist.timeZone
+        XCTAssertEqual(VolunteerAvailableTimeSlot.todayString(now: now, calendar: japanese), "2026-10-17")
+    }
+
+    /// 页脚的匹配规则：没有每周时段 = 随时可接（后端 #410），只填了按日期的也一样。
+    func testFooterOnlyPromisesNoInvitesOutsideSlotsWhenAWeeklySlotExists() {
+        let weekly = VolunteerAvailabilityDraftSlot.makeDefault()
+        let oneOff = VolunteerAvailabilityDraftSlot.makeOneOffDefault(today: "2026-10-17")
+        let strict = "空闲时间以外不会给你发邀请。"
+        XCTAssertTrue(VolunteerAvailabilityScheduleEditing.footerText(for: [weekly, oneOff]).hasPrefix(strict))
+        XCTAssertFalse(VolunteerAvailabilityScheduleEditing.footerText(for: [oneOff]).contains(strict))
+        XCTAssertFalse(VolunteerAvailabilityScheduleEditing.footerText(for: []).contains(strict))
+        XCTAssertTrue(VolunteerAvailabilityScheduleEditing.footerText(for: [oneOff]).contains("任何时间都可能收到邀请"))
+    }
 }
 
 // MARK: - 替身
