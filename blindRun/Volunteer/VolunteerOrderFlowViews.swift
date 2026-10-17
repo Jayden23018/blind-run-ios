@@ -1706,8 +1706,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
         let announcesCancellation = cancelAnnouncement.announcesCancellation(entering: updated.status)
         // 跑者取消：下面终态分支会念「{名}取消了这次陪跑。不算你的取消…」整句。这里再念通用句，
         // 两句同档，后一句切断前一句，陪跑员听到半句加一整句（#333）。
-        let announcesRunnerCancellation = updated.status == .cancelled && !isEndingWait && !didEndWaiting
-        if speakChanges, previousStatus != updated.status, !announcesCancellation, !announcesRunnerCancellation {
+        let cancelledByRunner = updated.status == .cancelled && !isEndingWait && !didEndWaiting
+        if speakChanges, previousStatus != updated.status, !announcesCancellation, !cancelledByRunner {
             speechService?.speakStatusChange(updated.status, text: updated.status.volunteerAnnouncement)
         }
         if let target = transitionState.targetStatus,
@@ -1735,7 +1735,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             if updated.status == .completed, let appState {
                 refreshDispatchSummary(using: appState)
             }
-            if !isEndingWait, !didEndWaiting,
+            if cancelledByRunner,
                let sentence = VolunteerOrderFlowCopy.runnerCancelledAnnouncement(
                    from: previousStatus, to: updated.status, name: updated.blindNameForSpeech
                ) {
