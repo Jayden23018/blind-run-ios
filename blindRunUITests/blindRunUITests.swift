@@ -661,6 +661,33 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
+    /// 后端放行时刻（#340 / 后端 #546）接进了订单页：没到 `earliestDepartureAt` 时「我已经出发了」原位不可按，
+    /// 过了就能按。单测只钉了 `VolunteerActionGate` 这个纯函数；这条钉的是它真的接到了按钮上。
+    @MainActor
+    func testVolunteerDepartureButtonStaysDisabledUntilTheServerReleaseTime() throws {
+        for (minutes, shouldBeEnabled) in [(90, false), (-1, true)] {
+            let app = launchApp(
+                apiEnvironment: "mock",
+                accessToken: "mock_jwt_token_for_testing",
+                activeRole: "volunteer",
+                preseedVolunteerProfile: true,
+                preseedVolunteerAvailable: true,
+                preseedVolunteerActiveOrder: true,
+                seedOrderStatus: "PENDING_ACCEPT",
+                seedEarliestDepartureMinutes: minutes
+            )
+            openCurrentVolunteerService(app, requirePhone: false)
+            XCTAssertTrue(waitForVolunteerOrderPage(app, timeout: 10), "PENDING_ACCEPT 没进到订单页")
+            let primary = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+            XCTAssertTrue(primary.waitForExistence(timeout: 10), "订单页没有主按钮")
+            XCTAssertEqual(
+                primary.isEnabled, shouldBeEnabled,
+                "放行时刻在 \(minutes) 分钟后，主按钮「\(primary.label)」可按状态不对"
+            )
+            app.terminate()
+        }
+    }
+
     /// 订单页 v2 每一屏各留一张首屏、一张滚到底的截图，给「对照画板」（openspec 任务 4.10）用。
     ///
     /// 只断「页面到了」，不断长相 —— 长相是拿截图跟 `zhumangpao-handoff/reference/artboards/` 人工比的。
@@ -1844,6 +1871,8 @@ final class blindRunUITests: XCTestCase {
         /// 预置几条待回复邀请（`AIDRUN_UI_TEST_SEED_INVITES`）。派单只从 WebSocket 来，
         /// 而这里默认 `disableWebSocket` —— 没有这个种子，邀请卡在 UI 测试里根本到不了。
         seedInvites: Int? = nil,
+        /// 种子订单的 `earliestDepartureAt` = 现在 + 这么多分钟（`AIDRUN_UI_TEST_SEED_EARLIEST_DEPARTURE_MINUTES`，#340）。
+        seedEarliestDepartureMinutes: Int? = nil,
         forceRealVolunteerRegistration: Bool = false,
         unregisteredVolunteer: Bool = false,
         legacyTrainingStatusAfterFaceVerify: Bool = false,
@@ -1926,6 +1955,9 @@ final class blindRunUITests: XCTestCase {
         }
         if let seedOrderStatus {
             app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
+        }
+        if let seedEarliestDepartureMinutes {
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_EARLIEST_DEPARTURE_MINUTES"] = String(seedEarliestDepartureMinutes)
         }
         if forceRealVolunteerRegistration {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_REAL_REGISTRATION"] = "1"

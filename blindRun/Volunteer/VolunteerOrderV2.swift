@@ -79,6 +79,55 @@ enum VolunteerOrderPhase: Equatable {
     }
 }
 
+// MARK: 后端放行时刻（后端 #546）
+
+/// 主按钮此刻能不能按，以及按钮上方那行小字。由「当前主按钮 + 后端给的时刻 + 现在」推出，**不存**。
+///
+/// 存在的理由：三道时间闸与同意闸此前只有按下去才知道 —— 按钮亮着、一按 409，
+/// 而对听不见屏幕的人「按了没反应」和「按钮不在」分不出来（后端 #307 的原话）。
+/// 后端 #546 起把放行时刻放进订单详情，客户端照它锁按钮，**不拿 `plannedStartTime` 自己减**。
+struct VolunteerActionGate: Equatable {
+    /// `true` = 按钮原位不可按（`.disabled()`，读屏念「变暗」，提示里说几点可以按）。
+    let isLocked: Bool
+    /// 替换按钮上方小字。`nil` = 用动作自己的那句。
+    let caption: String?
+
+    static let open = Self(isLocked: false, caption: nil)
+
+    static func resolve(
+        action: VolunteerOrderFlowPresentation.PrimaryAction?,
+        order: OrderDetailResponse,
+        now: Date
+    ) -> Self {
+        switch action {
+        case .confirmDeparture, .enRoute, .alreadyDeparted:
+            guard let opens = future(order.earliestDepartureAt, now: now) else { return .open }
+            return Self(isLocked: true, caption: VolunteerOrderFlowCopy.actionOpensAt(VolunteerOrderTimeCopy.dayClock(opens, now: now)))
+        case .startRun:
+            if let opens = future(order.earliestServiceStartAt, now: now) {
+                return Self(isLocked: true, caption: VolunteerOrderFlowCopy.actionOpensAt(VolunteerOrderTimeCopy.dayClock(opens, now: now)))
+            }
+            // 同意闸**不锁**（契约：「按钮不要置灰，提示等待对方确认」—— 跑者随时可能按）。
+            // 只是先把话说在前面，不再等按了 409 才知道。
+            if let deadline = future(order.blindConfirmDeadlineAt, now: now) {
+                return Self(
+                    isLocked: false,
+                    caption: VolunteerOrderFlowCopy.awaitingRunnerStart(canStartAlone: VolunteerOrderTimeCopy.dayClock(deadline, now: now))
+                )
+            }
+            return .open
+        case .acceptInvite, .arrived, .endWaiting, .doneReviewing, .backToHome, .none:
+            return .open
+        }
+    }
+
+    /// 字段缺失、解析不出、或已经过了 ⇒ `nil`（不锁，由后端判）。
+    private static func future(_ raw: String?, now: Date) -> Date? {
+        guard let date = raw?.nilIfBlank?.backendTimestamp, now < date else { return nil }
+        return date
+    }
+}
+
 // MARK: 时间文案
 
 enum VolunteerOrderTimeCopy {
@@ -87,18 +136,27 @@ enum VolunteerOrderTimeCopy {
         DateFormatter.aidRunDisplayClock.string(from: date)
     }
 
+    /// 今天只说钟点「6:35」，别的日子带上是哪天「明天 6:35」「周六 6:35」。
+    /// 跨天预约单的放行时刻可能在几天后，只说钟点会被听成「今天几点」。
+    static func dayClock(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        calendar.isDate(date, inSameDayAs: now) ? clock(date) : "\(day(date, now: now, calendar: calendar)) \(clock(date))"
+    }
+
+    /// 「今天」「明天」「周六」。预约最远 7 天（`APPOINTMENT_TOO_FAR`）：只有正好一周后那天与今天同名，
+    /// 而今天在 `dayClock` 里不带星期几，所以听到「周一 7:00」就是下周一。
+    static func day(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "今天" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+           calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "明天"
+        }
+        let weekday = calendar.component(.weekday, from: date)
+        return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][weekday - 1]
+    }
+
     /// 「明天早上」「今天下午」「周六早上」（交付包 02 ②：由客户端按开始时间和当前日期生成）。
     static func dayPart(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
-        let day: String
-        if calendar.isDate(date, inSameDayAs: now) {
-            day = "今天"
-        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
-                  calendar.isDate(date, inSameDayAs: tomorrow) {
-            day = "明天"
-        } else {
-            let weekday = calendar.component(.weekday, from: date)
-            day = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][weekday - 1]
-        }
+        let day = Self.day(date, now: now, calendar: calendar)
         let hour = calendar.component(.hour, from: date)
         let part: String
         switch hour {
