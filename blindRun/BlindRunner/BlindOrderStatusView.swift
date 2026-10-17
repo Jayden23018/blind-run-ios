@@ -142,6 +142,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published private(set) var isStartingRun = false
 
     private var runCountdownTask: Task<Void, Never>?
+    /// 上一轮 `apply` 时汇合页「取消本单」的样子。只用来判「刚刚从置灰变成可按」。
+    private var lastArrivalCancelGate: BlindArrivalCancelGate?
 
     /// `/track` 上一次拉的时刻。`nil` = 下一轮立刻拉。
     private var lastTrackFetchAt: Date?
@@ -377,6 +379,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             completionTask = nil
             // 换单时倒计时同样按单清。上一单遗留的任务会往新一单的屏幕上写数字。
             cancelRunCountdown()
+            lastArrivalCancelGate = nil
         }
         currentOrderId = orderId
         acceptsPeerLocations = true
@@ -845,7 +848,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     func cancelOrder() async {
         guard let order, let appState else { return }
-        guard order.status.canBlindRunnerCancel else {
+        // 汇合态另走后端给的时刻（#682）。到点前那一行是置灰的，正常走不到这里；
+        // 时钟有偏差时照发，由后端 409 `BLIND_CANCEL_TOO_EARLY` 把时刻念出来。
+        let isArrivalCancel = BlindArrivalCancelGate.resolve(order: order, now: Date()) != nil
+        guard order.status.canBlindRunnerCancel || isArrivalCancel else {
             let message = "当前订单状态不能由盲人取消。"
             errorMessage = message
             speechService?.speakError(message)
@@ -862,8 +868,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
-            let message = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            let message = Self.cancelFailureMessage(for: error)
+            speechService?.speakError(message)
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
             errorMessage = message
         } catch {
@@ -873,6 +879,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
             errorMessage = message
         }
+    }
+
+    /// 跑者取消失败时念哪一句。`BLIND_CANCEL_TOO_EARLY` 由 `APIError.localizedMessage` 念后端 message；
+    /// `ORDER_HAS_ACTIVE_EMERGENCY` 的通用文案是写给陪跑员「结束服务」的，这一路换成跑者口径。
+    nonisolated static func cancelFailureMessage(for error: APIError) -> String {
+        if error.errorCode == .orderHasActiveEmergency {
+            return BlindArrivalCancelCopy.activeEmergency
+        }
+        return error.localizedMessage
     }
 
     /// 保存出发前留言。返回错误文案，`nil` = 已保存。成功与失败都念出来（表单页上看不到订单页）。
@@ -1244,6 +1259,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
+        announceArrivalCancelUnlockIfNeeded(for: updated, speakChanges: speakChanges)
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         // 锁屏卡顶行那句「陪跑中 · 张」。姓氏只有这一端拿得到，所以**排在
         // `updateOwnedOrder` 之后** —— 换单时它内部会 `clearRuntimeSession()`，
@@ -1273,6 +1289,18 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             stopPolling()
         }
+    }
+
+    /// 页面开着跨过可取消时刻时播一句（后端 #682）。
+    ///
+    /// **不另起定时器**：`apply` 每 5 秒一次（轮询），按钮也是靠这一轮的重绘变亮的 ——
+    /// 两件事挂在同一拍上，不会出现「念了可以取消、按钮还是灰的」。并发模型与轮询同一条。
+    private func announceArrivalCancelUnlockIfNeeded(for updated: OrderDetailResponse, speakChanges: Bool) {
+        let gate = BlindArrivalCancelGate.resolve(order: updated, now: Date())
+        defer { lastArrivalCancelGate = gate }
+        guard speakChanges,
+              let sentence = BlindArrivalCancelGate.unlockAnnouncement(from: lastArrivalCancelGate, to: gate) else { return }
+        speechService?.speak(sentence)
     }
 
     /// 汇合 → 跑步中那三秒倒计时。
@@ -2072,6 +2100,7 @@ struct BlindOrderStatusView: View {
                 onOpenSafetyHub: { showSafetyHub = true },
                 onCallVolunteer: { dialVolunteer(order) },
                 onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
+                onArrivalCancel: { showCancelConfirmation = true },
                 footer: {
                     VStack(spacing: 16) {
                         flowFooter(order)
@@ -2392,7 +2421,10 @@ struct BlindOrderStatusView: View {
             }
             Button("不取消", role: .cancel) {}
         } message: {
-            Text("确认取消本次预约？取消后将结束本次服务。")
+            // 汇合态取消的是一次见面，不是一个预约（后端 #682）。
+            Text(viewModel.order?.status == .driverArrived
+                 ? BlindArrivalCancelCopy.confirmationMessage
+                 : "确认取消本次预约？取消后将结束本次服务。")
         }
         // 不是 `NavigationLink`：`confirmationDialog` 的按钮只能跑闭包，塞不进导航。
         // 用 sheet 而不是 push 还有一个好处 —— 看完说明关掉就回到原地，

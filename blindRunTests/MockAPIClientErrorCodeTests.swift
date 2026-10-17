@@ -34,6 +34,7 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED",
         "APPOINTMENT_TOO_SOON",
         "BAD_REQUEST",
+        "BLIND_CANCEL_TOO_EARLY",
         "CONTACT_FIELD_REQUIRED",
         "CONTACT_LIMIT_EXCEEDED",
         "CONTACT_MINIMUM_REQUIRED",

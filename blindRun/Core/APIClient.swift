@@ -90,8 +90,12 @@ enum APIError: Error, Sendable {
         switch self {
         case .serverError(let response):
             if let code = response.errorCode {
+                if code.prefersServerMessage, let message = response.message.nilIfBlank {
+                    return message
+                }
                 return code.localizedMessage
             }
+            // 不认识的码念后端 message —— 旧版本 App 遇到后端新加的码时也走这里。
             return response.message
         case .rateLimited(let info):
             if let seconds = info.retryAfterSeconds {

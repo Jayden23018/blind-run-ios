@@ -46,6 +46,9 @@ struct BlindOrderFlowView<Footer: View>: View {
     /// 「给陪跑员留言」那一行点下去做什么。`nil` = 这一态不能留言，整行不出现
     /// （判据 `RunOrderStatus.acceptsRunnerMessage`）。
     var onEditRunnerMessage: (() -> Void)? = nil
+    /// 汇合页「取消本单」按下去做什么（弹既有二次确认）。行出不出现、可不可按由
+    /// `presentation.arrivalCancel` 决定；这里为 `nil` 时整行不出现。
+    var onArrivalCancel: (() -> Void)? = nil
     /// 信息列表之后那块**「刚才那一下的结果」**。正常状态下是空的。
     ///
     /// 🔴 **它不是可选装饰。** 骨架把改版前那条滚动列表整段换掉了，而那条列表末尾挂着
@@ -364,6 +367,10 @@ struct BlindOrderFlowView<Footer: View>: View {
                     runnerMessageRow(onEditRunnerMessage)
                     FlowSeparator()
                 }
+                if let gate = presentation.arrivalCancel, let onArrivalCancel {
+                    arrivalCancelRow(gate, action: onArrivalCancel)
+                    FlowSeparator()
+                }
                 lastRow
             }
         }
@@ -437,6 +444,44 @@ struct BlindOrderFlowView<Footer: View>: View {
                 .multilineTextAlignment(.trailing)
         }
         .accessibilityIdentifier("blindOrderFlowRunnerMessageRow")
+    }
+
+    /// 汇合态「取消本单」（后端 #682）。排在「遇到问题」上面，那一行不动。
+    ///
+    /// 🔴 **没到点走 `.disabled()`，不是在 action 里 `guard return`**：`.disabled()` 让读屏念「变暗」，
+    /// 静默 return 在读屏里是一个完全正常的按钮、双击后什么都不发生（同 `FlowActionButton.isEnabled`）。
+    /// 几点可以按、先做什么，放在标签里而不是提示里 —— 提示在「变暗」的元素上常被跳过。
+    private func arrivalCancelRow(_ gate: BlindArrivalCancelGate, action: @escaping () -> Void) -> some View {
+        let detail: String
+        let label: String
+        switch gate {
+        case .locked(let opensAt):
+            detail = BlindArrivalCancelCopy.lockedDetail(opensAt: opensAt)
+            label = BlindArrivalCancelCopy.lockedAccessibilityLabel(opensAt: opensAt)
+        case .open:
+            detail = BlindArrivalCancelCopy.openDetail
+            label = BlindArrivalCancelCopy.openAccessibilityLabel
+        }
+        return FlowInfoRow(
+            label: nil,
+            kind: .navigable(action: action),
+            accessibilityLabel: label,
+            accessibilityHint: gate.isEnabled ? BlindArrivalCancelCopy.openAccessibilityHint : nil
+        ) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(BlindArrivalCancelCopy.rowTitle)
+                    .flowFont(FlowFonts.rowValue())
+                    .foregroundColor(gate.isEnabled ? AppColors.Flow.primaryText : AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detail)
+                    .flowFont(FlowFonts.rowLabel())
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 8)
+        }
+        .disabled(!gate.isEnabled)
+        .accessibilityIdentifier("blindOrderFlowArrivalCancelRow")
     }
 
     /// 最后一行：这一态的破坏性/求助入口。**固定位置、点击后二次确认。**

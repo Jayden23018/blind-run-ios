@@ -534,6 +534,13 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// 陪跑员上衣颜色。**换陪跑员（`REMATCHING`）后后端清空** —— 说的是走掉的那位。
     var volunteerTopColor: MeetupTopColor?
 
+    /// 跑者在汇合态（`DRIVER_ARRIVED`）最早可以取消的时刻（后端 #682，iOS #395）。
+    /// = 「这一次到达」与「计划开跑」中较晚的那个 + 后端配置的分钟数（默认 10）。**不要自己拿到达时间加。**
+    ///
+    /// 只对本单跑者、只在 `DRIVER_ARRIVED` 下发；后端关掉这条出口时也是 `null` ⇒ 汇合页不出现取消入口。
+    /// 解码宽容：类型不对时当作缺席，不连累整张订单（`AGENTS.md` 硬约束）。判定在 `BlindArrivalCancelGate`。
+    @LenientOptionalString var earliestBlindCancelAt: String? = nil
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -605,8 +612,42 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             // 同一条理由：漏掉会让约好页的见面位置与颜色在每次 5 秒轮询后静默消失。
             meetSpotNote: meetSpotNote,
             runnerTopColor: runnerTopColor,
-            volunteerTopColor: volunteerTopColor
+            volunteerTopColor: volunteerTopColor,
+            // 同一条理由：漏掉会让汇合页的取消入口在状态推送与重拉之间那几秒里消失又出现。
+            earliestBlindCancelAt: earliestBlindCancelAt
         )
+    }
+}
+
+// MARK: - 宽容解码
+
+/// 可空字符串字段的宽容解码：缺键、`null`、类型不对（数字、对象）一律得 `nil`，**不抛错**。
+///
+/// 合成的 `Decodable` 遇到类型不对会让整张 `OrderDetailResponse` 解码失败 ⇒ 订单页整屏空白。
+/// 对一个只决定「某个入口出不出现」的字段，这个代价不成比例。调用方仍拿到 `String?`。
+@propertyWrapper
+nonisolated struct LenientOptionalString: Codable, Sendable, Equatable {
+    var wrappedValue: String?
+
+    init(wrappedValue: String?) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        wrappedValue = try? decoder.singleValueContainer().decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// 合成的解码对属性包装类型调的是 `decode` 而不是 `decodeIfPresent`，缺键会抛 `keyNotFound`。
+    /// 这个重载让缺键与 `null` 都落到 `nil`。
+    nonisolated func decode(_ type: LenientOptionalString.Type, forKey key: Key) throws -> LenientOptionalString {
+        try decodeIfPresent(type, forKey: key) ?? LenientOptionalString(wrappedValue: nil)
     }
 }
 

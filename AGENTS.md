@@ -178,12 +178,15 @@ SCHEDULED_CONFIRMED → CANCELLED（盲人取消）
 
 ```
 PENDING_MATCH / PENDING_INTRO_CALL / SCHEDULED_CONFIRMED / PENDING_ACCEPT → CANCELLED（盲人 token）
+DRIVER_ARRIVED → CANCELLED（盲人 token，满 earliestBlindCancelAt 之后，后端 #682）
 SCHEDULED_CONFIRMED / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING（志愿者 token）
 REMATCHING → CANCELLED（只能盲人 token）
 ```
 
 - 取消端点 `POST /api/orders/{orderId}/cancel`，无需请求体。
-- 盲人只能取消 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
+- 盲人只能取消 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`，以及**带时间门槛的 `DRIVER_ARRIVED`**；`DRIVER_EN_ROUTE` / `IN_PROGRESS` 期间**不得**展示取消入口（后端 403 `ORDER_IN_PROGRESS`）。
+  - `DRIVER_ARRIVED`（后端 #682，iOS #395）：门槛是订单详情的 `earliestBlindCancelAt`（「这一次到达」与「计划开跑」中较晚的那个 + 后端配置分钟数，默认 10）。**客户端不自己拿到达时间加。** 为 `null` = 后端关了这条出口 ⇒ 不出现入口；没到点 ⇒ 汇合页「取消本单」置灰，读屏说出几点可以取消并建议先打电话；早于它调取消回 409 `BLIND_CANCEL_TOO_EARLY`，朗读后端 `message`（带时刻）。判定在 `BlindArrivalCancelGate`；`canBlindRunnerCancel` 只按状态判，**不含**这一态。
+  - 取消成功后陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（HIGH，`ttsText` 带「你可以离开集合点了」）。它**不许**进 `AppRealtimeCoordinator.lifecycleStatus` 那张表 —— 进了就会因「有活跃订单」被吞。
 - 志愿者只能取消 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。**`PENDING_INTRO_CALL` 不在内** —— 那一态他还没接单，退出的方式是表态「不合适」，不是取消订单。
 - `REMATCHING` 是已接单志愿者取消后进入的状态，此后只能盲人用自己的 token 取消 —— 那个志愿者已不是订单参与者。
 - 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE|INTERESTED`）、`confirm-departure`、`en-route`、`arrived`、`start-service`、`finish`。
