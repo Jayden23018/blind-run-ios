@@ -225,6 +225,13 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         return true
     }
 
+    /// 这一态已经由别处用自己的整句念过了（陪跑员订单页的跑者取消那句，#462）：只记下去重键、不念，
+    /// 让随后到的通用状态句被 `speakStatusChange` 挡掉。整句本身照常走 `speak` ——
+    /// 不让它也过去重，免得上一单留下的同一个键把这一单「不算你的取消」吞掉。
+    func markStatusAnnounced(_ status: RunOrderStatus) {
+        lastSpokenStatus = status
+    }
+
     /// 重复播报当前状态（"重复当前状态"按钮调用）
     func repeatCurrentStatus() {
         speak(text: latestRepeatableText ?? "当前没有进行中的订单。")

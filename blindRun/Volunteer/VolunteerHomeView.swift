@@ -1002,7 +1002,17 @@ final class VolunteerHomeViewModel: ObservableObject {
                 }
                 // 陪跑员这一侧的那张表（#333；`REMATCHING` 那句与订单页相同），
                 // 且与订单页共用去重键：两边都订阅了这条推送，只该念出一句。
-                self.speechService?.speakStatusChange(updated.status, text: updated.status.volunteerAnnouncement)
+                let status = updated.status
+                if status == .cancelled {
+                    // 推迟一拍（#462）：订单页若开着，同一条推送会让它念带「不算你的取消」的整句
+                    // 并记下去重键（`markStatusAnnounced`）。两个订阅谁先收到不固定，
+                    // 推迟之后不管谁先，这句通用的都排在它后面、被去重挡掉；订单页没开时照常念。
+                    Task { @MainActor [weak self] in
+                        self?.speechService?.speakStatusChange(status, text: status.volunteerAnnouncement)
+                    }
+                } else {
+                    self.speechService?.speakStatusChange(status, text: status.volunteerAnnouncement)
+                }
                 self.dispatchSummaryErrorMessage = nil
                 if let summary = self.dispatchSummary {
                     self.dispatchLoadState = .loaded(summary)
@@ -1272,10 +1282,10 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 临期确认「我还会去」（`SCHEDULED_CONFIRMED → PENDING_ACCEPT`）。
     ///
     /// 🚩 **成功后必须把他带进服务页，不能只把卡片移除。**
-    /// 确认之后订单是 `PENDING_ACCEPT`，而那一态**既不在预约列表里**（这个列表按
-    /// `status=SCHEDULED_CONFIRMED` 拉）、**也不在「当前订单」里**（后端
-    /// `VolunteerService.loadActiveOrders` 的白名单只有陪跑中那三态）⇒ 只移除卡片的话，
-    /// 他刚确认完就在首页上再也找不到这一单，而下一步「我已出发」要靠他自己翻回去。
+    /// 确认之后订单是 `PENDING_ACCEPT`，**不在「当前订单」里**（后端
+    /// `VolunteerService.loadActiveOrders` 的白名单只有陪跑中那三态）；预约区块下一次刷新
+    /// 才会把它画成「打开订单页」那张卡（`upcomingVolunteerStatuses`，#457）⇒ 只移除卡片的话，
+    /// 他刚确认完要等一轮刷新、再自己点进去，才找得到下一步「我已出发」。
     ///
     /// 复用派单接单后那条既有的导航（`acceptedDispatchOrderId` + `navigationDestination`），
     /// 不另起一套：两者要去的是同一个页面、同一个状态。
@@ -1292,6 +1302,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         // 带上手里这份详情当初值，服务页就不必空着等第一次 GET 回来。
         acceptedDispatchInitialOrder = order?.replacingStatus(with: .pendingAccept)
         acceptedDispatchOrderId = orderID
+    }
+
+    /// 预约区块里已确认（`PENDING_ACCEPT`）那张卡的主按钮（#457）：走同一条导航去订单页，
+    /// 「我出发了」在那里。不再调 `confirm-departure` —— 这一态它只会 409。
+    func openUpcomingOrder(_ order: OrderDetailResponse) {
+        acceptedDispatchInitialOrder = order
+        acceptedDispatchOrderId = order.orderId
     }
 
     /// 「我去不了」（走取消端点，订单转 `REMATCHING` 回到派单池）。
@@ -2097,6 +2114,12 @@ struct VolunteerMetricTile: View {
     }
 }
 
+/// 预约卡上已确认那一态（`PENDING_ACCEPT`）的按钮文案（#457）。
+enum VolunteerScheduledOrderCopy {
+    static let openOrder = "打开订单页"
+    static let openOrderHint = "你已确认会去。到时间在订单页按「我出发了」"
+}
+
 /// 首页的「我的预约」区块 —— 跨天预约单（`SCHEDULED_CONFIRMED`）以及它们的临期确认动作。
 ///
 /// **为什么它必须独立于「当前订单」和「近期服务」两块**：
@@ -2112,6 +2135,8 @@ struct VolunteerScheduledOrdersSection: View {
     let message: String?
     let onConfirm: (Int64) -> Void
     let onRelease: (Int64) -> Void
+    /// `PENDING_ACCEPT` 的卡：打开这一单的订单页（`CardAction.openOrder`）。
+    let onOpen: (OrderDetailResponse) -> Void
 
     /// 要释放的那一单。二次确认是因为释放不可逆 —— 订单回派单池，抢不回同一个盲人。
     @State private var pendingReleaseOrder: OrderDetailResponse?
@@ -2157,8 +2182,6 @@ struct VolunteerScheduledOrdersSection: View {
         }
     }
 
-    /// 一张预约卡。整块 `children: .contain` —— 容器上的无障碍设置会向下盖掉子元素，
-    /// 而这张卡上的两个按钮必须各自可被读屏聚焦、也必须能被 UI 测试分别找到。
     /// 卡上「确认我还会去」的后端放行时刻（后端 #546）：没到 `earliestDepartureAt` 时原位不可按、说出几点可以按。
     /// **只看 `SCHEDULED_CONFIRMED`** —— `PENDING_ACCEPT` 时同一个字段管的是 `en-route`，不是这枚按钮。
     static func confirmGate(order: OrderDetailResponse, now: Date) -> VolunteerActionGate {
@@ -2166,6 +2189,21 @@ struct VolunteerScheduledOrdersSection: View {
         return VolunteerActionGate.resolve(action: .confirmDeparture, order: order, now: now)
     }
 
+    /// 卡上那枚主按钮做什么（#457）。
+    enum CardAction: Equatable {
+        /// `SCHEDULED_CONFIRMED`：临期确认「我还会去」（`confirm-departure`）。
+        case confirmDeparture
+        /// `PENDING_ACCEPT`：已经确认过了，再调 `confirm-departure` 只会 409。
+        /// 下一步「我出发了」在订单页上，所以这里给一条去订单页的路。
+        case openOrder
+    }
+
+    static func cardAction(for order: OrderDetailResponse) -> CardAction {
+        order.status == .scheduledConfirmed ? .confirmDeparture : .openOrder
+    }
+
+    /// 一张预约卡。整块 `children: .contain` —— 容器上的无障碍设置会向下盖掉子元素，
+    /// 而这张卡上的两个按钮必须各自可被读屏聚焦、也必须能被 UI 测试分别找到。
     private func card(_ order: OrderDetailResponse, now: Date) -> some View {
         let isSubmitting = submittingOrderID == order.orderId
         let anySubmitting = submittingOrderID != nil
@@ -2186,28 +2224,37 @@ struct VolunteerScheduledOrdersSection: View {
             // 竖直堆叠而不是并排：对标产品无一把两个动作并排放
             // （`blind-ui-visual-benchmark-20260808.md`「次级操作一律整行铺满竖直堆叠」），
             // 而且并排会让每个按钮的可点宽度减半，AX5 下文字直接被压成省略号。
-            if let caption = gate.caption {
-                Text(caption)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    // 已经拼进按钮的 hint，不再单独念一遍。
-                    .accessibilityHidden(true)
+            switch Self.cardAction(for: order) {
+            case .confirmDeparture:
+                if let caption = gate.caption {
+                    Text(caption)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        // 已经拼进按钮的 hint，不再单独念一遍。
+                        .accessibilityHidden(true)
+                }
+                PrimaryButton(
+                    VolunteerServiceActionKind.confirmDeparture.title,
+                    isLoading: isSubmitting,
+                    action: { onConfirm(order.orderId) }
+                )
+                .disabled(anySubmitting || gate.isLocked)
+                // `PrimaryButton` 的底色是写死的，`.disabled` 不会让它变暗。
+                .opacity(gate.isLocked ? 0.45 : 1)
+                .accessibilityLabel(VolunteerServiceActionKind.confirmDeparture.title)
+                .accessibilityHint(
+                    [gate.caption, "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"]
+                        .compactMap { $0 }.joined(separator: "。")
+                )
+                .accessibilityIdentifier("volunteerScheduledConfirm-\(order.orderId)")
+            case .openOrder:
+                PrimaryButton(VolunteerScheduledOrderCopy.openOrder, action: { onOpen(order) })
+                    .disabled(anySubmitting)
+                    .accessibilityLabel(VolunteerScheduledOrderCopy.openOrder)
+                    .accessibilityHint(VolunteerScheduledOrderCopy.openOrderHint)
+                    .accessibilityIdentifier("volunteerScheduledOpen-\(order.orderId)")
             }
-            PrimaryButton(
-                VolunteerServiceActionKind.confirmDeparture.title,
-                isLoading: isSubmitting,
-                action: { onConfirm(order.orderId) }
-            )
-            .disabled(anySubmitting || gate.isLocked)
-            // `PrimaryButton` 的底色是写死的，`.disabled` 不会让它变暗。
-            .opacity(gate.isLocked ? 0.45 : 1)
-            .accessibilityLabel(VolunteerServiceActionKind.confirmDeparture.title)
-            .accessibilityHint(
-                [gate.caption, "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"]
-                    .compactMap { $0 }.joined(separator: "。")
-            )
-            .accessibilityIdentifier("volunteerScheduledConfirm-\(order.orderId)")
 
             Button(role: .destructive) {
                 pendingReleaseOrder = order

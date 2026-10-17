@@ -174,7 +174,8 @@ struct VolunteerProfileFirstScreen: View {
                     },
                     onRelease: { orderID in
                         Task { await viewModel.releaseScheduledOrder(orderID: orderID) }
-                    }
+                    },
+                    onOpen: { order in viewModel.openUpcomingOrder(order) }
                 )
 
                 // 「为什么接不到单」和「去哪解决」必须在同一处 —— 所以资质入口跟着提示走，

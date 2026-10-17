@@ -372,4 +372,30 @@ final class ScheduledOrderTests: XCTestCase {
             introCallOrderId: nil
         )
     }
+
+    // MARK: - 首页预约卡（#457）
+
+    /// `PENDING_ACCEPT` 已经确认过了，再调 `confirm-departure` 只会 409 —— 卡上换成去订单页。
+    func testScheduledCardOffersConfirmOnlyBeforeTheVolunteerConfirmed() {
+        XCTAssertEqual(
+            VolunteerScheduledOrdersSection.cardAction(for: .preview(status: .scheduledConfirmed)),
+            .confirmDeparture
+        )
+        XCTAssertEqual(
+            VolunteerScheduledOrdersSection.cardAction(for: .preview(status: .pendingAccept)),
+            .openOrder,
+            "已确认的单还在卡上放「确认我还会去」"
+        )
+    }
+
+    @MainActor
+    func testOpeningAConfirmedCardGoesToThatOrderPage() {
+        let viewModel = VolunteerHomeViewModel()
+        let order = OrderDetailResponse.preview(orderId: 57, status: .pendingAccept)
+
+        viewModel.openUpcomingOrder(order)
+
+        XCTAssertEqual(viewModel.acceptedDispatchOrderId, 57)
+        XCTAssertEqual(viewModel.acceptedDispatchInitialOrder?.orderId, 57)
+    }
 }
