@@ -105,7 +105,7 @@ final class GeneratedTypesFixtureTests: XCTestCase {
     /// 开放枚举目前只覆盖到这几个字段，全量核对完之前不改结论。
     func testGeneratedEnumDegradesOnUnknownValueInsteadOfFailingTheWholeResponse() throws {
         let payloadWithFutureEnumValue = Data("""
-        {"name":"测试盲人","visionLevel":"MONOCULAR_BLIND","hasGuideDog":true}
+        {"name":"测试盲人","visionLevel":"MONOCULAR_BLIND","hasGuideDog":true,"guideDog":"NOT_SPECIFIED"}
         """.utf8)
 
         let profile = try JSONDecoder().decode(
