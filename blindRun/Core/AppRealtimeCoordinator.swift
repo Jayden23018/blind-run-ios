@@ -205,12 +205,19 @@ private extension RunOrderStatus {
             return [.pendingAccept, .rematching, .cancelled].contains(candidate)
         case .pendingAccept:
             return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
+        // 汇合与陪跑三态的出边逐字取自后端 `OrderStatus.canTransitionTo`（#465）：
+        // `→ COMPLETED` 是 `autoCompleteOrder` 超时自动完成（在路上 / 已到达也会发生），
+        // `→ CANCELLED` 是陪跑员「结束等待」（后端 #362）、跑者到达后取消（后端 #682）、
+        // 重匹达上限与 `forceTerminateStuckOrder` 兜底。
+        // ⚠️ 这几条边此前不在表里，但 `canReach` 能经 `REMATCHING` / `IN_PROGRESS` 多跳到达，
+        // 所以 REST 路径一直是对的、只有 `reconcileRealtime`（只认直接后继）把推送判成非法 ——
+        // 首页因此收不到这条推送，陪跑员站在集合点听不到「已取消、可以离开」。
         case .driverEnRoute:
-            return [.driverArrived, .rematching].contains(candidate)
+            return [.driverArrived, .completed, .rematching, .cancelled].contains(candidate)
         case .driverArrived:
-            return [.inProgress, .rematching].contains(candidate)
+            return [.inProgress, .completed, .rematching, .cancelled].contains(candidate)
         case .inProgress:
-            return [.completed, .rematching].contains(candidate)
+            return [.completed, .rematching, .cancelled].contains(candidate)
         // `REMATCHING` 与 `PENDING_MATCH` 在后端 `isDispatchable()` 下行为一致，
         // 所以它同样能被一个候选人「有意向」拽进通话磨合。
         case .rematching:
