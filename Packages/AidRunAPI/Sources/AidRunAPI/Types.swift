@@ -5153,6 +5153,7 @@ public enum Components {
                     case TETHER_ROPE = "TETHER_ROPE"
                     case ARM_HOLD = "ARM_HOLD"
                     case VERBAL_ONLY = "VERBAL_ONLY"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference/value1`.
                 public var value1: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload.Value1Payload?
@@ -5549,10 +5550,71 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/defaultPace`.
             public var defaultPace: Components.Schemas.BlindProfileResponse.defaultPacePayload?
+            /// （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`（未提供，新建档默认）
+            ///
+            /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/guideDog`.
+            public struct guideDogPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/guideDog/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case YES = "YES"
+                    case NO = "NO"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
+                }
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/guideDog/value1`.
+                public var value1: Components.Schemas.BlindProfileResponse.guideDogPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/guideDog/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `guideDogPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.BlindProfileResponse.guideDogPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`（未提供，新建档默认）
+            ///
+            /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/guideDog`.
+            public var guideDog: Components.Schemas.BlindProfileResponse.guideDogPayload
             /// （2026-09-26 新增）写给陪跑员的引导偏好（≤80 字），未填为 null
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/guidePreferenceText`.
             public var guidePreferenceText: Swift.String?
+            /// 旧字段，保留兼容已发版客户端：只有 `guideDog = YES` 时为 true，**未提供时也是 false**。 要区分「没有」和「未提供」请读 `guideDog`
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/name`.
@@ -5561,6 +5623,8 @@ public enum Components {
             public var runningPace: Swift.String?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/specialNeeds`.
             public var specialNeeds: Swift.String?
+            /// 牵引方式偏好。`NOT_SPECIFIED` = 还没决定（#795，2026-10-19 起新建档默认）
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference`.
             public struct tetherPreferencePayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference/value1`.
@@ -5568,6 +5632,7 @@ public enum Components {
                     case TETHER_ROPE = "TETHER_ROPE"
                     case ARM_HOLD = "ARM_HOLD"
                     case VERBAL_ONLY = "VERBAL_ONLY"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference/value1`.
                 public var value1: Components.Schemas.BlindProfileResponse.tetherPreferencePayload.Value1Payload?
@@ -5614,6 +5679,8 @@ public enum Components {
                     ])
                 }
             }
+            /// 牵引方式偏好。`NOT_SPECIFIED` = 还没决定（#795，2026-10-19 起新建档默认）
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.BlindProfileResponse.tetherPreferencePayload?
             /// 实名认证状态，权威来源。仅三态，**没有 PENDING / 审核中** —— `POST /api/blind/verify-identity`
@@ -5741,17 +5808,19 @@ public enum Components {
             /// - Parameters:
             ///   - chatPreference:
             ///   - defaultPace:
+            ///   - guideDog: （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`（未提供，新建档默认）
             ///   - guidePreferenceText: （2026-09-26 新增）写给陪跑员的引导偏好（≤80 字），未填为 null
-            ///   - hasGuideDog:
+            ///   - hasGuideDog: 旧字段，保留兼容已发版客户端：只有 `guideDog = YES` 时为 true，**未提供时也是 false**。 要区分「没有」和「未提供」请读 `guideDog`
             ///   - name:
             ///   - runningPace:
             ///   - specialNeeds:
-            ///   - tetherPreference:
+            ///   - tetherPreference: 牵引方式偏好。`NOT_SPECIFIED` = 还没决定（#795，2026-10-19 起新建档默认）
             ///   - verifyStatus: 实名认证状态，权威来源。仅三态，**没有 PENDING / 审核中** —— `POST /api/blind/verify-identity`
             ///   - visionLevel:
             public init(
                 chatPreference: Components.Schemas.BlindProfileResponse.chatPreferencePayload? = nil,
                 defaultPace: Components.Schemas.BlindProfileResponse.defaultPacePayload? = nil,
+                guideDog: Components.Schemas.BlindProfileResponse.guideDogPayload,
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDog: Swift.Bool? = nil,
                 name: Swift.String? = nil,
@@ -5763,6 +5832,7 @@ public enum Components {
             ) {
                 self.chatPreference = chatPreference
                 self.defaultPace = defaultPace
+                self.guideDog = guideDog
                 self.guidePreferenceText = guidePreferenceText
                 self.hasGuideDog = hasGuideDog
                 self.name = name
@@ -5775,6 +5845,7 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case chatPreference
                 case defaultPace
+                case guideDog
                 case guidePreferenceText
                 case hasGuideDog
                 case name
@@ -5805,11 +5876,23 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/defaultPace`.
             public var defaultPace: Components.Schemas.BlindProfileUpdateRequest.defaultPacePayload?
+            /// （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`。 不带这个键 = 保留原值；传 `NOT_SPECIFIED` = 撤回已填的值（例如用户拒绝了视力相关同意）。 与 `hasGuideDog` 同时带时以本字段为准
+            ///
+            /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/guideDog`.
+            @frozen public enum guideDogPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case YES = "YES"
+                case NO = "NO"
+                case NOT_SPECIFIED = "NOT_SPECIFIED"
+            }
+            /// （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`。 不带这个键 = 保留原值；传 `NOT_SPECIFIED` = 撤回已填的值（例如用户拒绝了视力相关同意）。 与 `hasGuideDog` 同时带时以本字段为准
+            ///
+            /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/guideDog`.
+            public var guideDog: Components.Schemas.BlindProfileUpdateRequest.guideDogPayload?
             /// （2026-09-26 新增，陪跑员端订单页 v2）跑者用自己的话写给陪跑员的引导偏好。不带这个键 = 保留原值； 传空串（或全空白）= 清空。首尾空白会去掉。本期只限长度，不做内容审核。 经订单详情 `guidePreferenceText` 给到**已接单**的陪跑员（接单前的候选列表 / `NEW_ORDER` 里没有）
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/guidePreferenceText`.
             public var guidePreferenceText: Swift.String?
-            /// 不带这个键或传 `null` = 保留原值。目前没有「未提供」取值，已填过的无法撤回（#773）
+            /// 旧入参，保留兼容已发版客户端：不带这个键或传 `null` = 保留原值；它表达不了「未提供」。 新客户端请改用 `guideDog`。两个都带时以 `guideDog` 为准
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
@@ -5823,15 +5906,16 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/specialNeeds`.
             public var specialNeeds: Swift.String?
-            /// 不带这个键或传 `null` = 保留原值。建档时默认 `TETHER_ROPE`
+            /// 不带这个键或传 `null` = 保留原值；可显式传 `NOT_SPECIFIED`（还没决定，#795）。建档时默认 `NOT_SPECIFIED`（2026-10-19 起，此前默认 `TETHER_ROPE`）
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/tetherPreference`.
             @frozen public enum tetherPreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case TETHER_ROPE = "TETHER_ROPE"
                 case ARM_HOLD = "ARM_HOLD"
                 case VERBAL_ONLY = "VERBAL_ONLY"
+                case NOT_SPECIFIED = "NOT_SPECIFIED"
             }
-            /// 不带这个键或传 `null` = 保留原值。建档时默认 `TETHER_ROPE`
+            /// 不带这个键或传 `null` = 保留原值；可显式传 `NOT_SPECIFIED`（还没决定，#795）。建档时默认 `NOT_SPECIFIED`（2026-10-19 起，此前默认 `TETHER_ROPE`）
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/tetherPreference`.
             public var tetherPreference: Components.Schemas.BlindProfileUpdateRequest.tetherPreferencePayload?
@@ -5852,16 +5936,18 @@ public enum Components {
             /// - Parameters:
             ///   - chatPreference:
             ///   - defaultPace:
+            ///   - guideDog: （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`。 不带这个键 = 保留原值；传 `NOT_SPECIFIED` = 撤回已填的值（例如用户拒绝了视力相关同意）。 与 `hasGuideDog` 同时带时以本字段为准
             ///   - guidePreferenceText: （2026-09-26 新增，陪跑员端订单页 v2）跑者用自己的话写给陪跑员的引导偏好。不带这个键 = 保留原值； 传空串（或全空白）= 清空。首尾空白会去掉。本期只限长度，不做内容审核。 经订单详情 `guidePreferenceText` 给到**已接单**的陪跑员（接单前的候选列表 / `NEW_ORDER` 里没有）
-            ///   - hasGuideDog: 不带这个键或传 `null` = 保留原值。目前没有「未提供」取值，已填过的无法撤回（#773）
+            ///   - hasGuideDog: 旧入参，保留兼容已发版客户端：不带这个键或传 `null` = 保留原值；它表达不了「未提供」。 新客户端请改用 `guideDog`。两个都带时以 `guideDog` 为准
             ///   - name:
             ///   - runningPace: ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
             ///   - specialNeeds: ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
-            ///   - tetherPreference: 不带这个键或传 `null` = 保留原值。建档时默认 `TETHER_ROPE`
+            ///   - tetherPreference: 不带这个键或传 `null` = 保留原值；可显式传 `NOT_SPECIFIED`（还没决定，#795）。建档时默认 `NOT_SPECIFIED`（2026-10-19 起，此前默认 `TETHER_ROPE`）
             ///   - visionLevel: 可显式传 `NOT_SPECIFIED`（未提供，#326）；不带这个键则保留原值
             public init(
                 chatPreference: Components.Schemas.BlindProfileUpdateRequest.chatPreferencePayload? = nil,
                 defaultPace: Components.Schemas.BlindProfileUpdateRequest.defaultPacePayload? = nil,
+                guideDog: Components.Schemas.BlindProfileUpdateRequest.guideDogPayload? = nil,
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDog: Swift.Bool? = nil,
                 name: Swift.String,
@@ -5872,6 +5958,7 @@ public enum Components {
             ) {
                 self.chatPreference = chatPreference
                 self.defaultPace = defaultPace
+                self.guideDog = guideDog
                 self.guidePreferenceText = guidePreferenceText
                 self.hasGuideDog = hasGuideDog
                 self.name = name
@@ -5883,6 +5970,7 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case chatPreference
                 case defaultPace
+                case guideDog
                 case guidePreferenceText
                 case hasGuideDog
                 case name
@@ -8592,6 +8680,7 @@ public enum Components {
                     case TETHER_ROPE = "TETHER_ROPE"
                     case ARM_HOLD = "ARM_HOLD"
                     case VERBAL_ONLY = "VERBAL_ONLY"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference/value1`.
                 public var value1: Components.Schemas.OrderDetailResponse.tetherPreferencePayload.Value1Payload?
@@ -14188,8 +14277,6 @@ public enum Components {
                 case name
             }
         }
-        /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
-        ///
         /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder`.
         public struct VolunteerDispatchActiveOrder: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/acceptedAt`.
@@ -14212,7 +14299,7 @@ public enum Components {
             public var startLatitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/startLongitude`.
             public var startLongitude: Swift.Double
-            /// 订单状态枚举名（IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED）
+            /// 订单状态枚举名。在 `activeOrders` 里是 IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED；在 `upcomingOrders` 里是 PENDING_ACCEPT / SCHEDULED_CONFIRMED
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/status`.
             public var status: Swift.String
@@ -14228,7 +14315,7 @@ public enum Components {
             ///   - startAddress:
             ///   - startLatitude:
             ///   - startLongitude:
-            ///   - status: 订单状态枚举名（IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED）
+            ///   - status: 订单状态枚举名。在 `activeOrders` 里是 IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED；在 `upcomingOrders` 里是 PENDING_ACCEPT / SCHEDULED_CONFIRMED
             public init(
                 acceptedAt: Swift.String? = nil,
                 blindName: Swift.String? = nil,
@@ -14334,7 +14421,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/acceptanceRate`.
             public var acceptanceRate: Swift.Double?
-            /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
+            /// 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单见同一响应里的 `upcomingOrders`（#774）；它为 null 时再用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/activeOrders`.
             public var activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]?
@@ -14404,6 +14491,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/totalTimeout`.
             public var totalTimeout: Swift.Int32?
+            /// 已接单、**还没出发**的订单：`PENDING_ACCEPT`（确认后待出发）与 `SCHEDULED_CONFIRMED`（已约好的跨天单），按 `plannedStartTime` 升序，元素结构同 `activeOrders`（#774）。 ⚠️ **null 与空数组含义不同**：空数组 = 确实没有；null = 这一块服务端没取到，请回落到 `GET /api/orders/mine?role=VOLUNTEER&status=PENDING_ACCEPT` / `SCHEDULED_CONFIRMED`。 🚨 **不要合并进 `activeOrders`**：这两态不共享实时位置，注册进位置协同会让安全网空转。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/upcomingOrders`.
+            public var upcomingOrders: [Components.Schemas.VolunteerDispatchActiveOrder]?
             /// 用户接单开关状态（用户意愿）
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/wantsDispatch`.
@@ -14414,7 +14505,7 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - acceptanceRate: 接单率 0.0-1.0（null=无派单记录）
-            ///   - activeOrders: 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单请用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
+            ///   - activeOrders: 正在进行、**共享实时位置**的订单：只含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`（与位置互推、走散检测的范围同一个判据），通常 ≤1 条。 ⚠️ **不含** `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`（已接单还没出发）和 `PENDING_INTRO_CALL`（见 `introCallOrderId`）：客户端会把这里的第一单注册进位置协同，混进不共享位置的单等于让安全网空转。 已接单未出发的单见同一响应里的 `upcomingOrders`（#774）；它为 null 时再用 `GET /api/orders/mine?status=SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 取（#373）
             ///   - availableTimeSlots:
             ///   - avgRating: 平均评分 1.0-5.0（null=无评价）
             ///   - canDispatch: 系统判定当前是否可被派单
@@ -14434,6 +14525,7 @@ public enum Components {
             ///   - totalDispatched:
             ///   - totalRatings:
             ///   - totalTimeout: 累计响应超时次数（不计入接单率分母）
+            ///   - upcomingOrders: 已接单、**还没出发**的订单：`PENDING_ACCEPT`（确认后待出发）与 `SCHEDULED_CONFIRMED`（已约好的跨天单），按 `plannedStartTime` 升序，元素结构同 `activeOrders`（#774）。 ⚠️ **null 与空数组含义不同**：空数组 = 确实没有；null = 这一块服务端没取到，请回落到 `GET /api/orders/mine?role=VOLUNTEER&status=PENDING_ACCEPT` / `SCHEDULED_CONFIRMED`。 🚨 **不要合并进 `activeOrders`**：这两态不共享实时位置，注册进位置协同会让安全网空转。
             ///   - wantsDispatch: 用户接单开关状态（用户意愿）
             ///   - withinServiceTime:
             public init(
@@ -14458,6 +14550,7 @@ public enum Components {
                 totalDispatched: Swift.Int32? = nil,
                 totalRatings: Swift.Int32? = nil,
                 totalTimeout: Swift.Int32? = nil,
+                upcomingOrders: [Components.Schemas.VolunteerDispatchActiveOrder]? = nil,
                 wantsDispatch: Swift.Bool? = nil,
                 withinServiceTime: Swift.Bool? = nil
             ) {
@@ -14482,6 +14575,7 @@ public enum Components {
                 self.totalDispatched = totalDispatched
                 self.totalRatings = totalRatings
                 self.totalTimeout = totalTimeout
+                self.upcomingOrders = upcomingOrders
                 self.wantsDispatch = wantsDispatch
                 self.withinServiceTime = withinServiceTime
             }
@@ -14507,6 +14601,7 @@ public enum Components {
                 case totalDispatched
                 case totalRatings
                 case totalTimeout
+                case upcomingOrders
                 case wantsDispatch
                 case withinServiceTime
             }
