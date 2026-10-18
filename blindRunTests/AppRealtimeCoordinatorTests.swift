@@ -315,6 +315,88 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         )
     }
 
+    // MARK: - 汇合与陪跑三态的直接后继（#465）
+
+    /// 后端 `OrderStatus.canTransitionTo` 允许、客户端此前拒收的 5 条边。
+    /// 走 `reconcileRealtime` 而不是 `canReach`：这 5 条 `canReach` 一直能多跳到达，
+    /// 拒收它们的只有「只认直接后继」的推送路径。
+    func testRealtimeReconcilerAcceptsBackendTransitionsOutOfTheEscortStates() {
+        let cases: [(RunOrderStatus, RunOrderStatus)] = [
+            // 陪跑员「结束等待」（后端 #362）、跑者到达后满时限取消（后端 #682 / iOS #395）
+            (.driverArrived, .cancelled),
+            // `autoCompleteOrder` 超时自动完成
+            (.driverArrived, .completed),
+            (.driverEnRoute, .completed),
+            // 重匹达上限 / `forceTerminateStuckOrder` 兜底
+            (.driverEnRoute, .cancelled),
+            (.inProgress, .cancelled)
+        ]
+
+        for (from, to) in cases {
+            var reconciler = OrderStatusReconciler()
+            reconciler.register(orderID: 1, status: from)
+            let result = reconciler.reconcileRealtime(orderID: 1, fromStatus: from, toStatus: to)
+            XCTAssertEqual(result, .applied(to), "\(from) → \(to) 被状态机拒了")
+        }
+    }
+
+    /// 整张表对后端逐条：后端允许的边推送要收，后端不允许的边推送要拒。
+    /// 下面这张表逐字抄自后端 `src/main/java/com/example/demo/entity/OrderStatus.java`
+    /// 的 `canTransitionTo`（2026-10-18 origin/main）。后端改表时这里不会自己变红 ——
+    /// 它守的是「客户端那张表没有私自偏离这一份」。
+    func testRealtimeReconcilerMatchesBackendTransitionTableForEveryPair() {
+        let backend: [RunOrderStatus: Set<RunOrderStatus>] = [
+            .pendingMatch: [.pendingIntroCall, .pendingAccept, .scheduledConfirmed, .cancelled, .noVolunteer],
+            .pendingIntroCall: [.pendingAccept, .scheduledConfirmed, .pendingMatch, .rematching, .noVolunteer, .cancelled],
+            .scheduledConfirmed: [.pendingAccept, .rematching, .cancelled],
+            .pendingAccept: [.driverEnRoute, .rematching, .cancelled],
+            .driverEnRoute: [.driverArrived, .completed, .rematching, .cancelled],
+            .driverArrived: [.inProgress, .completed, .rematching, .cancelled],
+            .inProgress: [.completed, .rematching, .cancelled],
+            .rematching: [.pendingIntroCall, .pendingAccept, .scheduledConfirmed, .cancelled, .noVolunteer],
+            .completed: [],
+            .cancelled: [],
+            .noVolunteer: []
+        ]
+        XCTAssertEqual(Set(backend.keys), Set(RunOrderStatus.allCases), "客户端有后端表里没有的状态，先对一次契约")
+
+        for from in RunOrderStatus.allCases {
+            for to in RunOrderStatus.allCases where to != from {
+                var reconciler = OrderStatusReconciler()
+                reconciler.register(orderID: 1, status: from)
+                let result = reconciler.reconcileRealtime(orderID: 1, fromStatus: from, toStatus: to)
+                let backendAllows = backend[from]?.contains(to) == true
+                XCTAssertEqual(
+                    result == .applied(to),
+                    backendAllows,
+                    "\(from) → \(to)：后端\(backendAllows ? "允许" : "不允许")，客户端却\(backendAllows ? "拒收" : "放行")"
+                )
+            }
+        }
+    }
+
+    /// issue 的原始症状：汇合态取消的推送被判非法，首页订阅（`statusUpdatePublisher`）一句都收不到。
+    func testArrivedToCancelledPushReachesStatusSubscribers() async {
+        let coordinator = AppRealtimeCoordinator()
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .volunteer)
+        coordinator.registerActiveOrder(42, status: .driverArrived)
+        var updates: [RealtimeOrderStatusUpdate] = []
+        let cancellable = coordinator.statusUpdatePublisher
+            .sink { updates.append($0) }
+        defer { cancellable.cancel() }
+
+        service.simulateIncomingEventForTesting(.orderStatusChanged(makeStatusEvent(
+            orderID: 42,
+            from: "DRIVER_ARRIVED",
+            to: "CANCELLED"
+        )))
+        await Task.yield()
+
+        XCTAssertEqual(updates.map(\.fromStatus), [.driverArrived])
+        XCTAssertEqual(updates.map(\.toStatus), [.cancelled])
+    }
+
     // MARK: - 后端返回了客户端不认识的新状态（#329，安卓 #106 同源）
 
     /// 已知非终态 + 新鲜的未知状态 ⇒ 采纳。旧实现在档位闸上判陈旧，订单页停在「正在匹配」。
