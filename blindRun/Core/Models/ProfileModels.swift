@@ -477,8 +477,7 @@ enum VisionLevel: String, Codable, CaseIterable, Sendable {
 
     /// 跑者没给视力状况：缺失、空白或 `NOT_SPECIFIED`。与 `TetherPreference.isUnprovided` 配对用。
     static func isUnprovided(_ raw: String?) -> Bool {
-        guard let raw = raw?.nilIfBlank else { return true }
-        return raw == VisionLevel.notSpecified.rawValue
+        isUnprovidedProfileValue(raw)
     }
 }
 
@@ -522,9 +521,15 @@ enum TetherPreference: String, Codable, CaseIterable, Sendable {
 
     /// 跑者没给引导方式：缺失、空白或 `NOT_SPECIFIED`。陪跑员端与下单页的唯一判据。
     static func isUnprovided(_ raw: String?) -> Bool {
-        guard let raw = raw?.nilIfBlank else { return true }
-        return raw == notSpecifiedRawValue
+        isUnprovidedProfileValue(raw)
     }
+}
+
+/// 档案偏好字段「没给」：缺失、空白或 `NOT_SPECIFIED`（视力与引导方式在契约里用同一个词）。
+/// 认不出的新值**不算** —— 那是「填了但这个版本不认识」。
+private func isUnprovidedProfileValue(_ raw: String?) -> Bool {
+    guard let raw = raw?.nilIfBlank else { return true }
+    return raw == "NOT_SPECIFIED"
 }
 
 // MARK: - Chat Preference

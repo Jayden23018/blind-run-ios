@@ -21,4 +21,4 @@
 
 - [ ] 4.1 单测：撤回发 `NOT_SPECIFIED`、保存不改写 `NOT_SPECIFIED`、牵引方式撤回、两项未填合成一句、邀请卡不重复，逐条验红 —— 用例已写、编译通过；执行与验红等真机（2026-10-19 设备离线）
 - [x] 4.2 编译门禁 `build-for-testing` 与规格校验通过 —— 2026-10-19 TEST BUILD SUCCEEDED；spec-coverage / error-codes / docs / openspec --strict 全过
-- [ ] 4.3 真机跑覆盖本次改动的 suite（等设备）
+- [ ] 4.3 真机跑覆盖本次改动的 suite（等设备），含 UI 用例 `testBlindProfileGuideDogChoiceIsTallAndSpeaksTheCurrentValue`（64pt + 读屏值）

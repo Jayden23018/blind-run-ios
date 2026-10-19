@@ -818,6 +818,11 @@ struct EscortNeed: Equatable, Identifiable {
         value: "跑者没有填写，出发前请当面问清楚怎么带"
     )
 
+    /// 视力与引导方式**都**没给（各自按 `isUnprovided` 判）。订单页与邀请卡共用这一个判据（#472）。
+    static func runnerGaveNoGuidance(visionLevel: String?, tetherPreference: String?) -> Bool {
+        VisionLevel.isUnprovided(visionLevel) && TetherPreference.isUnprovided(tetherPreference)
+    }
+
     static let guideDogThisRun = EscortNeed(
         kind: .guideDog,
         symbolName: "pawprint.fill",
@@ -867,7 +872,7 @@ extension OrderDetailResponse {
 
         // 两项都没给（缺失或 `NOT_SPECIFIED`）⇒ 只给一句兜底，不出两行「请当面与跑者确认」（#472）。
         // 后端 #800 起新建档两项默认都是 `NOT_SPECIFIED`，这是新跑者的常态，不是边缘情况。
-        guard !(VisionLevel.isUnprovided(visionLevel) && TetherPreference.isUnprovided(tetherPreference)) else {
+        guard !EscortNeed.runnerGaveNoGuidance(visionLevel: visionLevel, tetherPreference: tetherPreference) else {
             needs.append(.runnerDidNotSay)
             return needs
         }

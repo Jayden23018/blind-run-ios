@@ -140,7 +140,7 @@ struct VolunteerInviteSupplement: Equatable, Sendable {
         var needs: [EscortNeed] = []
         // 两项都没给（缺失或 `NOT_SPECIFIED`）⇒ 一行都不出（#472）。否则小字会拼成
         // 「请当面与跑者确认，请当面与跑者确认」—— 后端 #800 起这是新跑者的默认态。
-        guard !(VisionLevel.isUnprovided(visionLevel) && TetherPreference.isUnprovided(tetherPreference)) else {
+        guard !EscortNeed.runnerGaveNoGuidance(visionLevel: visionLevel, tetherPreference: tetherPreference) else {
             return needs
         }
         if let raw = visionLevel?.nilIfBlank {
