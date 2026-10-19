@@ -907,6 +907,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var didCancelOrder = false
+    /// 这一单被系统转走了（#456）：失联事件 `ORDER_VOLUNTEER_LOST`，或不是自己按的取消却收到 `REMATCHING`。
+    /// 宿主据此收起面板并关页。与 `didCancelOrder` 分开：那条是「我自己退掉的」，由取消面板的回调关页。
+    @Published private(set) var didLoseOrder = false
+    private var volunteerLostCancellable: AnyCancellable?
     @Published private(set) var latestBlindSample: LocatedCoordinate?
     /// 与盲人同步的里程 / 时长 / 配速。只在 `IN_PROGRESS` 有值。
     @Published private(set) var blindStats: TrackStats?
@@ -1055,6 +1059,17 @@ final class VolunteerInServiceViewModel: ObservableObject {
                     // 按钮上方不能还说「跑者还没按开始跑步」（`VolunteerActionGate`）。
                     self.order?.blindConfirmDeadlineAt = nil
                     Task { await self.load(orderId: order.orderId, speakChanges: false) }
+                }
+        }
+        // 出发后失联、单已转走（`ORDER_VOLUNTEER_LOST`，#456）。信封同样不带 `orderId`，判据见
+        // `isTakenAwayWhenVolunteerLost`。后端紧接着还会推 `REMATCHING`：这里先把 `order` 置空，
+        // 那条推送到达时上面的状态订阅就认不出这一单，不会再念「订单已取消」把横幅切断。
+        if volunteerLostCancellable == nil {
+            volunteerLostCancellable = appState.realtimeCoordinator.volunteerLostPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] in
+                    guard let self, let order = self.order, order.status.isTakenAwayWhenVolunteerLost else { return }
+                    self.leaveLostOrder(orderID: order.orderId)
                 }
         }
         // 走散提示条的驱动（V7：沿用现有告警，阈值不改）。`dropFirst`：订阅时吐出的是旧告警，
@@ -1562,6 +1577,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 nanoseconds: actionDeadlineNanoseconds,
                 operation: operation
             )
+            if discardsResultOfLostOrder() { return }
             transitionState = .awaitingConfirmation(target: target)
             ClientFlowDiagnostics.record(event: "awaiting_confirmation", operation: "volunteer-service-transition")
             startTransitionConfirmation(orderID: orderID, target: target, appState: appState)
@@ -1572,12 +1588,14 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 appState: appState
             )
         } catch VolunteerOrderActionError.timedOut {
+            if discardsResultOfLostOrder() { return }
             markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) {
                 transitionState = .failed(message: error.localizedMessage)
                 return
             }
+            if discardsResultOfLostOrder() { return }
             switch error {
             case .networkError, .decodingError:
                 markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
@@ -1601,8 +1619,30 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 transitionState = .failed(message: error.localizedMessage)
             }
         } catch {
+            if discardsResultOfLostOrder() { return }
             markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
         }
+    }
+
+    /// 请求在路上时这一单被转走了（#456）：结果不再播报、也不再起确认拉取。
+    /// 这时横幅正在念后端那句，任何一句「操作失败 / 结果尚未确认」都会把它切断，而那一单已经不是他的了。
+    private func discardsResultOfLostOrder() -> Bool {
+        guard didLoseOrder else { return false }
+        transitionState = .idle
+        return true
+    }
+
+    /// 系统把这一单转走了（#456）：放下订单、停掉对这一单的一切后台动作，**不念任何话** ——
+    /// 横幅正在念后端的 `ttsText`，同档再念一句就会把它从半句切断。宿主看 `didLoseOrder` 关页。
+    private func leaveLostOrder(orderID: Int64) {
+        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
+        appState?.liveEscortCoordinator.clearOwnedOrder()
+        stopPolling()
+        transitionState = .idle
+        errorMessage = nil
+        nudgeNotice = nil
+        order = nil
+        didLoseOrder = true
     }
 
     private func simulateRealtimeConfirmationIfRequested(
@@ -1726,6 +1766,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
             appState?.liveEscortCoordinator.clearOwnedOrder()
             stopPolling()
             didCancelOrder = true
+            // 不是自己按的取消（跨天闸门到点、失联事件没送到只来了状态推送……）：没有取消面板的回调来关页，
+            // 此前页面就停在「正在获取订单状态...」转圈（#456）。
+            if !cancelAnnouncement.requested { didLoseOrder = true }
             order = nil
             if previousStatus != updated.status {
                 announceCancellation(entering: updated.status)
@@ -1836,6 +1879,8 @@ struct VolunteerInServiceView: View {
     @State private var showsLocalHelp = false
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
+    /// 收起面板的动画时长（系统 sheet 约 0.35 秒）。等它收完再出栈，见 `didLoseOrder` 那条。
+    private static let sheetDismissalDelayNanoseconds: UInt64 = 400_000_000
 
     private struct MeetCue: Equatable {
         let bucket: DistanceBucket
@@ -1945,6 +1990,20 @@ struct VolunteerInServiceView: View {
         }
         .onChange(of: viewModel.didEndWaiting) { ended in
             if ended { dismiss() }
+        }
+        // 这一单被系统转走了（#456）：先收起面板与拨号单 —— 「找不到对方」里的拨号、「上报问题」都还连着这一单 ——
+        // 再回到接单主页。面板开着时等它收完再关页：同一拍里收面板又出栈，iOS 16 会丢掉其中一个。
+        .onChange(of: viewModel.didLoseOrder) { lost in
+            guard lost else { return }
+            let hadPresentation = activeSheet != nil || showsLocalHelp || showEmergencyConfirm
+            activeSheet = nil
+            showsLocalHelp = false
+            showEmergencyConfirm = false
+            guard hadPresentation else { return dismiss() }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: Self.sheetDismissalDelayNanoseconds)
+                dismiss()
+            }
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
