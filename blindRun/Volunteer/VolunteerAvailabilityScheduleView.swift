@@ -41,6 +41,15 @@ enum VolunteerAvailabilityScheduleEditing {
 
     static let invalidRangeMessage = "结束时间要晚于开始时间。跨午夜的时段请拆成两段。"
 
+    /// 上屏用的日期串：以全角「）」结尾时补一个窄空格（U+202F）。
+    ///
+    /// 「仅 10月19日（周一）」这种以全角右括号收尾的字，真机整页审计（#466）在亮 / 暗、默认 / 最大字号下
+    /// 全部报「放大字号可能被裁」，元素截图里「）」顶着框的右边；同屏不带括号的字（含折行的页脚）都过。
+    /// 只改上屏的字，读屏标签与发给后端的值都不经过这里。
+    static func displayText(_ text: String) -> String {
+        text.hasSuffix("）") ? text + "\u{202F}" : text
+    }
+
     /// 页脚那句匹配规则。后端（#410）：**一条每周时段都没有 = 随时可接**，一次性时段只放宽、
     /// 不算「填过」。所以只有存在每周时段时才能说「空闲时间以外不发邀请」；只填了按日期的、
     /// 或一段都没填时那句话是错的 —— 照它理解，他会以为别的日子收不到邀请（#455）。
@@ -418,7 +427,7 @@ struct VolunteerAvailabilityScheduleView: View {
             editingSlot = slot
         } label: {
             HStack {
-                Text(slot.dayText)
+                Text(VolunteerAvailabilityScheduleEditing.displayText(slot.dayText))
                     .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
@@ -481,6 +490,7 @@ private struct VolunteerAvailabilitySlotEditor: View {
     private let deletion: Deletion?
     private let onDone: (VolunteerAvailabilityDraftSlot) -> Void
     @State private var confirmsDeletion = false
+    @State private var showsDateList = false
 
     /// 「删除这一段」（#466 起取代左滑删除）。标签取**打开编辑页时**那一段 ——
     /// 删的是保存过的那段，不是编辑中的草稿。
@@ -560,6 +570,12 @@ private struct VolunteerAvailabilitySlotEditor: View {
         } message: {
             Text("将删除「\(deletion?.summary ?? "")」这一段空闲时间，并立即保存。需要时可以重新添加。")
         }
+        // 挂在 `Form` 上而不是那一行上：`navigationDestination` 放进懒加载容器的行里不可靠。
+        .navigationDestination(isPresented: $showsDateList) {
+            if let dateOptions, let first = dateOptions.first {
+                VolunteerAvailabilityDateList(options: dateOptions, selected: draft.date ?? first) { draft.setDate($0) }
+            }
+        }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -594,13 +610,25 @@ private struct VolunteerAvailabilitySlotEditor: View {
     /// 不用 `Picker(.navigationLink)`（#466）：它把选中值画成系统 `secondaryLabel`，压白底约 3.4:1，
     /// 真机审计报「日期」一行对比度不够，而 `Picker` 改不了值的颜色。自己写这一行，值用 `textSecondary`。
     /// 菜单样式（`Form` 默认）也不行：真机量过可点的那颗按钮只有 34pt。
+    ///
+    /// 也不用 `NavigationLink`：`Form` 里它的标签文字被真机审计判「放大字号可能被裁」，换成竖排照样报；
+    /// 普通按钮 + `navigationDestination` 推同一页就过了。箭头自己画。
     private func datePicker(_ options: [String]) -> some View {
         let selected = draft.date ?? options[0]
-        return NavigationLink {
-            VolunteerAvailabilityDateList(options: options, selected: selected) { draft.setDate($0) }
+        return Button {
+            showsDateList = true
         } label: {
-            dateRowContent(Self.dateOptionText(selected))
+            HStack(spacing: 8) {
+                dateRowContent(Self.dateOptionText(selected))
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityHint("双击换一天")
         .accessibilityIdentifier("volunteerScheduleEditorDatePicker")
     }
 
@@ -614,7 +642,7 @@ private struct VolunteerAvailabilitySlotEditor: View {
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-            Text(value)
+            Text(VolunteerAvailabilityScheduleEditing.displayText(value))
                 .foregroundColor(AppColors.textSecondary)
                 .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
                 .fixedSize(horizontal: false, vertical: true)
