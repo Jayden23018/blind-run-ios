@@ -1278,7 +1278,9 @@ final class blindRunUITests: XCTestCase {
         let menu = app.descendants(matching: .any)["blindProfileGuideDogMenu"].firstMatch
         XCTAssertTrue(scrollUntilExists(menu, app: app), "同意后没有导盲犬三选一")
         XCTAssertTrue(scrollElementIntoView(menu, app: app))
-        XCTAssertGreaterThanOrEqual(menu.frame.height, 64, "可点高度不足 64pt：\(menu.frame)")
+        // 63.5 而不是 64：真机量出 63.99999999999994（浮点噪声），口径同 `AccessibilityAuditTests` 求助按钮那几条。
+        // 打回成外挂 frame 时只剩文字高度（约 34pt），这个余量不会放过它。
+        XCTAssertGreaterThanOrEqual(menu.frame.height, 63.5, "可点高度不足 64pt：\(menu.frame)")
         XCTAssertEqual(menu.value as? String, "没有", "读屏没念当前选项")
     }
 
