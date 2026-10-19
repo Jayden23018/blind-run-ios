@@ -997,9 +997,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                         status: updated.status
                     )
                 } else {
-                    self.activeOrder = nil
-                    self.appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
-                    self.appState?.liveEscortCoordinator.clearOwnedOrder()
+                    self.dropActiveOrder(updated.orderId)
                 }
                 // 陪跑员这一侧的那张表（#333；`REMATCHING` 那句与订单页相同），
                 // 且与订单页共用去重键：两边都订阅了这条推送，只该念出一句。
@@ -1030,10 +1028,15 @@ final class VolunteerHomeViewModel: ObservableObject {
                 guard let self,
                       let current = self.activeOrder,
                       current.status.isTakenAwayWhenVolunteerLost else { return }
-                self.activeOrder = nil
-                self.appState?.realtimeCoordinator.unregisterActiveOrder(current.orderId)
-                self.appState?.liveEscortCoordinator.clearOwnedOrder()
+                self.dropActiveOrder(current.orderId)
             }
+    }
+
+    /// 「当前订单」不再属于这位陪跑员：状态推送进了非活跃态，或失联事件把它转走了（#456）。
+    private func dropActiveOrder(_ orderID: Int64) {
+        activeOrder = nil
+        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
+        appState?.liveEscortCoordinator.clearOwnedOrder()
     }
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {

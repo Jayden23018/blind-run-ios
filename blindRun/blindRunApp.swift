@@ -104,6 +104,7 @@ struct blindRunApp: App {
                     #if DEBUG || DEMO
                     applyUITestLaunchConfigurationIfNeeded()
                     injectUITestRealtimeNotificationsIfNeeded()
+                    injectUITestVolunteerLostIfNeeded()
                     #endif
                     // 在任何一句播报之前把音频分类定下来。不做的话冷启动到第一次录音之间
                     // 会话一直是系统默认的 `.soloAmbient`，合成器得自己去协商，第一句话
@@ -271,6 +272,46 @@ struct blindRunApp: App {
                     ttsText: "高优先级前台通知",
                     priority: "HIGH",
                     timestamp: "2026-07-19T12:00:01Z"
+                ))
+            )
+        }
+        #endif
+    }
+
+    /// `AIDRUN_UI_TEST_VOLUNTEER_LOST_AFTER_SECONDS`（#456）：启动 N 秒后演一次陪跑员失联 ——
+    /// Mock 里那一单转 `REMATCHING`，再按后端 `handleVolunteerLost` 的顺序喂两条：
+    /// 先不带 `orderId` 的 `ORDER_VOLUNTEER_LOST`，后 `ORDER_STATUS_CHANGED`（→`REMATCHING`）。
+    private func injectUITestVolunteerLostIfNeeded() {
+        #if DEBUG
+        guard let raw = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_VOLUNTEER_LOST_AFTER_SECONDS"],
+              let seconds = Double(raw) else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+            guard let mock = appState.apiClient as? MockAPIClient,
+                  let lost = mock.takeAwayDepartedOrderForUITesting() else { return }
+            appState.realtimeCoordinator.simulateIncomingEventForTesting(
+                .notification(WSAppNotification(
+                    type: WSMessageType.appNotification.rawValue,
+                    eventId: nil,
+                    messageId: "ui-test-volunteer-lost",
+                    eventType: AppRealtimeCoordinator.volunteerLostEventType,
+                    title: "陪跑一直没能开始，这一单已转给其他志愿者",
+                    body: "陪跑一直没能开始，这一单已转给其他志愿者",
+                    ttsText: "已经过了约定的开跑时间，陪跑一直没能开始，系统已经把这一单转给其他志愿者。如果你仍然有空，可以在应用里接新的单。",
+                    priority: "HIGH",
+                    timestamp: nil
+                ))
+            )
+            appState.realtimeCoordinator.simulateIncomingEventForTesting(
+                .orderStatusChanged(WSOrderStatusChanged(
+                    type: WSMessageType.orderStatusChanged.rawValue,
+                    orderId: lost.orderId,
+                    fromStatus: lost.from.rawValue,
+                    toStatus: RunOrderStatus.rematching.rawValue,
+                    message: "陪跑一直没能开始，正在重新匹配",
+                    ttsText: nil,
+                    priority: "NORMAL",
+                    timestamp: nil
                 ))
             )
         }

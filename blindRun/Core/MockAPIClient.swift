@@ -984,6 +984,16 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Helpers
 
+    #if DEBUG
+    /// UI 用例演后端看门狗（#456）：出发中 / 已到达的那一单转 `REMATCHING`。返回订单号与原状态，供调用方按后端顺序补推送。
+    func takeAwayDepartedOrderForUITesting() -> (orderId: Int64, from: RunOrderStatus)? {
+        guard let index = orders.firstIndex(where: { $0.status.isTakenAwayWhenVolunteerLost }) else { return nil }
+        let from = orders[index].status
+        orders[index] = updateOrderStatus(orders[index], to: .rematching)
+        return (orders[index].orderId, from)
+    }
+    #endif
+
     /// - Parameter meetupPlan: 通话磨合约成时传这一轮的安排单：改过的时间、地点覆盖订单原有那几列，
     ///   见面位置与颜色写进三个新列（后端 #755 口径）。其余调用点不传。
     func updateOrderStatus(

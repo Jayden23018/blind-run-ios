@@ -1635,14 +1635,19 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 系统把这一单转走了（#456）：放下订单、停掉对这一单的一切后台动作，**不念任何话** ——
     /// 横幅正在念后端的 `ttsText`，同档再念一句就会把它从半句切断。宿主看 `didLoseOrder` 关页。
     private func leaveLostOrder(orderID: Int64) {
-        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
-        appState?.liveEscortCoordinator.clearOwnedOrder()
-        stopPolling()
+        releaseOrder(orderID)
         transitionState = .idle
         errorMessage = nil
         nudgeNotice = nil
         order = nil
         didLoseOrder = true
+    }
+
+    /// 这一单不再归这位陪跑员（自己取消 / 被系统转走）：注销活跃订单、停位置互推、停轮询。
+    private func releaseOrder(_ orderID: Int64) {
+        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
+        appState?.liveEscortCoordinator.clearOwnedOrder()
+        stopPolling()
     }
 
     private func simulateRealtimeConfirmationIfRequested(
@@ -1762,9 +1767,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             errorMessage = nil
         }
         if announcesCancellation {
-            appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
-            appState?.liveEscortCoordinator.clearOwnedOrder()
-            stopPolling()
+            releaseOrder(updated.orderId)
             didCancelOrder = true
             // 不是自己按的取消（跨天闸门到点、失联事件没送到只来了状态推送……）：没有取消面板的回调来关页，
             // 此前页面就停在「正在获取订单状态...」转圈（#456）。
@@ -1999,11 +2002,20 @@ struct VolunteerInServiceView: View {
             activeSheet = nil
             showsLocalHelp = false
             showEmergencyConfirm = false
-            guard hadPresentation else { return dismiss() }
+            guard hadPresentation else {
+                dismiss()
+                return
+            }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: Self.sheetDismissalDelayNanoseconds)
                 dismiss()
             }
+        }
+        // 自己按的取消、而 `REMATCHING` 推送晚于取消响应到达：取消面板的回调那时看到的还是 `false`、没关页，
+        // 确认拉取又因为已不是参与者被后端 403，页面就停在兜底页转圈。推送先到的那一种面板还开着，
+        // 由面板的回调关页，这里不抢。
+        .onChange(of: viewModel.didCancelOrder) { cancelled in
+            if cancelled, activeSheet == nil { dismiss() }
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }

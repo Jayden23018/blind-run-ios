@@ -117,6 +117,33 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(fixture.speech.spokenHistoryForTesting)")
     }
 
+    /// 「已到达」的请求在路上时这一单被转走：结果回来时不念（失败那句会切断横幅），成功也不起确认拉取。
+    func testAnInFlightActionThatReturnsAfterLeavingIsDiscarded() async throws {
+        let outcomes: [Result<Void, Error>] = [
+            .failure(APIError.serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "后端原文"))),
+            .success(()),
+        ]
+        for outcome in outcomes {
+            let fixture = makeFixture(status: .driverEnRoute)
+            fixture.service.arrivedResult = outcome
+            fixture.service.arrivedDelayNanoseconds = 400_000_000
+
+            let action = Task { await fixture.page.arrive() }
+            try await Task.sleep(nanoseconds: 100_000_000)
+            fixture.appState.realtimeCoordinator.simulateIncomingEventForTesting(
+                .notification(Self.notification("ORDER_VOLUNTEER_LOST"))
+            )
+            await action.value
+            try await Task.sleep(nanoseconds: 200_000_000)
+
+            XCTAssertEqual(fixture.service.callCount("arrived(orderId:)"), 1, "前提：请求确实发出去了")
+            XCTAssertTrue(fixture.page.didLoseOrder)
+            XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(outcome)：\(fixture.speech.spokenHistoryForTesting)")
+            XCTAssertEqual(fixture.service.callCount("orderDetail(orderId:)"), 0, "\(outcome)：离开后还在拉这一单的确认")
+            XCTAssertEqual(fixture.page.transitionState, .idle, "\(outcome)")
+        }
+    }
+
     // MARK: - REMATCHING 且本人已不是参与者 → 离开
 
     /// 失联事件没送到、只来了状态推送：仍然离开，不停在兜底页的转圈上。
