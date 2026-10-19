@@ -323,10 +323,7 @@ struct VolunteerAvailabilityScheduleView: View {
                 Button {
                     newSlot = .makeDefault()
                 } label: {
-                    Label("添加空闲时间", systemImage: "plus")
-                        .frame(minHeight: 64) // guard:allow small-touch-target
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    addRowLabel("添加空闲时间", systemImage: "plus")
                 }
                 .accessibilityHint("选择星期几和开始、结束时间，新增一段每周重复的空闲时间")
                 .accessibilityIdentifier("volunteerScheduleAddButton")
@@ -336,19 +333,20 @@ struct VolunteerAvailabilityScheduleView: View {
                 Button {
                     newSlot = viewModel.makeOneOffDraft()
                 } label: {
-                    Label("按日期添加", systemImage: "calendar")
-                        .frame(minHeight: 64) // guard:allow small-touch-target
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    addRowLabel("按日期添加", systemImage: "calendar")
                 }
                 .accessibilityHint("选一个具体日期和开始、结束时间，只在那一天有效")
                 .accessibilityIdentifier("volunteerScheduleAddOneOffButton")
             } header: {
+                // 系统组标题与页脚色是 `secondaryLabel`，压在分组底色上亮色只有 3.29:1，
+                // 真机审计报「字再大一点才够」（#466）。`textSecondary` 亮 5.96:1 / 暗 9.5:1。
                 Text("这些时间里有合适的陪跑，会邀请你")
+                    .foregroundColor(AppColors.textSecondary)
             } footer: {
                 // 「空闲时间以外不发邀请」是后端的匹配规则，写出来是因为它解释了
                 // 「我为什么收不到单」——这一屏最可能被打开的原因。
                 Text(VolunteerAvailabilityScheduleEditing.footerText(for: viewModel.slots))
+                    .foregroundColor(AppColors.textSecondary)
             }
 
             if let message = viewModel.errorMessage {
@@ -397,6 +395,20 @@ struct VolunteerAvailabilityScheduleView: View {
                 }
             }
         }
+    }
+
+    /// 两枚「添加」行的内容。不用 `Label`：`List` 里的 `Label` 被真机审计判
+    /// 「放大字号可能被裁」（两枚都报），换成普通 `HStack` + 可折行的 `Text`（#466）。
+    private func addRowLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(AppFonts.body())
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading) // guard:allow small-touch-target
+        .contentShape(Rectangle())
     }
 
     private func rangeText(_ slot: VolunteerAvailabilityDraftSlot) -> String {
@@ -467,12 +479,19 @@ private struct VolunteerAvailabilitySlotEditor: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // 显式的取消：下滑关 sheet 对读屏用户不可发现。
+            // 叉 / 勾图标而不是文字（#466）：导航栏里的文字按钮不随 Dynamic Type 放大，
+            // 真机审计两枚都判「改不了字号」+ 对比度不过。图标是 iOS 26 起表单页的系统写法，
+            // 读屏照念「取消」「完成」，长按出系统的大字预览。
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消", action: onCancel)
-                    .accessibilityIdentifier("volunteerScheduleEditorCancel")
+                Button(action: onCancel) {
+                    Label("取消", systemImage: "xmark")
+                }
+                .accessibilityIdentifier("volunteerScheduleEditorCancel")
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("完成") { onDone(draft) }
+                Button { onDone(draft) } label: {
+                    Label("完成", systemImage: "checkmark")
+                }
                     // 非法区间不许保存：`isValid` 为假时后端会收到一个永不命中的窗口，
                     // 而它返回 200，用户不会知道。
                     .disabled(!draft.isValid)
