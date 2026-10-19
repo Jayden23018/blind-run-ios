@@ -547,7 +547,10 @@ private struct VolunteerAvailabilitySlotEditor: View {
                     Button(role: .destructive) {
                         confirmsDeletion = true
                     } label: {
+                        // 字色显式取 `destructive`：系统 destructive 红压白卡只有 3.57:1（真机截图实测，
+                        // 审计这次没报），`AppColors.destructive` 亮 5.75 / 暗 4.99。
                         Text("删除这一段")
+                            .foregroundColor(AppColors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, minHeight: 64) // guard:allow small-touch-target
                             .contentShape(Rectangle())
