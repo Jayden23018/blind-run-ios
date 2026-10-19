@@ -109,7 +109,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let add = app.buttons["volunteerScheduleAddButton"].firstMatch
         XCTAssertTrue(add.waitForExistence(timeout: 10), "空闲时间页没有「添加」")
-        let rowsBefore = app.cells.count
+        let rowsBefore = slotRows(app).count
         add.tap()
 
         XCTAssertTrue(
@@ -118,7 +118,7 @@ final class AccessibilityAuditTests: XCTestCase {
         )
         app.buttons["volunteerScheduleEditorCancel"].tap()
         XCTAssertTrue(add.waitForExistence(timeout: 5), "取消后没回到空闲时间页")
-        XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
+        XCTAssertEqual(slotRows(app).count, rowsBefore, "取消了却多出一段空闲时间")
     }
 
     /// 「按日期添加」（#455）：弹出的是**日期**选择不是星期选择，日期一行与每个日期选项不小于 64pt；
@@ -138,7 +138,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 10), "空闲时间页没有「按日期添加」")
         if !add.isHittable { app.swipeUp() }
         XCTAssertGreaterThanOrEqual(add.frame.height, 64, "「按日期添加」触达不足 64pt")
-        let rowsBefore = app.cells.count
+        let rowsBefore = slotRows(app).count
 
         add.tap()
         XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "没弹出按日期添加页")
@@ -151,7 +151,7 @@ final class AccessibilityAuditTests: XCTestCase {
         )
         app.buttons["volunteerScheduleEditorCancel"].tap()
         XCTAssertTrue(add.waitForExistence(timeout: 5), "取消后没回到空闲时间页")
-        XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
+        XCTAssertEqual(slotRows(app).count, rowsBefore, "取消了却多出一段空闲时间")
 
         // 第二次：把预选的今天换成明天 —— 走一遍日期列表，并验星期跟着日期换。
         // App 按本机时区的公历日取「今天」（`VolunteerAvailableTimeSlot.todayString`），这里同口径。
@@ -178,6 +178,58 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "完成后列表里没有「\(expected)」这一行")
         if !row.isHittable { app.swipeUp() }
         XCTAssertTrue(row.label.contains("07:00 – 09:00"), "读屏没念出时间段：\(row.label)")
+    }
+
+    /// 空闲时间页的时段行（不含两枚添加行）。页面不是 `List`，没有 cell 可数（#466）。
+    private func slotRows(_ app: XCUIApplication) -> XCUIElementQuery {
+        app.buttons.matching(identifier: "volunteerScheduleSlotRow")
+    }
+
+    /// 编辑页「删除这一段」（#466 起取代左滑删除）：≥64pt、读屏念出删哪一段、先确认；
+    /// 「取消」什么都不删，「确认删除」只删这一段 —— 另一段每周时段还在。
+    @MainActor
+    func testDeletingAnAvailabilitySlotFromTheEditorAsksFirstAndRemovesOnlyThatSlot() throws {
+        let app = launchVolunteerHome()
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["我的"].tap()
+        let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "设置页没有空闲时间入口")
+        entry.tap()
+
+        // 预置资料里有「周六 09:00 – 12:00」「周日 09:00 – 12:00」两段。
+        let saturday = slotRows(app).matching(NSPredicate(format: "label BEGINSWITH %@", "周六")).firstMatch
+        XCTAssertTrue(saturday.waitForExistence(timeout: 10), "列表里没有周六那段")
+        let rowsBefore = slotRows(app).count
+        let saturdayLabel = saturday.label
+        saturday.tap()
+
+        let delete = app.buttons["volunteerScheduleEditorDelete"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "编辑已有一段没有「删除这一段」")
+        if !delete.isHittable { app.swipeUp() }
+        XCTAssertTrue(delete.isHittable, "「删除这一段」点不到")
+        XCTAssertGreaterThanOrEqual(delete.frame.height, 64, "「删除这一段」触达不足 64pt")
+        XCTAssertEqual(delete.label, "删除 \(saturdayLabel)", "读屏没念出删的是哪一段")
+
+        // 取消：仍在编辑页，什么都没删。
+        delete.tap()
+        let alert = app.alerts["确认删除这一段"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "按删除没有先确认")
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "取消确认后不在编辑页了")
+
+        // 确认删除：回到列表，只少周六那一段。
+        delete.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["确认删除"].tap()
+        let addWeekly = app.buttons["volunteerScheduleAddButton"].firstMatch
+        XCTAssertTrue(addWeekly.waitForExistence(timeout: 5), "删除后没回到空闲时间页")
+        XCTAssertTrue(saturday.waitForNonExistence(timeout: 5), "周六那段还在")
+        XCTAssertEqual(slotRows(app).count, rowsBefore - 1, "删掉的不止一段")
+        XCTAssertTrue(
+            slotRows(app).matching(NSPredicate(format: "label BEGINSWITH %@", "周日")).firstMatch.exists,
+            "周日那段被一起删了"
+        )
     }
 
     /// 「空闲时间」页与它的两种编辑页的整页审计（#466）：亮 / 暗、默认字号 / 最大字号各一遍。
@@ -223,17 +275,41 @@ final class AccessibilityAuditTests: XCTestCase {
             sleep(1)
             attachScreenshot(app, name: "availability-list-\(variant.name)")
             try audit(app)
+            // 页面是常驻 ScrollView（#466）：自上而下 = 组标题 → 时段行 → 两枚添加 → 页脚，读屏同一顺序。
+            let header = app.staticTexts["这些时间里有合适的陪跑，会邀请你"].firstMatch
+            let firstRow = slotRows(app).firstMatch
+            XCTAssertTrue(header.exists && firstRow.exists, "\(variant.name)：组标题或时段行不在")
+            XCTAssertLessThan(header.frame.minY, firstRow.frame.minY, "\(variant.name)：组标题不在时段行上面")
+            XCTAssertLessThan(firstRow.frame.minY, addWeekly.frame.minY, "\(variant.name)：时段行不在添加行上面")
+            XCTAssertLessThan(addWeekly.frame.minY, addOneOff.frame.minY, "\(variant.name)：两枚添加行顺序反了")
+            // 最后一行要滚得出来，且不能被标签栏盖住（二级页藏栏，记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
             for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+            XCTAssertTrue(addOneOff.isHittable, "\(variant.name)：滚到底也点不到「按日期添加」")
+            XCTAssertFalse(app.tabBars.firstMatch.isHittable, "\(variant.name)：二级页底部露出了标签栏")
             sleep(1)
             attachScreenshot(app, name: "availability-list-bottom-\(variant.name)")
             try audit(app)
 
-            // 每周时段的编辑页：同一个编辑视图，日期一行换成「星期」。
+            // 每周时段的编辑页：同一个编辑视图，日期一行换成「星期」。新增时没有「删除这一段」。
             for _ in 0..<6 where !addWeekly.isHittable { app.swipeDown() }
             addWeekly.tap()
             XCTAssertTrue(app.navigationBars["添加空闲时段"].waitForExistence(timeout: 5), "\(variant.name)：没弹出添加空闲时段页")
             sleep(1)
+            XCTAssertFalse(app.buttons["volunteerScheduleEditorDelete"].exists, "\(variant.name)：新增时不该有「删除这一段」")
             attachScreenshot(app, name: "availability-weekly-editor-\(variant.name)")
+            try audit(app)
+            app.buttons["volunteerScheduleEditorCancel"].tap()
+
+            // 编辑已有一段：底部有「删除这一段」。
+            let row = slotRows(app).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "\(variant.name)：取消后没回到列表")
+            for _ in 0..<6 where !row.isHittable { app.swipeDown() }
+            row.tap()
+            let delete = app.buttons["volunteerScheduleEditorDelete"].firstMatch
+            XCTAssertTrue(delete.waitForExistence(timeout: 5), "\(variant.name)：编辑已有一段没有「删除这一段」")
+            for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
+            sleep(1)
+            attachScreenshot(app, name: "availability-existing-editor-\(variant.name)")
             try audit(app)
             app.buttons["volunteerScheduleEditorCancel"].tap()
             app.terminate()

@@ -230,8 +230,9 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
         Task { await save() }
     }
 
-    func remove(at offsets: IndexSet) {
-        slots.remove(atOffsets: offsets)
+    /// 编辑页「删除这一段」确认之后（#466 起取代左滑删除）。按 `id` 删，删完整体保存。
+    func remove(id: VolunteerAvailabilityDraftSlot.ID) {
+        slots.removeAll { $0.id == id }
         Task { await save() }
     }
 
@@ -297,66 +298,74 @@ struct VolunteerAvailabilityScheduleView: View {
     /// 新增走同一个编辑页，点「完成」才加进列表；关掉就是没加。
     @State private var newSlot: VolunteerAvailabilityDraftSlot?
 
+    /// 🔴 **常驻 `ScrollView` + 普通 `VStack`，不是 `List`**（#466，负责人 2026-10-19 拍板）。
+    /// `List` 下半屏的元素（页脚、最后一枚添加行）在真机整页审计里被判「改不了字号」，
+    /// 而最大字号截图里它们明明放大了 —— `List` 的已知误报（记忆 `list-rows-false-dynamic-type-audit`），
+    /// 换成全部常驻的容器才转绿。代价是没有左滑删除：删除挪进编辑页的「删除这一段」。
+    /// 别换回 `List` / `LazyVStack`。
     var body: some View {
-        List {
-            Section {
-                ForEach(viewModel.slots) { slot in
-                    Button {
-                        editingSlot = slot
-                    } label: {
-                        HStack {
-                            Text(slot.dayText)
-                                .foregroundColor(AppColors.textPrimary)
-                            Spacer()
-                            Text(rangeText(slot))
-                                .font(AppFonts.body().monospacedDigit())
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-                        .frame(minHeight: 64) // guard:allow small-touch-target
-                        .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel(announcement(slot))
-                    .accessibilityHint("双击修改这一段")
-                }
-                .onDelete(perform: viewModel.remove)
-
-                Button {
-                    newSlot = .makeDefault()
-                } label: {
-                    addRowLabel("添加空闲时间", systemImage: "plus")
-                }
-                .accessibilityHint("选择星期几和开始、结束时间，新增一段每周重复的空闲时间")
-                .accessibilityIdentifier("volunteerScheduleAddButton")
-
-                // 只放宽、不收紧（后端 #410）：加一段某天的时段不会让别的日子变成「不接」，
-                // 所以这里没有、也不做「这一天不空」。
-                Button {
-                    newSlot = viewModel.makeOneOffDraft()
-                } label: {
-                    addRowLabel("按日期添加", systemImage: "calendar")
-                }
-                .accessibilityHint("选一个具体日期和开始、结束时间，只在那一天有效")
-                .accessibilityIdentifier("volunteerScheduleAddOneOffButton")
-            } header: {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
                 // 系统组标题与页脚色是 `secondaryLabel`，压在分组底色上亮色只有 3.29:1，
                 // 真机审计报「字再大一点才够」（#466）。`textSecondary` 亮 5.96:1 / 暗 9.5:1。
                 Text("这些时间里有合适的陪跑，会邀请你")
+                    .font(.footnote)
                     .foregroundColor(AppColors.textSecondary)
-            } footer: {
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 16)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(viewModel.slots) { slot in
+                        slotRow(slot)
+                        rowDivider
+                    }
+
+                    Button {
+                        newSlot = .makeDefault()
+                    } label: {
+                        addRowLabel("添加空闲时间", systemImage: "plus")
+                    }
+                    .accessibilityHint("选择星期几和开始、结束时间，新增一段每周重复的空闲时间")
+                    .accessibilityIdentifier("volunteerScheduleAddButton")
+                    rowDivider
+
+                    // 只放宽、不收紧（后端 #410）：加一段某天的时段不会让别的日子变成「不接」，
+                    // 所以这里没有、也不做「这一天不空」。
+                    Button {
+                        newSlot = viewModel.makeOneOffDraft()
+                    } label: {
+                        addRowLabel("按日期添加", systemImage: "calendar")
+                    }
+                    .accessibilityHint("选一个具体日期和开始、结束时间，只在那一天有效")
+                    .accessibilityIdentifier("volunteerScheduleAddOneOffButton")
+                }
+                .padding(.horizontal, 16)
+                .background(AppColors.Flow.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
                 // 「空闲时间以外不发邀请」是后端的匹配规则，写出来是因为它解释了
                 // 「我为什么收不到单」——这一屏最可能被打开的原因。
                 Text(VolunteerAvailabilityScheduleEditing.footerText(for: viewModel.slots))
+                    .font(.footnote)
                     .foregroundColor(AppColors.textSecondary)
-            }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
 
-            if let message = viewModel.errorMessage {
-                Section {
+                if let message = viewModel.errorMessage {
                     Text(message)
                         .foregroundColor(AppColors.destructive)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(AppColors.Flow.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.top, 16)
                         .accessibilityIdentifier("volunteerScheduleErrorMessage")
                 }
             }
+            .padding(16)
+            .readableContentColumn()
         }
+        .background(AppColors.Flow.page.ignoresSafeArea())
         .navigationTitle("空闲时间")
         .navigationBarTitleDisplayMode(.inline)
         // 设计交付 v3 §4.2 总表：S7「空闲时间与出发地」的底部是空的，只有 S1–S4 那几屏
@@ -374,7 +383,14 @@ struct VolunteerAvailabilityScheduleView: View {
         .onAppear { viewModel.configure(with: appState) }
         .sheet(item: $editingSlot) { slot in
             NavigationStack {
-                VolunteerAvailabilitySlotEditor(slot: slot, onCancel: { editingSlot = nil }) { updated in
+                VolunteerAvailabilitySlotEditor(
+                    slot: slot,
+                    onCancel: { editingSlot = nil },
+                    deletion: .init(summary: announcement(slot)) {
+                        viewModel.remove(id: slot.id)
+                        editingSlot = nil
+                    }
+                ) { updated in
                     viewModel.update(updated)
                     editingSlot = nil
                 }
@@ -395,6 +411,36 @@ struct VolunteerAvailabilityScheduleView: View {
                 }
             }
         }
+    }
+
+    private func slotRow(_ slot: VolunteerAvailabilityDraftSlot) -> some View {
+        Button {
+            editingSlot = slot
+        } label: {
+            HStack {
+                Text(slot.dayText)
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Text(rangeText(slot))
+                    .font(AppFonts.body().monospacedDigit())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(minHeight: 64) // guard:allow small-touch-target
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(announcement(slot))
+        .accessibilityHint("双击修改或删除这一段")
+        .accessibilityIdentifier("volunteerScheduleSlotRow")
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(AppColors.Flow.separator)
+            .frame(height: 1)
+            .accessibilityHidden(true)
     }
 
     /// 两枚「添加」行的内容。不用 `Label`：`List` 里的 `Label` 被真机审计判
@@ -425,18 +471,31 @@ struct VolunteerAvailabilityScheduleView: View {
 // MARK: - 单段编辑
 
 private struct VolunteerAvailabilitySlotEditor: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var draft: VolunteerAvailabilityDraftSlot
     private let title: String
     /// 非 nil = 新增一次性时段，日期可选；nil 时一次性时段的日期只读。
     private let dateOptions: [String]?
     private let onCancel: () -> Void
+    /// 非 nil = 编辑已有的一段，底部出「删除这一段」；新增时为 nil，不出删除。
+    private let deletion: Deletion?
     private let onDone: (VolunteerAvailabilityDraftSlot) -> Void
+    @State private var confirmsDeletion = false
+
+    /// 「删除这一段」（#466 起取代左滑删除）。标签取**打开编辑页时**那一段 ——
+    /// 删的是保存过的那段，不是编辑中的草稿。
+    struct Deletion {
+        /// 「周六，07:00 – 09:00」—— 与列表那一行的读屏标签同一说法。
+        let summary: String
+        let perform: () -> Void
+    }
 
     init(
         slot: VolunteerAvailabilityDraftSlot,
         title: String = "空闲时段",
         dateOptions: [String]? = nil,
         onCancel: @escaping () -> Void,
+        deletion: Deletion? = nil,
         onDone: @escaping (VolunteerAvailabilityDraftSlot) -> Void
     ) {
         // 预选日期与可选列表是两次取的「今天」，跨零点时预选那天可能已不在列表里 ——
@@ -449,6 +508,7 @@ private struct VolunteerAvailabilitySlotEditor: View {
         self.title = title
         self.dateOptions = dateOptions
         self.onCancel = onCancel
+        self.deletion = deletion
         self.onDone = onDone
     }
 
@@ -458,7 +518,9 @@ private struct VolunteerAvailabilitySlotEditor: View {
                 datePicker(dateOptions)
             } else if draft.isOneOff {
                 // 一次性时段的星期由日期决定，改了就和日期对不上（后端 400）。只读一行。
-                LabeledContent("日期", value: draft.dayText)
+                // 不用 `LabeledContent`：它的值是系统 `secondaryLabel`，与上面日期一行是同一个对比度问题（#466）。
+                dateRowContent(draft.dayText)
+                    .accessibilityElement(children: .combine)
             } else {
                 Picker("星期", selection: $draft.weekday) {
                     ForEach(VolunteerAvailabilityScheduleEditing.weekdays, id: \.self) { day in
@@ -474,6 +536,29 @@ private struct VolunteerAvailabilitySlotEditor: View {
                     .foregroundColor(AppColors.destructive)
                     .accessibilityIdentifier("volunteerScheduleEditorRangeError")
             }
+
+            if let deletion {
+                Section {
+                    Button(role: .destructive) {
+                        confirmsDeletion = true
+                    } label: {
+                        Text("删除这一段")
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 64) // guard:allow small-touch-target
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("删除 \(deletion.summary)")
+                    .accessibilityHint("删除前会再确认一次")
+                    .accessibilityIdentifier("volunteerScheduleEditorDelete")
+                }
+            }
+        }
+        // 与删除紧急联系人同一种确认（`EmergencyContactsView`）：标题、「确认删除」、「取消」、一句说明。
+        .alert("确认删除这一段", isPresented: $confirmsDeletion) {
+            Button("确认删除", role: .destructive) { deletion?.perform() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将删除「\(deletion?.summary ?? "")」这一段空闲时间，并立即保存。需要时可以重新添加。")
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -492,10 +577,10 @@ private struct VolunteerAvailabilitySlotEditor: View {
                 Button { onDone(draft) } label: {
                     Label("完成", systemImage: "checkmark")
                 }
-                    // 非法区间不许保存：`isValid` 为假时后端会收到一个永不命中的窗口，
-                    // 而它返回 200，用户不会知道。
-                    .disabled(!draft.isValid)
-                    .accessibilityIdentifier("volunteerScheduleEditorDone")
+                // 非法区间不许保存：`isValid` 为假时后端会收到一个永不命中的窗口，
+                // 而它返回 200，用户不会知道。
+                .disabled(!draft.isValid)
+                .accessibilityIdentifier("volunteerScheduleEditorDone")
             }
         }
     }
@@ -514,17 +599,27 @@ private struct VolunteerAvailabilitySlotEditor: View {
         return NavigationLink {
             VolunteerAvailabilityDateList(options: options, selected: selected) { draft.setDate($0) }
         } label: {
-            HStack {
-                Text("日期")
-                    .foregroundColor(AppColors.textPrimary)
-                Spacer(minLength: 8)
-                Text(Self.dateOptionText(selected))
-                    .foregroundColor(AppColors.textSecondary)
-                    .multilineTextAlignment(.trailing)
-            }
-            .frame(minHeight: 64) // guard:allow small-touch-target
+            dateRowContent(Self.dateOptionText(selected))
         }
         .accessibilityIdentifier("volunteerScheduleEditorDatePicker")
+    }
+
+    /// 「日期」+ 值的一行。最大字号下左右放不下，改成上下两行；两段字都能折行（真机审计报过「可能被裁」）。
+    private func dateRowContent(_ value: String) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout())
+        return layout {
+            Text("日期")
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
+            Text(value)
+                .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minHeight: 64) // guard:allow small-touch-target
     }
 
     /// `"2026-10-03"` →「10月3日（周六）」，与列表的「仅 10月3日（周六）」同一口径。
