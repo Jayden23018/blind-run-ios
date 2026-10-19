@@ -2,10 +2,14 @@
 
 ### Requirement: 明确拒绝时显式传 NOT_SPECIFIED
 
-用户在视力状况单独同意页明确拒绝后，档案更新请求 MUST 携带 `visionLevel = NOT_SPECIFIED` 与 `guideDog = NOT_SPECIFIED`，且 MUST NOT 携带 `hasGuideDog`。
+用户在视力状况单独同意页明确拒绝后，或撤回已给的同意后，档案更新请求 MUST 携带 `visionLevel = NOT_SPECIFIED` 与 `guideDog = NOT_SPECIFIED`，且 MUST NOT 携带 `hasGuideDog`。
 
 #### Scenario: 用户拒绝
 - **WHEN** 用户在同意页选择不同意并保存资料
+- **THEN** 请求体 `visionLevel` 与 `guideDog` 都是 `NOT_SPECIFIED`，不含 `hasGuideDog`
+
+#### Scenario: 用户撤回同意
+- **WHEN** 用户已同意并选过「有导盲犬」，然后按「撤回同意」
 - **THEN** 请求体 `visionLevel` 与 `guideDog` 都是 `NOT_SPECIFIED`，不含 `hasGuideDog`
 
 ## ADDED Requirements
