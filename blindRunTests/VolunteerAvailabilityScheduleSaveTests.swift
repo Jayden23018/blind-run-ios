@@ -205,6 +205,48 @@ final class VolunteerAvailabilityScheduleSaveTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
     }
 
+    /// 编辑页「删除这一段」（#466 起取代左滑删除）：按 id 删掉**那一段**，整体 PUT 原样带回其余各段 ——
+    /// 每周的不带 `date`，一次性的 `date` 与星期不变。两个方向各删一次：删每周、删一次性。
+    func testDeletingOneSlotKeepsEveryOtherSlotIntactOnSave() async throws {
+        let client = ProfileUpdateSpy()
+        let appState = AppState(apiClient: client, tokenStore: ScheduleInMemoryTokenStore())
+        appState.updateVolunteerProfile(
+            VolunteerProfileResponse(
+                name: "张伟",
+                availableTimeSlots: [
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "07:00:00", endTime: "09:00:00"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "07:00:00", endTime: "09:00:00", date: "2026-10-24"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SUNDAY", startTime: "09:00:00", endTime: "12:00:00"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "TUESDAY", startTime: "06:00:00", endTime: "07:00:00", date: "2026-10-20"),
+                ]
+            )
+        )
+        client.response = VolunteerProfileResponse(name: "张伟")
+
+        let viewModel = VolunteerAvailabilityScheduleViewModel(today: { "2026-10-17" })
+        viewModel.configure(with: appState)
+        // 每周六与 10-24（也是周六、同一时段）只差一个 `date`：按位置或按内容删都会删错其中一段。
+        viewModel.remove(id: viewModel.slots[0].id)
+        await viewModel.save()
+
+        var sent = try XCTUnwrap(client.lastProfileUpdate?.availableTimeSlots)
+        XCTAssertEqual(sent.map(\.date), ["2026-10-24", nil, "2026-10-20"])
+        XCTAssertEqual(sent.map(\.dayOfWeek), ["SATURDAY", "SUNDAY", "TUESDAY"])
+        XCTAssertEqual(sent.map(\.startTime), ["07:00:00", "09:00:00", "06:00:00"])
+        XCTAssertEqual(client.lastProfileUpdate?.name, "张伟")
+
+        // 再删 10-20 那段一次性时段。
+        let oneOff = try XCTUnwrap(viewModel.slots.first { $0.date == "2026-10-20" })
+        viewModel.remove(id: oneOff.id)
+        await viewModel.save()
+
+        sent = try XCTUnwrap(client.lastProfileUpdate?.availableTimeSlots)
+        XCTAssertEqual(sent.map(\.date), ["2026-10-24", nil])
+        XCTAssertEqual(sent.map(\.dayOfWeek), ["SATURDAY", "SUNDAY"])
+        XCTAssertEqual(viewModel.slots.map(\.dayText), ["仅 10月24日（周六）", "周日"])
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
     /// 本机日历是佛历 / 日本历时，「今天」仍是公历串 —— 它会被原样当作 `date` 发给后端。
     func testTodayIsAGregorianDayEvenOnANonGregorianDevice() throws {
         var buddhist = Calendar(identifier: .buddhist)
