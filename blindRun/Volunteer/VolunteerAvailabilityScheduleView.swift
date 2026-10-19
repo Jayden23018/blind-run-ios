@@ -427,8 +427,8 @@ struct VolunteerAvailabilityScheduleView: View {
         Button {
             editingSlot = slot
         } label: {
-            // 最大字号下改上下两行：并排时右侧只分到约 192pt，「09:00 –」这一截折不开，字画到框外，
-            // 真机审计按框取样报 Contrast failed（#466，两遍同一坐标）。与编辑页「日期」一行同一处理。
+            // 最大字号下改上下两行：并排时右侧只分到约 192pt，时间段被折成「09:00 –」「12:00」两截，
+            // 星期挤在左边一小列。与编辑页「日期」一行同一处理（#466）。
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
                 : AnyLayout(HStackLayout())
@@ -442,8 +442,8 @@ struct VolunteerAvailabilityScheduleView: View {
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // 上下留白（`List` 行原本自带的那一截）：最大字号下两行字会把 64pt 撑满，字框贴上分隔线，
-            // 真机审计把那条 1pt 浅灰线当成字色，报「09:00 – 12:00」Contrast failed（#466）。
+            // 上下留白：`List` 行原本自带的那一截，换成 ScrollView 后要自己补（#466），
+            // 否则最大字号下两行字顶着分隔线。
             .padding(.vertical, Self.rowVerticalPadding)
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading) // guard:allow small-touch-target
             .contentShape(Rectangle())
