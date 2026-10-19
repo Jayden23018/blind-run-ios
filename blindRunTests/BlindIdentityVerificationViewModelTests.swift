@@ -89,7 +89,9 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
             submitVerifyStatus: BlindVerifyStatus.verified.rawValue
         )
         let appState = AppState(apiClient: client, tokenStore: InMemoryTokenStoreStub())
-        appState.updateBlindProfile(BlindProfileResponse(name: "张三", verifyStatus: "NOT_VERIFIED"))
+        appState.updateBlindProfile(
+            BlindProfileResponse(name: "张三", verifyStatus: "NOT_VERIFIED", hasGuideDog: false, guideDog: "NO")
+        )
         let viewModel = BlindIdentityVerificationViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
         viewModel.idCardName = "张三"
@@ -104,6 +106,8 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
         XCTAssertEqual(appState.blindIdentityStatus, .verified)
         // 只写状态位，其余已知资料字段不得被抹成 nil
         XCTAssertEqual(appState.blindProfile?.name, "张三")
+        // 丢了 `guideDog` 就只剩旧字段的 false ⇒ 资料页把「没有」显示成「不说」（#472）。
+        XCTAssertEqual(appState.blindProfile?.guideDog, "NO")
         XCTAssertTrue(viewModel.idCardName.isEmpty)
         XCTAssertTrue(viewModel.idCardNumber.isEmpty)
         XCTAssertNil(viewModel.errorMessage)

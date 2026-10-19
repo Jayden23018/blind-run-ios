@@ -206,6 +206,7 @@ struct blindRunApp: App {
                     verifyStatus: "VERIFIED",
                     visionLevel: "TOTAL_BLIND",
                     hasGuideDog: false,
+                    guideDog: GuideDogStatus.no.rawValue,
                     tetherPreference: "TETHER_ROPE",
                     chatPreference: "PREFER_CHAT",
                     defaultPace: .moderate

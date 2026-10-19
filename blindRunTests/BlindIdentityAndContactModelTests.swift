@@ -387,7 +387,7 @@ final class MockBlindIdentityVerificationTests: XCTestCase {
                 runningPace: nil,
                 specialNeeds: nil,
                 visionLevel: nil,
-                hasGuideDog: nil,
+                guideDog: nil,
                 tetherPreference: nil,
                 chatPreference: nil,
                 defaultPace: nil

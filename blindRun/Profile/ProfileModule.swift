@@ -3,11 +3,13 @@ import SwiftUI
 
 // MARK: - 撤回视力同意的文案
 
-/// 撤回「视力状况 + 导盲犬」同意（#352）。**与安卓 #91 逐字一致**，负责人 2026-10-07 同意。
+/// 撤回「视力状况 + 导盲犬」同意（#352）。原与安卓 #91 逐字一致（负责人 2026-10-07 同意）；
+/// 2026-10-19 起后两句改成「改成不提供」（#472）：后端存的是「不提供」这个值，不是删掉了这一项，
+/// 负责人要求文案严格成立。按钮标题未变。
 enum VisionConsentWithdrawalCopy {
     static let buttonTitle = "撤回同意，不再提供这两项"
-    static let accessibilityLabel = "撤回同意，不再提供视力状况和导盲犬。按下后立刻从你的资料里清掉这两项，以后想填可以再同意"
-    static let succeeded = "已撤回。视力状况和导盲犬已从你的资料里清掉，以后想填可以再点「填写视力状况」。"
+    static let accessibilityLabel = "撤回同意，不再提供视力状况和导盲犬。按下后立刻把资料里这两项改成不提供，以后想填可以再同意"
+    static let succeeded = "已撤回。资料里的视力状况和导盲犬已改成不提供，以后想填可以再点「填写视力状况」。"
 
     static func failed(saveButtonTitle: String) -> String {
         "撤回还没有保存成功，请再点一次「\(saveButtonTitle)」。"
@@ -41,7 +43,8 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     @Published var tetherPreference: TetherPreference?
     /// 视力状况。`nil` = 没选或没同意。
     @Published var visionLevel: VisionLevel?
-    @Published var hasGuideDog = false
+    /// 是否常带导盲犬，三选一（#472）。默认「不说」—— 与后端新建档默认值相同。
+    @Published var guideDog: GuideDogStatus = .notSpecified
     /// 写给陪跑员的引导偏好。自由文本 ⇒ 陪跑员**接单后**才看得到（`AGENTS.md` §8），页面上要写明。
     @Published var guidePreferenceText = ""
 
@@ -66,6 +69,12 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 撤回成功后那一句（同时上屏和朗读）。
     @Published private(set) var visionConsentWithdrawnNotice: String?
 
+    /// 档案里认得出的引导方式。用户改选「还没决定」时据它判断要不要发 `NOT_SPECIFIED`（#472）：
+    /// 原来有值 ⇒ 发，才撤得回；原来就没有或认不出 ⇒ 不带键，免得覆盖一个这个版本不认识的值。
+    private var tetherPreferenceBaseline: TetherPreference?
+    /// 档案里的导盲犬取值这个版本认不出。为真且用户没改（仍是「不说」）⇒ 保存时不带 `guideDog`。
+    private var isGuideDogBaselineUnreadable = false
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
 
@@ -86,11 +95,15 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             defaultPace = profile.defaultPace?.selectable ?? .noPreference
             specialNeeds = profile.specialNeeds ?? ""
             tetherPreference = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
+            tetherPreferenceBaseline = tetherPreference
             // `NOT_SPECIFIED` 回读成 nil（= Picker 的「不填」）：Picker 没有它的 tag，
             // 直接放进去选中值无效。此时保存不带键，后端保留原值。
             visionLevel = profile.visionLevel.flatMap(VisionLevel.init(rawValue:))
                 .flatMap { $0 == .notSpecified ? nil : $0 }
-            hasGuideDog = profile.hasGuideDog ?? false
+            // 读 `guideDog` 不读旧的 `hasGuideDog`：后者「不说」也给 false，照它回读会让
+            // 下一次保存把「不说」改写成「没有」（#472）。
+            guideDog = profile.guideDogStatus ?? .notSpecified
+            isGuideDogBaselineUnreadable = profile.guideDogStatus == nil
             guidePreferenceText = profile.guidePreferenceText ?? ""
         }
 
@@ -137,7 +150,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         isVisionConsentWithdrawalPending = true
         visionConsentWithdrawnNotice = nil
         visionLevel = nil
-        hasGuideDog = false
+        guideDog = .notSpecified
         submit()
     }
 
@@ -181,7 +194,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
 
     /// 请求体构造抽成纯函数，理由是**这里有一条测不到就守不住的红线**：
-    /// 没取得单独同意时 `visionLevel` / `hasGuideDog` 必须缺席。
+    /// 没取得单独同意时 `visionLevel` / `guideDog` 必须缺席。
     /// 走网络去验它要一个 20 个方法的 `ProfileServing` 替身，而这一层本来就没有副作用。
     /// 形状照抄 `BlindBookingViewModel.makeCreateOrderRequest`。
     func makeProfileUpdateRequest() -> BlindProfileUpdateRequest {
@@ -191,27 +204,39 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             specialNeeds: specialNeeds.nilIfBlank,
             // 🔴 **没取得单独同意就绝不传「默认值」。**
             // 传 `TOTAL_BLIND` 或 `false` 会把「用户没说」伪造成「用户说了」。
-            // 三种情形：同意 → 用户选的值（没选 = 不带键）；本次明确拒绝 / 撤回待保存 → 显式传
-            // `NOT_SPECIFIED` + 导盲犬 `false`（后端迁移 0056，backend#326；导盲犬见下）；
-            // 从没被问过 → 两个键都不带，后端保留原值。
+            // 三种情形：同意 → 用户选的值（视力没选 = 不带键；导盲犬「不说」= `NOT_SPECIFIED`）；
+            // 本次明确拒绝 / 撤回待保存 → 两项都显式传 `NOT_SPECIFIED`（后端迁移 0056 / backend#326，
+            // 导盲犬是后端 #800 / backend#773）；从没被问过 → 两个键都不带，后端保留原值。
             // 用例 `BlindEscortPreferencesTests.testProfileUpdateOmitsVisionFieldsWithoutConsent` /
             // `testDecliningVisionConsentSendsNotSpecified` 钉住。
-            // 撤回待保存 / 本次明确拒绝时，导盲犬显式传 `false`（#352）：原先不带键，服务端旧的 `true`
-            // 一直留着 —— 志愿者接单前看得到，派单也按它筛人，而用户以为自己已经不提供了。
+            // 导盲犬在拒绝 / 撤回时**不许**传 `NO`（#352 时传过 `hasGuideDog: false`）：后端会存成
+            // 「明确没有导盲犬」，那正是上面说的把「用户没说」伪造成「用户说了」（#472）。
             visionLevel: hasVisionConsent
                 ? visionLevel?.rawValue
-                : (hasDeclinedVisionConsent || isVisionConsentWithdrawalPending ? VisionLevel.notSpecified.rawValue : nil),
-            hasGuideDog: hasVisionConsent
-                ? hasGuideDog
-                : (hasDeclinedVisionConsent || isVisionConsentWithdrawalPending ? false : nil),
+                : (isWithholdingVisionFields ? VisionLevel.notSpecified.rawValue : nil),
+            guideDog: hasVisionConsent
+                ? consentedGuideDogValue
+                : (isWithholdingVisionFields ? GuideDogStatus.notSpecified.rawValue : nil),
             // 引导方式不在同意门后面 —— 它不敏感，而且它是拒绝了敏感项的用户
             // 唯一还能给志愿者的准备依据。挪到门后面会让「可拒绝」变成空话。
-            tetherPreference: tetherPreference?.rawValue,
+            // 「还没决定」= nil：原来有值就发 `NOT_SPECIFIED`，否则撤不回（#472，backend#795）。
+            tetherPreference: tetherPreference?.rawValue
+                ?? (tetherPreferenceBaseline == nil ? nil : TetherPreference.notSpecifiedRawValue),
             chatPreference: nil,
             defaultPace: defaultPace == .noPreference ? nil : defaultPace,
             // 总是带上：空串 = 清空。带 nil 等于「保留原值」，用户删光了却删不掉。
             guidePreferenceText: guidePreferenceText.trimmed
         )
+    }
+
+    /// 本次明确拒绝或撤回待保存：两个敏感项要显式发「不提供」。
+    private var isWithholdingVisionFields: Bool {
+        hasDeclinedVisionConsent || isVisionConsentWithdrawalPending
+    }
+
+    /// 同意时导盲犬要发的值。档案里的值认不出且用户没改 ⇒ 不带键（`nil`），保留后端原值。
+    private var consentedGuideDogValue: String? {
+        isGuideDogBaselineUnreadable && guideDog == .notSpecified ? nil : guideDog.rawValue
     }
 
     private func saveProfile(appState: AppState) async {
@@ -223,6 +248,9 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         do {
             let profile = try await appState.profile.updateBlindProfile(makeProfileUpdateRequest())
             appState.updateBlindProfile(profile)
+            // 基线跟着服务器走：不更新的话，「先选牵引绳保存、再改回还没决定保存」第二次会不带键。
+            tetherPreferenceBaseline = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
+            isGuideDogBaselineUnreadable = profile.guideDogStatus == nil
             isLoading = false
             if withdrawing, isVisionConsentWithdrawalPending {
                 consentStore?.revokeConsent(to: .blindVisionProfile, scope: consentScope)
@@ -512,6 +540,43 @@ struct BlindRunnerProfileView: View {
         }
     }
 
+    // MARK: - 导盲犬三选一（#472）
+
+    /// 「有 / 没有 / 不说」。用 `Menu` 包 `Picker` 而不是照抄上面视力状况那种 `Picker(.menu)`：
+    /// 那种写法外挂的 `frame(minHeight: 64)` 撑不大可点区（记忆
+    /// `button-frame-outside-label-does-not-grow-hit-area`），这里把 64pt 写进标签内部。
+    /// 不用分段控件：AX5 下会截断，高度也固定在约 32pt。
+    private var guideDogMenu: some View {
+        Menu {
+            Picker("平时使用导盲犬", selection: $viewModel.guideDog) {
+                ForEach(GuideDogStatus.allCases, id: \.self) { status in
+                    Text(status.profileOptionTitle).tag(status)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text("平时使用导盲犬")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Text(viewModel.guideDog.profileOptionTitle)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.primary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.primary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("平时使用导盲犬，选填")
+        .accessibilityValue(viewModel.guideDog.profileOptionTitle)
+        .accessibilityHint("可以选有、没有或不说。选有之后，只会给你派接受与导盲犬同行的志愿者")
+        .accessibilityIdentifier("blindProfileGuideDogMenu")
+    }
+
     // MARK: - 视力状况（敏感，走单独同意）
 
     /// 视力状况与导盲犬。
@@ -543,12 +608,7 @@ struct BlindRunnerProfileView: View {
                 .accessibilityHint("选择完全看不见，或者还有一些视力")
                 .accessibilityIdentifier("blindProfileVisionLevelPicker")
 
-                Toggle("平时使用导盲犬", isOn: $viewModel.hasGuideDog)
-                    .font(AppFonts.body())
-                    .frame(minHeight: 64)
-                    .accessibilityLabel("平时使用导盲犬，选填")
-                    .accessibilityHint("开启后，只会给你派接受与导盲犬同行的志愿者")
-                    .accessibilityIdentifier("blindProfileHasGuideDogToggle")
+                guideDogMenu
 
                 // 同意要能撤回（PIPL 第十五条）。按下立刻保存，不等底部那枚「保存」（#352）。
                 Button {

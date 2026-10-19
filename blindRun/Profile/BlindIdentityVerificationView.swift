@@ -126,6 +126,7 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
                 verifyStatus: newStatus.rawValue,
                 visionLevel: existing?.visionLevel,
                 hasGuideDog: existing?.hasGuideDog,
+                guideDog: existing?.guideDog,
                 tetherPreference: existing?.tetherPreference,
                 chatPreference: existing?.chatPreference,
                 defaultPace: existing?.defaultPace

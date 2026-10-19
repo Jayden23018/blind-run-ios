@@ -1254,6 +1254,36 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["取消"].firstMatch.exists)
     }
 
+    // MARK: - 资料页导盲犬三选一（#472）
+
+    /// 同意后导盲犬那一项可点高度 ≥ 64pt，读屏值念出当前选项（种子档案 `guideDog = NO` ⇒「没有」）。
+    ///
+    /// 守的是两件单测看不见的事：64pt 写在 `Menu` 标签**内部**（挪到外面真机只剩文字高度，
+    /// 记忆 `button-frame-outside-label-does-not-grow-hit-area`），以及 `accessibilityValue` 还在。
+    @MainActor
+    func testBlindProfileGuideDogChoiceIsTallAndSpeaksTheCurrentValue() throws {
+        let app = launchBlindContactsApp()
+        openSettings(app)
+        tapNavigationRow(app, labelBeginsWith: "个人资料")
+
+        let disclosure = app.buttons["blindProfileVisionConsentDisclosure"].firstMatch
+        XCTAssertTrue(scrollUntilExists(disclosure, app: app), "资料页没有「填写视力状况」")
+        XCTAssertTrue(scrollElementIntoView(disclosure, app: app), "「填写视力状况」滚不出底栏")
+        tapWhenHittableOrByCoordinate(disclosure, app: app)
+
+        let agree = app.buttons["blindVisionProfileConsentAgreeButton"].firstMatch
+        XCTAssertTrue(agree.waitForExistence(timeout: 8), "同意页没弹出来")
+        tapWhenHittableOrByCoordinate(agree, app: app)
+
+        let menu = app.descendants(matching: .any)["blindProfileGuideDogMenu"].firstMatch
+        XCTAssertTrue(scrollUntilExists(menu, app: app), "同意后没有导盲犬三选一")
+        XCTAssertTrue(scrollElementIntoView(menu, app: app))
+        // 63.5 而不是 64：真机量出 63.99999999999994（浮点噪声），口径同 `AccessibilityAuditTests` 求助按钮那几条。
+        // 打回成外挂 frame 时只剩文字高度（约 34pt），这个余量不会放过它。
+        XCTAssertGreaterThanOrEqual(menu.frame.height, 63.5, "可点高度不足 64pt：\(menu.frame)")
+        XCTAssertEqual(menu.value as? String, "没有", "读屏没念当前选项")
+    }
+
     // MARK: - 紧急联系人无障碍
 
     /// 列表行只播报掩码手机号，且朗读顺序为「概览 → 联系人 → 新增」。

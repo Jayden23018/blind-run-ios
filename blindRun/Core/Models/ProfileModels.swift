@@ -8,7 +8,11 @@ struct BlindProfileResponse: Codable, Sendable {
     let specialNeeds: String?
     let verifyStatus: String?
     let visionLevel: String?
+    /// 旧字段：只有 `guideDog = YES` 时为 true，**未提供也是 false**。读导盲犬请走 `guideDogStatus`。
     let hasGuideDog: Bool?
+    /// 是否常带导盲犬，三值（后端 #800 / backend#773）。接成 `String?` 理由同 `VisionLevel` 上那段：
+    /// 后端加值时整份档案不能解码失败。
+    let guideDog: String?
     let tetherPreference: String?
     let chatPreference: String?
     let defaultPace: PacePreference?
@@ -22,6 +26,7 @@ struct BlindProfileResponse: Codable, Sendable {
         case verifyStatus
         case visionLevel
         case hasGuideDog
+        case guideDog
         case tetherPreference
         case chatPreference
         case defaultPace
@@ -35,6 +40,7 @@ struct BlindProfileResponse: Codable, Sendable {
         verifyStatus: String? = nil,
         visionLevel: String? = nil,
         hasGuideDog: Bool? = nil,
+        guideDog: String? = nil,
         tetherPreference: String? = nil,
         chatPreference: String? = nil,
         defaultPace: PacePreference? = nil,
@@ -46,10 +52,20 @@ struct BlindProfileResponse: Codable, Sendable {
         self.verifyStatus = verifyStatus
         self.visionLevel = visionLevel
         self.hasGuideDog = hasGuideDog
+        self.guideDog = guideDog
         self.tetherPreference = tetherPreference
         self.chatPreference = chatPreference
         self.defaultPace = defaultPace
         self.guidePreferenceText = guidePreferenceText
+    }
+
+    /// 导盲犬的三值。`nil` = 这个版本认不出（或后端没给且旧字段不是 true）——
+    /// 调用方保存时不带键，免得把认不出的值覆盖掉。
+    var guideDogStatus: GuideDogStatus? {
+        if let raw = guideDog?.nilIfBlank {
+            return GuideDogStatus(rawValue: raw)
+        }
+        return hasGuideDog == true ? .yes : nil
     }
 }
 
@@ -58,7 +74,9 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
     let runningPace: String?
     let specialNeeds: String?
     let visionLevel: String?
-    let hasGuideDog: Bool?
+    /// `YES` / `NO` / `NOT_SPECIFIED`；不带键 = 保留原值，`NOT_SPECIFIED` = 撤回（契约 `BlindProfileUpdateRequest.guideDog`）。
+    /// 旧入参 `hasGuideDog` 表达不了「未提供」，iOS 不再发它。
+    let guideDog: String?
     let tetherPreference: String?
     let chatPreference: String?
     let defaultPace: PacePreference?
@@ -74,7 +92,7 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
         case specialNeeds
         case guidePreferenceText
         case visionLevel
-        case hasGuideDog
+        case guideDog
         case tetherPreference
         case chatPreference
         case defaultPace
@@ -456,6 +474,30 @@ enum VisionLevel: String, Codable, CaseIterable, Sendable {
     var escortDisplayName: String? {
         self == .notSpecified ? nil : displayName
     }
+
+    /// 跑者没给视力状况：缺失、空白或 `NOT_SPECIFIED`。与 `TetherPreference.isUnprovided` 配对用。
+    static func isUnprovided(_ raw: String?) -> Bool {
+        isUnprovidedProfileValue(raw)
+    }
+}
+
+// MARK: - Guide Dog
+
+/// 是否常带导盲犬（后端 #800）。真相源是后端 `blind_profile.has_guide_dog` 可为 NULL，NULL 就是「不说」。
+enum GuideDogStatus: String, CaseIterable, Sendable {
+    case yes = "YES"
+    case no = "NO"
+    /// 用户没提供。新建档默认它；撤回 / 拒绝视力同意时显式发它。
+    case notSpecified = "NOT_SPECIFIED"
+
+    /// 资料页三选一的选项名（负责人 2026-10-19 定：有 / 没有 / 不说）。
+    var profileOptionTitle: String {
+        switch self {
+        case .yes: return "有"
+        case .no: return "没有"
+        case .notSpecified: return "不说"
+        }
+    }
 }
 
 // MARK: - Tether Preference
@@ -472,6 +514,22 @@ enum TetherPreference: String, Codable, CaseIterable, Sendable {
         case .verbalOnly: return "仅语言引导"
         }
     }
+
+    /// 「还没决定」的原始值（后端 #800 / backend#795，新建档默认）。**不做成 case**：
+    /// 资料页 Picker 的「还没决定」是 `nil`，做成 case 会让 `allCases` 多出一个选项。
+    static let notSpecifiedRawValue = "NOT_SPECIFIED"
+
+    /// 跑者没给引导方式：缺失、空白或 `NOT_SPECIFIED`。陪跑员端与下单页的唯一判据。
+    static func isUnprovided(_ raw: String?) -> Bool {
+        isUnprovidedProfileValue(raw)
+    }
+}
+
+/// 档案偏好字段「没给」：缺失、空白或 `NOT_SPECIFIED`（视力与引导方式在契约里用同一个词）。
+/// 认不出的新值**不算** —— 那是「填了但这个版本不认识」。
+private func isUnprovidedProfileValue(_ raw: String?) -> Bool {
+    guard let raw = raw?.nilIfBlank else { return true }
+    return raw == "NOT_SPECIFIED"
 }
 
 // MARK: - Chat Preference

@@ -20,6 +20,7 @@ extension MockAPIClient {
             verifyStatus: blindVerifyStatus,
             visionLevel: blindProfile?.visionLevel,
             hasGuideDog: blindProfile?.hasGuideDog,
+            guideDog: blindProfile?.guideDog,
             tetherPreference: blindProfile?.tetherPreference,
             chatPreference: blindProfile?.chatPreference,
             defaultPace: blindProfile?.defaultPace
@@ -75,7 +76,9 @@ extension MockAPIClient {
             specialNeeds: request.specialNeeds ?? blindProfile?.specialNeeds,
             verifyStatus: blindVerifyStatus,
             visionLevel: request.visionLevel ?? blindProfile?.visionLevel,
-            hasGuideDog: request.hasGuideDog ?? blindProfile?.hasGuideDog,
+            // 与后端 #800 同义：旧字段只有 `YES` 时为 true，「不说」也给 false；没带 `guideDog` 就保留原值。
+            hasGuideDog: request.guideDog.map { $0 == GuideDogStatus.yes.rawValue } ?? blindProfile?.hasGuideDog,
+            guideDog: request.guideDog ?? blindProfile?.guideDog,
             tetherPreference: request.tetherPreference ?? blindProfile?.tetherPreference,
             chatPreference: request.chatPreference ?? blindProfile?.chatPreference,
             defaultPace: request.defaultPace ?? blindProfile?.defaultPace,

@@ -138,6 +138,11 @@ struct VolunteerInviteSupplement: Equatable, Sendable {
     /// 导盲犬那一行也不在这里 —— 它的源是 `WSNewOrder.hasGuideDog`，另一个数据源。
     var escortNeeds: [EscortNeed] {
         var needs: [EscortNeed] = []
+        // 两项都没给（缺失或 `NOT_SPECIFIED`）⇒ 一行都不出（#472）。否则小字会拼成
+        // 「请当面与跑者确认，请当面与跑者确认」—— 后端 #800 起这是新跑者的默认态。
+        guard !EscortNeed.runnerGaveNoGuidance(visionLevel: visionLevel, tetherPreference: tetherPreference) else {
+            return needs
+        }
         if let raw = visionLevel?.nilIfBlank {
             needs.append(EscortNeed(
                 kind: .vision,

@@ -117,8 +117,10 @@ final class EscortNeedsTests: XCTestCase {
 
     /// 跑者没提供视力状况（`NOT_SPECIFIED`，生产存量档案全是）：志愿者看到「请当面与跑者确认」，
     /// 不是「未提供」—— 后者没有任何可操作信息。
+    /// 引导方式给了值：只有视力那一行落「请当面与跑者确认」。两项都没给是
+    /// `testBothFieldsNotSpecifiedCollapseIntoOneAskInPersonLine` 的情形（#472 起合并成一句）。
     func testNotSpecifiedVisionAsksTheVolunteerToConfirmInPerson() {
-        let needs = makeOrder(status: .inProgress, visionLevel: "NOT_SPECIFIED").escortNeeds
+        let needs = makeOrder(status: .inProgress, visionLevel: "NOT_SPECIFIED", tetherPreference: "TETHER_ROPE").escortNeeds
 
         XCTAssertEqual(needs.first { $0.kind == .vision }?.value, EscortNeed.confirmInPerson)
         XCTAssertFalse(needs.contains { $0.value.contains("未提供") })
@@ -140,10 +142,50 @@ final class EscortNeedsTests: XCTestCase {
         XCTAssertEqual(needs.map(\.kind), [.unstated])
     }
 
+    /// 🔴 两项都是 `NOT_SPECIFIED`（后端 #800 起新跑者的默认态）⇒ 只出一句兜底，
+    /// 不出两行「请当面与跑者确认」（#472）。导盲犬那一行照旧在前面。
+    ///
+    /// **验红方式**：删掉 `escortNeeds` 里「两项都没给」那个 `guard`，这条必须失败。
+    func testBothFieldsNotSpecifiedCollapseIntoOneAskInPersonLine() {
+        let needs = makeOrder(
+            status: .inProgress,
+            visionLevel: "NOT_SPECIFIED",
+            tetherPreference: "NOT_SPECIFIED",
+            hasGuideDog: true
+        ).escortNeeds
+
+        XCTAssertEqual(needs.map(\.kind), [.guideDog, .unstated])
+        XCTAssertEqual(needs.last?.value, "跑者没有填写，出发前请当面问清楚怎么带")
+        XCTAssertFalse(needs.contains { $0.value == EscortNeed.confirmInPerson })
+    }
+
+    /// 只有一项是 `NOT_SPECIFIED` ⇒ 那一行照旧「请当面与跑者确认」，另一行照常显示，不合并。
+    func testOneNotSpecifiedFieldKeepsItsOwnAskInPersonRow() {
+        let needs = makeOrder(status: .inProgress, visionLevel: "LOW_VISION", tetherPreference: "NOT_SPECIFIED").escortNeeds
+
+        XCTAssertEqual(needs.map(\.kind), [.vision, .tether])
+        XCTAssertEqual(needs.first { $0.kind == .tether }?.value, EscortNeed.confirmInPerson)
+    }
+
     /// 只填了其中一项时不再追加「没填」那一行 —— 已经有可执行信息了。
     func testNoUnstatedRowWhenAtLeastOneFieldIsPresent() {
         let needs = makeOrder(status: .pendingAccept, visionLevel: "LOW_VISION").escortNeeds
         XCTAssertEqual(needs.map(\.kind), [.vision])
+    }
+
+    /// 「没给」的判据：缺失、空白、`NOT_SPECIFIED` 三种都算；认不出的新值**不算**（那是「填了但不认识」）。
+    /// 下单页的引导方式提示也用它 —— 只判 nil 的话，新账号（默认 `NOT_SPECIFIED`）永远看不到那条提示（#472）。
+    ///
+    /// **验红方式**：把 `TetherPreference.isUnprovided` 改回只判 `nilIfBlank == nil`，这条必须失败。
+    func testUnprovidedPredicatesCoverNotSpecifiedButNotUnknownValues() {
+        for raw in [nil, "", "  ", "NOT_SPECIFIED"] as [String?] {
+            XCTAssertTrue(TetherPreference.isUnprovided(raw), "引导方式 \(raw ?? "nil") 应算没给")
+            XCTAssertTrue(VisionLevel.isUnprovided(raw), "视力 \(raw ?? "nil") 应算没给")
+        }
+        XCTAssertFalse(TetherPreference.isUnprovided("TETHER_ROPE"))
+        XCTAssertFalse(TetherPreference.isUnprovided("SOMETHING_NEW"))
+        XCTAssertFalse(VisionLevel.isUnprovided("LOW_VISION"))
+        XCTAssertFalse(VisionLevel.isUnprovided("SOMETHING_NEW"))
     }
 
     // MARK: - 读屏

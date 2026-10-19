@@ -2324,7 +2324,8 @@ struct BlindBookingView: View {
     /// 那时他正在看「更多选项」，恰好是这条提示有意义的时刻。
     @ViewBuilder
     private var escortGuidanceHint: some View {
-        if appState.blindProfile?.tetherPreference?.nilIfBlank == nil {
+        // `NOT_SPECIFIED` 也算没填（#472）：后端 #800 起它是新建档默认值，只判 nil 会让新账号永远看不到这条。
+        if TetherPreference.isUnprovided(appState.blindProfile?.tetherPreference) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("还没填「希望怎么被引导」。填了之后，志愿者到场前就知道该递牵引绳、让你挽住手臂，还是只用口令。")
                     .font(AppFonts.caption())

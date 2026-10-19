@@ -43,17 +43,40 @@ final class DispatchCardRunnerFieldsTests: XCTestCase {
         XCTAssertEqual(supplement.togetherText, "第一次一起跑")
     }
 
-    /// 「没有偏好」不占字；`NOT_SPECIFIED` 这类没见过的视力取值落「当面确认」，绝不显示成全盲。
+    /// 「没有偏好」不占字；`NOT_SPECIFIED` 的视力落「当面确认」，绝不显示成全盲。
+    /// （引导方式给了值 —— 两项都没给是下一条用例的情形。）
     func testNoPreferenceIsSilentAndUnknownVisionIsNeverShownAsTotalBlind() {
         let supplement = VolunteerInviteSupplement(
             visionLevel: "NOT_SPECIFIED",
-            tetherPreference: nil,
+            tetherPreference: "TETHER_ROPE",
             expectedDurationMinutes: nil,
             chatPreference: "NO_PREFERENCE",
             routePreference: "NO_PREFERENCE"
         )
-        XCTAssertEqual(supplement.runnerSummary, EscortNeed.confirmInPerson)
+        XCTAssertEqual(supplement.runnerSummary, "\(EscortNeed.confirmInPerson)，牵引绳")
         XCTAssertFalse(supplement.runnerSummary?.contains("全盲") ?? false)
+    }
+
+    /// 🔴 视力与引导方式都是 `NOT_SPECIFIED`（后端 #800 起新跑者的默认态）⇒ 小字里不出
+    /// 「请当面与跑者确认」，更不许拼成两遍（#472）。其余偏好照常显示。
+    ///
+    /// **验红方式**：删掉 `VolunteerInviteSupplement.escortNeeds` 里那个 `guard`，这条必须失败。
+    func testBothFieldsNotSpecifiedLeaveNoAskInPersonInTheSummary() {
+        let onlyThose = VolunteerInviteSupplement(
+            visionLevel: "NOT_SPECIFIED",
+            tetherPreference: "NOT_SPECIFIED",
+            expectedDurationMinutes: nil
+        )
+        XCTAssertNil(onlyThose.runnerSummary, "两项都没给，却拼出了：\(onlyThose.runnerSummary ?? "")")
+
+        let withChat = VolunteerInviteSupplement(
+            visionLevel: "NOT_SPECIFIED",
+            tetherPreference: "NOT_SPECIFIED",
+            expectedDurationMinutes: nil,
+            chatPreference: "PREFER_QUIET",
+            routePreference: nil
+        )
+        XCTAssertEqual(withChat.runnerSummary, "偏好安静")
     }
 
     /// 老服务端的推送一项都没有 ⇒ 返回 nil，让 `/api/orders/available` 那条补的路照旧工作。
