@@ -117,8 +117,10 @@ final class EscortNeedsTests: XCTestCase {
 
     /// 跑者没提供视力状况（`NOT_SPECIFIED`，生产存量档案全是）：志愿者看到「请当面与跑者确认」，
     /// 不是「未提供」—— 后者没有任何可操作信息。
+    /// 引导方式给了值：只有视力那一行落「请当面与跑者确认」。两项都没给是
+    /// `testBothFieldsNotSpecifiedCollapseIntoOneAskInPersonLine` 的情形（#472 起合并成一句）。
     func testNotSpecifiedVisionAsksTheVolunteerToConfirmInPerson() {
-        let needs = makeOrder(status: .inProgress, visionLevel: "NOT_SPECIFIED").escortNeeds
+        let needs = makeOrder(status: .inProgress, visionLevel: "NOT_SPECIFIED", tetherPreference: "TETHER_ROPE").escortNeeds
 
         XCTAssertEqual(needs.first { $0.kind == .vision }?.value, EscortNeed.confirmInPerson)
         XCTAssertFalse(needs.contains { $0.value.contains("未提供") })

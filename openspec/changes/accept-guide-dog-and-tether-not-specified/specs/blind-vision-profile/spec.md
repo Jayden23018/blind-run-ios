@@ -20,6 +20,14 @@
 - **WHEN** 用户未进入同意页就保存资料
 - **THEN** 请求体不含 `visionLevel`、`guideDog` 与 `hasGuideDog`
 
+### Requirement: 志愿者侧不展示「未提供」
+
+跑者视力状况为 `NOT_SPECIFIED`、而引导方式给了值时，志愿者侧 MUST 在视力情况一行显示「请当面与跑者确认」，MUST NOT 显示「未提供」。视力与引导方式都未提供时按「陪跑员端两项都未提供时合成一句」处理。
+
+#### Scenario: 志愿者查看
+- **WHEN** 订单的 `visionLevel` 为 `NOT_SPECIFIED`，`tetherPreference` 为 `TETHER_ROPE`
+- **THEN** 视力情况一行的值为「请当面与跑者确认」
+
 ## ADDED Requirements
 
 ### Requirement: 导盲犬三选一
