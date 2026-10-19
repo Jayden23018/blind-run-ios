@@ -327,7 +327,7 @@ struct VolunteerAvailabilityScheduleView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(viewModel.slots) { slot in
                         slotRow(slot)
-                        rowDivider
+                        FlowSeparator()
                     }
 
                     Button {
@@ -337,7 +337,7 @@ struct VolunteerAvailabilityScheduleView: View {
                     }
                     .accessibilityHint("选择星期几和开始、结束时间，新增一段每周重复的空闲时间")
                     .accessibilityIdentifier("volunteerScheduleAddButton")
-                    rowDivider
+                    FlowSeparator()
 
                     // 只放宽、不收紧（后端 #410）：加一段某天的时段不会让别的日子变成「不接」，
                     // 所以这里没有、也不做「这一天不空」。
@@ -443,13 +443,6 @@ struct VolunteerAvailabilityScheduleView: View {
         .accessibilityLabel(announcement(slot))
         .accessibilityHint("双击修改或删除这一段")
         .accessibilityIdentifier("volunteerScheduleSlotRow")
-    }
-
-    private var rowDivider: some View {
-        Rectangle()
-            .fill(AppColors.Flow.separator)
-            .frame(height: 1)
-            .accessibilityHidden(true)
     }
 
     /// 两枚「添加」行的内容。不用 `Label`：`List` 里的 `Label` 被真机审计判
@@ -559,7 +552,8 @@ private struct VolunteerAvailabilitySlotEditor: View {
                             .frame(maxWidth: .infinity, minHeight: 64) // guard:allow small-touch-target
                             .contentShape(Rectangle())
                     }
-                    .accessibilityLabel("删除 \(deletion.summary)")
+                    // 以看得见的「删除这一段」开头（语音控制按屏幕上的字找按钮），后面再说清是哪一段。
+                    .accessibilityLabel("删除这一段，\(deletion.summary)")
                     .accessibilityHint("删除前会再确认一次")
                     .accessibilityIdentifier("volunteerScheduleEditorDelete")
                 }
@@ -684,27 +678,45 @@ private struct VolunteerAvailabilityDateList: View {
     let onSelect: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    /// 常驻 `ScrollView` + `VStack`，理由同空闲时间页（`List` 会被整页审计误判，#466）。
     var body: some View {
-        List(options, id: \.self) { day in
-            Button {
-                onSelect(day)
-                dismiss()
-            } label: {
-                HStack {
-                    Text(VolunteerAvailabilitySlotEditor.dateOptionText(day))
-                        .foregroundColor(AppColors.textPrimary)
-                    Spacer(minLength: 8)
-                    if day == selected {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(AppColors.primary)
-                            .accessibilityHidden(true)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(options.enumerated()), id: \.element) { index, day in
+                    if index > 0 { FlowSeparator() }
+                    Button {
+                        onSelect(day)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(VolunteerAvailabilityScheduleEditing.displayText(
+                                VolunteerAvailabilitySlotEditor.dateOptionText(day)
+                            ))
+                            .foregroundColor(AppColors.textPrimary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            if day == selected {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(AppColors.primary)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .frame(minHeight: 64) // guard:allow small-touch-target
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    // 读屏标签用不带窄空格的原串：UI 用例按「10月20日（周二）」整串找这一行。
+                    .accessibilityLabel(VolunteerAvailabilitySlotEditor.dateOptionText(day))
+                    .accessibilityAddTraits(day == selected ? .isSelected : [])
                 }
-                .frame(minHeight: 64) // guard:allow small-touch-target
-                .contentShape(Rectangle())
             }
-            .accessibilityAddTraits(day == selected ? .isSelected : [])
+            .padding(.horizontal, 16)
+            .background(AppColors.Flow.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(16)
+            .readableContentColumn()
         }
+        .background(AppColors.Flow.page.ignoresSafeArea())
         .navigationTitle("日期")
         .navigationBarTitleDisplayMode(.inline)
     }

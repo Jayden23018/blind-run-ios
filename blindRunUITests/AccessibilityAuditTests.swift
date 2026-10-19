@@ -209,7 +209,7 @@ final class AccessibilityAuditTests: XCTestCase {
         if !delete.isHittable { app.swipeUp() }
         XCTAssertTrue(delete.isHittable, "「删除这一段」点不到")
         XCTAssertGreaterThanOrEqual(delete.frame.height, 64, "「删除这一段」触达不足 64pt")
-        XCTAssertEqual(delete.label, "删除 \(saturdayLabel)", "读屏没念出删的是哪一段")
+        XCTAssertEqual(delete.label, "删除这一段，\(saturdayLabel)", "读屏没念出删的是哪一段，或不含看得见的「删除这一段」")
 
         // 取消：仍在编辑页，什么都没删。
         delete.tap()
@@ -267,6 +267,14 @@ final class AccessibilityAuditTests: XCTestCase {
             sleep(1)
             attachScreenshot(app, name: "availability-oneoff-editor-\(variant.name)")
             try audit(app)
+            // 「日期」推出的日期列表页（#466 起自己画的那一页）。
+            app.descendants(matching: .any)["volunteerScheduleEditorDatePicker"].firstMatch.tap()
+            XCTAssertTrue(app.navigationBars["日期"].waitForExistence(timeout: 5), "\(variant.name)：没推出日期列表")
+            sleep(1)
+            attachScreenshot(app, name: "availability-date-list-\(variant.name)")
+            try audit(app)
+            app.navigationBars["日期"].buttons.firstMatch.tap()
+            XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "\(variant.name)：没退回按日期添加页")
             app.buttons["volunteerScheduleEditorDone"].tap()
 
             // 列表页：新增了一段之后审（有一行时段 + 两枚添加行 + 组标题 + 页脚）。
@@ -300,8 +308,8 @@ final class AccessibilityAuditTests: XCTestCase {
             try audit(app)
             app.buttons["volunteerScheduleEditorCancel"].tap()
 
-            // 编辑已有一段：底部有「删除这一段」。
-            let row = slotRows(app).firstMatch
+            // 编辑已有一段：底部有「删除这一段」。点刚加的那段一次性时段，顺带审到只读的「日期」一行。
+            let row = slotRows(app).matching(NSPredicate(format: "label BEGINSWITH %@", "仅 ")).firstMatch
             XCTAssertTrue(row.waitForExistence(timeout: 5), "\(variant.name)：取消后没回到列表")
             for _ in 0..<6 where !row.isHittable { app.swipeDown() }
             row.tap()
@@ -2850,6 +2858,7 @@ final class AccessibilityAuditTests: XCTestCase {
                 return true
             }
             if issue.auditType == .contrast, let banner = mockBannerFrame,
+               issue.element?.identifier != "mockEnvironmentBanner",
                let frame = issue.element?.frame, !frame.isEmpty, banner.insetBy(dx: -0.5, dy: -0.5).contains(frame) {
                 print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在 Mock 横幅（\(banner)）下面，不可见")
                 return true
