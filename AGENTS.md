@@ -86,6 +86,7 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 | `List` 里的行被审计判「改不了字号」，但最大字号截图里字明明放大了 | `list-rows-false-dynamic-type-audit` |
 | 绕开一条既有红灯另写用例 / 安全控件只在长链用例中段有断言 | `routed-around-red-light-must-be-filed` |
 | 真机 UI 用例报 App 不在前台，或面板高度 0 | `ui-test-device-orientation-is-not-fixed` |
+| 审计报 `Contrast failed` / `Text clipped` 而颜色够、字完整（AX5 横排把字压出框、行尾全角「）」、`Form` 里 `NavigationLink`、系统通知盖住） | `text-clipped-audit-trailing-fullwidth-paren` |
 | UI 用例失败现场弹出「紧急呼叫」拨号单 / 全屏遮罩「没出来」 | `ui-test-tap-lands-on-persistent-sos-bar` |
 | 单测全绿、真机点按钮就 `EXC_BAD_ACCESS`，栈里有带 `Builtin.ImplicitActor` 的 thunk | `unannotated-async-closure-property-crashes-on-device` |
 
