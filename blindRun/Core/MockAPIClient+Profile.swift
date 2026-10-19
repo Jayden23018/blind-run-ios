@@ -23,7 +23,8 @@ extension MockAPIClient {
             guideDog: blindProfile?.guideDog,
             tetherPreference: blindProfile?.tetherPreference,
             chatPreference: blindProfile?.chatPreference,
-            defaultPace: blindProfile?.defaultPace
+            defaultPace: blindProfile?.defaultPace,
+            guidePreferenceText: blindProfile?.guidePreferenceText
         )
     }
 
