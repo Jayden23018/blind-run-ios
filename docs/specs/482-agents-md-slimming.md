@@ -1,6 +1,6 @@
 # AGENTS.md 瘦身与 SessionStart 注入精简（#482）
 
-> 状态：**待负责人确认**（2026-10-19 写）。确认前不实现；#371 合并前不实现。
+> 状态：**负责人已确认**（2026-10-19）。#371 合并前不实现；实现在新会话里做。
 > 面试记录：本文件「决策」表就是结论，不需要再翻原会话。
 
 ## 目标
@@ -45,7 +45,7 @@
 
 **不做**（明确排除）：
 - 不修「worktree 会话执行主 checkout 旧版钩子」—— 已单开 #483。本 SPEC 的 SessionStart 改动在桌面 worktree 会话里**要等主 checkout 更新后才生效**，验收只在 CLI 里测。
-- 不改 `CLAUDE.md`（2,979 B，与 AGENTS.md §7/§11 有几行重复）—— 见「未决」。
+- 不改 `CLAUDE.md`（2,979 B，与 AGENTS.md §7/§11 有几行重复）—— 负责人 2026-10-19 确认不在本次范围。
 - 不改任何规则的**含义**。每条硬约束要么原样（可压缩措辞）留在 AGENTS.md，要么搬到写明的去处；不许有规则凭空消失。
 - 不改 `MEMORY.md` 与项目记忆文件。
 - 不建 `.claude/rules/`（面试时否掉了 paths 规则，理由见决策表）。
@@ -191,5 +191,4 @@ openspec validate --all --strict --no-interactive
 
 ## 未决 / 需要人拍板
 
-- `CLAUDE.md`（2,979 B）有几行与 AGENTS.md §7、§11 意思重复。本 SPEC 不动它；要不要顺带去重，请负责人在确认 SPEC 时一并说。
 - 桌面 App worktree 会话里，SessionStart 的改动要等 #483 解决或主 checkout 更新后才看得到。本 SPEC 只在 CLI 里验收。
