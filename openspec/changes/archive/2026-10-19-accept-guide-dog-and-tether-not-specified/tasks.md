@@ -21,4 +21,4 @@
 
 - [x] 4.1 单测：撤回发 `NOT_SPECIFIED`、保存不改写 `NOT_SPECIFIED`、牵引方式撤回、两项未填合成一句、邀请卡不重复，逐条验红 —— 2026-10-19 iPhone 16 Pro：passed=151 failed=0；两批打回 8 处实现，failed=11 / failed=5，每处都有对应用例变红
 - [x] 4.2 编译门禁 `build-for-testing` 与规格校验通过 —— 2026-10-19 TEST BUILD SUCCEEDED；spec-coverage / error-codes / docs / openspec --strict 全过
-- [ ] 4.3 真机跑覆盖本次改动的 suite —— 单测已跑（见 4.1）；UI 用例 `testBlindProfileGuideDogChoiceIsTallAndSpeaksTheCurrentValue`（64pt + 读屏值）待 iPhone 打开「UI 自动化」开关后跑
+- [x] 4.3 真机跑覆盖本次改动的 suite —— 单测见 4.1；UI 用例 `testBlindProfileGuideDogChoiceIsTallAndSpeaksTheCurrentValue` 2026-10-19 iPhone 16 Pro passed=1（首跑量到 63.99999999999994，按既有口径改 63.5）；验红：64pt 挪到 Menu 外后量到 20.3pt，变红
