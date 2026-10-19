@@ -180,6 +180,66 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(row.label.contains("07:00 – 09:00"), "读屏没念出时间段：\(row.label)")
     }
 
+    /// 「空闲时间」页与它的两种编辑页的整页审计（#466）：亮 / 暗、默认字号 / 最大字号各一遍。
+    /// 这一页 #455 之前从没被审计过，第一次审就报了 11 条（工具栏「取消」「完成」、组标题、页脚、两枚添加行）。
+    /// 每一态都截图，前后对比和判误报都靠它。
+    @MainActor
+    func testVolunteerAvailabilityPagesPassAccessibilityAuditInLightDarkAndLargestText() throws {
+        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax5-light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+            ("ax5-dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        for variant in variants {
+            let app = launchVolunteerHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
+            let tabBar = app.tabBars.firstMatch
+            XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "\(variant.name)：底部标签栏不在")
+            tabBar.buttons["我的"].tap()
+            let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+            XCTAssertTrue(entry.waitForExistence(timeout: 15), "\(variant.name)：设置页没有空闲时间入口")
+            for _ in 0..<6 where !entry.isHittable { app.swipeUp() }
+            entry.tap()
+
+            // 按日期添加的编辑页（日期一行是 #455 新加的）。
+            let addOneOff = app.buttons["volunteerScheduleAddOneOffButton"].firstMatch
+            XCTAssertTrue(addOneOff.waitForExistence(timeout: 10), "\(variant.name)：没有「按日期添加」")
+            for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+            addOneOff.tap()
+            XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "\(variant.name)：没弹出按日期添加页")
+            sleep(1)
+            attachScreenshot(app, name: "availability-oneoff-editor-\(variant.name)")
+            try audit(app)
+            app.buttons["volunteerScheduleEditorDone"].tap()
+
+            // 列表页：新增了一段之后审（有一行时段 + 两枚添加行 + 组标题 + 页脚）。
+            let addWeekly = app.buttons["volunteerScheduleAddButton"].firstMatch
+            XCTAssertTrue(addWeekly.waitForExistence(timeout: 10), "\(variant.name)：完成后没回到空闲时间页")
+            sleep(1)
+            attachScreenshot(app, name: "availability-list-\(variant.name)")
+            try audit(app)
+            for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+            sleep(1)
+            attachScreenshot(app, name: "availability-list-bottom-\(variant.name)")
+            try audit(app)
+
+            // 每周时段的编辑页：同一个编辑视图，日期一行换成「星期」。
+            for _ in 0..<6 where !addWeekly.isHittable { app.swipeDown() }
+            addWeekly.tap()
+            XCTAssertTrue(app.navigationBars["添加空闲时段"].waitForExistence(timeout: 5), "\(variant.name)：没弹出添加空闲时段页")
+            sleep(1)
+            attachScreenshot(app, name: "availability-weekly-editor-\(variant.name)")
+            try audit(app)
+            app.buttons["volunteerScheduleEditorCancel"].tap()
+            app.terminate()
+        }
+    }
+
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
     /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏
