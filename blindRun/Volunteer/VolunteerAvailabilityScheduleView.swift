@@ -318,7 +318,7 @@ struct VolunteerAvailabilityScheduleView: View {
                 // 系统组标题与页脚色是 `secondaryLabel`，压在分组底色上亮色只有 3.29:1，
                 // 真机审计报「字再大一点才够」（#466）。`textSecondary` 亮 5.96:1 / 暗 9.5:1。
                 Text("这些时间里有合适的陪跑，会邀请你")
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -460,6 +460,8 @@ struct VolunteerAvailabilityScheduleView: View {
                 .accessibilityHidden(true)
             Text(title)
                 .font(AppFonts.body())
+                // 按钮里的多行字默认居中；最大字号折行后第二行要贴左，与 `List` 时一致。
+                .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading) // guard:allow small-touch-target
