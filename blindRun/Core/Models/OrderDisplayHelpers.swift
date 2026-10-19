@@ -809,6 +809,15 @@ struct EscortNeed: Equatable, Identifiable {
     /// 以及接单前的派单载荷 `WSNewOrder.hasGuideDog`（通话磨合期志愿者拿不到订单详情，
     /// 后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，那一态它恒为 null → 403）。
     /// 两处各抄一份文案，改一处必漏一处。
+    /// 档案里视力与引导方式都没给。**不是「无要求」** —— 是「不知道」，得当面问。
+    /// 档案不全时志愿者更需要被提醒去问，而不是看到一片空白然后自己猜一种带法。
+    static let runnerDidNotSay = EscortNeed(
+        kind: .unstated,
+        symbolName: "questionmark.circle",
+        title: "引导方式",
+        value: "跑者没有填写，出发前请当面问清楚怎么带"
+    )
+
     static let guideDogThisRun = EscortNeed(
         kind: .guideDog,
         symbolName: "pawprint.fill",
@@ -856,6 +865,13 @@ extension OrderDetailResponse {
 
         guard status.disclosesBlindRunnerNotesToVolunteer else { return needs }
 
+        // 两项都没给（缺失或 `NOT_SPECIFIED`）⇒ 只给一句兜底，不出两行「请当面与跑者确认」（#472）。
+        // 后端 #800 起新建档两项默认都是 `NOT_SPECIFIED`，这是新跑者的常态，不是边缘情况。
+        guard !(VisionLevel.isUnprovided(visionLevel) && TetherPreference.isUnprovided(tetherPreference)) else {
+            needs.append(.runnerDidNotSay)
+            return needs
+        }
+
         if let raw = visionLevel?.nilIfBlank {
             needs.append(EscortNeed(
                 kind: .vision,
@@ -871,17 +887,6 @@ extension OrderDetailResponse {
                 symbolName: "link",
                 title: "引导方式",
                 value: TetherPreference(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
-            ))
-        }
-
-        // 两项都没有 ≠ 没有要求。档案不全时志愿者更需要被提醒去问，而不是看到一片空白
-        // 然后自己猜一种带法。
-        if !needs.contains(where: { $0.kind == .vision || $0.kind == .tether }) {
-            needs.append(EscortNeed(
-                kind: .unstated,
-                symbolName: "questionmark.circle",
-                title: "引导方式",
-                value: "跑者没有填写，出发前请当面问清楚怎么带"
             ))
         }
 

@@ -22,3 +22,5 @@
 
 - 代码：`blindRun/Profile/ProfileModule.swift`（view model 撤回状态、请求体、视力区块按钮与提示）、`blindRun/Core/PrivacyConsent.swift`（`PrivacyConsentStore.revokeConsent`）。
 - 契约：只用既有 `PUT /api/blind/profile` 的 `visionLevel` / `hasGuideDog`，不改。
+
+> 2026-10-19 订正（iOS #472，变更 `accept-guide-dog-and-tether-not-specified`）：后端 #800 起有了 `guideDog = NOT_SPECIFIED`，撤回 / 拒绝改发它，不再发 `hasGuideDog = false`（后端会把后者存成「明确没有导盲犬」）；撤回成功文案同步改成「改成不提供」。本变更的规格增量已按新口径改写，免得归档顺序把规格改回旧说法。
