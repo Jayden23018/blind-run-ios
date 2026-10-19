@@ -2754,6 +2754,14 @@ final class AccessibilityAuditTests: XCTestCase {
             }
             return nil
         }()
+        // 顶部同理：测试构建才有的 Mock 横幅（`ContentView` 里 `#if DEBUG` 那枚黄胶囊）字号可缩放，
+        // AX4/AX5 下会长到导航栏上，把页面标题整个盖住 —— 2026-10-19 空闲时间页 AX5 暗色（#466），
+        // 「空闲时间」标题报 Contrast failed，截图里那块只有横幅的黄底。横幅不进发布包。
+        // 判据同样是几何：**整个落在横幅框内**的元素才放过。
+        let mockBannerFrame: CGRect? = {
+            let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
+            return banner.exists ? banner.frame : nil
+        }()
         try app.performAccessibilityAudit(
             for: [
                 .contrast, .dynamicType, .elementDetection, .hitRegion,
@@ -2763,6 +2771,11 @@ final class AccessibilityAuditTests: XCTestCase {
             if issue.auditType == .contrast, let top = occludingBarTop,
                let frame = issue.element?.frame, frame.minY >= top - 0.5 {
                 print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
+                return true
+            }
+            if issue.auditType == .contrast, let banner = mockBannerFrame,
+               let frame = issue.element?.frame, !frame.isEmpty, banner.insetBy(dx: -0.5, dy: -0.5).contains(frame) {
+                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在 Mock 横幅（\(banner)）下面，不可见")
                 return true
             }
             // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容

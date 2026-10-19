@@ -502,24 +502,28 @@ private struct VolunteerAvailabilitySlotEditor: View {
 
     /// 一次性时段的日期选择：今天起固定天数，**没有过去的日期**；星期随日期一起换。
     ///
-    /// ponytail: 用 `Picker` 列日期串而不是 `DatePicker`，理由同下面的时间选择 ——
+    /// ponytail: 列日期串而不是 `DatePicker`，理由同下面的时间选择 ——
     /// 不在 `Date` 与「哪一天」之间换算；读屏下是一行按钮，双击推出一页日期列表逐行可念可选。
     /// 紧凑 `DatePicker` 在 `Form` 里是一枚远小于 64pt 的胶囊。
+    ///
+    /// 不用 `Picker(.navigationLink)`（#466）：它把选中值画成系统 `secondaryLabel`，压白底约 3.4:1，
+    /// 真机审计报「日期」一行对比度不够，而 `Picker` 改不了值的颜色。自己写这一行，值用 `textSecondary`。
+    /// 菜单样式（`Form` 默认）也不行：真机量过可点的那颗按钮只有 34pt。
     private func datePicker(_ options: [String]) -> some View {
-        Picker("日期", selection: Binding(
-            get: { draft.date ?? options[0] },
-            set: { draft.setDate($0) }
-        )) {
-            ForEach(options, id: \.self) { day in
-                Text(Self.dateOptionText(day))
-                    .frame(minHeight: 64) // guard:allow small-touch-target
-                    .tag(day)
+        let selected = draft.date ?? options[0]
+        return NavigationLink {
+            VolunteerAvailabilityDateList(options: options, selected: selected) { draft.setDate($0) }
+        } label: {
+            HStack {
+                Text("日期")
+                    .foregroundColor(AppColors.textPrimary)
+                Spacer(minLength: 8)
+                Text(Self.dateOptionText(selected))
+                    .foregroundColor(AppColors.textSecondary)
+                    .multilineTextAlignment(.trailing)
             }
+            .frame(minHeight: 64) // guard:allow small-touch-target
         }
-        // 菜单样式（`Form` 默认）真机量过：外挂 `.frame(minHeight: 64)` 只撑高了行，
-        // 可点的那颗按钮仍是 34pt。推一页列表的样式整行可点，选项行也各自 64pt。
-        .pickerStyle(.navigationLink)
-        .frame(minHeight: 64) // guard:allow small-touch-target
         .accessibilityIdentifier("volunteerScheduleEditorDatePicker")
     }
 
@@ -542,5 +546,41 @@ private struct VolunteerAvailabilitySlotEditor: View {
                 .tag(value)
             }
         }
+    }
+}
+
+// MARK: - 一次性时段的日期列表
+
+/// 「日期」一行推出来的那一页：逐行一个日期，选中的那行带勾，点一下就回编辑页。
+/// 与原先 `Picker(.navigationLink)` 推出来的页面同一种行为（#466 换掉的只是编辑页那一行的颜色）。
+private struct VolunteerAvailabilityDateList: View {
+    let options: [String]
+    let selected: String
+    let onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List(options, id: \.self) { day in
+            Button {
+                onSelect(day)
+                dismiss()
+            } label: {
+                HStack {
+                    Text(VolunteerAvailabilitySlotEditor.dateOptionText(day))
+                        .foregroundColor(AppColors.textPrimary)
+                    Spacer(minLength: 8)
+                    if day == selected {
+                        Image(systemName: "checkmark")
+                            .foregroundColor(AppColors.primary)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(minHeight: 64) // guard:allow small-touch-target
+                .contentShape(Rectangle())
+            }
+            .accessibilityAddTraits(day == selected ? .isSelected : [])
+        }
+        .navigationTitle("日期")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
