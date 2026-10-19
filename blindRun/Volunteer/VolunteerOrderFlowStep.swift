@@ -358,6 +358,22 @@ extension RunOrderStatus {
         case .unknown: return "订单状态有更新，请刷新页面或稍后重试。"
         }
     }
+
+    /// 收到 `ORDER_VOLUNTEER_LOST` 时，手上这一单是不是被系统转走的那一单（#456）。
+    ///
+    /// 事件不带订单号，只能靠状态认：后端看门狗（`OrderLifecycleService.handleVolunteerLost`）
+    /// 只在陪跑员点了「已出发」或「已到达」之后动手。**`IN_PROGRESS` 刻意不算**：跑步页是安全相关页面，
+    /// 一条认错单的事件把人从陪跑中踢出去，比晚几秒等状态推送贵得多。
+    /// 穷举 switch：后端加状态时编译器逼一次决策。
+    var isTakenAwayWhenVolunteerLost: Bool {
+        switch self {
+        case .driverEnRoute, .driverArrived:
+            return true
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .inProgress,
+             .completed, .cancelled, .rematching, .noVolunteer, .unknown:
+            return false
+        }
+    }
 }
 
 struct VolunteerCancelAnnouncement: Equatable {
@@ -372,10 +388,14 @@ struct VolunteerCancelAnnouncement: Equatable {
     private(set) var countedAsLateCancel: Bool?
     private(set) var cancellationSpoken = false
     private(set) var lateCancelSpoken = false
+    /// 这一次 `REMATCHING` 是不是陪跑员自己按取消造成的。`false` 时订单是被系统转走的（#456），
+    /// 订单页要自己离开 —— 自己取消那条路由取消面板的回调关页。
+    private(set) var requested = false
 
     /// 真发出取消请求时调。上一次取消留下的状态一并清掉。
     mutating func begin() {
         self = VolunteerCancelAnnouncement()
+        requested = true
     }
 
     /// 这一次状态推进要不要念取消那一句。

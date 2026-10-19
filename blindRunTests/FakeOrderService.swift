@@ -61,6 +61,8 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var respondResult: Result<Void, Error> = .failure(NotStubbed(method: "respond"))
     var enRouteResult: Result<Void, Error> = .failure(NotStubbed(method: "enRoute"))
     var arrivedResult: Result<Void, Error> = .failure(NotStubbed(method: "arrived"))
+    /// 让「已到达」的请求在路上停一会儿：测「请求在路上时这一单被转走」（#456）。
+    var arrivedDelayNanoseconds: UInt64 = 0
     var startServiceResult: Result<Void, Error> = .failure(NotStubbed(method: "startService"))
     var finishResult: Result<Void, Error> = .failure(NotStubbed(method: "finish"))
     var confirmDepartureResult: Result<Void, Error> = .failure(NotStubbed(method: "confirmDeparture"))
@@ -180,6 +182,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     func arrived(orderId: Int64) async throws {
         record()
         lastOrderId = orderId
+        if arrivedDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: arrivedDelayNanoseconds) }
         return try arrivedResult.get()
     }
 

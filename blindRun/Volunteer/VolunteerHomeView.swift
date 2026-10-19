@@ -166,6 +166,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var realtimeDispatchCancellable: AnyCancellable?
     private var realtimeRecoveryCancellable: AnyCancellable?
     private var realtimeStatusCancellable: AnyCancellable?
+    private var realtimeVolunteerLostCancellable: AnyCancellable?
     /// 一条 ticker 刷**整队**邀请的剩余秒数。**不是每条一个** —— 每条一个的话
     /// 队列增删时要各自建/撤，而它们刷新的是同一个时钟。
     private var countdownTask: Task<Void, Never>?
@@ -996,9 +997,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                         status: updated.status
                     )
                 } else {
-                    self.activeOrder = nil
-                    self.appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
-                    self.appState?.liveEscortCoordinator.clearOwnedOrder()
+                    self.dropActiveOrder(updated.orderId)
                 }
                 // 陪跑员这一侧的那张表（#333；`REMATCHING` 那句与订单页相同），
                 // 且与订单页共用去重键：两边都订阅了这条推送，只该念出一句。
@@ -1020,6 +1019,24 @@ final class VolunteerHomeViewModel: ObservableObject {
                     self.dispatchLoadState = .loaded(summary)
                 }
             }
+        // 出发后失联、单已转走（`ORDER_VOLUNTEER_LOST`，#456）：「当前订单」静默清掉。
+        // 不念：横幅在念后端那句。清掉之后，紧跟着的 `REMATCHING` 推送在上面那条订阅里就认不出这一单，
+        // 也就不会再念「订单已取消」把横幅切断。
+        realtimeVolunteerLostCancellable = appState.realtimeCoordinator.volunteerLostPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                guard let self,
+                      let current = self.activeOrder,
+                      current.status.isTakenAwayWhenVolunteerLost else { return }
+                self.dropActiveOrder(current.orderId)
+            }
+    }
+
+    /// 「当前订单」不再属于这位陪跑员：状态推送进了非活跃态，或失联事件把它转走了（#456）。
+    private func dropActiveOrder(_ orderID: Int64) {
+        activeOrder = nil
+        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
+        appState?.liveEscortCoordinator.clearOwnedOrder()
     }
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {

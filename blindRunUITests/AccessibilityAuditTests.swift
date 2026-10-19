@@ -482,6 +482,39 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    /// #456：陪跑员出发后失联、单被系统转走（`ORDER_VOLUNTEER_LOST` + `REMATCHING`）⇒ 订单页自己关掉、回到首页，
+    /// 横幅说的是后端那句，首页的「当前订单」也不在了。单测只钉得住 `didLoseOrder` 置位，关页这一步只有这里看得见。
+    @MainActor
+    func testVolunteerOrderPageLeavesWhenTheOrderIsTakenAway() {
+        let app = launchVolunteerHome(
+            seedOrderStatus: "DRIVER_EN_ROUTE",
+            available: false,
+            extraEnvironment: ["AIDRUN_UI_TEST_VOLUNTEER_LOST_AFTER_SECONDS": "35"]
+        )
+        let primary = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        let card = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
+        // 出发态的单可能在启动时自动打开，也可能要从首页「当前订单」点进去 —— 两种都接住。
+        if !primary.waitForExistence(timeout: 12) {
+            for _ in 0..<4 where !card.isHittable { app.swipeUp() }
+            XCTAssertTrue(card.waitForExistence(timeout: 10), "首页没有当前订单卡")
+            card.tap()
+        }
+        XCTAssertTrue(primary.waitForExistence(timeout: 10), "前提：出发态的订单页没打开")
+
+        let banner = app.descendants(matching: .any)["realtimeForegroundNotification"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 40), "失联事件没有出横幅")
+        XCTAssertTrue(banner.label.contains("转给其他志愿者"), "横幅不是后端那句：\(banner.label)")
+
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: primary)
+        wait(for: [gone], timeout: 10)
+        // 等一轮首页刷新：被转走的单不能又被自动打开、或作为当前订单回来。
+        Thread.sleep(forTimeInterval: 6)
+        XCTAssertFalse(primary.exists, "订单页关掉之后又回来了")
+        for _ in 0..<3 { app.swipeDown() }
+        XCTAssertFalse(card.exists, "首页的当前订单还在")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     /// #420：接单开关开着 + 出发态的单 + 本机没有同意 ⇒ 「自动恢复待命」与「同行态」要问同一件事，
     /// 界面上任何时刻只许有一张同意页；在那一张上拒绝之后，两处都算答过，不再出现第二张。
     ///

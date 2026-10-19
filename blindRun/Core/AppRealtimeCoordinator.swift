@@ -473,6 +473,22 @@ final class AppRealtimeCoordinator: ObservableObject {
         introCallIncomingSubject.eraseToAnyPublisher()
     }
     static let introCallIncomingEventType = "INTRO_CALL_INCOMING"
+    /// 陪跑员出发后失联 / 迟迟不到，系统已把这一单转走（`ORDER_VOLUNTEER_LOST`，后端 #616 M6，iOS #456）。
+    /// **不带订单号**：后端用模板通知发它（`sendNotification(..., null)`），信封和补读那条日志都没有 `orderId`；
+    /// 消费方自己判「手上这一单是不是出发中 / 已到达」（`RunOrderStatus.isTakenAwayWhenVolunteerLost`）。
+    /// 实时推送和重连补读都发。通知本身照常按安全提醒入队、念后端 `ttsText` —— 这条只让页面放下订单，**不念任何话**。
+    private let volunteerLostSubject = PassthroughSubject<Void, Never>()
+    var volunteerLostPublisher: AnyPublisher<Void, Never> {
+        volunteerLostSubject.eraseToAnyPublisher()
+    }
+    static let volunteerLostEventType = "ORDER_VOLUNTEER_LOST"
+
+    /// 跑者也会收到同名事件（文案不同），那一端没有可放下的订单页。未绑定角色（单测直接喂事件）时照发。
+    private func publishVolunteerLostIfNeeded(eventType: String) {
+        guard eventType == Self.volunteerLostEventType,
+              attachedRole == nil || attachedRole == .volunteer else { return }
+        volunteerLostSubject.send()
+    }
     /// 陪跑员通话页开着时为 true：那一页自己显示「跑者王*正在来电」并播一次，
     /// 这条通知就**不再进横幅** —— 两处各念一遍，读屏用户会听到同一件事两次。
     /// 页面不在时照旧走横幅（陪跑员在首页也要知道有人在打给他）。
@@ -926,6 +942,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
         if Self.refreshOnlyEventTypes.contains(eventType) { return }
         if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
+        publishVolunteerLostIfNeeded(eventType: eventType)
         if eventType == Self.introCallIncomingEventType {
             // `backendTimestamp` 而不是 `parseISO8601`：WS 信封的 timestamp 是无时区的 LocalDateTime，
             // ISO8601DateFormatter 解不出来，会让重连补读来的旧提醒一律当成「刚刚」。
@@ -1259,6 +1276,9 @@ final class AppRealtimeCoordinator: ObservableObject {
         let sorted = notifications.sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
         for missed in sorted {
             recordObservedNotificationTimestamp(missed.sentAt)
+            // 断线期间被转走的单（#456）：回到信号范围后靠这里才知道。排在正文判空之前 ——
+            // 放下订单不依赖有没有文案可念。
+            publishVolunteerLostIfNeeded(eventType: (missed.eventType ?? "").uppercased())
             guard !missed.body.trimmed.isEmpty else { continue }
             // 补读走**同一条**正文覆盖。漏掉这里的后果只在断线重连那条路径上出现
             // （最容易漏测、也最难在真机上复现）：屏幕上那行字是替代文案、补读念的却是
