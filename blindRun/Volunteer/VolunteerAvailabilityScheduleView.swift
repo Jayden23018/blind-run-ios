@@ -436,6 +436,9 @@ struct VolunteerAvailabilityScheduleView: View {
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // 上下留白（`List` 行原本自带的那一截）：最大字号下两行字会把 64pt 撑满，字框贴上分隔线，
+            // 真机审计把那条 1pt 浅灰线当成字色，报「09:00 – 12:00」Contrast failed（#466）。
+            .padding(.vertical, Self.rowVerticalPadding)
             .frame(minHeight: 64) // guard:allow small-touch-target
             .contentShape(Rectangle())
         }
@@ -457,9 +460,13 @@ struct VolunteerAvailabilityScheduleView: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.vertical, Self.rowVerticalPadding)
         .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading) // guard:allow small-touch-target
         .contentShape(Rectangle())
     }
+
+    /// 卡片里每一行字的上下留白，见 `slotRow` 上那段。日期列表页同用。
+    static let rowVerticalPadding: CGFloat = 10
 
     private func rangeText(_ slot: VolunteerAvailabilityDraftSlot) -> String {
         let start = VolunteerAvailabilityScheduleEditing.raw(fromMinutes: slot.startMinutes)
@@ -705,6 +712,7 @@ private struct VolunteerAvailabilityDateList: View {
                                     .accessibilityHidden(true)
                             }
                         }
+                        .padding(.vertical, VolunteerAvailabilityScheduleView.rowVerticalPadding)
                         .frame(minHeight: 64) // guard:allow small-touch-target
                         .contentShape(Rectangle())
                     }

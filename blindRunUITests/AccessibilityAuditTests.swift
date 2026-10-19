@@ -180,6 +180,22 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(row.label.contains("07:00 – 09:00"), "读屏没念出时间段：\(row.label)")
     }
 
+    /// 等滚动停稳再审计：`element` 的 frame 连续两次读数相同才返回（#466）。
+    /// 2026-10-19 AX5 亮色一轮在滚动没停时取样，「09:00 – 12:00」报 Contrast failed，
+    /// 报的坐标与整屏截图里那一行对不上、元素截图实测 6.65:1 —— 不等就会随机红。
+    /// 不用固定 sleep：滚得快时白等，滚得慢时不够。
+    private func waitUntilSettled(_ element: XCUIElement, timeout: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = element.frame
+        while Date() < deadline {
+            usleep(250_000)
+            let now = element.frame
+            if now == last { return }
+            last = now
+        }
+        XCTFail("\(element.identifier) 的位置 \(timeout) 秒内没停稳，审计会在滚动中取样")
+    }
+
     /// 空闲时间页的时段行（不含两枚添加行）。页面不是 `List`，没有 cell 可数（#466）。
     private func slotRows(_ app: XCUIApplication) -> XCUIElementQuery {
         app.buttons.matching(identifier: "volunteerScheduleSlotRow")
@@ -264,13 +280,13 @@ final class AccessibilityAuditTests: XCTestCase {
             for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
             addOneOff.tap()
             XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5), "\(variant.name)：没弹出按日期添加页")
-            sleep(1)
+            waitUntilSettled(app.descendants(matching: .any)["volunteerScheduleEditorDatePicker"].firstMatch)
             attachScreenshot(app, name: "availability-oneoff-editor-\(variant.name)")
             try audit(app)
             // 「日期」推出的日期列表页（#466 起自己画的那一页）。
             app.descendants(matching: .any)["volunteerScheduleEditorDatePicker"].firstMatch.tap()
             XCTAssertTrue(app.navigationBars["日期"].waitForExistence(timeout: 5), "\(variant.name)：没推出日期列表")
-            sleep(1)
+            waitUntilSettled(app.navigationBars["日期"])
             attachScreenshot(app, name: "availability-date-list-\(variant.name)")
             try audit(app)
             app.navigationBars["日期"].buttons.firstMatch.tap()
@@ -280,7 +296,7 @@ final class AccessibilityAuditTests: XCTestCase {
             // 列表页：新增了一段之后审（有一行时段 + 两枚添加行 + 组标题 + 页脚）。
             let addWeekly = app.buttons["volunteerScheduleAddButton"].firstMatch
             XCTAssertTrue(addWeekly.waitForExistence(timeout: 10), "\(variant.name)：完成后没回到空闲时间页")
-            sleep(1)
+            waitUntilSettled(addOneOff)
             attachScreenshot(app, name: "availability-list-\(variant.name)")
             try audit(app)
             // 页面是常驻 ScrollView（#466）：自上而下 = 组标题 → 时段行 → 两枚添加 → 页脚，读屏同一顺序。
@@ -294,7 +310,7 @@ final class AccessibilityAuditTests: XCTestCase {
             for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
             XCTAssertTrue(addOneOff.isHittable, "\(variant.name)：滚到底也点不到「按日期添加」")
             XCTAssertFalse(app.tabBars.firstMatch.isHittable, "\(variant.name)：二级页底部露出了标签栏")
-            sleep(1)
+            waitUntilSettled(addOneOff)
             attachScreenshot(app, name: "availability-list-bottom-\(variant.name)")
             try audit(app)
 
@@ -302,7 +318,7 @@ final class AccessibilityAuditTests: XCTestCase {
             for _ in 0..<6 where !addWeekly.isHittable { app.swipeDown() }
             addWeekly.tap()
             XCTAssertTrue(app.navigationBars["添加空闲时段"].waitForExistence(timeout: 5), "\(variant.name)：没弹出添加空闲时段页")
-            sleep(1)
+            waitUntilSettled(app.navigationBars["添加空闲时段"])
             XCTAssertFalse(app.buttons["volunteerScheduleEditorDelete"].exists, "\(variant.name)：新增时不该有「删除这一段」")
             attachScreenshot(app, name: "availability-weekly-editor-\(variant.name)")
             try audit(app)
@@ -316,7 +332,7 @@ final class AccessibilityAuditTests: XCTestCase {
             let delete = app.buttons["volunteerScheduleEditorDelete"].firstMatch
             XCTAssertTrue(delete.waitForExistence(timeout: 5), "\(variant.name)：编辑已有一段没有「删除这一段」")
             for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
-            sleep(1)
+            waitUntilSettled(delete)
             attachScreenshot(app, name: "availability-existing-editor-\(variant.name)")
             try audit(app)
             app.buttons["volunteerScheduleEditorCancel"].tap()
