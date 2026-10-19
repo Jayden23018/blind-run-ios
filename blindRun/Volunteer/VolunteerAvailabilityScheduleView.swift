@@ -302,6 +302,7 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
 /// 而他设不了。要不要加已投 handoff。
 struct VolunteerAvailabilityScheduleView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var viewModel = VolunteerAvailabilityScheduleViewModel()
     @State private var editingSlot: VolunteerAvailabilityDraftSlot?
     /// 新增走同一个编辑页，点「完成」才加进列表；关掉就是没加。
@@ -426,11 +427,16 @@ struct VolunteerAvailabilityScheduleView: View {
         Button {
             editingSlot = slot
         } label: {
-            HStack {
+            // 最大字号下改上下两行：并排时右侧只分到约 192pt，「09:00 –」这一截折不开，字画到框外，
+            // 真机审计按框取样报 Contrast failed（#466，两遍同一坐标）。与编辑页「日期」一行同一处理。
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                : AnyLayout(HStackLayout())
+            layout {
                 Text(VolunteerAvailabilityScheduleEditing.displayText(slot.dayText))
                     .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer()
+                if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                 Text(rangeText(slot))
                     .font(AppFonts.body().monospacedDigit())
                     .foregroundColor(AppColors.textSecondary)
@@ -439,7 +445,7 @@ struct VolunteerAvailabilityScheduleView: View {
             // 上下留白（`List` 行原本自带的那一截）：最大字号下两行字会把 64pt 撑满，字框贴上分隔线，
             // 真机审计把那条 1pt 浅灰线当成字色，报「09:00 – 12:00」Contrast failed（#466）。
             .padding(.vertical, Self.rowVerticalPadding)
-            .frame(minHeight: 64) // guard:allow small-touch-target
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading) // guard:allow small-touch-target
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
