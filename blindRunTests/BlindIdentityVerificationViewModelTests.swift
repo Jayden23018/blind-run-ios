@@ -90,7 +90,10 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
         )
         let appState = AppState(apiClient: client, tokenStore: InMemoryTokenStoreStub())
         appState.updateBlindProfile(
-            BlindProfileResponse(name: "张三", verifyStatus: "NOT_VERIFIED", hasGuideDog: false, guideDog: "NO")
+            BlindProfileResponse(
+                name: "张三", verifyStatus: "NOT_VERIFIED", hasGuideDog: false, guideDog: "NO",
+                guidePreferenceText: "走左边，过路口提前说"
+            )
         )
         let viewModel = BlindIdentityVerificationViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
@@ -108,6 +111,8 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
         XCTAssertEqual(appState.blindProfile?.name, "张三")
         // 丢了 `guideDog` 就只剩旧字段的 false ⇒ 资料页把「没有」显示成「不说」（#472）。
         XCTAssertEqual(appState.blindProfile?.guideDog, "NO")
+        // 丢了引导偏好，资料页读到空串，下一次保存发 "" 会清空服务器上那段话（#473）。
+        XCTAssertEqual(appState.blindProfile?.guidePreferenceText, "走左边，过路口提前说")
         XCTAssertTrue(viewModel.idCardName.isEmpty)
         XCTAssertTrue(viewModel.idCardNumber.isEmpty)
         XCTAssertNil(viewModel.errorMessage)

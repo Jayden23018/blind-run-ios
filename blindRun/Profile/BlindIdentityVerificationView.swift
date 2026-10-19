@@ -129,7 +129,9 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
                 guideDog: existing?.guideDog,
                 tetherPreference: existing?.tetherPreference,
                 chatPreference: existing?.chatPreference,
-                defaultPace: existing?.defaultPace
+                defaultPace: existing?.defaultPace,
+                // 漏了它，资料页会读到空串，再保存一次就把服务器上的引导偏好清空（#473）。
+                guidePreferenceText: existing?.guidePreferenceText
             )
         )
         status = newStatus

@@ -396,4 +396,26 @@ final class MockBlindIdentityVerificationTests: XCTestCase {
         XCTAssertEqual(updated.name, "新名字")
         XCTAssertEqual(updated.identityStatus, .verified)
     }
+
+    /// Mock 读档案要把引导偏好原样带回（#473）。漏了它，UI 用例里「写过引导偏好 → 重新拉档案 → 再保存」
+    /// 会读到空串、把 Mock 里的值清掉，断言引导偏好的用例假失败。
+    func testMockProfileReadBackKeepsGuidePreferenceText() async throws {
+        let client = MockAPIClient()
+        let _: BlindProfileResponse = try await client.put(
+            "/api/blind/profile",
+            body: BlindProfileUpdateRequest(
+                name: "测试盲人",
+                runningPace: nil,
+                specialNeeds: nil,
+                visionLevel: nil,
+                guideDog: nil,
+                tetherPreference: nil,
+                chatPreference: nil,
+                defaultPace: nil,
+                guidePreferenceText: "走左边，过路口提前说"
+            )
+        )
+        let fetched: BlindProfileResponse = try await client.get("/api/blind/profile")
+        XCTAssertEqual(fetched.guidePreferenceText, "走左边，过路口提前说")
+    }
 }
