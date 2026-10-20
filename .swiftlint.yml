@@ -1,0 +1,36 @@
+# SwiftLint：只管「文件和函数别继续变大」（#488）。CI 只拦新增，现有违规冻结在 .swiftlint-baseline.json。
+#
+# 本地跑（仓库根，brew install swiftlint；CI 钉 0.65.1，见 scripts/swiftlint-ratchet.mjs 的 SWIFTLINT_VERSION）：
+#   node scripts/swiftlint-ratchet.mjs
+#
+# 别直接看 `swiftlint lint` 的输出下结论：SwiftLint 的 baseline 按「行原文 + 带数字的提示文字」认旧账，
+# 超长文件删一行也会被它报成新违规。上面那个脚本补了一道「同一处没变大就放过」，CI 跑的也是它。
+#
+# 确实要冻结一处新违规（例如拆分要另开 PR），重写 baseline，并在 PR 描述里写为什么：
+#   node scripts/swiftlint-ratchet.mjs --write-baseline
+# （它调 swiftlint 写完再把 JSON 排成一条一行；直接用 swiftlint --write-baseline 写出的是一整行、键序随机，diff 读不了。）
+# 拆小了旧文件后同样可以重写一次，把门槛收紧到现状。
+#
+# 阈值全用 SwiftLint 默认值（`swiftlint rules <规则名>` 可查）：
+#   file_length 400/1000 行 · type_body_length 250/350 · function_body_length 50/100 · cyclomatic_complexity 10/20
+
+only_rules:
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+
+baseline: .swiftlint-baseline.json
+
+included:
+  - blindRun
+  - blindRunTests
+  - blindRunUITests
+  - blindRunWidget
+  - Packages/AidRunAPI
+
+excluded:
+  # swift-openapi-generator 的产物（文件头写着 do not modify），由 scripts/generate-api-client.sh 重新生成。
+  - Packages/AidRunAPI/Sources/AidRunAPI/Client.swift
+  - Packages/AidRunAPI/Sources/AidRunAPI/Types.swift
+  - Packages/AidRunAPI/.build
