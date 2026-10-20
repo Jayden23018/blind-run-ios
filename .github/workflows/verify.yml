@@ -89,6 +89,13 @@ jobs:
       - name: validate session-context hook
         run: node scripts/validate-session-context.mjs
 
+      # AGENTS.md 每个会话常驻注入：09-05 压到 22.6KB，六周后长回 51.7KB（#482）。
+      # 只数注入部分（块级 HTML 注释不算），上限 16,384 B / 200 行。
+      - name: validate AGENTS.md size
+        run: |
+          node scripts/validate-agents-size.mjs --self-test
+          node scripts/validate-agents-size.mjs
+
       # 调研落盘钩子。两种死法都是静默的：pre 吐非法 JSON 就当没注入过，
       # researchTodo 崩掉 Stop 钩子就整个不拦 —— 都不报错，而约束已经没了。
       - name: validate research-log hook
