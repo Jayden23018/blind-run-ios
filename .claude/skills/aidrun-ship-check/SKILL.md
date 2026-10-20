@@ -86,23 +86,64 @@ CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑�
 这是助盲应用。**无障碍回归 = 功能全损**，不是体验降级 —— 一个丢了 `accessibilityLabel` 的按钮，
 对明眼人是"图标没文字"，对目标用户是"这个按钮不存在"。
 
-CI 跑不了任何 XCTest（高德无 arm64-sim slice），所以这道门**只能靠人在发版前主动跑**。
-它不会自己红给你看 —— 这正是它必须写进检查单的原因。
+**谁在执行这道门（2026-10-20 核过，#487）：只有你。** 没有任何机器会替你跑它：
+
+| 通道 | 跑不跑审计 | 证据 |
+|---|---|---|
+| CI `verify.yml` 的 `build` job | ❌ 只编译 | `build-for-testing`，注释写明「只 build-for-testing，不 test」；runner 只有模拟器，高德无 arm64-sim slice |
+| pre-push 钩子 | ❌ | `scripts/hooks/pre-push.sh` 结尾只打一句「真机跑测用 scripts/device-test.sh」 |
+| 改视图时的设计提醒钩子 | ❌ 只提醒截图 | `scripts/hooks/design-direction-reminder.mjs` 第 4 步 |
+| iOS 模拟器（含 iOS Simulator 工具） | ❌ 根本装不上 | 同 CI：高德无 arm64-sim slice。**别去开模拟器截图** |
+| `scripts/device-test.sh` / `device-test-all.sh` | ✅ 唯一通道 | 人或 agent 手动跑真机 |
+
+所以它不会自己红给你看 —— 这正是它必须写进检查单的原因。
 
 ```bash
-# 全量真机测试，含 blindRunUITests/AccessibilityAuditTests
-scripts/device-test.sh
-
-# 只跑无障碍审计（改动小时用，秒级）
+# 只跑无障碍审计整个 suite（约 70 条 UI 用例，十几分钟，后台跑）
 scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests
+
+# 只跑覆盖你改的那一页的审计用例（日常用这个）
+scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests/testBlindRunnerHomePassesAccessibilityAudit
 ```
 
-`performAccessibilityAudit` 覆盖 5 类：`contrast` / `dynamicType` / `elementDetection` /
-`hitRegion` / `sufficientElementDescription`。审计失败**不需要断言**，它自己会让用例红。
+审计开了哪几类，**以 `AccessibilityAuditTests.swift` 里 `audit(_:)` 的 `for:` 列表为准**，不在这里抄
+（这里曾写「覆盖 5 类」，而代码 2026-09-02 起就是 7 类 —— 抄的那份过期了没人知道）。
+审计失败**不需要断言**，它自己会让用例红；失败日志里 `[AUDIT]` 开头那行点名了是哪个元素。
+
+### 改了 SwiftUI 视图或播报文案之后：三步，结果都要贴出来
+
+1. **跑覆盖那一页的审计用例**。在 `blindRunUITests/AccessibilityAuditTests.swift` 里按页面的
+   `accessibilityIdentifier` 或页面名搜 `PassesAccessibilityAudit` / `PassesAudit` 结尾的用例，用上面第二条命令只跑它们。
+   改了图标按钮或标签文案，**同一页按标签找元素的语义用例也要跑**（原因见下面「自动审计查不到的」第一段）。
+   **贴出** `passed=N failed=M` 那一行和用例名。`passed=0` 算失败。
+   - 没有任何审计用例走到你改的页面 ⇒ 照同文件的写法补一条（启动 → 等页面标志元素出现 → `try audit(app)`），
+     或者在汇报里**明说**「这一页没有审计覆盖」。不许不说。
+   - 有红：先判是不是已知红灯。整个 suite 常年带几条已知红（`docs/review/` 里最近一次真机分诊有清单），
+     按**用例名 + 被点名元素**跟基线比，不比条数（记忆 `known-red-suites-hide-new-failures`）。
+2. **截图并贴给用户看**。用 `ScreenTourTests` 里对应那一屏的用例（每屏一条，`testTour_B*` 盲人端、`testTour_V*` 陪跑员端）：
+   ```bash
+   scripts/device-test.sh -only-testing:blindRunUITests/ScreenTourTests/<那一屏的用例名>
+   ```
+   脚本最后会打印 `附件已导出（N 个）：<目录>`。用 Read 打开里面的 PNG 自己先看，
+   再用 SendUserFile 把图发给用户。审计用例失败时 XCTest 也会自动留一张失败截图，在同一个目录。
+   ⚠️ UI 测试构建没有高德 key，地图恒为占位图 —— 那不是生产形态，看图结论里要注明。
+   有设计稿或用户给的参考图、要判「像不像」时，拿这张图走 skill `aidrun-visual-verdict` 打分。
+3. **贴出来的三样**：审计用例名 + `passed/failed` 行、截图、以及没覆盖到的东西（没审计的页面、没截到的状态）。
+   「改了视图但没贴这三样」= 没做完。设备不在线时明说「没跑」，不许写成通过。
 
 ### 自动审计查不到的，必须人工过一遍
 
-Apple 自己的立场是「审计是地板不是天花板」，且**只检查当前屏幕上的元素**。以下三条自动化覆盖不到：
+Apple 自己的立场是「审计是地板不是天花板」，且**只检查当前屏幕上的元素**。
+
+> 🔴 **系统图标按钮删掉 `accessibilityLabel`，审计照样绿**（2026-10-20 真机实测，#487）：
+> 首页「重复当前状态」是 `Image(systemName: "speaker.wave.2.fill")` 按钮，删掉标签后它的读屏标签自动变成
+> `高音量`（系统图标自带名字），`testBlindRunnerHomePassesAccessibilityAudit` 仍 `passed=1`；
+> 只有按标签找它的 `testBlindRunnerHomeOffersRepeatCurrentStatus` 红了。标签**置空**（`""`）审计才红
+> （`Element has no description, looks like: Speaker`）。
+> ⇒ 审计查「有没有描述」，查不了「描述对不对」。关键按钮的标签要靠**按标签找元素的语义用例**守，
+> 改了图标按钮就跑那一页的语义用例，别只跑 `PassesAccessibilityAudit`。
+
+以下三条自动化覆盖不到：
 
 - [ ] **开 VoiceOver 实走一遍改动路径** —— 审计能查"有没有 label"，查不了"label 念出来对不对"。
       ⚠️ `accessibilityIdentifier` 对辅助技术**不可见**，它是给测试用的；要断言的是 VoiceOver 念出「开始服务」，不是元素存在。
