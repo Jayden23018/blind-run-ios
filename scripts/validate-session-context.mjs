@@ -17,10 +17,14 @@ import path from 'node:path';
 
 import {
   backendContractReadable,
+  countCheckboxes,
   localGuardrailWarnings,
+  openSpecSummary,
   staleUnmergedBranches,
   STALE_BEHIND_THRESHOLD,
+  staleListCommand,
 } from './hooks/session-context.mjs';
+import { completedUnarchivedChanges } from './hooks/openspec-reminder.mjs';
 
 const T = STALE_BEHIND_THRESHOLD;
 
@@ -39,6 +43,17 @@ function scratchBackend({ git = true, withSpec = true } = {}) {
   return dir;
 }
 const ref = (name, ahead, behind) => ({ name, ahead, behind });
+const change = (name, done, todo) => ({ name, done, todo });
+
+// OpenSpec 靶子：openspec/changes/<name>/tasks.md，内容由参数给。
+function scratchChanges(tasksByName) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-sctx-openspec-'));
+  for (const [name, body] of Object.entries(tasksByName)) {
+    fs.mkdirSync(path.join(root, 'openspec/changes', name), { recursive: true });
+    fs.writeFileSync(path.join(root, 'openspec/changes', name, 'tasks.md'), body);
+  }
+  return root;
+}
 
 const cases = [
   {
@@ -80,17 +95,17 @@ const cases = [
   },
   {
     // 本次立此条的原型：feat/run-track-replay 领先 2、落后 88，主线上零 PR，
-    // 而 review 里把它记成「已有在途 PR #24」挂了三天。
-    name: '领先且落后超阈值 → 报出来，带 ahead/behind 数字',
+    // 而 review 里把它记成「已有在途 PR #24」挂了三天。#482 起只报条数 + 查看命令，不列名。
+    name: '领先且落后超阈值 → 报条数和查看命令，不列分支名',
     run: () =>
       staleUnmergedBranches({
         refs: [ref('origin/feat/run-track-replay', 2, 88)],
         currentBranch: 'main',
       }),
     check: (out) =>
-      out.length === 1 && out[0].includes('feat/run-track-replay(+2/-88)') && !out[0].includes('origin/feat')
+      out.length === 1 && out[0].includes('1 条') && out[0].includes(staleListCommand('main')) && out[0].includes('别默认它们已在某个 PR 里') && !out[0].includes('run-track-replay')
         ? null
-        : `期望一条带 +2/-88 且去掉 origin/ 前缀的提醒，实得 ${JSON.stringify(out)}`,
+        : `期望一条只带条数与查看命令、不含分支名的提醒，实得 ${JSON.stringify(out)}`,
   },
   {
     // 已合入的分支落后再多也无所谓 —— 它没有会丢失的东西。只有 ahead > 0 才值得报。
@@ -112,40 +127,92 @@ const cases = [
     check: (out) => (out.length === 0 ? null : `期望无输出，实得 ${JSON.stringify(out)}`),
   },
   {
-    name: '刚好等于阈值不报，超一个才报（边界）',
-    run: () => [
-      ...staleUnmergedBranches({ refs: [ref('origin/a', 1, T)], currentBranch: 'main' }),
-      ...staleUnmergedBranches({ refs: [ref('origin/b', 1, T + 1)], currentBranch: 'main' }),
-    ],
+    // a 落在阈值上不算、b 超一个才算 ⇒ 条数是 1 不是 2（阈值被放宽成 >= 时这条会报 2 条）。
+    name: '刚好等于阈值不报，超一个才报（边界，按条数判）',
+    run: () => staleUnmergedBranches({ refs: [ref('origin/a', 1, T), ref('origin/b', 1, T + 1)], currentBranch: 'main' }),
     check: (out) =>
-      out.length === 1 && out[0].includes('b(+1/-')
+      out.length === 1 && out[0].includes('⚠️ 1 条')
         ? null
-        : `期望只报 b 一条，实得 ${JSON.stringify(out)}`,
+        : `期望只数到 b 一条，实得 ${JSON.stringify(out)}`,
   },
   {
-    name: '多条时按落后程度降序（最久没跟进的排最前）',
+    // 原来只列前 5 条；现在一条都不列，条数仍是全量。
+    name: '12 条陈旧分支 → 条数 12，一个名字都不出现',
     run: () =>
       staleUnmergedBranches({
-        refs: [ref('origin/near', 1, T + 5), ref('origin/far', 1, T + 200)],
+        refs: Array.from({ length: 12 }, (_, i) => ref(`origin/stale-${i}`, 1, T + 1 + i)),
         currentBranch: 'main',
       }),
     check: (out) =>
-      out.length === 1 && out[0].indexOf('far(') < out[0].indexOf('near(')
+      out.length === 1 && out[0].includes('12 条') && !out[0].includes('stale-')
         ? null
-        : `期望 far 排在 near 之前，实得 ${JSON.stringify(out)}`,
+        : `期望总数 12 且不列名，实得 ${JSON.stringify(out)}`,
   },
   {
-    // 12 条里只列落后最多的 5 条，其余折成「另 7 条」；条数仍是全量 12，且最近的一条不出现。
-    name: '超过上限只列前 5 条，其余折叠成数量',
+    // 进行中 = 有勾有没勾；未开工 = 一个没勾；待归档 = 有勾且全勾。三类各给不同的数，数错一类就对不上。
+    name: 'OpenSpec 计数：进行中 2、未开工 1、待归档 3，只点名待归档',
     run: () =>
-      staleUnmergedBranches({
-        refs: Array.from({ length: 12 }, (_, i) => ref(`origin/b${i}`, 1, T + 1 + i)),
-        currentBranch: 'main',
-      }),
+      openSpecSummary([
+        change('wip-a', 2, 1),
+        change('wip-b', 1, 5),
+        change('fresh-c', 0, 4),
+        change('done-z', 3, 0),
+        change('done-x', 1, 0),
+        change('done-y', 6, 0),
+      ], ['done-z', 'done-x', 'done-y']),
+    check: (out) => {
+      if (out.length !== 2) return `期望两行（计数 + 待归档），实得 ${JSON.stringify(out)}`;
+      if (!out[0].includes('未归档 6 个') || !out[0].includes('进行中 2') || !out[0].includes('未开工 1') || !out[0].includes('待归档 3'))
+        return `计数不对：${out[0]}`;
+      if (['wip-a', 'wip-b', 'fresh-c', 'done-'].some((n) => out[0].includes(n))) return `计数行里出现了变更名：${out[0]}`;
+      if (!out[1].includes('done-x、done-y、done-z') || out[1].includes('wip-') || out[1].includes('fresh-'))
+        return `待归档行应只按名字排序列出三个 done-*：${out[1]}`;
+      return null;
+    },
+  },
+  {
+    name: 'OpenSpec 没有待归档 → 只有计数一行，不出现任何变更名',
+    run: () => openSpecSummary([change('wip-a', 1, 1), change('fresh-b', 0, 2)], []),
     check: (out) =>
-      out.length === 1 && out[0].includes('12 条') && out[0].includes('另 7 条省略') && out[0].includes('b11(') && !out[0].includes('b0(')
+      out.length === 1 && out[0].includes('待归档 0') && !out[0].includes('wip-a') && !out[0].includes('fresh-b')
         ? null
-        : `期望总数 12、只列 5 条并注明另 7 条，实得 ${JSON.stringify(out)}`,
+        : `期望只有一行计数，实得 ${JSON.stringify(out)}`,
+  },
+  {
+    name: 'OpenSpec 一个未归档变更都没有 → 不输出',
+    run: () => openSpecSummary([], []),
+    check: (out) => (out.length === 0 ? null : `期望无输出，实得 ${JSON.stringify(out)}`),
+  },
+  {
+    // 两个钩子对「全勾」的判据必须是同一个：开场说 0 个待归档、Stop 钩子却拦人，等于开场在撒谎。
+    // 缩进的子任务与大写 X 是两处判据最容易分叉的地方。
+    name: '待归档取自 Stop 钩子的判据，其余分进行中 / 未开工，三类相加等于总数（缩进子任务、大写 X）',
+    run: () => {
+      const bodies = {
+        'nested-todo': '- [x] 1.1 a\n  - [ ] 1.2 b\n',
+        'upper-x-done': '- [X] 1.1 a\n- [x] 1.2 b\n',
+        'nothing-checked': '- [ ] 1.1 a\n',
+      };
+      const root = scratchChanges(bodies);
+      const theirs = completedUnarchivedChanges(root);
+      const ours = openSpecSummary(Object.entries(bodies).map(([name, b]) => ({ name, ...countCheckboxes(b) })), theirs);
+      return { ours, theirs };
+    },
+    check: ({ ours, theirs }) =>
+      theirs.join() === 'upper-x-done' && ours.length === 2 && ours[1].endsWith('：upper-x-done') && ours[0].includes('进行中 1') && ours[0].includes('未开工 1')
+        ? null
+        : `两边判据分叉：Stop 钩子 ${JSON.stringify(theirs)}，开场 ${JSON.stringify(ours)}`,
+  },
+  {
+    // 计数排除了当前分支，查看命令也必须排除，否则在一个陈旧分支上开会话时命令会多列出自己。
+    name: '查看命令排除当前分支（与计数同一口径）',
+    run: () => {
+      const cmd = staleListCommand('feat/wip');
+      const rows = 'origin/feat/wip 4 99\norigin/old 1 99\norigin/main 0 0\n';
+      const r = spawnSync('bash', ['-c', cmd.replace(/^git for-each-ref .*? \| /, '')], { input: rows, encoding: 'utf8' });
+      return r.stdout.trim().split('\n');
+    },
+    check: (out) => (out.join() === 'origin/old 1 99' ? null : `期望只列 origin/old，实得 ${JSON.stringify(out)}`),
   },
   {
     name: 'origin/main 与裸 origin 不算欠账',

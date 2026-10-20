@@ -10,6 +10,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { completedUnarchivedChanges } from './openspec-reminder.mjs';
+
 const root = path.resolve(import.meta.dirname, '../..');
 
 // execFileSync 而非 execSync：不起 shell，参数按数组传，没有注入面。
@@ -31,25 +33,42 @@ const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
 const dirty = git('status', '--porcelain').split('\n').filter(Boolean).length;
 if (branch) lines.push(`分支 \`${branch}\`，未提交改动 ${dirty} 个文件。`);
 
-// 未归档的 OpenSpec 变更 —— 两个未归档变更 delta 同一能力会打架，这是已经踩过的坑。
+// 未归档的 OpenSpec 变更：只报计数，只点名「待归档」的（#482）。
+// 逐个列名 30 个变更每次约 1.5KB，几乎从不被用到；「待归档」是唯一要当场动手的 —— Stop 钩子会因它拦人。
+// 「多个未归档变更先确认没有 delta 同一能力」那条也删了：30 个变更时它每次都响，按本文件下面「全绿时不输出」的原则会被无视。
+// 「待归档」直接用 Stop 钩子那一份判据（openspec-reminder.mjs 的 completedUnarchivedChanges），开场说的和拦人的才是同一批。
+// 其余按有没有勾过一项分成进行中 / 未开工，三类加起来恒等于总数。
+export function countCheckboxes(body) {
+  return {
+    done: (body.match(/^\s*- \[x\]/gim) || []).length,
+    todo: (body.match(/^\s*- \[ \]/gm) || []).length,
+  };
+}
+
+export function openSpecSummary(changes, toArchive) {
+  if (!changes.length) return [];
+  const archive = new Set(toArchive);
+  const rest = changes.filter((c) => !archive.has(c.name));
+  const inProgress = rest.filter((c) => c.done > 0).length;
+  const notStarted = rest.length - inProgress;
+  const names = changes.map((c) => c.name).filter((n) => archive.has(n)).sort();
+  const out = [
+    `OpenSpec 未归档 ${changes.length} 个：进行中 ${inProgress}、未开工 ${notStarted}、任务全勾待归档 ${names.length}。列表：\`openspec list\`。`,
+  ];
+  if (names.length) out.push(`⚠️ 待归档（全勾却没归档，Stop 钩子会拦）：${names.join('、')}`);
+  return out;
+}
+
 const changesDir = path.join(root, 'openspec/changes');
 if (fs.existsSync(changesDir)) {
-  const open = [];
+  const changes = [];
   for (const name of fs.readdirSync(changesDir)) {
     if (name === 'archive') continue;
     const tasks = path.join(changesDir, name, 'tasks.md');
     if (!fs.existsSync(tasks)) continue;
-    const body = fs.readFileSync(tasks, 'utf8');
-    const todo = (body.match(/^- \[ \]/gm) || []).length;
-    open.push({ name, todo });
+    changes.push({ name, ...countCheckboxes(fs.readFileSync(tasks, 'utf8')) });
   }
-  if (open.length) {
-    const detail = open.map((c) => `${c.name}(${c.todo} 未完成)`).join('、');
-    lines.push(`未归档 OpenSpec 变更 ${open.length} 个：${detail}。`);
-    if (open.length > 1) {
-      lines.push('⚠️ 多个未归档变更同时存在时，先确认它们没有 delta 同一个能力，否则规格会打架。');
-    }
-  }
+  lines.push(...openSpecSummary(changes, completedUnarchivedChanges(root)));
 }
 
 // 后端契约源在哪、读哪一份 —— 没有就说清楚，别让 Agent 去猜契约。
@@ -119,24 +138,21 @@ export function localGuardrailWarnings({ prePushInstalled }) {
 // 落后阈值取 30：正常在途分支不会落这么多，落这么多的基本都是被忘了。
 // 不查 PR 状态 —— 那要 `gh` 联网，开场卡住比漏报更糟；这里只负责让分支重新被看见。
 export const STALE_BEHIND_THRESHOLD = 30;
-export const STALE_LIST_LIMIT = 5;
+// 能列出这批分支的命令。只报条数不列名（#482）：squash 合并后的旧分支永远 ahead>0，实测 65 条，
+// 原来只列前 5 条也要 ~1KB/会话，而开场几乎用不到；要判活时跑这一条就全有。
+// 与下面的计数同一口径：排除 origin/main、裸 origin 与当前分支，否则命令列出的条数会比报的多一条。
+export function staleListCommand(currentBranch) {
+  return `git for-each-ref --format='%(refname:short) %(ahead-behind:origin/main)' refs/remotes/origin | awk '$1!="origin/${currentBranch}" && $2>0 && $3>${STALE_BEHIND_THRESHOLD}'`;
+}
 
 export function staleUnmergedBranches({ refs, currentBranch }) {
   const stale = refs
     .filter((r) => r.name !== 'origin' && r.name !== 'origin/main')
     .filter((r) => r.name !== `origin/${currentBranch}`)
-    .filter((r) => r.ahead > 0 && r.behind > STALE_BEHIND_THRESHOLD)
-    .sort((a, b) => b.behind - a.behind);
+    .filter((r) => r.ahead > 0 && r.behind > STALE_BEHIND_THRESHOLD);
   if (!stale.length) return [];
-  // 只列最久没跟进的前几条：squash 合并后的旧分支永远 ahead>0，会一次列出几十条（实测 73 条 ≈ 1.3k token/会话）。
-  const detail =
-    stale
-      .slice(0, STALE_LIST_LIMIT)
-      .map((r) => `${r.name.replace(/^origin\//, '')}(+${r.ahead}/-${r.behind})`)
-      .join('、') + (stale.length > STALE_LIST_LIMIT ? `……另 ${stale.length - STALE_LIST_LIMIT} 条省略` : '');
   return [
-    `⚠️ ${stale.length} 条远端分支有独有提交却长期没跟进（领先 main 且落后 >${STALE_BEHIND_THRESHOLD}）：${detail}。` +
-      '逐条判活：意图已被主线重新落地的判死存档，仍有价值的合 main 后开 PR。别默认它们「已经在某个 PR 里」。',
+    `⚠️ ${stale.length} 条远端分支有独有提交却长期没跟进（领先 main 且落后 >${STALE_BEHIND_THRESHOLD}），别默认它们已在某个 PR 里。查看：\`${staleListCommand(currentBranch)}\`。`,
   ];
 }
 
