@@ -114,6 +114,7 @@ scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests/tes
 
 1. **跑覆盖那一页的审计用例**。在 `blindRunUITests/AccessibilityAuditTests.swift` 里按页面的
    `accessibilityIdentifier` 或页面名搜 `PassesAccessibilityAudit` / `PassesAudit` 结尾的用例，用上面第二条命令只跑它们。
+   改了图标按钮或标签文案，**同一页按标签找元素的语义用例也要跑**（原因见下面「自动审计查不到的」第一段）。
    **贴出** `passed=N failed=M` 那一行和用例名。`passed=0` 算失败。
    - 没有任何审计用例走到你改的页面 ⇒ 照同文件的写法补一条（启动 → 等页面标志元素出现 → `try audit(app)`），
      或者在汇报里**明说**「这一页没有审计覆盖」。不许不说。
@@ -131,7 +132,17 @@ scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests/tes
 
 ### 自动审计查不到的，必须人工过一遍
 
-Apple 自己的立场是「审计是地板不是天花板」，且**只检查当前屏幕上的元素**。以下三条自动化覆盖不到：
+Apple 自己的立场是「审计是地板不是天花板」，且**只检查当前屏幕上的元素**。
+
+> 🔴 **系统图标按钮删掉 `accessibilityLabel`，审计照样绿**（2026-10-20 真机实测，#487）：
+> 首页「重复当前状态」是 `Image(systemName: "speaker.wave.2.fill")` 按钮，删掉标签后它的读屏标签自动变成
+> `高音量`（系统图标自带名字），`testBlindRunnerHomePassesAccessibilityAudit` 仍 `passed=1`；
+> 只有按标签找它的 `testBlindRunnerHomeOffersRepeatCurrentStatus` 红了。标签**置空**（`""`）审计才红
+> （`Element has no description, looks like: Speaker`）。
+> ⇒ 审计查「有没有描述」，查不了「描述对不对」。关键按钮的标签要靠**按标签找元素的语义用例**守，
+> 改了图标按钮就跑那一页的语义用例，别只跑 `PassesAccessibilityAudit`。
+
+以下三条自动化覆盖不到：
 
 - [ ] **开 VoiceOver 实走一遍改动路径** —— 审计能查"有没有 label"，查不了"label 念出来对不对"。
       ⚠️ `accessibilityIdentifier` 对辅助技术**不可见**，它是给测试用的；要断言的是 VoiceOver 念出「开始服务」，不是元素存在。

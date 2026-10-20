@@ -81,6 +81,8 @@ TTS 用 `AVSpeechSynthesizer`，STT 用 iOS `Speech` 框架。
 §五「改了 SwiftUI 视图或播报文案之后」做三步：跑覆盖那一页的 `AccessibilityAuditTests` 用例、
 用 `ScreenTourTests` 截图并发给用户、贴出 `passed/failed`。CI 和模拟器都跑不了这一步（高德无 arm64-sim slice），
 只有 `scripts/device-test.sh`。
+⚠️ 审计只查「有没有描述」：系统图标按钮删掉 `accessibilityLabel` 后会自动念图标名（实测「高音量」），审计照样绿。
+关键按钮的标签靠按标签找元素的语义用例守（例：`testBlindRunnerHomeOffersRepeatCurrentStatus`）。
 
 ## 相关
 
