@@ -186,6 +186,38 @@ jobs:
             exit 0
           fi
 
+  # 「别让文件和函数继续变大」（#488）。现有违规冻结在 .swiftlint-baseline.json，只拦新增和变大。
+  # 跑在 Linux 上：官方镜像与 macOS brew 版 0.65.1 对本仓库报出的 264 条违规逐条相同（2026-10-20 本机对过）。
+  # 镜像标签与 scripts/swiftlint-ratchet.mjs 的 SWIFTLINT_VERSION 一起改。
+  swiftlint:
+    name: SwiftLint（只拦新增）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 「同一处没变大就放过」这道判定坏了只会安静放行，先自测。
+      - name: validate swiftlint ratchet
+        run: node scripts/swiftlint-ratchet.mjs --self-test
+
+      - name: swiftlint（新增或变大的违规 → 红）
+        run: |
+          # 镜像的 entrypoint 就是 swiftlint，参数直接从子命令写起（多写一个 swiftlint 会把每个文件 lint 两遍）。
+          set +e
+          docker run --rm -v "$PWD":/work -w /work ghcr.io/realm/swiftlint:0.65.1 \
+            lint --quiet --reporter json > swiftlint.json
+          rc=$?
+          set -e
+          # 0 = 无 error 级违规，2 = 有；其余是 swiftlint 自己出错，不能当 lint 结论。
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+            echo "::error title=swiftlint 异常退出::退出码 $rc"
+            exit "$rc"
+          fi
+          node scripts/swiftlint-ratchet.mjs --json swiftlint.json --root /work
+
   build:
     name: 编译门禁（device SDK）
     runs-on: macos-15
