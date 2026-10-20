@@ -10,6 +10,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { completedUnarchivedChanges } from './openspec-reminder.mjs';
+
 const root = path.resolve(import.meta.dirname, '../..');
 
 // execFileSync 而非 execSync：不起 shell，参数按数组传，没有注入面。
@@ -34,7 +36,8 @@ if (branch) lines.push(`分支 \`${branch}\`，未提交改动 ${dirty} 个文�
 // 未归档的 OpenSpec 变更：只报计数，只点名「待归档」的（#482）。
 // 逐个列名 30 个变更每次约 1.5KB，几乎从不被用到；「待归档」是唯一要当场动手的 —— Stop 钩子会因它拦人。
 // 「多个未归档变更先确认没有 delta 同一能力」那条也删了：30 个变更时它每次都响，按本文件下面「全绿时不输出」的原则会被无视。
-// 判据与 openspec-reminder.mjs 的 completedUnarchivedChanges 一致（缩进容忍、x 不分大小写），两边说的「全勾」才是同一批。
+// 「待归档」直接用 Stop 钩子那一份判据（openspec-reminder.mjs 的 completedUnarchivedChanges），开场说的和拦人的才是同一批。
+// 其余按有没有勾过一项分成进行中 / 未开工，三类加起来恒等于总数。
 export function countCheckboxes(body) {
   return {
     done: (body.match(/^\s*- \[x\]/gim) || []).length,
@@ -42,15 +45,17 @@ export function countCheckboxes(body) {
   };
 }
 
-export function openSpecSummary(changes) {
+export function openSpecSummary(changes, toArchive) {
   if (!changes.length) return [];
-  const inProgress = changes.filter((c) => c.done > 0 && c.todo > 0).length;
-  const notStarted = changes.filter((c) => c.done === 0).length;
-  const toArchive = changes.filter((c) => c.done > 0 && c.todo === 0).map((c) => c.name).sort();
+  const archive = new Set(toArchive);
+  const rest = changes.filter((c) => !archive.has(c.name));
+  const inProgress = rest.filter((c) => c.done > 0).length;
+  const notStarted = rest.length - inProgress;
+  const names = changes.map((c) => c.name).filter((n) => archive.has(n)).sort();
   const out = [
-    `OpenSpec 未归档 ${changes.length} 个：进行中 ${inProgress}、未开工 ${notStarted}、任务全勾待归档 ${toArchive.length}。列表：\`openspec list\`。`,
+    `OpenSpec 未归档 ${changes.length} 个：进行中 ${inProgress}、未开工 ${notStarted}、任务全勾待归档 ${names.length}。列表：\`openspec list\`。`,
   ];
-  if (toArchive.length) out.push(`⚠️ 待归档（全勾却没归档，Stop 钩子会拦）：${toArchive.join('、')}`);
+  if (names.length) out.push(`⚠️ 待归档（全勾却没归档，Stop 钩子会拦）：${names.join('、')}`);
   return out;
 }
 
@@ -63,7 +68,7 @@ if (fs.existsSync(changesDir)) {
     if (!fs.existsSync(tasks)) continue;
     changes.push({ name, ...countCheckboxes(fs.readFileSync(tasks, 'utf8')) });
   }
-  lines.push(...openSpecSummary(changes));
+  lines.push(...openSpecSummary(changes, completedUnarchivedChanges(root)));
 }
 
 // 后端契约源在哪、读哪一份 —— 没有就说清楚，别让 Agent 去猜契约。
@@ -135,7 +140,10 @@ export function localGuardrailWarnings({ prePushInstalled }) {
 export const STALE_BEHIND_THRESHOLD = 30;
 // 能列出这批分支的命令。只报条数不列名（#482）：squash 合并后的旧分支永远 ahead>0，实测 65 条，
 // 原来只列前 5 条也要 ~1KB/会话，而开场几乎用不到；要判活时跑这一条就全有。
-export const STALE_LIST_COMMAND = `git for-each-ref --format='%(refname:short) %(ahead-behind:origin/main)' refs/remotes/origin | awk '$2>0 && $3>${STALE_BEHIND_THRESHOLD}'`;
+// 与下面的计数同一口径：排除 origin/main、裸 origin 与当前分支，否则命令列出的条数会比报的多一条。
+export function staleListCommand(currentBranch) {
+  return `git for-each-ref --format='%(refname:short) %(ahead-behind:origin/main)' refs/remotes/origin | awk '$1!="origin/${currentBranch}" && $2>0 && $3>${STALE_BEHIND_THRESHOLD}'`;
+}
 
 export function staleUnmergedBranches({ refs, currentBranch }) {
   const stale = refs
@@ -144,7 +152,7 @@ export function staleUnmergedBranches({ refs, currentBranch }) {
     .filter((r) => r.ahead > 0 && r.behind > STALE_BEHIND_THRESHOLD);
   if (!stale.length) return [];
   return [
-    `⚠️ ${stale.length} 条远端分支有独有提交却长期没跟进（领先 main 且落后 >${STALE_BEHIND_THRESHOLD}）。查看：\`${STALE_LIST_COMMAND}\`。`,
+    `⚠️ ${stale.length} 条远端分支有独有提交却长期没跟进（领先 main 且落后 >${STALE_BEHIND_THRESHOLD}），别默认它们已在某个 PR 里。查看：\`${staleListCommand(currentBranch)}\`。`,
   ];
 }
 

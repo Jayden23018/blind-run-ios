@@ -61,12 +61,13 @@ TIERED_OUT=0
 run_node() {
   label="$1"
   script="$2"
+  shift 2
   if [ ! -f "$script" ]; then
     echo "[pre-push] ⚠ 跳过 ${label}：本分支没有 ${script}。这不算通过。"
     SKIPPED_GATES=$((SKIPPED_GATES + 1))
     return
   fi
-  run "$label" node "$script"
+  run "$label" node "$script" "$@"
 }
 
 run "openspec validate --all --strict" openspec validate --all --strict --no-interactive
@@ -74,9 +75,7 @@ run_node "validate-docs" scripts/validate-docs.mjs
 run_node "validate-shell-varnames（变量名后紧跟全角字符的守卫）" scripts/validate-shell-varnames.mjs
 # AGENTS.md 体积闸（#482）：几毫秒的事，放默认档，每次 push 都跑。
 run_node "validate-agents-size（AGENTS.md 注入部分 ≤ 16KB / 200 行）" scripts/validate-agents-size.mjs
-if [ -f scripts/validate-agents-size.mjs ]; then
-  run "validate-agents-size --self-test（体积闸自测）" node scripts/validate-agents-size.mjs --self-test
-fi
+run_node "validate-agents-size --self-test（体积闸自测）" scripts/validate-agents-size.mjs --self-test
 if [ "$FULL" = "1" ] || touches '^(scripts/|\.claude/|\.github/)'; then
   run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
   run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs

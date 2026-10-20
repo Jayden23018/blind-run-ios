@@ -18,7 +18,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-a11y-voice` | 盲人端 UI、VoiceOver、语音输入/播报、高德地图、定位与坐标系 |
 | `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
-| `aidrun-device-test` | 真机跑单测 / UI 测试、`device-test.sh` 报错（签名、`No Account for Team`、code 74、证书不受信任、免费 App 上限），或换团队 / Mac / 设备 |
+| `aidrun-device-test` | 真机跑单测 / UI 测试、`device-test.sh` 报错（签名、code 74、证书、免费 App 上限等），或换团队 / Mac / 设备 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
 | `openspec-propose` | 要动的功能**行为会变**，而 `openspec/changes/` 下还没有对应变更时 |
 | `openspec-archive-change` | 某个变更的 `tasks.md` 全打勾了 —— 归档是闭环终点，**别停在最后一步** |
@@ -77,7 +77,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 就地把它写进本文件或对应 skill，带上 `文件路径:行号`。上面 §1.1 那条 `guard.sh` → `guard.mjs`
 就是例子 —— 文件早改名了，规则里没跟，于是每次都要重查一遍才发现引用是错的。
 -->
-**§1.4 已归档的语义认知 —— 症状 → 记忆**（正文只在记忆里）：
+**§1.4 症状 → 记忆**（正文只在记忆里）：
 
 | 症状 | 记忆 |
 |---|---|
@@ -155,10 +155,10 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 
 `submitted` · `contacted` · `expired` · `matching`（用 `PENDING_MATCH`） · `accepted`（用 `PENDING_ACCEPT`） · `arrived`（用 `DRIVER_ARRIVED`） · `emergency`（求助是独立事件，不是订单状态）
 
-流转图、取消、端点、下单上下限、通话磨合见 skill `aidrun-order-and-sos`。常驻的几条：
+细节见 skill `aidrun-order-and-sos`，常驻的几条：
 
 - 通话磨合没成**退回 `PENDING_MATCH`，不是 `REMATCHING`**。
-- 盲人在 `DRIVER_EN_ROUTE` / `IN_PROGRESS` **不得**出现取消入口；`DRIVER_ARRIVED` 的取消门槛只认 `earliestBlindCancelAt`，**客户端不自己拿到达时间加**。
+- 盲人在 `DRIVER_EN_ROUTE` / `IN_PROGRESS` **不得**出现取消入口（后端 403 `ORDER_IN_PROGRESS`）；`DRIVER_ARRIVED` 的取消门槛只认 `earliestBlindCancelAt`，**客户端不自己拿到达时间加**。
 - 🚩 `confirm-departure` 与 `en-route` **别合并**（会让位置互推提前几小时打开）。
 - `DUPLICATE_ORDER` 只拦**时段冲突**，文案别再写「您有进行中的订单」。
 - 发 `ACCEPT` 还是 `INTERESTED` **只认推送里的 `requiresIntroCall`**，客户端不许自己算；缺键降级发 `INTERESTED`。
@@ -170,7 +170,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 - 求助**不是**订单状态。`POST /api/emergency/trigger` 只记录事件，订单状态不变。
 - **两端云端求助只在 `IN_PROGRESS` 开放**（产品决策，不是技术约束）。其余任何状态的入口一律降级为**本地拨号**（主紧急联系人 / **120** / 110），**绝不调 `/api/emergency/trigger`**；文案说清「App 不会代你发送求助」，弹窗标题叫「紧急呼叫」。
 - **新增求助入口必须读那一端的判定，不许自己判状态**：`BlindHomeSOSMode.resolve` / `VolunteerOrderSOSMode.resolve`（现有三处入口见 skill）。
-- **志愿者不得拥有「误触」按钮**（他可能就是威胁来源，后端 403）；撤销权只在受助者本人（`PUT /api/emergency/{id}/cancel`）和客服。
+- **志愿者不得拥有「误触」按钮**（他可能就是威胁来源，后端 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）；撤销权只在受助者本人（`PUT /api/emergency/{id}/cancel`）和客服。
 - **App 永远不得宣称短信已发出、已送达，或家属/联系人已被通知**（短信事务后异步发，失败不回告）；用进行时文案覆盖后端 body，`联系人已收到短信` 不得进发布产物。
 - 云端 SOS 必须带**新鲜的真实 GCJ-02 坐标**，拿不到就不发并**可见且可听**地告知；Mock 坐标绝不上传；`allowsSubmissionWithoutLocation` 批准前保持 `false`。
 - `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 只是**信息性**提示，不改状态、不开求助 UI、不证明救援已派出。
@@ -189,7 +189,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 -->
 ## 7. 外部 API 契约
 
-- **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`（`docs/api_spec.yaml`、`docs/websocket-protocol.md`），本仓库**不留副本**；**读它的 origin/main**（`git -C … show origin/main:…`），别读工作区；契约错了去后端改。
+- **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`（`docs/api_spec.yaml`、`docs/websocket-protocol.md`），本仓库**不留副本**；**读它的 origin/main**（`git -C /Users/mac/Downloads/demo show origin/main:docs/api_spec.yaml`），别读工作区；契约错了去后端改。
 - 需要后端拍板：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`；后端问我们的标 `待前端确认`。`demo/docs/handoff.md` 已冻结。
 - 错误码语义见 skill `aidrun-error-codes`（机器可读 `docs/error-codes.json`）。
 

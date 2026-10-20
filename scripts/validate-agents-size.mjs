@@ -20,31 +20,35 @@ import path from 'node:path';
 export const MAX_BYTES = 16384;
 export const MAX_LINES = 200;
 
-// 剥掉块级 HTML 注释：行首（去缩进后）以 `<!--` 开头，到含 `-->` 的那一行为止，整行去掉。
-// 行内注释（`文字 <!-- x -->`）不是块级，不剥。围栏代码块（``` / ~~~）里的一律不动。
+// 剥掉块级 HTML 注释：行首（缩进 ≤ 3 格，CommonMark 的块级口径）以 `<!--` 开头，到含 `-->` 的那一行为止，整行去掉。
+// 行内注释（`文字 <!-- x -->`）不是块级，不剥；缩进 ≥ 4 格是缩进代码块，也不剥。围栏代码块里的一律不动。
+// 拿不准的方向一律多算：没闭合的 `<!--` 不当注释（否则漏一个 `-->` 就能让后面整篇都不计数）。
 export function injectedText(src) {
   const kept = [];
-  let fence = null;
-  let inComment = false;
+  let fence = null; // { char, len }
+  let comment = null; // 正在读的注释行；闭合就丢弃，读到文件末尾还没闭合就原样补回
   for (const line of src.split('\n')) {
-    if (inComment) {
-      if (line.includes('-->')) inComment = false;
+    if (comment) {
+      comment.push(line);
+      if (line.includes('-->')) comment = null;
       continue;
     }
-    const trimmed = line.trimStart();
-    const fenceMark = trimmed.match(/^(`{3,}|~{3,})/);
+    const block = line.match(/^ {0,3}(.*)$/)[1];
+    const fenceMark = block.match(/^(`{3,}|~{3,})(.*)$/);
     if (fenceMark) {
-      if (!fence) fence = fenceMark[1][0];
-      else if (fenceMark[1][0] === fence) fence = null;
+      const [, mark, rest] = fenceMark;
+      if (!fence) fence = { char: mark[0], len: mark.length };
+      else if (mark[0] === fence.char && mark.length >= fence.len && !rest.trim()) fence = null;
       kept.push(line);
       continue;
     }
-    if (!fence && trimmed.startsWith('<!--')) {
-      if (!trimmed.slice(4).includes('-->')) inComment = true;
+    if (!fence && block.startsWith('<!--')) {
+      if (!block.slice(4).includes('-->')) comment = [line];
       continue;
     }
     kept.push(line);
   }
+  if (comment) kept.push(...comment);
   return kept.join('\n');
 }
 
@@ -85,6 +89,23 @@ const selfTests = [
     // 代码块里的注释照样注入，剥了就会少算。
     name: '代码块里的 <!-- 不剥（正文超限照样红）',
     src: '```html\n<!--\n' + bodyOfBytes(MAX_BYTES) + '\n-->\n```\n',
+    expectOk: false,
+  },
+  {
+    // 漏写 `-->`：按注释剥会让后面整篇都不计数，闸门形同虚设。
+    name: '没闭合的 <!-- 不当注释（正文超限照样红）',
+    src: 'x\n<!--\n' + bodyOfBytes(MAX_BYTES) + '\n',
+    expectOk: false,
+  },
+  {
+    name: '缩进 4 格的 <!-- 是缩进代码块，不剥',
+    src: 'x\n    <!--\n' + bodyOfBytes(MAX_BYTES) + '\n    -->\n',
+    expectOk: false,
+  },
+  {
+    // ```` 开的块只能被 ≥ 4 个反引号关上；里面的 ``` 关不掉它，后面的 <!-- 仍在代码块里。
+    name: '```` 围栏不被内层 ``` 提前关闭',
+    src: '````md\n```\n<!--\n' + bodyOfBytes(MAX_BYTES) + '\n-->\n````\n',
     expectOk: false,
   },
 ];

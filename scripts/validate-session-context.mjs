@@ -22,7 +22,7 @@ import {
   openSpecSummary,
   staleUnmergedBranches,
   STALE_BEHIND_THRESHOLD,
-  STALE_LIST_COMMAND,
+  staleListCommand,
 } from './hooks/session-context.mjs';
 import { completedUnarchivedChanges } from './hooks/openspec-reminder.mjs';
 
@@ -103,7 +103,7 @@ const cases = [
         currentBranch: 'main',
       }),
     check: (out) =>
-      out.length === 1 && out[0].includes('1 条') && out[0].includes(STALE_LIST_COMMAND) && !out[0].includes('run-track-replay')
+      out.length === 1 && out[0].includes('1 条') && out[0].includes(staleListCommand('main')) && out[0].includes('别默认它们已在某个 PR 里') && !out[0].includes('run-track-replay')
         ? null
         : `期望一条只带条数与查看命令、不含分支名的提醒，实得 ${JSON.stringify(out)}`,
   },
@@ -159,7 +159,7 @@ const cases = [
         change('done-z', 3, 0),
         change('done-x', 1, 0),
         change('done-y', 6, 0),
-      ]),
+      ], ['done-z', 'done-x', 'done-y']),
     check: (out) => {
       if (out.length !== 2) return `期望两行（计数 + 待归档），实得 ${JSON.stringify(out)}`;
       if (!out[0].includes('未归档 6 个') || !out[0].includes('进行中 2') || !out[0].includes('未开工 1') || !out[0].includes('待归档 3'))
@@ -172,7 +172,7 @@ const cases = [
   },
   {
     name: 'OpenSpec 没有待归档 → 只有计数一行，不出现任何变更名',
-    run: () => openSpecSummary([change('wip-a', 1, 1), change('fresh-b', 0, 2)]),
+    run: () => openSpecSummary([change('wip-a', 1, 1), change('fresh-b', 0, 2)], []),
     check: (out) =>
       out.length === 1 && out[0].includes('待归档 0') && !out[0].includes('wip-a') && !out[0].includes('fresh-b')
         ? null
@@ -180,13 +180,13 @@ const cases = [
   },
   {
     name: 'OpenSpec 一个未归档变更都没有 → 不输出',
-    run: () => openSpecSummary([]),
+    run: () => openSpecSummary([], []),
     check: (out) => (out.length === 0 ? null : `期望无输出，实得 ${JSON.stringify(out)}`),
   },
   {
     // 两个钩子对「全勾」的判据必须是同一个：开场说 0 个待归档、Stop 钩子却拦人，等于开场在撒谎。
     // 缩进的子任务与大写 X 是两处判据最容易分叉的地方。
-    name: '「待归档」与 Stop 钩子（openspec-reminder）判的是同一批（缩进子任务、大写 X）',
+    name: '待归档取自 Stop 钩子的判据，其余分进行中 / 未开工，三类相加等于总数（缩进子任务、大写 X）',
     run: () => {
       const bodies = {
         'nested-todo': '- [x] 1.1 a\n  - [ ] 1.2 b\n',
@@ -194,13 +194,25 @@ const cases = [
         'nothing-checked': '- [ ] 1.1 a\n',
       };
       const root = scratchChanges(bodies);
-      const ours = openSpecSummary(Object.entries(bodies).map(([name, b]) => ({ name, ...countCheckboxes(b) })));
-      return { ours, theirs: completedUnarchivedChanges(root) };
+      const theirs = completedUnarchivedChanges(root);
+      const ours = openSpecSummary(Object.entries(bodies).map(([name, b]) => ({ name, ...countCheckboxes(b) })), theirs);
+      return { ours, theirs };
     },
     check: ({ ours, theirs }) =>
       theirs.join() === 'upper-x-done' && ours.length === 2 && ours[1].endsWith('：upper-x-done') && ours[0].includes('进行中 1') && ours[0].includes('未开工 1')
         ? null
         : `两边判据分叉：Stop 钩子 ${JSON.stringify(theirs)}，开场 ${JSON.stringify(ours)}`,
+  },
+  {
+    // 计数排除了当前分支，查看命令也必须排除，否则在一个陈旧分支上开会话时命令会多列出自己。
+    name: '查看命令排除当前分支（与计数同一口径）',
+    run: () => {
+      const cmd = staleListCommand('feat/wip');
+      const rows = 'origin/feat/wip 4 99\norigin/old 1 99\norigin/main 0 0\n';
+      const r = spawnSync('bash', ['-c', cmd.replace(/^git for-each-ref .*? \| /, '')], { input: rows, encoding: 'utf8' });
+      return r.stdout.trim().split('\n');
+    },
+    check: (out) => (out.join() === 'origin/old 1 99' ? null : `期望只列 origin/old，实得 ${JSON.stringify(out)}`),
   },
   {
     name: 'origin/main 与裸 origin 不算欠账',
