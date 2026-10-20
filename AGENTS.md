@@ -104,6 +104,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 > 记忆文件全文），而本文件每个会话常驻、每一轮按 cache read 价重读一遍。
 > 官方 context engineering 指南对这种形态的原话是
 > "A common myth is that CLAUDE.md should be a central repository for every practice"。
+> 依据与实测见 `docs/research/claude-code-token-optimization-20260917.md`。
 -->
 ## 2. 源真相优先级
 
@@ -162,7 +163,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 - 🚩 `confirm-departure` 与 `en-route` **别合并**（会让位置互推提前几小时打开）。
 - `DUPLICATE_ORDER` 只拦**时段冲突**，文案别再写「您有进行中的订单」。
 - 发 `ACCEPT` 还是 `INTERESTED` **只认推送里的 `requiresIntroCall`**，客户端不许自己算；缺键降级发 `INTERESTED`。
-- 掩码号码串**绝不能拼 `tel:`**；唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+- 掩码号码串**绝不能拼 `tel:`**；通话磨合页唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
 - 磨合轮次与对方表态**客户端不许自己算、不许显示**（无声拒绝是设计）。
 
 ## 6. 求助 / SOS 红线
@@ -172,8 +173,8 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 - **新增求助入口必须读那一端的判定，不许自己判状态**：`BlindHomeSOSMode.resolve` / `VolunteerOrderSOSMode.resolve`（现有三处入口见 skill）。
 - **志愿者不得拥有「误触」按钮**（他可能就是威胁来源，后端 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）；撤销权只在受助者本人（`PUT /api/emergency/{id}/cancel`）和客服。
 - **App 永远不得宣称短信已发出、已送达，或家属/联系人已被通知**（短信事务后异步发，失败不回告）；用进行时文案覆盖后端 body，`联系人已收到短信` 不得进发布产物。
-- 云端 SOS 必须带**新鲜的真实 GCJ-02 坐标**，拿不到就不发并**可见且可听**地告知；Mock 坐标绝不上传；`allowsSubmissionWithoutLocation` 批准前保持 `false`。
-- `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 只是**信息性**提示，不改状态、不开求助 UI、不证明救援已派出。
+- 云端 SOS 必须带**新鲜的真实 GCJ-02 坐标**，拿不到就不发并**可见且可听**地告知；Mock / demo 坐标绝不上传；`allowsSubmissionWithoutLocation` 在产品/安全批准前保持 `false`。
+- `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 只是高优先级的**信息性**提示，不改状态、不开求助 UI、不证明救援已派出。
 - 求助必须二次确认，文案**逐字锁定**：
 
 ```text
@@ -189,7 +190,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 -->
 ## 7. 外部 API 契约
 
-- **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`（`docs/api_spec.yaml`、`docs/websocket-protocol.md`），本仓库**不留副本**；**读它的 origin/main**（`git -C /Users/mac/Downloads/demo show origin/main:docs/api_spec.yaml`），别读工作区；契约错了去后端改。
+- **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`（`docs/api_spec.yaml`、`docs/websocket-protocol.md`），本仓库**不留副本**；`claude --add-dir` 挂载，**读它的 origin/main**（`git -C /Users/mac/Downloads/demo show origin/main:docs/api_spec.yaml`），别读工作区；契约错了去后端改。
 - 需要后端拍板：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`；后端问我们的标 `待前端确认`。`demo/docs/handoff.md` 已冻结。
 - 错误码语义见 skill `aidrun-error-codes`（机器可读 `docs/error-codes.json`）。
 
@@ -256,7 +257,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 **实现中**
 
 4. 一次只实现一个内聚模块
-5. **行为有变时，实现前 `openspec/changes/` 下必须有对应变更**（没有就用 `openspec-propose` 建，做完一项勾一项）；修 bug / 文案 / 重构不需要。
+5. **行为有变时，实现前 `openspec/changes/` 下必须有对应变更**（先 `openspec list` 找，没有就用 `openspec-propose` 建，做完一项勾一项）；修 bug / 文案 / 重构不需要。
 6. **改任何文件前，自己把要改的那部分读一遍** —— 探索可以外包，编辑不行。≥ 500 行别整读，用 `codegraph node <符号>` 再 `Read` 前后一屏。
 
 <!--
