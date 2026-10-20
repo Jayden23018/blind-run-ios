@@ -34,14 +34,25 @@ scripts/device-test.sh
 
 # 规格与文档
 openspec validate <change-id> --strict --no-interactive
+openspec validate --all --strict --no-interactive
 node scripts/validate-docs.mjs
-node scripts/validate-spec-coverage.mjs
+node scripts/validate-spec-coverage.mjs    # 路径级：前端调的每条路径都在契约里
+node scripts/validate-golden-corpus.mjs    # 语音黄金语料 vs 前端镜像清单
+node scripts/validate-error-codes.mjs      # 前端 ErrorCode 枚举 vs 后端 ErrorCode.java
+node scripts/validate-voice-intent-words.mjs  # 确认轮本地直通表 vs 后端 VoiceSlotParser 的 INTENT_* 正则
 
 # 生产就绪
 AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 \
   scripts/production-readiness-check.sh
 scripts/dual-device-validation.sh
 ```
+
+中间四条（spec-coverage / golden-corpus / error-codes / voice-intent-words）要读后端仓库，见第七节。
+CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
+
+> **零执行不是通过。** `passed=0 failed=0` 一律当失败查——设备锁屏、`-only-testing` 名字打错、
+> 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
+> 脚本对这种情况有硬失败，别绕过它。
 
 纯逻辑改动可以先用独立 Swift 脚本实跑，秒级出结果，但**它不能替代真机 XCTest**。
 
@@ -195,6 +206,11 @@ result bundle 的 `passed=N failed=0`**，别把它当成验证本身。
 | `Jayden23018/blind-run-ios`（`origin`，**主线**）| ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
 | 本地 pre-push | ✅ 真跑 | 读 `../demo` 的 `origin/main`，装钩子后每次 push 自动（`scripts/install-git-hooks.sh`，每台机器一次） |
 
+**pre-push 分档（2026-10-03）**：默认只跑 openspec / docs / 读后端的 4 道门禁（几秒）；钩子自测只在改了
+`scripts/ .claude/ .github/` 时跑，`swift test` 与生成代码比对只在改了 `Packages/AidRunAPI/`、生成脚本时跑 ——
+其余由 CI 的 specs / build job 补跑（整套本地 2:43，CI specs 同内容 36 秒）。要本地全量：`AIDRUN_PREPUSH_FULL=1 git push`。
+分档跳过会明说「CI 会补跑」，**不计入**「被跳过的门禁」（那一类仍表示读不到后端）。
+
 **`JerryZhao-1/blind-run-ios` 自 2026-08-12 起只是 `upstream`，不再是投递目标。** 分支不往那边推、
 PR 也不往那边开。它的 CI 配不上 secret（我们不是 admin），这 5 条在那边是 warning 空过 ——
 **上游 CI 绿 ≠ 契约对过了**。要取上游的新提交：`git fetch upstream`。
@@ -251,3 +267,23 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 ## 八、事故复盘（改动收尾时顺手做）
 
 如果本轮修的是一个**已经犯过第二次**的错，按 `AGENTS.md` 的「事故复盘规则」给它找归宿：能静态查的进 `scripts/hooks/guard.mjs`（配 `scripts/validate-guard.mjs` 的正反用例），能运行时查的进测试，两者都不能的写进项目记忆。只写文档不算完成。
+
+加守卫前先看已有哪些规则。守卫管的不止冻结文件；**规则清单和用例数不抄进任何文档** —— 要用就当场取
+（2026-10-20 从 `AGENTS.md` §9 搬来，#482）：
+
+```bash
+# 规则 id（两处来源：rules 对象的键 + fail() 里硬编码的。少查一处就会漏掉三条）
+python3 -c "
+import re
+s=open('scripts/hooks/guard.mjs').read()
+ids=set(re.findall(r\"fail\(\s*'([a-z0-9-]+)'\",s))|set(re.findall(r\"^  '([a-z0-9-]+)':\",s,re.M))
+print('\n'.join(sorted(ids)));print('共',len(ids),'条')"
+
+node scripts/validate-guard.mjs | tail -1   # 用例数
+```
+
+别用 `grep` 抓规则 id —— `fail(` 后面常换行，逐行匹配一条都取不到（空结果比错结果更难发现）。
+
+> 2026-08-11 立此条：原文写着「规则清单以 guard.mjs 为准，本文件不留副本」，紧接着**自己抄了一份**
+> —— 抄的那份漏了 `blind-tap-center`、`missing-team`、`archived-contract` 三条，用例数也停在 21（实为 28）。
+> 有人照它写进对外文档，发现对不上才返工。写「以 X 为准」再抄一份 X，等于制造一个必然过期的第二源。
