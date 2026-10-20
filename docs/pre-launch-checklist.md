@@ -149,15 +149,15 @@
 
 ### C1 账号与通道
 
-- [ ] 🔴 **【第 0 项，今天就办】购买 Apple Developer Program 账号**（$99/年）。2026-08-14 确认：**目前没有付费账号**，而内测是异地分发（团队与测试者不在同一城市，线下陪同不可行）⇒ TestFlight 是唯一现实通道 ⇒ **没有付费账号，整个 §C 和 §D 一步都走不了**。
+- [x] 🔴 **【第 0 项】购买 Apple Developer Program 账号** → 2026-10-20 已开好**公司组织账号**（Shenzhen Culiu Technology Co., Ltd.），取代此前借用的个人付费团队。原文保留：（$99/年）。2026-08-14 确认：**目前没有付费账号**，而内测是异地分发（团队与测试者不在同一城市，线下陪同不可行）⇒ TestFlight 是唯一现实通道 ⇒ **没有付费账号，整个 §C 和 §D 一步都走不了**。
   - 个人账号（Individual）：审核通常 1–2 天，App Store 上显示**个人姓名**
   - 组织账号（Organization）：显示公司名，但要先办 **D-U-N-S 编号**，周期**以周计**
   - ⇒ 选哪种要先定（见 §H），因为组织账号的等待期决定整个内测时间表
-- [ ] 🟡 工程文件里写死的 `DEVELOPMENT_TEAM = R6PH2TFB3Q` 是原开发者的团队号，本机签名用 `ZW39BS8NXT`。新账号开好后确认 App Store Connect 记录归属，命令行传 `DEVELOPMENT_TEAM=<新团队号>` 覆盖（**不要改 pbxproj，那是行级冻结项**）。
-- [ ] 🔴 Bundle ID `com.culiu-tech.aidrun1`（2026-10-03 起，Team `QW8R457UHN`）已注册，App Store Connect 记录已建（SKU `aidrun-ios-001`）。⚠️ Widget 需另注册 `com.culiu-tech.aidrun1.LiveActivity` 并建描述文件。
-  ⚠️ **建记录之前先定名**：记录建了就不能改，而 `jerry` 是原开发者；这个 ID 09-06 曾报「not available」，
-  09-08 起又能用免费团队签了 ⇒ 付费团队下能不能注册只有当场才知道。改名要动 5 个 target 的
-  `PRODUCT_BUNDLE_IDENTIFIER`、高德 key、后端 `APNS_TOPIC`。
+- [x] 🟡 工程团队号已换成公司组织账号（2026-10-20；具体号码按 AGENTS §2 不写进文档，去 `project.pbxproj` 当场查）。组织账号下被加进团队的成员可直接签名跑真机，不必再换成个人免费团队。
+- [ ] 🔴 Bundle ID 定为 **`com.culiu-tech.blindrun`**（2026-10-20，公司账号下已注册；Widget 为 `com.culiu-tech.blindrun.LiveActivity`，需另注册）。
+  工程里由 `AIDRUN_BUNDLE_ID_PREFIX` 的默认值统一派生，换 ID 只改那一处默认值。随之要跟的：高德 iOS key 重绑、后端 `APNS_TOPIC`。
+  ⚠️ 旧 ID `com.culiu-tech.aidrun1` 与旧 App 记录（SKU `aidrun-ios-001`）留在 Yu Wu 的个人团队里：只上过 TestFlight 的 App **不能转移**（Apple 要求至少发布过一个版本），
+  所以在公司账号重建；旧记录占着 App 名「助盲跑」时，要请旧团队移除那条记录才能释放名字。`、高德 key、后端 `APNS_TOPIC`。
 - [x] ~~🔴 版本策略~~ → build 号 = `git rev-list --count HEAD`（`scripts/set-build-number.sh`，PR #192），
   App 与 Widget 同值；上传脚本要求 HEAD 在 `origin/main` 线上，防止包号回退。`MARKETING_VERSION` 仍是 `1.0`。（2026-09-27 核）
 - [x] ~~🟡 Info.plist 补 `ITSAppUsesNonExemptEncryption`~~ → 已是 `false`（只走系统 HTTPS，属豁免）。（2026-09-27 核）

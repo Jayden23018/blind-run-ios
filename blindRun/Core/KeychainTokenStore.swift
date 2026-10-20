@@ -36,7 +36,7 @@ final class KeychainTokenStore: TokenStoring {
     /// 写入条目时使用的 accessibility。单独成常量，是为了让测试能直接断言取值。
     static let accessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
 
-    private static let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "keychain")
+    private static let logger = Logger(subsystem: "com.culiu-tech.blindrun", category: "keychain")
 
     /// 同一个 service 下的两条条目：access token，以及 refresh token 连同签发时刻（`RefreshCredentialStore`）。
     /// 两条用同一个 accessibility —— 锁屏后台续期同样要读得到 refresh token。

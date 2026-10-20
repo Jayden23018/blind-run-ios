@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_BUNDLE_ID="com.culiu-tech.aidrun1"
-UI_TEST_RUNNER_BUNDLE_ID="com.culiu-tech.aidrun1.uitests.xctrunner"
+APP_BUNDLE_ID="com.culiu-tech.blindrun"
+UI_TEST_RUNNER_BUNDLE_ID="com.culiu-tech.blindrun.uitests.xctrunner"
 
-# 团队号与 pbxproj 一致（QW8R457UHN），换团队时在命令行覆盖。
+# 团队号与 pbxproj 一致（8LG486RF64），换团队时在命令行覆盖。
 # 注意：只当环境变量前缀不生效，得作为**构建设置参数**传给 xcodebuild。
-TEAM="${AIDRUN_TEAM:-QW8R457UHN}"
+TEAM="${AIDRUN_TEAM:-8LG486RF64}"
 
 hash_app_state() {
   local device="$1"
   local destination="$2"
   local transfer_dir
   transfer_dir="$(mktemp -d)"
-  local plist="${transfer_dir}/com.culiu-tech.aidrun1.plist"
+  local plist="${transfer_dir}/${APP_BUNDLE_ID}.plist"
 
   if ! xcrun devicectl device copy from \
     --device "${device}" \
     --domain-type appDataContainer \
     --domain-identifier "${APP_BUNDLE_ID}" \
-    --source "Library/Preferences/com.culiu-tech.aidrun1.plist" \
+    --source "Library/Preferences/${APP_BUNDLE_ID}.plist" \
     --destination "${plist}" \
     --quiet; then
     printf '%s\n' "APP_STATE_MISSING" | shasum -a 256 | awk '{print $1}' > "${destination}"

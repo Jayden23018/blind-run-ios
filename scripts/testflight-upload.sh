@@ -34,7 +34,7 @@ fail() { echo "❌ $*" >&2; exit 1; }
 
 # ── 1. 前置 ─────────────────────────────────────────────
 if [[ $DRY_RUN -eq 0 ]]; then
-  # 免费个人团队不能上 TestFlight，所以不给默认值，必须显式传付费团队号（pbxproj 里现为 QW8R457UHN，脚本仍不依赖它）。
+  # 免费个人团队不能上 TestFlight，所以不给默认值，必须显式传付费团队号（pbxproj 里现为公司账号 8LG486RF64，脚本仍不依赖它）。
   [[ -n "${TEAM_ID:-}" ]] || fail "缺 TEAM_ID：须传**付费** Apple Developer Program 的 Team ID（developer.apple.com → Membership）。免费个人团队不能上传 TestFlight；脚本不读 pbxproj 里的团队号，必须显式传"
   [[ -z "$(git status --porcelain)" ]] || fail "工作区不干净：送审包必须对应一个确定的提交"
   git fetch -q origin main

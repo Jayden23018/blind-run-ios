@@ -222,7 +222,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 -->
 ## 9. 冻结文件
 
-**整文件冻结**：`Podfile` —— 架构排除设置与 pod 列表都在里面，没有安全的局部改法。`project.pbxproj` **不再冻结**（2026-10-03，#302）；团队号不写进文档，用时当场查（skill `aidrun-device-test`）。Bundle ID 为 `com.culiu-tech.aidrun1`。
+**整文件冻结**：`Podfile` —— 架构排除设置与 pod 列表都在里面，没有安全的局部改法。`project.pbxproj` **不再冻结**（2026-10-03，#302）；团队号不写进文档，用时当场查（skill `aidrun-device-test`）。Bundle ID 为 `com.culiu-tech.blindrun`（2026-10-20 随公司组织账号换掉 `com.culiu-tech.aidrun1`）。
 
 **任何构建相关文件都不得写入 `EXCLUDED_ARCHS`** —— 真机是唯一 XCTest 通道，模拟器因高德无 arm64-sim slice **永久不可用**，那条设置是这个事实的载体。确需在代码或注释里提及，行尾加 `guard:allow excluded-archs`。守卫规则 id 不抄进文档，取法见 `aidrun-ship-check` §八。
 
