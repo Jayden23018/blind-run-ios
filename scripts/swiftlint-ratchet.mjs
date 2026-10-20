@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-// 与 .github/workflows/verify.yml 里的镜像标签保持一致。版本一变，规则的计数口径可能跟着变。
+// 与 .github/workflows/verify.yml 里的镜像标签保持一致（--self-test 会核对）。版本一变，规则的计数口径可能跟着变。
 export const SWIFTLINT_VERSION = '0.65.1';
 export const BASELINE_FILE = '.swiftlint-baseline.json';
 
@@ -241,6 +241,9 @@ function selfTest() {
     [JSON.stringify(JSON.parse(canon)) === JSON.stringify(JSON.parse(canonicalBaseline(JSON.parse(canon)))), 'baseline 重写幂等'],
     [canon.split('\n')[1].startsWith('{"text":"t","violation":{"location":{"file":"f","line":2}'), 'baseline 键按字母排、一条一行'],
   );
+  // 本地版本提醒与 CI 镜像标签各写一处，改一处忘一处时两边结果会悄悄对不上。
+  const workflow = fs.readFileSync(new URL('../.github/workflows/verify.yml', import.meta.url), 'utf8');
+  edge.push([workflow.includes(`ghcr.io/realm/swiftlint:${SWIFTLINT_VERSION} `), `verify.yml 的镜像标签是 ${SWIFTLINT_VERSION}`]);
   for (const [ok, name] of edge) {
     if (!ok) failed++;
     console.log(`${ok ? '✓' : '✗'} ${name}`);
