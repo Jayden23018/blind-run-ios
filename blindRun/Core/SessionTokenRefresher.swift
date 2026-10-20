@@ -48,7 +48,7 @@ final class SessionTokenRefresher {
     /// （code review 2026-10-17：只比 token 值的话，A 登出、B 登录后 A 的迟到 401 会拿 B 的 token 重发）。
     private(set) var sessionEpoch: UInt64 = 0
 
-    private static let logger = Logger(subsystem: "com.culiu-tech.aidrun1", category: "session-renewal")
+    private static let logger = Logger(subsystem: "com.culiu-tech.blindrun", category: "session-renewal")
 
     /// App 里那个 `AppState` 持有的实例。锁屏卡按钮不经 `AppState`（它可能在 App 装好之前就跑），
     /// 有就借它的，好让 single-flight 与内存里的 token 都跟着走；没有就自己起一个只读写 Keychain 的。

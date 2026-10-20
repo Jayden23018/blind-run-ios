@@ -697,7 +697,7 @@ function main() {
     // 7. 脚本里调 xcodebuild 真机动作却没传 DEVELOPMENT_TEAM（2026-08-07）
     //
     // 2026-10-03 前 pbxproj 写死的是原开发者的团队号 R6PH2TFB3Q，当时每条打真机的 xcodebuild 都得在命令行覆盖；
-    // 现已改为 QW8R457UHN（#302），本规则保留作为「显式传团队号」的约定。**只当环境变量前缀不生效** ——
+    // #302 改为 QW8R457UHN，2026-10-20 换成公司组织账号 8LG486RF64，本规则保留作为「显式传团队号」的约定。**只当环境变量前缀不生效** ——
     // `DEVELOPMENT_TEAM=… xcodebuild …` 会被静默忽略，报的是
     // `No Account for Team "R6PH2TFB3Q"` + `No profiles for 'com.jerry.aidrun' were found`，
     // 两条都不提团队号是从哪来的，很容易被当成证书或 provisioning 问题去查。
@@ -728,9 +728,9 @@ function main() {
         'missing-team',
         `${filePath}\n  ${missingTeamCmd.trim().slice(0, 160)}\n\n` +
           `这条 xcodebuild 打的是真机（-destination platform=iOS,name=/id=）却没传 DEVELOPMENT_TEAM。\n` +
-          `约定每条真机 xcodebuild 都显式传团队号（pbxproj 里是 QW8R457UHN，可被覆盖）。\n` +
+          `约定每条真机 xcodebuild 都显式传团队号（pbxproj 里是 8LG486RF64，可被覆盖）。\n` +
           `**环境变量前缀不生效**，必须作为构建设置参数传：\n` +
-          `  TEAM="\${AIDRUN_TEAM:-QW8R457UHN}"\n` +
+          `  TEAM="\${AIDRUN_TEAM:-8LG486RF64}"\n` +
           `  xcodebuild … -allowProvisioningUpdates DEVELOPMENT_TEAM="\$TEAM"\n` +
           `照抄 scripts/device-test.sh:25,60。不传的报错是 \`No Account for Team "R6PH2TFB3Q"\`，\n` +
           `字面上不提团队号从哪来，容易被误当成证书或 provisioning 问题查半天。\n` +
