@@ -127,6 +127,7 @@ scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests/tes
    脚本最后会打印 `附件已导出（N 个）：<目录>`。用 Read 打开里面的 PNG 自己先看，
    再用 SendUserFile 把图发给用户。审计用例失败时 XCTest 也会自动留一张失败截图，在同一个目录。
    ⚠️ UI 测试构建没有高德 key，地图恒为占位图 —— 那不是生产形态，看图结论里要注明。
+   有设计稿或用户给的参考图、要判「像不像」时，拿这张图走 skill `aidrun-visual-verdict` 打分。
 3. **贴出来的三样**：审计用例名 + `passed/failed` 行、截图、以及没覆盖到的东西（没审计的页面、没截到的状态）。
    「改了视图但没贴这三样」= 没做完。设备不在线时明说「没跑」，不许写成通过。
 
