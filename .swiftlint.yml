@@ -3,8 +3,9 @@
 # 本地跑（仓库根，brew install swiftlint；CI 钉 0.65.1，见 scripts/swiftlint-ratchet.mjs 的 SWIFTLINT_VERSION）：
 #   node scripts/swiftlint-ratchet.mjs
 #
-# 别直接看 `swiftlint lint` 的输出下结论：SwiftLint 的 baseline 按「行原文 + 带数字的提示文字」认旧账，
-# 超长文件删一行也会被它报成新违规。上面那个脚本补了一道「同一处没变大就放过」，CI 跑的也是它。
+# 别直接看 `swiftlint lint` 的输出下结论：它会列出全部现有违规（这里故意不写 `baseline:` 键）。
+# SwiftLint 自己的 baseline 过滤按「行原文 + 带数字的提示文字」认旧账，超长文件删一行也会被报成新违规；
+# 上面那个脚本只借它的 baseline 文件格式，自己按「同一处没变大就放过」配对，CI 跑的也是它。
 #
 # 确实要冻结一处新违规（例如拆分要另开 PR），重写 baseline，并在 PR 描述里写为什么：
 #   node scripts/swiftlint-ratchet.mjs --write-baseline
@@ -19,8 +20,6 @@ only_rules:
   - type_body_length
   - function_body_length
   - cyclomatic_complexity
-
-baseline: .swiftlint-baseline.json
 
 included:
   - blindRun

@@ -8,8 +8,11 @@
 // 2026-10-20 实测 blindRun/Auth/LoginView.swift 459 → 458 行照样报出。冻结时有 97 个文件超 400 行，
 // 照原样接 CI，几乎每个 PR 都会红，最后只会被人整份重写 baseline 绕过。
 //
-// 这里只在 SwiftLint 过滤之后再补一道：同一处（同文件、同规则、同一行声明原文；file_length 每个文件只有一处）
-// 在 baseline 里有记录、且数字**没变大** → 放过；变大了、或 baseline 里没有这一处 → 失败。
+// 所以这里不用 SwiftLint 的过滤，只用它的 baseline 文件格式：拿到**全部**当前违规，
+// 按「同一处」（同文件、同规则、同一行声明原文；file_length 每个文件只有一处）与 baseline 一对一配对，
+// 数字**没变大** → 放过；变大了、或 baseline 里没有这一处 → 失败。
+// 不能先让 SwiftLint 过滤再补判：VolunteerOrderFlowStep.swift 有两个原文相同的 `static func make(`，
+// 没变的那个被 SwiftLint 滤掉后，它的旧账会被变长的那个拿去抵。
 //
 // 用法：
 //   node scripts/swiftlint-ratchet.mjs                          # 调本机 swiftlint（brew install swiftlint）
@@ -43,7 +46,7 @@ function entityKey(file, rule, text) {
   return [file, rule, rule === 'file_length' ? '' : text].join('\u0000');
 }
 
-// reported：SwiftLint 过滤后仍报出的违规，{ file（相对仓库根）, line, rule, reason }。
+// reported：SwiftLint 报出的全部当前违规（不经 baseline 过滤），{ file（相对仓库根）, line, rule, reason }。
 // baseline：.swiftlint-baseline.json 原样解析后的数组。
 // readLines(file)：返回该文件当前的行数组。
 export function judge({ reported, baseline, readLines }) {
@@ -59,11 +62,14 @@ export function judge({ reported, baseline, readLines }) {
 
   const failures = [];
   const tolerated = [];
-  for (const v of reported) {
-    const now = metricOf(v.reason);
+  // 从大到小配，每处取「不小于现值」的最小那条旧账，一条旧账只抵一处。
+  const current = reported
+    .map((v) => ({ ...v, now: metricOf(v.reason) }))
+    .sort((a, b) => (b.now ?? Infinity) - (a.now ?? Infinity));
+  for (const v of current) {
+    const { now } = v;
     const key = entityKey(v.file, v.rule, lineText(readLines(v.file), v.line));
     const list = pool.get(key) ?? [];
-    // 取「不小于现值」的最小那条旧账，一条旧账只抵一处。
     const at = now === null ? -1 : list.findIndex((old) => old !== null && old >= now);
     if (at === -1) {
       failures.push(v);
@@ -116,8 +122,7 @@ export function canonicalBaseline(entries) {
 }
 
 function writeBaseline() {
-  // 同时传 --baseline 同一路径：配置里写了 baseline，文件还不存在时 SwiftLint 只在两者相同时才不报错。
-  runSwiftlint(['--baseline', BASELINE_FILE, '--write-baseline', BASELINE_FILE]);
+  runSwiftlint(['--write-baseline', BASELINE_FILE]);
   const entries = JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8'));
   fs.writeFileSync(BASELINE_FILE, canonicalBaseline(entries));
   console.log(`已重写 ${BASELINE_FILE}：${entries.length} 条。在 PR 描述里写清楚为什么冻结。`);
@@ -152,9 +157,10 @@ function main(argv) {
   const readLines = (file) => fs.readFileSync(file, 'utf8').split(/\r\n|\n|\r/);
   const { failures, tolerated } = judge({ reported, baseline, readLines });
 
-  for (const v of tolerated) console.log(`· 放过（没变大）${v.file}:${v.line} ${v.rule} ${v.was} → ${metricOf(v.reason)}`);
+  const shrunk = tolerated.filter((v) => v.now < v.was);
+  for (const v of shrunk) console.log(`· 放过（变小了）${v.file}:${v.line} ${v.rule} ${v.was} → ${v.now}`);
   if (failures.length === 0) {
-    console.log(`SwiftLint：没有新增违规（baseline ${baseline.length} 条，其中 ${tolerated.length} 处变小或持平）。`);
+    console.log(`SwiftLint：没有新增违规（当前 ${reported.length} 处，全在 baseline ${baseline.length} 条之内，其中 ${shrunk.length} 处变小）。`);
     return;
   }
   const annotate = process.env.GITHUB_ACTIONS === 'true';
@@ -183,10 +189,17 @@ function selfTest() {
     entry('A.swift', 5, 'file_length', fileLen(459)),
     entry('A.swift', 3, 'function_body_length', funcLen(80)),
     entry('B.swift', 2, 'function_body_length', funcLen(60)),
+    entry('B.swift', 3, 'function_body_length', funcLen(80)),
   ];
   const rep = (file, line, rule, reason) => ({ file, line, rule, reason });
   const cases = [
     ['没有报出任何违规', [], 0],
+    ['与 baseline 完全相同', [
+      rep('A.swift', 5, 'file_length', fileLen(459)),
+      rep('A.swift', 3, 'function_body_length', funcLen(80)),
+      rep('B.swift', 2, 'function_body_length', funcLen(60)),
+      rep('B.swift', 3, 'function_body_length', funcLen(80)),
+    ], 0],
     ['超长文件删一行（459 → 458），最后一行原文也变了', [rep('A.swift', 4, 'file_length', fileLen(458))], 0],
     ['超长文件持平（459）', [rep('A.swift', 5, 'file_length', fileLen(459))], 0],
     ['超长文件加一行（459 → 460）', [rep('A.swift', 5, 'file_length', fileLen(460))], 1],
@@ -194,10 +207,19 @@ function selfTest() {
     ['长函数变长（80 → 81）', [rep('A.swift', 3, 'function_body_length', funcLen(81))], 1],
     ['同一文件新出现的长函数（声明原文不在 baseline）', [rep('A.swift', 2, 'function_body_length', funcLen(51))], 1],
     ['别的文件的旧账抵不了这里', [rep('B.swift', 1, 'file_length', fileLen(401))], 1],
-    // B.swift 两个同名声明，baseline 只记了一条：一条旧账只抵一处。
-    ['同名声明一条旧账、两处报出', [
+    // B.swift 两个原文相同的声明，旧账 60 与 80：没变的那个不能把旧账让给变长的那个。
+    ['同名声明一个持平、一个变长（60 → 75）', [
+      rep('B.swift', 2, 'function_body_length', funcLen(75)),
+      rep('B.swift', 3, 'function_body_length', funcLen(80)),
+    ], 1],
+    ['同名声明都持平', [
+      rep('B.swift', 2, 'function_body_length', funcLen(60)),
+      rep('B.swift', 3, 'function_body_length', funcLen(80)),
+    ], 0],
+    ['同名声明两条旧账、三处报出', [
       rep('B.swift', 2, 'function_body_length', funcLen(55)),
       rep('B.swift', 3, 'function_body_length', funcLen(58)),
+      rep('B.swift', 3, 'function_body_length', funcLen(51)),
     ], 1],
     ['提示文字里没有数字，一律当新增', [rep('A.swift', 3, 'function_body_length', 'something else')], 1],
   ];
