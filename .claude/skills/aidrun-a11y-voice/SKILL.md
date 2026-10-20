@@ -75,6 +75,13 @@ TTS 用 `AVSpeechSynthesizer`，STT 用 iOS `Speech` 框架。
 - 增强后台定位只允许在 `IN_PROGRESS` 期间，必须有告知，且订单/会话一旦不再符合条件必须立即停止。
 - 完成后的总结用**盲人端**轨迹作为「本次路线」。志愿者轨迹在通过版本化的评估策略前，不得产出任何异常结论。
 
+## 改完怎么验（不许只靠读代码）
+
+上面这些规则，「写对了」只能在真机上看出来。改了盲人端视图或播报文案后，按 skill `aidrun-ship-check`
+§五「改了 SwiftUI 视图或播报文案之后」做三步：跑覆盖那一页的 `AccessibilityAuditTests` 用例、
+用 `ScreenTourTests` 截图并发给用户、贴出 `passed/failed`。CI 和模拟器都跑不了这一步（高德无 arm64-sim slice），
+只有 `scripts/device-test.sh`。
+
 ## 相关
 
 - 求助 / SOS 的状态与文案红线在 `AGENTS.md` 第 10 节（常驻，不在本 skill）。
