@@ -151,7 +151,7 @@ enum EmergencySafetyCopy {
             return sendingTitle
         // 后端受理了。`contactNotifyFailed` 也在这里：失败的是**通知联系人**，
         // 求助本身已经发出去了（正文会把「对方没收到短信」说清楚）。
-        case .acknowledged, .contactSmsDelivered, .contactNotifyFailed:
+        case .acknowledged, .mergedIntoOpenEvent, .contactSmsDelivered, .contactNotifyFailed:
             return sentTitle
         case .cancelledByOwner:
             return cancelledTitle

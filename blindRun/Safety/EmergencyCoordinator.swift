@@ -90,6 +90,10 @@ enum EmergencySOSState: Equatable {
     case locating
     case submitting
     case acknowledged(EmergencyEventStatus)
+    /// 再次触发被后端并进本人那条未结案的求助（后端 #841，交接 blind-run-backend#843）：
+    /// 回的是**同一个** `eventId`，没有新建，家属短信不重发，客服被再提醒一次、位置已更新。
+    /// 与 `.acknowledged` 分开，是因为两者念同一句的话，听的人会以为又发出了一条新求助。
+    case mergedIntoOpenEvent(EmergencyEventStatus)
     /// 没有新鲜真实坐标，所以一个字节都没发出去。带上 `LocationService` 当时的报错，
     /// 让文案能区分「权限被关」和「拿不到 GPS」—— 两者的下一步动作完全不同。
     case unsentNoLocation(LocationError?)
@@ -123,6 +127,8 @@ enum EmergencySOSState: Equatable {
             return EmergencySafetyCopy.submitting
         case .acknowledged(let status):
             return EmergencySafetyCopy.submitted(status)
+        case .mergedIntoOpenEvent:
+            return EmergencySafetyCopy.mergedIntoOpenEvent
         case .unsentNoLocation(let reason):
             return EmergencySafetyCopy.locationUnavailable(reason)
         case .unsentSessionExpired:
@@ -152,7 +158,7 @@ enum EmergencySOSState: Equatable {
         // one fact a blind user must hear in the error register so they call 110 themselves.
         case .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown, .contactNotifyFailed, .withdrawFailed:
             return true
-        case .idle, .countingDown, .locating, .submitting, .acknowledged,
+        case .idle, .countingDown, .locating, .submitting, .acknowledged, .mergedIntoOpenEvent,
              .contactSmsDelivered, .cancelledByOwner, .withdrawnBeforeSending:
             return false
         }
@@ -164,8 +170,8 @@ enum EmergencySOSState: Equatable {
         switch self {
         case .countingDown, .locating, .submitting:
             return true
-        case .idle, .acknowledged, .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown,
-             .contactSmsDelivered, .contactNotifyFailed, .cancelledByOwner,
+        case .idle, .acknowledged, .mergedIntoOpenEvent, .unsentNoLocation, .unsentSessionExpired, .failed,
+             .cooldown, .contactSmsDelivered, .contactNotifyFailed, .cancelledByOwner,
              .withdrawnBeforeSending, .withdrawFailed:
             return false
         }
@@ -183,7 +189,8 @@ enum EmergencySOSState: Equatable {
         switch self {
         case .countingDown, .contactSmsDelivered, .contactNotifyFailed:
             return true
-        case .acknowledged(let status):
+        // 合并时后端用这次请求里的坐标更新了那条事件，所以误差说明照样适用。
+        case .acknowledged(let status), .mergedIntoOpenEvent(let status):
             return !status.isTerminal
         // `.submitting`：误差在事件落地（`activeEvent` 写入）之后才记，提交中恒无值，列进来是死分支。
         case .idle, .locating, .submitting, .unsentNoLocation, .unsentSessionExpired, .failed, .cooldown,
@@ -207,7 +214,9 @@ final class EmergencyCoordinator: ObservableObject {
     /// degrades to "位置获取失败，请尽快拨打其电话或报警110" in the SMS. That degraded path is a
     /// product/safety call, not an engineering one (handoff Q①, unanswered): a rescue sent to the
     /// wrong place is worse than no rescue, and a blind user cannot tell the difference. Flip this
-    /// single constant once product/safety approve; nothing else needs to change.
+    /// constant once product/safety approve. One more place must change with it:
+    /// `EmergencySafetyCopy.mergedIntoOpenEvent` says 「已更新你的位置」, which is only true when the
+    /// request carried a coordinate (the backend skips the update otherwise, blind-run-backend#843).
     static let allowsSubmissionWithoutLocation = false
 
     /// Longest we will make someone wait for a fresh fix before giving up and saying so.
@@ -293,6 +302,11 @@ final class EmergencyCoordinator: ObservableObject {
     /// 本机发出的求助所附坐标的精度，只在差于 `LocationAccuracyPolicy.weakAccuracyMeters` 时有值。
     /// 由 `statusMessage` 读，见 `EmergencySafetyCopy.impreciseLocationNote`。
     @Published private(set) var submittedLocationAccuracyMeters: Double?
+    /// 再次触发被并进同一条事件的次数。屏 3b 靠 `activeEvent?.eventID` 变化拉起来，
+    /// 而合并时 id 不变 —— 不另给一个信号，第二次按下就只剩跑步页上的一行字。
+    /// `EmergencyRecoveryPresentation` 看它变化再拉一次屏 3b。
+    /// **只增不减，`reset()` 也不清**：清回 0 本身就是一次变化，会在退出登录时把屏 3b 弹出来。
+    @Published private(set) var mergedRetriggerCount = 0
     /// 跑步中登录已过期（#376）：云端求助一律不发。由 `AppState.handleAuthenticatedAPIError` 在进入暂缓时打开，
     /// `reset()`（每个会话边界都会调）关上。
     ///
@@ -776,6 +790,9 @@ final class EmergencyCoordinator: ObservableObject {
                     locationAccuracyMeters: locationAccuracyMeters
                 )
             }
+            // 后端 #841：本人已有一条已发出、未结案的求助时，再按不新建，回的是同一个 `eventId`。
+            // 在覆盖 `activeEvent` 之前判。
+            let mergedIntoOpenEvent = activeEvent?.eventID == response.eventId
             activeEvent = ActiveEmergencyEvent(
                 eventID: response.eventId,
                 orderID: orderID,
@@ -783,7 +800,11 @@ final class EmergencyCoordinator: ObservableObject {
                 status: response.eventStatus
             )
             submittedLocationAccuracyMeters = locationAccuracyMeters
-            return finish(.acknowledged(response.eventStatus))
+            guard mergedIntoOpenEvent else {
+                return finish(.acknowledged(response.eventStatus))
+            }
+            mergedRetriggerCount += 1
+            return finish(.mergedIntoOpenEvent(response.eventStatus))
         } catch let error as APIError {
             if case .rateLimited(let info) = error {
                 return await reconcile(
@@ -908,6 +929,11 @@ final class EmergencyCoordinator: ObservableObject {
     /// Latest authoritative SOS line for blind "重复当前状态", appended after — never replacing —
     /// the canonical order announcement.
     var repeatStatusSuffix: String? {
-        state.message
+        // 合并那句里的「这次」指的是刚才那一按。过一阵再点「重复当前状态」还念它，
+        // 听的人会以为自己刚才又按了一次 —— 这里改回按状态说。
+        if case .mergedIntoOpenEvent(let status) = state {
+            return EmergencySafetyCopy.submitted(status)
+        }
+        return state.message
     }
 }
