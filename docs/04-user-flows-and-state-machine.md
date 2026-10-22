@@ -300,7 +300,7 @@ sequenceDiagram
     end
 
     API-->>App: EMERGENCY_CONTACT_NOTIFIED（实时通知）
-    App->>BR: "系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"
+    App->>BR: "系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打120或110。"
     Note over App,BR: 永不声称短信已送达或联系人已被联系上
 ```
 
