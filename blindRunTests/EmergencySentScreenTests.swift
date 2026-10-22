@@ -54,6 +54,93 @@ final class EmergencySentScreenTests: XCTestCase {
         XCTAssertEqual(since.spoken, "9点05分发出，3 分钟前")
     }
 
+    // MARK: 动作与拨号选择的逐状态判定（code review A1 / A2）
+
+    /// 🔴 拨号选择的第一句：只有确定发出过才说「已经发出」，确定没发出才说「没有发出去」。
+    /// 撤销后、倒计时内撤回后、正在发出、撤回失败时这一屏都看得到 —— 那时两句都可能是假话。
+    func testCallOptionsSentenceIsOnlyAsCertainAsTheState() {
+        let sent: [EmergencySOSState] = [
+            .acknowledged(.csHandling), .mergedIntoOpenEvent(.pending), .contactSmsDelivered, .contactNotifyFailed
+        ]
+        for state in sent {
+            XCTAssertEqual(EmergencySentScreenAction.callContext(for: state, hasActiveEvent: true), .cloudSent, "\(state)")
+        }
+        let uncertain: [EmergencySOSState] = [
+            .cancelledByOwner, .withdrawnBeforeSending, .locating, .submitting, .withdrawFailed(nil),
+            .idle, .cooldown(retryAfterSeconds: 30)
+        ]
+        for state in uncertain {
+            XCTAssertEqual(
+                EmergencySentScreenAction.callContext(for: state, hasActiveEvent: false), .cloudUncertain, "\(state)"
+            )
+        }
+        let unsent: [EmergencySOSState] = [.unsentNoLocation(nil), .unsentSessionExpired, .failed("网络异常")]
+        for state in unsent {
+            XCTAssertEqual(EmergencySentScreenAction.callContext(for: state, hasActiveEvent: false), .cloudFailed, "\(state)")
+        }
+        // 撤销失败（`.failed`）时事件还在 = 求助确实发出过。
+        XCTAssertEqual(EmergencySentScreenAction.callContext(for: .failed("撤销失败"), hasActiveEvent: true), .cloudSent)
+        XCTAssertEqual(EmergencyCallContext.cloudUncertain.dialogMessage, "请选择要拨打的号码。")
+    }
+
+    func testSentPlanHasOnePrimaryThenOtherCallsThenQuietCancel() {
+        XCTAssertEqual(
+            EmergencySentScreenAction.plan(for: .acknowledged(.contactNotified), hasActiveEvent: true),
+            [.callMedical, .otherCalls(.cloudSent), .quietCancel]
+        )
+        // 撤销成功后事件没了：不再给撤销，拨号选择用中性那句。
+        XCTAssertEqual(
+            EmergencySentScreenAction.plan(for: .cancelledByOwner, hasActiveEvent: false),
+            [.callMedical, .otherCalls(.cloudUncertain)]
+        )
+    }
+
+    /// 没发出：急救电话 → 再发一次 → 其他电话，没有撤销。
+    func testUnsentPlanPutsTheEmergencyCallBeforeRetryAndHasNoCancel() {
+        XCTAssertEqual(
+            EmergencySentScreenAction.plan(for: .unsentNoLocation(nil), hasActiveEvent: false),
+            [.callMedical, .retrySend, .otherCalls(.cloudFailed)]
+        )
+        XCTAssertEqual(
+            EmergencySentScreenAction.plan(for: .cooldown(retryAfterSeconds: nil), hasActiveEvent: false),
+            [.callMedical, .retrySend, .otherCalls(.cloudUncertain)]
+        )
+    }
+
+    func testCountdownKeepsItsOwnSingleAction() {
+        XCTAssertEqual(EmergencySentScreenAction.plan(for: .countingDown(secondsRemaining: 2), hasActiveEvent: true), [])
+    }
+
+    func testHeaderSpeaksTitleThenSendTime() {
+        XCTAssertEqual(
+            EmergencySentHeader.accessibilityLabel(title: "求助已发出", spokenSince: "10点02分发出，3 分钟前"),
+            "求助已发出，10点02分发出，3 分钟前"
+        )
+        XCTAssertEqual(EmergencySentHeader.accessibilityLabel(title: "求助已发出", spokenSince: nil), "求助已发出")
+    }
+
+    func testOtherCallsHintOnlyNamesTheContactWhenThereIsOne() {
+        XCTAssertEqual(EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: true), "打开号码选择：紧急联系人、120、110")
+        XCTAssertEqual(EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: false), "打开号码选择：120、110")
+    }
+
+    /// 同 `EmergencySOSTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 的红线，覆盖这一屏新增的每一句
+    /// （那个文件长度已冻结，不往里加）。
+    func testNewSentScreenCopyNeverClaimsDelivery() {
+        let forbidden = ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人", "短信已送达"]
+        let copy = [
+            EmergencySafetyCopy.sentCallMedicalSubtitle, EmergencySafetyCopy.sentOtherCallsTitle,
+            EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: true),
+            EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: false),
+            EmergencySafetyCopy.sentCallDialogMessage, EmergencySafetyCopy.uncertainCallDialogMessage,
+            EmergencySafetyCopy.sentQuietCancelTitle, EmergencySafetyCopy.sentTimelineFirstRow,
+            EmergencySafetyCopy.sentTimelineMergedRow
+        ]
+        for line in copy {
+            for claim in forbidden { XCTAssertFalse(line.contains(claim), "「\(line)」含「\(claim)」") }
+        }
+    }
+
     // MARK: 发出时刻与并入时刻
 
     func testNewEventRecordsWhenItWasSentAndIsNotAMerge() {

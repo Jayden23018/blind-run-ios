@@ -171,7 +171,6 @@ enum EmergencySafetyCopy {
     /// 屏 3b 上那两个号码。**只调起系统拨号，不自动拨出** —— 自动拨号会把一个
     /// 还在判断情况的人直接接进 110 接警台。
     static let sentCallMedicalHint = "调起拨号界面，由你按下通话键"
-    static let sentCallPoliceHint = "调起拨号界面，由你按下通话键"
 
     /// 没发出去时的重试。**由用户按，不自动重发。**
     ///

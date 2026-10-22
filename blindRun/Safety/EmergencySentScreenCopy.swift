@@ -8,10 +8,15 @@ extension EmergencySafetyCopy {
 
     /// 110 与主紧急联系人收进这一个按钮，点开是全 App 共用的拨号选择（`emergencyCallOptionsDialog`）。
     static let sentOtherCallsTitle = "打 110 或紧急联系人"
-    static let sentOtherCallsAccessibilityHint = "打开号码选择：紧急联系人、120、110"
+    /// 没有可拨的主联系人时弹窗里没有联系人这一项，提示也不能念它（#506 code review B2）。
+    static func sentOtherCallsAccessibilityHint(hasContact: Bool) -> String {
+        hasContact ? "打开号码选择：紧急联系人、120、110" : "打开号码选择：120、110"
+    }
     /// 那个拨号选择在这一屏的正文（`EmergencyCallContext.cloudSent`）。
     /// 🔴 只说「已经发出」，不说客服或家属已收到（`AGENTS.md` §6）。
     static let sentCallDialogMessage = "求助已经发出。你也可以自己打电话，请选择要拨打的号码。"
+    /// 发没发出不确定、或已撤销时的那一句（`EmergencyCallContext.cloudUncertain`）。负责人 2026-10-22 批准。
+    static let uncertainCallDialogMessage = "请选择要拨打的号码。"
 
     /// 撤销降为底部一行弱化文字。可点高度仍是 64pt，点后照旧二次确认（`cancelOwnerConfirmation`）。
     static let sentQuietCancelTitle = "误触了？撤销求助"

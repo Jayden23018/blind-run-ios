@@ -44,7 +44,8 @@ struct PrimaryButton: View {
                     }
                 }
                 .foregroundColor(.white)
-                .multilineTextAlignment(.center)
+                // 只在有副标题时居中，其余调用点保持原来的默认对齐（#506 code review B1）。
+                .multilineTextAlignment(subtitle == nil ? .leading : .center)
             }
             .padding(.vertical, subtitle == nil ? 0 : AppSpacing.small)
             .frame(maxWidth: .infinity)

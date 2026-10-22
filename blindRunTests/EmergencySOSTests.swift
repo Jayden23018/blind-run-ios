@@ -88,7 +88,6 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.countdown(secondsRemaining: 0),
             EmergencySafetyCopy.sentTitle,
             EmergencySafetyCopy.sentCallMedicalHint,
-            EmergencySafetyCopy.sentCallPoliceHint,
             EmergencySafetyCopy.retrySendTitle,
             EmergencySafetyCopy.retrySendAccessibilityHint,
             EmergencySafetyCopy.sendingTitle,

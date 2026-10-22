@@ -29,6 +29,9 @@ enum EmergencyCallContext {
     ///
     /// 不复用 `cloudFailed`：那句「求助没有发出去」此刻是假的，会让人以为求助白按了。
     case cloudSent
+    /// 屏 3b 上「发没发出不确定，或已经撤销」的几种状态（撤销后、倒计时内撤回后、正在发出、撤回失败、冷却未对上账）。
+    /// 这时「已经发出」与「没有发出去」都可能是假话，只说要做什么（#506 code review A1）。
+    case cloudUncertain
 
     /// 跑者端求助模式 → 拨号弹窗该用哪一句。**两个入口（「我的」tab 求助条、订单页求助中心）都走这里**，
     /// 此前各写一个三元表达式 `== .cloudTrigger ? .cloudFailed : .homeIdle` —— 加一档模式时
@@ -49,6 +52,7 @@ enum EmergencyCallContext {
         // 这句不提联系人，两端都成立。
         case .runnerSessionExpired, .volunteerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallDialogMessage
         case .cloudSent: return EmergencySafetyCopy.sentCallDialogMessage
+        case .cloudUncertain: return EmergencySafetyCopy.uncertainCallDialogMessage
         }
     }
 
@@ -59,7 +63,7 @@ enum EmergencyCallContext {
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallAccessibilityHint
         case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallAccessibilityHint
         case .volunteerSessionExpired: return EmergencySafetyCopy.volunteerSessionExpiredCallAccessibilityHint
-        case .cloudSent: return EmergencySafetyCopy.sentOtherCallsAccessibilityHint
+        case .cloudSent, .cloudUncertain: return EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: true)
         }
     }
 
@@ -67,7 +71,7 @@ enum EmergencyCallContext {
     /// 穷举而不是 `!=`：再加一档陪跑员语境时，编译器会逼一次决策。
     var appendsNoContactHint: Bool {
         switch self {
-        case .homeIdle, .cloudFailed, .runnerSessionExpired, .cloudSent: return true
+        case .homeIdle, .cloudFailed, .runnerSessionExpired, .cloudSent, .cloudUncertain: return true
         case .volunteerBeforeRun, .volunteerSessionExpired: return false
         }
     }

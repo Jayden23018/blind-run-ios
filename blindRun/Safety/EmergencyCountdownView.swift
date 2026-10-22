@@ -274,49 +274,59 @@ struct EmergencyCountdownView: View {
     private var callOutButtons: some View {
         if !coordinator.state.isCountingDown {
             VStack(spacing: 12) {
-                if let url = EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber) {
-                    PrimaryButton(
-                        EmergencySafetyCopy.homeCallMedicalTitle,
-                        subtitle: EmergencySafetyCopy.sentCallMedicalSubtitle,
-                        isDestructive: true
-                    ) {
-                        EmergencyDialer.dial(url)
-                    }
-                    .accessibilityHint(EmergencySafetyCopy.sentCallMedicalHint)
-                    .accessibilityIdentifier("blindEmergencySentCallMedical")
+                ForEach(Array(sentPlan.enumerated()), id: \.offset) { _, action in
+                    sentActionView(action)
                 }
-
-                // 🔴 **重试排在 120 后面，这个顺序本身就是要求的一半。**
-                // 一个摔在路边的人最该先够到的是急救电话，不是再赌一次网络。
-                //
-                // ⛔ **没有做成自动重试。** 自动重发要么建出第二个事件、要么撞 60 秒冷却回 429 ——
-                // 而 429 的文案会把一个**已经生效**的求助说成被拒绝。「刚才那条到底发出去没有」
-                // 由只读的 `refreshActiveEvent()` 对账（`EmergencyCoordinator.reconcile(after:)`）。
-                if isUnsent {
-                    Button(EmergencySafetyCopy.retrySendTitle, action: onRetry)
-                        .buttonStyle(OutlineSecondaryButtonStyle(tint: AppColors.textPrimary))
-                        .accessibilityHint(EmergencySafetyCopy.retrySendAccessibilityHint)
-                        .accessibilityIdentifier("blindEmergencyRetrySend")
-                }
-
-                Button(EmergencySafetyCopy.sentOtherCallsTitle) { showOtherCalls = true }
-                    .buttonStyle(OutlineSecondaryButtonStyle(tint: AppColors.textPrimary))
-                    .accessibilityHint(otherCallsContext.accessibilityHint)
-                    .accessibilityIdentifier("blindEmergencySentOtherCalls")
-                    .emergencyCallOptionsDialog(
-                        isPresented: $showOtherCalls,
-                        context: otherCallsContext,
-                        primaryContact: primaryContact
-                    )
             }
         }
     }
 
-    /// 一个字节都没发出去、也没有可撤销的事件。
-    private var isUnsent: Bool { coordinator.state.isFailure && coordinator.activeEvent == nil }
+    /// 顺序与拨号选择的那一句全由 `EmergencySentScreenAction.plan` 决定，这里只负责画。
+    private var sentPlan: [EmergencySentScreenAction] {
+        EmergencySentScreenAction.plan(for: coordinator.state, hasActiveEvent: coordinator.activeEvent != nil)
+    }
 
-    /// 拨号选择的第一句必须说对：发出去了就说发出去了，没发出去就照首页那句说没发出去。
-    private var otherCallsContext: EmergencyCallContext { isUnsent ? .cloudFailed : .cloudSent }
+    // ⛔ 重发**不是**自动的：自动重发要么建出第二个事件、要么撞 60 秒冷却回 429，
+    // 把一个已经生效的求助说成被拒绝。「刚才那条到底发出去没有」由只读的 `refreshActiveEvent()` 对账。
+    @ViewBuilder
+    private func sentActionView(_ action: EmergencySentScreenAction) -> some View {
+        switch action {
+        case .callMedical:
+            if let url = EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber) {
+                PrimaryButton(
+                    EmergencySafetyCopy.homeCallMedicalTitle,
+                    subtitle: EmergencySafetyCopy.sentCallMedicalSubtitle,
+                    isDestructive: true
+                ) {
+                    EmergencyDialer.dial(url)
+                }
+                .accessibilityHint(EmergencySafetyCopy.sentCallMedicalHint)
+                .accessibilityIdentifier("blindEmergencySentCallMedical")
+            }
+        case .retrySend:
+            Button(EmergencySafetyCopy.retrySendTitle, action: onRetry)
+                .buttonStyle(OutlineSecondaryButtonStyle(tint: AppColors.textPrimary))
+                .accessibilityHint(EmergencySafetyCopy.retrySendAccessibilityHint)
+                .accessibilityIdentifier("blindEmergencyRetrySend")
+        case .otherCalls(let context):
+            Button(EmergencySafetyCopy.sentOtherCallsTitle) { showOtherCalls = true }
+                .buttonStyle(OutlineSecondaryButtonStyle(tint: AppColors.textPrimary))
+                .accessibilityHint(
+                    context == .cloudFailed
+                        ? context.accessibilityHint
+                        : EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: hasDialableContact)
+                )
+                .accessibilityIdentifier("blindEmergencySentOtherCalls")
+                .emergencyCallOptionsDialog(isPresented: $showOtherCalls, context: context, primaryContact: primaryContact)
+        case .quietCancel:
+            // 画在底部 `bottomAction`，位置记忆是「往下摸到底的那一个」。
+            EmptyView()
+        }
+    }
+
+    private var hasDialableContact: Bool {
+        primaryContact.flatMap { EmergencyDialer.telURL(for: $0.phone) } != nil
+    }
 
     // MARK: 底部固定动作
 
@@ -334,7 +344,7 @@ struct EmergencyCountdownView: View {
             }
                 .accessibilityHint(EmergencySafetyCopy.countdownCancelAccessibilityHint)
                 .accessibilityIdentifier("blindEmergencyCountdownCancel")
-        } else if coordinator.activeEvent != nil {
+        } else if sentPlan.contains(.quietCancel) {
             // 发出之后降为一行弱化文字（#506）：只降视觉，可点高度与二次确认都不变。
             EmergencyQuietCancelButton(isLoading: isCancelling) { showCancelOwnConfirmation = true }
                 .accessibilityIdentifier("blindEmergencyCancelOwn")
