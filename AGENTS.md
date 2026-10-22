@@ -92,7 +92,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `List` 行判「改不了字号」而截图里字放大了 | `list-rows-false-dynamic-type-audit` |
 | 绕开既有红灯另写用例 / 安全控件只在长链中段断言 | `routed-around-red-light-must-be-filed` |
 | UI 用例报 App 不在前台 / 面板高度 0 | `ui-test-device-orientation-is-not-fixed` |
-| 审计报 `Contrast failed` / `Text clipped` 而颜色够、字完整 | `text-clipped-audit-trailing-fullwidth-paren` |
+| 审计报 `Contrast failed`（元素被屏幕边缘切掉一截）/ `Text clipped` 而颜色够、字完整 | `text-clipped-audit-trailing-fullwidth-paren` |
 | 失败现场弹出「紧急呼叫」单 / 全屏遮罩没出来 | `ui-test-tap-lands-on-persistent-sos-bar` |
 | 单测绿、真机 `EXC_BAD_ACCESS`，栈里有 `Builtin.ImplicitActor` thunk | `unannotated-async-closure-property-crashes-on-device` |
 | 一行「改 padding 修不动」、文字不在任何对齐位置 | `flexible-spacer-steals-half-the-row` |

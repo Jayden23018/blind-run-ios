@@ -181,9 +181,9 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     /// 等滚动停稳再审计：`element` 的 frame 连续两次读数相同才返回（#466）。
-    /// 2026-10-19 AX5 亮色一轮在滚动没停时取样，「09:00 – 12:00」报 Contrast failed，
-    /// 报的坐标与整屏截图里那一行对不上、元素截图实测 6.65:1 —— 不等就会随机红。
     /// 不用固定 sleep：滚得快时白等，滚得慢时不够。
+    /// 注：10-19 那条「09:00 – 12:00」Contrast failed 当时归到「没停稳就取样」，#480 查实不是 ——
+    /// 是那一行被屏幕上沿切得只剩 1.3pt，见 `audit` 里的说明。
     private func waitUntilSettled(_ element: XCUIElement, timeout: TimeInterval = 5) {
         let deadline = Date().addingTimeInterval(timeout)
         var last = element.frame
