@@ -360,17 +360,23 @@ final class AccessibilityAuditTests: XCTestCase {
 
     @available(iOS 17.0, *)
     @MainActor
-    private func diag480Probe(_ app: XCUIApplication, tag: String) throws {
+    private func diag480Probe(
+        _ app: XCUIApplication, tag: String,
+        types: XCUIAccessibilityAuditType = [
+            .contrast, .dynamicType, .elementDetection, .hitRegion,
+            .sufficientElementDescription, .textClipped, .trait
+        ]
+    ) throws {
         _ = diag480Dump(app, tag: "\(tag)-pre")
         attachScreenshot(app, name: "\(tag)-pre")
         var n = 0
-        try app.performAccessibilityAudit(
-            for: [
-                .contrast, .dynamicType, .elementDetection, .hitRegion,
-                .sufficientElementDescription, .textClipped, .trait
-            ]
-        ) { issue in
-            guard issue.auditType == .contrast else { return true }
+        var other = 0
+        try app.performAccessibilityAudit(for: types) { issue in
+            guard issue.auditType == .contrast else {
+                other += 1
+                print("[DIAG480] \(tag) OTHER \(issue.auditType) label=\(issue.element?.label ?? "")")
+                return true
+            }
             n += 1
             let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             shot.name = "\(tag)-in-handler-\(n)"
@@ -379,7 +385,7 @@ final class AccessibilityAuditTests: XCTestCase {
             print("[DIAG480] \(tag) ISSUE#\(n) label=\(issue.element?.label ?? "") frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)")
             return true
         }
-        print("[DIAG480] \(tag) issues=\(n)")
+        print("[DIAG480] \(tag) issues=\(n) other=\(other)")
         _ = diag480Dump(app, tag: "\(tag)-post")
         attachScreenshot(app, name: "\(tag)-post")
     }
@@ -427,38 +433,21 @@ final class AccessibilityAuditTests: XCTestCase {
         waitUntilSettled(addOneOff)
         try diag480Probe(app, tag: "E1-bottom")
 
-        // 从顶部往上滚 d pt，d 由「周六」字样的位移量算，迭代逼近到 [lo, hi]。
-        func scrollTo(_ lo: CGFloat, _ hi: CGFloat, tag: String) {
-            for _ in 0..<3 { app.swipeDown() }
-            waitUntilSettled(ref)
-            for attempt in 0..<8 {
-                let d = refTopY - ref.frame.minY
-                print("[DIAG480] \(tag) attempt=\(attempt) d=\(d) want=[\(lo), \(hi)]")
-                if d >= lo && d <= hi { return }
-                let delta = (lo + hi) / 2 - d          // 正 = 内容要再往上走
-                if abs(delta) < 20 {
-                    diag480Drag(app, dy: 60)          // 先反向走一段，避开拖动起步的死区
-                    let d2 = refTopY - ref.frame.minY
-                    diag480Drag(app, dy: -((lo + hi) / 2 - d2))
-                } else {
-                    diag480Drag(app, dy: -delta)
-                }
-                waitUntilSettled(ref)
-            }
-            print("[DIAG480] \(tag) 没能定位到目标区间")
+        // E8–E14：每次都从底部出发，每次只开一个审计类型，看谁在滚动、对比度单开还报不报。
+        let single: [(String, XCUIAccessibilityAuditType)] = [
+            ("contrast", .contrast), ("dynamicType", .dynamicType), ("elementDetection", .elementDetection),
+            ("hitRegion", .hitRegion), ("sufficientElementDescription", .sufficientElementDescription),
+            ("textClipped", .textClipped), ("trait", .trait)
+        ]
+        for (name, type) in single {
+            for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+            waitUntilSettled(addOneOff)
+            try diag480Probe(app, tag: "S-\(name)", types: type)
         }
-        // E4：没有任何元素跨屏幕上沿（组标题全在上方屏外、「周六」整个在屏内）。
-        scrollTo(309, 322, tag: "E4")
-        try diag480Probe(app, tag: "E4-no-straddler")
-        // E5：「周六」字样跨屏幕上沿，只露 2–5pt。
-        scrollTo(383, 386.5, tag: "E5")
-        try diag480Probe(app, tag: "E5-sliver")
-        // E6：「周六」字样跨屏幕上沿，露出约一半。
-        scrollTo(345, 370, tag: "E6")
-        try diag480Probe(app, tag: "E6-half")
-        // E7：E5 原样再来一遍（看是否必现）。
-        scrollTo(383, 386.5, tag: "E7")
-        try diag480Probe(app, tag: "E7-sliver-again")
+        // E15：全类型再从底部来一遍，确认复现仍在（与 E1 同）。
+        for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+        waitUntilSettled(addOneOff)
+        try diag480Probe(app, tag: "S-all-again")
     }
     // DIAG480 END
 
