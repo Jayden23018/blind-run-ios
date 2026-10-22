@@ -329,6 +329,9 @@ public protocol APIProtocol: Sendable {
     ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
     /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
     ///    这是第 7 条放开之后唯一的刷单闸门。
+    ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
+    ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
+    ///    没开始派单就取消的、系统取消的不计。
     /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
@@ -1088,7 +1091,7 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/get(getUserById)`.
     func getUserById(_ input: Operations.getUserById.Input) async throws -> Operations.getUserById.Output
-    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
+    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）；有未结案的紧急求助（含倒计时中）也会被拦截（409 + errorCode=ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
     ///
     /// - Remark: HTTP `DELETE /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
@@ -1843,6 +1846,9 @@ extension APIProtocol {
     ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
     /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
     ///    这是第 7 条放开之后唯一的刷单闸门。
+    ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
+    ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
+    ///    没开始派单就取消的、系统取消的不计。
     /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
@@ -2952,7 +2958,7 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
+    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）；有未结案的紧急求助（含倒计时中）也会被拦截（409 + errorCode=ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
     ///
     /// - Remark: HTTP `DELETE /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
@@ -5393,6 +5399,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/BasicInfoRequest/idCardNumber`.
             public var idCardNumber: Swift.String
+            /// 展示姓名（盲人看到的就是它）。🚩 #826 M8：必须等于 `idCardName`（去掉首尾空白后比较），不一致返回 400，且不扣二要素核验次数、不调阿里云
+            ///
             /// - Remark: Generated from `#/components/schemas/BasicInfoRequest/name`.
             public var name: Swift.String
             /// - Remark: Generated from `#/components/schemas/BasicInfoRequest/phone`.
@@ -5406,7 +5414,7 @@ public enum Components {
             ///   - hasGuidedBefore:
             ///   - idCardName: 身份证姓名（提交即触发二要素核验）
             ///   - idCardNumber: 身份证号码（18 位，末位可为 X）
-            ///   - name:
+            ///   - name: 展示姓名（盲人看到的就是它）。🚩 #826 M8：必须等于 `idCardName`（去掉首尾空白后比较），不一致返回 400，且不扣二要素核验次数、不调阿里云
             ///   - phone:
             ///   - runningExperience:
             public init(
@@ -15031,7 +15039,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/availableTimeSlots`.
             public var availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]?
-            /// 必填（不传或空白返回 400），见 schema 描述里的说明
+            /// 必填（不传或空白返回 400），见 schema 描述里的说明。🚩 #826 M8：必须等于实名核验的 `idCardName`（去掉首尾空白后比较），不一致返回 400；已审核通过却没有实名记录的档案不能改名。盲人靠姓名确认来的人是不是派到的陪跑员，所以姓名不能随意改
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/name`.
             public var name: Swift.String
@@ -15058,7 +15066,7 @@ public enum Components {
             /// - Parameters:
             ///   - acceptsGuideDog: 是否接受携带导盲犬的订单。不传 = 保留原值
             ///   - availableTimeSlots: 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）。最多 100 条，超过返回 400
-            ///   - name: 必填（不传或空白返回 400），见 schema 描述里的说明
+            ///   - name: 必填（不传或空白返回 400），见 schema 描述里的说明。🚩 #826 M8：必须等于实名核验的 `idCardName`（去掉首尾空白后比较），不一致返回 400；已审核通过却没有实名记录的档案不能改名。盲人靠姓名确认来的人是不是派到的陪跑员，所以姓名不能随意改
             ///   - paceRange: 可适应的配速档位。不传 = 保留原值
             ///   - wantsDispatch: 是否开启接单。不传 = 保留原值；`false` 时仍可浏览订单，但不能接单
             public init(
@@ -19115,6 +19123,9 @@ public enum Operations {
     ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
     /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
     ///    这是第 7 条放开之后唯一的刷单闸门。
+    ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
+    ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
+    ///    没开始派单就取消的、系统取消的不计。
     /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
@@ -20215,6 +20226,57 @@ public enum Operations {
                     }
                 }
             }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/voice/parse/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/voice/parse/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.parseOrder.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.parseOrder.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非盲人角色；或盲人实名未通过（errorCode = IDENTITY_NOT_VERIFIED，与下单、asr-token 同一道门槛，客户端应跳实名页）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/voice/parse/post(parseOrder)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.parseOrder.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.parseOrder.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
             /// Undocumented response.
             ///
             /// A response with a code that is not documented in the OpenAPI document.
@@ -20332,6 +20394,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/voice/parse-slot/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/voice/parse-slot/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.parseSlot.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.parseSlot.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非盲人角色；或盲人实名未通过（errorCode = IDENTITY_NOT_VERIFIED，与下单、asr-token 同一道门槛，客户端应跳实名页）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/voice/parse-slot/post(parseSlot)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.parseSlot.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.parseSlot.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }
@@ -20458,6 +20571,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/voice/resolve-address/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/voice/resolve-address/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.resolveAddress.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.resolveAddress.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 非盲人角色；或盲人实名未通过（errorCode = IDENTITY_NOT_VERIFIED，与下单、asr-token 同一道门槛，客户端应跳实名页）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/voice/resolve-address/post(resolveAddress)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.resolveAddress.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.resolveAddress.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }
@@ -27178,7 +27342,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 订单还没完成（`ORDER_STATUS_NOT_ALLOWED`）；或对方已注销账号，留言无法送达（`RUN_RECORD_RECIPIENT_DELETED`，2026-10-05 起，#405）
+            /// 订单还没完成（`ORDER_STATUS_NOT_ALLOWED`）；或对方已注销账号，留言无法送达（`RUN_RECORD_RECIPIENT_DELETED`，2026-10-05 起，#405）；或你在这一单已留满 20 条（`RUN_RECORD_MESSAGE_LIMIT_REACHED`，#826 M10）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/run-record/messages/post(postMessage)/responses/409`.
             ///
@@ -29773,7 +29937,7 @@ public enum Operations {
             }
         }
     }
-    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
+    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）；有未结案的紧急求助（含倒计时中）也会被拦截（409 + errorCode=ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
     ///
     /// - Remark: HTTP `DELETE /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
@@ -29909,13 +30073,13 @@ public enum Operations {
                 /// Creates a new `Conflict`.
                 public init() {}
             }
-            /// 有进行中的订单，无法注销（errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）
+            /// 有进行中的订单（errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）或有未结案的紧急求助（errorCode=ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED），无法注销
             ///
             /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)/responses/409`.
             ///
             /// HTTP response code: `409 conflict`.
             case conflict(Operations.deleteUser.Output.Conflict)
-            /// 有进行中的订单，无法注销（errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）
+            /// 有进行中的订单（errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）或有未结案的紧急求助（errorCode=ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED），无法注销
             ///
             /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)/responses/409`.
             ///
