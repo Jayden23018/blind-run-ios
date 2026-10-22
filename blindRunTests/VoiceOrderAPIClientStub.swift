@@ -34,26 +34,14 @@ final class VoiceOrderAPIClientStub: APIClientProtocol, @unchecked Sendable {
             if let parsed = Self.decode(ParseVoiceOrderRequest.self, from: body) {
                 parseRequests.append(parsed)
             }
-            guard !parseOrderResponses.isEmpty else { throw StubError.exhausted }
-            guard let typed = parseOrderResponses.removeFirst() as? T else {
-                throw StubError.unexpectedType
-            }
-            return typed
+            return try Self.dequeue(&parseOrderResponses)
         case VoiceOrderEndpoint.resolveAddress:
-            guard !resolveAddressResponses.isEmpty else { throw StubError.exhausted }
-            guard let typed = resolveAddressResponses.removeFirst() as? T else {
-                throw StubError.unexpectedType
-            }
-            return typed
+            return try Self.dequeue(&resolveAddressResponses)
         case VoiceOrderEndpoint.parseSlot:
             // 整句轮 2026-08-04 起走 `/voice/parse` 单请求，`parse-slot` 只剩定点修改轮在用 ——
             // 那是串行的一轮一个，按队列取就够，不会串台（此前的 by-field 字典已随之删除）。
             if let field = Self.slotField(from: body) { requestedSlotFields.append(field) }
-            guard !parseSlotResponses.isEmpty else { throw StubError.exhausted }
-            guard let typed = parseSlotResponses.removeFirst() as? T else {
-                throw StubError.unexpectedType
-            }
-            return typed
+            return try Self.dequeue(&parseSlotResponses)
         default:
             throw StubError.unexpectedType
         }
@@ -67,6 +55,13 @@ final class VoiceOrderAPIClientStub: APIClientProtocol, @unchecked Sendable {
         requiresAuth: Bool
     ) async throws -> T {
         throw StubError.unexpectedType
+    }
+
+    /// 按队列取下一条预设响应。队列空了 / 类型对不上都直接抛，别让用例拿到一个凭空的默认值。
+    private static func dequeue<Response, T>(_ queue: inout [Response]) throws -> T {
+        guard !queue.isEmpty else { throw StubError.exhausted }
+        guard let typed = queue.removeFirst() as? T else { throw StubError.unexpectedType }
+        return typed
     }
 
     private static func slotField(from body: (any Encodable & Sendable)?) -> VoiceSlotField? {

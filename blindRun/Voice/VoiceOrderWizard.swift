@@ -505,6 +505,7 @@ final class VoiceOrderWizard: ObservableObject {
         do {
             parsed = try await parseOrderResponse(transcript)
         } catch {
+            if Self.isIdentityRejection(error) { return stopForIdentityRejection() }
             parseFailed = true
             parseIsUnavailable = Self.isEndpointMissing(error)
         }
@@ -816,33 +817,7 @@ final class VoiceOrderWizard: ObservableObject {
     /// 再试一次 —— 试一万次也一样。所以这一路单独播、并且直接交回表单。
     static let parseUnavailableNotice = "语音下单暂时用不了，"
 
-    /// 后端把未部署的端点回成 `errorCode: NOT_FOUND` 的业务信封（不是 nginx 裸 404）。
-    /// 只认这一种：超时、鉴权过期、5xx 都可能是暂时的，不该被当成「功能不存在」。
-    private static func isEndpointMissing(_ error: Error) -> Bool {
-        guard case APIError.serverError(let response) = error else { return false }
-        return response.code == "NOT_FOUND"
-    }
-
-    /// 契约允许的时长区间（`api_spec.yaml:2549`：`minimum: 10` / `maximum: 300`）。
-    static let minimumDurationMinutes = 10
-    static let maximumDurationMinutes = 300
-
-    /// 语音说的分钟数**原样采用**，只在超出契约区间时夹到边界。
-    ///
-    /// 2026-08-06 之前这里是「就近 snap 到 6 个枚举档位」，于是「跑三个小时」变成两小时 ——
-    /// 枚举存在的理由是选择器需要有限选项，而说话的人不需要选择器。契约本来就收 10–300。
-    static func acceptedDurationMinutes(_ spoken: Int) -> Int {
-        min(maximumDurationMinutes, max(minimumDurationMinutes, spoken))
-    }
-
-    /// 时长被夹到边界时要说的那句话；没动就返回 nil。
-    ///
-    /// **静默改动对听不见屏幕的人就是篡改**，这条红线不因为改动幅度变小而消失 ——
-    /// 现在只有真的超出契约区间才会发生，但发生了就必须说。
-    private static func durationClampNotice(spokenMinutes: Int, accepted: Int) -> String? {
-        guard accepted != spokenMinutes else { return nil }
-        return "你说的是\(spokenMinutes)分钟，超出了可预约范围，本次按\(BlindBookingViewModel.durationText(forMinutes: accepted))预约。"
-    }
+    // `isEndpointMissing` / `isIdentityRejection` 与时长换算在 `VoiceOrderWizard+ServerReplies.swift`。
 
     /// - Parameter notice: 需要先说一句再读回的话（例如时长被取整）。**必须和读回拼成同一段**，
     ///   分两次 `speak` 会让 `lastSpokenPrompt` 只剩后一句，「重复一遍」就再也念不到取整提示了 ——
@@ -928,6 +903,7 @@ final class VoiceOrderWizard: ObservableObject {
         do {
             parsed = try await parseOrderResponse(transcript, current: sentSnapshot)
         } catch {
+            if Self.isIdentityRejection(error) { return stopForIdentityRejection() }
             // **不再回「没听懂」** —— 这里失败的是网络，不是听力，说成没听懂会让用户去改说法，
             // 而改说法一点用都没有。本地那几个词仍然直通，所以「确认」这条出路没有被网络挡住，
             // 提示里必须把它说出来。
@@ -1220,6 +1196,19 @@ final class VoiceOrderWizard: ObservableObject {
             : "\(reason)，已切回表单填写，你可以用屏幕上的输入框继续预约。"
         fallbackMessage = message
         speak(message)
+    }
+
+    /// 解析被后端以未实名拒掉（#852）：与 `start()` 开麦前被实名门槛拦下**念同一句、停在同一处**。
+    /// 不走 `fallBack`：那句「用屏幕上的输入框继续预约」对没实名的人是一条走不通的路。
+    private func stopForIdentityRejection() {
+        isRunning = false
+        endedMessage = nil
+        endedAfterFailure = false
+        speechInputService?.stopRecognition()
+        let message = BlindBookingGate.identityVerification.message
+        fallbackMessage = message
+        speak(message)
+        Task { [weak viewModel = bookingViewModel] in await viewModel?.refreshIdentityAfterServerRejection() }
     }
 
     enum SessionEnding { case cancelled, notUnderstood }

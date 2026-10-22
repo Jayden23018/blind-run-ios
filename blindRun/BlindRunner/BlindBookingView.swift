@@ -257,7 +257,7 @@ final class BlindBookingViewModel: ObservableObject {
     @Published private(set) var auxiliaryMapCenter: CLLocationCoordinate2D?
     @Published private(set) var auxiliaryMapPlace: ResolvedPlace?
 
-    private weak var appState: AppState?
+    private(set) weak var appState: AppState?
     private weak var locationService: LocationService?
     private weak var placeSearchProvider: (any PlaceSearchProviding)?
     private var speechService: SpeechService?
