@@ -68,13 +68,20 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
 
     /// 断线期间真被转走：重连后协调器对已登记订单发起重拉，详情回 403 `ORDER_PERMISSION_DENIED`
     /// （后端 `enterRematching` 把 `order.volunteer` 置空，`OrderQueryService.getOrder` 判非参与者）⇒ 静默离开。
+    /// 走真实链路：断线 → 重连（协调器请求重拉）→ 订单页的重拉订阅发起 `load` → 403。
     func testCatchUpOfAGenuineLossLeavesOnTheRefreshThatFollows() async throws {
-        let fixture = makeFixture(status: .driverArrived)
-        fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
+        let socket = WebSocketService()
+        let fixture = makeFixture(status: .driverArrived, realtimeSocket: socket)
+        socket.simulateConnectionStateForTesting(.connected)
+        socket.simulateConnectionStateForTesting(.disconnected)
+        await Task.yield()
         fixture.service.orderDetailResult = .failure(Self.notParticipant)
 
-        await fixture.page.load(orderId: fixture.orderId, speakChanges: true)
+        socket.simulateConnectionStateForTesting(.connected)
+        fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
+        await waitUntil { fixture.page.didLoseOrder }
 
+        XCTAssertGreaterThanOrEqual(fixture.service.callCount("orderDetail(orderId:)"), 1, "前提：重连后确实重拉了详情")
         XCTAssertTrue(fixture.page.didLoseOrder)
         XCTAssertNil(fixture.page.order)
         XCTAssertNil(fixture.page.errorMessage)
@@ -116,6 +123,20 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
             XCTAssertNil(fixture.page.order, "\(status)")
             XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(status)：\(fixture.speech.spokenHistoryForTesting)")
         }
+    }
+
+    /// 自己按的取消已被后端接下、`REMATCHING` 推送还没到时，轮询先回了 403：不另置 `didLoseOrder`。
+    /// 关页由取消那条路做（推送 → `didCancelOrder`）；两条同时 dismiss 会多出栈一层。
+    func testPermissionDeniedAfterOwnCancelDoesNotCountAsLosingTheOrder() async {
+        let fixture = makeFixture(status: .driverEnRoute)
+        fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
+        fixture.service.orderDetailResult = .failure(Self.notParticipant)
+        await fixture.page.cancel()
+
+        await fixture.page.load(orderId: fixture.orderId, speakChanges: true)
+
+        XCTAssertEqual(fixture.service.callCount("cancel(orderId:)"), 1, "前提：取消请求确实发出去了")
+        XCTAssertFalse(fixture.page.didLoseOrder)
     }
 
     /// 其他失败（断网等）不是「已不是参与者」：还没拉到详情时照旧落兜底页，不离开。
@@ -267,7 +288,12 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
     private var retained: [AppState] = []
 
     /// `initialOrderLoaded: false` = 从推送冷启动、订单页还没拉到第一份详情（#476 ①）。
-    private func makeFixture(status: RunOrderStatus, initialOrderLoaded: Bool = true) -> Fixture {
+    /// `realtimeSocket`：要演断线重连时传入。必须在登记订单**之前**接上 —— `attach` 会清掉会话状态。
+    private func makeFixture(
+        status: RunOrderStatus,
+        initialOrderLoaded: Bool = true,
+        realtimeSocket: WebSocketService? = nil
+    ) -> Fixture {
         let orderId: Int64 = 4_560
         let order = OrderDetailResponse.preview(orderId: orderId, status: status)
         let service = FakeOrderService()
@@ -281,6 +307,9 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         home.activeOrder = order
         let page = VolunteerInServiceViewModel()
         page.configure(with: appState, speechService: speech, initialOrder: initialOrderLoaded ? order : nil)
+        if let realtimeSocket {
+            appState.realtimeCoordinator.attach(to: realtimeSocket, role: .volunteer)
+        }
         // 生产上首页加载 / 订单页轮询时登记；协调器只把状态推送发给登记过的订单。
         appState.realtimeCoordinator.registerActiveOrder(orderId, status: status)
         speech.resetSpokenHistoryForTesting()
