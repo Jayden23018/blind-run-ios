@@ -312,10 +312,9 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertFalse(app.tabBars.firstMatch.isHittable, "\(variant.name)：二级页底部露出了标签栏")
             waitUntilSettled(addOneOff)
             attachScreenshot(app, name: "availability-list-bottom-\(variant.name)")
-            // ⛔ 滚到底之后**不再审一遍**（#480）：AX5 下这一步固定报已滚出上沿那一行的
-            // 「09:00 – 12:00」Contrast failed（实测 6.65:1、独占一行、顶部那次审计不报），根因未证实，
-            // 疑似审计自带滚动时取样。上面顶部那次审计已经覆盖同一批元素（ScrollView 全部常驻）。
-            // 要加回来，先读 #480 并在列表顶部对照一次。
+            // 滚到底再审一遍（#480 加回）：AX5 下最上面那一行只露 1.3pt，`.contrast` 拿这一条像素
+            // 判失败。`audit` 现在把这种被屏幕边缘切掉的元素滚到整个露出再判，这一步就是它的回归门。
+            try audit(app)
 
             // 每周时段的编辑页：同一个编辑视图，日期一行换成「星期」。新增时没有「删除这一段」。
             for _ in 0..<6 where !addWeekly.isHittable { app.swipeDown() }
@@ -342,114 +341,6 @@ final class AccessibilityAuditTests: XCTestCase {
             app.terminate()
         }
     }
-
-    // DIAG480 BEGIN —— 临时诊断，不提交
-    @MainActor
-    private func diag480Dump(_ app: XCUIApplication, tag: String) -> [(String, CGRect)] {
-        let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
-        let nav = app.navigationBars.firstMatch
-        print("[DIAG480] \(tag) window=\(app.windows.firstMatch.frame) banner=\(banner.exists ? banner.frame : .zero) nav=\(nav.exists ? nav.frame : .zero)")
-        var out: [(String, CGRect)] = []
-        for t in app.staticTexts.allElementsBoundByIndex {
-            let f = t.frame
-            out.append((t.label, f))
-            print("[DIAG480] \(tag) text label=\(t.label) frame=\(f)")
-        }
-        return out
-    }
-
-    @available(iOS 17.0, *)
-    @MainActor
-    private func diag480Probe(
-        _ app: XCUIApplication, tag: String,
-        types: XCUIAccessibilityAuditType = [
-            .contrast, .dynamicType, .elementDetection, .hitRegion,
-            .sufficientElementDescription, .textClipped, .trait
-        ]
-    ) throws {
-        _ = diag480Dump(app, tag: "\(tag)-pre")
-        attachScreenshot(app, name: "\(tag)-pre")
-        var n = 0
-        var other = 0
-        try app.performAccessibilityAudit(for: types) { issue in
-            guard issue.auditType == .contrast else {
-                other += 1
-                print("[DIAG480] \(tag) OTHER \(issue.auditType) label=\(issue.element?.label ?? "")")
-                return true
-            }
-            n += 1
-            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-            shot.name = "\(tag)-in-handler-\(n)"
-            shot.lifetime = .keepAlways
-            self.add(shot)
-            print("[DIAG480] \(tag) ISSUE#\(n) label=\(issue.element?.label ?? "") frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)")
-            return true
-        }
-        print("[DIAG480] \(tag) issues=\(n) other=\(other)")
-        _ = diag480Dump(app, tag: "\(tag)-post")
-        attachScreenshot(app, name: "\(tag)-post")
-    }
-
-    /// 按住拖动 dy（正 = 内容往下走），停住再松手，不带惯性。
-    @MainActor
-    private func diag480Drag(_ app: XCUIApplication, dy: CGFloat) {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.0)).withOffset(CGVector(dx: 0, dy: 520))
-        let end = start.withOffset(CGVector(dx: 0, dy: dy))
-        start.press(forDuration: 0.3, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1.0)
-        usleep(1_500_000)
-    }
-
-    @MainActor
-    func testDiag480() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("iOS 17") }
-        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
-        XCUIDevice.shared.orientation = .portrait
-        let app = launchVolunteerHome(
-            extraEnvironment: ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
-            extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
-        )
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 20))
-        tabBar.buttons["我的"].tap()
-        let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        for _ in 0..<6 where !entry.isHittable { app.swipeUp() }
-        entry.tap()
-        let addOneOff = app.buttons["volunteerScheduleAddOneOffButton"].firstMatch
-        XCTAssertTrue(addOneOff.waitForExistence(timeout: 10))
-        for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
-        addOneOff.tap()
-        XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5))
-        app.buttons["volunteerScheduleEditorDone"].tap()
-        XCTAssertTrue(app.buttons["volunteerScheduleAddButton"].firstMatch.waitForExistence(timeout: 10))
-        waitUntilSettled(addOneOff)
-
-        // E0：列表顶部（对照）
-        let ref = app.staticTexts["周六"].firstMatch
-        let refTopY = ref.frame.minY
-        try diag480Probe(app, tag: "E0-top")
-        // E1：滚到底（与 #466 原步骤相同）—— 复现
-        for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
-        waitUntilSettled(addOneOff)
-        try diag480Probe(app, tag: "E1-bottom")
-
-        // E8–E14：每次都从底部出发，每次只开一个审计类型，看谁在滚动、对比度单开还报不报。
-        let single: [(String, XCUIAccessibilityAuditType)] = [
-            ("contrast", .contrast), ("dynamicType", .dynamicType), ("elementDetection", .elementDetection),
-            ("hitRegion", .hitRegion), ("sufficientElementDescription", .sufficientElementDescription),
-            ("textClipped", .textClipped), ("trait", .trait)
-        ]
-        for (name, type) in single {
-            for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
-            waitUntilSettled(addOneOff)
-            try diag480Probe(app, tag: "S-\(name)", types: type)
-        }
-        // E15：全类型再从底部来一遍，确认复现仍在（与 E1 同）。
-        for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
-        waitUntilSettled(addOneOff)
-        try diag480Probe(app, tag: "S-all-again")
-    }
-    // DIAG480 END
 
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
@@ -2973,39 +2864,113 @@ final class AccessibilityAuditTests: XCTestCase {
             let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
             return banner.exists ? banner.frame : nil
         }()
+        // 被屏幕边缘切掉一截的元素，`.contrast` 只拿露出来的那一条像素算对比度（#480）。
+        // 2026-10-22 真机 iPhone 16 Pro / iOS 27.0.1、AX5，空闲时间页滚到底：「09:00 – 12:00」
+        // frame (32, -62, 333, 63.3)，只露 1.3pt，报 Contrast failed；同一元素整个露出来时 6.65:1。
+        // 换一个元素露 1.3pt（组标题）照样报，露 40pt 不报；单开 `.contrast` 时页面一动不动也照样报
+        // ⇒ 不是「审计滚动途中取样」。会滚页面的是 `.dynamicType` 与 `.textClipped`（单开它们，
+        // 页面被滚回顶部、什么都不报）—— 所以七项合审时失败附件的 App Screenshot 停在顶部，
+        // 回调里读到的 frame 也是滚动之后的，与取样时对不上。
+        //
+        // 因此分两遍：`.contrast` 单独先审（不滚动，回调里的 frame 就是取样时的位置，上面两条
+        // 几何遮挡判据也才准），其余六项第二遍。审计时没有整个落在屏内的元素这一遍不下结论，
+        // 记下来，最后逐个滚到整个露出再单审一次 —— 仍报才算失败，滚不出来直接 XCTFail。
+        // **不放过任何一条**：真的对比度不足，整个露出来时照样报。
+        let screen = app.frame
+        var cutByScreenEdge: [(element: XCUIElement, label: String)] = []
         try app.performAccessibilityAudit(
             for: [
-                .contrast, .dynamicType, .elementDetection, .hitRegion,
+                .contrast // guard:allow a11y-audit-types —— 对比度单独一遍（#480），其余六项在下一遍，两遍合起来是全集
+            ]
+        ) { issue in
+            if let element = issue.element, !element.frame.isEmpty,
+               !screen.insetBy(dx: -0.5, dy: -0.5).contains(element.frame) {
+                print("[AUDIT-partial] \(element.label) frame=\(element.frame) 没有整个落在屏内（\(screen)），整个露出后再审")
+                cutByScreenEdge.append((element, element.label))
+                return true
+            }
+            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
+        }
+        try app.performAccessibilityAudit(
+            for: [
+                .dynamicType, .elementDetection, .hitRegion, // guard:allow a11y-audit-types —— .contrast 在上一遍（#480）
                 .sufficientElementDescription, .textClipped, .trait
             ]
         ) { issue in
-            if issue.auditType == .contrast, let top = occludingBarTop,
-               let frame = issue.element?.frame, frame.minY >= top - 0.5 {
-                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
-                return true
-            }
-            if issue.auditType == .contrast, let banner = mockBannerFrame,
-               issue.element?.identifier != "mockEnvironmentBanner",
-               let frame = issue.element?.frame, !frame.isEmpty, banner.insetBy(dx: -0.5, dy: -0.5).contains(frame) {
-                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在 Mock 横幅（\(banner)）下面，不可见")
-                return true
-            }
-            // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
-            // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——
-            // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。
-            let identifier = issue.element?.identifier ?? ""
-            let label = issue.element?.label ?? ""
-            if Self.auditIgnoredIdentifiers.contains(identifier) || Self.auditIgnoredLabels.contains(label) {
-                return true
-            }
-            // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
-            // 对比度失败，加打印、重跑、再删，白花了两轮真机。留着，失败日志里直接就有。
-            print("""
-            [AUDIT] \(issue.auditType) id=\(identifier) label=\(label) \
-            frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)
-            """)
-            return false
+            self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
         }
+        for cut in cutByScreenEdge {
+            try recheckContrastFullyOnScreen(
+                cut.element, label: cut.label, in: app,
+                occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame
+            )
+        }
+    }
+
+    /// 审计时被屏幕边缘切掉一截的元素：滚到整个露出，单审一次 `.contrast`，只认它自己的那一条（#480）。
+    /// 其他元素这一遍一律不判：它们在 `audit` 第一遍已经按当时的位置判过了。
+    @available(iOS 17.0, *)
+    private func recheckContrastFullyOnScreen(
+        _ element: XCUIElement, label: String, in app: XCUIApplication,
+        occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
+    ) throws {
+        let screen = app.frame.insetBy(dx: -0.5, dy: -0.5)
+        // 回调给的元素绑定的是那一个无障碍元素；`List` 复用行之后它会消失，这时按文案找回来。
+        var element = element
+        if !element.exists {
+            print("[AUDIT-partial] 「\(label)」原元素已不在（行被复用），按文案找同名元素复审")
+            element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+        }
+        for _ in 0..<4 where element.exists && !screen.contains(element.frame) {
+            if element.frame.midY < screen.midY { app.swipeDown() } else { app.swipeUp() }
+        }
+        guard element.exists, screen.contains(element.frame) else {
+            XCTFail("「\(label)」审计时被屏幕边缘切掉一截，滚了 4 次也没能整个露出来 —— 它的对比度没有被判定过（#480）")
+            return
+        }
+        waitUntilSettled(element)
+        try app.performAccessibilityAudit(
+            for: [
+                .contrast // guard:allow a11y-audit-types —— 只复审一个元素的对比度（#480），其余六项 audit 里已审
+            ]
+        ) { issue in
+            guard let other = issue.element, other.identifier == element.identifier,
+                  other.label == element.label, other.frame == element.frame else { return true }
+            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
+        }
+    }
+
+    /// `audit` 的放行判据：返回 `true` 表示这一条不算失败。
+    @available(iOS 17.0, *)
+    private func isIgnoredAuditIssue(
+        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
+    ) -> Bool {
+        if issue.auditType == .contrast, let top = occludingBarTop,
+           let frame = issue.element?.frame, frame.minY >= top - 0.5 {
+            print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
+            return true
+        }
+        if issue.auditType == .contrast, let banner = mockBannerFrame,
+           issue.element?.identifier != "mockEnvironmentBanner",
+           let frame = issue.element?.frame, !frame.isEmpty, banner.insetBy(dx: -0.5, dy: -0.5).contains(frame) {
+            print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在 Mock 横幅（\(banner)）下面，不可见")
+            return true
+        }
+        // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
+        // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——
+        // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。
+        let identifier = issue.element?.identifier ?? ""
+        let label = issue.element?.label ?? ""
+        if Self.auditIgnoredIdentifiers.contains(identifier) || Self.auditIgnoredLabels.contains(label) {
+            return true
+        }
+        // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
+        // 对比度失败，加打印、重跑、再删，白花了两轮真机。留着，失败日志里直接就有。
+        print("""
+        [AUDIT] \(issue.auditType) id=\(identifier) label=\(label) \
+        frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)
+        """)
+        return false
     }
 
     /// 审计白名单。**每加一条都要写清为什么，否则白名单会慢慢把审计架空。**
