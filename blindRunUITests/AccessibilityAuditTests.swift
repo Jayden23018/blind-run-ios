@@ -181,10 +181,10 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     /// 等滚动停稳再审计：`element` 的 frame 连续两次读数相同才返回（#466）。
-    /// 2026-10-19 AX5 亮色一轮在滚动没停时取样，「09:00 – 12:00」报 Contrast failed，
-    /// 报的坐标与整屏截图里那一行对不上、元素截图实测 6.65:1 —— 不等就会随机红。
     /// 不用固定 sleep：滚得快时白等，滚得慢时不够。
-    private func waitUntilSettled(_ element: XCUIElement, timeout: TimeInterval = 5) {
+    /// 注：10-19 那条「09:00 – 12:00」Contrast failed 当时归到「没停稳就取样」，#480 查实不是 ——
+    /// 是那一行被屏幕上沿切得只剩 1.3pt，见 `audit` 里的说明。
+    func waitUntilSettled(_ element: XCUIElement, timeout: TimeInterval = 5) {
         let deadline = Date().addingTimeInterval(timeout)
         var last = element.frame
         while Date() < deadline {
@@ -312,10 +312,9 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertFalse(app.tabBars.firstMatch.isHittable, "\(variant.name)：二级页底部露出了标签栏")
             waitUntilSettled(addOneOff)
             attachScreenshot(app, name: "availability-list-bottom-\(variant.name)")
-            // ⛔ 滚到底之后**不再审一遍**（#480）：AX5 下这一步固定报已滚出上沿那一行的
-            // 「09:00 – 12:00」Contrast failed（实测 6.65:1、独占一行、顶部那次审计不报），根因未证实，
-            // 疑似审计自带滚动时取样。上面顶部那次审计已经覆盖同一批元素（ScrollView 全部常驻）。
-            // 要加回来，先读 #480 并在列表顶部对照一次。
+            // 滚到底再审一遍（#480 加回）：AX5 下最上面那一行只露 1.3pt，`.contrast` 拿这一条像素
+            // 判失败。`audit` 现在把这种被屏幕边缘切掉的元素滚到整个露出再判，这一步就是它的回归门。
+            try audit(app)
 
             // 每周时段的编辑页：同一个编辑视图，日期一行换成「星期」。新增时没有「删除这一段」。
             for _ in 0..<6 where !addWeekly.isHittable { app.swipeDown() }
@@ -2831,104 +2830,6 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(colour.exists, "约好页没有「陪跑员上衣」那一行")
         XCTAssertEqual(colour.label, "陪跑员上衣，红色")
     }
-
-    @available(iOS 17.0, *)
-    private func audit(_ app: XCUIApplication) throws {
-        // iOS 侧七个审计类型**全部**启用。少一项就少一类缺陷，而少了哪一项从测试结果上
-        // 完全看不出来 —— 用例照样报绿，绿的是剩下那几项。守卫 `a11y-audit-types`
-        // 会拦住任何缺项（`scripts/hooks/guard.mjs`）。
-        //
-        // 2026-09-02 补进 `.textClipped` 与 `.trait`：此前这两项从未启用，而本文件
-        // `:560-566` 的注释逐字宣称「审计里真正抓这件事的是 `.textClipped` 与 `.hitRegion`」，
-        // 并把三条横屏用例定为「本仓库唯一能验横屏裁切的通道」⇒ 那三条长期在验另外五项，
-        // 横屏裁切一次都没被检查过。`.trait` 同样是盲人端硬伤：按钮缺 `.button` trait 时
-        // VoiceOver 不念「按钮」，用户不知道那是个能点的东西。
-        // 陪跑员跑步页的底部栏是**叠在滚动内容上**的不透明栏（#227 的设计）。AX3 / 横屏下内容超过一屏时，
-        // 滚到栏后面的卡片被整个挡住，可审计仍按它的坐标取像素 —— 取到的全是栏的底色，于是判「对比度不足」
-        // （2026-09-27 真机：「跑者还没有发来节奏」那张卡，元素截图里只有栏的分隔线）。
-        // 判据是几何不是文案：**整个落在栏上沿以下**的元素才放过，露出一截的照样审。
-        // 2026-10-06（#349）盲人订单页的底栏同理：「求助与安全」那条是不透明栏，横屏下 v2 头卡把副文与信息卡
-        // 推到它后面，元素截图里只有栏的红边与粉底（「系统正在派单，请稍候。」「时间」两条）。
-        let occludingBarTop: CGFloat? = {
-            // 盲人通话页（#434）同一条底栏组件：B3 的安排单在「求助与安全」后面滚动。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar"] {
-                let bar = app.descendants(matching: .any)[id].firstMatch
-                if bar.exists { return bar.frame.minY }
-            }
-            return nil
-        }()
-        // 顶部同理：测试构建才有的 Mock 横幅（`ContentView` 里 `#if DEBUG` 那枚黄胶囊）字号可缩放，
-        // AX4/AX5 下会长到导航栏上，把页面标题整个盖住 —— 2026-10-19 空闲时间页 AX5 暗色（#466），
-        // 「空闲时间」标题报 Contrast failed，截图里那块只有横幅的黄底。横幅不进发布包。
-        // 判据同样是几何：**整个落在横幅框内**的元素才放过。
-        let mockBannerFrame: CGRect? = {
-            let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
-            return banner.exists ? banner.frame : nil
-        }()
-        try app.performAccessibilityAudit(
-            for: [
-                .contrast, .dynamicType, .elementDetection, .hitRegion,
-                .sufficientElementDescription, .textClipped, .trait
-            ]
-        ) { issue in
-            if issue.auditType == .contrast, let top = occludingBarTop,
-               let frame = issue.element?.frame, frame.minY >= top - 0.5 {
-                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
-                return true
-            }
-            if issue.auditType == .contrast, let banner = mockBannerFrame,
-               issue.element?.identifier != "mockEnvironmentBanner",
-               let frame = issue.element?.frame, !frame.isEmpty, banner.insetBy(dx: -0.5, dy: -0.5).contains(frame) {
-                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在 Mock 横幅（\(banner)）下面，不可见")
-                return true
-            }
-            // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
-            // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——
-            // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。
-            let identifier = issue.element?.identifier ?? ""
-            let label = issue.element?.label ?? ""
-            if Self.auditIgnoredIdentifiers.contains(identifier) || Self.auditIgnoredLabels.contains(label) {
-                return true
-            }
-            // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
-            // 对比度失败，加打印、重跑、再删，白花了两轮真机。留着，失败日志里直接就有。
-            print("""
-            [AUDIT] \(issue.auditType) id=\(identifier) label=\(label) \
-            frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)
-            """)
-            return false
-        }
-    }
-
-    /// 审计白名单。**每加一条都要写清为什么，否则白名单会慢慢把审计架空。**
-    private static let auditIgnoredIdentifiers: Set<String> = [
-        // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
-        // （视觉可以铺满，读屏遍历顺序必须操作优先）。
-        //
-        // `blindRunnerHomeAuxiliaryMap` 已于 2026-08-14（`30b0770`）随「盲人首页装饰地图对读屏隐藏」
-        // 一起删除，不再需要白名单 —— 死条目会让人以为这一项还在被放行。
-        "blindBookingAuxiliaryMap",
-        "mapPlaceholder"
-    ]
-
-    /// 上面两个地图的替身：缺高德 key 时（UI 测试构建**永远**缺）渲染的占位图。
-    ///
-    /// **按文案而不是 identifier 认它**：`MapPlaceholderView` 上确实挂了
-    /// `accessibilityIdentifier("mapPlaceholder")`，但审计穿透 `children: .combine`
-    /// 报的是内部那几个 `Text`，它们的 identifier 是空字符串 —— 只按 id 白名单放不掉。
-    ///
-    /// 2026-08-14 加：地图从 300 压到 200pt 后它开始报 `Contrast failed`，而它用的是
-    /// `.label` on `.secondarySystemBackground`（约 19:1）—— **颜色没问题**，是文字位置
-    /// 变了之后审计的采样结果变了。放行的理由不是「颜色达标」，而是：它只在缺 key 时出现，
-    /// 生产构建走真地图；且这几句话是给开发者看的，不是盲人用户的界面。
-    ///
-    /// 按文案匹配意味着**改文案会让白名单失效**。那是想要的行为：文案变了就该重新审一次。
-    private static let auditIgnoredLabels: Set<String> = [
-        "地图服务暂不可用",
-        "请配置高德地图 API Key",
-        "参考 LocalConfig.xcconfig.example 创建配置文件",
-        "地图服务暂不可用，请配置高德地图 API Key"
-    ]
 
     /// 下单页起来了没有 —— 语音态和表单态各有一个标志元素，命中任一即可。
     @MainActor
