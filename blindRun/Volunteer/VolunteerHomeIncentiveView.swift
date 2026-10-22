@@ -17,7 +17,10 @@ import SwiftUI
 /// **刻意不并进 `VolunteerHomeViewModel`**（那份已经一千行，且它带着一条 5 秒轮询）。
 /// 照 `VolunteerAchievementsViewModel` 抄，那份是范例。
 ///
-/// 🚩 **每次会话只加载一次，绝不进那条 5 秒轮询。**
+/// 🚩 **不进那条 5 秒轮询；只在「跑完一单 / 收到一条评价」之后补拉一次。**
+/// 原先每会话只加载一次，志愿者跑完第一单回到首页，「最近陪跑」更新了、影响力区却还是
+/// 「还没有完成的陪跑」，冷启动才对（#335，安卓 #170 同源）。版本号取派单摘要里本来就在刷新的
+/// `totalCompleted` + `totalRatings`（`RefreshKey`），这两个数变了才重拉，见 `summaryVersionChanged`。
 /// `GET /api/volunteer/achievements` 的 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
 /// 后端**刻意**把它和 `dispatch-summary` 分成两个端点，就是为了不让低频页面的代价
 /// 压在最热的端点上（契约那条 description，转述在 `VolunteerServiceRecognitionView` 顶部）。
@@ -42,12 +45,43 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
 
     private var hasLoaded = false
 
+    /// 派单摘要里会随「跑完一单 / 收到评价」变化的那两个数。
+    struct RefreshKey: Equatable {
+        let totalCompleted: Int?
+        let totalRatings: Int?
+
+        init?(_ summary: VolunteerDispatchSummaryResponse?) {
+            guard let summary else { return nil }
+            totalCompleted = summary.totalCompleted
+            totalRatings = summary.totalRatings
+        }
+    }
+
+    private var observedKey: RefreshKey?
+    private var isLoading = false
+    private var reloadsAfterCurrent = false
+
     func configure(appState: AppState) {
         self.appState = appState
     }
 
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
+        await load()
+    }
+
+    /// 派单摘要刷新时调。
+    /// - 摘要还没到（`nil`）不记：否则它第一次到达就被当成「变了」，冷启动白拉一遍。
+    /// - 第一个版本只记下不重拉：首次加载由 `loadIfNeeded` 负责。
+    /// - 加载在途时变了：结束后补拉一次（在途那一轮可能拿的是旧数）。
+    func summaryVersionChanged(_ key: RefreshKey?) async {
+        guard let key else { return }
+        guard let previous = observedKey else {
+            observedKey = key
+            return
+        }
+        guard previous != key else { return }
+        observedKey = key
         await load()
     }
 
@@ -75,8 +109,23 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
     /// > 2026-09-14 首屏改版前，这里的场景是「把派单面板拖到 `.compact` 档」——
     /// > 那个叠层面板已经不存在了，但取消这件事本身没变，只是触发方式换了。
     ///
-    /// ponytail: 串行三个请求，不引入 `async let` 的并发编排 —— 一次会话只跑一遍。
+    /// ponytail: 串行三个请求，不引入 `async let` 的并发编排 —— 只在首次与版本变化时跑。
+    ///
+    /// 不重入：在途时再被叫到（版本又变了 / 用户点了重试）只记一笔，这一轮结束后再拉一次。
     func load() async {
+        guard !isLoading else {
+            reloadsAfterCurrent = true
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        repeat {
+            reloadsAfterCurrent = false
+            await performLoad()
+        } while reloadsAfterCurrent && !Task.isCancelled
+    }
+
+    private func performLoad() async {
         guard let appState else { return }
 
         var favoritedByCount = 0
