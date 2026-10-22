@@ -14,6 +14,8 @@ enum SessionOperationState: Equatable {
     case idle
     case inProgress
     case revocationFailed(message: String)
+    /// 只用于删除账户：后端 409 拦下（`ErrorCode.blocksAccountDeletion`），弹窗不给「重试」。
+    case deletionBlocked(message: String)
 }
 
 @MainActor
@@ -1032,7 +1034,7 @@ final class AppState: ObservableObject {
     }
 
     func dismissAccountDeletionFailure() {
-        if case .revocationFailed = accountDeletionState { accountDeletionState = .idle }
+        if accountDeletionState.accountDeletionFailureAlert != nil { accountDeletionState = .idle }
     }
 
     func deleteCurrentAccount() async {
@@ -1047,6 +1049,8 @@ final class AppState: ObservableObject {
             performLocalSessionCleanup()
         } catch APIError.unauthorized {
             expireSession()
+        } catch let error as APIError where error.errorCode?.blocksAccountDeletion == true {
+            accountDeletionState = .deletionBlocked(message: error.localizedMessage)
         } catch let error as APIError {
             accountDeletionState = .revocationFailed(message: error.localizedMessage)
         } catch {

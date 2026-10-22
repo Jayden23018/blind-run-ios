@@ -593,9 +593,13 @@ private struct EscortTrackConsentOverlay: ViewModifier {
 private struct SessionLifecycleStatusModifier: ViewModifier {
     @EnvironmentObject private var appState: AppState
 
+    private var deletionFailureAlert: AccountDeletionFailureAlert? {
+        appState.accountDeletionState.accountDeletionFailureAlert
+    }
+
     private var deletionFailure: Binding<Bool> {
         Binding(
-            get: { if case .revocationFailed = appState.accountDeletionState { return true }; return false },
+            get: { deletionFailureAlert != nil },
             set: { if !$0 { appState.dismissAccountDeletionFailure() } }
         )
     }
@@ -623,11 +627,18 @@ private struct SessionLifecycleStatusModifier: ViewModifier {
                     }
                 }
             }
-            .alert("删除账户失败", isPresented: deletionFailure) {
-                Button("重试") { Task { await appState.deleteCurrentAccount() } }
-                Button("取消", role: .cancel) { appState.dismissAccountDeletionFailure() }
+            .alert(
+                deletionFailureAlert?.title ?? AccountDeletionFailureAlert.failedTitle,
+                isPresented: deletionFailure
+            ) {
+                if deletionFailureAlert?.offersRetry == false {
+                    Button("知道了", role: .cancel) { appState.dismissAccountDeletionFailure() }
+                } else {
+                    Button("重试") { Task { await appState.deleteCurrentAccount() } }
+                    Button("取消", role: .cancel) { appState.dismissAccountDeletionFailure() }
+                }
             } message: {
-                if case .revocationFailed(let message) = appState.accountDeletionState {
+                if let message = deletionFailureAlert?.message {
                     Text(message)
                 }
             }
