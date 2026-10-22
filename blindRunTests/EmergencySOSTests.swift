@@ -1112,6 +1112,11 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertEqual(coordinator.activeEvent?.eventID, 830)
         XCTAssertFalse(outcome.message.contains("新求助已发出"))
         XCTAssertFalse(outcome.message.contains("短信"), "原事件还在 PENDING 时后端这次才第一次通知家属，任何关于短信的说法都可能是假的")
+        XCTAssertEqual(
+            coordinator.repeatStatusSuffix,
+            EmergencySafetyCopy.submitted(.csHandling),
+            "「重复当前状态」不该一直念「这次没有新建」，那句只属于刚才那一按"
+        )
     }
 
     /// 合并回来的 `countdownEndsAt` 非空但已过去、状态已发出 —— 只认状态，不许进倒计时、不许给「取消」。

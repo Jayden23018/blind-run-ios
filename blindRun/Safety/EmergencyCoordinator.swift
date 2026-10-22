@@ -214,7 +214,9 @@ final class EmergencyCoordinator: ObservableObject {
     /// degrades to "位置获取失败，请尽快拨打其电话或报警110" in the SMS. That degraded path is a
     /// product/safety call, not an engineering one (handoff Q①, unanswered): a rescue sent to the
     /// wrong place is worse than no rescue, and a blind user cannot tell the difference. Flip this
-    /// single constant once product/safety approve; nothing else needs to change.
+    /// constant once product/safety approve. One more place must change with it:
+    /// `EmergencySafetyCopy.mergedIntoOpenEvent` says 「已更新你的位置」, which is only true when the
+    /// request carried a coordinate (the backend skips the update otherwise, blind-run-backend#843).
     static let allowsSubmissionWithoutLocation = false
 
     /// Longest we will make someone wait for a fresh fix before giving up and saying so.
@@ -927,6 +929,11 @@ final class EmergencyCoordinator: ObservableObject {
     /// Latest authoritative SOS line for blind "重复当前状态", appended after — never replacing —
     /// the canonical order announcement.
     var repeatStatusSuffix: String? {
-        state.message
+        // 合并那句里的「这次」指的是刚才那一按。过一阵再点「重复当前状态」还念它，
+        // 听的人会以为自己刚才又按了一次 —— 这里改回按状态说。
+        if case .mergedIntoOpenEvent(let status) = state {
+            return EmergencySafetyCopy.submitted(status)
+        }
+        return state.message
     }
 }
