@@ -34,11 +34,13 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
             fixture.speech.spokenHistoryForTesting, [banner.speechText],
             "横幅之后立刻又念了别的（同档会把它切断）"
         )
-        XCTAssertEqual(
-            fixture.speech.pendingTextsForTesting, [VolunteerCancelAnnouncement.reassignedBySystem],
-            "状态句没排在横幅后面（首页与订单页应只排一句）"
-        )
         XCTAssertTrue(try XCTUnwrap(fixture.page).didLoseOrder, "订单页没有离开")
+        // 低一档的状态句排在横幅后面：横幅真机念完才轮到它，且首页与订单页只排一句。
+        await waitUntil(timeout: 20) { fixture.speech.spokenHistoryForTesting.count > 1 }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(
+            fixture.speech.spokenHistoryForTesting, [banner.speechText, VolunteerCancelAnnouncement.reassignedBySystem]
+        )
     }
 
     /// 迟迟不出发：没有横幅，这一句是唯一的告知 —— 照常立刻念，只念一次，不说「已取消」。
@@ -84,8 +86,15 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
         let spoken = fixture.speech.spokenHistoryForTesting
         XCTAssertEqual(spoken.filter { $0.contains("订单已取消") }, [VolunteerCancelAnnouncement.cancelledByVolunteer], "\(spoken)")
         XCTAssertFalse(spoken.contains(VolunteerCancelAnnouncement.reassignedBySystem), "\(spoken)")
-        XCTAssertFalse(fixture.speech.pendingTextsForTesting.contains(VolunteerCancelAnnouncement.reassignedBySystem))
         XCTAssertTrue(page.didCancelOrder)
+    }
+
+    /// `REMATCHING` 只在发过取消请求之后才算自己取消的。
+    func testRematchingCountsAsOwnOnlyAfterRequestingTheCancel() {
+        var announcement = VolunteerCancelAnnouncement()
+        XCTAssertFalse(announcement.announcesCancellation(entering: .rematching), "系统转走被当成自己取消")
+        announcement.begin()
+        XCTAssertTrue(announcement.announcesCancellation(entering: .rematching))
     }
 
     /// 档位只给 `REMATCHING` 降一档：其余状态句照旧默认档。
@@ -100,6 +109,13 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
     }
 
     // MARK: - Fixture
+
+    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
 
     private struct Fixture {
         let appState: AppState

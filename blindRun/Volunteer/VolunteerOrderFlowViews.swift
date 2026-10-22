@@ -639,11 +639,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         // 陪跑员听到的是半句盲人端文案加一句取消说明。
         let announcesCancellation = cancelAnnouncement.announcesCancellation(entering: updated.status)
         if speakChanges, previousStatus != updated.status, !announcesCancellation {
-            speechService?.speakStatusChange(
-                updated.status,
-                text: updated.status.volunteerAnnouncement,
-                priority: updated.status.volunteerAnnouncementPriority
-            )
+            speechService?.speakVolunteerStatusChange(updated.status)
         }
         if let target = transitionState.targetStatus,
            updated.status.satisfiesVolunteerTransition(target: target) {
@@ -1742,14 +1738,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
         // 跑者取消：下面终态分支会念「{名}取消了这次陪跑。不算你的取消…」整句。这里再念通用句，
         // 两句同档，后一句切断前一句，陪跑员听到半句加一整句（#333）。
         let cancelledByRunner = updated.status == .cancelled && !isEndingWait && !didEndWaiting
-        // 系统转走的 `REMATCHING`（#477）也走这里：念的是「系统正在重新匹配」那句，且低一档，
-        // 不切断同时到达的闸门到点横幅（`volunteerAnnouncementPriority`）。
+        // 系统转走的 `REMATCHING` 也走这里，低一档念，不切断闸门到点横幅（#477）。
         if speakChanges, previousStatus != updated.status, !announcesCancellation, !cancelledByRunner {
-            speechService?.speakStatusChange(
-                updated.status,
-                text: updated.status.volunteerAnnouncement,
-                priority: updated.status.volunteerAnnouncementPriority
-            )
+            speechService?.speakVolunteerStatusChange(updated.status)
         }
         if let target = transitionState.targetStatus,
            updated.status.satisfiesVolunteerTransition(target: target) {

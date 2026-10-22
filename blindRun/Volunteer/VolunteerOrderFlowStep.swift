@@ -352,27 +352,10 @@ extension RunOrderStatus {
         case .completed: return "陪跑完成，谢谢你。"
         // 中性：跑者取消、结束等待、系统取消都会落这一态。跑者取消时订单页另念带「不算你的取消」的整句。
         case .cancelled: return "这一单已取消。"
-        // 走到通用句的 `REMATCHING` 都不是这台手机上按的取消（自己按的那次由取消那一句说，#477）：
-        // 跨天闸门到点、接单后迟迟不出发都由系统转走。不说「已取消」—— 订单没取消，是换人。
+        // 走到通用句的 `REMATCHING` 都是系统转走的（自己取消由取消那一句说，#477），见 `reassignedBySystem`。
         case .rematching: return VolunteerCancelAnnouncement.reassignedBySystem
         case .noVolunteer: return "这一单已结束。"
         case .unknown: return "订单状态有更新，请刷新页面或稍后重试。"
-        }
-    }
-
-    /// `volunteerAnnouncement` 用哪一档念（#477）。
-    ///
-    /// `REMATCHING` 比默认档低一档：闸门到点时后端**先**发 HIGH 横幅 `SCHEDULED_DEPARTURE_GATE_MISSED`
-    /// （`OrderLifecycleService.handleDepartureGateMissed`），**再**推状态。同档会把正在念的横幅切断，
-    /// 低一档则排在它后面。迟迟不出发（`handleStalledDeparture`）不给陪跑员发横幅，这一句就是唯一的告知，
-    /// 没人在说话时照常立刻念。
-    var volunteerAnnouncementPriority: AnnouncementPriority {
-        switch self {
-        case .rematching:
-            return .onDemand
-        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute,
-             .driverArrived, .inProgress, .completed, .cancelled, .noVolunteer, .unknown:
-            return .counterpartAction
         }
     }
 
@@ -401,10 +384,6 @@ struct VolunteerCancelAnnouncement: Equatable {
     /// 而「这一单不在你名下了」两种结局下都为真。只在这台手机上按了取消时念（#477）。
     static let cancelledByVolunteer = "订单已取消，这一单不在你名下了。"
 
-    /// 不是自己按的取消、订单却进了 `REMATCHING`（系统转走，#477）。不说「已取消」：订单没取消，是换人。
-    /// 「正在重新匹配」对 `REMATCHING` 恒为真 —— 重匹到上限时后端直接转 `CANCELLED`，不会走到这一态。
-    static let reassignedBySystem = "这一单不在你名下了，系统正在为跑者重新匹配陪跑员。"
-
     /// 取消响应里的 `countedAsLateCancel`。`nil` = 这次取消的响应还没到（或根本没发起过取消）。
     private(set) var countedAsLateCancel: Bool?
     private(set) var cancellationSpoken = false
@@ -421,8 +400,7 @@ struct VolunteerCancelAnnouncement: Equatable {
 
     /// 这一次状态推进要不要念取消那一句。
     ///
-    /// `REMATCHING` **只在自己发过取消请求时**才算（#477）。否则是系统转走的（跨天闸门到点、接单后迟迟不出发），
-    /// 由通用状态句（`volunteerAnnouncement` → `reassignedBySystem`）低一档说，不念「订单已取消」切断同时到达的横幅。
+    /// `REMATCHING` **只在自己发过取消请求时**才算；否则是系统转走的，由通用状态句低一档说（#477）。
     /// `CANCELLED` **只在自己的取消已被后端确认（响应到了）时**才算 —— 请求还在路上、或结果未知时
     /// 到达的 `CANCELLED` 更可能是跑者取消的，那一屏要说「不算你的取消」，不能关页说「你取消了」。
     /// 代价：重匹到上限、且推送先于响应到达的那一次，会先停在「跑者已取消」那一屏。

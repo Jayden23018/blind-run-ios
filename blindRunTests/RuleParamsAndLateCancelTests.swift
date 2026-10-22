@@ -134,10 +134,8 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
     func testCancelledCountsAsOwnOnlyAfterTheCancelResponseArrived() {
         var announcement = VolunteerCancelAnnouncement()
         XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "没发起过取消")
-        // 没发起过取消的 `REMATCHING` 是系统转走的（闸门到点 / 迟迟不出发），不念「订单已取消」（#477）。
-        XCTAssertFalse(announcement.announcesCancellation(entering: .rematching), "系统转走被当成自己取消")
+        XCTAssertFalse(announcement.announcesCancellation(entering: .rematching), "系统转走被当成自己取消（#477）")
         announcement.begin()
-        XCTAssertTrue(announcement.announcesCancellation(entering: .rematching))
         XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "请求还在路上就认定是自己取消的")
         _ = announcement.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: false))
         XCTAssertTrue(announcement.announcesCancellation(entering: .cancelled))
