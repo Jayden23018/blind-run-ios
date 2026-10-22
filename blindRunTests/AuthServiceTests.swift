@@ -113,10 +113,10 @@ final class AuthServiceTests: XCTestCase {
         await appState.deleteCurrentAccount()
 
         XCTAssertEqual(fake.lastUserId, 7)
-        guard case .revocationFailed(let message) = appState.accountDeletionState else {
+        guard let alert = appState.accountDeletionState.accountDeletionFailureAlert else {
             return XCTFail("注销失败必须有可见文案，实际：\(appState.accountDeletionState)")
         }
-        XCTAssertFalse(message.isEmpty)
+        XCTAssertFalse(alert.message.isEmpty)
         XCTAssertNotNil(appState.accessToken, "删除没成功就不能把人踢出登录态")
     }
 

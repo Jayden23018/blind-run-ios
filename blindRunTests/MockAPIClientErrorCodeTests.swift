@@ -31,6 +31,7 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         // ⚠️ 这里没有 `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW` 不是漏了：
         // Mock 刻意不镜像这两道，理由见 `MockAPIClient+Order.handleCreateOrder`。
         // 它们的映射与文案由本文件下面那两条用例守。
+        "ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED",
         "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED",
         "APPOINTMENT_TOO_SOON",
         "BAD_REQUEST",
