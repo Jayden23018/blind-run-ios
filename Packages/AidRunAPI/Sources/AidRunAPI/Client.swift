@@ -1911,6 +1911,9 @@ public struct Client: APIProtocol {
     ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
     /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
     ///    这是第 7 条放开之后唯一的刷单闸门。
+    ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
+    ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
+    ///    没开始派单就取消的、系统取消的不计。
     /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
@@ -2489,6 +2492,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.parseOrder.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -2560,6 +2585,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.parseSlot.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -2635,6 +2682,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.resolveAddress.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -6805,7 +6874,7 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
+    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）；有未结案的紧急求助（含倒计时中）也会被拦截（409 + errorCode=ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
     ///
     /// - Remark: HTTP `DELETE /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
