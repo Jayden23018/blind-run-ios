@@ -1633,32 +1633,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
-    /// 请求在路上时这一单被转走了（#456）：结果不再播报、也不再起确认拉取。
-    /// 这时横幅正在念后端那句，任何一句「操作失败 / 结果尚未确认」都会把它切断，而那一单已经不是他的了。
-    private func discardsResultOfLostOrder() -> Bool {
-        guard didLoseOrder else { return false }
-        transitionState = .idle
-        return true
-    }
-
-    /// 系统把这一单转走了（#456）：放下订单、停掉对这一单的一切后台动作，**不念任何话** ——
-    /// 横幅正在念后端的 `ttsText`，同档再念一句就会把它从半句切断。宿主看 `didLoseOrder` 关页。
-    private func leaveLostOrder(orderID: Int64) {
-        releaseOrder(orderID)
-        transitionState = .idle
-        errorMessage = nil
-        nudgeNotice = nil
-        order = nil
-        didLoseOrder = true
-    }
-
-    /// 这一单不再归这位陪跑员（自己取消 / 被系统转走）：注销活跃订单、停位置互推、停轮询。
-    private func releaseOrder(_ orderID: Int64) {
-        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
-        appState?.liveEscortCoordinator.clearOwnedOrder()
-        stopPolling()
-    }
-
     private func simulateRealtimeConfirmationIfRequested(
         orderID: Int64,
         fromStatus: RunOrderStatus?,
@@ -1863,6 +1837,35 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-service-summary-refresh")
             }
         }
+    }
+}
+
+// 放下这一单（#456 / #476）。放在扩展里：同文件的扩展照样能读写私有状态，不再撑大类型体。
+extension VolunteerInServiceViewModel {
+    /// 请求在路上时这一单被转走了（#456）：结果不再播报、也不再起确认拉取。
+    /// 这时横幅正在念后端那句，任何一句「操作失败 / 结果尚未确认」都会把它切断，而那一单已经不是他的了。
+    private func discardsResultOfLostOrder() -> Bool {
+        guard didLoseOrder else { return false }
+        transitionState = .idle
+        return true
+    }
+
+    /// 系统把这一单转走了（#456）：放下订单、停掉对这一单的一切后台动作，**不念任何话** ——
+    /// 横幅正在念后端的 `ttsText`，同档再念一句就会把它从半句切断。宿主看 `didLoseOrder` 关页。
+    private func leaveLostOrder(orderID: Int64) {
+        releaseOrder(orderID)
+        transitionState = .idle
+        errorMessage = nil
+        nudgeNotice = nil
+        order = nil
+        didLoseOrder = true
+    }
+
+    /// 这一单不再归这位陪跑员（自己取消 / 被系统转走）：注销活跃订单、停位置互推、停轮询。
+    private func releaseOrder(_ orderID: Int64) {
+        appState?.realtimeCoordinator.unregisterActiveOrder(orderID)
+        appState?.liveEscortCoordinator.clearOwnedOrder()
+        stopPolling()
     }
 }
 
@@ -3762,26 +3765,5 @@ struct VolunteerReadOnlyOrderView: View {
             guard order.status == .completed else { return }
             await trackViewModel.load(orderID: order.orderId, appState: appState)
         }
-    }
-}
-
-struct EmptyStateView: View {
-    let title: String
-    let message: String
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text(title)
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-            Text(message)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title)，\(message)")
     }
 }
