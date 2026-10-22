@@ -343,6 +343,112 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    // DIAG480 BEGIN —— 临时诊断，不提交
+    @MainActor
+    private func diag480Dump(_ app: XCUIApplication, tag: String) -> [(String, CGRect)] {
+        let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
+        let nav = app.navigationBars.firstMatch
+        print("[DIAG480] \(tag) window=\(app.windows.firstMatch.frame) banner=\(banner.exists ? banner.frame : .zero) nav=\(nav.exists ? nav.frame : .zero)")
+        var out: [(String, CGRect)] = []
+        for t in app.staticTexts.allElementsBoundByIndex {
+            let f = t.frame
+            out.append((t.label, f))
+            print("[DIAG480] \(tag) text label=\(t.label) frame=\(f)")
+        }
+        return out
+    }
+
+    @available(iOS 17.0, *)
+    @MainActor
+    private func diag480Probe(_ app: XCUIApplication, tag: String) throws {
+        _ = diag480Dump(app, tag: "\(tag)-pre")
+        attachScreenshot(app, name: "\(tag)-pre")
+        var n = 0
+        try app.performAccessibilityAudit(
+            for: [
+                .contrast, .dynamicType, .elementDetection, .hitRegion,
+                .sufficientElementDescription, .textClipped, .trait
+            ]
+        ) { issue in
+            guard issue.auditType == .contrast else { return true }
+            n += 1
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = "\(tag)-in-handler-\(n)"
+            shot.lifetime = .keepAlways
+            self.add(shot)
+            print("[DIAG480] \(tag) ISSUE#\(n) label=\(issue.element?.label ?? "") frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)")
+            return true
+        }
+        print("[DIAG480] \(tag) issues=\(n)")
+        _ = diag480Dump(app, tag: "\(tag)-post")
+        attachScreenshot(app, name: "\(tag)-post")
+    }
+
+    /// 按住拖动 dy（正 = 内容往下走），停住再松手，不带惯性。
+    @MainActor
+    private func diag480Drag(_ app: XCUIApplication, dy: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.0)).withOffset(CGVector(dx: 0, dy: 520))
+        let end = start.withOffset(CGVector(dx: 0, dy: dy))
+        start.press(forDuration: 0.3, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1.0)
+        usleep(1_500_000)
+    }
+
+    @MainActor
+    func testDiag480() throws {
+        guard #available(iOS 17.0, *) else { throw XCTSkip("iOS 17") }
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchVolunteerHome(
+            extraEnvironment: ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+            extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        )
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20))
+        tabBar.buttons["我的"].tap()
+        let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        for _ in 0..<6 where !entry.isHittable { app.swipeUp() }
+        entry.tap()
+        let addOneOff = app.buttons["volunteerScheduleAddOneOffButton"].firstMatch
+        XCTAssertTrue(addOneOff.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+        addOneOff.tap()
+        XCTAssertTrue(app.navigationBars["按日期添加"].waitForExistence(timeout: 5))
+        app.buttons["volunteerScheduleEditorDone"].tap()
+        XCTAssertTrue(app.buttons["volunteerScheduleAddButton"].firstMatch.waitForExistence(timeout: 10))
+        waitUntilSettled(addOneOff)
+
+        // E0：列表顶部（对照）
+        try diag480Probe(app, tag: "E0-top")
+        // E1：滚到底（与 #466 原步骤相同）
+        for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
+        waitUntilSettled(addOneOff)
+        try diag480Probe(app, tag: "E1-bottom")
+
+        // E2：把半截压在顶部遮挡物（横幅 / 导航栏）下沿的那一行往下拖到完全露出。
+        let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
+        let occBottom = max(banner.exists ? banner.frame.maxY : 0, app.navigationBars.firstMatch.frame.maxY)
+        let texts = diag480Dump(app, tag: "E2-plan")
+        if let straddler = texts.first(where: { $0.1.minY < occBottom && $0.1.maxY > occBottom }) {
+            let dy = occBottom - straddler.1.minY + 12
+            print("[DIAG480] E2 straddler=\(straddler.0) \(straddler.1) occBottom=\(occBottom) drag dy=\(dy)")
+            diag480Drag(app, dy: dy)
+        } else {
+            print("[DIAG480] E2 no straddler at occBottom=\(occBottom)")
+        }
+        try diag480Probe(app, tag: "E2-exposed")
+
+        // E3：把一行完整可见的字拖到遮挡物下沿，压住上半截。
+        let texts3 = diag480Dump(app, tag: "E3-plan")
+        if let target = texts3.first(where: { $0.1.minY > occBottom + 20 && $0.1.height > 30 }) {
+            let dy = occBottom - target.1.midY
+            print("[DIAG480] E3 target=\(target.0) \(target.1) occBottom=\(occBottom) drag dy=\(dy)")
+            diag480Drag(app, dy: dy)
+        }
+        try diag480Probe(app, tag: "E3-half-covered")
+    }
+    // DIAG480 END
+
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
     /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏
