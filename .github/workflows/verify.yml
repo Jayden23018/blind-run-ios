@@ -127,6 +127,11 @@ jobs:
       - name: validate xcresult verdict
         run: node scripts/validate-xcresult-verdict.mjs
 
+      # 上一条只管「总数为 0」。xcodebuild 静默忽略写错的 -only-testing 目标，其余目标照跑，
+      # 总数不为 0 就报通过（#478：文件名当类名，passed=33 而新用例一条没跑）。
+      - name: validate only-testing coverage（每个 -only-testing 目标都要命中用例）
+        run: node scripts/validate-only-testing-coverage.mjs
+
       # 真机只有一台而本机常开着多个会话。并发跑同一台设备时两边互相把 runner 装掉，
       # 报出的 `Test crashed with signal kill` 与真回归无法区分 —— 2026-09-05 一下午的
       # 结果因此作废。锁本身不碰真机，所以这条自测在 CI 上跑得了。
