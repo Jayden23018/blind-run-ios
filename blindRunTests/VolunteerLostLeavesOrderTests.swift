@@ -46,29 +46,6 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         }
     }
 
-    /// 断线期间被转走：回到信号范围后靠 `/api/notifications/since` 补读到这条，同样离开。
-    /// 补读那条日志的 `orderId` 也是 null（后端 `logNotification(null, ...)`）。
-    func testCatchUpOfTheEventLeavesTheOrderToo() async throws {
-        let fixture = makeFixture(status: .driverArrived)
-
-        fixture.appState.realtimeCoordinator.ingestCatchUp([
-            MissedNotificationResponse(
-                id: 45_601,
-                eventType: "ORDER_VOLUNTEER_LOST",
-                body: "陪跑一直没能开始，这一单已转给其他志愿者",
-                ttsText: Self.volunteerTTS,
-                priority: "HIGH",
-                sentAt: "2026-10-19T10:00:00",
-                orderId: nil
-            )
-        ])
-        try await Task.sleep(nanoseconds: 300_000_000)
-
-        XCTAssertTrue(fixture.page.didLoseOrder)
-        XCTAssertNil(fixture.home.activeOrder)
-        XCTAssertEqual(fixture.appState.realtimeCoordinator.currentNotification?.speechText, Self.volunteerTTS)
-    }
-
     /// 跑步中收到（不该发生，或是认错单的旧事件）：不动。
     func testRunningOrderIsNotLeftOnTheEvent() async throws {
         let fixture = makeFixture(status: .inProgress)
@@ -206,7 +183,13 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
     /// （记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
     private var retained: [AppState] = []
 
-    private func makeFixture(status: RunOrderStatus) -> Fixture {
+    /// `initialOrderLoaded: false` = 从推送冷启动、订单页还没拉到第一份详情（#476 ①）。
+    /// `realtimeSocket`：要演断线重连时传入。必须在登记订单**之前**接上 —— `attach` 会清掉会话状态。
+    private func makeFixture(
+        status: RunOrderStatus,
+        initialOrderLoaded: Bool = true,
+        realtimeSocket: WebSocketService? = nil
+    ) -> Fixture {
         let orderId: Int64 = 4_560
         let order = OrderDetailResponse.preview(orderId: orderId, status: status)
         let service = FakeOrderService()
@@ -219,7 +202,10 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         home.configure(with: appState, speechService: speech)
         home.activeOrder = order
         let page = VolunteerInServiceViewModel()
-        page.configure(with: appState, speechService: speech, initialOrder: order)
+        page.configure(with: appState, speechService: speech, initialOrder: initialOrderLoaded ? order : nil)
+        if let realtimeSocket {
+            appState.realtimeCoordinator.attach(to: realtimeSocket, role: .volunteer)
+        }
         // 生产上首页加载 / 订单页轮询时登记；协调器只把状态推送发给登记过的订单。
         appState.realtimeCoordinator.registerActiveOrder(orderId, status: status)
         speech.resetSpokenHistoryForTesting()
@@ -241,6 +227,22 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         )
     }
 
+    /// 后端 `OrderQueryService.getOrder` 对非参与者抛的那一条。
+    private static let notParticipant = APIError.serverError(
+        ErrorResponse(code: "ORDER_PERMISSION_DENIED", message: "您无权查看此订单")
+    )
+
+    /// 补读那条日志同样没有 `orderId`。
+    private static let missedVolunteerLost = MissedNotificationResponse(
+        id: 45_601,
+        eventType: "ORDER_VOLUNTEER_LOST",
+        body: "陪跑一直没能开始，这一单已转给其他志愿者",
+        ttsText: volunteerTTS,
+        priority: "HIGH",
+        sentAt: "2026-10-19T10:00:00",
+        orderId: nil
+    )
+
     /// 信封与后端 `sendNotification(..., null)` 一致：**没有 `orderId`**。
     private static func notification(_ eventType: String) -> WSAppNotification {
         WSAppNotification(
@@ -261,5 +263,114 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         while !condition(), Date() < deadline {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
+    }
+}
+
+// MARK: - #476：补读的旧事件 / 详情还没拉到就被转走
+// 放在扩展里：同文件的扩展能用上面的私有夹具，又不撑大类型体（SwiftLint 棘轮）。
+@MainActor
+extension VolunteerLostLeavesOrderTests {
+    /// 补读回放的旧事件（#476 ②）：补读那条日志的 `orderId` 也是 null（后端 `logNotification(null, ...)`），
+    /// 认不出说的是哪一单。陪跑员此刻手上可能是**另一单**的出发中 —— 不能凭它放下。
+    /// 横幅照念；这一单还是不是他的，由重连后那次详情重拉说了算（下一条用例）。
+    func testCatchUpOfTheEventDoesNotDropAnOrderItCannotIdentify() async throws {
+        for status in [RunOrderStatus.driverEnRoute, .driverArrived] {
+            let fixture = makeFixture(status: status)
+
+            fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
+            try await Task.sleep(nanoseconds: 300_000_000)
+
+            XCTAssertFalse(fixture.page.didLoseOrder, "\(status)：凭一条认不出订单的旧事件放下了手上这一单")
+            XCTAssertEqual(fixture.page.order?.status, status, "\(status)")
+            XCTAssertNotNil(fixture.home.activeOrder, "\(status)：首页的当前订单被清掉了")
+            XCTAssertEqual(
+                fixture.appState.realtimeCoordinator.currentNotification?.speechText, Self.volunteerTTS,
+                "\(status)：横幅那一句没进队列"
+            )
+        }
+    }
+
+    /// 断线期间真被转走：重连后协调器对已登记订单发起重拉，详情回 403 `ORDER_PERMISSION_DENIED`
+    /// （后端 `enterRematching` 把 `order.volunteer` 置空，`OrderQueryService.getOrder` 判非参与者）⇒ 静默离开。
+    /// 走真实链路：断线 → 重连（协调器请求重拉）→ 订单页的重拉订阅发起 `load` → 403。
+    func testCatchUpOfAGenuineLossLeavesOnTheRefreshThatFollows() async throws {
+        let socket = WebSocketService()
+        let fixture = makeFixture(status: .driverArrived, realtimeSocket: socket)
+        socket.simulateConnectionStateForTesting(.connected)
+        socket.simulateConnectionStateForTesting(.disconnected)
+        await Task.yield()
+        fixture.service.orderDetailResult = .failure(Self.notParticipant)
+
+        socket.simulateConnectionStateForTesting(.connected)
+        fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
+        await waitUntil { fixture.page.didLoseOrder }
+
+        XCTAssertGreaterThanOrEqual(fixture.service.callCount("orderDetail(orderId:)"), 1, "前提：重连后确实重拉了详情")
+        XCTAssertTrue(fixture.page.didLoseOrder)
+        XCTAssertNil(fixture.page.order)
+        XCTAssertNil(fixture.page.errorMessage)
+        XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(fixture.speech.spokenHistoryForTesting)")
+    }
+
+    // MARK: - 详情还没拉到就被转走（#476 ①）
+
+    /// 从推送冷启动、`initialOrder` 为 nil：失联事件与 `REMATCHING` 推送都认不出这一单（手上还没有订单），
+    /// 之后的轮询回 403。修之前这条 403 被吞掉，页面停在「获取订单状态失败」兜底页。
+    func testPermissionDeniedBeforeTheFirstDetailLeavesThePage() async throws {
+        let fixture = makeFixture(status: .driverEnRoute, initialOrderLoaded: false)
+        fixture.service.orderDetailResult = .failure(Self.notParticipant)
+        let coordinator = fixture.appState.realtimeCoordinator
+
+        coordinator.simulateIncomingEventForTesting(.notification(Self.notification("ORDER_VOLUNTEER_LOST")))
+        let banner = try XCTUnwrap(coordinator.currentNotification)
+        fixture.speech.speak(banner.speechText)
+        pushStatus(coordinator, orderId: fixture.orderId, from: .driverEnRoute, to: .rematching)
+        await fixture.page.load(orderId: fixture.orderId, speakChanges: true)
+
+        XCTAssertTrue(fixture.page.didLoseOrder, "403 被吞掉，页面停在兜底页")
+        XCTAssertNil(fixture.page.errorMessage, "离开前还挂出了「获取订单状态失败」")
+        XCTAssertEqual(
+            fixture.speech.spokenHistoryForTesting, [Self.volunteerTTS],
+            "横幅那一句之后又念了别的（同档会把它切断）"
+        )
+    }
+
+    /// 详情已拉到、但失联事件与状态推送都没送到：轮询回 403 同样离开（不论手上停在哪一态）。
+    func testPermissionDeniedOnAPollLeavesALoadedOrder() async {
+        for status in [RunOrderStatus.driverEnRoute, .inProgress] {
+            let fixture = makeFixture(status: status)
+            fixture.service.orderDetailResult = .failure(Self.notParticipant)
+
+            await fixture.page.load(orderId: fixture.orderId, speakChanges: true)
+
+            XCTAssertTrue(fixture.page.didLoseOrder, "\(status)")
+            XCTAssertNil(fixture.page.order, "\(status)")
+            XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(status)：\(fixture.speech.spokenHistoryForTesting)")
+        }
+    }
+
+    /// 自己按的取消已被后端接下、`REMATCHING` 推送还没到时，轮询先回了 403：不另置 `didLoseOrder`。
+    /// 关页由取消那条路做（推送 → `didCancelOrder`）；两条同时 dismiss 会多出栈一层。
+    func testPermissionDeniedAfterOwnCancelDoesNotCountAsLosingTheOrder() async {
+        let fixture = makeFixture(status: .driverEnRoute)
+        fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
+        fixture.service.orderDetailResult = .failure(Self.notParticipant)
+        await fixture.page.cancel()
+
+        await fixture.page.load(orderId: fixture.orderId, speakChanges: true)
+
+        XCTAssertEqual(fixture.service.callCount("cancel(orderId:)"), 1, "前提：取消请求确实发出去了")
+        XCTAssertFalse(fixture.page.didLoseOrder)
+    }
+
+    /// 其他失败（断网等）不是「已不是参与者」：还没拉到详情时照旧落兜底页，不离开。
+    func testOtherLoadFailuresDoNotLeaveThePage() async {
+        let fixture = makeFixture(status: .driverEnRoute, initialOrderLoaded: false)
+        fixture.service.orderDetailResult = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
+
+        await fixture.page.load(orderId: fixture.orderId, speakChanges: true)
+
+        XCTAssertFalse(fixture.page.didLoseOrder)
+        XCTAssertEqual(fixture.page.errorMessage, "获取订单状态失败")
     }
 }
