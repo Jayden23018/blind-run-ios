@@ -20,7 +20,8 @@ import SwiftUI
 /// 让人先听完 24 次陪跑和 7 枚勋章才听到「你有一张单要确认」是反的。
 struct VolunteerProfileFirstScreen: View {
     @EnvironmentObject var appState: AppState
-    /// 只用来读「定位摘要」那一行（`dispatchSection` 末尾）。
+    /// 读「定位摘要」那一行（`dispatchSection` 末尾），以及下拉刷新、「重新定位」与
+    /// 「重新加载派单状态」时强制取一次点。
     /// 请求权限与开始更新在 `VolunteerHomeView.onAppear`，不在这一层。
     @EnvironmentObject var locationService: LocationService
     @ObservedObject var viewModel: VolunteerHomeViewModel
@@ -33,9 +34,9 @@ struct VolunteerProfileFirstScreen: View {
     let onReload: () async -> Void
 
     /// 手写 init 只为一件事：上面三个属性要给同目录的 `VolunteerProfileFirstScreenView+*.swift`
-    /// 用，不能再是 `private`（#508 拆文件）。不写的话合成的 memberwise init 会多出一个
-    /// `incentive:` 参数，默认值在每次父视图重绘时都先构造一个用不上的 view model。
-    /// 写出来以后 `incentive` 仍只由 `@StateObject` 的初始值创建一次，与拆分前一致。
+    /// 用，不能再是 `private`（#508 拆文件），而不再 `private` 之后合成的 memberwise init
+    /// 会把它们也收成参数。写出来让对外的初始化方式与拆分前一样只有 `viewModel` / `onReload`，
+    /// `incentive` 只由 `@StateObject` 的初始值创建，外面传不进来。
     init(viewModel: VolunteerHomeViewModel, onReload: @escaping () async -> Void) {
         self.viewModel = viewModel
         self.onReload = onReload

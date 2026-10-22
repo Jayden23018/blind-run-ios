@@ -9,6 +9,9 @@ import XCTest
 /// 2. `reason` 是开放枚举，产成封闭 enum 会让**整条响应**解不出来 —— 对盲人端是一整页空白。
 /// 3. `streakWeeks == nil` 与 `== 0` 含义不同：`nil` 是「没点亮」，显示「连续 0 周」是错的。
 /// 4. 三条监管红线是文案层面的，编译器不管，只能靠断言钉住常量本身。
+///
+/// 固定搭档（opt-out 确认、空态、收藏）在 `IncentiveAdoptionPartnerTests`，
+/// 志愿者首页「我的贡献」卡在 `IncentiveAdoptionHomeCardTests`（#508 按主题拆出）。
 final class IncentiveAdoptionTests: XCTestCase {
 
     // MARK: - 1. delta = 0 的流水不许消失
