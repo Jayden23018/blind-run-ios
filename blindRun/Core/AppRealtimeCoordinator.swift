@@ -476,7 +476,8 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 陪跑员出发后失联 / 迟迟不到，系统已把这一单转走（`ORDER_VOLUNTEER_LOST`，后端 #616 M6，iOS #456）。
     /// **不带订单号**：后端用模板通知发它（`sendNotification(..., null)`），信封和补读那条日志都没有 `orderId`；
     /// 消费方自己判「手上这一单是不是出发中 / 已到达」（`RunOrderStatus.isTakenAwayWhenVolunteerLost`）。
-    /// 实时推送和重连补读都发。通知本身照常按安全提醒入队、念后端 `ttsText` —— 这条只让页面放下订单，**不念任何话**。
+    /// 只有实时推送发；重连补读不发（理由见 `ingestCatchUp`，#476）。
+    /// 通知本身照常按安全提醒入队、念后端 `ttsText` —— 这条只让页面放下订单，**不念任何话**。
     private let volunteerLostSubject = PassthroughSubject<Void, Never>()
     var volunteerLostPublisher: AnyPublisher<Void, Never> {
         volunteerLostSubject.eraseToAnyPublisher()
@@ -1276,9 +1277,11 @@ final class AppRealtimeCoordinator: ObservableObject {
         let sorted = notifications.sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
         for missed in sorted {
             recordObservedNotificationTimestamp(missed.sentAt)
-            // 断线期间被转走的单（#456）：回到信号范围后靠这里才知道。排在正文判空之前 ——
-            // 放下订单不依赖有没有文案可念。
-            publishVolunteerLostIfNeeded(eventType: (missed.eventType ?? "").uppercased())
+            // 补读来的 `ORDER_VOLUNTEER_LOST` **不发** `volunteerLostPublisher`（#476）：它不带 `orderId`，
+            // 陪跑员此刻手上可能是另一单的出发中，凭它放下会放错。断线期间真被转走的那一单，由重连时
+            // `handleConnectionState` 对已登记订单发起的重拉判定 —— 详情回 403 `ORDER_PERMISSION_DENIED`，
+            // 订单页静默离开；首页的摘要刷新（`recoverDispatchReadinessAfterReconnect`）把它从「当前订单」拿掉。
+            // 横幅照常入队念后端那句。
             guard !missed.body.trimmed.isEmpty else { continue }
             // 补读走**同一条**正文覆盖。漏掉这里的后果只在断线重连那条路径上出现
             // （最容易漏测、也最难在真机上复现）：屏幕上那行字是替代文案、补读念的却是

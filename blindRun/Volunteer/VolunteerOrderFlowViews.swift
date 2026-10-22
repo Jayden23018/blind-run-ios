@@ -1160,6 +1160,15 @@ final class VolunteerInServiceViewModel: ObservableObject {
             // 401 必须交出去（#438）：跑步中这是暂缓退出最常见的入口（#376），此前被这里一并吞掉，
             // 横幅不出、求助面板停在云端那一档，要等陪跑员按了别的按钮撞上 401 才进暂缓。
             if let apiError = error as? APIError, appState.handleAuthenticatedAPIError(apiError) { return }
+            // 403 `ORDER_PERMISSION_DENIED` = 后端说我已不是这一单的参与者（转重派时 `order.volunteer` 置空），#476。
+            // 这是唯一不依赖「手上有订单」的权威信号：冷启动还没拉到详情时，失联事件与 `REMATCHING` 推送都认不出这一单；
+            // 补读来的旧失联事件不带 `orderId`，也不能凭它放下。与失联同一条静默离开路径，不与横幅抢播报。
+            // 自己按的取消不走这里：关页由取消面板的回调做（见 `didLoseOrder`）。
+            if (error as? APIError)?.errorCode == .orderPermissionDenied, !cancelAnnouncement.requested {
+                refreshedAuthoritativeOrder = true
+                leaveLostOrder(orderID: orderId)
+                return
+            }
             if order == nil {
                 errorMessage = "获取订单状态失败"
             }
