@@ -16,7 +16,7 @@ extension MockAPIClient {
     /// 真实后端上，火花（`app.incentive.streak.enabled`）、派单优先轮、邀请奖励三个开关
     /// **默认全关**，所以联调时火花端点会返回空数组、邀请关系建立了但积分不动 ——
     /// 那不是接错了。Mock 如果也演成空的，这几屏 UI 在开发期永远走不到，
-    /// 而「空数组」那条分支本来就有单测钉着（`IncentiveAdoptionTests`）。
+    /// 而「空数组」那条分支本来就有单测钉着（`IncentiveAdoptionTests`、`IncentiveAdoptionPartnerTests`）。
     ///
     /// **积分没有开关**（`PointService` 只有数值参数），它从第一天就在记 —— 这一条 Mock 与真实一致。
     ///
