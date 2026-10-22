@@ -46,7 +46,7 @@ struct VolunteerHomeIncentiveSummary: Equatable {
     let achievements: VolunteerAchievementsResponse?
 
     /// 手写 init 而不是用合成的 memberwise：把 `achievements` 放在最后并给默认值，
-    /// 让只关心勋章/搭档/火花的既有调用点（`IncentiveAdoptionTests` 里 8 处）一个字都不用改。
+    /// 让只关心勋章/搭档/火花的既有调用点（`IncentiveAdoptionHomeCardTests` 里 8 处）一个字都不用改。
     init(
         favoritedByCount: Int,
         nextBadge: VolunteerNextBadgeDto?,
