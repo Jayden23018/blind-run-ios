@@ -28,9 +28,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { isSwiftUIViewEdit } from './design-direction-reminder.mjs';
 import { completedUnarchivedChanges, isOpenSpecChange, isProductionSwift } from './openspec-reminder.mjs';
 import { researchTodo } from './research-log.mjs';
-import { sessionEditedPaths } from './transcript.mjs';
+import { sessionCommands, sessionEditedPaths } from './transcript.mjs';
 
 // AIDRUN_REPO_ROOT 只给自测用（拿一个临时 git 仓库当靶子），生产路径永远走仓库根。
 const root = process.env.AIDRUN_REPO_ROOT || path.resolve(import.meta.dirname, '../..');
@@ -120,6 +121,39 @@ if (mine !== null) {
         '但没碰 `openspec/changes/` —— 行为有变就补提议或勾任务；不改变行为（修 bug / 文案 / 重构）回一句说明再停'
     );
   }
+
+  // 改了视图却没跑无障碍审计（#494）。审计没有任何机器在执行（#487 核过：CI 只编译、pre-push 只提醒），
+  // 只能真机手动跑，于是 skill `aidrun-ship-check` §五 那三步只靠自觉 —— 这条把它落成「该做没做」。
+  // 视图判据与设计提醒钩子共用一份；内容读磁盘（停止时文件已写完，删掉的读不到就不算视图）。
+  // ponytail: 只问「本轮跑没跑过」，不问「跑在最后一次改视图之后」；先跑后改照样放行。要更严时改按 transcript 顺序比。
+  const views = edited.filter((p) => isSwiftUIViewEdit('Edit', p, readOrEmpty(path.join(root, p))));
+  const commands = sessionCommands(payload.transcript_path) || [];
+  if (views.length && !commands.some(isAccessibilityAuditRun)) {
+    todo.push(
+      `**没跑无障碍审计**：本轮改了 ${views.length} 个 SwiftUI 视图（${sample(views)}），` +
+        '但没执行过带 `AccessibilityAuditTests` 的 `scripts/device-test.sh` —— 按 skill `aidrun-ship-check` §五' +
+        '跑那一页的审计用例、截图、贴出 `passed/failed` 行与截图；设备不在线就回一句「没跑」再停，不许写成通过'
+    );
+  }
+}
+
+function readOrEmpty(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+// `device-test.sh` 要在**执行位置**上（行首、`;` `&&` `|` `(` 之后，或 `bash` 后面，可带 `VAR=值` 前缀），
+// 且同一条命令里出现 `AccessibilityAuditTests`。挡的是 `grep AccessibilityAuditTests scripts/device-test.sh`
+// 这类只读命令被当成跑过。参数放在 zsh 数组里另起一行时名字在脚本前面，所以只要求同一条命令里有，不要求顺序。
+// ponytail: 只认命令文本，不认结果 —— 跑了但设备不在线照样放行，那时由 §五「明说没跑」兜底。
+// 正则写在函数里：上面的顶层代码先于这里执行，顶层 const 会落进暂时性死区。
+function isAccessibilityAuditRun(command) {
+  const run =
+    /(?:^|[;&|(]|\b(?:bash|sh|zsh|time|nohup)\s)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*\/)?device-test\.sh\b/m;
+  return run.test(command) && /\bAccessibilityAuditTests\b/.test(command);
 }
 
 // `@{u}` 解析失败有两种成因：

@@ -426,6 +426,53 @@ const cases = [
       return null;
     },
   },
+  {
+    // #494：改了视图却没跑无障碍审计。每个场景挡一种错误实现：
+    //   改视图没跑      —— 判据被打回 / 视图判据失效：必须拦
+    //   跑了审计        —— 「改视图就拦」不看命令：必须放
+    //   zsh 数组另起一行 —— 「名字必须在脚本后面」：必须放
+    //   只 grep 了脚本  —— 「命令里同时出现两个词就算跑过」：必须拦
+    //   只跑别的 suite  —— 「跑过 device-test.sh 就算」：必须拦
+    //   只改测试目录    —— 测试文件里也有 `: View`，只靠路径判据排除：必须放
+    //   拿不到 transcript —— 必须不判
+    name: '改了 SwiftUI 视图、本轮没跑带 AccessibilityAuditTests 的 device-test.sh 才报「没跑无障碍审计」',
+    stdin: '{}',
+    check: () => {
+      const { dir } = scratchRepo();
+      const view = 'struct HomeView: View {\n  var body: some View { Text("x") }\n}\n';
+      for (const [f, text] of [
+        ['blindRun/Feature/HomeView.swift', view],
+        ['blindRunUITests/HomeUITests.swift', `import SwiftUI\n${view}`],
+      ]) {
+        fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
+        fs.writeFileSync(path.join(dir, f), text);
+      }
+      let n = 0;
+      const flagged = (files, commands = [], payloadExtra = {}) => {
+        const blocks = [
+          ...files.map((f) => ({ name: 'Edit', input: { file_path: path.join(dir, f) } })),
+          ...commands.map((c) => ({ name: 'Bash', input: { command: c } })),
+        ];
+        const transcript = writeTranscript(dir, `a11y-${(n += 1)}.jsonl`, blocks, new Date().toISOString());
+        const r = run(JSON.stringify({ transcript_path: transcript, ...payloadExtra }), { AIDRUN_REPO_ROOT: dir });
+        return r.stderr.includes('**没跑无障碍审计**');
+      };
+      const V = 'blindRun/Feature/HomeView.swift';
+      if (!flagged([V])) return '改了视图、没跑审计，却没报';
+      if (flagged([V], ['scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests/testHomePassesAccessibilityAudit'])) {
+        return '跑过审计仍在报';
+      }
+      if (flagged([V], ['args=(-only-testing:blindRunUITests/AccessibilityAuditTests)\ncd /x && AIDRUN_PREFLIGHT_TIMEOUT=1500 scripts/device-test.sh "${args[@]}"'])) {
+        return '参数放在 zsh 数组里跑的审计没被认出来';
+      }
+      if (!flagged([V], ['grep -n AccessibilityAuditTests scripts/device-test.sh'])) return '只是 grep 了脚本，却被当成跑过审计';
+      if (!flagged([V], ['scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTests'])) return '只跑了别的 suite，却被当成跑过审计';
+      if (flagged(['blindRunUITests/HomeUITests.swift'])) return '只改测试目录也被报了';
+      const noTranscript = run(JSON.stringify({ transcript_path: path.join(dir, 'missing.jsonl') }), { AIDRUN_REPO_ROOT: dir });
+      if (noTranscript.stderr.includes('**没跑无障碍审计**')) return '拿不到 transcript 时不该判，却报了';
+      return null;
+    },
+  },
 ];
 
 let failed = 0;
