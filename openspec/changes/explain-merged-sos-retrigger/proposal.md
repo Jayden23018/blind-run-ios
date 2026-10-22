@@ -23,6 +23,7 @@ iOS already renders by `status`, so no countdown starts. Two gaps remain:
 
 ## Impact
 
-- `Safety/EmergencyCoordinator.swift`, `Safety/SafetyModule.swift`, `Safety/EmergencyCountdownView.swift`.
-- Tests: `EmergencySOSTests`, `PreciseLocationGateTests`.
+- `Safety/EmergencyCoordinator.swift`, `Safety/EmergencyCountdownView.swift`, `Safety/SafetyModule.swift` (one line), new `Safety/EmergencyMergedRetriggerCopy.swift`.
+- Tests: new `EmergencyMergedRetriggerTests`. Four helpers in `EmergencySOSTests` lose `private` so the new file can reuse them.
+- `.swiftlint-baseline.json`: the two length entries of `EmergencyCoordinator.swift` are frozen at the new size (owner approved 2026-10-22; split tracked in Jayden23018/blind-run-ios#502).
 - No API change. No backend change.
