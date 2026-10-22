@@ -1101,14 +1101,14 @@ final class EmergencySOSTests: XCTestCase {
 
     /// 倒计时的替身接缝：跑测时不该真的在办公室里拉响警报，也不该真的震。
     @MainActor
-    private static func makeCountdownFixture() -> (EmergencyCoordinator, FakeSafetyService) {
+    static func makeCountdownFixture() -> (EmergencyCoordinator, FakeSafetyService) {
         EmergencyAlarm.observerForTesting = { _ in }
         EmergencyHaptics.observerForTesting = { _ in }
         return (EmergencyCoordinator(), FakeSafetyService())
     }
 
     @MainActor
-    private static func teardownAlarmObservers() {
+    static func teardownAlarmObservers() {
         EmergencyAlarm.observerForTesting = nil
         EmergencyHaptics.observerForTesting = nil
     }
@@ -1359,7 +1359,7 @@ final class EmergencySOSTests: XCTestCase {
     // MARK: - Fixtures
 
     /// `nonisolated` so it can be called from the detached `locate` closure in the concurrency test.
-    nonisolated private static func coordinate(
+    nonisolated static func coordinate(
         latitude: Double = 39.9,
         longitude: Double = 116.4
     ) -> LocatedCoordinate {
@@ -1831,7 +1831,7 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertTrue(EmergencySafetyCopy.homeCallNoContactHint.contains("110"))
     }
 
-    private static func makeOrder(status: RunOrderStatus) -> OrderDetailResponse {
+    static func makeOrder(status: RunOrderStatus) -> OrderDetailResponse {
         OrderDetailResponse(
             orderId: 4242,
             status: status,
