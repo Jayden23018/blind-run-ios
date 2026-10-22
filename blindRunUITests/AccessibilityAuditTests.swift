@@ -419,33 +419,46 @@ final class AccessibilityAuditTests: XCTestCase {
         waitUntilSettled(addOneOff)
 
         // E0：列表顶部（对照）
+        let ref = app.staticTexts["周六"].firstMatch
+        let refTopY = ref.frame.minY
         try diag480Probe(app, tag: "E0-top")
-        // E1：滚到底（与 #466 原步骤相同）
+        // E1：滚到底（与 #466 原步骤相同）—— 复现
         for _ in 0..<6 where !addOneOff.isHittable { app.swipeUp() }
         waitUntilSettled(addOneOff)
         try diag480Probe(app, tag: "E1-bottom")
 
-        // E2：把半截压在顶部遮挡物（横幅 / 导航栏）下沿的那一行往下拖到完全露出。
-        let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
-        let occBottom = max(banner.exists ? banner.frame.maxY : 0, app.navigationBars.firstMatch.frame.maxY)
-        let texts = diag480Dump(app, tag: "E2-plan")
-        if let straddler = texts.first(where: { $0.1.minY < occBottom && $0.1.maxY > occBottom }) {
-            let dy = occBottom - straddler.1.minY + 12
-            print("[DIAG480] E2 straddler=\(straddler.0) \(straddler.1) occBottom=\(occBottom) drag dy=\(dy)")
-            diag480Drag(app, dy: dy)
-        } else {
-            print("[DIAG480] E2 no straddler at occBottom=\(occBottom)")
+        // 从顶部往上滚 d pt，d 由「周六」字样的位移量算，迭代逼近到 [lo, hi]。
+        func scrollTo(_ lo: CGFloat, _ hi: CGFloat, tag: String) {
+            for _ in 0..<3 { app.swipeDown() }
+            waitUntilSettled(ref)
+            for attempt in 0..<8 {
+                let d = refTopY - ref.frame.minY
+                print("[DIAG480] \(tag) attempt=\(attempt) d=\(d) want=[\(lo), \(hi)]")
+                if d >= lo && d <= hi { return }
+                let delta = (lo + hi) / 2 - d          // 正 = 内容要再往上走
+                if abs(delta) < 20 {
+                    diag480Drag(app, dy: 60)          // 先反向走一段，避开拖动起步的死区
+                    let d2 = refTopY - ref.frame.minY
+                    diag480Drag(app, dy: -((lo + hi) / 2 - d2))
+                } else {
+                    diag480Drag(app, dy: -delta)
+                }
+                waitUntilSettled(ref)
+            }
+            print("[DIAG480] \(tag) 没能定位到目标区间")
         }
-        try diag480Probe(app, tag: "E2-exposed")
-
-        // E3：把一行完整可见的字拖到遮挡物下沿，压住上半截。
-        let texts3 = diag480Dump(app, tag: "E3-plan")
-        if let target = texts3.first(where: { $0.1.minY > occBottom + 20 && $0.1.height > 30 }) {
-            let dy = occBottom - target.1.midY
-            print("[DIAG480] E3 target=\(target.0) \(target.1) occBottom=\(occBottom) drag dy=\(dy)")
-            diag480Drag(app, dy: dy)
-        }
-        try diag480Probe(app, tag: "E3-half-covered")
+        // E4：没有任何元素跨屏幕上沿（组标题全在上方屏外、「周六」整个在屏内）。
+        scrollTo(309, 322, tag: "E4")
+        try diag480Probe(app, tag: "E4-no-straddler")
+        // E5：「周六」字样跨屏幕上沿，只露 2–5pt。
+        scrollTo(383, 386.5, tag: "E5")
+        try diag480Probe(app, tag: "E5-sliver")
+        // E6：「周六」字样跨屏幕上沿，露出约一半。
+        scrollTo(345, 370, tag: "E6")
+        try diag480Probe(app, tag: "E6-half")
+        // E7：E5 原样再来一遍（看是否必现）。
+        scrollTo(383, 386.5, tag: "E7")
+        try diag480Probe(app, tag: "E7-sliver-again")
     }
     // DIAG480 END
 
