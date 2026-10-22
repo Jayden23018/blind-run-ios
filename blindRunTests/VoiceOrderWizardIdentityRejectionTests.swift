@@ -44,6 +44,43 @@ final class VoiceOrderWizardIdentityRejectionTests: XCTestCase {
         XCTAssertEqual(wizard.lastSpokenPrompt, gateMessage)
         XCTAssertEqual(wizard.fallbackMessage, gateMessage)
         XCTAssertNil(wizard.createdOrder)
+        XCTAssertEqual(stub.paths, [VoiceOrderEndpoint.parseOrder], "这句话必须真的交给了后端，否则测的不是 403 分支")
+    }
+
+    /// 被拒之后从后端重新拉实名状态：下单页的门槛要从「紧急联系人」变成「实名」，
+    /// 「不用填，直接下单」按钮（`firstMissingGate == nil` 才出现）才不会留着一条必被 403 的路。
+    func testIdentityRejectionRefreshesTheProfileSoTheBookingGateCatchesUp() async {
+        let profileClient = BlindProfileAPIClientStub(verifyStatus: BlindVerifyStatus.notVerified.rawValue)
+        let appState = AppState(apiClient: profileClient, tokenStore: InMemoryTokenStore())
+        appState.updateBlindProfile(BlindProfileResponse(name: "张三", verifyStatus: BlindVerifyStatus.verified.rawValue))
+        let bookingViewModel = BlindBookingViewModel()
+        bookingViewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+        XCTAssertEqual(bookingViewModel.firstMissingGate, .emergencyContacts, "前提：本地以为已实名")
+        let stub = VoiceOrderAPIClientStub()
+        stub.error = Self.identityRejection
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上七点从小区门口出发")
+        await waitUntil { appState.blindIdentityStatus != .verified }
+
+        XCTAssertEqual(profileClient.profileFetchCount, 1)
+        XCTAssertEqual(appState.blindIdentityStatus, .notVerified)
+        XCTAssertEqual(bookingViewModel.firstMissingGate, .identityVerification)
+    }
+
+    /// 拉资料期间换了账号（`sessionGeneration` 变了）：旧会话的资料不许写进新会话。
+    func testProfileRefreshIsDroppedWhenTheSessionChangedMeanwhile() async {
+        let profileClient = BlindProfileAPIClientStub(verifyStatus: BlindVerifyStatus.notVerified.rawValue)
+        let appState = AppState(apiClient: profileClient, tokenStore: InMemoryTokenStore())
+        appState.updateBlindProfile(BlindProfileResponse(name: "张三", verifyStatus: BlindVerifyStatus.verified.rawValue))
+        profileClient.onProfileFetch = { appState.accessToken = "another-account-token" }
+        let bookingViewModel = BlindBookingViewModel()
+        bookingViewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+
+        await bookingViewModel.refreshIdentityAfterServerRejection()
+
+        XCTAssertEqual(profileClient.profileFetchCount, 1, "前提：请求确实发出、并在途中换了会话")
+        XCTAssertNotEqual(appState.blindIdentityStatus, .notVerified, "旧会话拉到的资料写进了新会话")
     }
 
     /// 只认这一个错误码：别的 403 / 5xx 仍按原来的「偶发失败」处理，不许被一起带走。
@@ -82,5 +119,49 @@ final class VoiceOrderWizardIdentityRejectionTests: XCTestCase {
         )
         wizard.startForTesting(at: step, didCaptureStartTime: didCaptureStartTime)
         return wizard
+    }
+
+    /// 刷新跑在向导另起的 `Task` 里，`submitTranscript` 返回时它可能还没落地。最多等 2 秒。
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<200 where !condition() {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+}
+
+/// 只接 `GET /api/blind/profile`。`onProfileFetch` 在返回前于主线程执行，用来模拟「请求途中换了账号」。
+private final class BlindProfileAPIClientStub: APIClientProtocol, @unchecked Sendable {
+    private let verifyStatus: String
+    private(set) var profileFetchCount = 0
+    var onProfileFetch: (@MainActor () -> Void)?
+
+    init(verifyStatus: String) {
+        self.verifyStatus = verifyStatus
+    }
+
+    func request<T: Decodable>(
+        method: HTTPMethod,
+        path: String,
+        query: [String: String]?,
+        body: (any Encodable & Sendable)?,
+        requiresAuth: Bool
+    ) async throws -> T {
+        guard method == .get, path == "/api/blind/profile" else { throw APIError.invalidURL }
+        profileFetchCount += 1
+        if let onProfileFetch { await onProfileFetch() }
+        guard let response = BlindProfileResponse(name: "张三", verifyStatus: verifyStatus) as? T else {
+            throw APIError.invalidURL
+        }
+        return response
+    }
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        fields: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T {
+        throw APIError.invalidURL
     }
 }
