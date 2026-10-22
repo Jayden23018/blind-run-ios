@@ -188,7 +188,8 @@ final class PreciseLocationGateTests: XCTestCase {
     func testOnlySentStatesCarryTheSubmittedLocation() {
         let carrying: [EmergencySOSState] = [
             .countingDown(secondsRemaining: 3), .acknowledged(.pending),
-            .acknowledged(.contactNotified), .contactSmsDelivered, .contactNotifyFailed
+            .acknowledged(.contactNotified), .mergedIntoOpenEvent(.csHandling), .contactSmsDelivered,
+            .contactNotifyFailed
         ]
         let notCarrying: [EmergencySOSState] = [
             .idle, .locating, .submitting, .unsentNoLocation(.preciseLocationOff), .failed("网络异常"),

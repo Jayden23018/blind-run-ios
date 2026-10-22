@@ -1150,6 +1150,29 @@ final class EmergencySOSTests: XCTestCase {
 
         XCTAssertEqual(outcome.state, .acknowledged(.csHandling))
         XCTAssertFalse(outcome.message.contains("这次没有新建求助"))
+        XCTAssertEqual(coordinator.mergedRetriggerCount, 0, "新求助被当成了合并")
+    }
+
+    /// 屏 3b 靠 `eventID` 变化拉起来，合并时 id 不变 —— 每一次合并都要给出一个「再拉一次」的信号。
+    /// 第一次按下（新事件）不算，否则第一次也会被拉两遍。
+    @MainActor
+    func testEachMergedRetriggerAsksForTheSentScreenAgain() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+
+        _ = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
+        XCTAssertEqual(coordinator.mergedRetriggerCount, 1)
+
+        _ = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { Self.coordinate(latitude: 39.917, longitude: 116.406) }
+        )
+        XCTAssertEqual(coordinator.mergedRetriggerCount, 2)
+        XCTAssertEqual(
+            EmergencySafetyCopy.screenTitle(for: coordinator.state, hasActiveEvent: true),
+            EmergencySafetyCopy.sentTitle,
+            "原来那一条确实已发出，标题照旧"
+        )
     }
 
     @MainActor

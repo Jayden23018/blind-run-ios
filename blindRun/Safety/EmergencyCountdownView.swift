@@ -30,6 +30,10 @@ struct EmergencyRecoveryPresentation: ViewModifier {
             guard eventID != nil else { return }
             isPresented = true
         }
+        // 再按一次被后端并进同一条事件（#843）：id 不变，上面那条不会触发，这里补上。
+        .onChange(of: coordinator.mergedRetriggerCount) { _ in
+            isPresented = true
+        }
     }
 }
 

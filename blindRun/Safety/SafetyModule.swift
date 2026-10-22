@@ -151,7 +151,8 @@ enum EmergencySafetyCopy {
             return sendingTitle
         // 后端受理了。`contactNotifyFailed` 也在这里：失败的是**通知联系人**，
         // 求助本身已经发出去了（正文会把「对方没收到短信」说清楚）。
-        case .acknowledged, .contactSmsDelivered, .contactNotifyFailed:
+        // 合并：说的是原来那一条，它确实已发出。
+        case .acknowledged, .mergedIntoOpenEvent, .contactSmsDelivered, .contactNotifyFailed:
             return sentTitle
         case .cancelledByOwner:
             return cancelledTitle
@@ -256,6 +257,13 @@ enum EmergencySafetyCopy {
             return "求助已记录，系统正在处理。\(emergencyCallReminder)"
         }
     }
+
+    /// 再次触发被后端并进未结案的那条求助（`EmergencySOSState.mergedIntoOpenEvent`）。
+    /// 项目负责人 2026-10-22 批准的原句（blind-run-backend#843）。
+    /// 🔴 **不提家属短信**：原事件还在 `PENDING` 时，后端这次才第一次去通知家属，
+    /// 说「不会再收到」就是假话；说「已通知」又违反 `AGENTS.md` §6。客服那半句用进行时。
+    static let mergedIntoOpenEvent =
+        "这次没有新建求助：你上一次的求助还在处理中，已更新你的位置，系统正在再次提醒客服跟进。\(emergencyCallReminder)"
 
     /// Replaces the backend's `EMERGENCY_CONTACT_NOTIFIED` template text
     /// ("已通知紧急联系人{contactName}" / "已通知你的联系人{contactName}，请保持冷静",
