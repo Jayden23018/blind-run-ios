@@ -292,6 +292,17 @@ xcrun xcresulttool get test-results summary --path "$BUNDLE" --format json 2>/de
   | sed 's/^/[device-test] /'
 VERDICT_STATUS="${PIPESTATUS[1]}"
 
+# ---------- 3.1 每个 -only-testing 目标都要命中用例（#478）----------
+#
+# 上面只在**总数**为 0 时判零执行。xcodebuild 会静默忽略写错的 `-only-testing` 目标，
+# 只要另一个目标命中了用例，写错的那个一条没跑也照样报通过。2026-10-19 #473 实测：
+# 把文件名当类名传进去，结果 `passed=33 failed=0`，新写的用例一次都没跑。
+# 没传 -only-testing 时这一步直接退出 0，全量跑不受影响。自测：scripts/validate-only-testing-coverage.mjs
+xcrun xcresulttool get test-results tests --path "$BUNDLE" --format json 2>/dev/null \
+  | node "$(dirname "$0")/only-testing-coverage.mjs" "$@" 2>&1 \
+  | sed 's/^/[device-test] /'
+COVERAGE_STATUS="${PIPESTATUS[1]}"
+
 say "日志：$LOG"
 say "result bundle：$BUNDLE"
 
@@ -316,7 +327,7 @@ else
 fi
 
 if [ "$VERDICT_STATUS" -eq 1 ]; then
-  # 有用例失败，失败清单已由 verdict 打印过了。
+  # 有用例失败，失败清单已由 verdict 打印过了（零命中的目标也已由 3.1 点名）。
   exit 1
 fi
 
@@ -327,6 +338,13 @@ if [ "$VERDICT_STATUS" -ne 0 ]; then
   die "测试结果不可信（verdict 退出码 ${VERDICT_STATUS}，xcodebuild 退出码 ${XCB_STATUS}）。
      刻意不退回 grep 日志兜底：那条路会少数用例、也会漏掉 failed 行，
      等于把「没通过」报成「通过」—— 本脚本存在的全部意义就是不许这样。"
+fi
+
+# 放在「结果不可信」之后：构建失败 / 没写出 bundle / 零执行时，上面那条的诊断（带日志尾部）才对，
+# 不能先报「改对目标名」把人支走。与 verdict 同一口径：0 以外一律不是通过（例如 127 = 没装 node）。
+if [ "$COVERAGE_STATUS" -ne 0 ]; then
+  die "有 -only-testing 目标没命中任何用例（见上面 ✗ 那几行），这次结果不能算通过。
+     xcodebuild 不会为写错的目标报错，只会跳过它 —— 改对目标名后重跑。"
 fi
 
 if [ "$XCB_STATUS" -ne 0 ]; then

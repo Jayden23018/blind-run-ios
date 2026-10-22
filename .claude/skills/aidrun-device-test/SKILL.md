@@ -73,6 +73,10 @@ defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier | grep -E 'team
 ## 四、读结果
 
 - 只认脚本最后那行 `passed=N failed=M`（来自 result bundle）。**`passed=0` 一律当失败**。
+- **部分零执行同样硬失败**：传了多个 `-only-testing` 时，xcodebuild 会静默跳过写错的目标、照跑其余目标，
+  总数不为 0 也不代表每个目标都跑过。脚本第 3.1 节按目标逐个数命中条数，任何一个为 0 就失败并打出 `✗ <目标>  0 条`。
+  最常见的写错是把**文件名**当类名（一个文件里可能有好几个类，名字都和文件名不同）：
+  `grep -rn 'class .*: XCTestCase' blindRunTests blindRunUITests` 查真名。判定逻辑与自测：`scripts/only-testing-coverage.mjs` / `scripts/validate-only-testing-coverage.mjs`。
 - 「套件绿」不等于「新用例跑过」：脚本会打印 `日志：<路径>`，在那份 xcodebuild 日志里逐个 grep 新用例名，确认是 `passed`。
 - `failed=1 total=1` 且那一条叫 `blindRun` / `blindRunUITests-Runner` ⇒ 是安装 / 启动失败，**一条用例都没跑**，不能说「测试失败」。
 
