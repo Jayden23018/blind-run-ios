@@ -106,7 +106,7 @@ scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests
 scripts/device-test.sh -only-testing:blindRunUITests/AccessibilityAuditTests/testBlindRunnerHomePassesAccessibilityAudit
 ```
 
-审计开了哪几类，**以 `AccessibilityAuditTests.swift` 里 `audit(_:)` 的 `for:` 列表为准**，不在这里抄
+审计开了哪几类，**以 `AccessibilityAuditTests+Audit.swift` 里 `audit(_:)` 的两个 `for:` 列表为准**（#480 起 `.contrast` 单独一遍，两遍合起来是全集），不在这里抄
 （这里曾写「覆盖 5 类」，而代码 2026-09-02 起就是 7 类 —— 抄的那份过期了没人知道）。
 审计失败**不需要断言**，它自己会让用例红；失败日志里 `[AUDIT]` 开头那行点名了是哪个元素。
 
