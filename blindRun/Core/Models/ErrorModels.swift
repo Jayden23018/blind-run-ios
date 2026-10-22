@@ -51,8 +51,6 @@ enum ErrorCode: String, Codable, Sendable {
     case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
     case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
-    // 删除账户时还有未结案的紧急求助（后端 #844，含倒计时中、已发出但客服未结案）。
-    // 本地文案而不是后端 message：后端那句说「注销」，而两端设置页的按钮叫「删除账户」。
     case activeEmergencyAccountDeletionBlocked = "ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED"
     case keepWaitingLimitReached = "KEEP_WAITING_LIMIT_REACHED"
     case orderDispatchMismatch = "ORDER_DISPATCH_MISMATCH"
@@ -191,14 +189,6 @@ enum ErrorCode: String, Codable, Sendable {
         }
     }
 
-    /// 删除账户被后端拦下（409），条件变了才能再删：立刻重试只会再被拒一次。
-    var blocksAccountDeletion: Bool {
-        switch self {
-        case .activeOrderAccountDeletionBlocked, .activeEmergencyAccountDeletionBlocked: return true
-        default: return false
-        }
-    }
-
     var localizedMessage: String {
         switch self {
         case .invalidVerificationCode:
@@ -263,11 +253,8 @@ enum ErrorCode: String, Codable, Sendable {
             return "提交内容不符合要求，请检查后重试。"
         case .unauthorized:
             return "登录已过期，请重新登录。"
-        case .activeOrderAccountDeletionBlocked:
-            return "当前存在进行中的服务，请处理完成后再删除账户。"
-        case .activeEmergencyAccountDeletionBlocked:
-            // 不写「倒计时内可以自己撤销」：陪跑员没有撤销权（AGENTS.md §6），两端共用这一句。
-            return "当前有未结束的紧急求助，请等待客服处理完毕后再删除账户。"
+        case .activeOrderAccountDeletionBlocked, .activeEmergencyAccountDeletionBlocked:
+            return AccountDeletionBlockCopy.message(for: self)
         case .keepWaitingLimitReached:
             return "延长次数已达上限，无法继续等待。"
         case .orderDispatchMismatch:

@@ -1650,48 +1650,6 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
     }
 
-    /// 后端 409 拦下删除（有未结束的紧急求助，#847）：弹「暂时不能删除账户」，只有「知道了」，
-    /// 不给「重试」—— 立刻重试只会再被拒一次。文案内容的主在单测 `AccountDeletionBlockedTests`，
-    /// 这里守的是视图有没有按 `offersRetry` 换按钮。
-    @MainActor
-    func testAuthLifecycleBlindDeletionBlockedByActiveEmergencyOffersNoRetry() throws {
-        let app = launchApp(
-            apiEnvironment: "mock",
-            accessToken: "blind-delete-token",
-            activeRole: "blind_runner",
-            preseedBlindProfile: true,
-            emptyMockOrders: true,
-            mockDeleteEmergencyBlocked: true
-        )
-        openSettings(app)
-        let deleteButton = app.buttons["删除账户"].firstMatch
-        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
-        // 先滑到底，理由同上一条（触点会落在常驻求助条上）。
-        app.swipeUp()
-        app.swipeUp()
-        deleteButton.tap()
-
-        XCTAssertTrue(app.alerts["确认删除账户"].firstMatch.waitForExistence(timeout: 5))
-        app.buttons["继续删除账户"].tap()
-        XCTAssertTrue(app.alerts["最终确认删除账户"].firstMatch.waitForExistence(timeout: 8))
-        app.buttons["永久删除账户"].firstMatch.tap()
-
-        let blocked = app.alerts["暂时不能删除账户"].firstMatch
-        XCTAssertTrue(blocked.waitForExistence(timeout: 8), "被 409 拦下必须弹出拦截弹窗")
-        XCTAssertTrue(blocked.buttons["知道了"].exists)
-        XCTAssertFalse(blocked.buttons["重试"].exists, "立刻重试只会再被拒一次")
-        XCTAssertFalse(app.alerts["删除账户失败"].exists)
-
-        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        shot.name = "delete-account-blocked-by-active-emergency"
-        shot.lifetime = .keepAlways
-        add(shot)
-
-        blocked.buttons["知道了"].tap()
-        XCTAssertTrue(blocked.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["退出登录"].exists, "删除没成功就留在设置页、保持登录")
-    }
-
     @MainActor
     func testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock() throws {
         let app = launchApp(
@@ -1928,7 +1886,7 @@ final class blindRunUITests: XCTestCase {
         ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUN_CLOUD_SMOKE"] == "1" || isPhysicalDevice
     }
 
-    private func launchApp(
+    func launchApp(
         apiEnvironment: String,
         accessToken: String? = nil,
         activeRole: String? = "blind_runner",
@@ -1955,8 +1913,6 @@ final class blindRunUITests: XCTestCase {
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
         mockLogoutFailure: Bool = false,
-        /// 删除账户被 409 `ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED` 拦下（`AIDRUN_MOCK_DELETE_EMERGENCY_BLOCKED`）。
-        mockDeleteEmergencyBlocked: Bool = false,
         /// 退出登录 / 删除账户请求先等这么多秒（`AIDRUN_UI_TEST_SLOW_SESSION_END_SECONDS`），让进度遮罩停得住。
         slowSessionEndSeconds: Int? = nil,
         realtimePriorityTest: Bool = false,
@@ -2051,9 +2007,6 @@ final class blindRunUITests: XCTestCase {
         if mockLogoutFailure {
             app.launchEnvironment["AIDRUN_MOCK_LOGOUT_FAILURE"] = "1"
         }
-        if mockDeleteEmergencyBlocked {
-            app.launchEnvironment["AIDRUN_MOCK_DELETE_EMERGENCY_BLOCKED"] = "1"
-        }
         if let slowSessionEndSeconds {
             app.launchEnvironment["AIDRUN_UI_TEST_SLOW_SESSION_END_SECONDS"] = String(slowSessionEndSeconds)
         }
@@ -2080,7 +2033,7 @@ final class blindRunUITests: XCTestCase {
     /// 每处先 `.exists` 再 `waitForExistence`：后者即使元素早已在树里，首次判定也要约 1 秒
     /// （真机 result bundle 时间线实测 1.0–1.1s）。本函数和 `assertLogoutRequiresConfirmation`
     /// 被多条用例共用，每次调用都付这笔底价。元素真不在时照样走满超时，失败判据不变。
-    private func openSettings(_ app: XCUIApplication) {
+    func openSettings(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.exists || tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
         let profileTab = tabBar.buttons["我的"]

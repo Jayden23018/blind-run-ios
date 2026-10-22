@@ -593,17 +593,6 @@ private struct EscortTrackConsentOverlay: ViewModifier {
 private struct SessionLifecycleStatusModifier: ViewModifier {
     @EnvironmentObject private var appState: AppState
 
-    private var deletionFailureAlert: AccountDeletionFailureAlert? {
-        appState.accountDeletionState.accountDeletionFailureAlert
-    }
-
-    private var deletionFailure: Binding<Bool> {
-        Binding(
-            get: { deletionFailureAlert != nil },
-            set: { if !$0 { appState.dismissAccountDeletionFailure() } }
-        )
-    }
-
     private var isBusy: Bool {
         appState.logoutState == .inProgress || appState.accountDeletionState == .inProgress
     }
@@ -627,21 +616,7 @@ private struct SessionLifecycleStatusModifier: ViewModifier {
                     }
                 }
             }
-            .alert(
-                deletionFailureAlert?.title ?? AccountDeletionFailureAlert.failedTitle,
-                isPresented: deletionFailure
-            ) {
-                if deletionFailureAlert?.offersRetry == false {
-                    Button("知道了", role: .cancel) { appState.dismissAccountDeletionFailure() }
-                } else {
-                    Button("重试") { Task { await appState.deleteCurrentAccount() } }
-                    Button("取消", role: .cancel) { appState.dismissAccountDeletionFailure() }
-                }
-            } message: {
-                if let message = deletionFailureAlert?.message {
-                    Text(message)
-                }
-            }
+            .modifier(AccountDeletionFailureAlertModifier())
     }
 }
 
