@@ -236,6 +236,13 @@ extension MockAPIClient {
     }
 
     func handleDeleteAccount() throws -> DeleteAccountResponse {
+        // 有未结案求助时后端 409 拦下（#844）。Mock 不模拟求助生命周期，只给 UI 用例一个开关。
+        if ProcessInfo.processInfo.environment["AIDRUN_MOCK_DELETE_EMERGENCY_BLOCKED"] == "1" {
+            throw APIError.serverError(ErrorResponse(
+                code: "ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED",
+                message: "您有未结束的紧急求助，请等待客服处理完毕后再注销"
+            ))
+        }
         let blocking: Set<RunOrderStatus> = [
             .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
         ]
