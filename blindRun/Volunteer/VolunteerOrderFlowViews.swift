@@ -639,7 +639,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         // 陪跑员听到的是半句盲人端文案加一句取消说明。
         let announcesCancellation = cancelAnnouncement.announcesCancellation(entering: updated.status)
         if speakChanges, previousStatus != updated.status, !announcesCancellation {
-            speechService?.speakStatusChange(updated.status, text: updated.status.volunteerAnnouncement)
+            speechService?.speakVolunteerStatusChange(updated.status)
         }
         if let target = transitionState.targetStatus,
            updated.status.satisfiesVolunteerTransition(target: target) {
@@ -1738,8 +1738,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
         // 跑者取消：下面终态分支会念「{名}取消了这次陪跑。不算你的取消…」整句。这里再念通用句，
         // 两句同档，后一句切断前一句，陪跑员听到半句加一整句（#333）。
         let cancelledByRunner = updated.status == .cancelled && !isEndingWait && !didEndWaiting
+        // 系统转走的 `REMATCHING` 也走这里，低一档念，不切断闸门到点横幅（#477）。
         if speakChanges, previousStatus != updated.status, !announcesCancellation, !cancelledByRunner {
-            speechService?.speakStatusChange(updated.status, text: updated.status.volunteerAnnouncement)
+            speechService?.speakVolunteerStatusChange(updated.status)
         }
         if let target = transitionState.targetStatus,
            updated.status.satisfiesVolunteerTransition(target: target) {
@@ -1749,14 +1750,14 @@ final class VolunteerInServiceViewModel: ObservableObject {
             confirmationTask = nil
             errorMessage = nil
         }
-        if announcesCancellation {
+        if announcesCancellation || updated.status == .rematching {
             releaseOrder(updated.orderId)
             didCancelOrder = true
             // 不是自己按的取消（跨天闸门到点、失联事件没送到只来了状态推送……）：没有取消面板的回调来关页，
             // 此前页面就停在「正在获取订单状态...」转圈（#456）。
             if !cancelAnnouncement.requested { didLoseOrder = true }
             order = nil
-            if previousStatus != updated.status {
+            if announcesCancellation, previousStatus != updated.status {
                 announceCancellation(entering: updated.status)
             }
             return

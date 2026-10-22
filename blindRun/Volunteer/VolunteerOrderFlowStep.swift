@@ -352,8 +352,8 @@ extension RunOrderStatus {
         case .completed: return "陪跑完成，谢谢你。"
         // 中性：跑者取消、结束等待、系统取消都会落这一态。跑者取消时订单页另念带「不算你的取消」的整句。
         case .cancelled: return "这一单已取消。"
-        // `REMATCHING` 只可能来自陪跑员这一侧，与首页、订单页取消那一句相同。
-        case .rematching: return VolunteerCancelAnnouncement.cancelledByVolunteer
+        // 走到通用句的 `REMATCHING` 都是系统转走的（自己取消由取消那一句说，#477），见 `reassignedBySystem`。
+        case .rematching: return VolunteerCancelAnnouncement.reassignedBySystem
         case .noVolunteer: return "这一单已结束。"
         case .unknown: return "订单状态有更新，请刷新页面或稍后重试。"
         }
@@ -381,7 +381,7 @@ struct VolunteerCancelAnnouncement: Equatable {
 
     /// 取消那一句。**只说陪跑员自己那一半**：「系统将为跑者重新匹配」在后端重匹次数到上限时不成立
     /// （那时订单直接转 `CANCELLED`，见 `VolunteerHomeViewModel.releaseScheduledOrder` 的注释），
-    /// 而「这一单不在你名下了」两种结局下都为真。首页那条状态订阅念 `REMATCHING` 时也用这一句。
+    /// 而「这一单不在你名下了」两种结局下都为真。只在这台手机上按了取消时念（#477）。
     static let cancelledByVolunteer = "订单已取消，这一单不在你名下了。"
 
     /// 取消响应里的 `countedAsLateCancel`。`nil` = 这次取消的响应还没到（或根本没发起过取消）。
@@ -400,12 +400,12 @@ struct VolunteerCancelAnnouncement: Equatable {
 
     /// 这一次状态推进要不要念取消那一句。
     ///
-    /// `REMATCHING` 只可能来自陪跑员这一侧（自己取消，或跨天单闸门到点），都是「这一单不在你名下了」。
+    /// `REMATCHING` **只在自己发过取消请求时**才算；否则是系统转走的，由通用状态句低一档说（#477）。
     /// `CANCELLED` **只在自己的取消已被后端确认（响应到了）时**才算 —— 请求还在路上、或结果未知时
     /// 到达的 `CANCELLED` 更可能是跑者取消的，那一屏要说「不算你的取消」，不能关页说「你取消了」。
     /// 代价：重匹到上限、且推送先于响应到达的那一次，会先停在「跑者已取消」那一屏。
     func announcesCancellation(entering status: RunOrderStatus) -> Bool {
-        status == .rematching || (status == .cancelled && countedAsLateCancel != nil)
+        (status == .rematching && requested) || (status == .cancelled && countedAsLateCancel != nil)
     }
 
     /// 念取消那一句。

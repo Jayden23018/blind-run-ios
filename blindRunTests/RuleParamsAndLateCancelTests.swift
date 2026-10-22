@@ -134,7 +134,7 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
     func testCancelledCountsAsOwnOnlyAfterTheCancelResponseArrived() {
         var announcement = VolunteerCancelAnnouncement()
         XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "没发起过取消")
-        XCTAssertTrue(announcement.announcesCancellation(entering: .rematching))
+        XCTAssertFalse(announcement.announcesCancellation(entering: .rematching), "系统转走被当成自己取消（#477）")
         announcement.begin()
         XCTAssertFalse(announcement.announcesCancellation(entering: .cancelled), "请求还在路上就认定是自己取消的")
         _ = announcement.recordResponse(CancelOrderResponse(success: true, countedAsLateCancel: false))

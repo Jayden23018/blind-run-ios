@@ -217,10 +217,10 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     }
 
     @discardableResult
-    func speakStatusChange(_ status: RunOrderStatus, text: String) -> Bool {
+    func speakStatusChange(_ status: RunOrderStatus, text: String, priority: AnnouncementPriority = .counterpartAction) -> Bool {
         guard status != lastSpokenStatus else { return false }
         lastSpokenStatus = status
-        speak(text: text)
+        speak(text: text, priority: priority)
         status.haptic.map(HapticFeedback.play)
         return true
     }
