@@ -2883,11 +2883,18 @@ final class AccessibilityAuditTests: XCTestCase {
                 .contrast // guard:allow a11y-audit-types —— 对比度单独一遍（#480），其余六项在下一遍，两遍合起来是全集
             ]
         ) { issue in
-            if let element = issue.element, !element.frame.isEmpty,
-               !screen.insetBy(dx: -0.5, dy: -0.5).contains(element.frame) {
-                print("[AUDIT-partial] \(element.label) frame=\(element.frame) 没有整个落在屏内（\(screen)），整个露出后再审")
-                cutByScreenEdge.append((element, element.label))
+            // 先走原有的遮挡 / 白名单放行，放不掉的才看是否被屏幕边缘切掉。
+            if self.isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame) {
                 return true
+            }
+            if let element = issue.element {
+                let frame = element.frame
+                if !frame.isEmpty, !Self.isShownAsFullyAsPossible(frame, on: screen) {
+                    let label = element.label
+                    print("[AUDIT-partial] \(label) frame=\(frame) 没有整个落在屏内（\(screen)），整个露出后再审")
+                    cutByScreenEdge.append((element, label))
+                    return true
+                }
             }
             return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
         }
@@ -2908,41 +2915,79 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     /// 审计时被屏幕边缘切掉一截的元素：滚到整个露出，单审一次 `.contrast`，只认它自己的那一条（#480）。
-    /// 其他元素这一遍一律不判：它们在 `audit` 第一遍已经按当时的位置判过了。
+    /// 其他元素这一遍不判：第一遍时在屏内的已经判过；第一遍时整个在屏外的，这次 `audit` 不保证判到
+    ///（要覆盖它们，就把页面滚到那里再调一次 `audit`）。
     @available(iOS 17.0, *)
     private func recheckContrastFullyOnScreen(
         _ element: XCUIElement, label: String, in app: XCUIApplication,
         occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
     ) throws {
-        let screen = app.frame.insetBy(dx: -0.5, dy: -0.5)
+        let screen = app.frame
         // 回调给的元素绑定的是那一个无障碍元素；`List` 复用行之后它会消失，这时按文案找回来。
         var element = element
         if !element.exists {
             print("[AUDIT-partial] 「\(label)」原元素已不在（行被复用），按文案找同名元素复审")
             element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
         }
-        for _ in 0..<4 where element.exists && !screen.contains(element.frame) {
-            if element.frame.midY < screen.midY { app.swipeDown() } else { app.swipeUp() }
+        var swipes = 0
+        while element.exists, swipes < Self.maxSwipesToRevealCutElement {
+            let frame = element.frame
+            if Self.isShownAsFullyAsPossible(frame, on: screen) { break }
+            if frame.midY < screen.midY { app.swipeDown() } else { app.swipeUp() }
+            swipes += 1
         }
-        guard element.exists, screen.contains(element.frame) else {
-            XCTFail("「\(label)」审计时被屏幕边缘切掉一截，滚了 4 次也没能整个露出来 —— 它的对比度没有被判定过（#480）")
+        guard element.exists, Self.isShownAsFullyAsPossible(element.frame, on: screen) else {
+            XCTFail("""
+            「\(label)」审计时被屏幕边缘切掉一截，滚了 \(Self.maxSwipesToRevealCutElement) 次也没能整个露出来 \
+            —— 它的对比度没有被判定过（#480）
+            """)
             return
         }
         waitUntilSettled(element)
+        let target = element
         try app.performAccessibilityAudit(
             for: [
                 .contrast // guard:allow a11y-audit-types —— 只复审一个元素的对比度（#480），其余六项 audit 里已审
             ]
         ) { issue in
-            guard let other = issue.element, other.identifier == element.identifier,
-                  other.label == element.label, other.frame == element.frame else { return true }
+            guard let other = issue.element, other.identifier == target.identifier,
+                  other.label == target.label, other.frame == target.frame else { return true }
             return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
         }
     }
 
-    /// `audit` 的放行判据：返回 `true` 表示这一条不算失败。
+    /// 复审时最多滑几次去把被切掉的元素整个露出来（#480）。
+    private static let maxSwipesToRevealCutElement = 4
+
+    /// 元素在屏内露得是否已经「尽可能完整」：每个方向上露出的长度 ≥ min(元素长度, 屏幕长度)。
+    /// 比屏幕还高 / 还宽的元素铺满那个方向就算，否则它永远判不了（#480）。
+    private static func isShownAsFullyAsPossible(_ frame: CGRect, on screen: CGRect) -> Bool {
+        let visible = frame.intersection(screen)
+        guard !visible.isNull else { return false }
+        return visible.width >= min(frame.width, screen.width) - 0.5
+            && visible.height >= min(frame.height, screen.height) - 0.5
+    }
+
+    /// `audit` 的放行判据：返回 `true` 表示这一条不算失败；不放行时打出 `[AUDIT]` 那一行。
     @available(iOS 17.0, *)
     private func isIgnoredAuditIssue(
+        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
+    ) -> Bool {
+        if isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame) {
+            return true
+        }
+        // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
+        // 对比度失败，加打印、重跑、再删，白花了两轮真机。留着，失败日志里直接就有。
+        print("""
+        [AUDIT] \(issue.auditType) id=\(issue.element?.identifier ?? "") label=\(issue.element?.label ?? "") \
+        frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)
+        """)
+        return false
+    }
+
+    /// 遮挡与白名单：几何上看不见的、或白名单里的元素，返回 `true`。
+    @available(iOS 17.0, *)
+    private func isAllowedAuditIssue(
         _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
     ) -> Bool {
         if issue.auditType == .contrast, let top = occludingBarTop,
@@ -2961,16 +3006,7 @@ final class AccessibilityAuditTests: XCTestCase {
         // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。
         let identifier = issue.element?.identifier ?? ""
         let label = issue.element?.label ?? ""
-        if Self.auditIgnoredIdentifiers.contains(identifier) || Self.auditIgnoredLabels.contains(label) {
-            return true
-        }
-        // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
-        // 对比度失败，加打印、重跑、再删，白花了两轮真机。留着，失败日志里直接就有。
-        print("""
-        [AUDIT] \(issue.auditType) id=\(identifier) label=\(label) \
-        frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)
-        """)
-        return false
+        return Self.auditIgnoredIdentifiers.contains(identifier) || Self.auditIgnoredLabels.contains(label)
     }
 
     /// 审计白名单。**每加一条都要写清为什么，否则白名单会慢慢把审计架空。**
