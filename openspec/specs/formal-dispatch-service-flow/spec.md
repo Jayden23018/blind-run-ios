@@ -103,7 +103,7 @@ The iOS volunteer client SHALL handle backend `NEW_ORDER` WebSocket messages as 
 
 #### Scenario: New order prompt appears
 - **WHEN** `/ws/volunteer` receives `NEW_ORDER`
-- **THEN** the app SHALL show a prompt using `dispatchTimeoutSeconds` with order time, start address, distance, priority, optional pace, optional guide dog flag, special notes, and optional coordinates
+- **THEN** the app SHALL show a prompt whose reply deadline comes from `expiresAt` (falling back to the send time plus `dispatchTimeoutSeconds` only when `expiresAt` is absent) with order time, start address, distance, priority, optional pace, optional guide dog flag, special notes, and optional coordinates
 - **AND** the prompt SHALL include a map preview that shows both the volunteer current location and order start location when current location is available
 - **AND** the prompt SHALL show only the order start location when current location is unavailable
 
@@ -282,6 +282,56 @@ The iOS volunteer experience SHALL treat a volunteer as dispatch-ready only when
 - **AND** an optional `verificationStatus` or `adminReviewStatus` compatibility field is absent, pending, or rejected
 - **THEN** the client SHALL treat the main registration gate as complete
 - **AND** all remaining availability, WebSocket, location, and order-state guards SHALL still apply
+
+### Requirement: Invite deadlines follow the server and read in minutes
+The volunteer app SHALL take each invite's reply deadline from `NEW_ORDER.expiresAt` and SHALL fall back to the send time plus `dispatchTimeoutSeconds` only when `expiresAt` is absent. The reply countdown SHALL read in minutes (rounded up) when at least one minute remains and in seconds during the last minute. The countdown SHALL turn urgent when the displayed minutes are fewer than 15.
+
+#### Scenario: Long invite window
+- **WHEN** an invite has 3599 seconds left
+- **THEN** the countdown SHALL read "还剩 60 分钟回复"
+
+#### Scenario: Urgency threshold
+- **WHEN** an invite has 840 seconds left (displayed as 14 minutes)
+- **THEN** the countdown SHALL be urgent
+- **AND** with 841 seconds left (displayed as 15 minutes) it SHALL NOT be urgent
+
+### Requirement: Invites are identified by inviteId
+The volunteer app SHALL treat `inviteId` as the identity of an invite. A new invite for an order whose previous invite was invalidated SHALL replace the invalidated card. A repeated delivery of the same invite SHALL NOT create a second card. When either side lacks `inviteId`, the app SHALL fall back to `orderId`.
+
+#### Scenario: Re-invited after a withdrawal
+- **WHEN** an invite for order 10 was withdrawn and a new `NEW_ORDER` for order 10 arrives with a different `inviteId`
+- **THEN** the new invite SHALL replace the invalidated card and await a reply
+
+### Requirement: Withdrawn and rejected invites are invalidated in place
+When an invite is withdrawn (`INVITE_WITHDRAWN`), missing from the pending-invites snapshot, or rejected by `POST /respond` with 409 `ORDER_ALREADY_ACCEPTED` or `ORDER_DISPATCH_MISMATCH`, the app SHALL NOT keep an actionable accept button for it.
+
+#### Scenario: The invite on screen is withdrawn
+- **WHEN** the invite card on screen receives `INVITE_WITHDRAWN` with reason `TAKEN`
+- **THEN** the card SHALL turn into "这个邀请已失效" with the line "已有其他陪跑员接下"
+- **AND** the app SHALL speak that title and line
+
+#### Scenario: An invite off screen is withdrawn
+- **WHEN** an invite that is not on screen is withdrawn
+- **THEN** it SHALL be removed without showing a result card
+
+#### Scenario: A late withdrawal for an older invite
+- **WHEN** `INVITE_WITHDRAWN` names an `inviteId` that differs from the invite currently held for that order
+- **THEN** the current invite SHALL stay
+
+#### Scenario: Accept is rejected because someone else took it
+- **WHEN** the volunteer taps accept and the backend returns 409 `ORDER_ALREADY_ACCEPTED`
+- **THEN** that card SHALL turn into "这个邀请已失效" with the line "已有其他陪跑员接下" and the app SHALL speak it, whether or not the card was on screen
+
+### Requirement: Pending invites are reconciled with the server
+The volunteer app SHALL request `GET /api/volunteer/pending-invites` on cold start, when returning to the foreground, and after the WebSocket reconnects. Invites in the snapshot that the app does not hold SHALL be added. Invites the app held before the request was sent that are absent from the snapshot SHALL be invalidated. Invites received after the request was sent SHALL be kept.
+
+#### Scenario: Taken while offline
+- **WHEN** the app held an invite before the request and the snapshot does not contain it
+- **THEN** the invite SHALL be invalidated with the line "不需要再回复了"
+
+#### Scenario: Response without the invites key
+- **WHEN** the response omits `invites`
+- **THEN** the app SHALL NOT invalidate any invite
 
 ### Requirement: Blind-runner arrival copy names the start action
 In `DRIVER_ARRIVED`, blind-runner status copy SHALL NOT tell the blind runner to wait for the volunteer to start service. Copy shown on the order page SHALL point to the "开始跑步" action below; copy spoken or shown outside the order page SHALL NOT refer to an on-screen position.

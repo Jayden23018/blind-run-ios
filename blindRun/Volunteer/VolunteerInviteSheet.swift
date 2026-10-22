@@ -327,7 +327,7 @@ struct VolunteerInviteCard: View {
                 awaitingContent
             case .accepted:
                 acceptedContent
-            case .expired:
+            case .expired, .withdrawn:
                 expiredContent
             }
         }
@@ -589,7 +589,8 @@ struct VolunteerInviteCard: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .accessibilityAddTraits(.isHeader)
 
-        Text(VolunteerInviteCopy.expiredDetail)
+        // 过期与撤回是同一张卡，只有这一行不同（撤回时说原因，后端 #371）。
+        Text(invite.outcome.map(VolunteerInviteCopy.invalidatedDetail) ?? VolunteerInviteCopy.expiredDetail)
             .flowFont(FlowFonts.invitePlace())
             .foregroundColor(AppColors.Flow.secondaryText)
             .frame(maxWidth: .infinity, alignment: .center)
