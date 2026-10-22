@@ -74,7 +74,9 @@ const cases = [
         '-only-testing:blindRunUITests/BlindHomeUITests/testHomeShowsSOS()',
       ]);
       if (r.verdict !== 'pass') return `期望 pass，实得 ${r.verdict} / ${r.reason}`;
-      const want = { blindRunTests: 6, 'blindRunTests/EmergencySOSTests': 3, 'blindRunTests/EmergencySOSTests/testCancel': 1 };
+      const want = { blindRunTests: 6, 'blindRunTests/EmergencySOSTests': 3, 'blindRunTests/EmergencySOSTests/testCancel': 1,
+        'blindRunUITests/BlindHomeUITests/testHomeShowsSOS()': 1,
+      };
       for (const [target, n] of Object.entries(want)) {
         if (countOf(r, target) !== n) return `${target} 期望 ${n} 条，实得 ${countOf(r, target)}`;
       }

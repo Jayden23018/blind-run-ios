@@ -123,6 +123,7 @@ export function coverageFromTests(tests, targets) {
       '\n  怎么修：\n' +
       '    · 中间那段要写类名，不是文件名。查类名：\n' +
       "        grep -rn 'class .*: XCTestCase' blindRunTests blindRunUITests\n" +
+      '        （继承自定义基类的类搜不到，改搜 `grep -rn \'class \' <那个文件>`）\n' +
       '    · 第一段是测试目标名（blindRunTests / blindRunUITests），不是 App 名。\n' +
       '    · 方法级目标确认方法名拼对、且确实在那个类里（不是在同文件的另一个类里）。\n' +
       '    · 同时传了 -skip-testing 的，确认它没有把这个目标的用例全部排掉。',

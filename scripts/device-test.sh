@@ -331,12 +331,6 @@ if [ "$VERDICT_STATUS" -eq 1 ]; then
   exit 1
 fi
 
-# 与 verdict 同一口径：0 以外一律不是通过（例如 127 = 没装 node）。
-if [ "$COVERAGE_STATUS" -ne 0 ]; then
-  die "有 -only-testing 目标没命中任何用例（见上面 ✗ 那几行），这次结果不能算通过。
-     xcodebuild 不会为写错的目标报错，只会跳过它 —— 改对目标名后重跑。"
-fi
-
 # 0 以外的都不是「通过」。2 = 结果不可信（读不出 / 零执行 / 整体结论对不上）；
 # 其它退出码（例如 127 = 没装 node）同样按不可信处理 —— 未知状态绝不能落到通过那一侧。
 if [ "$VERDICT_STATUS" -ne 0 ]; then
@@ -344,6 +338,13 @@ if [ "$VERDICT_STATUS" -ne 0 ]; then
   die "测试结果不可信（verdict 退出码 ${VERDICT_STATUS}，xcodebuild 退出码 ${XCB_STATUS}）。
      刻意不退回 grep 日志兜底：那条路会少数用例、也会漏掉 failed 行，
      等于把「没通过」报成「通过」—— 本脚本存在的全部意义就是不许这样。"
+fi
+
+# 放在「结果不可信」之后：构建失败 / 没写出 bundle / 零执行时，上面那条的诊断（带日志尾部）才对，
+# 不能先报「改对目标名」把人支走。与 verdict 同一口径：0 以外一律不是通过（例如 127 = 没装 node）。
+if [ "$COVERAGE_STATUS" -ne 0 ]; then
+  die "有 -only-testing 目标没命中任何用例（见上面 ✗ 那几行），这次结果不能算通过。
+     xcodebuild 不会为写错的目标报错，只会跳过它 —— 改对目标名后重跑。"
 fi
 
 if [ "$XCB_STATUS" -ne 0 ]; then
