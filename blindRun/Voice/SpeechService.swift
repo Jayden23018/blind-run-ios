@@ -84,6 +84,11 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     func resetSpokenHistoryForTesting() {
         spokenHistoryForTesting = []
     }
+
+    /// 正在排队、还没播的句子。断言「这一句排在横幅后面、没把它切断」用（#477）。
+    var pendingTextsForTesting: [String] {
+        queue.pending.map(\.text)
+    }
     #endif
 
     /// 播报文本。
@@ -216,11 +221,16 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         return true
     }
 
+    /// `priority` 带默认值，既有调用点不变；陪跑员端按 `RunOrderStatus.volunteerAnnouncementPriority` 传（#477）。
     @discardableResult
-    func speakStatusChange(_ status: RunOrderStatus, text: String) -> Bool {
+    func speakStatusChange(
+        _ status: RunOrderStatus,
+        text: String,
+        priority: AnnouncementPriority = .counterpartAction
+    ) -> Bool {
         guard status != lastSpokenStatus else { return false }
         lastSpokenStatus = status
-        speak(text: text)
+        speak(text: text, priority: priority)
         status.haptic.map(HapticFeedback.play)
         return true
     }
