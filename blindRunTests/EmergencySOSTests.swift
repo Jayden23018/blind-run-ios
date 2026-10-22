@@ -1070,6 +1070,88 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertEqual(safety.calls, ["triggerEmergency(_:)"])
     }
 
+    // MARK: 再次触发被合并进未结案事件（后端 #841，交接 blind-run-backend#843）
+
+    /// 后端合并时回的是**旧事件**：同一个 `eventId`，状态是它已发出的状态，
+    /// `countdownEndsAt` 还留着当初那次倒计时的截止时刻（后端从不清它）。
+    private static let mergedResponse = EmergencyTriggerResponse(
+        success: true, eventId: 830, status: "CS_HANDLING", countdownEndsAt: "2026-10-22T09:00:00"
+    )
+
+    /// 先按一次、发出，再按一次（长按 = `useCountdown: true`）被并进同一条。
+    @MainActor
+    private static func triggerTwiceIntoOneEvent(
+        coordinator: EmergencyCoordinator,
+        safety: FakeSafetyService
+    ) async -> EmergencyCoordinator.TriggerOutcome {
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 830, status: "CS_HANDLING")
+        )
+        _ = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        safety.triggerEmergencyResult = .success(Self.mergedResponse)
+        return await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { Self.coordinate(latitude: 39.916, longitude: 116.405) },
+            useCountdown: true
+        )
+    }
+
+    /// 🔴 合并时不许念得和「新求助」一模一样 —— 听的人会以为又发出了一条、家属又收到一条短信。
+    @MainActor
+    func testRetriggerMergedIntoTheOpenEventSaysNoNewRequestWasCreated() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+
+        let outcome = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
+
+        XCTAssertTrue(outcome.message.contains("这次没有新建求助"), "合并被念成了新求助：\(outcome.message)")
+        XCTAssertEqual(coordinator.statusMessage, outcome.message, "屏幕和读屏不是同一句")
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 830)
+        XCTAssertFalse(outcome.message.contains("新求助已发出"))
+        XCTAssertFalse(outcome.message.contains("短信"), "原事件还在 PENDING 时后端这次才第一次通知家属，任何关于短信的说法都可能是假的")
+    }
+
+    /// 合并回来的 `countdownEndsAt` 非空但已过去、状态已发出 —— 只认状态，不许进倒计时、不许给「取消」。
+    @MainActor
+    func testMergedResponseWithAStaleCountdownDeadlineDoesNotCountDown() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+
+        let outcome = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
+
+        XCTAssertFalse(outcome.state.isCountingDown)
+        XCTAssertFalse(coordinator.state.isCountingDown)
+        XCTAssertFalse(outcome.message.contains("秒后发出"))
+    }
+
+    /// 对照组：换了 `eventId` 就是一条新求助，照状态文案说，不算合并。
+    /// 没有这一条，「每次触发都念合并文案」的实现也能让上面那条变绿。
+    @MainActor
+    func testRetriggerWithANewEventIdIsANewRequestNotAMerge() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 830, status: "CS_HANDLING")
+        )
+        _ = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 831, status: "CS_HANDLING")
+        )
+        let outcome = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { Self.coordinate(latitude: 39.916, longitude: 116.405) }
+        )
+
+        XCTAssertEqual(outcome.state, .acknowledged(.csHandling))
+        XCTAssertFalse(outcome.message.contains("这次没有新建求助"))
+    }
+
     @MainActor
     private static func makeRecoverableCoordinator(safety: FakeSafetyService) -> EmergencyCoordinator {
         let coordinator = EmergencyCoordinator()
