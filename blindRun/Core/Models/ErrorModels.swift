@@ -51,6 +51,7 @@ enum ErrorCode: String, Codable, Sendable {
     case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
     case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
+    case activeEmergencyAccountDeletionBlocked = "ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED"
     case keepWaitingLimitReached = "KEEP_WAITING_LIMIT_REACHED"
     case orderDispatchMismatch = "ORDER_DISPATCH_MISMATCH"
     case orderConcurrentConflict = "ORDER_CONCURRENT_CONFLICT"
@@ -252,8 +253,8 @@ enum ErrorCode: String, Codable, Sendable {
             return "提交内容不符合要求，请检查后重试。"
         case .unauthorized:
             return "登录已过期，请重新登录。"
-        case .activeOrderAccountDeletionBlocked:
-            return "当前存在进行中的服务，请处理完成后再删除账户。"
+        case .activeOrderAccountDeletionBlocked, .activeEmergencyAccountDeletionBlocked:
+            return AccountDeletionBlockCopy.message(for: self)
         case .keepWaitingLimitReached:
             return "延长次数已达上限，无法继续等待。"
         case .orderDispatchMismatch:

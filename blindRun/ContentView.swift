@@ -593,13 +593,6 @@ private struct EscortTrackConsentOverlay: ViewModifier {
 private struct SessionLifecycleStatusModifier: ViewModifier {
     @EnvironmentObject private var appState: AppState
 
-    private var deletionFailure: Binding<Bool> {
-        Binding(
-            get: { if case .revocationFailed = appState.accountDeletionState { return true }; return false },
-            set: { if !$0 { appState.dismissAccountDeletionFailure() } }
-        )
-    }
-
     private var isBusy: Bool {
         appState.logoutState == .inProgress || appState.accountDeletionState == .inProgress
     }
@@ -623,14 +616,7 @@ private struct SessionLifecycleStatusModifier: ViewModifier {
                     }
                 }
             }
-            .alert("删除账户失败", isPresented: deletionFailure) {
-                Button("重试") { Task { await appState.deleteCurrentAccount() } }
-                Button("取消", role: .cancel) { appState.dismissAccountDeletionFailure() }
-            } message: {
-                if case .revocationFailed(let message) = appState.accountDeletionState {
-                    Text(message)
-                }
-            }
+            .modifier(AccountDeletionFailureAlertModifier())
     }
 }
 

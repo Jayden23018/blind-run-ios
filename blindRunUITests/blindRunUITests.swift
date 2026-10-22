@@ -1886,7 +1886,7 @@ final class blindRunUITests: XCTestCase {
         ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUN_CLOUD_SMOKE"] == "1" || isPhysicalDevice
     }
 
-    private func launchApp(
+    func launchApp(
         apiEnvironment: String,
         accessToken: String? = nil,
         activeRole: String? = "blind_runner",
@@ -2033,7 +2033,7 @@ final class blindRunUITests: XCTestCase {
     /// 每处先 `.exists` 再 `waitForExistence`：后者即使元素早已在树里，首次判定也要约 1 秒
     /// （真机 result bundle 时间线实测 1.0–1.1s）。本函数和 `assertLogoutRequiresConfirmation`
     /// 被多条用例共用，每次调用都付这笔底价。元素真不在时照样走满超时，失败判据不变。
-    private func openSettings(_ app: XCUIApplication) {
+    func openSettings(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.exists || tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
         let profileTab = tabBar.buttons["我的"]

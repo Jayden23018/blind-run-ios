@@ -10,12 +10,6 @@ enum SessionRestorationState: Equatable {
     case authenticated
 }
 
-enum SessionOperationState: Equatable {
-    case idle
-    case inProgress
-    case revocationFailed(message: String)
-}
-
 @MainActor
 final class AccountDeletionViewModel: ObservableObject {
     @Published var showFinalConfirmation = false
@@ -1032,7 +1026,7 @@ final class AppState: ObservableObject {
     }
 
     func dismissAccountDeletionFailure() {
-        if case .revocationFailed = accountDeletionState { accountDeletionState = .idle }
+        if accountDeletionState.accountDeletionFailureAlert != nil { accountDeletionState = .idle }
     }
 
     func deleteCurrentAccount() async {
@@ -1048,7 +1042,7 @@ final class AppState: ObservableObject {
         } catch APIError.unauthorized {
             expireSession()
         } catch let error as APIError {
-            accountDeletionState = .revocationFailed(message: error.localizedMessage)
+            accountDeletionState = .accountDeletionFailure(for: error)
         } catch {
             accountDeletionState = .revocationFailed(message: "账户删除未完成，请重试。")
         }
