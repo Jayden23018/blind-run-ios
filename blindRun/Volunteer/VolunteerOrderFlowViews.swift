@@ -1538,7 +1538,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         if succeeded {
             speechService?.speak(EmergencySafetyCopy.volunteerAcknowledged)
         } else {
-            let message = "确认失败，请重试。若情况危急请立即拨打110。"
+            let message = "确认失败，请重试。若情况危急请立即拨打120或110。"
             errorMessage = message
             speechService?.speakError(message)
         }

@@ -55,7 +55,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
         // 逐字相等也就覆盖了 `EmergencySOSTests` 那份「不得宣称送达」清单（那个文件长度已冻结，不往里加）。
         XCTAssertEqual(
             outcome.message,
-            "这次没有新建求助：你上一次的求助还在处理中，已更新你的位置，系统正在再次提醒客服跟进。若情况危急请立即拨打110。"
+            "这次没有新建求助：你上一次的求助还在处理中，已更新你的位置，系统正在再次提醒客服跟进。若情况危急请立即拨打120或110。"
         )
         XCTAssertEqual(coordinator.statusMessage, outcome.message, "屏幕和读屏不是同一句")
         XCTAssertEqual(coordinator.activeEvent?.eventID, 830)

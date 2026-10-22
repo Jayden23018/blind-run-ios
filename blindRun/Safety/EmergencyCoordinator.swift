@@ -4,78 +4,6 @@ import Foundation
 
 // MARK: - SOS State
 
-/// One in-flight or acknowledged SOS. Deliberately separate from `RunOrderStatus`: an emergency
-/// event never mutates the order lifecycle (`AGENTS.md` section 6).
-struct ActiveEmergencyEvent: Equatable, Sendable {
-    let eventID: Int64
-    let orderID: Int64
-    /// Authenticated user the event belongs to. Guards against presenting one account's emergency
-    /// under another after a role switch or re-login.
-    let userID: Int64?
-    var status: EmergencyEventStatus
-}
-
-/// An `EMERGENCY_VOLUNTEER_ALERT` addressed to the escorting volunteer as observer.
-///
-/// The volunteer's only possible answer is "确认需要帮助". There is deliberately no dismiss action:
-/// `action=FALSE_ALARM` is a hard 403 server-side, because in a one-to-one escort the companion is
-/// the person a victim may need protection from.
-struct VolunteerEmergencyAlert: Equatable, Sendable {
-    let eventID: Int64
-    let orderID: Int64?
-    let message: String
-    /// 受助者触发那一刻的位置（已归一到 GCJ-02）。可为 nil —— 契约里那两个字段各自可空，
-    /// 而「盲人当时拿不到定位」在室内 / 高楼间是常态，不是异常。
-    var coordinate: LocatedCoordinate?
-    /// 收到这条告警的本机时刻。屏 5 上那句「X 秒前」读的是它。
-    ///
-    /// **不用后端的 `timestamp`**：那是服务端时钟，而两端时钟可能差几秒到几分钟，
-    /// 差出来的结果是屏幕上写着「-40 秒前」或者「3 分钟前」——
-    /// 而志愿者正据此判断「这事刚发生还是我漏看了很久」。
-    let receivedAt: Date
-    var isAcknowledged = false
-    /// 服务端算的两人距离（只在档位可用时才有）。本机定位拿不到时的兜底 ——
-    /// 锁屏推送刚把手机唤醒、GPS 还冷着的那几秒，恰恰是这条告警最常见的到达场景。
-    var serverDistanceMeters: Double?
-
-    init(
-        eventID: Int64,
-        orderID: Int64?,
-        message: String,
-        coordinate: LocatedCoordinate? = nil,
-        receivedAt: Date = Date(),
-        isAcknowledged: Bool = false,
-        serverDistanceMeters: Double? = nil
-    ) {
-        self.eventID = eventID
-        self.orderID = orderID
-        self.message = message
-        self.coordinate = coordinate
-        self.receivedAt = receivedAt
-        self.isAcknowledged = isAcknowledged
-        self.serverDistanceMeters = serverDistanceMeters
-    }
-
-    /// 「距你多远」，只给分档（`DistanceCalculator.proximityBand`），不给精确数字。
-    ///
-    /// 本机实时定位优先 —— 服务端那份用的是志愿者最近一次上报，最旧可能 30 秒。
-    /// 两份都没有就返回 nil、整行不显示，**不猜**：「就在附近」会让他以为人就在脚边。
-    func distanceText(from device: CLLocationCoordinate2D?) -> String? {
-        let meters: CLLocationDistance
-        if let peer = coordinate, let device {
-            meters = DistanceCalculator.distanceFromDeviceToBackend(
-                deviceCoordinate: device,
-                backendCoordinate: peer.coordinate
-            )
-        } else if let serverDistanceMeters {
-            meters = serverDistanceMeters
-        } else {
-            return nil
-        }
-        return "距你\(DistanceCalculator.proximityBand(meters))"
-    }
-}
-
 enum EmergencySOSState: Equatable {
     case idle
     /// 发出前的反悔窗口（屏 3），**由服务端计时**（后端 #388 ③，2026-09-25 起）。
@@ -420,11 +348,9 @@ final class EmergencyCoordinator: ObservableObject {
             let status: EmergencyEventStatus = event.eventStatus == .countdown ? .pending : event.eventStatus
             // 自己的倒数正在跑（同一事件）就别打断它 —— 它到点会自己再来问一次。
             if state.isCountingDown, activeEvent?.eventID == event.id { return }
-            activeEvent = ActiveEmergencyEvent(
-                eventID: event.id,
-                orderID: orderID,
-                userID: event.userId ?? userID,
-                status: status
+            activeEvent = .recovered(
+                eventID: event.id, orderID: orderID, userID: event.userId ?? userID,
+                status: status, triggeredAt: event.triggeredAt?.backendTimestamp, previous: activeEvent
             )
             state = .acknowledged(status)
         } catch {
@@ -634,7 +560,7 @@ final class EmergencyCoordinator: ObservableObject {
             // 🚩 先松开句柄再改状态：离开 `.countingDown` 时 `didSet` 会取消 `countdownTask`，
             // 而此刻它正是我们自己。
             self.countdownTask = nil
-            self.activeEvent?.status = .pending
+            self.activeEvent?.markCountdownFired(at: endsAt)
             self.state = .acknowledged(.pending)
             announce(self.statusMessage ?? "")
             try? await Task.sleep(nanoseconds: UInt64(Self.serverFireGrace * 1_000_000_000))
@@ -793,11 +719,9 @@ final class EmergencyCoordinator: ObservableObject {
             // 后端 #841：本人已有一条已发出、未结案的求助时，再按不新建，回的是同一个 `eventId`。
             // 在覆盖 `activeEvent` 之前判。
             let mergedIntoOpenEvent = activeEvent?.eventID == response.eventId
-            activeEvent = ActiveEmergencyEvent(
-                eventID: response.eventId,
-                orderID: orderID,
-                userID: userID,
-                status: response.eventStatus
+            activeEvent = .afterTrigger(
+                eventID: response.eventId, orderID: orderID, userID: userID,
+                status: response.eventStatus, previous: activeEvent
             )
             submittedLocationAccuracyMeters = locationAccuracyMeters
             guard mergedIntoOpenEvent else {

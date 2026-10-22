@@ -253,7 +253,7 @@ Emergency UI rules:
 - The SOS entry appears only on blind-runner UI while the canonical order status is `IN_PROGRESS`. It never appears on volunteer UI in any status.
 - Without a fresh real GCJ-02 sample the request is not sent. The app must say so both visibly and audibly — "求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。" — and never upload a mock or demo coordinate.
 - Every non-submitted outcome (no location, network failure, 429 cooldown, 403 `NOT_ORDER_PARTICIPANT`, 400 `BAD_REQUEST`) leads with 未发出 and points at 110.
-- **The app must never claim an emergency SMS was delivered or that a contact has been reached.** The backend pushes `EMERGENCY_CONTACT_NOTIFIED` synchronously inside the trigger transaction (`service/EmergencyService.java:370-373`) while the SMS is sent afterwards via `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` (`service/EmergencyContactNotifier.java:60-62`), and a send failure is broadcast only to CS (`:126-135`), never corrected back to the blind runner. iOS therefore substitutes its own progressive-tense copy: "系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。" The string 联系人已收到短信 must not appear anywhere as shipped copy.
+- **The app must never claim an emergency SMS was delivered or that a contact has been reached.** The backend pushes `EMERGENCY_CONTACT_NOTIFIED` synchronously inside the trigger transaction (`service/EmergencyService.java:370-373`) while the SMS is sent afterwards via `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` (`service/EmergencyContactNotifier.java:60-62`), and a send failure is broadcast only to CS (`:126-135`), never corrected back to the blind runner. iOS therefore substitutes its own progressive-tense copy: "系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打120或110。" The string 联系人已收到短信 must not appear anywhere as shipped copy.
 - Auto-call, auto-SMS from the app, or real administrator notification would each require explicit user authorization, a backend contract, and compliance review.
 
 ## 7. Status Copy
@@ -275,7 +275,7 @@ Recommended status announcements:
   盲人被告知继续等一件已经结束的事，是事故不是措辞问题。
   钉在 `blindRunTests.testNoVolunteerCopySaysTheOrderEndedInsteadOfAskingToKeepWaiting`。）
 
-SOS copy is separate from order-status copy and is owned by `EmergencySafetyCopy` (`blindRun/Safety/SafetyModule.swift`). Every line is progressive-tense and ends with “若情况危急请立即拨打110。”:
+SOS copy is separate from order-status copy and is owned by `EmergencySafetyCopy` (`blindRun/Safety/SafetyModule.swift`). Every line is progressive-tense and ends with “若情况危急请立即拨打120或110。”:
 
 - Accepted, `PENDING` / unknown: “求助已记录，系统正在处理。”
 - `VOLUNTEER_NOTIFIED`: “求助已记录，正在通知同行志愿者确认情况。”

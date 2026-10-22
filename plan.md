@@ -27,7 +27,7 @@ AidRun 当前仓库是原生 iOS 客户端，采用 SwiftUI + MVVM，后端为�
 - 固定验证码 `000000` 当前允许用于长期测试账号和上线验收。
 - 志愿者身份证、人脸核验和管理员审核已按后端 OpenAPI 契约接入，仍需双真机走查。
 - 真实高德地图、真实定位、真实后端、WebSocket 派单必须在真机 `111` 和 `iPad Pro (2)` 上完成验收。
-- App Store 隐私说明、定位/语音权限说明、无障碍验收需要确认。紧急事件责任边界本版涉及盲人端 `IN_PROGRESS` 求助：发布说明可以说明 App 会记录求助并联系紧急联系人，但**不得声称短信已送达或联系人已被联系上**，也不得把 App 描述为救援服务；所有对外文案须与 `EmergencySafetyCopy`（`blindRun/Safety/SafetyModule.swift`）一致并保留「若情况危急请立即拨打110」。
+- App Store 隐私说明、定位/语音权限说明、无障碍验收需要确认。紧急事件责任边界本版涉及盲人端 `IN_PROGRESS` 求助：发布说明可以说明 App 会记录求助并联系紧急联系人，但**不得声称短信已送达或联系人已被联系上**，也不得把 App 描述为救援服务；所有对外文案须与 `EmergencySafetyCopy`（`blindRun/Safety/SafetyModule.swift`）一致并保留「若情况危急请立即拨打120或110」。
 - 盲人实名 / 紧急联系人链路仍缺两项验收：云端探针 `scripts/blind-identity-and-contacts-probe.mjs` 尚未入库，以及引导落点 / 实名三态 / 联系人全动作的 UI 无障碍测试（`blindRunUITests` 目前零处引用 `blindOnboarding.*` 标识）。见 `openspec/changes/complete-blind-profile-and-contacts/tasks.md` 6.2 / 6.3。
 - 实时同行位置与完成轨迹必须完成 GCJ-02 单次转换、后台定位披露、电量测量、告警去重和锁屏双真机验收；后端已确认现有历史坐标均来自高德/腾讯定位链路，可按 GCJ-02 使用。
 
