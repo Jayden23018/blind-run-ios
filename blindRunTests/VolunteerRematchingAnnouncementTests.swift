@@ -65,6 +65,24 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
         XCTAssertNil(fixture.home.activeOrder)
     }
 
+    /// 「我的」里的订单详情页（`VolunteerOrderDetailViewModel`）共用同一个判定：同样不切断横幅、不说「已取消」。
+    func testDetailPageDoesNotCutTheBannerEither() async throws {
+        let fixture = makeFixture(status: .scheduledConfirmed, opensOrderPage: false)
+        let detail = VolunteerOrderDetailViewModel()
+        detail.configure(with: fixture.appState, speechService: fixture.speech)
+        detail.order = .preview(orderId: fixture.orderId, status: .scheduledConfirmed)
+        fixture.home.activeOrder = nil
+        fixture.speech.speak(Self.gateMissedTTS)
+
+        pushStatus(fixture.appState.realtimeCoordinator, orderId: fixture.orderId, from: .scheduledConfirmed, to: .rematching)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(fixture.speech.spokenHistoryForTesting, [Self.gateMissedTTS], "横幅之后立刻又念了别的")
+        XCTAssertTrue(detail.didCancelOrder)
+        await waitUntil(timeout: 20) { fixture.speech.spokenHistoryForTesting.count > 1 }
+        XCTAssertEqual(fixture.speech.spokenHistoryForTesting, [Self.gateMissedTTS, VolunteerCancelAnnouncement.reassignedBySystem])
+    }
+
     // MARK: - 自己按的取消不变
 
     /// 订单页上自己取消、推送随后到达：首页与订单页都订阅了这条推送，只念「订单已取消」一次，
