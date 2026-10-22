@@ -74,6 +74,7 @@ struct EmergencyCountdownView: View {
     @State private var showCancelOwnConfirmation = false
     @State private var isCancelling = false
     @State private var isWithdrawing = false
+    @State private var showOtherCalls = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -83,9 +84,11 @@ struct EmergencyCountdownView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     dismissButton
-                    header
                     if coordinator.state.isCountingDown {
+                        header
                         countdownRing
+                    } else {
+                        EmergencySentHeader(title: title, sentAt: coordinator.activeEvent?.sentAt)
                     }
                     pendingEffects
                     if let message = coordinator.statusMessage {
@@ -96,6 +99,11 @@ struct EmergencyCountdownView: View {
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !coordinator.state.isCountingDown,
+                       let sentAt = coordinator.activeEvent?.sentAt,
+                       let mergedAt = coordinator.activeEvent?.lastMergedAt {
+                        EmergencyMergeTimeline(sentAt: sentAt, mergedAt: mergedAt)
                     }
                     callOutButtons
                     bottomAction
@@ -256,53 +264,59 @@ struct EmergencyCountdownView: View {
 
     // MARK: 拨号
 
-    /// 120 与 110。**倒计时期间不显示** —— 那三秒里屏幕上只该有一个动作（取消），
-    /// 多两个按钮会让「往下摸到底就是取消」这条位置记忆失效。
+    /// 发出之后**只有一个主动作**：拨打120（#506，负责人 2026-10-22 批准）。110 与主紧急联系人收进
+    /// 「打 110 或紧急联系人」，点开是全 App 共用的拨号选择 —— 号码顺序与首页一致，位置记忆不变。
+    /// 外部产品里联系人都由系统通知，没有一家让人在这一屏逐个拨（`docs/research/sos-sent-screen-patterns-20261022.md`）。
     ///
+    /// **倒计时期间不显示** —— 那三秒里屏幕上只该有一个动作（取消）。
     /// 🔴 **只调起系统拨号，不自动拨出。** 自动拨号会把一个还在判断情况的人直接接进接警台。
     @ViewBuilder
     private var callOutButtons: some View {
         if !coordinator.state.isCountingDown {
             VStack(spacing: 12) {
                 if let url = EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber) {
-                    PrimaryButton(EmergencySafetyCopy.homeCallMedicalTitle, isDestructive: true) {
+                    PrimaryButton(
+                        EmergencySafetyCopy.homeCallMedicalTitle,
+                        subtitle: EmergencySafetyCopy.sentCallMedicalSubtitle,
+                        isDestructive: true
+                    ) {
                         EmergencyDialer.dial(url)
                     }
                     .accessibilityHint(EmergencySafetyCopy.sentCallMedicalHint)
                     .accessibilityIdentifier("blindEmergencySentCallMedical")
                 }
-                if let url = EmergencyDialer.telURL(for: EmergencyDialer.policeNumber) {
-                    PrimaryButton(EmergencySafetyCopy.homeCallPoliceTitle, isDestructive: true) {
-                        EmergencyDialer.dial(url)
-                    }
-                    .accessibilityHint(EmergencySafetyCopy.sentCallPoliceHint)
-                    .accessibilityIdentifier("blindEmergencySentCallPolice")
-                }
-                if let contact = primaryContact,
-                   let url = EmergencyDialer.telURL(for: contact.phone) {
-                    PrimaryButton(EmergencySafetyCopy.homeCallContactTitle(name: contact.name)) {
-                        EmergencyDialer.dial(url)
-                    }
-                    .accessibilityIdentifier("blindEmergencySentCallContact")
-                }
 
-                // 🔴 **重试排在 120 / 110 后面，这个顺序本身就是要求的一半。**
-                // prompt 要的是「倒计时结束仍未发出时，显示明确提示和拨打 120 入口」——
+                // 🔴 **重试排在 120 后面，这个顺序本身就是要求的一半。**
                 // 一个摔在路边的人最该先够到的是急救电话，不是再赌一次网络。
                 //
-                // ⛔ **没有做成自动重试。** 后端 `POST /api/emergency/trigger` 没有幂等 key，
-                // 自动重发要么建出第二个事件、要么撞 60 秒冷却回 429 —— 而 429 的文案是
-                // 「请稍后再试」，会把一个**已经生效**的求助说成被拒绝。
-                // 「刚才那条到底发出去没有」改由只读的 `refreshActiveEvent()` 对账
-                // （`EmergencyCoordinator.reconcile(after:)`），不靠重发去试。
-                if coordinator.state.isFailure, coordinator.activeEvent == nil {
-                    PrimaryButton(EmergencySafetyCopy.retrySendTitle, action: onRetry)
+                // ⛔ **没有做成自动重试。** 自动重发要么建出第二个事件、要么撞 60 秒冷却回 429 ——
+                // 而 429 的文案会把一个**已经生效**的求助说成被拒绝。「刚才那条到底发出去没有」
+                // 由只读的 `refreshActiveEvent()` 对账（`EmergencyCoordinator.reconcile(after:)`）。
+                if isUnsent {
+                    Button(EmergencySafetyCopy.retrySendTitle, action: onRetry)
+                        .buttonStyle(OutlineSecondaryButtonStyle(tint: AppColors.textPrimary))
                         .accessibilityHint(EmergencySafetyCopy.retrySendAccessibilityHint)
                         .accessibilityIdentifier("blindEmergencyRetrySend")
                 }
+
+                Button(EmergencySafetyCopy.sentOtherCallsTitle) { showOtherCalls = true }
+                    .buttonStyle(OutlineSecondaryButtonStyle(tint: AppColors.textPrimary))
+                    .accessibilityHint(otherCallsContext.accessibilityHint)
+                    .accessibilityIdentifier("blindEmergencySentOtherCalls")
+                    .emergencyCallOptionsDialog(
+                        isPresented: $showOtherCalls,
+                        context: otherCallsContext,
+                        primaryContact: primaryContact
+                    )
             }
         }
     }
+
+    /// 一个字节都没发出去、也没有可撤销的事件。
+    private var isUnsent: Bool { coordinator.state.isFailure && coordinator.activeEvent == nil }
+
+    /// 拨号选择的第一句必须说对：发出去了就说发出去了，没发出去就照首页那句说没发出去。
+    private var otherCallsContext: EmergencyCallContext { isUnsent ? .cloudFailed : .cloudSent }
 
     // MARK: 底部固定动作
 
@@ -321,14 +335,9 @@ struct EmergencyCountdownView: View {
                 .accessibilityHint(EmergencySafetyCopy.countdownCancelAccessibilityHint)
                 .accessibilityIdentifier("blindEmergencyCountdownCancel")
         } else if coordinator.activeEvent != nil {
-            PrimaryButton(
-                EmergencySafetyCopy.cancelButtonTitleForOwner,
-                isLoading: isCancelling
-            ) {
-                showCancelOwnConfirmation = true
-            }
-            .accessibilityHint("误触时撤销本次求助，需要确认")
-            .accessibilityIdentifier("blindEmergencyCancelOwn")
+            // 发出之后降为一行弱化文字（#506）：只降视觉，可点高度与二次确认都不变。
+            EmergencyQuietCancelButton(isLoading: isCancelling) { showCancelOwnConfirmation = true }
+                .accessibilityIdentifier("blindEmergencyCancelOwn")
         }
         // 没有倒计时、也没有活动事件时**底部不放任何东西** —— 退出走顶部那个
         // 「返回跑步」（`dismissButton`）。此前这里再放一个同名按钮，

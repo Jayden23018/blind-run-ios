@@ -70,7 +70,7 @@ enum EmergencySafetyCopy {
     static let accessibilityHint = "需要二次确认，确认后会向后台发送求助并上报当前位置"
 
     /// Appended to every terminal-ish state. The app is not a rescue service and says so.
-    static let emergencyCallReminder = "若情况危急请立即拨打110。"
+    static let emergencyCallReminder = "若情况危急请立即拨打120或110。"
 
     static let locating = "正在获取当前位置，请稍候。"
     static let submitting = "正在发送求助，请稍候。"

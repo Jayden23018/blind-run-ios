@@ -348,11 +348,9 @@ final class EmergencyCoordinator: ObservableObject {
             let status: EmergencyEventStatus = event.eventStatus == .countdown ? .pending : event.eventStatus
             // 自己的倒数正在跑（同一事件）就别打断它 —— 它到点会自己再来问一次。
             if state.isCountingDown, activeEvent?.eventID == event.id { return }
-            activeEvent = ActiveEmergencyEvent(
-                eventID: event.id,
-                orderID: orderID,
-                userID: event.userId ?? userID,
-                status: status
+            activeEvent = .recovered(
+                eventID: event.id, orderID: orderID, userID: event.userId ?? userID,
+                status: status, triggeredAt: event.triggeredAt?.backendTimestamp, previous: activeEvent
             )
             state = .acknowledged(status)
         } catch {
@@ -562,7 +560,7 @@ final class EmergencyCoordinator: ObservableObject {
             // 🚩 先松开句柄再改状态：离开 `.countingDown` 时 `didSet` 会取消 `countdownTask`，
             // 而此刻它正是我们自己。
             self.countdownTask = nil
-            self.activeEvent?.status = .pending
+            self.activeEvent?.markCountdownFired(at: endsAt)
             self.state = .acknowledged(.pending)
             announce(self.statusMessage ?? "")
             try? await Task.sleep(nanoseconds: UInt64(Self.serverFireGrace * 1_000_000_000))
@@ -721,11 +719,9 @@ final class EmergencyCoordinator: ObservableObject {
             // 后端 #841：本人已有一条已发出、未结案的求助时，再按不新建，回的是同一个 `eventId`。
             // 在覆盖 `activeEvent` 之前判。
             let mergedIntoOpenEvent = activeEvent?.eventID == response.eventId
-            activeEvent = ActiveEmergencyEvent(
-                eventID: response.eventId,
-                orderID: orderID,
-                userID: userID,
-                status: response.eventStatus
+            activeEvent = .afterTrigger(
+                eventID: response.eventId, orderID: orderID, userID: userID,
+                status: response.eventStatus, previous: activeEvent
             )
             submittedLocationAccuracyMeters = locationAccuracyMeters
             guard mergedIntoOpenEvent else {

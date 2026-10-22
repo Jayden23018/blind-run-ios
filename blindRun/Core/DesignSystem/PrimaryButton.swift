@@ -6,17 +6,21 @@ import SwiftUI
 /// 支持普通和危险操作两种样式。
 struct PrimaryButton: View {
     let title: String
+    /// 标题下面一行小字（屏 3b「拨打120 / 急救电话」）。默认 nil，其余调用点不变。
+    let subtitle: String?
     let isDestructive: Bool
     let isLoading: Bool
     let action: () -> Void
 
     init(
         _ title: String,
+        subtitle: String? = nil,
         isDestructive: Bool = false,
         isLoading: Bool = false,
         action: @escaping () -> Void
     ) {
         self.title = title
+        self.subtitle = subtitle
         self.isDestructive = isDestructive
         self.isLoading = isLoading
         self.action = action
@@ -29,17 +33,25 @@ struct PrimaryButton: View {
                     ProgressView()
                         .tint(.white)
                 }
-                Text(title)
-                    .font(AppFonts.primaryButton())
-                    .foregroundColor(.white)
+                VStack(spacing: 2) {
+                    Text(title)
+                        .font(AppFonts.primaryButton())
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(AppFonts.body())
+                    }
+                }
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
             }
+            .padding(.vertical, subtitle == nil ? 0 : AppSpacing.small)
             .frame(maxWidth: .infinity)
             .frame(minHeight: AppTouchTarget.blindPrimary)
             .background(isDestructive ? AppColors.destructive : AppColors.primary)
             .cornerRadius(AppCornerRadius.medium)
         }
         .disabled(isLoading)
-        .accessibilityLabel(title)
+        .accessibilityLabel(subtitle.map { "\(title)，\($0)" } ?? title)
         .accessibilityHint(isDestructive ? "危险操作，需要二次确认" : "点击执行操作")
         .accessibilityAddTraits(.isButton)
     }

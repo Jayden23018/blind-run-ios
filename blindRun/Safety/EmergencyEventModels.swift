@@ -12,6 +12,59 @@ struct ActiveEmergencyEvent: Equatable, Sendable {
     /// under another after a role switch or re-login.
     let userID: Int64?
     var status: EmergencyEventStatus
+    /// 求助真正发出的时刻（屏 3b 标题下「10:02 发出 · 3 分钟前」）。倒计时中为 nil；
+    /// 冷启动恢复时取后端 `triggeredAt`，取不到也是 nil —— 那一行就不显示，不猜。
+    var sentAt: Date? = nil
+    /// 最近一次「再按一次被并进这一条」的时刻（#501 / #506 的时间线第二行）。
+    var lastMergedAt: Date? = nil
+
+    /// trigger 响应落地后的事件。`previous` 是覆盖前本机记着的那条：
+    /// 同 id ⇒ 被后端并进去了，发出时刻沿用原来那条，并记下这次并入的时刻。
+    static func afterTrigger(
+        eventID: Int64,
+        orderID: Int64,
+        userID: Int64?,
+        status: EmergencyEventStatus,
+        previous: ActiveEmergencyEvent?,
+        now: Date = Date()
+    ) -> ActiveEmergencyEvent {
+        let merged = previous?.eventID == eventID
+        return ActiveEmergencyEvent(
+            eventID: eventID,
+            orderID: orderID,
+            userID: userID,
+            status: status,
+            sentAt: merged ? previous?.sentAt : now,
+            lastMergedAt: merged ? now : nil
+        )
+    }
+
+    /// 重连 / 冷启动从 `GET /api/emergency/active` 恢复。同一条事件的本机记录优先 ——
+    /// 倒计时到点后的那次对账也走这里，不能把刚记下的发出时刻和并入时刻冲掉。
+    static func recovered(
+        eventID: Int64,
+        orderID: Int64,
+        userID: Int64?,
+        status: EmergencyEventStatus,
+        triggeredAt: Date?,
+        previous: ActiveEmergencyEvent?
+    ) -> ActiveEmergencyEvent {
+        let same = previous?.eventID == eventID ? previous : nil
+        return ActiveEmergencyEvent(
+            eventID: eventID,
+            orderID: orderID,
+            userID: userID,
+            status: status,
+            sentAt: same?.sentAt ?? triggeredAt,
+            lastMergedAt: same?.lastMergedAt
+        )
+    }
+
+    /// 服务端倒计时到点：求助按已发出处理（不宣称送达，见 `EmergencySafetyCopy.submitted`）。
+    mutating func markCountdownFired(at endsAt: Date) {
+        status = .pending
+        sentAt = endsAt
+    }
 }
 
 /// An `EMERGENCY_VOLUNTEER_ALERT` addressed to the escorting volunteer as observer.

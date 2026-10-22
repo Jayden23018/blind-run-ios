@@ -492,7 +492,7 @@
 
 **Given** 后端在冷却期内拒绝求助
 **When** 返回 HTTP 429 `TOO_MANY_REQUESTS`（带 `retryAfterSeconds` 与 `Retry-After` 头）
-**Then** 界面与 TTS 按权威秒数提示稍后再试，并保留"若情况危急请立即拨打110"
+**Then** 界面与 TTS 按权威秒数提示稍后再试，并保留"若情况危急请立即拨打120或110"
 
 ---
 
@@ -506,7 +506,7 @@
 
 **Given** 求助已被后端受理，后端推送 `EMERGENCY_CONTACT_NOTIFIED`
 **When** App 呈现该进展
-**Then** 播报"系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"
+**Then** 播报"系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打120或110。"
 **And** App **永不**声称短信已送达或紧急联系人/家属已被联系上；字符串"联系人已收到短信"不得作为交付文案出现在任何位置
 **And** 依据：后端在触发事务内同步推送该通知（`service/EmergencyService.java:370-373`），短信在 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 之后才发（`service/EmergencyContactNotifier.java:60-62`），发送失败只广播给客服（`:126-135`）且不会回纠给盲人
 

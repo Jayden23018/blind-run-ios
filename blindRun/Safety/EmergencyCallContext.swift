@@ -25,6 +25,10 @@ enum EmergencyCallContext {
     ///
     /// 不复用 `volunteerBeforeRun`：「现在不在跑步中」此刻是假的。
     case volunteerSessionExpired
+    /// 跑者端屏 3b：云端求助**已经发出**，用户还想自己打电话（#506 的「打 110 或紧急联系人」）。
+    ///
+    /// 不复用 `cloudFailed`：那句「求助没有发出去」此刻是假的，会让人以为求助白按了。
+    case cloudSent
 
     /// 跑者端求助模式 → 拨号弹窗该用哪一句。**两个入口（「我的」tab 求助条、订单页求助中心）都走这里**，
     /// 此前各写一个三元表达式 `== .cloudTrigger ? .cloudFailed : .homeIdle` —— 加一档模式时
@@ -44,6 +48,7 @@ enum EmergencyCallContext {
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallDialogMessage
         // 这句不提联系人，两端都成立。
         case .runnerSessionExpired, .volunteerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallDialogMessage
+        case .cloudSent: return EmergencySafetyCopy.sentCallDialogMessage
         }
     }
 
@@ -54,6 +59,7 @@ enum EmergencyCallContext {
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallAccessibilityHint
         case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallAccessibilityHint
         case .volunteerSessionExpired: return EmergencySafetyCopy.volunteerSessionExpiredCallAccessibilityHint
+        case .cloudSent: return EmergencySafetyCopy.sentOtherCallsAccessibilityHint
         }
     }
 
@@ -61,7 +67,7 @@ enum EmergencyCallContext {
     /// 穷举而不是 `!=`：再加一档陪跑员语境时，编译器会逼一次决策。
     var appendsNoContactHint: Bool {
         switch self {
-        case .homeIdle, .cloudFailed, .runnerSessionExpired: return true
+        case .homeIdle, .cloudFailed, .runnerSessionExpired, .cloudSent: return true
         case .volunteerBeforeRun, .volunteerSessionExpired: return false
         }
     }
