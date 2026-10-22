@@ -9,9 +9,31 @@ struct BlindRunnerSettingsView: View {
     @StateObject private var deletionViewModel = AccountDeletionViewModel()
     @State private var showLogoutConfirm = false
     @State private var showDeletionInitialConfirmation = false
+    /// 本月汇总，与「记录」tab 同一个 view model、同一句文案（不另写一份）。
+    @StateObject private var monthSummary = RunRecordHistoryViewModel(role: .runner)
+
+    /// 底部「我的」标签的根页为 true：标题叫「我的」、顶上有本月汇总卡。
+    /// 从别处 push 进来（引导页）时仍是「设置」，那条路的用户是来改设置的。
+    var isTabRoot = false
 
     var body: some View {
         List {
+            if isTabRoot, (monthSummary.history?.monthSummary.runs ?? 0) > 0, let summary = monthSummary.summaryText() {
+                // 「我的」页此前是一张纯设置列表（2026-10-05 截图评审：吸引力 2/10）。
+                // 只放跑者自己的一句成绩，不放排名、不放与他人比较（design-direction §1）。
+                // 本月 0 次时**不显示**：页面最顶上一句「10月还没有跑步记录」是在泼冷水，
+                // 而这一页不是记录页，没有「约一次」的出口可以接住它（design-direction §8 第 5 条）。
+                Section {
+                    Text(summary)
+                        .font(AppFonts.title())
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 8)
+                        .accessibilityLabel(monthSummary.summaryText(spoken: true) ?? summary)
+                        .accessibilityIdentifier("blindProfileMonthSummary")
+                }
+            }
+
             Section {
                 settingsRow("昵称", value: appState.blindProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "视障跑者")
@@ -96,7 +118,13 @@ struct BlindRunnerSettingsView: View {
             }
 
         }
-        .navigationTitle("设置")
+        .navigationTitle(isTabRoot ? "我的" : "设置")
+        .task {
+            guard isTabRoot else { return }
+            // 不传 `speechService`：每次切到「我的」都念一遍本月汇总是噪音，记录页才需要那句播报。
+            monthSummary.configure(with: appState, speechService: nil)
+            await monthSummary.load()
+        }
         .alert("无法删除账户", isPresented: $deletionViewModel.isShowingPreflightBlock) {
             Button("知道了", role: .cancel) {}
         } message: {
