@@ -37,8 +37,10 @@ struct PrimaryButton: View {
                     Text(title)
                         .font(AppFonts.primaryButton())
                     if let subtitle {
+                        // 粗体：暗色档 `destructive`（#FF453A）压白字只有约 3.4:1，常规字重的正文过不了 4.5:1；
+                        // 粗体按 WCAG 算「大字」，门槛 3:1（#506 真机截图发现）。
                         Text(subtitle)
-                            .font(AppFonts.body())
+                            .font(AppFonts.body().weight(.bold))
                     }
                 }
                 .foregroundColor(.white)

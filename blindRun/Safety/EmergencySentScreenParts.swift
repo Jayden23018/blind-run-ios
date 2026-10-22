@@ -50,6 +50,7 @@ struct EmergencySentHeader: View {
 struct EmergencyMergeTimeline: View {
     let sentAt: Date
     let mergedAt: Date
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -63,11 +64,28 @@ struct EmergencyMergeTimeline: View {
         .accessibilityHidden(true)
     }
 
+    /// 辅助字号（AX1–AX5）下时刻单独占一行：并排时时刻列占掉近一半宽度，文字被挤成一字一行
+    /// （#506 AX5 真机截图）。按档位切换，不用 `ViewThatFits`（会被无障碍审计判成改不了字号）。
+    @ViewBuilder
     private func row(time: Date, text: String, isLatest: Bool) -> some View {
+        let clock = Text(EmergencySafetyCopy.sentClock(time))
+            .font(AppFonts.body().monospacedDigit())
+            .foregroundColor(AppColors.textSecondary)
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 2) {
+                clock
+                label(text: text, isLatest: isLatest)
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                clock
+                label(text: text, isLatest: isLatest)
+            }
+        }
+    }
+
+    private func label(text: String, isLatest: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(EmergencySafetyCopy.sentClock(time))
-                .font(AppFonts.body().monospacedDigit())
-                .foregroundColor(AppColors.textSecondary)
             // 圆点不是唯一的区分手段：第二行的文字本身就说了「又按了一次」。
             Circle()
                 .fill(isLatest ? AppColors.destructive : AppColors.textPrimary)
