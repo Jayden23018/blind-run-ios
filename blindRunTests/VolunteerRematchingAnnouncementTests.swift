@@ -69,8 +69,9 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
 
     /// 订单页上自己取消、推送随后到达：首页与订单页都订阅了这条推送，只念「订单已取消」一次，
     /// 不先念首页那句「系统正在重新匹配」再被切断（首页推迟一拍，让订单页先念、记去重键）。
+    /// 两个订阅谁先收到推送不固定：这里让订单页先订阅，复现首页先收到的那种顺序（另一种顺序下不推迟也不会出错）。
     func testOwnCancelStillSaysCancelledOnceWithTheHomeListening() async throws {
-        let fixture = makeFixture(status: .driverEnRoute, opensOrderPage: true)
+        let fixture = makeFixture(status: .driverEnRoute, opensOrderPage: true, pageSubscribesFirst: true)
         let page = try XCTUnwrap(fixture.page)
         fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
         // 取消后已不是参与者：确认拉取被后端 403，订单页只能靠推送知道。
@@ -130,7 +131,7 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
     /// （记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
     private var retained: [AppState] = []
 
-    private func makeFixture(status: RunOrderStatus, opensOrderPage: Bool) -> Fixture {
+    private func makeFixture(status: RunOrderStatus, opensOrderPage: Bool, pageSubscribesFirst: Bool = false) -> Fixture {
         let orderId: Int64 = 4_770
         let order = OrderDetailResponse.preview(orderId: orderId, status: status)
         let service = FakeOrderService()
@@ -140,14 +141,16 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
         retained.append(appState)
         let speech = SpeechService()
         let home = VolunteerHomeViewModel()
-        home.configure(with: appState, speechService: speech)
-        home.activeOrder = order
         var page: VolunteerInServiceViewModel?
-        if opensOrderPage {
+        let openPage = {
             let viewModel = VolunteerInServiceViewModel()
             viewModel.configure(with: appState, speechService: speech, initialOrder: order)
             page = viewModel
         }
+        if opensOrderPage, pageSubscribesFirst { openPage() }
+        home.configure(with: appState, speechService: speech)
+        home.activeOrder = order
+        if opensOrderPage, !pageSubscribesFirst { openPage() }
         // 生产上首页加载 / 订单页轮询时登记；协调器只把状态推送发给登记过的订单。
         appState.realtimeCoordinator.registerActiveOrder(orderId, status: status)
         speech.resetSpokenHistoryForTesting()
