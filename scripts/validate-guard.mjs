@@ -1817,6 +1817,59 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRun/Role/RoleSelectionView.swift',
     swift: 'struct A { var body: some View { if showsInviteCodeField { inviteCodeField } } }'
+  },
+  // #502：EmergencyCoordinator 拆文件后求助状态的 setter 只能是 internal，这条替编译器拦「别处直接写」。
+  {
+    name: '别的文件直接写求助状态 state（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Safety/SafetyHubView.swift',
+    swift: 'func f(appState: AppState) { appState.emergencyCoordinator.state = .idle }'
+  },
+  {
+    name: '别的文件给合并计数 += 1（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/BlindRunner/BlindOrderStatusView.swift',
+    swift: 'func f() { coordinator.mergedRetriggerCount += 1 }'
+  },
+  {
+    name: '别的文件经可选链改告警字段（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Volunteer/VolunteerOrderFlowPage.swift',
+    swift: 'func f() { coordinator.volunteerAlert?.isAcknowledged = true }'
+  },
+  {
+    name: '别的文件调内部收尾方法 finish（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Safety/SafetyHubView.swift',
+    swift: 'func f() { _ = appState.emergencyCoordinator.finish(.idle) }'
+  },
+  {
+    // 反向哨兵：coordinator 自己的文件必须照常能写，否则规则一落地就锁死状态机本身。
+    name: 'EmergencyCoordinator+Trigger.swift 里写 state（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Safety/EmergencyCoordinator+Trigger.swift',
+    swift: 'extension EmergencyCoordinator { func f() { emergencyCoordinator.state = .idle; coordinator.mergedRetriggerCount += 1 } }'
+  },
+  {
+    // 读要放行：界面上到处在读告警与合并计数（`== true` 不是赋值）。
+    name: '别的文件只读求助状态（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Volunteer/VolunteerOrderFlowPage.swift',
+    swift: 'let a = coordinator.volunteerAlert?.isAcknowledged == true\nlet b = appState.emergencyCoordinator.state == .idle\nlet c = coordinator.mergedRetriggerCount'
+  },
+  {
+    // `state` 太常见：别的协调器写自己的 state 不能被误拦。
+    name: '别的协调器写自己的 state（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/LiveEscortSessionCoordinator.swift',
+    swift: 'func f() { coordinator.state = .idle }'
   }
 ];
 
