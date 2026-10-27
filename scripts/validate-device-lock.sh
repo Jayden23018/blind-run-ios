@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# device-test.sh 在 xcodebuild 之前那几道闸的自测：设备锁（1–3）、工作区完整性（4–5）、Xcode 图形界面占用（6–7）。
+# device-test.sh 在 xcodebuild 之前那几道闸的自测：设备锁（1–3）、工作区完整性（4–5）、Xcode 图形界面占用（6–7）、
+# 个人前缀用独立 DerivedData（8–9，#452）。
 #
 # 锁存在的理由见 device-test.sh 的「0. 设备互斥」注释：并发跑同一台真机会互相把
 # runner 装掉，两边都报 `Test crashed with signal kill`，与真回归无法区分。
@@ -28,7 +29,7 @@ bad()  { printf '  ❌ %s\n' "$1"; FAIL=$((FAIL + 1)); }
 rm -rf "$LOCK"
 trap 'rm -rf "$LOCK"' EXIT
 
-echo "[validate-device-lock] 1/7 并发的第二次被拦下"
+echo "[validate-device-lock] 1/9 并发的第二次被拦下"
 AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=6 bash "$SCRIPT" >/dev/null 2>&1 &
 HOLDER=$!
 # 等持有者真正建出锁再发第二次，否则测的是「谁先跑到」而不是互斥。
@@ -55,7 +56,7 @@ fi
 kill "$HOLDER" 2>/dev/null
 wait "$HOLDER" 2>/dev/null
 
-echo "[validate-device-lock] 2/7 正常退出会释放锁"
+echo "[validate-device-lock] 2/9 正常退出会释放锁"
 rm -rf "$LOCK"
 AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" >/dev/null 2>&1
 if [ -d "$LOCK" ]; then
@@ -64,7 +65,7 @@ else
   ok "退出时锁已删除"
 fi
 
-echo "[validate-device-lock] 3/7 死锁（持有者已不在）会被自动回收"
+echo "[validate-device-lock] 3/9 死锁（持有者已不在）会被自动回收"
 # 先拿一个确定不存在的 pid：起一个立刻结束的子进程，等它回收掉再借用它的号。
 ( exit 0 ) &
 DEAD_PID=$!
@@ -98,14 +99,14 @@ fi
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/aidrun-device-test-worktree.XXXXXX")"
 trap 'rm -rf "$LOCK" "$SANDBOX"' EXIT
 
-echo "[validate-device-lock] 4/7 缺 LocalConfig.xcconfig 时说清是工作区没初始化"
+echo "[validate-device-lock] 4/9 缺 LocalConfig.xcconfig 时说清是工作区没初始化"
 FOURTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" bash "$SCRIPT_ABS" 2>&1)"
 case "$FOURTH" in
   *"缺少 LocalConfig.xcconfig"*) ok "点名了 LocalConfig.xcconfig" ;;
   *) bad "没点名 LocalConfig.xcconfig，实际输出：$FOURTH" ;;
 esac
 
-echo "[validate-device-lock] 5/7 LocalConfig 有了但缺 Pods/ 时改口"
+echo "[validate-device-lock] 5/9 LocalConfig 有了但缺 Pods/ 时改口"
 : >"$SANDBOX/LocalConfig.xcconfig"
 FIFTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" bash "$SCRIPT_ABS" 2>&1)"
 case "$FIFTH" in
@@ -147,19 +148,46 @@ if ! pgrep -x "$FAKE_XCODE" >/dev/null; then
   exit 1
 fi
 
-echo "[validate-device-lock] 6/7 Xcode 开着时在 xcodebuild 之前拦下"
+echo "[validate-device-lock] 6/9 Xcode 开着时在 xcodebuild 之前拦下"
 SIXTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_XCODE_PROCESS_NAME="$FAKE_XCODE" bash "$SCRIPT_ABS" 2>&1)"
 case "$SIXTH" in
   *"Xcode 图形界面开着"*) ok "点名了 Xcode 图形界面" ;;
   *) bad "没拦 Xcode，实际输出：$SIXTH" ;;
 esac
 
-echo "[validate-device-lock] 7/7 AIDRUN_ALLOW_XCODE_OPEN=1 时放行"
+echo "[validate-device-lock] 7/9 AIDRUN_ALLOW_XCODE_OPEN=1 时放行"
 SEVENTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_XCODE_PROCESS_NAME="$FAKE_XCODE" AIDRUN_ALLOW_XCODE_OPEN=1 bash "$SCRIPT_ABS" 2>&1)"
 case "$SEVENTH" in
   *"Xcode 图形界面开着"*) bad "放行开关没生效，实际输出：$SEVENTH" ;;
   *) ok "放行后不再拦 —— 证明第 6 条不是恒失败" ;;
 esac
+
+# ---- 8–9：设了个人前缀就用独立的 DerivedData（device-test.sh 开头，#452）----
+#
+# 不分开时，不带前缀的编译门禁会把 runner 改写成默认 bundle id，下一次带前缀跑测时 runner 装不上
+# （`Failed to create directory on device … runtime profiles`）。第 8 条对照「不设 / 设了」两种，
+# 第 9 条对照同一前缀下两个工作区 —— 按工作区分才不会让两个 worktree 互相覆盖编译产物。
+# 都走 AIDRUN_LOCK_SELFTEST：拿到锁就报出路径并退出，不跑 xcodebuild。
+echo "[validate-device-lock] 8/9 设了 AIDRUN_BUNDLE_ID_PREFIX 才换成独立的 DerivedData"
+dd_of() { printf '%s\n' "$1" | sed -n 's/^\[device-test\] derivedDataPath=//p'; }
+DEFAULT_DD="$(dd_of "$(AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" 2>&1)")"
+PREFIX_DD="$(dd_of "$(AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_BUNDLE_ID_PREFIX=com.example.aidrun AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" 2>&1)")"
+case "$DEFAULT_DD" in
+  "（默认）") ok "不设前缀时不改 DerivedData（与编译门禁同一份，bundle id 两边一致）" ;;
+  *) bad "不设前缀时期望用默认目录，实际：'$DEFAULT_DD'" ;;
+esac
+case "$PREFIX_DD" in
+  */DerivedData/aidrun-device-com.example.aidrun-*) ok "设了前缀改用独立目录：$PREFIX_DD" ;;
+  *) bad "设了前缀却没换成独立的 DerivedData，实际：'$PREFIX_DD'" ;;
+esac
+
+echo "[validate-device-lock] 9/9 同一前缀在两个工作区各用各的"
+OTHER_DD="$(dd_of "$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_BUNDLE_ID_PREFIX=com.example.aidrun AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT_ABS" 2>&1)")"
+if [ -n "$OTHER_DD" ] && [ -n "$PREFIX_DD" ] && [ "$OTHER_DD" != "$PREFIX_DD" ]; then
+  ok "两个工作区目录不同 —— 不会互相覆盖编译产物"
+else
+  bad "两个工作区算出同一个（或空的）目录：'$PREFIX_DD' / '$OTHER_DD'"
+fi
 
 echo
 printf '[validate-device-lock] 通过 %s 条，失败 %s 条\n' "$PASS" "$FAIL"
