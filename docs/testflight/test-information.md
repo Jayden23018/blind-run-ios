@@ -119,7 +119,7 @@ PERMISSIONS
 - Notifications: new orders and order status.
 
 HELP / SOS - PLEASE DO NOT TRIGGER
-The help (SOS) button only sends an alert while a run is in progress. The alert goes to our real support staff, and the server tries to text the account's emergency contact. At any other time the help button only offers to dial the emergency contact or local emergency numbers (110/120). Please do not dial them either.
+The help (SOS) button only sends an alert while a run is in progress. The alert goes to our real support staff, and the server tries to text the account's emergency contact. The help feature does not replace a call to 110 or 120. It does not contact the police or an ambulance service; it only tells our support staff and the user's own emergency contact. At any other time the help button only offers to dial the emergency contact or local emergency numbers (110/120). Please do not dial them either.
 ```
 
 ### 2.3 账号（✅ 后端已建好；号码不进本仓库）
