@@ -10856,6 +10856,7 @@ public enum Components {
                     case TETHER_ROPE = "TETHER_ROPE"
                     case ARM_HOLD = "ARM_HOLD"
                     case VERBAL_ONLY = "VERBAL_ONLY"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference/value1`.
                 public var value1: Components.Schemas.PendingInviteItem.tetherPreferencePayload.Value1Payload?
