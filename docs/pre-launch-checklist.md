@@ -145,7 +145,7 @@
    这是「备案卡不卡 TestFlight」唯一的一手验法（Apple 官方页至今 404）。装得上再送外部审核。
 7. 填 Test Information（C0 的草稿）→ 建外部测试组 → 加构建 → 等 Beta App Review。
 8. 之后真机调试收不到推送是**预期行为**（Xcode 直装拿沙盒 token，后端连的是生产网关）；
-   本仓库命令行里的 `DEVELOPMENT_TEAM=ZW39BS8NXT` 换成新团队号（`CLAUDE.md`、`scripts/device-test.sh` 等处）。
+   真机跑测用哪个团队按 skill `aidrun-device-test` 当场判定；工程默认值改在 `project.pbxproj` / `scripts/device-test.sh`，文档里不写团队号。
 
 ### C1 账号与通道
 

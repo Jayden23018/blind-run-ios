@@ -192,7 +192,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 
 - **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`（`docs/api_spec.yaml`、`docs/websocket-protocol.md`），本仓库**不留副本**；`claude --add-dir` 挂载，**读它的 origin/main**（`git -C /Users/mac/Downloads/demo show origin/main:docs/api_spec.yaml`），别读工作区；契约错了去后端改。
 - 需要后端拍板：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`；后端问我们的标 `待前端确认`。`demo/docs/handoff.md` 已冻结。
-- 错误码语义见 skill `aidrun-error-codes`（机器可读 `docs/error-codes.json`）。
+- 错误码语义见 skill `aidrun-error-codes`；真相源是后端 `ErrorCode.java`，两边枚举用 `node scripts/validate-error-codes.mjs` 对撞。
 
 ## 8. iOS 硬规则
 

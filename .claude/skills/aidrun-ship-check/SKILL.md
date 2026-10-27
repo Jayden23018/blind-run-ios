@@ -29,8 +29,9 @@ description: AidRun 模块收尾检查单与验证纪律。实现完成、准备
 xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
 
-# 真机全量（唯一的 XCTest 通道，模拟器因高德无 arm64-sim slice 永久不可用）
-scripts/device-test.sh
+# 真机（唯一的 XCTest 通道，模拟器因高德无 arm64-sim slice 永久不可用）
+# 只跑覆盖本次改动的 suite，范围怎么定见 §六；不要裸跑（裸跑 = 全量）
+scripts/device-test.sh -only-testing:blindRunTests/<命中的 Suite>
 
 # 规格与文档
 openspec validate <change-id> --strict --no-interactive
@@ -183,12 +184,14 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
                        -only-testing:blindRunTests/blindRunTests
 ```
 
-**什么时候才必须全量**——只有一条判据：**改的东西是全 App 唯一的出口 / 共享单例 / 全局配置**，
-所有调用方都从它身上过。例如 `SystemSpeechAudioSession`（每个用麦克风的地方都走它）、
-`APIClient`、`AppState`。这类改动的影响面按符号搜不出来，必须全量。
+**改共享单例也不全量**（负责人 2026-09-24 原话「每次只跑改了的部分，不要跑全量的测试」，
+10-09 第三次重申）。改 `SystemSpeechAudioSession`、`APIClient`、`AppState` 这类全 App 共用的东西，
+同样用改动的符号搜出调用方，只跑命中的 suite。真觉得覆盖面搜不出来、非全量不可时，**先问负责人**，
+不要自己跑 `scripts/device-test-all.sh` 或裸跑 `scripts/device-test.sh`。
+（本节旧版写「改共享单例必须全量」，与负责人口径冲突，2026-10-28 按 #485 改掉。）
 
-反过来，「改了一个 view model 的一个字段」「加了一条解析规则」不属于这类，按符号搜到的 suite
-就是完整覆盖面。**命中数只有 1 且是无关字面量的文件要看一眼再决定跳过**，别只看数字。
+失败后**只重跑失败的那几条**（`-only-testing:Suite/testName`），多处修复攒齐了一次跑。
+**命中数只有 1 且是无关字面量的文件要看一眼再决定跳过**，别只看数字。
 
 > 2026-08-06 立此条：同一天里全量被反复跑了 5 次，其中 4 次的结论在第 1 次就已经拿到，
 > 后面纯粹是在跟脚本的 watchdog 较劲。用户两次指出这件事，走 §1.4。

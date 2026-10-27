@@ -79,7 +79,7 @@
 | 语音与错误码门禁 | `scripts/validate-golden-corpus.mjs`、`scripts/validate-voice-intent-words.mjs`、`scripts/validate-error-codes.mjs` | 读后端仓库做对撞；安卓已有 `scripts/validate-error-codes.py`，语音那两条安卓**还没有**（未核） |
 
 ⚠️ 两处文档与现实不符，别被带偏：
-- `AGENTS.md` 写的 `docs/error-codes.json`（机器可读错误码表）在 `origin/main` 上**不存在**（2026-10-04 `git ls-tree` 查过）。错误码以后端 `ErrorCode.java` 为准。
+- 仓库里没有 `docs/error-codes.json`（2026-10-04 `git ls-tree` 查过；`AGENTS.md` 的旧引用已于 2026-10-28 由 #499 删掉）。错误码以后端 `ErrorCode.java` 为准，对撞脚本 `scripts/validate-error-codes.mjs`。
 - 安卓 `CLAUDE.md` 里「`docs/handoff.md` 记一笔」已过期：后端仓库 2026-09-24 起改用 GitHub Issues（`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`）。后端地址 iOS 已改 `https`，安卓文档里还写 `http://`，且安卓 issue #20 正是明文传证件的问题。
 
 ## 5. 安卓 issue ↔ iOS 来源（按标题和文件名对的，未逐屏核）

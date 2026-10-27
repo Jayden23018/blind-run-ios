@@ -199,7 +199,7 @@
 
 - [x] 5.1 `openspec validate enable-one-utterance-booking --strict --no-interactive` 通过。
 - [x] 5.2 `node scripts/validate-docs.mjs` 通过（文档改动后复跑）。
-- [x] 5.3 `xcodebuild -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing` → `TEST BUILD SUCCEEDED`。注意这是**无签名编译**；带签名的 `build-for-testing` 需 `-allowProvisioningUpdates DEVELOPMENT_TEAM=ZW39BS8NXT`。
+- [x] 5.3 `xcodebuild -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing` → `TEST BUILD SUCCEEDED`。注意这是**无签名编译**；带签名的 `build-for-testing` 需 `-allowProvisioningUpdates DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号>`。
 - [x] 5.6 独立 Swift 脚本实跑（设备离线时的替代信号，非 XCTest）：
   - `/tmp/clearstate_check.swift` —— 一次性送达、幂等、无会话时不送、**回调内重启新会话不被随后的清空覆盖**（这一条证明「先取引用再置 nil 最后回调」的顺序是重入安全的）。ALL PASS。
   - `/tmp/affirmative_check.swift` —— 19 条白名单 + 语气词剥离 + 13 条含肯定词的否定 + 填充词与边界。ALL PASS。
@@ -208,7 +208,7 @@
   ```
   xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun \
     -destination 'platform=iOS,id=<设备 id>' \
-    -allowProvisioningUpdates DEVELOPMENT_TEAM=ZW39BS8NXT
+    -allowProvisioningUpdates DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号>
   ```
   全量约 10 分钟，会超 Bash 600s 上限，需自行重定向到日志文件。
 - [ ] 5.5 真机手测（开 VoiceOver）：说肯定词完成一次真实下单；说「修改」落入逐项流程；**拒绝麦克风权限后进入语音下单，确认只播报一次原因就落到表单、不再连问三轮**。

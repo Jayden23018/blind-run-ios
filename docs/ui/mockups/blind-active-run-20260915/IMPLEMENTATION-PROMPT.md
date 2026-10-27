@@ -217,7 +217,7 @@ scripts/device-test.sh -only-testing:blindRunUITests/<你的用例>
 
 - 真机跑，CI 跑不了任何 XCTest
 - **两台**：`111` 与 `iPad Pro (2)`。这是布局几何类改动，**单跑 iPhone 不算验过**
-- 跑测试要显式传 `DEVELOPMENT_TEAM=ZW39BS8NXT`
+- 跑测试要显式传 `DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号>`
 - **第一个要看的**：AX5 大字号下四组内容会不会顶掉 `Spacer()` 的留白甚至溢出
   （`Spacer()` 平分在极端字号下会被压到 0，这是本设计已知的风险点）
 - 默认只跑覆盖本次改动的 suite，不要裸跑全量（会超 Bash 600s 上限）
