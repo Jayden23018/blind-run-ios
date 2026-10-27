@@ -276,6 +276,155 @@ const cases = [
       }
     }
   },
+  // weak-helper（#450）：helper 的局部依赖没随返回值交出去。上面的 weak-temporary 管第一次现场（内联临时对象），
+  // 这一组管第二、三次（传的是变量名，weak-temporary 抓不到）。两次的真实代码都用检测器复验过：
+  // 修复前那版被拦、修复后那版放行（FaceVerifyDeclineTests 5d64c9a5~1 → 5d64c9a5，BlindIntroCallMeetupPlanTests a32f245b → 982d8ee1）。
+  {
+    // 第二次现场（2026-09-08）原样：元组里有 view model 和 speech，唯独没有 appState。
+    name: 'helper 的局部 AppState 没进返回的元组（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeViewModel(client: MockAPIClient) -> (FaceVerifyViewModel, SpeechService) {',
+      '        let appState = AppState(apiClient: client)',
+      '        let speech = SpeechService()',
+      '        let viewModel = FaceVerifyViewModel()',
+      '        viewModel.configure(appState: appState, speechService: speech)',
+      '        return (viewModel, speech)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // 第三次现场（2026-10-16，PR #447）原样：Harness 装了三样，唯独没装 appState；configure 折成多行。
+    name: 'helper 返回的 Harness 漏装 AppState（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private struct Harness { let viewModel: VM; let safety: FakeSafetyService; let speech: SpeechService }',
+      '    private func makeHarness(_ safety: FakeSafetyService) -> Harness {',
+      '        let appState = AppState(safety: safety)',
+      '        let speech = SpeechService()',
+      '        let viewModel = VM()',
+      '        viewModel.configure(',
+      '            with: appState,',
+      '            speechService: speech',
+      '        )',
+      '        return Harness(viewModel: viewModel, safety: safety, speech: speech)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // 同一个坑换成 init：Harness 自己建 AppState、交给 view model，却没存进自己的字段。
+    name: 'Harness 的 init 建了 AppState 却没存下（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'private final class Harness {',
+      '    let viewModel = VM()',
+      '    init() {',
+      '        let location = LocationService()',
+      '        viewModel.configureForTesting(locationService: location)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '返回值里带上 AppState（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeHarness(_ safety: FakeSafetyService) -> Harness {',
+      '        let appState = AppState(safety: safety)',
+      '        let viewModel = VM()',
+      '        viewModel.configure(with: appState, speechService: SpeechService())',
+      '        return Harness(',
+      '            viewModel: viewModel,',
+      '            appState: appState',
+      '        )',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // VolunteerStartConsentGateTests 现有写法：赋给测试类的属性同样算持有。
+    name: '赋给测试类属性持有（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private var retainedAppState: AppState?',
+      '    private func makeViewModel() -> (VM, FakeOrderService) {',
+      '        let service = FakeOrderService()',
+      '        let appState = AppState(orders: service)',
+      '        retainedAppState = appState',
+      '        let viewModel = VM()',
+      '        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: nil)',
+      '        return (viewModel, service)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // 测试方法本身没有返回值：局部变量活到方法结束，这正是正确写法。注释与字符串里的同形文字也不算。
+    name: '测试方法里的局部 AppState、注释与字符串（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    /// 别在 helper 里写 `let appState = AppState()` 再 `return (vm, speech)`。',
+      '    func testSomething() async {',
+      '        let appState = AppState()',
+      '        let viewModel = VM()',
+      '        viewModel.configure(appState: appState, speechService: SpeechService())',
+      '        XCTAssertEqual(viewModel.title, "return (vm) let appState = AppState()")',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '声明行标注 guard:allow weak-helper（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeOrphan() -> VM {',
+      '        let appState = AppState() // guard:allow weak-helper 这条就是要测 appState 释放后的早退',
+      '        let viewModel = VM()',
+      '        viewModel.configure(appState: appState, speechService: SpeechService())',
+      '        return viewModel',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // 生产代码不归这条管：App 里的局部依赖由别的对象持有，判据不成立。
+    name: '同样的写法在生产 target 里（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Shared/Factory.swift',
+    swift: [
+      'enum Factory {',
+      '    static func make() -> VM {',
+      '        let appState = AppState()',
+      '        let viewModel = VM()',
+      '        viewModel.configure(appState: appState, speechService: SpeechService())',
+      '        return viewModel',
+      '    }',
+      '}'
+    ].join('\n')
+  },
   {
     // 2026-08-06：verify.yml 里两处 `if: ${{ secrets.X != '' }}` 让 workflow 连续 9 次
     // 启动失败 —— 0 个 job、0 条日志，UI 上看不出红在哪，只有邮件。这条守卫防的就是它。
