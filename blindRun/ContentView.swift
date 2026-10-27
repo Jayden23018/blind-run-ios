@@ -421,13 +421,9 @@ struct ContentView: View {
         .onReceive(locationReportTimer) { _ in
             reportWebSocketLocationIfNeeded()
         }
-        .onChange(of: appState.activeRole) { role in
-            // #368：没有这一角色的位置轨迹同意就不开定位。
-            if appState.isLoggedIn, appState.currentEnvironment != .mock,
-               let purpose = PrivacyConsentPurpose.locationTrack(for: role),
-               appState.hasLocationTrackConsent(purpose) {
-                locationService.startUpdating()
-            }
+        .onChange(of: appState.activeRole) { _ in
+            // 换角色时开不开定位由 `AppState.syncRoleLocationIntents` 定（#425）：
+            // 这里此前对陪跑员也无条件开，关着接单开关也在定位。
             reportWebSocketLocationIfNeeded()
         }
         .task(id: rootRoutingKey) {
@@ -517,7 +513,7 @@ struct ContentView: View {
             return
         }
 
-        locationService.startUpdating()
+        // 不在这里开定位：为派单要的定位只由 `AppState.syncRoleLocationIntents` 立和撤（#425），两处都开就有一处撤不掉。
         appState.webSocketService?.sendLocationUpdate(
             lat: sample.coordinate.latitude,
             lng: sample.coordinate.longitude

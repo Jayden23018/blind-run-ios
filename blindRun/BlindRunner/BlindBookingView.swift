@@ -1180,7 +1180,6 @@ struct BlindBookingView: View {
             if locationService.isNotDetermined {
                 locationService.requestPermission()
             }
-            locationService.startUpdating()
             viewModel.configure(
                 appState: appState,
                 locationService: locationService,
@@ -1217,6 +1216,7 @@ struct BlindBookingView: View {
             // 页面离开就停录音：麦克风不该在用户看不见的地方继续开着。
             voiceWizard.stop()
         }
+        .requestsLocationUpdates(.blindBooking)
         // 用户在系统弹窗里允许了临时精确位置：不等下一个坐标，立刻按新的授权重新解析（#373）。
         .onChange(of: locationService.accuracyAuthorization) { _ in
             Task { await viewModel.refreshCurrentLocationIfNeeded() }

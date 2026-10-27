@@ -110,7 +110,10 @@ final class AppState: ObservableObject {
     weak var pushNotificationsManager: PushNotificationsManager?
     /// 由 `blindRunApp` 根视图注入，`weak` 的理由同上。持续定位按账号 + 角色的位置轨迹同意收（#417）：
     /// 退出登录、换到没同意的角色时，这里替整个 App 停掉 —— 没有别的地方会停。
-    weak var locationService: LocationService?
+    /// 角色这一层的定位意图（`syncRoleLocationIntents`）也由这里管，注入时补算一次（#425）。
+    weak var locationService: LocationService? {
+        didSet { syncRoleLocationIntents() }
+    }
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Session
@@ -158,6 +161,8 @@ final class AppState: ObservableObject {
                 // 角色不变时 `activeRole` 那一道不会经过：换成的账号没同意就得在这里停（#417）。
                 stopLocationUpdatesWithoutTrackConsent()
             }
+            // 同意按账号记：账号一变，角色这一层要不要定位就得重算（包括从 nil 变成有值的恢复登录）。
+            syncRoleLocationIntents()
         }
     }
 
@@ -178,6 +183,7 @@ final class AppState: ObservableObject {
                 liveEscortCoordinator.reset(clearIdentity: false)
                 emergencyCoordinator.reset()
                 stopLocationUpdatesWithoutTrackConsent()
+                syncRoleLocationIntents()
             }
         }
     }
@@ -588,7 +594,10 @@ final class AppState: ObservableObject {
 
     /// 志愿者此刻开着接单开关（以首页 view model 为准，由它同步进来）。
     /// 不是 `@Published`：只有 `ContentView` 的定时上报读它，不驱动渲染。
-    var volunteerWantsDispatch = false
+    /// 关开关时连「获取」一起停（#425）：上报闸只管不上传，硬件定位要靠撤回 `.volunteerDispatch` 才停。
+    var volunteerWantsDispatch = false {
+        didSet { syncRoleLocationIntents() }
+    }
 
     /// 本次登录里按下过「同意共享位置」的目的。拿不到 userId 时写不了盘，
     /// 这一份让「刚同意完又被问一次」不会发生；换 token 就清掉。
@@ -618,6 +627,7 @@ final class AppState: ObservableObject {
         }
         // 同一个目的可能同时有两处在问（接单开关的同意页 + 同行态的同意页），答了一处另一处要跟着收。
         liveEscortCoordinator.trackConsentDidChange()
+        syncRoleLocationIntents()
     }
 
     /// 求助取坐标前读（#368）：当前角色在本机没有位置轨迹同意（还没回答或已拒绝）⇒ 求助**不附位置**，
@@ -629,12 +639,6 @@ final class AppState: ObservableObject {
     var isEmergencyLocationSharingBlocked: Bool {
         guard let purpose = PrivacyConsentPurpose.locationTrack(for: activeRole) else { return true }
         return !hasLocationTrackConsent(purpose)
-    }
-
-    /// 为派单上报位置的总闸：开着接单开关，且同意过志愿者位置轨迹。
-    /// 同意文案第 1 条写了「暂停接单后不再为派单获取位置」，这一闸就是它的兑现。
-    var allowsVolunteerDispatchLocationReporting: Bool {
-        volunteerWantsDispatch && hasLocationTrackConsent(.volunteerLocationTrack)
     }
 
     /// UI 用例默认跳过这道同意，理由同 `uiTestSkipsVoiceOrderConsent`：好几十条用例靠「预约 / 接单开关 /
@@ -1087,29 +1091,8 @@ final class AppState: ObservableObject {
         // 但同样是按账号的：换账号登录后，上一个人「什么时候会在哪」不该原样留在这台设备上。
         FavoritePlaceStore.clearPersistedPlaces()
         // 上面 `activeRole = nil` 已经会停，但退出时角色本来就是 nil（停在角色选择页）不经过那一道。
-        // `stopUpdating` 连意图一起撤回：只停硬件的话，下一个账号改一次系统权限，授权回调就会把它开回来（#417）。
+        // 所有意图一起撤回：只停硬件的话，下一个账号改一次系统权限，授权回调就会把它开回来（#417）。
         stopLocationUpdates()
-    }
-
-    /// 换账号 / 换角色 / 退出登录时，当前账号的当前角色在本机没有位置轨迹同意就停掉持续定位（#417）。
-    /// 有同意时不停：`ContentView` 的 `onChange(of: activeRole)` 会照常开，停了再开只是白折腾一次硬件。
-    /// 同行会话不受影响：换角色本来就会 `liveEscortCoordinator.reset`，新角色的会话由它自己 `startUpdating()`。
-    private func stopLocationUpdatesWithoutTrackConsent() {
-        if let purpose = PrivacyConsentPurpose.locationTrack(for: activeRole),
-           hasLocationTrackConsent(purpose) {
-            return
-        }
-        stopLocationUpdates()
-    }
-
-    private func stopLocationUpdates() {
-        // 生产里唯一的注入点是 `blindRunApp` 根视图那一行，单测都自己注入 —— 删掉那一行所有单测照样绿，
-        // 而这次修复整个失效。所以真 App（含 UI 用例跑的那个）里没注入就当场崩；单测宿主进程不注入是常态，放行。
-        assert(
-            locationService != nil || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil,
-            "AppState.locationService 未注入：退出登录 / 换角色停不了定位（#417）"
-        )
-        locationService?.stopUpdating()
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。

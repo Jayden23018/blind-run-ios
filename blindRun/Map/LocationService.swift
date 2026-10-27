@@ -203,11 +203,11 @@ final class LocationService: NSObject, ObservableObject {
     private let locationManager: CLLocationManager
     private(set) var isEscortBackgroundModeEnabled = false
     private(set) var isUpdatingLocation = false
-    /// 有调用方要过持续定位、且没有 `stopUpdating()` 撤回（#413）。授权回调只替这样的调用方开定位。
+    /// 要过持续定位、还没撤回的调用方（#413 / #425）。授权回调只替这些调用方开定位，集合空了才停硬件。
     ///
-    /// 和 `isUpdatingLocation` 分开存：没授权时 `startUpdating()` 被挡住、硬件没开，但意图要留着，
+    /// 和 `isUpdatingLocation` 分开存：没授权时 `startUpdating(for:)` 被挡住、硬件没开，但意图要留着，
     /// 授权弹窗答「允许」之后才能补上；权限被收回时硬件停了，意图也留着，重新打开权限就恢复。
-    private var wantsContinuousUpdates = false
+    private(set) var updateReasons: Set<LocationUpdateReason> = []
 
     #if DEBUG
     private var authorizationOverrideForTesting: Bool?
@@ -342,8 +342,8 @@ final class LocationService: NSObject, ObservableObject {
         locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose.rawValue)
     }
 
-    /// 开始持续定位更新。没授权时只记下意图，等授权回调补上。
-    func startUpdating() {
+    /// 替 `reason` 开始持续定位。没授权时只记下意图，等授权回调补上。
+    func startUpdating(for reason: LocationUpdateReason) {
         #if DEBUG
         if suppressHardwareUpdatesForTesting { return }
         if isUsingUITestDemoLocation {
@@ -351,7 +351,7 @@ final class LocationService: NSObject, ObservableObject {
             return
         }
         #endif
-        wantsContinuousUpdates = true
+        updateReasons.insert(reason)
         resumeHardwareUpdates()
     }
 
@@ -374,9 +374,17 @@ final class LocationService: NSObject, ObservableObject {
         locationManager.startUpdatingLocation()
     }
 
-    /// 停止定位更新，并撤回意图：之后的授权回调不再自动开。
-    func stopUpdating() {
-        wantsContinuousUpdates = false
+    /// 撤回 `reason` 这一份意图。别的调用方还要时硬件照开；最后一份撤回才停，之后的授权回调也不再自动开。
+    func stopUpdating(for reason: LocationUpdateReason) {
+        updateReasons.remove(reason)
+        guard updateReasons.isEmpty else { return }
+        haltHardwareUpdates()
+    }
+
+    /// 所有调用方的意图一起撤回并停硬件。只给账号边界用（退出登录、换到没同意过的账号或角色，#417）：
+    /// 上一个人留下的任何一份意图都不能被下一次授权回调开回来。
+    func stopAllUpdates() {
+        updateReasons.removeAll()
         haltHardwareUpdates()
     }
 
@@ -400,55 +408,8 @@ final class LocationService: NSObject, ObservableObject {
         // 不变量，放在这个带 guard 的分支方法里正是它此前从未生效的原因。
         locationManager.showsBackgroundLocationIndicator = enabled
         locationManager.allowsBackgroundLocationUpdates = enabled
-        if enabled {
-            startUpdating()
-        }
-    }
-
-    func latestBackendSample(now: Date = Date(), freshness: TimeInterval = 15) -> LocatedCoordinate? {
-        guard let sample = latestDeviceSample,
-              now.timeIntervalSince(sample.capturedAt) <= freshness else { return nil }
-        return BackendCoordinateNormalizer.normalize(sample)
-    }
-
-    /// 同行会话可以接受的最大样本年龄。
-    ///
-    /// **不是 15 秒**（求助路径 `latestBackendSample` 那道闸的值）。上报周期是 5 秒，而
-    /// `distanceFilter` 是 5–10 米 —— 正常走动时样本随时在来，60 秒是个很宽的门；
-    /// 取这么宽正是为了不把「人站住了、坐标没变」误判成定位失效。
-    ///
-    /// ⚠️ 已知代价：非陪跑模式下 `distanceFilter = 10`，本仓库自己记着「站着不动 Core Location
-    /// 就不推新样本」（`BlindBookingView.swift:967-977`，那条注释来自一次真实的线上误判）。
-    /// 所以 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 期间原地站够 60 秒仍可能报一次
-    /// 「设备位置暂时不可用」。相对于「让对端一直以为陈旧坐标是新的」，这一侧的代价更小 ——
-    /// 说错「位置暂时不可用」用户还能自己判断，说对了「15 秒内的新位置」而其实是十分钟前的，
-    /// 看不见屏幕的人无从分辨。
-    nonisolated static let escortSampleMaxAge: TimeInterval = 60
-
-    /// 同行会话按固定 cadence 复用最近一次真实设备样本；**坐标静止不等于定位失效，
-    /// 但样本停更等于**。
-    ///
-    /// 这两件事此前被当成一件事：原实现只看权限与 `locationError`，不看样本年龄，
-    /// 注释还写明是故意的。后果是 GPS 卡住（隧道、地库、商场、iOS 自动暂停）时
-    /// Core Location 常常**不报错**、只是不再送新样本，于是发送端每 5 秒把同一个陈旧坐标
-    /// 重发一次，服务端每次打上**当前**时间戳，接收端每次都判定「这是 15 秒内的新位置」。
-    /// 上行报文里没有采样时间（`WSLocationUpdateMessage` 只有 `type/lat/lng`），
-    /// 对端因此没有任何办法自己看穿 —— 只能由发送端不发。
-    ///
-    /// 返回 nil 同时达成两件事，不需要各自再加判断：
-    /// `sendLatestLocation` 的 `guard let sample` 停发（连 `escort-location-send` 的诊断事件
-    /// 都不会产生），`refreshHealth` 的 `guard ... != nil` 落到 `.waitingForLocation`。
-    ///
-    /// 根因修法是后端给 `WSLocationUpdateMessage` 补 `capturedAt` 并透传给对端 —— 已列入待投递。
-    func latestEscortBackendSample(
-        now: Date = Date(),
-        maxAge: TimeInterval = LocationService.escortSampleMaxAge
-    ) -> LocatedCoordinate? {
-        guard isAuthorized,
-              locationError == nil,
-              let sample = latestDeviceSample,
-              now.timeIntervalSince(sample.capturedAt) <= maxAge else { return nil }
-        return BackendCoordinateNormalizer.normalize(sample)
+        // 这里不开定位：开不开由调用方的意图决定（同行会话先 `startUpdating(for: .escortSession)` 再调这里）。
+        // 这个方法只改精度与后台策略，否则它会替一个不知道是谁的调用方立起意图、没人撤回（#425）。
     }
 
     /// Core Location 自行暂停之后的恢复。
@@ -459,16 +420,16 @@ final class LocationService: NSObject, ObservableObject {
     /// 那正是 F2 描述的那条链路（每 5 秒把同一个陈旧坐标重发一次，对端每次都判成新位置）。
     ///
     /// 两行顺序不能反，各自都有理由：
-    /// - 先把 `isUpdatingLocation` 归位，否则 `startUpdating()` 的幂等 guard 会把这次重启整个吞掉
+    /// - 先把 `isUpdatingLocation` 归位，否则 `resumeHardwareUpdates()` 的幂等 guard 会把这次重启整个吞掉
     ///   （暂停时它仍是 `true`，Core Location 停了但这边不知道）。
-    /// - `setLocationError` 放在 `startUpdating()` **之后**，因为后者会先把错误清成 `nil`。
+    /// - `setLocationError` 放在 `resumeHardwareUpdates()` **之后**，因为后者会先把错误清成 `nil`。
     ///   这一格由下一次真实回调（`didUpdateLocations`）清掉；在那之前
     ///   `latestEscortBackendSample()` 返回 nil，同行会话停发并落到 `.waitingForLocation`。
     func handlePausedLocationUpdates() {
         isUpdatingLocation = false
-        // 只恢复还有人要的定位（#413）：迟到的暂停回调不能把已经 `stopUpdating()` 撤回的意图重新立起来。
-        if wantsContinuousUpdates {
-            startUpdating()
+        // 只恢复还有人要的定位（#413）：迟到的暂停回调不能把已经全部撤回的意图重新立起来。
+        if !updateReasons.isEmpty {
+            resumeHardwareUpdates()
         }
         setLocationError(.locationUnavailable)
     }
@@ -591,8 +552,8 @@ extension LocationService {
 
     /// 🔴 **「已授权」不等于「开定位」（#413）。** `CLLocationManager` 一创建就回调一次，
     /// 这里若无条件开定位，已授权的设备一启动 App 就在本机持续定位 —— 早于位置轨迹同意（#368），
-    /// 也不看角色和订单。所以只替 `startUpdating()` 要过、还没撤回的调用方开：
-    /// 预约页、接单开关、同意页都是先 `requestPermission()` 再 `startUpdating()`，后者被挡住时靠这里补上。
+    /// 也不看角色和订单。所以只替 `startUpdating(for:)` 要过、还没撤回的调用方开：
+    /// 预约页、接单开关、同意页都是先 `requestPermission()` 再立意图，开定位被挡住时靠这里补上。
     func handleAuthorizationChange(_ status: CLAuthorizationStatus, accuracy: CLAccuracyAuthorization) {
         if authorizationStatus != status {
             authorizationStatus = status
@@ -604,7 +565,7 @@ extension LocationService {
         switch status {
         case .authorizedWhenInUse, .authorizedAlways:
             setLocationError(nil)
-            if wantsContinuousUpdates {
+            if !updateReasons.isEmpty {
                 resumeHardwareUpdates()
             }
         case .denied, .restricted:
