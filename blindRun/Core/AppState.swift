@@ -291,10 +291,8 @@ final class AppState: ObservableObject {
     /// 与 `didLoadFeatureFlags` 同一个写法：只在成功后置位，失败下次再试。
     private var didLoadRuleParams = false
 
-    /// `restorePendingInvites` 正在跑的那一次。
-    private var pendingInvitesRestoreTask: Task<Void, Never>?
-    /// 跑着的时候又被触发过：结束后再跑一次。
-    private var pendingInvitesRestoreRequestedAgain = false
+    /// 待回复邀请对账的并发闸（`restorePendingInvites`，见 `AppState+PendingInvites.swift`）。
+    let pendingInvitesRestoreGate = CoalescedRerun()
 
     // MARK: - WebSocket
 
@@ -810,55 +808,6 @@ final class AppState: ObservableObject {
     /// `hasMore = true`，宁可少补几条也不能让盲人的手机在这里空转。
     static let catchUpPageLimit = 10
 
-    /// 待回复邀请与服务端对账（`GET /api/volunteer/pending-invites`，后端 #366）。只对陪跑员。
-    ///
-    /// 契约：「冷启动、从后台回前台、WS 重连成功后，各调一次」。撤回推送只走 WS、不能补读，
-    /// 锁屏期间的新邀请也只有 APNs —— 不对账的话，离线期间被接走的卡会一直挂着，新来的卡永远看不到。
-    ///
-    /// 同一时刻只跑一次：回前台与首页加载常常同时触发，后到的一方等前一次的结果。
-    ///
-    /// 在跑的那一次如果是触发**之前**发出的（例如断线前发出、重连时还没回来），它的快照可能早于这次触发
-    /// 想看到的变化 —— 所以并进来的调用会在它结束后**再补跑一次**，而不是直接拿它的结果。
-    func restorePendingInvites() async {
-        if let inFlight = pendingInvitesRestoreTask {
-            pendingInvitesRestoreRequestedAgain = true
-            await inFlight.value
-            return
-        }
-        let task = Task {
-            repeat {
-                pendingInvitesRestoreRequestedAgain = false
-                await performPendingInvitesRestore()
-            } while pendingInvitesRestoreRequestedAgain
-        }
-        pendingInvitesRestoreTask = task
-        await task.value
-        pendingInvitesRestoreTask = nil
-    }
-
-    private func performPendingInvitesRestore() async {
-        guard isLoggedIn, activeRole == .volunteer else { return }
-        let requestedAt = Date()
-        let requestedFor = userId
-        do {
-            let response = try await orders.pendingInvites()
-            // 请求在路上时可能登出、换了账号或换了角色：前一个会话的快照不许灌进这一个。
-            guard isLoggedIn, activeRole == .volunteer, userId == requestedFor else { return }
-            // 缺 `invites` 键 ≠「一张都没有」：照空列表对账会把手上所有邀请判成失效。
-            guard let invites = response.invites else {
-                ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites-shape")
-                return
-            }
-            realtimeCoordinator.reconcilePendingInvites(invites, requestedAt: requestedAt)
-        } catch let error as APIError {
-            if handleAuthenticatedAPIError(error) { return }
-            // 失败静默：手上的卡照旧，下一次回前台 / 重连再对。对账失败不该打断陪跑员。
-            ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites")
-        } catch {
-            ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites")
-        }
-    }
-
     func catchUpMissedNotifications() async {
         guard isLoggedIn else { return }
         // 断线期间可能整条求助都发生完了（志愿者代触发、家属短信回执、客服解除），而通知信封不带
@@ -1276,47 +1225,6 @@ final class AppState: ObservableObject {
         // 「本该未登录」的 UI 用例会拿着上一轮的 Token 继续跑。必须显式删除。
         tokenStore.delete()
     }
-    #endif
-
-    /// 纯函数、无状态；`MockAPIClient` 等非 MainActor 上下文也要用它做与后端
-    /// `@Pattern(^1[3-9]\d{9}$)` 同源的校验，所以显式 nonisolated。
-    nonisolated static func isValidMainlandPhone(_ phoneNumber: String) -> Bool {
-        let pattern = #"^1[3-9]\d{9}$"#
-        return phoneNumber.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    static func resolvedInitialEnvironment(
-        _ environment: APIEnvironment,
-        channel: AppBuildChannel = AppBuildChannel.current
-    ) -> APIEnvironment {
-        channel.allows(environment) ? environment : channel.defaultEnvironment
-    }
-
-    /// 启动时该用哪个环境。锁屏按钮的 intent 在 `AppState` 装好之前就可能跑
-    /// （`GuideRunActivityController.installIntentHandler`），与这里读同一份。
-    static func initialEnvironment(persistence: AppStatePersistence) -> APIEnvironment {
-        guard let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
-              let env = storedEnvironment(from: envRaw) else {
-            return AppBuildChannel.current.defaultEnvironment
-        }
-        return resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
-    }
-
-    static func storedEnvironment(from rawValue: String) -> APIEnvironment? {
-        return APIEnvironment(rawValue: rawValue)
-    }
-
-    static func resolvedLoginRole(from rawValue: String?) -> UserRole? {
-        guard let rawValue,
-              let role = UserRole(rawValue: rawValue),
-              role != .unset else {
-            return nil
-        }
-        return role
-    }
-
-    #if DEBUG
-    static let debugTestEnvironments: [APIEnvironment] = [.mock, .demoCloud]
     #endif
 
     // MARK: - WebSocket (Private)
