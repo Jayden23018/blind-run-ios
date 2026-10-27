@@ -21,8 +21,8 @@ struct VolunteerEmergencyAlertPresentation: ViewModifier {
     let peerPhone: String?
     let deviceCoordinate: CLLocationCoordinate2D?
     let isAcknowledging: Bool
-    let reverseGeocode: (CLLocationCoordinate2D) async -> String?
-    let serverAddress: (Int64) async -> OrderLocationAddressResponse?
+    let reverseGeocode: @MainActor (CLLocationCoordinate2D) async -> String?
+    let serverAddress: @MainActor (Int64) async -> OrderLocationAddressResponse?
     let onAcknowledge: (Int64) -> Void
 
     func body(content: Content) -> some View {
@@ -40,8 +40,10 @@ struct VolunteerEmergencyAlertPresentation: ViewModifier {
                     deviceCoordinate: deviceCoordinate,
                     isAcknowledging: isAcknowledging,
                     onAcknowledge: { onAcknowledge(alert.eventID) },
-                    reverseGeocode: reverseGeocode,
-                    serverAddress: serverAddress
+                    // 现包一层而不是直接传属性：在 `fullScreenCover` 的内容闭包里把存着的 `@MainActor` 闭包原样
+                    // 交给视图，编译器会报「converting non-Sendable function value … may introduce data races」（#451）。
+                    reverseGeocode: { await reverseGeocode($0) },
+                    serverAddress: { await serverAddress($0) }
                 )
             }
         }
@@ -55,8 +57,8 @@ extension View {
         peerPhone: String?,
         deviceCoordinate: CLLocationCoordinate2D?,
         isAcknowledging: Bool,
-        reverseGeocode: @escaping (CLLocationCoordinate2D) async -> String?,
-        serverAddress: @escaping (Int64) async -> OrderLocationAddressResponse?,
+        reverseGeocode: @escaping @MainActor (CLLocationCoordinate2D) async -> String?,
+        serverAddress: @escaping @MainActor (Int64) async -> OrderLocationAddressResponse?,
         onAcknowledge: @escaping (Int64) -> Void
     ) -> some View {
         modifier(
@@ -98,10 +100,10 @@ struct VolunteerEmergencyAlertView: View {
     let onAcknowledge: () -> Void
     /// 逆地理。传进来而不是从环境里取 —— 这个视图在两处被呈现，
     /// 而环境值漏注入的表现是「地址永远解析不出来」，不报错。
-    let reverseGeocode: (CLLocationCoordinate2D) async -> String?
+    let reverseGeocode: @MainActor (CLLocationCoordinate2D) async -> String?
     /// `GET /api/orders/{id}/location/address`（盲人的位置）。告警没带坐标（冷启动恢复出来的
     /// 那条恒没有）或本机逆地理失败时的兜底，后端 #387 ①。
-    let serverAddress: (Int64) async -> OrderLocationAddressResponse?
+    let serverAddress: @MainActor (Int64) async -> OrderLocationAddressResponse?
 
     /// 逆地理解析出来的地名。nil = 还没解析出来或解析失败。
     @State private var resolvedPlace: String?

@@ -31,13 +31,13 @@ struct VolunteerProfileFirstScreen: View {
     /// （理由逐字在 `VolunteerHomeIncentiveViewModel` 顶部）。
     @StateObject var incentive = VolunteerHomeIncentiveViewModel()
 
-    let onReload: () async -> Void
+    let onReload: @MainActor () async -> Void
 
     /// 手写 init 只为一件事：上面三个属性要给同目录的 `VolunteerProfileFirstScreenView+*.swift`
     /// 用，不能再是 `private`（#508 拆文件），而不再 `private` 之后合成的 memberwise init
     /// 会把它们也收成参数。写出来让对外的初始化方式与拆分前一样只有 `viewModel` / `onReload`，
     /// `incentive` 只由 `@StateObject` 的初始值创建，外面传不进来。
-    init(viewModel: VolunteerHomeViewModel, onReload: @escaping () async -> Void) {
+    init(viewModel: VolunteerHomeViewModel, onReload: @escaping @MainActor () async -> Void) {
         self.viewModel = viewModel
         self.onReload = onReload
     }

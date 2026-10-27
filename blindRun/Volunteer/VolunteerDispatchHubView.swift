@@ -176,7 +176,7 @@ struct VolunteerDispatchHubView: View {
     /// 与首页共用同一个 view model —— 数据（预约单、派单摘要、接单开关）本来就只有一份，
     /// 这一屏再起一个会让两屏显示不同的「下一次陪跑」。
     @ObservedObject var viewModel: VolunteerHomeViewModel
-    let onReload: () async -> Void
+    let onReload: @MainActor () async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var route: Route?

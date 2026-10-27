@@ -14,14 +14,14 @@ extension RunOrderStatus {
 /// 错误显示在**这一页**而不是订单页的 footer：表单页盖着订单页，写在底下等于没写。
 struct RunnerMessageSheet: View {
     let initialText: String
-    let onSave: (String) async -> String?
+    let onSave: @MainActor (String) async -> String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
     @State private var errorMessage: String?
     @State private var isSaving = false
 
-    init(initialText: String, onSave: @escaping (String) async -> String?) {
+    init(initialText: String, onSave: @escaping @MainActor (String) async -> String?) {
         self.initialText = initialText
         self.onSave = onSave
         _text = State(initialValue: initialText)

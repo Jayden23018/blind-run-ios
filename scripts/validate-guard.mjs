@@ -1892,6 +1892,59 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRun/Safety/EmergencyCountdownView.swift',
     swift: 'struct V: View {\n    @ObservedObject var coordinator: EmergencyCoordinator\n    var busy: Bool { coordinator.state == .idle || coordinator.state.isBusy }\n}'
+  },
+  // #451：存储型 async 闭包不标隔离 = `nonisolated(nonsending)`，经转换 thunk 时真机会交出已释放的参数（#449 的崩溃）。
+  {
+    // #449 原样：带 String 的请求体经闭包到服务层时已释放。
+    name: '存储型 async 闭包没标隔离（拦下，#449 原样）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Form: View {\n    let onSubmit: (IntroCallPlanRequest, Double?) async -> Outcome\n}'
+  },
+  {
+    name: '无参 async 闭包同样要标（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Hub: View {\n    let onReload: () async -> Void\n}'
+  },
+  {
+    name: '可选的 async 闭包（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class VM {\n    private var onSave: ((String) async throws -> String?)?\n}'
+  },
+  {
+    // 只写 @Sendable 不算标了隔离：它照样是 nonisolated(nonsending)。
+    name: '只写 @Sendable 的 async 闭包（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Sheet: View {\n    let geocode: @Sendable (CLLocationCoordinate2D) async -> String?\n}'
+  },
+  {
+    // 标在属性上不等于标在函数类型上：`@MainActor let` 只管谁能读这个属性。
+    name: '@MainActor 写在 let 前面而不是类型上（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Sheet: View {\n    @MainActor let onSave: (String) async -> String?\n}'
+  },
+  {
+    name: '标成 @MainActor 的存储型 async 闭包（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct Sheet: View {\n    let onSave: @MainActor (String) async -> String?\n    let onCancel: @MainActor () async -> Void\n    let serverAddress: @MainActor (Int64) async -> OrderLocationAddressResponse?\n}'
+  },
+  {
+    // 同步闭包与 init 参数不在这条的管辖内（init 参数靠 why 里的写法提示，不靠拦）。
+    name: '同步闭包属性与 async 函数声明（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct Sheet: View {\n    let onClose: () -> Void\n    func load() async -> String? { nil }\n    init(onSave: @escaping @MainActor (String) async -> String?) {}\n}'
+  },
+  {
+    name: '确需非 MainActor 时行尾标注（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct W {\n    let work: () async -> Void // guard:allow unannotated-async-closure 后台任务，不碰 UI\n}'
   }
 ];
 
