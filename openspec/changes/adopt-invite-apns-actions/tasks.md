@@ -7,4 +7,5 @@
 - [x] 1.5 撤回 / 了结 / 对账时按邀请身份收掉已送达的旧通知。
 - [x] 1.6 连续拒绝改用后端 `consecutiveDeclineCount`，问过的记号「再涨 3 才再问」。
 - [x] 2.1 单测 `InviteLockScreenActionTests`；`build-for-testing`。
-- [ ] 2.2 真机跑 `InviteLockScreenActionTests`、`InviteModelTests`、`blindRunTests`；验红。真实推送在工程团队成员的设备上另验。
+- [x] 2.2 真机跑 `InviteLockScreenActionTests`、`InviteModelTests`、`blindRunTests`；验红。（10-28/29 iPhone 16 Pro：覆盖 suite `passed=415` 中 3 条红查明是用例错，改正后两类重跑 `passed=19 failed=0`；打回身份比对与账号核对后预期 3 条红）
+- [ ] 2.3 真实推送在工程团队成员的设备上另验（锁屏两个按钮、冷启动不丢）。本机只有个人团队拿不到推送 token（#201），做不了。
