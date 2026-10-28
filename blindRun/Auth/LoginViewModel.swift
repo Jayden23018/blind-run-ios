@@ -268,8 +268,8 @@ final class LoginViewModel: ObservableObject {
             } else {
                 errorMessage = response.message
             }
-        case .networkError:
-            errorMessage = "网络错误，请重试"
+        case .networkError(let underlying):
+            errorMessage = APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "网络错误，请重试"
         case .rateLimited(let info):
             errorMessage = rateLimitMessage(info)
             if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
@@ -297,8 +297,8 @@ final class LoginViewModel: ObservableObject {
         switch error {
         case .serverError(let response):
             errorMessage = response.message
-        case .networkError:
-            errorMessage = "网络错误，请重试"
+        case .networkError(let underlying):
+            errorMessage = APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "网络错误，请重试"
         case .rateLimited(let info):
             errorMessage = rateLimitMessage(info)
             if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }

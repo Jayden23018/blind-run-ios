@@ -88,8 +88,8 @@ final class RoleSelectionViewModel: ObservableObject {
             } else {
                 errorMessage = response.message
             }
-        case .networkError:
-            errorMessage = "网络错误，请重试"
+        case .networkError(let underlying):
+            errorMessage = APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "网络错误，请重试"
         case .rateLimited(let info):
             errorMessage = APIError.rateLimited(info).localizedMessage
         case .unauthorized:

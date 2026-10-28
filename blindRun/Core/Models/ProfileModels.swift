@@ -222,8 +222,8 @@ enum BlindIdentityVerificationFailure {
         case .missingCredentials:
             // 与上一条分开：那条是服务端说"你的会话没了"，这条是本地压根没拿出凭据。
             return "本地登录信息缺失，请退出后重新登录。"
-        case .networkError:
-            return "网络连接失败，请检查网络后重试。"
+        case .networkError(let underlying):
+            return APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "网络连接失败，请检查网络后重试。"
         case .decodingError, .invalidURL, .unknown:
             return genericMessage
         }
