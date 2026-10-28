@@ -418,11 +418,11 @@ final class VolunteerMeetupPlanTests: XCTestCase {
     // MARK: - 来电推送不进横幅（页面自己念）
 
     func testIncomingCallNotificationSkipsTheBannerOnlyWhileTheCallPageIsOpen() async {
-        func notification() -> WSAppNotification {
+        func notification(timestamp: String = "2026-10-15T20:00:00") -> WSAppNotification {
             WSAppNotification(
                 type: WSMessageType.appNotification.rawValue, eventId: Int64.random(in: 1...1_000_000),
                 eventType: "INTRO_CALL_INCOMING", title: nil, body: "跑者正在打给你，请留意来电",
-                ttsText: nil, priority: "HIGH", timestamp: "2026-10-15T20:00:00"
+                ttsText: nil, priority: "HIGH", timestamp: timestamp
             )
         }
         let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
@@ -445,9 +445,9 @@ final class VolunteerMeetupPlanTests: XCTestCase {
         XCTAssertNil(coordinator.currentNotification, "通话页开着时由页面自己念，横幅再念一遍就是两遍")
 
         coordinator.introCallPageDidDisappear()
-        service.simulateIncomingEventForTesting(.notification(notification()))
+        service.simulateIncomingEventForTesting(.notification(notification(timestamp: DateFormatter.aidRunBackendLocalDateTime.string(from: Date()))))
         await Task.yield()
         XCTAssertEqual(received.count, 2)
-        XCTAssertEqual(coordinator.currentNotification?.displayText, "跑者正在打给你，请留意来电", "不在通话页时照旧走横幅")
+        XCTAssertEqual(coordinator.currentNotification?.displayText, "跑者正在打给你，请留意来电", "不在通话页时，刚发出的照旧走横幅（旧的见 #448）")
     }
 }

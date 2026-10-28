@@ -943,12 +943,9 @@ final class AppRealtimeCoordinator: ObservableObject {
         if Self.refreshOnlyEventTypes.contains(eventType) { return }
         if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
         publishVolunteerLostIfNeeded(eventType: eventType)
-        if eventType == Self.introCallIncomingEventType {
-            // `backendTimestamp` 而不是 `parseISO8601`：WS 信封的 timestamp 是无时区的 LocalDateTime，
-            // ISO8601DateFormatter 解不出来，会让重连补读来的旧提醒一律当成「刚刚」。
-            introCallIncomingSubject.send(message.timestamp?.nilIfBlank?.backendTimestamp ?? now())
-            if isIntroCallPageShowingIncomingCalls { return }
-        }
+        // `backendTimestamp` 而不是 `parseISO8601`：WS 信封的 timestamp 是无时区的 LocalDateTime，
+        // ISO8601DateFormatter 解不出来，会让重连补读来的旧提醒一律当成「刚刚」。
+        if eventType == Self.introCallIncomingEventType, routeIntroCallIncoming(sentAt: message.timestamp) { return }
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
             routeEscortAlert(message, eventType: eventType)
             return
@@ -1168,6 +1165,7 @@ final class AppRealtimeCoordinator: ObservableObject {
             // （最容易漏测、也最难在真机上复现）：屏幕上那行字是替代文案、补读念的却是
             // 后端原文「点击继续等待可延长」。
             let eventType = (missed.eventType ?? "").uppercased()
+            if eventType == Self.introCallIncomingEventType, routeIntroCallIncoming(sentAt: missed.sentAt) { continue }
             let override = overriddenBody(forEventType: eventType)
             let speechText = override ?? missed.ttsText?.nilIfBlank ?? missed.body
             enqueue(
@@ -1421,6 +1419,17 @@ extension AppRealtimeCoordinator {
             retainDispatch(invite)
         }
         pendingInviteSnapshotSubject.send(snapshot)
+    }
+
+    /// `INTRO_CALL_INCOMING`（实时与重连补读两条路）：交给通话页，并判这条要不要再进横幅。返回 `true` = 不进。
+    ///
+    /// 通话页开着时由页面自己显示并念一次；页面不在时，**过了 2 分钟的不进横幅、不念**（#448）——
+    /// 离线 10 分钟后重连补读来的「跑者正在打给你」会让人以为跑者此刻在打电话。
+    /// 时效判据与通话页同一条（`IntroCallCopy.incomingCallDisplayUntil`）；时刻解不出时按「刚刚」算（与通话页一致）。
+    private func routeIntroCallIncoming(sentAt raw: String?) -> Bool {
+        let sentAt = raw?.nilIfBlank?.backendTimestamp ?? now()
+        introCallIncomingSubject.send(sentAt)
+        return isIntroCallPageShowingIncomingCalls || IntroCallCopy.incomingCallDisplayUntil(sentAt: sentAt, now: now()) == nil
     }
 
     /// 邀请类事件：新邀请进队，撤回从队里移走同一张。从 `route` 分出来，那个 switch 只许变短。
