@@ -178,6 +178,9 @@ struct VolunteerInviteSheet: View {
 
             pageDots
         }
+        // 挂了翻页动作 ⇒ 审计把这一行当成可交互元素，要 44pt 高（#181 真机审计：只有一行字高，报 Hit area is too small）。
+        // 读屏用户摸索时也要摸得到它。多出来的高度放在字的上方，进度条与倒计时的间距不变。
+        .frame(minHeight: 44, alignment: .bottom)
         // 多张卡时给读屏一条**确定**能用的翻页路径。手势翻页对 VoiceOver 用户不可用：
         // 开了读屏之后单指拖动是「探索」，到不了下面那个 `DragGesture`。
         //
