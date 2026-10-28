@@ -70,7 +70,8 @@ final class InviteLockScreenLandingTests: XCTestCase {
 
     /// 按下之后的那次对账里没有它 ⇒ 已失效，告诉他。他按了，不能没有回应。
     func testLockScreenActionForAGoneInviteSaysItIsInvalid() async {
-        let (_, appState, _, speech) = InviteLockScreenFixture.makeHome()
+        // view model 必须攥住：它对锁屏操作的订阅是 `[weak self]`，丢掉它就没人处理，断言什么都验不到（10-28 真机红）。
+        let (viewModel, appState, _, speech) = InviteLockScreenFixture.makeHome()
         let coordinator = appState.realtimeCoordinator
         coordinator.requestLockScreenInviteAction(.init(
             action: .accept, invite: InviteIdentity(orderId: 31, inviteId: nil, expiresAt: Date().addingTimeInterval(600))
@@ -80,11 +81,13 @@ final class InviteLockScreenLandingTests: XCTestCase {
         await InviteLockScreenFixture.waitUntil { coordinator.lockScreenInviteAction == nil }
 
         XCTAssertEqual(speech.lastSpokenText, "这个邀请已失效，不需要再回复了")
+        withExtendedLifetime(viewModel) {}
     }
 
     /// 按下**之前**发出、之后才回来的旧快照里没有它，不能据此判失效：那张可能还在（复核 A：时间闸）。
     func testAnOlderSnapshotDoesNotInvalidateTheLockScreenAction() async {
-        let (_, appState, _, speech) = InviteLockScreenFixture.makeHome()
+        // view model 必须攥住：它对锁屏操作的订阅是 `[weak self]`，丢掉它就没人处理，断言什么都验不到（10-28 真机红）。
+        let (viewModel, appState, _, speech) = InviteLockScreenFixture.makeHome()
         let coordinator = appState.realtimeCoordinator
         coordinator.requestLockScreenInviteAction(.init(
             action: .accept, invite: InviteIdentity(orderId: 33, inviteId: nil, expiresAt: Date().addingTimeInterval(600))
@@ -95,11 +98,18 @@ final class InviteLockScreenLandingTests: XCTestCase {
 
         XCTAssertNotNil(coordinator.lockScreenInviteAction)
         XCTAssertNotEqual(speech.lastSpokenText, "这个邀请已失效，不需要再回复了")
+
+        // 对照：按下之后的快照里没有它才判失效 —— 证明上面不是因为没人处理才「没判」。
+        coordinator.reconcilePendingInvites([], requestedAt: Date())
+        await InviteLockScreenFixture.waitUntil { coordinator.lockScreenInviteAction == nil }
+        XCTAssertEqual(speech.lastSpokenText, "这个邀请已失效，不需要再回复了")
+        withExtendedLifetime(viewModel) {}
     }
 
     /// 邀请期限已过：不等对账，直接告诉他。
     func testLockScreenActionForAnExpiredInviteSaysItIsInvalid() async {
-        let (_, appState, _, speech) = InviteLockScreenFixture.makeHome()
+        // view model 必须攥住：它对锁屏操作的订阅是 `[weak self]`，丢掉它就没人处理，断言什么都验不到（10-28 真机红）。
+        let (viewModel, appState, _, speech) = InviteLockScreenFixture.makeHome()
         let coordinator = appState.realtimeCoordinator
         coordinator.requestLockScreenInviteAction(.init(
             action: .decline, invite: InviteIdentity(orderId: 32, inviteId: nil, expiresAt: Date().addingTimeInterval(-1))
@@ -107,6 +117,7 @@ final class InviteLockScreenLandingTests: XCTestCase {
         await InviteLockScreenFixture.waitUntil { coordinator.lockScreenInviteAction == nil }
 
         XCTAssertEqual(speech.lastSpokenText, "这个邀请已失效，不需要再回复了")
+        withExtendedLifetime(viewModel) {}
     }
 
     /// 按下时是另一个账号（同一台手机换了人登录）：丢掉，不替这个账号回复（复核 B）。

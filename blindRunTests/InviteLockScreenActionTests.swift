@@ -112,23 +112,31 @@ final class InviteLockScreenActionTests: XCTestCase {
         )
     }
 
+    /// 撤回只收**队列里那一张**的通知（带它的期限）；队列里没有的撤回不收 —— 不知道期限，按单号收会把同单新邀请那条一起收掉，
+    /// 留给下一次对账（`withdrawDispatch` 的注释）。回复（`clearDispatch`）收这一单的全部；对账收快照里没有的。
     func testCoordinatorPrunesOnWithdrawReplyAndReconcile() async {
         let (viewModel, appState, service, _) = InviteLockScreenFixture.makeHome()
-        _ = viewModel
+        let coordinator = appState.realtimeCoordinator
         var prunes: [InviteNotificationPrune] = []
-        appState.realtimeCoordinator.pruneDeliveredInviteNotifications = { prunes.append($0) }
+        coordinator.pruneDeliveredInviteNotifications = { prunes.append($0) }
+        service.simulateIncomingEventForTesting(.newOrder(InviteLockScreenFixture.dispatch(orderId: 7, inviteId: 71)))
+        await InviteLockScreenFixture.waitUntil { coordinator.pendingDispatches.contains { $0.order.orderId == 7 } }
+        let queuedExpiry = coordinator.pendingDispatches.first { $0.order.orderId == 7 }?.expiresAt
+        XCTAssertNotNil(queuedExpiry, "前提：单 7 进了队列、带期限")
 
+        service.simulateIncomingEventForTesting(.inviteWithdrawn(WSInviteWithdrawn(orderId: 10, inviteId: 101, reason: "TAKEN")))
         service.simulateIncomingEventForTesting(.inviteWithdrawn(WSInviteWithdrawn(orderId: 7, inviteId: 71, reason: "TAKEN")))
         await InviteLockScreenFixture.waitUntil { !prunes.isEmpty }
-        appState.realtimeCoordinator.clearDispatch(orderID: 8)
+        coordinator.clearDispatch(orderID: 8)
         let requestedAt = Date()
-        appState.realtimeCoordinator.reconcilePendingInvites([InviteLockScreenFixture.dispatch(orderId: 9, inviteId: 91)], requestedAt: requestedAt)
+        coordinator.reconcilePendingInvites([InviteLockScreenFixture.dispatch(orderId: 9, inviteId: 91)], requestedAt: requestedAt)
 
         XCTAssertEqual(prunes, [
-            .invites([InviteIdentity(orderId: 7, inviteId: 71, expiresAt: nil)]),
+            .invites([InviteIdentity(orderId: 7, inviteId: 71, expiresAt: queuedExpiry)]),
             .invites([InviteIdentity(orderId: 8, inviteId: nil, expiresAt: nil)]),
             .allExcept([9], deliveredBefore: requestedAt),
-        ])
+        ], "单 10 不在队列里，它的撤回不该收任何通知")
+        withExtendedLifetime(viewModel) {}
     }
 
     // MARK: - 连续拒绝：后端计数（SPEC D11）
