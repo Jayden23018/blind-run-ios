@@ -16,19 +16,30 @@ struct LocatedCoordinate: Sendable, Equatable {
     /// 契约要求拿不到就不传，不能传 0。
     let horizontalAccuracy: Double?
     let speed: Double?
+    /// 这份样本从哪来。**只有 `.device` 能发往真实云端**（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
+    let source: Source
+
+    /// `.uiTestSeam` 只由 UI 测试定位接缝产出（`EmergencyCoordinator.uiTestEmergencySample`，#500，仅 DEBUG），
+    /// 云端求助在客户端不是 Mock 时硬性拒绝它（`EmergencyCoordinator.trigger`）。
+    enum Source: Sendable, Equatable {
+        case device
+        case uiTestSeam
+    }
 
     init(
         coordinate: CLLocationCoordinate2D,
         system: CoordinateSystem,
         capturedAt: Date = Date(),
         horizontalAccuracy: Double? = nil,
-        speed: Double? = nil
+        speed: Double? = nil,
+        source: Source = .device
     ) {
         self.coordinate = coordinate
         self.system = system
         self.capturedAt = capturedAt
         self.horizontalAccuracy = horizontalAccuracy.flatMap { $0 >= 0 ? $0 : nil }
         self.speed = speed.flatMap { $0 >= 0 ? $0 : nil }
+        self.source = source
     }
 
     var isValid: Bool {
@@ -54,7 +65,8 @@ enum BackendCoordinateNormalizer {
                 system: .gcj02Backend,
                 capturedAt: sample.capturedAt,
                 horizontalAccuracy: sample.horizontalAccuracy,
-                speed: sample.speed
+                speed: sample.speed,
+                source: sample.source
             )
         }
     }

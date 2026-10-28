@@ -14,6 +14,14 @@ extension EmergencyCoordinator {
         var isFailure: Bool { state.isFailure }
     }
 
+    /// 这次求助是不是发往 Mock（进程内的假后端，不发网络请求）。测试来源的坐标只许走这一条（#500）。
+    ///
+    /// 只认「`SafetyService` 包着 `MockAPIClient`」这一种形状，别的实现（包括单测的替身）一律按真实后端算：
+    /// 判错的代价不对称 —— 判成「不是 Mock」最多让一条 UI 用例走不通，判成「是 Mock」就是测试坐标出了门。
+    static func isMockBacked(_ safety: any SafetyServing) -> Bool {
+        (safety as? SafetyService)?.transport is MockAPIClient
+    }
+
     /// Sends one SOS for an owned `IN_PROGRESS` order.
     ///
     /// - Parameter locate: supplies the freshest **real** device sample, already normalized to
@@ -55,6 +63,13 @@ extension EmergencyCoordinator {
         // 等定位这几秒里会话可能已经结束（`reset()` 取消了倒计时任务）：那就一个字节都别发，
         // 否则上一个账号的求助会带着新账号的 token 出去。
         guard !Task.isCancelled else { return finish(.idle) }
+
+        // 🔴 测试来源的样本（UI 测试定位接缝，#500）只许发给 Mock（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
+        // 排在「没坐标照样发」那条降级之前，且不走它：测试样本出现在真实客户端上，说明接缝漏进了真实运行，
+        // 此时连「不带坐标的求助」也不该发 —— 发出去的是一条用户从没按过的求助。
+        if let coordinate, coordinate.source != .device, !Self.isMockBacked(safety) {
+            return finish(.unsentNoLocation(nil))
+        }
 
         guard let coordinate, coordinate.system == .gcj02Backend else {
             guard Self.allowsSubmissionWithoutLocation else {
