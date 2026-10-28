@@ -1476,7 +1476,7 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     @MainActor
-    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+    func attachScreenshot(_ app: XCUIApplication, name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
@@ -2851,7 +2851,7 @@ final class AccessibilityAuditTests: XCTestCase {
     ///   （例 `"IN_PROGRESS"`）。要验服务进行中的页面时用它，别去点订单页底部那三个 mock 按钮 ——
     ///   那要先滚到最底、连点三次，慢且是误触的温床。只在 `emptyOrders: false` 时有意义。
     @MainActor
-    private func launchBlindHome(
+    func launchBlindHome(
         forcingVoiceStage: Bool = false,
         emptyOrders: Bool = true,
         forcingFirstRunHelp: Bool = false,
