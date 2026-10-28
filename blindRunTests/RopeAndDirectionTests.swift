@@ -147,6 +147,25 @@ final class RopeAndDirectionTests: XCTestCase {
         XCTAssertEqual(RopeState.stepTitles(perspective: .volunteer), ["邀请", "约好", "出发", "汇合"])
     }
 
+    /// 盲人通话页 B2「等待见面安排」：电话的位置换成灰色单子，读屏也说「等待见面安排」（视觉稿 v2 决定 2，#446）。
+    /// #434 时单子图标还没有，B2 用的是 `.afterCall`（什么都不挂、读屏说「先通个电话」）—— 那样这条会红。
+    @MainActor
+    func testBlindIntroCallHangsTheGreySheetOnlyWhileWaitingForThePlan() {
+        let waiting = RopeGeometry.make(for: .introCall(IntroCallRunnerStep.awaitingPlan.blindRopeStage))
+        XCTAssertEqual(waiting.planSheet, .pending)
+        XCTAssertFalse(waiting.showsPhone)
+        XCTAssertFalse(waiting.showsSelfCheck, "单子还没来，「我」还没表态")
+        XCTAssertEqual(
+            RopeState.introCall(IntroCallRunnerStep.awaitingPlan.blindRopeStage).accessibilityLabel(perspective: .runner),
+            "第 1 步，共 4 步，匹配中，等待见面安排。接下来：约好、出发、汇合"
+        )
+
+        let beforeCall = RopeGeometry.make(for: .introCall(IntroCallRunnerStep.awaitingCall.blindRopeStage))
+        XCTAssertTrue(beforeCall.showsPhone)
+        XCTAssertNil(beforeCall.planSheet)
+        XCTAssertTrue(RopeGeometry.make(for: .introCall(IntroCallRunnerStep.confirmed.blindRopeStage)).showsSelfCheck)
+    }
+
     // MARK: - 方位
 
     func testSectorBoundariesBelongWhereTheSpecPutsThemOnBothSides() {

@@ -81,7 +81,7 @@ struct BlindIntroCallView: View {
     @AccessibilityFocusState private var titleFocused: Bool
 
     /// B3 两枚大按钮的高度（视觉稿决定 3：「确认」与「有异议」同样高，避免让人觉得被迫同意）。
-    /// 现有 `FlowActionButton` 最高是 `.call` 的 80pt，而共用设计组件归 #433，所以这两枚在本文件里画。
+    /// `FlowActionButton` 按样式默认最高是 `.call` 的 80pt，这两枚显式传 84。
     static let planDecisionButtonMinHeight: CGFloat = 84
 
     var body: some View {
@@ -173,8 +173,8 @@ struct BlindIntroCallView: View {
                     .accessibilityIdentifier("blindIntroCallEyebrow")
             }
             RopeView(
-                // 绳子第一格上的小图标区分子状态：B1 电话；B2 不画电话（「单子」图标随 #433 加）。
-                state: .introCall(ropeStage),
+                // 绳子第一格上的小图标区分子状态：B1 电话；B2 灰色单子（视觉稿 v2 决定 2）。
+                state: .introCall(step.blindRopeStage),
                 theme: palette.ropeTheme,
                 volunteerInitial: counterpartInitial,
                 perspective: .runner
@@ -182,14 +182,6 @@ struct BlindIntroCallView: View {
             .frame(maxWidth: RopeGeometry.width * 1.2)
             .frame(maxWidth: .infinity)
             heroBody
-        }
-    }
-
-    private var ropeStage: IntroCallRopeStage {
-        switch step {
-        case .awaitingCall: return .beforeCall
-        case .awaitingPlan, .reviewingPlan: return .afterCall
-        case .confirmed: return .decided
         }
     }
 
@@ -409,24 +401,26 @@ struct BlindIntroCallView: View {
                 .accessibilityIdentifier("blindIntroCallConfirmFailedBanner")
             }
 
-            PlanDecisionButton(
-                title: IntroCallCopy.blindConfirmPlanButtonTitle,
+            FlowActionButton(
+                IntroCallCopy.blindConfirmPlanButtonTitle,
                 systemImage: "checkmark",
-                kind: .confirm,
+                style: .primary,
                 isEnabled: !viewModel.isPerformingAction && step == .reviewingPlan,
-                accessibilityHint: IntroCallCopy.blindConfirmPlanAccessibilityHint
+                accessibilityHint: IntroCallCopy.blindConfirmPlanAccessibilityHint,
+                minHeight: Self.planDecisionButtonMinHeight
             ) {
                 Task { await viewModel.confirmIntroCallPlan() }
             }
             .accessibilityIdentifier("blindIntroCallConfirmPlanButton")
 
             // 「有异议」直接拨号，安排单保留；陪跑员那边只会再收到一次「跑者正在给你打电话」。
-            PlanDecisionButton(
-                title: IntroCallCopy.blindDisputePlanButtonTitle,
+            FlowActionButton(
+                IntroCallCopy.blindDisputePlanButtonTitle,
                 systemImage: "phone.fill",
-                kind: .dispute,
+                style: .call,
                 isEnabled: !viewModel.isPerformingAction,
                 accessibilityHint: IntroCallCopy.callAccessibilityHint,
+                minHeight: Self.planDecisionButtonMinHeight,
                 action: dial
             )
             .accessibilityIdentifier("blindIntroCallDisputePlanButton")
@@ -545,62 +539,6 @@ struct BlindIntroCallView: View {
     }
 }
 
-// MARK: - B3 的两枚大按钮
-
-/// 「确认见面安排」（黄）与「有异议，致电沟通」（白底蓝框），**同为 84pt**。
-/// 外观逐项对齐 `FlowActionButton` 的 `.primary` / `.call`，只有高度不同（理由见 `planDecisionButtonMinHeight`）。
-private struct PlanDecisionButton: View {
-    enum Kind { case confirm, dispute }
-
-    let title: String
-    let systemImage: String?
-    let kind: Kind
-    let isEnabled: Bool
-    let accessibilityHint: String?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 20, weight: .semibold))
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .flowFont(FlowFonts.actionButton())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.center)
-            }
-            .foregroundColor(kind == .confirm ? AppColors.Flow.onCTA : AppColors.Flow.bluePressed)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            // 挂在 label 里面：挂在 Button 外面撑不大可点区（记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
-            .frame(minHeight: BlindIntroCallView.planDecisionButtonMinHeight)
-            .background(background)
-            .overlay(
-                RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
-                    .strokeBorder(kind == .confirm ? Color.clear : AppColors.Flow.accent, lineWidth: kind == .confirm ? 0 : 2)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(title)
-        .accessibilityHintIfPresent(accessibilityHint)
-        // 挂在 `.accessibilityElement(children: .ignore)` 之后，读屏才念「变暗」（`FlowActionButton.body` 里那段）。
-        .disabled(!isEnabled)
-    }
-
-    private var background: Color {
-        switch kind {
-        case .confirm: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
-        case .dispute: return AppColors.Flow.surface
-        }
-    }
-}
-
 /// B3 每一行的 identifier。字面量分支的理由同 `OrderFlowBottomActions.Owner`（`stale-ui-test-identifier` 只认字面量）。
 private struct PlanRowIdentifier: ViewModifier {
     let kind: BlindMeetupPlanRow.Kind
@@ -612,6 +550,19 @@ private struct PlanRowIdentifier: ViewModifier {
         case .meetSpot: content.accessibilityIdentifier("blindIntroCallPlanRowMeetSpot")
         case .colors: content.accessibilityIdentifier("blindIntroCallPlanRowColors")
         case .greeting: content.accessibilityIdentifier("blindIntroCallPlanRowGreeting")
+        }
+    }
+}
+
+extension IntroCallRunnerStep {
+    /// 盲人通话页绳子第一格挂什么：B1 电话 → B2 灰色单子（单子还没来）→ 确认后「我」头像打勾。
+    /// B3 正常不画绳子（视觉稿 v2 决定 2：改成大标题），这里的 `.afterCall` 只给安排单拉不全时那张兜底头卡。
+    var blindRopeStage: IntroCallRopeStage {
+        switch self {
+        case .awaitingCall: return .beforeCall
+        case .awaitingPlan: return .awaitingPlan
+        case .reviewingPlan: return .afterCall
+        case .confirmed: return .decided
         }
     }
 }

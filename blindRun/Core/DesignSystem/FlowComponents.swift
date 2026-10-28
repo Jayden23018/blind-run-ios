@@ -330,6 +330,8 @@ struct FlowActionButton: View {
     let isEnabled: Bool
     let accessibilityLabel: String?
     let accessibilityHint: String?
+    /// 最小高度。`nil` 按样式取（`.call` 80pt，其余 64pt）；盲人端 B3 两枚决定按钮传 84（#446）。
+    let minHeight: CGFloat?
     let action: () -> Void
 
     init(
@@ -340,6 +342,7 @@ struct FlowActionButton: View {
         isEnabled: Bool = true,
         accessibilityLabel: String? = nil,
         accessibilityHint: String? = nil,
+        minHeight: CGFloat? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -349,6 +352,7 @@ struct FlowActionButton: View {
         self.isEnabled = isEnabled
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityHint = accessibilityHint
+        self.minHeight = minHeight
         self.action = action
     }
 
@@ -410,7 +414,7 @@ struct FlowActionButton: View {
             // 文字放大后靠内容的固有高度顶开；64 只是下限，不是固定值。
             .padding(.vertical, 10)
             // 挂在 label 里面：挂在 Button 外面撑不大可点区（记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
-            .frame(minHeight: style == .call ? FlowMetrics.callButtonMinHeight : FlowMetrics.actionButtonMinHeight)
+            .frame(minHeight: minHeight ?? (style == .call ? FlowMetrics.callButtonMinHeight : FlowMetrics.actionButtonMinHeight))
             .background(background)
             .overlay(
                 RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
@@ -459,20 +463,6 @@ struct FlowActionButton: View {
         case .ghost, .outlined: return AppColors.Flow.ghostStroke
         case .call: return AppColors.Flow.accent
         }
-    }
-}
-
-/// 按下缩放。`scale == 1` 时与 `.plain` 等价 —— 盲人端三种样式走这条路径，外观不变。
-///
-/// 「减弱动态效果」打开时不缩放：缩放是位移类动效，03 §四要求降级。
-struct FlowPressScaleStyle: ButtonStyle {
-    let scale: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
