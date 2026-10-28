@@ -30,6 +30,19 @@ const EMERGENCY_STATE_WRITE =
   /\bemergencyCoordinator\s*\??\.\s*(state|activeEvent)\b(\s*\??\.\s*\w+)*\s*(=(?!=)|\+=|-=)|\b(emergencyCoordinator|coordinator)\s*\??\.\s*((submittedLocationAccuracyMeters|mergedRetriggerCount|volunteerAlert|countdownTask|countdownAnnouncer|isWithdrawing)\b(\s*\??\.\s*\w+)*\s*(=(?!=)|\+=|-=)|(finish|outcome|locationNote|startServerCountdown)\s*\()/;
 const BARE_COORDINATOR_STATE_WRITE = /\bcoordinator\s*\??\.\s*(state|activeEvent)\b(\s*\??\.\s*\w+)*\s*(=(?!=)|\+=|-=)/;
 
+// `unannotated-async-closure` 的两半：存储属性（行首锚定）与函数 / init 参数（#550）。
+// 共用的尾巴：冒号之后、函数类型之前只许出现不改变隔离的修饰（`@escaping` / `@Sendable` / `@autoclosure` /
+// `sending` / `inout` / `consuming` / `borrowing`），以及显式的 `nonisolated(nonsending)` ——
+// 后者和不写是同一个类型，`-emit-silgen` 里传 MainActor 函数值进去照样生成 `Builtin.ImplicitActor` thunk（#592 审查），
+// 所以同样算没标。写了 `@MainActor` 或 `@concurrent` 就不匹配。
+const ASYNC_FN_TYPE_AFTER_COLON =
+  String.raw`\s*:\s*(?:@escaping\s+|@Sendable\s+|@autoclosure\s+|nonisolated\(nonsending\)\s+|sending\s+|inout\s+|consuming\s+|borrowing\s+)*\(?\s*(?:@Sendable\s+|nonisolated\(nonsending\)\s+)*\((?:[^()]|\([^()]*\))*\)\s*async\b`;
+const UNANNOTATED_ASYNC_STORED = new RegExp(
+  String.raw`^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|internal|public|open)(?:\(set\))?\s+|static\s+|lazy\s+|nonisolated\s+)*(?:let|var)\s+\w+` +
+    ASYNC_FN_TYPE_AFTER_COLON
+);
+const UNANNOTATED_ASYNC_PARAM = new RegExp(String.raw`(?:^|[(,])\s*(?:\x60?\w+\x60?\s+)?\x60?\w+\x60?` + ASYNC_FN_TYPE_AFTER_COLON);
+
 const rules = {
   'legacy-status': {
     // AGENTS.md 第 5 节：禁用的遗留订单词汇
@@ -224,11 +237,26 @@ const rules = {
     // 点提交即 `EXC_BAD_ACCESS`。单测直调 view model 全绿，只有「经闭包调用」才走到那层 thunk。
     // #451 把同写法的其余 9 处全部标成 `@MainActor`，这一条拦新写的。
     //
-    // 只认 `let/var 名字: (…) async` 这一种形状（含外面包一层 `(…)?` 的可选闭包，括号里可带 `@Sendable`）；
-    // 写成 `@MainActor (…) async` 时冒号后第一个属性不是 `@escaping` / `@Sendable`，不会匹配。
-    pattern:
-      /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|internal|public|open)(?:\(set\))?\s+|static\s+|lazy\s+|nonisolated\s+)*(?:let|var)\s+\w+\s*:\s*(?:@escaping\s+|@Sendable\s+)*\(?\s*(?:@Sendable\s+)*\((?:[^()]|\([^()]*\))*\)\s*async\b/,
-    why: '存储型 async 闭包要显式标隔离：写成 `@MainActor (…) async -> …`，init 参数同样写 `@escaping @MainActor (…) async -> …`（#449 / #451）。不标的话它默认是 `nonisolated(nonsending)`，调用方传进来的 MainActor 闭包要经一层转换 thunk，真机上参数会在到达服务层前被释放（`EXC_BAD_ACCESS`，单测直调抓不到）。配一条「造出视图 → 调它存的闭包」的用例。确实需要非 MainActor 的闭包，行尾加 `// guard:allow unannotated-async-closure` 并写明为什么。',
+    // 认两种形状：`let/var 名字: (…) async`（含外面包一层 `(…)?` 的可选闭包，括号里可带 `@Sendable`），
+    // 以及函数 / init 参数 `标签 名字: (…) async`（#550）。写成 `@MainActor (…) async` 时冒号后第一个属性
+    // 不是 `@escaping` / `@Sendable`，不会匹配。
+    //
+    // #550 把参数也纳入：转换 thunk 在「把 MainActor 闭包传给没标隔离的参数」那一刻就生成，存不存起来只决定何时调用。
+    // 参数这一形状在真机上会不会崩没有直接证据，统一要求显式标注，不赌。当时全仓 18 处：MainActor 类型里的
+    // 标 `@MainActor`；在 detached task / task group / `async let` 里调的超时、竞速辅助函数标 `@concurrent`
+    // （它们本来就不在调用方的执行器上跑；以后有人传 MainActor 方法引用进来，走的是普通的跳 actor，
+    // 不是 #449 那种 `Builtin.ImplicitActor` thunk）。显式写 `nonisolated(nonsending)` 不算标：同一个类型、同一个 thunk。
+    //
+    // 参数那半不锚行首，行尾注释、字符串里的示例会误中，所以 `check` 先把字符串字面量清空、再去掉 `//` 之后的部分判一次
+    // （先清字符串：`url: String = "https://…", op: () async` 这种写法按 `//` 一刀切会把后面的参数一起切掉）。
+    // ponytail: 只认「标签: 函数类型」写在同一行；typealias 出来的 async 函数类型、返回值位置的函数类型、
+    // 容器或泛型实参里的函数类型（`[() async -> Void]`）、参数列表括号嵌套超过两层、多行字符串里的内容都不管，真出现了再加。
+    pattern: new RegExp(`${UNANNOTATED_ASYNC_STORED.source}|${UNANNOTATED_ASYNC_PARAM.source}`),
+    check: (line) => {
+      const code = line.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/\/\/.*$/, '');
+      return UNANNOTATED_ASYNC_STORED.test(code) || UNANNOTATED_ASYNC_PARAM.test(code);
+    },
+    why: 'async 函数类型（存储属性、函数 / init 参数）要显式标隔离（#449 / #451 / #550）。MainActor 代码里写 `@MainActor (…) async -> …`，参数写 `@escaping @MainActor (…) async -> …`。有意不在 MainActor 上跑的（在 detached task / task group / `async let` 里调的超时、竞速辅助函数）写 `@escaping @concurrent @Sendable (…) async -> …`。显式写 `nonisolated(nonsending)` 不算标：它和不写是同一个类型、同一个 thunk。不标的话它默认是 `nonisolated(nonsending)`，调用方传进来的 MainActor 闭包要经一层转换 thunk，真机上参数会在到达服务层前被释放（`EXC_BAD_ACCESS`，单测直调抓不到）。配一条「经闭包调用」的用例。确实不该标，行尾加 `// guard:allow unannotated-async-closure` 并写明为什么。',
   },
 };
 

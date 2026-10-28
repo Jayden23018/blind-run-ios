@@ -410,7 +410,7 @@ struct RunRecordHistoryView: View {
         }
     }
 
-    private func monthSwitchRow(title: String, identifier: String, action: @escaping () async -> Void) -> some View {
+    private func monthSwitchRow(title: String, identifier: String, action: @escaping @MainActor () async -> Void) -> some View {
         Button {
             Task { await action() }
         } label: {

@@ -1292,7 +1292,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     nonisolated private static func fetchResult<Value: Sendable>(
-        operation: @escaping @Sendable () async throws -> Value
+        operation: @escaping @concurrent @Sendable () async throws -> Value
     ) async -> Result<Value, Error> {
         do { return .success(try await operation()) }
         catch { return .failure(error) }
@@ -1354,7 +1354,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     private func submitScheduled(
         orderID: Int64,
         successSpeech: String,
-        operation: @escaping (any OrderServing) async throws -> String?
+        operation: @escaping @MainActor (any OrderServing) async throws -> String?
     ) async -> Bool {
         guard submittingScheduledOrderID == nil, let appState else { return false }
         submittingScheduledOrderID = orderID

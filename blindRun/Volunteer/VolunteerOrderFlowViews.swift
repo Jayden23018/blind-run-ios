@@ -286,7 +286,7 @@ private extension RunOrderStatus {
 
 private func withVolunteerOrderActionDeadline<T: Sendable>(
     nanoseconds: UInt64,
-    operation: @escaping @Sendable () async throws -> T
+    operation: @escaping @concurrent @Sendable () async throws -> T
 ) async throws -> T {
     do {
         return try await HomeLoadCoordinator.run(
@@ -530,7 +530,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         target: RunOrderStatus,
         orderID: Int64,
         appState: AppState,
-        operation: @escaping @Sendable () async throws -> Void
+        operation: @escaping @concurrent @Sendable () async throws -> Void
     ) async {
         guard !isPerformingAction else { return }
         if transitionState.blocksDuplicateSubmission {
@@ -1517,7 +1517,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 代被陪同的盲人发起求助。与盲人侧同一条路径、同一个 GPS 严格门槛（拿不到真实定位就不发），
     /// 区别只在后端把事件挂在订单的盲人身上、并用 `VOLUNTEER_BUTTON` 标注来源。
     func enterEmergency(
-        locate: @escaping () async -> LocatedCoordinate?,
+        locate: @escaping @MainActor () async -> LocatedCoordinate?,
         locationFailureReason: @escaping () -> LocationError? = { nil }
     ) async {
         guard let order, let appState else { return }
@@ -1565,7 +1565,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         orderID: Int64,
         appState: AppState,
         statusConflictMessage: String? = nil,
-        operation: @escaping @Sendable () async throws -> Void
+        operation: @escaping @concurrent @Sendable () async throws -> Void
     ) async {
         guard !isPerformingAction else { return }
         if transitionState.blocksDuplicateSubmission {

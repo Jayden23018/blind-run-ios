@@ -209,7 +209,7 @@ final class PendingSessionRevoker {
     }
 
     /// 后端回 200 但响应体对不上时，请求本身已经生效。
-    private static func ignoringDecodingFailure(_ body: () async throws -> Void) async throws {
+    private static func ignoringDecodingFailure(_ body: @MainActor () async throws -> Void) async throws {
         do {
             try await body()
         } catch APIError.decodingError {
