@@ -917,6 +917,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published private(set) var blindStats: TrackStats?
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
     @Published private(set) var isAcknowledgingEmergency = false
+    /// 云端求助确定一个字节都没发出去时打开，页面据此弹只列 120 / 110 的本地拨号兜底（#407 第 1 项）。
+    @Published var offersLocalCallAfterUnsentSOS = false
     /// 按下「开始跑步」后后端答 409 `BLIND_CONFIRMATION_PENDING`（盲人还没点头，后端 #307 ①）。
     /// 页面据此把按钮上方小字换成「等待对方确认」；**按钮不置灰**，对方随时可能点。
     /// 收到 WS `BLIND_START_CONFIRMED`、或订单离开 `DRIVER_ARRIVED` 时清除。
@@ -1516,12 +1518,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     /// 代被陪同的盲人发起求助。与盲人侧同一条路径、同一个 GPS 严格门槛（拿不到真实定位就不发），
     /// 区别只在后端把事件挂在订单的盲人身上、并用 `VOLUNTEER_BUTTON` 标注来源。
-    /// 返回结果给页面判本地拨号兜底（#407 第 1 项）；订单或 `appState` 不在时返回 nil。
     func enterEmergency(
         locate: @escaping @MainActor () async -> LocatedCoordinate?,
         locationFailureReason: @escaping () -> LocationError? = { nil }
-    ) async -> EmergencyCoordinator.TriggerOutcome? {
-        guard let order, let appState else { return nil }
+    ) async {
+        guard let order, let appState else { return }
         let outcome = await appState.emergencyCoordinator.trigger(
             order: order,
             role: appState.activeRole,
@@ -1535,7 +1536,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
         } else {
             speechService?.speak(outcome.message)
         }
-        return outcome
+        // 确定一个字节都没发：弹本地拨号兜底（#407 第 1 项）。先等确认框 / 求助面板收起 —— 立刻失败（没同意共享位置、
+        // 登录过期）时同一拍里又弹一个对话框，iOS 16 会丢掉其中一个，只剩播报。
+        guard outcome.state.isDefinitelyUnsent else { return }
+        try? await Task.sleep(nanoseconds: VolunteerInServiceView.sheetDismissalDelayNanoseconds)
+        offersLocalCallAfterUnsentSOS = true
     }
 
     /// 对被陪同者的求助回一句「确认需要帮助」。这是志愿者唯一能做的响应。
@@ -1896,11 +1901,10 @@ struct VolunteerInServiceView: View {
     @State private var didBuzzWithin10 = false
     /// 兜底页右上的求助（只会是本地拨号，见 `fallbackContent`）。
     @State private var showsLocalHelp = false
-    @State private var showsUnsentLocalCall = false // 云端求助确定没发出去后的本地拨号（#407 第 1 项）
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
     /// 收起面板的动画时长（系统 sheet 约 0.35 秒）。等它收完再出栈，见 `didLoseOrder` 那条。
-    private static let sheetDismissalDelayNanoseconds: UInt64 = 400_000_000
+    static let sheetDismissalDelayNanoseconds: UInt64 = 400_000_000
 
     private struct MeetCue: Equatable {
         let bucket: DistanceBucket
@@ -2014,9 +2018,11 @@ struct VolunteerInServiceView: View {
         .onChange(of: viewModel.didLoseOrder) { lost in
             guard lost else { return }
             let hadPresentation = activeSheet != nil || showsLocalHelp || showEmergencyConfirm
+                || viewModel.offersLocalCallAfterUnsentSOS
             activeSheet = nil
             showsLocalHelp = false
             showEmergencyConfirm = false
+            viewModel.offersLocalCallAfterUnsentSOS = false
             guard hadPresentation else {
                 dismiss()
                 return
@@ -2041,7 +2047,9 @@ struct VolunteerInServiceView: View {
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
             Task { await sendCloudEmergency() }
         }
-        .emergencyCallOptionsDialog(isPresented: $showsUnsentLocalCall, context: .volunteerCloudUnsent, primaryContact: nil)
+        .emergencyCallOptionsDialog(
+            isPresented: $viewModel.offersLocalCallAfterUnsentSOS, context: .volunteerCloudUnsent, primaryContact: nil
+        )
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .navigation(let request):
@@ -2310,10 +2318,10 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    /// 两个云端求助入口共用。取坐标与跑者端同一道闸，精确位置关着先问一次临时精确位置；
-    /// 确定没发出去就弹本地拨号兜底（#407 第 1 项，原因已播报、也写在 `EmergencyStatusNotice`）。
+    /// 两个云端求助入口共用。取坐标与跑者端同一道闸，精确位置关着先问一次临时精确位置（#407 第 1 项）；
+    /// 确定没发出去时 view model 打开本地拨号兜底。
     private func sendCloudEmergency() async {
-        let outcome = await viewModel.enterEmergency(
+        await viewModel.enterEmergency(
             locate: { await EmergencyCoordinator.freshEmergencyCoordinateAskingForPrecision(
                 using: locationService, sharingBlocked: appState.isEmergencyLocationSharingBlocked
             ) },
@@ -2321,7 +2329,6 @@ struct VolunteerInServiceView: View {
                 using: locationService, sharingBlocked: appState.isEmergencyLocationSharingBlocked
             ) }
         )
-        if outcome?.state.isDefinitelyUnsent == true { showsUnsentLocalCall = true }
     }
 
     /// 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉

@@ -95,6 +95,80 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         XCTAssertFalse(context.appendsNoContactHint)
     }
 
+    // MARK: - 页面接线：确定没发出去才弹本地拨号（#542 审查 A）
+
+    /// 精确位置关着、没发出去：陪跑员页的 view model 打开本地拨号兜底（等过面板收起的 400 毫秒之后）。
+    func testUnsentEmergencyOffersTheLocalCallFallback() async throws {
+        let safety = FakeSafetyService()
+        let appState = AppState(safety: safety, orders: FakeOrderService())
+        appState.activeRole = .volunteer
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: EmergencySOSTests.makeOrder(status: .inProgress))
+
+        await viewModel.enterEmergency(locate: { nil }, locationFailureReason: { .preciseLocationOff })
+
+        XCTAssertTrue(safety.calls.isEmpty)
+        XCTAssertEqual(appState.emergencyCoordinator.state, .unsentNoLocation(.preciseLocationOff), "前提：确实没发出去")
+        XCTAssertTrue(viewModel.offersLocalCallAfterUnsentSOS, "没发出去却没弹本地拨号")
+    }
+
+    /// 网络异常：请求可能已经到了服务端（回程丢了），不能说「求助没有发出去」，所以不弹。
+    func testNetworkFailureDoesNotOfferTheLocalCallFallback() async throws {
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .failure(URLError(.networkConnectionLost))
+        let appState = AppState(safety: safety, orders: FakeOrderService())
+        appState.activeRole = .volunteer
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: EmergencySOSTests.makeOrder(status: .inProgress))
+        let sample = Self.locationService().latestBackendSample()
+
+        await viewModel.enterEmergency(locate: { sample })
+
+        XCTAssertEqual(safety.calls.first, "triggerEmergency(_:)", "前提：请求真的发出去了")
+        XCTAssertTrue(appState.emergencyCoordinator.state.isFailure)
+        XCTAssertFalse(viewModel.offersLocalCallAfterUnsentSOS)
+    }
+
+    // MARK: - 等定位期间会话变了（#542 审查）
+
+    /// 等的时候退出登录 / 换账号（`reset()`）：取不消那个任务，也一个字节都不能发 —— 否则旧订单的求助带着新会话的 token 出去。
+    func testSessionResetWhileLocatingSendsNothing() async {
+        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        defer { EmergencySOSTests.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "PENDING"))
+        let sample = Self.locationService().latestBackendSample()
+
+        _ = await coordinator.trigger(
+            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .volunteer, userID: 8, safety: safety,
+            locate: {
+                coordinator.reset()
+                return sample
+            }
+        )
+
+        XCTAssertNotNil(sample, "前提：坐标本身是好的")
+        XCTAssertTrue(safety.calls.isEmpty, "会话已经结束，求助还是发出去了")
+        XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    /// 等的时候登录过期：与开头那道同一个结论，不发、说「登录已过期」。
+    func testSessionExpiryWhileLocatingSendsNothing() async {
+        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let sample = Self.locationService().latestBackendSample()
+
+        let outcome = await coordinator.trigger(
+            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .volunteer, userID: 8, safety: safety,
+            locate: {
+                coordinator.blockCloudSOSForExpiredSession()
+                return sample
+            }
+        )
+
+        XCTAssertTrue(safety.calls.isEmpty)
+        XCTAssertEqual(outcome.state, .unsentSessionExpired)
+    }
+
     // MARK: - Fixture
 
     private func trigger(
