@@ -44,8 +44,16 @@ extension AppState {
             refreshToken: tokenRefresher.currentRefreshToken,
             deviceToken: deviceToken,
             needsLogout: needsLogout,
-            recordedAt: Date()
+            recordedAt: Date(),
+            userId: userId
         ))
+    }
+
+    /// 「仅退出本机」（会话校验失败、联不上服务端时的出口）：只清本地，服务端这次登录与推送绑定都还在，
+    /// 记进待撤记录，联网后补撤（#459）。不记的话 refresh 在服务端还能用 30 天，推送也一直绑着。
+    func signOutLocallyRecordingRevocation() {
+        recordUnfinishedRevocation(deviceToken: pushNotificationsManager?.boundDeviceToken, needsLogout: true)
+        clearSession()
     }
 
     /// 补撤用的 transport：用记录里的 access，**不带续期器**（续期器属于当前会话）。

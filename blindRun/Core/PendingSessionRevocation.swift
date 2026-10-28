@@ -21,6 +21,9 @@ struct PendingSessionRevocation: Codable, Equatable {
     /// 服务端登出还没成。
     var needsLogout: Bool
     let recordedAt: Date
+    /// 这次登录的账号。同一账号又登录了，推送 token 就属于新会话，补撤不许再解绑它。
+    /// 可选：旧版本写下的记录没有这一项。
+    var userId: Int64?
 
     var isFinished: Bool { deviceToken == nil && !needsLogout }
 }
@@ -36,7 +39,13 @@ final class PendingSessionRevocationStore {
 
     func read() -> [PendingSessionRevocation] {
         guard let json = storage.read(), let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([PendingSessionRevocation].self, from: data)) ?? []
+        do {
+            return try JSONDecoder().decode([PendingSessionRevocation].self, from: data)
+        } catch {
+            // 解不开就当没有，但要留痕：静默降级是本仓库反复出现的那类缺陷（记忆 silent-decode-degradation-bug-class）。
+            ClientFlowDiagnostics.record(event: "decode_failed", operation: "session-revocation-store")
+            return []
+        }
     }
 
     func save(_ items: [PendingSessionRevocation]) {
@@ -69,6 +78,10 @@ final class PendingSessionRevoker {
 
     private let store: PendingSessionRevocationStore
     private let transport: TransportFactory
+    /// 此刻登录着的账号（没人登录为 nil）。
+    private let currentUserID: @MainActor () -> Int64?
+    /// 解绑落地时同一账号已经又登录了：新会话那份绑定被删掉了，要让它重报。
+    private let onSameAccountUnbound: @MainActor () -> Void
     private let now: () -> Date
     private let monitorsNetwork: Bool
     private var inFlight: Task<Void, Never>?
@@ -78,11 +91,15 @@ final class PendingSessionRevoker {
     init(
         store: PendingSessionRevocationStore,
         transport: @escaping TransportFactory,
+        currentUserID: @escaping @MainActor () -> Int64? = { nil },
+        onSameAccountUnbound: @escaping @MainActor () -> Void = {},
         now: @escaping () -> Date = { Date() },
         monitorsNetwork: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     ) {
         self.store = store
         self.transport = transport
+        self.currentUserID = currentUserID
+        self.onSameAccountUnbound = onSameAccountUnbound
         self.now = now
         self.monitorsNetwork = monitorsNetwork
         if !store.read().isEmpty { startMonitoringNetwork() }
@@ -127,15 +144,17 @@ final class PendingSessionRevoker {
         }
     }
 
+    /// 每撤完一条就写回一次：一轮跑到一半被杀，已撤的不会重来，换到的新 access 也不会丢。
+    /// 按条替换而不是整表覆盖：这一轮跑着的时候可能又记了一条新的（又一次登出没联网）。
     private func drain() async {
-        let snapshot = store.read()
-        var remaining: [PendingSessionRevocation] = []
-        for item in snapshot where now().timeIntervalSince(item.recordedAt) < Self.retention {
-            if let left = await attempt(item) { remaining.append(left) }
+        for item in store.read() {
+            // `abs`：本机时钟被往回拨时，差值是负数，记录永远不会过期。
+            let left = abs(now().timeIntervalSince(item.recordedAt)) < Self.retention ? await attempt(item) : nil
+            var current = store.read()
+            guard let index = current.firstIndex(of: item) else { continue }
+            if let left { current[index] = left } else { current.remove(at: index) }
+            store.save(current)
         }
-        // 这一轮跑着的时候可能又记了一条新的（又一次登出没联网），不能被这一轮的结果覆盖掉。
-        let recordedMeanwhile = store.read().filter { !snapshot.contains($0) }
-        store.save(remaining + recordedMeanwhile)
         if store.read().isEmpty { stopMonitoringNetwork() }
     }
 
@@ -147,10 +166,7 @@ final class PendingSessionRevoker {
             guard let client = transport(item.accessToken) else { return item }
             let auth = AuthService(transport: client)
             do {
-                if let deviceToken = item.deviceToken {
-                    try await Self.ignoringDecodingFailure { try await auth.unregisterDeviceToken(deviceToken) }
-                    item.deviceToken = nil
-                }
+                try await unbindDeviceIfStillOld(&item, auth: auth)
                 if item.needsLogout {
                     try await Self.ignoringDecodingFailure { _ = try await auth.logout() }
                     item.needsLogout = false
@@ -173,6 +189,23 @@ final class PendingSessionRevoker {
                 return Self.isWorthRetrying(error) ? item : nil
             }
         }
+    }
+
+    /// 解绑记录里的推送 token。同一账号又登录了就不解：这个 token 现在是新会话的绑定，
+    /// 删了它推送就静默失效（契约：同一用户的 token 会被真删）。
+    private func unbindDeviceIfStillOld(_ item: inout PendingSessionRevocation, auth: AuthService) async throws {
+        guard let deviceToken = item.deviceToken else { return }
+        if !isSignedInAgain(as: item.userId) {
+            try await Self.ignoringDecodingFailure { try await auth.unregisterDeviceToken(deviceToken) }
+            // 请求在路上时同一账号登录了、新会话已经上报：刚才那一下删掉的就是新绑定，让它重报。
+            if isSignedInAgain(as: item.userId) { onSameAccountUnbound() }
+        }
+        item.deviceToken = nil
+    }
+
+    private func isSignedInAgain(as userId: Int64?) -> Bool {
+        guard let userId else { return false }
+        return currentUserID() == userId
     }
 
     /// 后端回 200 但响应体对不上时，请求本身已经生效。

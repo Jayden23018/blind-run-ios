@@ -16,8 +16,9 @@ final class PendingSessionRevocationTests: XCTestCase {
 
     /// 🔴 复现 #459：断网登出 → 解绑与登出都没成 → 本地会话照清，但要留下补撤的凭据。
     func testOfflineLogoutRecordsTheUnrevokedSessionBeforeClearingIt() async {
-        let client = ScriptedAuthClient(fail: [.unbind: .networkError(URLError(.notConnectedToInternet)),
-                                               .logout: .networkError(URLError(.notConnectedToInternet))])
+        let log = RequestLog()
+        let client = ScriptedAuthClient(log: log, fail: [.unbind: .networkError(URLError(.notConnectedToInternet)),
+                                                         .logout: .networkError(URLError(.notConnectedToInternet))])
         let (appState, push) = makeSignedInAppState(client: client)
 
         await appState.logout()
@@ -29,6 +30,35 @@ final class PendingSessionRevocationTests: XCTestCase {
         XCTAssertEqual(pending.first?.refreshToken, "old-refresh", "access 过期时只为撤销换一个")
         XCTAssertEqual(pending.first?.deviceToken, deviceToken)
         XCTAssertEqual(pending.first?.needsLogout, true)
+        XCTAssertEqual(pending.first?.userId, 7, "补撤要认得出同一账号又登录了")
+        withExtendedLifetime(push) {}
+    }
+
+    /// 🔴 解绑没成时不许登出：登出会作废这次登录的 JWT，之后补撤的解绑必然 401，推送绑定永远撤不掉（审查 A1）。
+    /// 参数选「解绑失败、登出本来会成功」—— 只有这个组合能区分「先登出」与「解绑没成就不登出」两种实现。
+    func testFailedUnbindKeepsTheSessionAliveSoTheRetryCanStillUnbind() async {
+        let log = RequestLog()
+        let client = ScriptedAuthClient(log: log, fail: [.unbind: .networkError(URLError(.timedOut))])
+        let (appState, push) = makeSignedInAppState(client: client)
+
+        await appState.logout()
+
+        XCTAssertFalse(log.calls.contains { $0.step == .logout }, "解绑没成就登出了：\(log.calls)")
+        XCTAssertEqual(appState.pendingSessionRevoker.pending.first?.deviceToken, deviceToken)
+        XCTAssertEqual(appState.pendingSessionRevoker.pending.first?.needsLogout, true)
+        withExtendedLifetime(push) {}
+    }
+
+    /// 「仅退出本机」（会话校验失败时的出口）也要记：服务端这次登录与推送绑定都还在。
+    func testLocalOnlySignOutRecordsTheSessionForRevocation() {
+        let (appState, push) = makeSignedInAppState(client: ScriptedAuthClient())
+
+        appState.signOutLocallyRecordingRevocation()
+
+        XCTAssertFalse(appState.isLoggedIn)
+        XCTAssertEqual(appState.pendingSessionRevoker.pending.first?.accessToken, "old-access")
+        XCTAssertEqual(appState.pendingSessionRevoker.pending.first?.deviceToken, deviceToken)
+        XCTAssertEqual(appState.pendingSessionRevoker.pending.first?.needsLogout, true)
         withExtendedLifetime(push) {}
     }
 
@@ -80,6 +110,56 @@ final class PendingSessionRevocationTests: XCTestCase {
             .init(step: .logout, accessToken: "old-access")
         ])
         XCTAssertTrue(revoker.pending.isEmpty)
+    }
+
+    /// 🔴 同一账号断网登出后又登录（安全复核 HIGH）：推送 token 已是新会话的绑定，补撤不许解绑它，只撤旧登录。
+    func testRetryDoesNotUnbindTheTokenAfterTheSameAccountSignedInAgain() async {
+        let log = RequestLog()
+        let revoker = PendingSessionRevoker(
+            store: PendingSessionRevocationStore(storage: InMemoryTokenStore()),
+            transport: { access in ScriptedAuthClient(accessToken: access, log: log) },
+            currentUserID: { 7 },
+            monitorsNetwork: false
+        )
+        revoker.record(pendingItem(userId: 7))
+
+        await revoker.retryIfPending()
+
+        XCTAssertEqual(log.calls, [.init(step: .logout, accessToken: "old-access")], "同一账号又登录了还去解绑")
+        XCTAssertTrue(revoker.pending.isEmpty)
+    }
+
+    /// 对照：换了别的账号登录，旧账号那份照常解绑（后端只删属于旧账号的那一行）。
+    func testRetryStillUnbindsWhenAnotherAccountSignedIn() async {
+        let log = RequestLog()
+        let revoker = PendingSessionRevoker(
+            store: PendingSessionRevocationStore(storage: InMemoryTokenStore()),
+            transport: { access in ScriptedAuthClient(accessToken: access, log: log) },
+            currentUserID: { 8 },
+            monitorsNetwork: false
+        )
+        revoker.record(pendingItem(userId: 7))
+
+        await revoker.retryIfPending()
+
+        XCTAssertEqual(log.calls.first, .init(step: .unbind, accessToken: "old-access"))
+    }
+
+    /// 补撤的三个触发里能在单测里驱动的两个：回前台（`refreshRegistrationIfReady`）、会话状态变化（回到登录页）。
+    /// 联网恢复（`NWPathMonitor`）只能真机断网验。
+    func testForegroundAndSessionChangeTriggerTheRetry() async {
+        let (appState, push) = makeSignedInAppState(client: ScriptedAuthClient())
+        appState.pendingSessionRevoker.record(pendingItem())
+
+        push.refreshRegistrationIfReady()
+        let drainedOnForeground = await waitUntil { appState.pendingSessionRevoker.pending.isEmpty }
+        XCTAssertTrue(drainedOnForeground, "回前台没有补撤")
+
+        appState.pendingSessionRevoker.record(pendingItem())
+        appState.clearSession()
+        let drainedOnSessionChange = await waitUntil { appState.pendingSessionRevoker.pending.isEmpty }
+        XCTAssertTrue(drainedOnSessionChange, "回到登录页没有补撤")
+        withExtendedLifetime(push) {}
     }
 
     /// 还没联网：记录留着，下次联网再撤；联网后撤完。
@@ -150,13 +230,17 @@ final class PendingSessionRevocationTests: XCTestCase {
         let appState = AppState(apiClient: ScriptedAuthClient(), persistence: AppStatePersistenceFactory.makeIsolatedTest())
         let push = PushNotificationsManager()
         var events: [String] = []
-        push.registrar = .init(register: { events.append("register") }, unregister: { events.append("unregister") })
+        push.registrar = .init(
+            register: { events.append("register") },
+            unregister: { events.append("unregister") },
+            clearDelivered: { events.append("clearDelivered") }
+        )
         push.configure(appState: appState, speechService: SpeechService())
 
         appState.handleLoginSuccess(response: LoginResponse(token: "t", userId: 3, role: "BLIND"))
         appState.clearSession()
 
-        XCTAssertEqual(events.suffix(2), ["register", "unregister"])
+        XCTAssertEqual(events.suffix(3), ["register", "unregister", "clearDelivered"], "会话结束要清掉通知中心里旧账号的通知")
         XCTAssertNil(PushNotificationsManager.wantsRemoteNotifications(.restoring), "恢复中还不知道会话在不在，不动")
     }
 
@@ -166,7 +250,33 @@ final class PendingSessionRevocationTests: XCTestCase {
         XCTAssertEqual(PushNotificationsManager.foregroundPresentation(isSignedIn: true), [.banner, .sound])
     }
 
+    /// 前台闸的朗读那一半：没人登录时不念，登录后照念（安全复核 / 审查 A2：此前只测了上屏的纯函数）。
+    func testPushIsSpokenOnlyWhileSomebodyIsSignedIn() async {
+        let appState = AppState(apiClient: ScriptedAuthClient(), persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        let speech = SpeechService()
+        let push = PushNotificationsManager()
+        push.registrar = .inert
+        push.configure(appState: appState, speechService: speech)
+        appState.clearSession()
+
+        await push.announce("上一个账号的求助消息", restorationWait: 0)
+        XCTAssertFalse(speech.spokenHistoryForTesting.contains("上一个账号的求助消息"), "没人登录时念出来了")
+
+        appState.handleLoginSuccess(response: LoginResponse(token: "t", userId: 9, role: "BLIND"))
+        await push.announce("本人的到达提醒", restorationWait: 0)
+        XCTAssertTrue(speech.spokenHistoryForTesting.contains("本人的到达提醒"))
+    }
+
     // MARK: - Helpers
+
+    private func waitUntil(timeout: TimeInterval = 2, _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return condition()
+    }
 
     /// `PushNotificationsManager` 由用例攥着：`AppState` 对它是 `weak`。
     private func makeSignedInAppState(client: ScriptedAuthClient) -> (AppState, PushNotificationsManager) {
@@ -190,13 +300,14 @@ final class PendingSessionRevocationTests: XCTestCase {
         )
     }
 
-    private func pendingItem(recordedAt: Date = Date()) -> PendingSessionRevocation {
+    private func pendingItem(recordedAt: Date = Date(), userId: Int64? = nil) -> PendingSessionRevocation {
         PendingSessionRevocation(
             accessToken: "old-access",
             refreshToken: "old-refresh",
             deviceToken: deviceToken,
             needsLogout: true,
-            recordedAt: recordedAt
+            recordedAt: recordedAt,
+            userId: userId
         )
     }
 }

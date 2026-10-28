@@ -106,7 +106,9 @@ final class AppState: ObservableObject {
     /// 退出登录时服务端没撤成的部分（解绑推送、登出），联网 / 回前台 / 下次登录前补撤（#459）。
     private(set) lazy var pendingSessionRevoker = PendingSessionRevoker(
         store: PendingSessionRevocationStore(storage: TokenStoreFactory.makeDefault(account: .pendingSessionRevocation)),
-        transport: { [weak self] accessToken in self?.revocationTransport(accessToken: accessToken) }
+        transport: { [weak self] accessToken in self?.revocationTransport(accessToken: accessToken) },
+        currentUserID: { [weak self] in self?.isLoggedIn == true ? self?.userId : nil },
+        onSameAccountUnbound: { [weak self] in self?.pushNotificationsManager?.reportTokenAgainAfterServerUnbind() }
     )
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
@@ -1012,7 +1014,8 @@ final class AppState: ObservableObject {
         // 并被前台朗读出来。后端契约把这条顺序写在 `unregisterApnsToken` 的 description 里。
         // 解绑失败不阻断登出：接口幂等、可安全重试。
         let stillBoundDeviceToken = await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
-        let serverLoggedOut = await logOutOnServer()
+        // 解绑没成就先不登出：登出会作废这次登录的 JWT，之后谁都解不了绑。两步都记下，补撤时按顺序来。
+        let serverLoggedOut = stillBoundDeviceToken == nil ? await logOutOnServer() : false
         // 没撤成的部分记进待撤记录，之后补撤（#459）。凭据要在下面清本地会话之前取。
         recordUnfinishedRevocation(deviceToken: stillBoundDeviceToken, needsLogout: !serverLoggedOut)
         performLocalSessionCleanup()

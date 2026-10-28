@@ -52,10 +52,13 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
     struct RemoteNotificationRegistrar {
         let register: @MainActor () -> Void
         let unregister: @MainActor () -> Void
+        /// 清掉通知中心里已经送达的通知。会话结束时调：留着的话，下一个人登录后点开，会念出上一个人的消息。
+        var clearDelivered: @MainActor () -> Void = {}
 
         static let system = RemoteNotificationRegistrar(
             register: { UIApplication.shared.registerForRemoteNotifications() },
-            unregister: { UIApplication.shared.unregisterForRemoteNotifications() }
+            unregister: { UIApplication.shared.unregisterForRemoteNotifications() },
+            clearDelivered: { UNUserNotificationCenter.current().removeAllDeliveredNotifications() }
         )
         static let inert = RemoteNotificationRegistrar(register: {}, unregister: {})
     }
@@ -76,7 +79,12 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
             .removeDuplicates()
             .sink { [weak self, weak appState] signedIn in
                 guard let self else { return }
-                signedIn ? self.registrar.register() : self.registrar.unregister()
+                if signedIn {
+                    self.registrar.register()
+                } else {
+                    self.registrar.unregister()
+                    self.registrar.clearDelivered()
+                }
                 // 回到登录页（下次登录前）与登录成功后各补撤一次没撤完的上一次登录。不等它：
                 // 两件事互不依赖（后端解绑只删属于旧账号的那一行，新账号上报会自己换绑）。
                 Task { await appState?.pendingSessionRevoker.retryIfPending() }
@@ -184,6 +192,17 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         }
     }
 
+    /// 本机此刻绑着（或等着上报）的推送 token。「仅退出本机」记待撤记录时用。
+    var boundDeviceToken: String? { lastReportedScope?.token ?? pendingToken }
+
+    /// 补撤的解绑落地时同一账号已经又登录了，新会话那份绑定被删掉了：忘掉「报过了」，重新注册并上报（#459）。
+    func reportTokenAgainAfterServerUnbind() {
+        let token = lastReportedScope?.token
+        forgetLocalTokenBinding()
+        if let token { submitToken(token) }
+        registrar.register()
+    }
+
     /// 忘掉「这个 token 已经报给这个账号了」。
     ///
     /// 每一条会话结束路径都要走（含 401 过期 —— 那条路上 token 已经废了，解绑必然 401，
@@ -240,11 +259,18 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         let content = notification.request.content
         let text = Self.speechText(userInfo: content.userInfo, fallbackBody: content.body)
         guard !text.isEmpty else { return }
-        Task { @MainActor in
-            // 没人登录时点开的通知也不念（#459），理由同 `willPresent`。
-            guard self.appState?.isLoggedIn == true else { return }
-            self.speechService?.speak(text)
+        Task { @MainActor in await self.announce(text) }
+    }
+
+    /// 朗读推送，**只在有人登录时**（#459）：没人登录时收到或点开的只可能是上一个账号的。
+    /// 冷启动点开通知时会话还在恢复，先等它恢复完再判，免得把本人的消息也吞掉（最多等 `restorationWait`）。
+    func announce(_ text: String, restorationWait: TimeInterval = 5) async {
+        let deadline = Date().addingTimeInterval(restorationWait)
+        while appState?.sessionRestorationState == .restoring, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
+        guard appState?.isLoggedIn == true else { return }
+        speechService?.speak(text)
     }
 
     /// 播报文案优先 `ttsText`（后端为盲人用户单独写的口播版本），退化到通知正文。
