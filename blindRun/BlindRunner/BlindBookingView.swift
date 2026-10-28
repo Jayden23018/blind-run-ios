@@ -733,7 +733,7 @@ final class BlindBookingViewModel: ObservableObject {
             return locationService.effectiveLocation
         }
         return BackendCoordinateNormalizer.normalize(
-            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
+            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device, source: .device)
         )?.coordinate ?? currentLocation
     }
 

@@ -8,7 +8,7 @@ final class LiveEscortTrackTests: XCTestCase {
         let sample = LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: 39.908823, longitude: 116.397470),
             system: .wgs84Device,
-            capturedAt: Date(timeIntervalSince1970: 100)
+            capturedAt: Date(timeIntervalSince1970: 100), source: .device
         )
         let normalized = try XCTUnwrap(BackendCoordinateNormalizer.normalize(sample))
         XCTAssertEqual(normalized.coordinate.latitude, 39.910226, accuracy: 0.00001)
@@ -20,7 +20,7 @@ final class LiveEscortTrackTests: XCTestCase {
     func testOverseasDeviceCoordinateIsNotShifted() throws {
         let paris = CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522)
         let normalized = try XCTUnwrap(BackendCoordinateNormalizer.normalize(
-            LocatedCoordinate(coordinate: paris, system: .wgs84Device)
+            LocatedCoordinate(coordinate: paris, system: .wgs84Device, source: .device)
         ))
         XCTAssertEqual(normalized.coordinate.latitude, paris.latitude, accuracy: 0.0000001)
         XCTAssertEqual(normalized.coordinate.longitude, paris.longitude, accuracy: 0.0000001)
@@ -29,7 +29,7 @@ final class LiveEscortTrackTests: XCTestCase {
     func testBackendGCJ02IsNeverConvertedTwice() throws {
         let gcj = CLLocationCoordinate2D(latitude: 39.910226, longitude: 116.403714)
         let normalized = try XCTUnwrap(BackendCoordinateNormalizer.normalize(
-            LocatedCoordinate(coordinate: gcj, system: .gcj02Backend)
+            LocatedCoordinate(coordinate: gcj, system: .gcj02Backend, source: .backend)
         ))
         XCTAssertEqual(normalized.coordinate.latitude, gcj.latitude)
         XCTAssertEqual(normalized.coordinate.longitude, gcj.longitude)

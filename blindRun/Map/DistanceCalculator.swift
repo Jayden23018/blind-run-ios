@@ -27,7 +27,7 @@ enum DistanceCalculator {
         backendCoordinate: CLLocationCoordinate2D
     ) -> CLLocationDistance {
         let normalized = BackendCoordinateNormalizer.normalize(
-            LocatedCoordinate(coordinate: deviceCoordinate, system: .wgs84Device)
+            LocatedCoordinate(coordinate: deviceCoordinate, system: .wgs84Device, source: .device)
         )?.coordinate ?? deviceCoordinate
         return distance(from: normalized, to: backendCoordinate)
     }
