@@ -260,7 +260,7 @@ final class BlindBookingViewModel: ObservableObject {
     private(set) weak var appState: AppState?
     private weak var locationService: LocationService?
     private weak var placeSearchProvider: (any PlaceSearchProviding)?
-    private var speechService: SpeechService?
+    private(set) var speechService: SpeechService?
     private static let auxiliaryMapMarkerRefreshDistanceMeters: CLLocationDistance = 30
 
     var minimumAppointmentTime: Date {
@@ -691,9 +691,7 @@ final class BlindBookingViewModel: ObservableObject {
         self.speechService = speechService
         self.placeSearchProvider = amapGeocodingService
 
-        if appointmentTime < minimumAppointmentTime {
-            appointmentTime = minimumAppointmentTime.addingTimeInterval(60)
-        }
+        reseedAppointmentTimeIfExpired()
         #if DEBUG
         if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_DAYTIME_APPOINTMENT"] == "1" {
             appointmentTime = Self.uiTestDaytimeAppointment(now: Date())
@@ -984,7 +982,9 @@ final class BlindBookingViewModel: ObservableObject {
             return
         }
         errorMessage = nil
-        currentStep = BlindBookingGuidedStep.allCases[currentIndex + 1]
+        let nextStep = BlindBookingGuidedStep.allCases[currentIndex + 1]
+        if nextStep == .appointmentTime { reseedAppointmentTimeIfExpired() }
+        currentStep = nextStep
         speechService?.speak(currentStepSpeechSummary)
     }
 
@@ -1102,6 +1102,8 @@ struct BlindBookingView: View {
     @AccessibilityFocusState private var focusedSearchResultID: String?
     /// 换步后读屏焦点的落点。绑在 `guidedStepHeader` 的标题行上。
     @AccessibilityFocusState private var focusedStepHeader: BlindBookingGuidedStep?
+    /// 选定出发地点后读屏焦点的落点：结果列表选中即整块消失，被点的按钮随之销毁（#295 走查 A3）。
+    @AccessibilityFocusState private var focusedStartPlaceCard: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -1226,6 +1228,10 @@ struct BlindBookingView: View {
         }
         .onChange(of: viewModel.searchResultFocusID) { focusID in
             focusedSearchResultID = focusID
+        }
+        // 语音态下卡片不在视图树里，别把焦点状态置位成悬空的 true。
+        .onChange(of: viewModel.selectedStartPlace?.id) { placeID in
+            if placeID != nil, !voiceWizard.isRunning { focusedStartPlaceCard = true }
         }
         // 换步之后把读屏焦点搬到新步骤的标题上。
         //
@@ -1621,15 +1627,11 @@ struct BlindBookingView: View {
 
             zeroInputBookingSection
 
+            // 外观走 `PrimaryButtonStyle`：原先 frame / 底色挂在 Button 外面，可点区只有字那么大（#295 走查 B5）。
             Button("用语音重新说一次") {
                 startVoiceWizard()
             }
-            .font(AppFonts.primaryButton())
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
-            .background(AppColors.primary)
-            .cornerRadius(12)
+            .buttonStyle(PrimaryButtonStyle())
             .accessibilityLabel("用语音重新说一次")
             .accessibilityHint("重新开始语音下单")
             .accessibilityIdentifier("blindBookingVoiceOrderButton")
@@ -1678,7 +1680,7 @@ struct BlindBookingView: View {
                     // 按钮自己承担 —— 读屏念按钮时念到的就是要下的单。
                     PrimaryButton(viewModel.zeroInputSummary, isLoading: viewModel.isSubmitting) {
                         Task {
-                            if let response = await viewModel.submit() {
+                            if let response = await viewModel.submitAnnouncingProgress() {
                                 onOrderCreated(response)
                             }
                         }
@@ -1689,19 +1691,16 @@ struct BlindBookingView: View {
 
                     // 误按第一步的出口。第二步是个占满宽度的大按钮，读屏用户滑过去就可能激活，
                     // 而它的后果是一张真实订单加一次真实派单。
-                    Button("不用了，我自己填") {
+                    Button {
                         isZeroInputConfirming = false
                         // 在语音面板上时下面没有表单，别指一个不存在的地方。
                         speechService.speak(showsVoiceStage
                             ? "已取消直接下单。可以轻点上方重新说，或者按「改用表单」自己填。"
                             : "已取消，你可以继续用下面的表单填写。")
+                    } label: {
+                        Text("不用了，我自己填").secondaryFillButtonLabel(maxWidth: .infinity)
                     }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(12)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("不用了，我自己填")
                     .accessibilityHint(showsVoiceStage ? "放弃直接下单，留在语音页" : "放弃直接下单，回到表单")
                 } else {
@@ -1766,10 +1765,11 @@ struct BlindBookingView: View {
             // 所以用户刚说第一句话，进度条就已经显示「第 4 步 / 共 4 步」。这句还进了下面那个
             // `accessibilityLabel`，VoiceOver 会把这个错的数字念出来。语音在跑就不画它。
             if !voiceWizard.isRunning {
+                // 读屏不读这一行：下面的进度点组合元素 label 里已经带了同一句（#295 走查 A1）。
                 Text(viewModel.stepProgressText)
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel(viewModel.stepProgressText)
+                    .accessibilityHidden(true)
 
                 HStack(spacing: 8) {
                     ForEach(BlindBookingGuidedStep.allCases) { step in
@@ -1862,7 +1862,8 @@ struct BlindBookingView: View {
                     Task {
                         await viewModel.handlePlaceSearchSpeechCompletion(completion)
                     }
-                }
+                },
+                onSubmit: { if !viewModel.isSearchingPlaces { Task { await viewModel.searchPlaces() } } }
             )
 
             Button {
@@ -1992,11 +1993,12 @@ struct BlindBookingView: View {
                     .font(.headline)
                     .foregroundColor(AppColors.textPrimary)
 
-                Text(viewModel.resolvedStartLocationDescription.isEmpty ? "正在获取当前位置" : viewModel.resolvedStartLocationDescription)
+                Text(viewModel.startPointDisplayText)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
-                    .accessibilityLabel("出发地点，\(viewModel.resolvedStartLocationDescription)")
+                    .accessibilityLabel("出发地点，\(viewModel.startPointDisplayText)")
                     .accessibilityHint("提交预约时会使用这个地点")
+                    .accessibilityFocused($focusedStartPlaceCard)
 
                 if viewModel.isResolvingStartLocation {
                     HStack(spacing: 8) {
@@ -2093,7 +2095,7 @@ struct BlindBookingView: View {
                     .buttonStyle(.plain)
                     .accessibilityFocused($focusedSearchResultID, equals: place.id)
                     .accessibilityLabel(place.bookingSearchAccessibilityLabel)
-                    .accessibilityHint("点击后使用该地点坐标创建预约")
+                    .accessibilityHint("选为出发地点，还不会提交预约")
                 }
             }
         }
@@ -2195,6 +2197,8 @@ struct BlindBookingView: View {
             .foregroundColor(AppColors.textPrimary)
             .accessibilityLabel("预约时间，\(viewModel.appointmentTime.formatted(date: .abbreviated, time: .shortened))")
             .accessibilityHint("请选择至少三十分钟后、\(AppConstants.Timing.maximumBookingLeadDays) 天以内的时间")
+
+            BookingAppointmentAdjusters(viewModel: viewModel)
 
             // 这里此前**两种状态同一句话**，合法与否只由颜色区分（灰 / 红）。
             // 那不只是色觉障碍的问题：读屏用户根本没有颜色这条通道，选了一个过近的时间
@@ -2470,15 +2474,12 @@ struct BlindBookingView: View {
 
             HStack(spacing: 12) {
                 if !viewModel.isFirstStep {
-                    Button("上一步") {
+                    Button {
                         viewModel.moveToPreviousStep()
+                    } label: {
+                        Text("上一步").secondaryFillButtonLabel(minWidth: 96)
                     }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(minWidth: 96)
-                    .frame(minHeight: 64)
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(12)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("上一步")
                     .accessibilityHint("返回上一个预约步骤")
                 }
@@ -2486,7 +2487,7 @@ struct BlindBookingView: View {
                 PrimaryButton(viewModel.currentStep.nextActionTitle, isLoading: viewModel.isSubmitting) {
                     if viewModel.isReviewStep {
                         Task {
-                            if let response = await viewModel.submit() {
+                            if let response = await viewModel.submitAnnouncingProgress() {
                                 onOrderCreated(response)
                             }
                         }

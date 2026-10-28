@@ -76,3 +76,19 @@ struct BlindMenuPicker<Value: Hashable, Options: View>: View {
         .accessibilityHint(accessibilityHint)
     }
 }
+
+// MARK: - Secondary Fill Label
+
+extension View {
+    /// 灰底次级按钮的外观，**挂在 `Button` 的 label 里**（#295 走查 B5）：
+    /// 挂在 `Button` 外面只撑大布局、不撑大可点区，可点的只有那几个字。
+    func secondaryFillButtonLabel(minWidth: CGFloat? = nil, maxWidth: CGFloat? = nil) -> some View {
+        font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.textPrimary)
+            .multilineTextAlignment(.center)
+            .frame(minWidth: minWidth, maxWidth: maxWidth, minHeight: AppTouchTarget.blindPrimary)
+            .background(AppColors.secondaryBackground)
+            .cornerRadius(AppCornerRadius.medium)
+            .contentShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
+    }
+}

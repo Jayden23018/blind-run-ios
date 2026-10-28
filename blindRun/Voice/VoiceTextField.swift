@@ -15,14 +15,19 @@ struct VoiceTextField: View {
     let accessibilityLabel: String
     let accessibilityHint: String
     var onRecognitionCompleted: ((SpeechInputCompletion) -> Void)? = nil
+    /// 键盘 / 听写输入完按回车时做什么（#295 走查 B4）。下单页的地点搜索用它直接搜，
+    /// 不必再划到下方那枚「搜索地点」按钮。
+    var onSubmit: (() -> Void)? = nil
 
     var body: some View {
         let isListening = speechInputService.isListening(for: speechField)
 
         VStack(alignment: .leading, spacing: 8) {
+            // 读屏不读可见标题：输入框自己的 label 已经含这几个字，两处都读就念两遍（#295 走查 B3）。
             Text(title)
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
+                .accessibilityHidden(true)
 
             HStack(alignment: .top, spacing: 8) {
                 Group {
@@ -31,6 +36,7 @@ struct VoiceTextField: View {
                             .frame(minHeight: 96)
                     } else {
                         TextField(placeholder, text: $text)
+                            .onSubmit { onSubmit?() }
                     }
                 }
                 .font(AppFonts.body())
@@ -38,7 +44,9 @@ struct VoiceTextField: View {
                 .background(AppColors.secondaryBackground)
                 .cornerRadius(8)
                 .accessibilityLabel(accessibilityLabel)
-                .accessibilityHint(accessibilityHint)
+                // 空着时把占位示例放进 hint：覆盖了 label 之后系统不再替我们念占位文字。
+                // 不放进 value —— 那样「例如：…」听起来和用户已经填的内容一模一样。
+                .accessibilityHint(text.isEmpty ? "\(accessibilityHint)。\(placeholder)" : accessibilityHint)
 
                 Button {
                     speechInputService.startRecognition(field: speechField, onTextChanged: { recognizedText in
