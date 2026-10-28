@@ -38,6 +38,8 @@ private extension RootRoute {
 @MainActor
 final class ContentRootRouter: ObservableObject {
     @Published private(set) var route: RootRoute = .restoringAccount
+    /// 恢复失败后「重试恢复」又失败的次数；失败页按它重念（`retryRecovery`，#573）。
+    @Published var failedRecoveryRetries = 0
 
     private var hydrationTask: Task<Void, Never>?
     private var generation: UInt64 = 0
@@ -282,7 +284,7 @@ struct ContentView: View {
                         .font(.headline)
                     Text(message)
                         .multilineTextAlignment(.center)
-                    Button("重试恢复") { rootRouter.synchronize(with: appState) }
+                    Button("重试恢复") { speechService.announce("正在重新恢复账号资料。"); Task { await rootRouter.retryRecovery(with: appState) } }
                     .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("重新加载当前账号资料")
                     Button("退出登录", role: .destructive) { showLogoutConfirmation = true }
@@ -294,7 +296,7 @@ struct ContentView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.recoveryFailed")
                 .logoutConfirmation(isPresented: $showLogoutConfirmation)
-                .announcesFailure("暂时无法恢复账号资料。\(message)", using: speechService)
+                .announcesFailure("暂时无法恢复账号资料。\(message)可以再点「重试恢复」，或退出登录。", using: speechService, attempt: rootRouter.failedRecoveryRetries)
             case .unauthenticated:
                 LoginView()
                     .accessibilityElement(children: .contain)
