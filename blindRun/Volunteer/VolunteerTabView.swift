@@ -239,6 +239,17 @@ struct VolunteerTabView: View {
             // 免得哪天有人在里面加一个带背景色的容器就把整个标签栏点不动了。
             .allowsHitTesting(viewModel.isInviteSheetPresented)
         }
+        // 锁屏上按了「接下」（#338）：与卡片上的「接下」同一个调用 —— 定位闸、409 改发、原地失效都在那条路上。
+        .onChange(of: viewModel.lockScreenAcceptRequest) { request in
+            guard let request else { return }
+            viewModel.lockScreenAcceptRequest = nil
+            viewModel.respondToDispatch(
+                action: request.action,
+                currentLocation: locationService.currentLocation,
+                locationAuthorized: locationService.isAuthorized,
+                orderId: request.orderId
+            )
+        }
         // #368：接单开关 / 自动恢复待命前的位置轨迹同意。挂在容器上而不是首页 tab 上：
         // 自动恢复那条路发生时他可能在任何一个 tab。全屏而不是对话框，理由见 `ConsentDisclosureView`。
         .fullScreenCover(isPresented: Binding(

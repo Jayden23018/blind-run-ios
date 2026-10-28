@@ -14,6 +14,8 @@ struct RealtimePendingInviteSnapshot: Sendable {
     let invites: [WSNewOrder]
     /// 请求发出的时刻。只有比它更早收到的邀请才能按「快照里没有」判失效。
     let requestedAt: Date
+    /// 后端计的连续拒绝 / 过期次数（接单或有意向清零，撤回不计）。`nil` = 后端没给。
+    var consecutiveDeclineCount: Int? = nil
 
     /// 这张卡在快照里还算不算待回复。
     func contains(orderID: Int64, inviteID: Int64?) -> Bool {
@@ -21,6 +23,18 @@ struct RealtimePendingInviteSnapshot: Sendable {
             invite.orderId == orderID
                 && (inviteID == nil || invite.inviteId == nil || invite.inviteId == inviteID)
         }
+    }
+}
+
+/// 锁屏上按下的「接下」（#338）。
+struct RealtimeLockScreenAccept: Equatable, Sendable {
+    let orderId: Int64
+    /// `NEW_ORDER` 的 APNs 没有 `inviteId`，那时只按 `orderId` 认（契约）。
+    let inviteId: Int64?
+    let requestedAt: Date
+
+    func matches(_ order: WSNewOrder) -> Bool {
+        order.orderId == orderId && (inviteId == nil || order.inviteId == nil || order.inviteId == inviteId)
     }
 }
 

@@ -30,13 +30,40 @@ extension AppState {
                 ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites-shape")
                 return
             }
-            realtimeCoordinator.reconcilePendingInvites(invites, requestedAt: requestedAt)
+            realtimeCoordinator.reconcilePendingInvites(
+                invites, requestedAt: requestedAt, consecutiveDeclineCount: response.consecutiveDeclineCount
+            )
         } catch let error as APIError {
             if handleAuthenticatedAPIError(error) { return }
             // 失败静默：手上的卡照旧，下一次回前台 / 重连再对。对账失败不该打断陪跑员。
             ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites")
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites")
+        }
+    }
+}
+
+extension AppState {
+    /// 锁屏上按了「这次去不了」（邀请类 APNs 的 `DECLINE_INVITE`，#338）。在后台跑，没有界面：
+    /// 成功返回 `nil`；失败返回要告诉他的那句话（409 说原因，其余让他打开 App 再试），由调用方用本地通知说出来。
+    ///
+    /// 成功和 409 都把这张邀请记成「已了结」：回前台那次对账不会再把它灌回来，锁屏上那条旧通知也一并收掉。
+    /// 连续拒绝次数由后端计（撤回不计），本地不加。
+    func declineInviteFromNotification(_ request: InviteNotificationActions.Request) async -> (title: String, body: String)? {
+        guard isLoggedIn, activeRole == .volunteer else { return InviteNotificationActions.failureExplanation(for: nil) }
+        do {
+            try await orders.respond(orderId: request.orderId, action: .decline)
+            realtimeCoordinator.clearDispatch(orderID: request.orderId, inviteID: request.inviteId, retiredUntil: request.expiresAt)
+            return nil
+        } catch let error as APIError {
+            if handleAuthenticatedAPIError(error) { return InviteNotificationActions.failureExplanation(for: nil) }
+            let explanation = InviteNotificationActions.failureExplanation(for: error.errorCode)
+            if error.errorCode == .orderAlreadyAccepted || error.errorCode == .orderDispatchMismatch {
+                realtimeCoordinator.clearDispatch(orderID: request.orderId, inviteID: request.inviteId, retiredUntil: request.expiresAt)
+            }
+            return explanation
+        } catch {
+            return InviteNotificationActions.failureExplanation(for: nil)
         }
     }
 }

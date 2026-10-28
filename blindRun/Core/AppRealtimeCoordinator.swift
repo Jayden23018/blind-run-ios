@@ -528,6 +528,11 @@ final class AppRealtimeCoordinator: ObservableObject {
     private var dispatchExpiryTasks: [Int64: Task<Void, Never>] = [:]
     /// 本地已经了结的邀请，记到它原本的回复期限为止。为什么要记见 `RetiredInviteLedger`。
     private var retiredInvites = RetiredInviteLedger()
+    /// 已送达的邀请通知该收掉时调（撤回 / 回复 / 对账，#338）。默认什么都不做 —— 单测不碰系统通知中心，
+    /// 真的那一半由 `PushNotificationsManager.configure` 接上。
+    var pruneDeliveredInviteNotifications: @MainActor (InviteNotificationPrune) -> Void = { _ in }
+    /// 锁屏上按了「接下」、App 刚被拉起（#338）。首页等这张邀请进了队列，就走卡片上同一条接单路径。
+    @Published private(set) var lockScreenAccept: RealtimeLockScreenAccept?
     private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
     private var orderRefreshRetryCounts: [Int64: Int] = [:]
     private var queuedNotifications: [RealtimeForegroundNotification] = []
@@ -1309,6 +1314,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         notificationTask = nil
         dispatchExpiryTasks = [:]
         retiredInvites = RetiredInviteLedger()
+        lockScreenAccept = nil
         orderRefreshRetryTasks = [:]
         orderRefreshRetryCounts = [:]
         pendingOrderRefreshIDs = []
@@ -1374,6 +1380,7 @@ extension AppRealtimeCoordinator {
             until: retiredUntil ?? removed?.expiresAt,
             now: now()
         )
+        pruneDeliveredInviteNotifications(.orders([orderID]))
     }
 
     /// 撤回一张邀请：从队列里移走（**只移走同一张**），并告诉首页。
@@ -1392,6 +1399,8 @@ extension AppRealtimeCoordinator {
         }
         // 早于这条撤回发出的那次快照回来时还带着它 —— 记下来，别让它被灌回来。
         retiredInvites.retire(orderID: orderID, inviteID: inviteID ?? removed?.order.inviteId, until: removed?.expiresAt, now: now())
+        // 撤回不会销毁锁屏上那条旧通知（契约），点它只会得到 409 —— 自己收掉。
+        pruneDeliveredInviteNotifications(.orders([orderID]))
         inviteWithdrawalSubject.send(RealtimeInviteWithdrawal(orderId: orderID, inviteId: inviteID, reason: reason))
     }
 
@@ -1404,9 +1413,13 @@ extension AppRealtimeCoordinator {
     /// - 队列里有、快照里没有的 ⇒ 移走。**只移请求发出之前就在队列里的**（`receivedAt < requestedAt`）：
     ///   请求在路上时推送来的新邀请不在这份快照里，移走它就是丢单。
     /// - 快照整份发给首页，首页对自己手里的卡做同样的判断并决定原地变「已失效」还是静默移除。
-    func reconcilePendingInvites(_ invites: [WSNewOrder], requestedAt: Date) {
+    /// - 快照里没有的单，早于这次请求送达的邀请通知一并从通知中心收掉（#338）。
+    func reconcilePendingInvites(_ invites: [WSNewOrder], requestedAt: Date, consecutiveDeclineCount: Int? = nil) {
         guard attachedRole == nil || attachedRole == .volunteer else { return }
-        let snapshot = RealtimePendingInviteSnapshot(invites: invites, requestedAt: requestedAt)
+        let snapshot = RealtimePendingInviteSnapshot(
+            invites: invites, requestedAt: requestedAt, consecutiveDeclineCount: consecutiveDeclineCount
+        )
+        pruneDeliveredInviteNotifications(.allExcept(Set(invites.map(\.orderId)), deliveredBefore: requestedAt))
         let stale = pendingDispatches.filter { prompt in
             prompt.receivedAt < requestedAt
                 && !snapshot.contains(orderID: prompt.order.orderId, inviteID: prompt.order.inviteId)
@@ -1430,6 +1443,16 @@ extension AppRealtimeCoordinator {
         let sentAt = raw?.nilIfBlank?.backendTimestamp ?? now()
         introCallIncomingSubject.send(sentAt)
         return isIntroCallPageShowingIncomingCalls || IntroCallCopy.incomingCallDisplayUntil(sentAt: sentAt, now: now()) == nil
+    }
+
+    /// 锁屏「接下」（`ACCEPT_INVITE`，#338）：记下来，等首页拿走。同一时刻只记最后按的那一下。
+    func requestLockScreenAccept(orderID: Int64, inviteID: Int64?) {
+        lockScreenAccept = RealtimeLockScreenAccept(orderId: orderID, inviteId: inviteID, requestedAt: now())
+    }
+
+    /// 首页已经接手（开始接单，或已告诉他这张失效了）。
+    func consumeLockScreenAccept() {
+        lockScreenAccept = nil
     }
 
     /// 邀请类事件：新邀请进队，撤回从队里移走同一张。从 `route` 分出来，那个 switch 只许变短。
