@@ -108,8 +108,8 @@ enum APIError: Error, Sendable {
             // 刻意不写「登录已过期」：过期是服务端说的，这条是本地压根没有凭据。
             // 两句话看起来差不多，但排查时指向的方向完全相反。
             return "本地登录信息缺失，请退出后重新登录。"
-        case .networkError:
-            return "网络连接失败，请检查网络设置。"
+        case .networkError(let underlying):
+            return Self.isSecureConnectionFailure(underlying) ? Self.secureConnectionMessage : "网络连接失败，请检查网络设置。"
         case .decodingError:
             return "数据解析错误，请稍后重试。"
         case .invalidURL:

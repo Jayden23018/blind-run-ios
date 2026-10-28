@@ -109,8 +109,8 @@ final class RunRecordViewModel: ObservableObject {
 
     static func sendFailureReason(_ error: APIError) -> String {
         switch error {
-        case .networkError:
-            return "请检查网络后再发一次。"
+        case .networkError(let underlying):
+            return APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "请检查网络后再发一次。"
         case .serverError(let response):
             switch response.errorCode {
             case .invalidOrderStatus: return "这一单还没完成，暂时不能留言。"
