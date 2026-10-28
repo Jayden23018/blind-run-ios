@@ -36,12 +36,14 @@ enum LocationAccuracyPolicy {
 
 /// 临时精确位置的用途键。值必须与 `Info.plist` 的 `NSLocationTemporaryUsageDescriptionDictionary` 键一致，
 /// 否则系统不弹（SDK `CLLocationManager.h` 原文：「Passing any other string would result in the prompt not being displayed」）。
-enum PreciseLocationPurpose: String, Sendable {
+enum PreciseLocationPurpose: String, CaseIterable, Sendable {
     case bookingStartPoint = "AidRunBookingStartPoint"
     /// 盲人端陪跑（说明讲求助与陪跑员找人）。
     case escortRun = "AidRunEscortRun"
     /// 陪跑员端陪跑（#407）。不借用上一条：那条讲的是「求助才能带上你的准确位置」，对陪跑员不成立。
     case escortVolunteer = "AidRunEscortVolunteer"
+    /// 陪跑员开着接单开关、为派单上报位置（#520）。
+    case volunteerDispatch = "AidRunVolunteerDispatch"
 }
 
 /// 同行会话的定位档位（#523）。

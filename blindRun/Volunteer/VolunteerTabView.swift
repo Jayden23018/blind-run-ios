@@ -96,6 +96,8 @@ struct VolunteerTabView: View {
         .onChange(of: viewModel.pendingIntroCallOrder?.orderId) { orderId in
             if orderId != nil { selection = .home }
         }
+        // #520：开着接单开关、精确位置却关着时，派单位置已停报 —— 顶部说清原因、念一次、申请临时精确位置。
+        .dispatchPreciseLocationNotice(isDispatching: viewModel.isAvailable)
         .onAppear {
             // **删地图 ≠ 停定位**：授权是派单的前提，没有位置上报就收不到单。
             // #368：没有位置轨迹同意时不弹系统授权框（告知在前）。

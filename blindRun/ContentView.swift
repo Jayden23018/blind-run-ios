@@ -508,6 +508,7 @@ struct ContentView: View {
               // #368：开着接单开关、且同意过位置轨迹，才为派单上报。
               appState.allowsVolunteerDispatchLocationReporting,
               locationService.isAuthorized,
+              !VolunteerLocationReporter.isBlockedByPreciseLocation(locationService), // #520
               !appState.liveEscortCoordinator.isSessionEligible,
               let sample = locationService.latestBackendSample() else {
             return
