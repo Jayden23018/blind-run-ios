@@ -19,11 +19,11 @@ enum RunRouteGlyph {
     static let paceWidth: CGFloat = 6.5
     static let highlightWidth: CGFloat = 18
 
-    static func renderer(for polyline: MAPolyline, style: RouteLineStyle, isDark: Bool) -> MAOverlayRenderer? {
+    static func renderer(for polyline: MAPolyline, style: RouteLineStyle, contrast: RunPaceContrast) -> MAOverlayRenderer? {
         switch style {
         case .outline:
             let renderer = MAPolylineRenderer(polyline: polyline)
-            renderer?.lineWidth = outlineWidth
+            renderer?.lineWidth = contrast.routeOutlineWidth // 增强对比度时加宽（#579）
             renderer?.strokeColor = UIColor(rgb: outlineRGB)
             renderer?.lineJoinType = kMALineJoinRound
             renderer?.lineCapType = kMALineCapRound
@@ -39,7 +39,7 @@ enum RunRouteGlyph {
             guard let multi = polyline as? MAMultiPolyline,
                   let renderer = MAMultiColoredPolylineRenderer(multiPolyline: multi) else { return nil }
             renderer.lineWidth = paceWidth
-            renderer.strokeColors = fractions.map { RunPacePalette.color(fraction: $0, isDark: isDark) }
+            renderer.strokeColors = fractions.map { RunPacePalette.color(fraction: $0, isDark: contrast.isDark) }
             renderer.isGradient = true
             return renderer
         }

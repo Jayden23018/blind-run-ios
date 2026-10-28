@@ -15,6 +15,7 @@ struct RunPaceLegend: View {
                     endPoint: .trailing
                 ))
                 .frame(width: 56, height: 6)
+                .modifier(RunPaceBarBorder(shape: Capsule()))
             Text("慢")
         }
         .font(AppFonts.caption())
