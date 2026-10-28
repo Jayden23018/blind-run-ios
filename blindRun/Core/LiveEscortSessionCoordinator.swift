@@ -177,21 +177,6 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         self.batteryLevel = batteryLevel
     }
 
-    /// 同行会话的上行报文。`sample` 必须已是 GCJ-02（`latestEscortBackendSample` 保证）。
-    /// 纯函数，只为可测：拿不到的字段一律不传，这是契约的硬要求。
-    static func locationMessage(sample: LocatedCoordinate, motion: RunMotionSnapshot?) -> WSLocationUpdateMessage {
-        WSLocationUpdateMessage(
-            lat: sample.coordinate.latitude,
-            lng: sample.coordinate.longitude,
-            hAcc: sample.horizontalAccuracy,
-            speed: sample.speed,
-            alt: motion?.altitude,
-            steps: motion?.steps,
-            cadence: motion?.cadence,
-            batteryLevel: motion?.batteryLevel
-        )
-    }
-
     var isSessionEligible: Bool {
         guard let activeStatus else { return false }
         return [.driverEnRoute, .driverArrived, .inProgress].contains(activeStatus)
@@ -375,8 +360,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         }
         pendingTrackConsent = nil
         // 显式打开定位，不靠 `LocationService` 在授权回调里自己开（那一条不区分有没有同意）。
-        // 出发 / 汇合两态不开后台模式，`setEscortBackgroundMode(false)` 不会替我们开。
-        locationService?.startUpdating()
+        // 以同行会话的名义要：会话结束只撤回这一份（`clearRuntimeSession`），不碰预约页、接单开关要的定位（#425）。
+        locationService?.startUpdating(for: .escortSession)
         let needsBackground = activeStatus == .inProgress
         locationService?.setEscortBackgroundMode(enabled: needsBackground)
         syncMotionRecording()
@@ -511,28 +496,6 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         syncLiveActivity()
     }
 
-    /// 该不该有这张卡、长什么样。`nil` = 不该有，结束掉。
-    ///
-    /// **抽成纯函数只为可测**：唯一调用点埋在 `@MainActor` + ActivityKit 后面，而这里要守的
-    /// 是红线 ——「锁屏卡只在 `IN_PROGRESS` 出现」（状态清单 §16/§17「IN_PROGRESS 期间常驻」）。
-    /// 两端都带对方姓氏（决定源 V11 取代了 2026-09-16「陪跑员端不显示对方姓名」）。
-    static func liveActivityPlan(
-        orderID: Int64?,
-        status: RunOrderStatus?,
-        role: UserRole?,
-        partnerName: String?
-    ) -> (orderID: Int64, side: RunLiveActivitySide, partnerName: String?)? {
-        guard let orderID, status == .inProgress, let role else { return nil }
-        switch role {
-        case .blind:
-            return (orderID, .runner, partnerName)
-        case .volunteer:
-            return (orderID, .volunteer, partnerName)
-        case .unset:
-            return nil
-        }
-    }
-
     private func syncLiveActivity() {
         guard #available(iOS 16.2, *) else { return }
         guard let plan = Self.liveActivityPlan(
@@ -594,6 +557,9 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         shouldSendLatestAfterCurrent = false
         lastSentAt = nil
         locationService?.setEscortBackgroundMode(enabled: false)
+        // 此前只关后台模式、不停定位：会话结束后本机一直定位到退出登录（#425）。
+        // 只撤回同行会话这一份 —— 接单开关还开着、或预约页还在要时，硬件照开。
+        locationService?.stopUpdating(for: .escortSession)
         motionRecorder.stop()
         setHealthState(.idle)
     }

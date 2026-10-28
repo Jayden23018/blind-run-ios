@@ -2948,7 +2948,7 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// 🔴 **N48 的根因回归。** 站着不动 60 秒之后，语音下单的请求里**还有没有坐标**。
     ///
     /// 用户真机报的是「定位开着，在深圳说的地名却定位到海南」。链路上不是定位坏了 ——
-    /// `onAppear` 的 `startUpdating()` 是**持续**定位，而非陪跑模式下 `distanceFilter = 10`，
+    /// 预约页要的（`requestsLocationUpdates(.blindBooking)`）是**持续**定位，而非陪跑模式下 `distanceFilter = 10`，
     /// 站着不动 Core Location 就不推新样本；语音下单恰恰是站着说完一整句，说完常已超过
     /// `latestBackendSample` 默认的 15 秒新鲜度门 ⇒ 闭包返回 nil ⇒ 请求不带坐标 ⇒
     /// 后端只能做全国范围解析。

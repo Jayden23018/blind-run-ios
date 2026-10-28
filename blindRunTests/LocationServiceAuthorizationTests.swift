@@ -8,7 +8,7 @@ import XCTest
 /// 已授权的设备一启动 App 就在本机持续定位，早于位置轨迹同意（#368）。
 ///
 /// 第一条是复现；其余三条守着「按需启动」不能顺手把授权弹窗之后的启动也删掉 ——
-/// 预约页、接单开关、同意页都是先 `requestPermission()` 再 `startUpdating()`，
+/// 预约页、接单开关、同意页都是先 `requestPermission()` 再 `startUpdating(for:)`，
 /// 后者在弹窗还没答时被挡住，全靠授权回调替它补上。
 @MainActor
 final class LocationServiceAuthorizationTests: XCTestCase {
@@ -35,7 +35,7 @@ final class LocationServiceAuthorizationTests: XCTestCase {
         let service = makeService()
         service.handleAuthorizationChange(.notDetermined, accuracy: .fullAccuracy)
 
-        service.startUpdating()
+        service.startUpdating(for: .blindBooking)
         XCTAssertEqual(service.hardwareUpdateStartsForTesting, 0, "没授权时被挡住")
 
         service.handleAuthorizationChange(.authorizedWhenInUse, accuracy: .fullAccuracy)
@@ -48,8 +48,8 @@ final class LocationServiceAuthorizationTests: XCTestCase {
     func testWithdrawnRequestDoesNotStartOnLaterAuthorization() {
         let service = makeService()
         service.handleAuthorizationChange(.notDetermined, accuracy: .fullAccuracy)
-        service.startUpdating()
-        service.stopUpdating()
+        service.startUpdating(for: .blindBooking)
+        service.stopUpdating(for: .blindBooking)
 
         service.handleAuthorizationChange(.authorizedWhenInUse, accuracy: .fullAccuracy)
 
@@ -62,7 +62,7 @@ final class LocationServiceAuthorizationTests: XCTestCase {
     func testUpdatesRunningBeforeRevocationResumeWhenRegranted() {
         let service = makeService()
         service.handleAuthorizationChange(.authorizedWhenInUse, accuracy: .fullAccuracy)
-        service.startUpdating()
+        service.startUpdating(for: .blindBooking)
         XCTAssertEqual(service.hardwareUpdateStartsForTesting, 1)
 
         service.handleAuthorizationChange(.denied, accuracy: .fullAccuracy)
@@ -78,8 +78,8 @@ final class LocationServiceAuthorizationTests: XCTestCase {
     func testPausedCallbackAfterStopDoesNotRestartUpdates() {
         let service = makeService()
         service.handleAuthorizationChange(.authorizedWhenInUse, accuracy: .fullAccuracy)
-        service.startUpdating()
-        service.stopUpdating()
+        service.startUpdating(for: .blindBooking)
+        service.stopUpdating(for: .blindBooking)
 
         service.handlePausedLocationUpdates()
 
@@ -92,7 +92,7 @@ final class LocationServiceAuthorizationTests: XCTestCase {
     func testDelegateAuthorizationCallbackReachesTheSameRule() async throws {
         let service = makeService()
         service.handleAuthorizationChange(.notDetermined, accuracy: .fullAccuracy)
-        service.startUpdating()
+        service.startUpdating(for: .blindBooking)
 
         service.locationManagerDidChangeAuthorization(StubLocationManager(status: .authorizedWhenInUse))
 
@@ -143,7 +143,8 @@ final class LocationSessionBoundaryTests: XCTestCase {
         let service = makeAuthorizedService()
         let appState = makeLoggedInAppState(role: .volunteer, userId: 41, service: service)
         appState.recordLocationTrackConsent(.volunteerLocationTrack)
-        service.startUpdating()
+        appState.volunteerWantsDispatch = true
+        service.startUpdating(for: .volunteerActiveOrder)
         XCTAssertTrue(service.isUpdatingLocation)
 
         appState.clearSession()
@@ -158,7 +159,7 @@ final class LocationSessionBoundaryTests: XCTestCase {
     func testLogoutFromRoleSelectionStillStopsUpdates() {
         let service = makeAuthorizedService()
         let appState = makeLoggedInAppState(role: nil, userId: 42, service: service)
-        service.startUpdating()
+        service.startUpdating(for: .blindBooking)
         XCTAssertTrue(service.isUpdatingLocation)
 
         appState.clearSession()
@@ -173,7 +174,9 @@ final class LocationSessionBoundaryTests: XCTestCase {
         let service = makeAuthorizedService()
         let appState = makeLoggedInAppState(role: .volunteer, userId: 45, service: service)
         appState.recordLocationTrackConsent(.volunteerLocationTrack)
-        service.startUpdating()
+        appState.volunteerWantsDispatch = true
+        // 页面那一份不归 `AppState` 管：账号边界要连它一起撤回，否则上一个人打开的订单页会让定位一直开着。
+        service.startUpdating(for: .volunteerActiveOrder)
 
         appState.userId = 46
 
@@ -187,7 +190,8 @@ final class LocationSessionBoundaryTests: XCTestCase {
         let service = makeAuthorizedService()
         let appState = makeLoggedInAppState(role: .volunteer, userId: 43, service: service)
         appState.recordLocationTrackConsent(.volunteerLocationTrack)
-        service.startUpdating()
+        appState.volunteerWantsDispatch = true
+        service.startUpdating(for: .volunteerActiveOrder)
 
         appState.switchRole(to: .blind)
 
@@ -202,12 +206,13 @@ final class LocationSessionBoundaryTests: XCTestCase {
         let appState = makeLoggedInAppState(role: .volunteer, userId: 44, service: service)
         appState.recordLocationTrackConsent(.volunteerLocationTrack)
         appState.recordLocationTrackConsent(.blindLocationTrack)
-        service.startUpdating()
+        appState.volunteerWantsDispatch = true
 
         appState.switchRole(to: .blind)
 
         XCTAssertTrue(service.isUpdatingLocation)
         XCTAssertEqual(service.hardwareUpdateStartsForTesting, 1, "没有停了又开")
+        XCTAssertEqual(service.updateReasons, [.blindRole], "派单那一份换成盲人角色那一份（#425）")
     }
 }
 

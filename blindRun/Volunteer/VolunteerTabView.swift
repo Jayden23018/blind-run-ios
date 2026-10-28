@@ -97,12 +97,13 @@ struct VolunteerTabView: View {
             if orderId != nil { selection = .home }
         }
         .onAppear {
-            // **删地图 ≠ 停定位**：这两行是派单的前提，没有位置上报就收不到单。
-            // #368：没有位置轨迹同意时一行都不做 —— 同意页出现之前不弹系统授权框（告知在前）。
+            // **删地图 ≠ 停定位**：授权是派单的前提，没有位置上报就收不到单。
+            // #368：没有位置轨迹同意时不弹系统授权框（告知在前）。
             // 授权框改在同意页按「同意共享位置」时弹（`agreeTrackConsent` 的回调）。
+            // 开不开定位不在这里定：跟着接单开关走，由 `AppState.syncRoleLocationIntents` 立和撤（#425）。
+            // 此前这里无条件开，关着开关也在定位，而同意文案写的是「暂停接单后不再为派单获取位置」。
             if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
                 locationService.requestPermission()
-                locationService.startUpdating()
             }
             // 第一条派单进来时，邀请卡的 spring 和「合成 WAV + 写盘 + 注册 SystemSoundID」
             // 会挤在同一拍主线程上 —— 表现是冷启动后的**第一条**派单弹得一顿一顿的。
@@ -251,9 +252,8 @@ struct VolunteerTabView: View {
             onAgree: {
                 speechService.stop()
                 viewModel.agreeTrackConsent {
-                    // 系统授权框在这一刻弹，不早于告知。
+                    // 系统授权框在这一刻弹，不早于告知。定位随后由打开接单开关立起（#425）。
                     locationService.requestPermission()
-                    locationService.startUpdating()
                 }
             },
             onDecline: {

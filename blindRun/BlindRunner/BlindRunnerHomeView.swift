@@ -624,13 +624,11 @@ struct BlindRunnerHomeView: View {
                     speechService: speechService,
                     speechInputService: speechInputService
                 )
-                // #368：没有位置轨迹同意时不开定位、不弹系统授权框（告知在前）。
+                // #368：没有位置轨迹同意时不弹系统授权框（告知在前）。
                 // 第一次弹授权框挪到预约向导里（同意页之后的下单页 `onAppear`）。
-                if appState.hasLocationTrackConsent(.blindLocationTrack) {
-                    if locationService.isNotDetermined {
-                        locationService.requestPermission()
-                    }
-                    locationService.startUpdating()
+                // 开不开定位不在这里定：盲人角色这一份意图由 `AppState.syncRoleLocationIntents` 立和撤（#425）。
+                if appState.hasLocationTrackConsent(.blindLocationTrack), locationService.isNotDetermined {
+                    locationService.requestPermission()
                 }
             }
             // 🔴 **`onDisappear` 不再取消加载。** 2026-09-16 起这一页在 `TabView` 里，

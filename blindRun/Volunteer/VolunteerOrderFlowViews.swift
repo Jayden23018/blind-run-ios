@@ -734,13 +734,14 @@ struct VolunteerOrderDetailView: View {
             // 同行态的同意页由根视图盖上来，同意之后由同行会话打开定位。
             if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
                 locationService.requestPermission()
-                locationService.startUpdating()
             }
             await viewModel.load(orderId: orderId)
             if viewModel.order?.status == .completed {
                 await trackViewModel.load(orderID: orderId, appState: appState)
             }
         }
+        // 离开页面只撤回这一页那一份（#425）：接单开关、同行会话要的定位照开。
+        .requestsLocationUpdates(.volunteerOrderDetail, when: appState.hasLocationTrackConsent(.volunteerLocationTrack))
         .onChange(of: viewModel.order?.status) { status in
             guard status?.isActiveForVolunteer == true,
                   let order = viewModel.order else { return }
@@ -1974,10 +1975,6 @@ struct VolunteerInServiceView: View {
         .toolbar(.hidden, for: .tabBar)
         .task {
             viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
-            // #368：没有位置轨迹同意就不开定位。
-            if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
-                locationService.startUpdating()
-            }
             viewModel.startPolling(orderId: orderId)
             // 取消弹层的窗口小时数读它。从推送直接点进这一页时首页那次可能还没拉过；
             // 已经拉过就是一次空操作（`loadRuleParamsIfNeeded` 成功后置位）。
@@ -1987,6 +1984,8 @@ struct VolunteerInServiceView: View {
             viewModel.stopPolling()
             meetHeading.stop()
         }
+        // #368：没有位置轨迹同意就不开定位。离开页面只撤回这一页那一份（#425），同行会话那一份由协调器撤。
+        .requestsLocationUpdates(.volunteerActiveOrder, when: appState.hasLocationTrackConsent(.volunteerLocationTrack))
         // 从后台回来时手上的 ETA / 档位可能已经过时（实时推送不落通知日志），重拉一次详情。
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }

@@ -1180,7 +1180,6 @@ struct BlindBookingView: View {
             if locationService.isNotDetermined {
                 locationService.requestPermission()
             }
-            locationService.startUpdating()
             viewModel.configure(
                 appState: appState,
                 locationService: locationService,
@@ -1217,6 +1216,7 @@ struct BlindBookingView: View {
             // 页面离开就停录音：麦克风不该在用户看不见的地方继续开着。
             voiceWizard.stop()
         }
+        .requestsLocationUpdates(.blindBooking)
         // 用户在系统弹窗里允许了临时精确位置：不等下一个坐标，立刻按新的授权重新解析（#373）。
         .onChange(of: locationService.accuracyAuthorization) { _ in
             Task { await viewModel.refreshCurrentLocationIfNeeded() }
@@ -1301,7 +1301,7 @@ struct BlindBookingView: View {
         isZeroInputConfirming = false
         // 主动要一次新坐标 —— **这是 N48 根因的正面修法**，放宽新鲜度门只是它的兜底。
         //
-        // `onAppear` 里的 `startUpdating()` 是**持续**定位，而非陪跑模式下 `distanceFilter = 10`
+        // 这一页要的（`requestsLocationUpdates(.blindBooking)`）是**持续**定位，而非陪跑模式下 `distanceFilter = 10`
         // 意味着站着不动 Core Location 就不推新样本；语音下单恰恰是站着说完一整句。
         // `requestLocation()` 绕过 distanceFilter 直接要一次新 fix，而用户接下来要说 10~20 秒 ——
         // 新坐标早在解析请求发出前就到了，**零延迟代价**。
