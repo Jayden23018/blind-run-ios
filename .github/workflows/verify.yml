@@ -231,7 +231,11 @@ jobs:
 
   build:
     name: 编译门禁（device SDK）
-    runs-on: macos-15
+    # GitHub 的 arm64 macOS 池会整批排不上（2026-10-28：15 个运行排队 40 分钟以上，
+    # 排不上的 job 以 cancelled 结束，看起来像代码失败，#599）。
+    # 那时把仓库变量 MACOS_RUNNER 设成 macos-15-intel（另一组机器，同样装着 Xcode 26），恢复后删掉变量。
+    # 用变量而不是改代码：切换不用等一个 PR 先排上同一个队。
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-15' }}
     needs: specs
     env:
       HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}   # 理由同 specs job
