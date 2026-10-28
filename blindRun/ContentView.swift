@@ -285,15 +285,15 @@ struct ContentView: View {
                     Button("重试恢复") { rootRouter.synchronize(with: appState) }
                     .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("重新加载当前账号资料")
-                    Button("退出登录", role: .destructive) {
-                        Task { await appState.logout() }
-                    }
+                    Button("退出登录", role: .destructive) { showLogoutConfirmation = true }
                     .buttonStyle(TextButtonStyle(alignment: .center))
                     .accessibilityHint("退出当前账号并返回登录页")
+                    .accessibilityIdentifier("recoveryFailedLogoutButton")
                 }
                 .padding(24)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.recoveryFailed")
+                .logoutConfirmation(isPresented: $showLogoutConfirmation)
                 .announcesFailure("暂时无法恢复账号资料。\(message)", using: speechService)
             case .unauthenticated:
                 LoginView()

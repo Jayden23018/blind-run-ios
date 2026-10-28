@@ -258,14 +258,7 @@ struct VolunteerProfileView: View {
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
         }
-        .alert("确认退出", isPresented: $showLogoutConfirm) {
-            Button("确认退出", role: .destructive) {
-                Task { await appState.logout() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("确认后将清除当前登录状态，返回登录页。")
-        }
+        .logoutConfirmation(isPresented: $showLogoutConfirm)
     }
 
     private var header: some View {

@@ -313,14 +313,7 @@ struct BlindRunnerProfileView: View {
             #endif
             speechService.speak("请填写个人资料。昵称为必填项。紧急联系人在下方单独管理，至少需要 1 位。")
         }
-        .alert("确认退出", isPresented: $showLogoutConfirm) {
-            Button("确认退出", role: .destructive) {
-                Task { await appState.logout() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("确认后将清除当前登录状态，返回登录页。")
-        }
+        .logoutConfirmation(isPresented: $showLogoutConfirm)
         // 全屏而不是 sheet：每条告知要各自可听、可停、可回头再听。
         // 理由整段写在 `ConsentDisclosureView` 的文档注释里，别在这里复述。
         .fullScreenCover(isPresented: $showVisionConsent) {

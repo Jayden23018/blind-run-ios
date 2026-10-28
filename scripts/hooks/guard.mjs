@@ -163,6 +163,15 @@ const rules = {
     check: () => true,
     why: '不用 `.borderedProminent`：它的白字压在环境 tint 上，标签页里暗色是白底白字，标签页外是系统蓝（白字亮 4.02:1、暗 3.65:1）。实心主按钮改用 `.buttonStyle(PrimaryButtonStyle())` 或 `PrimaryButton`（`Core/DesignSystem/PrimaryButton.swift`），底色与字色在那里成对给出并有对比度用例。确实要用（例如明确设了不变的 `.tint`），行尾加 `// guard:allow bordered-prominent` 并写清 tint 从哪来。',
   },
+  'logout-without-confirmation': {
+    // 2026-10-28 立（#561）。退出登录是危险操作，要二次确认。四个页面各抄一份同样的确认弹窗，
+    // 第五处（启动恢复失败页）漏抄，按下就退 —— 复制粘贴式的安全约束总会漏一处。
+    // 弹窗收成 `logoutConfirmation(isPresented:)` 一份，只有它所在的文件可以调 `appState.logout()`。
+    pattern: /\bappState\.logout\(\)/,
+    check: () => true,
+    exceptFiles: /\/Auth\/LogoutConfirmation\.swift$/,
+    why: '不要在按钮里直接调 `appState.logout()`：退出登录必须二次确认（skill `aidrun-a11y-voice`），读屏用户滑过按钮时双击一下就会被退出。按钮只把开关置真，弹窗用 `.logoutConfirmation(isPresented: $showLogoutConfirm)`（`blindRun/Auth/LogoutConfirmation.swift`）。确有不经用户的退出路径（例如服务端吊销），行尾加 `// guard:allow logout-without-confirmation` 并写清为什么。',
+  },
   'invite-code-reward-flag': {
     // 2026-09-14 立。契约 `FeatureFlagsResponse.invitationRewardEnabled` 的 description 逐字：
     //
