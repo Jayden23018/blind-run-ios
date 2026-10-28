@@ -114,9 +114,14 @@ final class InviteLockScreenActionTests: XCTestCase {
 
     /// 撤回只收**队列里那一张**的通知（带它的期限）；队列里没有的撤回不收 —— 不知道期限，按单号收会把同单新邀请那条一起收掉，
     /// 留给下一次对账（`withdrawDispatch` 的注释）。回复（`clearDispatch`）收这一单的全部；对账收快照里没有的。
+    ///
+    /// 只建协调器、不建首页：首页处理撤回时会经 `clearDispatch` 再收一次同一张（收口在一处的设计，重复收无害），
+    /// 那是首页的行为，不是这条要守的协调器规则（10-29 真机：带上首页时多出一条同样的收法）。
     func testCoordinatorPrunesOnWithdrawReplyAndReconcile() async {
-        let (viewModel, appState, service, _) = InviteLockScreenFixture.makeHome()
+        let appState = AppState()
+        let service = WebSocketService()
         let coordinator = appState.realtimeCoordinator
+        coordinator.attach(to: service, role: .volunteer)
         var prunes: [InviteNotificationPrune] = []
         coordinator.pruneDeliveredInviteNotifications = { prunes.append($0) }
         service.simulateIncomingEventForTesting(.newOrder(InviteLockScreenFixture.dispatch(orderId: 7, inviteId: 71)))
@@ -136,7 +141,6 @@ final class InviteLockScreenActionTests: XCTestCase {
             .invites([InviteIdentity(orderId: 8, inviteId: nil, expiresAt: nil)]),
             .allExcept([9], deliveredBefore: requestedAt),
         ], "单 10 不在队列里，它的撤回不该收任何通知")
-        withExtendedLifetime(viewModel) {}
     }
 
     // MARK: - 连续拒绝：后端计数（SPEC D11）
