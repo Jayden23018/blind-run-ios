@@ -56,6 +56,7 @@ defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier | grep -E 'team
     所以**推送相关的行为在免费团队下验不了**，要验只能在工程团队成员的 Mac 上跑。
   - 设了前缀，编译产物放在**只属于这个工作区 + 这个前缀**的 DerivedData（`~/Library/Developer/Xcode/DerivedData/aidrun-device-<前缀>-<工作区哈希>`，#452），
     和编译门禁分开；所以每个工作区换前缀后第一次跑要完整编译一遍，之后是增量。
+    每份都是完整的编译产物，worktree 多了会占不少磁盘；删掉不再用的 worktree 后顺手清：`rm -rf ~/Library/Developer/Xcode/DerivedData/aidrun-device-*`（下次跑会重新编）。
   - 当前分支的 pbxproj 里 bundle id 还是写死的（没有 `$(AIDRUN_BUNDLE_ID_PREFIX:default=…)`）⇒ 前缀覆盖不生效。
     这时开一个临时 worktree：`git worktree add --detach /tmp/<名字> <分支>`，在里面 cherry-pick 那条覆盖提交再跑，
     **跑完删掉 worktree，不推送** —— 别把它混进当前分支的 PR。
@@ -93,7 +94,7 @@ defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier | grep -E 'team
 | `exited with code 74 before establishing connection` | 先 `pgrep -x Xcode`；开着就请用户 ⌘Q。再回原始日志 grep `refused\|Exiting due`。都不是再查 USB（`transportType` 要是 `wired`） |
 | `设备处于锁屏状态` | 用户解锁，并把自动锁定设成「永不」 |
 | `日志连续 Ns 没有新输出、也没开始跑用例` | 编译期间不计时（2026-10-05 起），所以这一句**就是**卡住：看 `devicectl` 的 `transportType` 是不是 `wired`、手机解没解锁 |
-| `Failed to create directory on device … runtime profiles`（报的 bundle id 是默认的 `com.culiu-tech…`，哪怕你设了前缀） | **设了个人前缀时**：根因是不带前缀的编译门禁（`build-for-testing`）和 device-test 共用同一个 DerivedData，把 runner 改写成默认 bundle id，下一次带前缀重编重签后，启动那一步仍按默认 id 去设备上找数据容器（#452：「这次重签了 runner ⇔ 失败」四次跑测全部对上）。2026-10-28 起脚本给带前缀的跑测单独一份 `-derivedDataPath`，日志开头有一行「编译产物放在独立的 …」—— 撞上先看那一行在不在，不在 = 当前分支的脚本还是旧的。**没设前缀时**原样复跑一次（并发跑同一台设备也报过这句，先查有没有别人在跑） |
+| `Failed to create directory on device … runtime profiles`（报的 bundle id 是默认的 `com.culiu-tech…`，哪怕你设了前缀） | **设了个人前缀时**：推断的根因（#452：「这次重签了 runner ⇔ 失败」四次跑测全部对上，Xcode 内部在哪里留着旧 id 没查到）是不带前缀的编译门禁（`build-for-testing`）和 device-test 共用同一个 DerivedData，把 runner 改写成默认 bundle id，下一次带前缀重编重签后，启动那一步仍按默认 id 去设备上找数据容器。2026-10-28 起脚本给带前缀的跑测单独一份 `-derivedDataPath`，脚本自己的输出里（不在 xcodebuild 日志文件里）有一行「编译产物放在独立的 …」—— 撞上先看那一行在不在，不在 = 当前分支的脚本还是旧的；在而仍然报这句，说明根因推断不对，回 #452 记现场。**没设前缀时**原样复跑一次（并发跑同一台设备也报过这句，先查有没有别人在跑） |
 | `认证已取消。Canceled by user.`（runner 已起，带 pid） | 手机上弹了**锁屏密码认证框**没人点。先确认 设置 → 开发者 → UI 自动化 打开，再让用户盯着手机在启动后输密码 |
 | `Unable to find a destination matching` | 第一节第 2 条：设备断开或 UDID 不对 |
 | `Timed out while enabling automation mode` | 原样复跑**一次**；第二次还是同一句就停，请用户去开 UI Automation 开关 |

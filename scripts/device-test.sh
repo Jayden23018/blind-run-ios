@@ -55,10 +55,14 @@ fi
 # 所以不去清它，而是让带前缀的跑测永远碰不到门禁写的那份产物。
 # 代价：每个工作区换前缀后第一次跑要完整编译一遍。不设前缀时不传，和以前一样用默认目录
 # （那时门禁与跑测的 bundle id 一致，不存在这个问题）。`AIDRUN_DERIVED_DATA_PATH` 可覆盖。
+# 先清空：外部环境里恰好有同名变量时，下面打印与自测报出的会是别人的值。
+DERIVED_DATA=""
 DERIVED_DATA_ARGS=()
 if [ -n "${AIDRUN_BUNDLE_ID_PREFIX:-}" ]; then
   # 按工作区路径分：同一前缀在两个 worktree 里各编各的，不互相覆盖（默认 DerivedData 也是按路径分的）。
-  DERIVED_DATA_KEY="$(printf '%s' "$PWD" | shasum | cut -c1-10)"
+  # `cksum` 是 POSIX 自带的（macOS / Linux / Rust coreutils 都有）；`shasum` 来自 perl，缺了会静默算出空串，
+  # 所有工作区退回共用一份目录。
+  DERIVED_DATA_KEY="$(printf '%s' "$PWD" | cksum | cut -d' ' -f1)"
   DERIVED_DATA_PREFIX_SLUG="$(printf '%s' "$AIDRUN_BUNDLE_ID_PREFIX" | tr -c 'A-Za-z0-9.-' '_')"
   DERIVED_DATA="${AIDRUN_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/DerivedData/aidrun-device-${DERIVED_DATA_PREFIX_SLUG}-${DERIVED_DATA_KEY}}"
   DERIVED_DATA_ARGS=(-derivedDataPath "$DERIVED_DATA")
@@ -212,7 +216,7 @@ say "    锁屏会让 xcodebuild 静默挂起，本脚本在日志停滞 ${PREFL
 
 # ---------- 2. 跑测试，同时盯着锁屏挂起 ----------
 say "开始 xcodebuild test（日志：${LOG}）"
-if [ -n "${DERIVED_DATA:-}" ]; then
+if [ -n "$DERIVED_DATA" ]; then
   say "设了 AIDRUN_BUNDLE_ID_PREFIX：编译产物放在独立的 ${DERIVED_DATA}，不与编译门禁共用（#452）"
 fi
 xcodebuild test \

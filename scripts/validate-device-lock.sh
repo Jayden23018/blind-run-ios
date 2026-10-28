@@ -8,7 +8,7 @@ set -uo pipefail
 # runner 装掉，两边都报 `Test crashed with signal kill`，与真回归无法区分。
 # 工作区完整性见「0.5」注释：worktree 里缺 LocalConfig.xcconfig / Pods/ 时报错全指着工程配置。
 #
-# 五条都**不碰真机**、不跑 xcodebuild：1–3 用 AIDRUN_LOCK_SELFTEST 拿到锁就待命，
+# 全部都**不碰真机**、不跑 xcodebuild：1–3 用 AIDRUN_LOCK_SELFTEST 拿到锁就待命，
 # 4–5 在设备探活之前就 die。用的设备 id 是假的，不会和真设备的锁撞上。
 #
 # 文件名只说了锁，是因为改名要动 CI 引用而收益为零 —— 内容以本注释为准。
@@ -170,7 +170,8 @@ esac
 # 都走 AIDRUN_LOCK_SELFTEST：拿到锁就报出路径并退出，不跑 xcodebuild。
 echo "[validate-device-lock] 8/9 设了 AIDRUN_BUNDLE_ID_PREFIX 才换成独立的 DerivedData"
 dd_of() { printf '%s\n' "$1" | sed -n 's/^\[device-test\] derivedDataPath=//p'; }
-DEFAULT_DD="$(dd_of "$(AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" 2>&1)")"
+# `env -u`：开发者 shell 里 export 过个人前缀时，「不设前缀」这一问不能被它污染。
+DEFAULT_DD="$(dd_of "$(env -u AIDRUN_BUNDLE_ID_PREFIX -u AIDRUN_DERIVED_DATA_PATH -u DERIVED_DATA AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" 2>&1)")"
 PREFIX_DD="$(dd_of "$(AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_BUNDLE_ID_PREFIX=com.example.aidrun AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" 2>&1)")"
 case "$DEFAULT_DD" in
   "（默认）") ok "不设前缀时不改 DerivedData（与编译门禁同一份，bundle id 两边一致）" ;;
@@ -188,6 +189,16 @@ if [ -n "$OTHER_DD" ] && [ -n "$PREFIX_DD" ] && [ "$OTHER_DD" != "$PREFIX_DD" ];
 else
   bad "两个工作区算出同一个（或空的）目录：'$PREFIX_DD' / '$OTHER_DD'"
 fi
+
+# 8–9 只证明算出了对的路径。真正决定修复生不生效的是 `xcodebuild test` 那条命令里有没有把它传进去 ——
+# `${X[@]+...}` 写错名字时不会触发 `set -u`，静默展开成空，8–9 照样全绿（#544 审查 A1）。
+echo "[validate-device-lock] 10 xcodebuild test 那条命令真的带上了 DerivedData 参数"
+XCB_CMD="$(awk '/^xcodebuild test \\$/ { on = 1 } on { print } on && !/\\$/ { exit }' "$SCRIPT")"
+case "$XCB_CMD" in
+  *'${DERIVED_DATA_ARGS[@]+"${DERIVED_DATA_ARGS[@]}"}'*) ok "xcodebuild test 命令里展开了 DERIVED_DATA_ARGS" ;;
+  '') bad "在 $SCRIPT 里找不到以「xcodebuild test \\」开头的那条命令，自测失去了对象" ;;
+  *) bad "xcodebuild test 命令里没有展开 DERIVED_DATA_ARGS —— 算出的独立目录根本没传给 xcodebuild" ;;
+esac
 
 echo
 printf '[validate-device-lock] 通过 %s 条，失败 %s 条\n' "$PASS" "$FAIL"
