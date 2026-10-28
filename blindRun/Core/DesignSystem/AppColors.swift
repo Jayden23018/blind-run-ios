@@ -65,6 +65,11 @@ enum AppColors {
     /// `Color` 要解析成 RGB 得先过 `UITraitCollection`，那在单测里是个不稳定的依赖。
     static let voiceStageSurfaceTone = Tone(light: 0x0058C7, dark: 0x0B4DA2)
 
+    /// 主色实心面，上面压白色**正文**（服务成就页的主数字卡）。取值同 `voiceStageSurface`，
+    /// 对比度由 `LowVisionChannelTests.testVoiceStageSurfaceKeepsWhiteTextReadable` 守着。
+    /// 不能直接用 `primary`：暗色 `#0A84FF` 白字 3.65:1，只够 `PrimaryButton` 那种 20pt 粗体大字。
+    static let primarySolidSurface = voiceStageSurface
+
     /// 志愿者「可服务」已开启时那条状态条的绿底（`VolunteerAvailabilitySlider`）。
     ///
     /// **和 `voiceStageSurface` 完全同一个形状，所以同样不进 `tones`**：它是背景，

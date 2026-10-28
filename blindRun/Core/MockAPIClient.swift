@@ -1091,14 +1091,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 // 被 `AIDRUN_UI_TEST_SEED_ORDER_STATUS` 钉成 `COMPLETED` 时两者结论相反。
                 volunteerId: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerId : nil,
                 volunteerName: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerName : nil,
-                volunteerTotalCompleted: Self.mockHasAcceptedVolunteer(activeOrderStatus)
-                    ? Self.mockOrderVolunteerCompletedRuns : nil,
-                // 完赛三项**只在 `COMPLETED` 有值**，与后端一致（进终态时算一次落库）。
-                // 其余状态留 nil，正好也覆盖「后端没算出来时这一行整段消失」那条分支 ——
-                // 造一份所有状态都有里程的假数据，等于让已完成屏的降级路径永远走不到。
+                volunteerTotalCompleted: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerCompletedRuns : nil,
+                // 完赛三项与「第几次一起跑」**只在 `COMPLETED` 有值**，与后端一致（进终态时算一次落库）。其余状态留 nil，
+                // 正好也覆盖「后端没算出来时整段消失」那条分支 —— 所有状态都有值等于让已完成屏的降级路径永远走不到。
                 actualDistanceMeters: activeOrderStatus == .completed ? 5120 : nil,
                 actualDurationSeconds: activeOrderStatus == .completed ? 2360 : nil,
                 actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil,
+                completedTogetherCount: activeOrderStatus == .completed ? 3 : nil,
                 earliestBlindCancelAt: Self.seededBlindCancelAt(for: activeOrderStatus)
             ),
             OrderDetailResponse(
