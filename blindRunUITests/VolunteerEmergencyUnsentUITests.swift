@@ -7,8 +7,9 @@ extension blindRunUITests {
     ///
     /// 守的是单测够不着的那一段：弹窗开关在 view model 上（`offersLocalCallAfterUnsentSOS`），而它在页面上
     /// 真的弹得出来 —— 审查担心求助面板收起与拨号框同一拍出现时 iOS 会丢掉其中一个。
-    /// `AIDRUN_UI_TEST_PRECISE_LOCATION_OFF` 只改判定；真机此刻精确位置是开着的，所以系统不会弹临时精确位置窗，
-    /// 这条要等满 15 秒（`EmergencyCoordinator.preciseLocationAnswerTimeout`）。
+    /// `AIDRUN_UI_TEST_PRECISE_LOCATION_OFF` 只改判定，申请走的是真实 SDK：真机此刻精确位置开着，系统不弹窗，
+    /// completion 立刻带错误回来（#547），所以几乎马上就降级 —— 顺带在真机上走了一遍「completion → 同步精度授权」。
+    /// 「回调迟迟不来、等满 15 秒」那一支由单测 `testPreciseLocationOffAsksOnceThenSendsNothing` 守。
     @MainActor
     func testVolunteerCloudSOSWithPreciseLocationOffFallsBackToLocalCall() throws {
         let app = launchApp(

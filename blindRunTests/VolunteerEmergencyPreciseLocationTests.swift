@@ -169,8 +169,6 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         XCTAssertEqual(outcome.state, .unsentSessionExpired)
     }
 
-    // MARK: - Fixture
-
     // MARK: - 有回答就走，不等超时（#547）
 
     /// 🔴 #547 原样：点了「保持关闭」就立刻降级，不再空等满超时。
@@ -192,24 +190,34 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer])
     }
 
-    /// 弹窗里点了允许：回答一到就带着精确坐标发出去，同样不等超时。
-    /// 对照组：没有它，「一有回答就放弃」的实现也能让上一条变绿。
-    func testAllowingInTheDialogReturnsAtOnceWithThePreciseCoordinate() async {
-        let location = Self.locationService()
-        location.simulatePreciseLocationOffForTesting()
+    /// 弹窗里点了允许：不钉开关，走真实的「精度从关到开」—— 关着时那份区域代表点被丢掉（`applyAccuracyAuthorization`），
+    /// 等到允许之后的精确样本就带着它发出去，不等超时。一条守三件事：
+    /// 回调后同步精度授权（#595 审查 A1：删掉那一步就一直按「仍关着」处理、不发）；区域代表点绝不发出；
+    /// 「一有回答就放弃」的过度修法。
+    func testAllowingInTheDialogSendsTheNextPreciseFixNotTheRegionSample() async throws {
+        let region = CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737)
+        let precise = CLLocationCoordinate2D(latitude: 31.3304, longitude: 121.5737)
+        let location = Self.reducedAccuracyLocationService(region: region)
         let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
         defer { EmergencySOSTests.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "CONTACT_NOTIFIED"))
-        Self.answer(location, allowed: true, afterNanoseconds: 300_000_000)
+        Self.answer(location, allowed: true, afterNanoseconds: 300_000_000) {
+            // 允许之后 CoreLocation 才送来精确样本；早于同步送到的会被当成区域代表点一起清掉。
+            location.simulateDeviceLocationForTesting(precise, capturedAt: Date(), horizontalAccuracy: 10)
+        }
 
         let started = Date()
         let outcome = await trigger(coordinator, safety: safety, location: location, answerTimeout: 5)
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertLessThan(elapsed, 2, "允许之后还在等（\(elapsed) 秒）")
-        XCTAssertEqual(safety.calls, ["triggerEmergency(_:)"])
-        XCTAssertNotNil(safety.lastTriggerRequest?.gpsLat, "允许之后要带坐标发出")
+        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer], "没申请就没有回答可等")
         XCTAssertEqual(outcome.state, .acknowledged(.contactNotified))
+        let sentLatitude = try XCTUnwrap(safety.lastTriggerRequest?.gpsLat, "允许之后要带坐标发出")
+        let preciseGCJ = try XCTUnwrap(BackendCoordinateNormalizer.normalize(
+            LocatedCoordinate(coordinate: precise, system: .wgs84Device, source: .device)
+        ))
+        XCTAssertEqual(sentLatitude, preciseGCJ.coordinate.latitude, accuracy: 0.000_01, "发出去的不是允许之后那份精确样本")
+        XCTAssertLessThan(elapsed, 3, "允许之后还在等超时（\(elapsed) 秒）")
     }
 
     /// `LocationService` 这一层：回答到了才返回，返回值是「是否仍然关着」；开着时不申请、立刻返回 false。
@@ -229,8 +237,28 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer, .escortVolunteer], "开着时不该再申请")
     }
 
-    /// 等申请真的挂上（它在一个独立的 Task 里发出）再替用户回答，免得回答早于申请、落了空。
-    private static func answer(_ location: LocationService, allowed: Bool, afterNanoseconds: UInt64) {
+    /// 回调后同步精度授权（#595 审查 A1）：completion 先到、授权回调还没到时，返回值照系统此刻的授权算，
+    /// 发布出去的状态跟着更新，关着时那份区域代表点随「从关到开」丢掉。删掉同步那一步，这条就红。
+    func testTheAnswerIsSyncedFromTheSystemBeforeTheAuthorizationCallbackArrives() async {
+        let location = Self.reducedAccuracyLocationService(region: CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737))
+
+        Self.answer(location, allowed: true, afterNanoseconds: 100_000_000)
+        let stillOff = await location.requestTemporaryPreciseLocationAndWaitForAnswer(for: .escortVolunteer)
+
+        XCTAssertFalse(stillOff)
+        XCTAssertFalse(location.isPreciseLocationOff)
+        XCTAssertEqual(location.accuracyAuthorization, .fullAccuracy)
+        XCTAssertNil(location.latestBackendSample(), "关着时那份区域代表点要随「从关到开」一起丢掉")
+    }
+
+    /// 等申请真的挂上（它在一个独立的 Task 里发出）再替用户回答。没有申请挂上就**不**回答 ——
+    /// 否则「根本没申请」的实现也能过（#595 审查 B2）。`followUp` 在回答已同步进来（精确位置已打开）之后才执行。
+    private static func answer(
+        _ location: LocationService,
+        allowed: Bool,
+        afterNanoseconds: UInt64,
+        then followUp: (@MainActor () -> Void)? = nil
+    ) {
         let asked = location.temporaryPreciseLocationRequestsForTesting.count
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: afterNanoseconds)
@@ -239,9 +267,27 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 polls += 1
             }
+            guard location.temporaryPreciseLocationRequestsForTesting.count > asked else { return }
             location.answerTemporaryPreciseLocationForTesting(allowed: allowed)
+            guard let followUp else { return }
+            polls = 0
+            while location.isPreciseLocationOff, polls < 50 {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                polls += 1
+            }
+            followUp()
         }
     }
+
+    /// 不钉开关：真实的「已授权 + 精度降级」，手里一份精度 3 公里的区域代表点。
+    private static func reducedAccuracyLocationService(region: CLLocationCoordinate2D) -> LocationService {
+        let location = LocationService()
+        location.applyAccuracyAuthorization(.reducedAccuracy)
+        location.simulateDeviceLocationForTesting(region, capturedAt: Date(), horizontalAccuracy: 3000)
+        return location
+    }
+
+    // MARK: - Fixture
 
     private func trigger(
         _ coordinator: EmergencyCoordinator,

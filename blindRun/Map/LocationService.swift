@@ -235,6 +235,8 @@ final class LocationService: NSObject, ObservableObject {
     private(set) var temporaryPreciseLocationRequestsForTesting: [PreciseLocationPurpose] = []
     /// 还没回答的临时精确位置申请（#547）。`answerTemporaryPreciseLocationForTesting` 替用户回答。
     private var pendingTemporaryPreciseAnswersForTesting: [CheckedContinuation<Void, Never>] = []
+    /// 替用户回答时「系统此刻的精度授权」（#547），见 `answerTemporaryPreciseLocationForTesting`。
+    private var systemAccuracyAuthorizationForTesting: CLAccuracyAuthorization?
 
     /// 把「精确位置」开关钉在给定状态。与 `simulateDeviceLocationForTesting` 同一种接缝：
     /// 打开后申请临时精确位置只记账，不弹系统窗。
@@ -535,11 +537,17 @@ extension LocationService {
     /// 超时由调用方负责：completion 照 SDK 说总会来，但求助不赌这一点。
     func requestTemporaryPreciseLocationAndWaitForAnswer(for purpose: PreciseLocationPurpose) async -> Bool {
         guard isPreciseLocationOff else { return false }
+        await waitForTemporaryPreciseLocationAnswer(purpose)
+        applyAccuracyAuthorization(systemAccuracyAuthorization)
+        return isPreciseLocationOff
+    }
+
+    private func waitForTemporaryPreciseLocationAnswer(_ purpose: PreciseLocationPurpose) async {
         #if DEBUG
         if preciseLocationOffOverrideForTesting != nil || suppressHardwareUpdatesForTesting {
             temporaryPreciseLocationRequestsForTesting.append(purpose)
             await withCheckedContinuation { pendingTemporaryPreciseAnswersForTesting.append($0) }
-            return isPreciseLocationOff
+            return
         }
         #endif
         await withCheckedContinuation { (answered: CheckedContinuation<Void, Never>) in
@@ -547,14 +555,25 @@ extension LocationService {
                 answered.resume()
             }
         }
-        applyAccuracyAuthorization(locationManager.accuracyAuthorization)
-        return isPreciseLocationOff
+    }
+
+    /// 系统此刻的精度授权（不是发布出去的 `accuracyAuthorization`，那份要等授权回调才更新）。
+    private var systemAccuracyAuthorization: CLAccuracyAuthorization {
+        #if DEBUG
+        if let systemAccuracyAuthorizationForTesting { return systemAccuracyAuthorizationForTesting }
+        #endif
+        return locationManager.accuracyAuthorization
     }
 
     #if DEBUG
-    /// 替用户回答临时精确位置弹窗：`allowed` = 点了允许。先把开关钉到对应状态，再放行所有在等回答的申请。
+    /// 替用户回答临时精确位置弹窗：`allowed` = 点了允许，再放行所有在等回答的申请。
+    ///
+    /// 只改「系统此刻的精度授权」，不动发布出去的状态 —— 与真机上 completion 先于授权回调到达是同一个顺序，
+    /// 所以「回调后同步」那一步做没做，用例分得出来（#595 审查 A1）。
+    /// 用 `simulatePreciseLocationOffForTesting` 钉过开关的用例，开关跟着回答一起改：钉住的开关优先于精度授权。
     func answerTemporaryPreciseLocationForTesting(allowed: Bool) {
-        simulatePreciseLocationOffForTesting(!allowed)
+        systemAccuracyAuthorizationForTesting = allowed ? .fullAccuracy : .reducedAccuracy
+        if preciseLocationOffOverrideForTesting != nil { simulatePreciseLocationOffForTesting(!allowed) }
         let pending = pendingTemporaryPreciseAnswersForTesting
         pendingTemporaryPreciseAnswersForTesting = []
         pending.forEach { $0.resume() }
