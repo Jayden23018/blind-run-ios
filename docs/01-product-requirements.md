@@ -177,7 +177,7 @@ Swift 原生 iOS
 - 与结构化状态事件并行到达的生命周期 `APP_NOTIFICATION` 不得重复播报；活动订单卸载后的短时终态通知也按状态语义抑制。安全告警和非生命周期通知保持原有呈现。
 - 志愿者 `NEW_ORDER` 在页面导航期间仍保留原有后端倒计时与接受/拒绝操作，不增加公开订单池或“稍后处理”。
 - 前台 `HIGH` 通知抢占 `NORMAL`，可见文案、VoiceOver 标签和 TTS 含义一致；普通重复消息受限去重，不得合并不同事件 ID 的安全提醒。
-- 双向 peer location 在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 展示给当前订单双方；`IN_PROGRESS` 支持锁屏/后台连续定位。分离/信号告警只按后端通知展示，不改变订单或触发 iOS SOS。
+- 双向 peer location 在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 展示给当前订单双方；三态都支持锁屏/后台连续定位（#523：陪跑员出发后常切去导航），跑步专用的增强精度只在 `IN_PROGRESS`。分离/信号告警只按后端通知展示，不改变订单或触发 iOS SOS。
 - 盲人端 eligible pre-service 阶段在 socket 位置缺失或过期时，可使用 `/api/blind/volunteer-location` 30 秒新鲜度回退；五秒订单详情轮询始终保留。
 
 ## 实时同行与完成轨迹
