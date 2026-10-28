@@ -14,7 +14,7 @@ final class EscortPreciseLocationGateTests: XCTestCase {
         let (coordinator, service) = Self.makeEscortCoordinator(role: .blind, location: location)
 
         coordinator.updateOwnedOrder(orderID: 79, status: .driverEnRoute)
-        let showedBanner = await Self.waitUntil { coordinator.healthState == .preciseLocationOff(.blind) }
+        let showedBanner = await Self.waitUntil { coordinator.healthState == .preciseLocationOff(.blind, running: false) }
         XCTAssertTrue(showedBanner, "健康提示：\(coordinator.healthState)")
         XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortRun])
         XCTAssertTrue(coordinator.healthState.userMessage?.contains("求助") == true, "要说清求助会发不出去")
@@ -50,19 +50,19 @@ final class EscortPreciseLocationGateTests: XCTestCase {
         withExtendedLifetime(service) {}
     }
 
-    /// 陪跑员端也进这一档、也申请临时精确位置（#407 定为两端都拦），用陪跑员自己的用途说明；文案不提求助。
+    /// 陪跑员端也进这一档、也申请临时精确位置（#407 定为两端都拦），用陪跑员自己的用途说明；文案不说求助发不出去。
     func testVolunteerEscortRequestsPreciseLocationPerPhaseAndShowsItsOwnBanner() async {
         let location = Self.locationService(accuracy: 5000)
         location.simulatePreciseLocationOffForTesting()
         let (coordinator, service) = Self.makeEscortCoordinator(role: .volunteer, location: location)
 
         coordinator.updateOwnedOrder(orderID: 80, status: .driverEnRoute)
-        let showedBanner = await Self.waitUntil { coordinator.healthState == .preciseLocationOff(.volunteer) }
+        let showedBanner = await Self.waitUntil { coordinator.healthState == .preciseLocationOff(.volunteer, running: false) }
         XCTAssertTrue(showedBanner, "健康提示：\(coordinator.healthState)")
         XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer], "不借用盲人那条用途说明")
         let message = coordinator.healthState.userMessage ?? ""
         XCTAssertTrue(message.contains("暂停同行位置共享") && message.contains("精确位置"), message)
-        XCTAssertFalse(message.contains("求助"), "陪跑员端的求助不受这个开关影响，不许说发不出去")
+        XCTAssertFalse(message.contains("发不出去"), "陪跑员端的求助不受这个开关影响，不许说发不出去")
 
         coordinator.updateOwnedOrder(orderID: 80, status: .driverArrived)
         _ = await Self.waitUntil { false }
@@ -84,7 +84,7 @@ final class EscortPreciseLocationGateTests: XCTestCase {
             let (coordinator, service) = Self.makeEscortCoordinator(role: role, location: location) { sent += 1 }
 
             coordinator.updateOwnedOrder(orderID: 90, status: .inProgress)
-            _ = await Self.waitUntil { coordinator.healthState == .preciseLocationOff(role) }
+            _ = await Self.waitUntil { coordinator.healthState == .preciseLocationOff(role, running: true) }
             _ = await Self.waitUntil(timeout: 0.3) { false }
             XCTAssertEqual(sent, 0, "\(role) 端：精确位置关着时一个点都不许发")
 
@@ -112,7 +112,7 @@ final class EscortPreciseLocationGateTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private static func locationService(accuracy: Double?) -> LocationService {
+    static func locationService(accuracy: Double?) -> LocationService {
         let location = LocationService()
         location.simulateDeviceLocationForTesting(
             CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
@@ -124,7 +124,7 @@ final class EscortPreciseLocationGateTests: XCTestCase {
 
     /// 返回的 `WebSocketService` **必须由调用方攥着**：协调器对它是 `weak`，不攥着出函数即释放，
     /// 健康状态恒为 `networkDisconnected`、断网那条用例也会假绿（记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
-    private static func makeEscortCoordinator(
+    static func makeEscortCoordinator(
         role: UserRole,
         location: LocationService,
         connected: Bool = true,
