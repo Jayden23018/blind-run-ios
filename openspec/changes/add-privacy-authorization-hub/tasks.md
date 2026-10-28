@@ -9,4 +9,4 @@
 - [x] 2.1 单测：撤回语音同意后 `/parse` 请求计数不变；撤回位置同意停定位、求助不附位置；陪跑中拒绝撤回
 - [x] 2.2 UI 用例：撤回按钮 ≥ 64pt、读屏标签
 - [x] 2.3 编译门禁、SwiftLint 棘轮、`openspec validate --strict`
-- [ ] 2.4 真机跑覆盖 suite 与无障碍审计，`passed=N failed=0`，做一次验红
+- [x] 2.4 真机跑覆盖 suite 与无障碍审计，`passed=N failed=0`，做一次验红（iPhone 16 Pro 有线，2026-10-28/29）：覆盖 suite 与两条 64pt UI 用例 `passed=65`（唯一失败是审计用例二次启动撞设备侧错误）；整页审计四种外观重跑 `passed=2 failed=0`、0 条 `[AUDIT]`；验红预期的 3 条红
