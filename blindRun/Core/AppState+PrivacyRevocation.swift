@@ -6,9 +6,15 @@ extension AppState {
     /// 撤回「语音下单把转写文字交给第三方大模型」的同意（#374 / #393）。
     /// `ConsentGatedVoiceOrderService` 每次调用现读，删掉记录闸门立刻生效：之后 `/api/orders/voice/parse` 不再发出，
     /// 下次用语音下单前重新询问。
+    ///
+    /// 两个作用域都删：同意的作用域在「拿不到当前用户 → 按设备」与「按账号」之间会切换
+    /// （`voiceOrderConsentScope`），只删当下那一份的话，另一份在作用域切回去时会让闸门重新放行。
     func revokeVoiceOrderConsent() {
-        PrivacyConsentStore(persistence: persistence)
-            .revokeConsent(to: .voiceOrderThirdPartyLLM, scope: voiceOrderConsentScope)
+        let store = PrivacyConsentStore(persistence: persistence)
+        store.revokeConsent(to: .voiceOrderThirdPartyLLM, scope: .device)
+        if let id = currentUser?.userId ?? userId {
+            store.revokeConsent(to: .voiceOrderThirdPartyLLM, scope: .user(String(id)))
+        }
     }
 
     /// 陪跑会话进行中（出发 / 汇合 / 跑步）不让在 App 里撤回位置同意：撤回会让同行会话立刻停发、

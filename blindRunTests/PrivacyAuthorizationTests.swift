@@ -34,6 +34,22 @@ final class PrivacyAuthorizationTests: XCTestCase {
         XCTAssertEqual(client.parseCount, 1, "撤回后又发出了解析请求")
     }
 
+    /// 登录前（拿不到当前用户）给的同意落在「按设备」那一份；撤回要连它一起删，
+    /// 否则作用域切回「按设备」时闸门会重新放行。
+    func testRevokingVoiceConsentAlsoClearsTheDeviceScopedRecord() {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        let appState = AppState(apiClient: ParseCountingClient(), persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.recordVoiceOrderConsent()
+        appState.handleLoginSuccess(response: LoginResponse(token: "t", userId: 32, role: "BLIND"))
+        let store = PrivacyConsentStore(persistence: persistence)
+        XCTAssertTrue(store.hasConsented(to: .voiceOrderThirdPartyLLM, scope: .device), "前提：登录前那份落在按设备")
+
+        appState.revokeVoiceOrderConsent()
+
+        XCTAssertFalse(store.hasConsented(to: .voiceOrderThirdPartyLLM, scope: .device))
+        XCTAssertFalse(store.hasConsented(to: .voiceOrderThirdPartyLLM, scope: .user("32")))
+    }
+
     /// 撤回位置同意：本机记录删掉、盲人角色那一份持续定位停掉、求助不再附位置。
     func testRevokingBlindLocationConsentStopsLocationAndEmergencyLocation() {
         let location = LocationService()
