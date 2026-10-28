@@ -21,6 +21,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var phase: VolunteerOrderPhase?
     /// 邀请态头卡里的三宫格。
     var inviteMetrics: [VolunteerOrderMetric] = []
+    var inviteRunnerName: String?  // 邀请态绳子头像的姓（去星号，#339）；接单后读 `order.blindName`
     /// 汇合页的方位盘、响铃、等待。`nil` = 不是汇合页。
     var meet: VolunteerOrderMeetPanel?
     /// 出发 / 汇合页的快捷回复。`nil` = 不显示。
@@ -134,15 +135,6 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 standardHeroContent
             }
         }
-    }
-
-    private var rope: some View {
-        RopeView(
-            state: hero.rope,
-            theme: hero.style.ropeTheme,
-            runnerName: order?.blindName,
-            remainingMinutes: hero.remainingMinutes
-        )
     }
 
     @ViewBuilder
@@ -560,6 +552,18 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
 // MARK: - 头卡状态色
 
+// 写在结构体外、同一个文件里：页面结构体只许变短（SwiftLint 棘轮 #488）。
+extension VolunteerOrderFlowPage {
+    private var rope: some View {
+        RopeView(
+            state: hero.rope,
+            theme: hero.style.ropeTheme,
+            runnerName: order?.blindName ?? inviteRunnerName,
+            remainingMinutes: hero.remainingMinutes
+        )
+    }
+}
+
 extension VolunteerOrderHero.Style {
     /// 交付包 v2 C01。纯类型那边只说「是哪一种」，取色在视图层。
     var color: Color {
@@ -929,28 +933,6 @@ struct VolunteerRunningPage<Footer: View>: View {
 }
 
 // MARK: - 页面的附属数据
-
-/// 邀请态三宫格里的一格。值与单位分开：两个字号。
-struct VolunteerOrderMetric: Identifiable, Equatable {
-    let label: String
-    let value: String
-    let unit: String?
-
-    var id: String { label }
-    /// 读屏先说这是什么：「离你，3.2 公里」。
-    var spoken: String { "\(label)，\(value)\(unit.map { " \($0)" } ?? "")" }
-
-    /// 与邀请卡 `VolunteerInviteCard.metrics` 同一套取值（离你 / 跑多远 / 配速），缺的格子不画。
-    static func invite(_ dispatch: WSNewOrder) -> [Self] {
-        [
-            dispatch.distanceKm.map { Self(label: "离你", value: String(format: "%.1f", $0), unit: "公里") },
-            RunPlanFormat.plannedDistanceParts(meters: dispatch.plannedDistanceMeters).map {
-                Self(label: VolunteerOrderFlowCopy.plannedDistanceLabel, value: $0.value, unit: $0.unit)
-            },
-            dispatch.plannedPaceText.map { Self(label: VolunteerOrderFlowCopy.paceLabel, value: $0, unit: nil) },
-        ].compactMap { $0 }
-    }
-}
 
 /// 汇合页那块：方位盘 / 等待环 + 响铃 + 两列按钮。状态由宿主持有。
 struct VolunteerOrderMeetPanel {

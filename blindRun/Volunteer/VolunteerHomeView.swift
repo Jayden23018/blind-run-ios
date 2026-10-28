@@ -365,7 +365,8 @@ final class VolunteerHomeViewModel: ObservableObject {
             requiresIntroCall: true,
             paceMinSecondsPerKm: 390,
             paceMaxSecondsPerKm: 450,
-            plannedDistanceMeters: 5_000
+            plannedDistanceMeters: 5_000,
+            blindName: "李*"  // 后端恒下发掩码名（#357）；种子带上它，UI 用例才验得到读屏去星号（#339）
         )
     }
 

@@ -487,15 +487,16 @@ struct VolunteerInviteCard: View {
     /// 给还没见面的陪跑员印一个猜的视力程度，见面第一下就会抓错人。
     ///
     /// 右边的「一起跑过 N 次 / 第一次一起跑」标签来自 `completedTogetherCount`（后端 #306），
-    /// 后端没给时不显示。头像圆里仍是「跑」不是姓氏 —— 掩码姓名 `blindName` 是 #357 那一条，另做。
+    /// 后端没给时不显示。称呼来自掩码 `blindName`（#339）：屏幕「跑者李*」、头像「李」、读屏「跑者李」。
     @ViewBuilder
     private var runnerRow: some View {
         let summary = invite.supplement?.runnerSummary
         let together = invite.supplement?.togetherText
-        if summary != nil || together != nil {
+        let name = invite.order.runnerName
+        if name != nil || summary != nil || together != nil {
             HStack(spacing: 9) {
                 FlowAvatar(
-                    name: nil,
+                    name: name?.spoken,
                     diameter: FlowMetrics.inviteAvatarDiameter,
                     background: AppColors.Flow.avatarBackground,
                     foreground: AppColors.Flow.avatarInitial,
@@ -503,7 +504,7 @@ struct VolunteerInviteCard: View {
                 )
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(VolunteerOrderFlowCopy.runnerLabel)
+                    Text(VolunteerOrderFlowCopy.runnerLabel + (name?.display ?? ""))
                         .flowFont(FlowFonts.inviteRunnerName())
                         .foregroundColor(AppColors.Flow.primaryText)
                     if let summary {
@@ -526,7 +527,7 @@ struct VolunteerInviteCard: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
-                ([VolunteerOrderFlowCopy.runnerLabel, summary, together].compactMap { $0 })
+                ([VolunteerOrderFlowCopy.runnerLabel + (name?.spoken ?? ""), summary, together].compactMap { $0 })
                     .joined(separator: "，")
             )
         }
@@ -551,9 +552,7 @@ struct VolunteerInviteCard: View {
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
 
-        // 设计稿原话是「李明的全名和电话已放进订单」。**名字这一刻拿不到**
-        //（`NEW_ORDER` 与 `AvailableOrderResponse` 都没有 `blindName`），
-        // 换成「跑者」而不是留一个空位。
+        // 设计稿原话「李明的全名和电话已放进订单」；整句里按 DECISIONS-v2 V11 用「跑者」，不塞掩码名。
         Text(VolunteerInviteCopy.acceptedDetail)
             .flowFont(FlowFonts.invitePlace())
             .foregroundColor(AppColors.Flow.secondaryText)
@@ -600,18 +599,6 @@ struct VolunteerInviteCard: View {
             .accessibilityIdentifier("volunteerInviteExpiredAcknowledgeButton")
     }
 
-    /// 结果态那枚圆形图标。**对读屏隐藏** —— 紧跟着的标题已经把结果说清楚了。
-    /// 靠**形状**区分成功与失效（对勾 / 时钟），不只靠颜色（WCAG 1.4.1）。
-    private func outcomeBadge(systemImage: String, tint: Color) -> some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 26, weight: .semibold))
-            .foregroundColor(.white)
-            .frame(width: 58, height: 58)
-            .background(tint, in: Circle())
-            .frame(maxWidth: .infinity)
-            .accessibilityHidden(true)
-    }
-
     // MARK: 查看详情
 
     /// 完整的「邀请」订单页（v2：白色头卡 + 虚线引导绳），与其余各态同一个页面。
@@ -624,10 +611,9 @@ struct VolunteerInviteCard: View {
     private var detailPage: some View {
         VolunteerOrderFlowPage(
             presentation: presentation,
-            // 派单载荷与 `AvailableOrderResponse` 都没有跑者姓名（`AGENTS.md` §8：
-            // 接单前只给取值空间封闭的字段），头卡只放时间与三宫格。**不编一个名字**。
             hero: .make(invite: presentation),
             inviteMetrics: VolunteerOrderMetric.invite(invite.order),
+            inviteRunnerName: invite.order.runnerName?.spoken,
             // 回到邀请卡，倒计时没有停。页面自带导航栏，不再套 `NavigationStack` 的那条。
             onBack: { showsDetail = false },
             onRowAction: { action in
@@ -644,6 +630,19 @@ struct VolunteerInviteCard: View {
             footer: { EmptyView() }
         )
     }
+}
+
+// 写在卡片结构体外：那个结构体只许变短（SwiftLint 棘轮 #488）。
+/// 结果态那枚圆形图标。**对读屏隐藏** —— 紧跟着的标题已经把结果说清楚了。
+/// 靠**形状**区分成功与失效（对勾 / 时钟），不只靠颜色（WCAG 1.4.1）。
+private func outcomeBadge(systemImage: String, tint: Color) -> some View {
+    Image(systemName: systemImage)
+        .font(.system(size: 26, weight: .semibold))
+        .foregroundColor(.white)
+        .frame(width: 58, height: 58)
+        .background(tint, in: Circle())
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
 }
 
 // MARK: - 顶部横幅（§4.4.1「App 在前台，位于其他页面」）
