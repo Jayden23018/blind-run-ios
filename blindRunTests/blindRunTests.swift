@@ -5070,7 +5070,7 @@ final class blindRunTests: XCTestCase {
 
         viewModel.repeatCurrentStatus(locationDescription: "订单出发点：朝阳公园南门。当前位置：已获取设备定位。")
 
-        XCTAssertTrue(speechService.lastSpokenText?.contains("志愿者已接单") == true)
+        XCTAssertTrue(speechService.lastSpokenText?.contains("陪跑员已接单") == true)
         XCTAssertTrue(speechService.lastSpokenText?.contains("预约时间：") == true)
         XCTAssertTrue(speechService.lastSpokenText?.contains("出发地点：朝阳公园南门") == true)
         XCTAssertTrue(speechService.lastVoiceOverAnnouncement?.contains("出发地点：朝阳公园南门") == true)
