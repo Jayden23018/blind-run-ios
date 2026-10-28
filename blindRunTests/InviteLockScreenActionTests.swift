@@ -145,12 +145,10 @@ final class InviteLockScreenActionTests: XCTestCase {
 
     // MARK: - 连续拒绝：后端计数（SPEC D11）
 
-    func testDeclineStreakFollowsTheBackendCountAndAsksAgainOnlyAfterThreeMore() throws {
-        let suite = "\(#function)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let streak = VolunteerDeclineStreak(defaults: defaults)
+    func testDeclineStreakFollowsTheBackendCountAndAsksAgainOnlyAfterThreeMore() {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let streak = VolunteerDeclineStreak(persistence: persistence, userID: 42)
 
         streak.adoptServerCount(2)
         XCTAssertFalse(streak.shouldAskAboutAvailability)
@@ -170,12 +168,11 @@ final class InviteLockScreenActionTests: XCTestCase {
     }
 
     /// 快照带回来的次数要真的进到首页的判断里。
-    func testSnapshotCountReachesTheHomePrompt() async throws {
-        let suite = "\(#function)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let (viewModel, appState, _, _) = InviteLockScreenFixture.makeHome(declineStreak: VolunteerDeclineStreak(defaults: defaults))
+    func testSnapshotCountReachesTheHomePrompt() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let (viewModel, appState, _, _) = InviteLockScreenFixture.makeHome(persistence: persistence)
+        appState.userId = 42
 
         appState.realtimeCoordinator.reconcilePendingInvites([], requestedAt: Date(), consecutiveDeclineCount: 3)
         await InviteLockScreenFixture.waitUntil { viewModel.shouldAskAboutAvailability }
