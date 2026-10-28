@@ -48,25 +48,48 @@ final class VolunteerDeclineStreakAccountTests: XCTestCase {
     }
 
     /// 登出后这台手机上不留 A 的两个数；全局计数时代那两个不带 userId 的旧键也一并删掉。
+    /// 主动退出（`clearSession`）与登录过期（`expireSession`）两条会话结束路径各走一遍。
     func testLogoutLeavesNoDeclineCountOnThePhone() {
-        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
-        defer { persistence.reset() }
-        let appState = AppState(persistence: persistence)
-        appState.userId = accountA
-        let streak = VolunteerDeclineStreak(persistence: persistence, userID: accountA)
-        streak.adoptServerCount(4)
-        streak.acknowledgeAsked()
-        let legacyKeys = ["aidrun.volunteer.consecutiveDeclineCount", "aidrun.volunteer.consecutiveDeclineCountAskedAt"]
-        legacyKeys.forEach { persistence.set(5, forKey: $0) }
+        let endings: [(String, (AppState) -> Void)] = [
+            ("clearSession", { $0.clearSession() }),
+            ("expireSession", { $0.expireSession() })
+        ]
+        for (ending, endSession) in endings {
+            let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+            defer { persistence.reset() }
+            let appState = AppState(persistence: persistence)
+            appState.userId = accountA
+            let streak = VolunteerDeclineStreak(persistence: persistence, userID: accountA)
+            streak.adoptServerCount(4)
+            streak.acknowledgeAsked()
+            Self.legacyKeys.forEach { persistence.set(5, forKey: $0) }
+            XCTAssertEqual(streak.count, 4, "前提：A 的次数写进去了")
+            XCTAssertEqual(streak.askedAt, 4, "前提：A 问过的记号写进去了")
 
-        appState.clearSession()
+            endSession(appState)
 
-        XCTAssertEqual(streak.count, 0, "A 的次数还留在手机上")
-        XCTAssertEqual(streak.askedAt, 0, "A 问过的记号还留在手机上")
-        for key in legacyKeys {
-            XCTAssertNil(persistence.object(forKey: key), "不带 userId 的旧键 \(key) 没删")
+            XCTAssertEqual(streak.count, 0, "\(ending)：A 的次数还留在手机上")
+            XCTAssertEqual(streak.askedAt, 0, "\(ending)：A 问过的记号还留在手机上")
+            for key in Self.legacyKeys {
+                XCTAssertNil(persistence.object(forKey: key), "\(ending)：不带 userId 的旧键 \(key) 没删")
+            }
         }
     }
+
+    /// 后端的数一到，全局计数时代那两个认不出主人的旧键就删掉：不必等到登出。
+    func testServerCountReplacesTheLegacyGlobalKeys() {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        Self.legacyKeys.forEach { persistence.set(5, forKey: $0) }
+
+        VolunteerDeclineStreak(persistence: persistence, userID: accountA).adoptServerCount(1)
+
+        for key in Self.legacyKeys {
+            XCTAssertNil(persistence.object(forKey: key), "不带 userId 的旧键 \(key) 在快照之后还留着")
+        }
+    }
+
+    private static let legacyKeys = ["aidrun.volunteer.consecutiveDeclineCount", "aidrun.volunteer.consecutiveDeclineCountAskedAt"]
 
     /// 没有账号（未登录、会话还没恢复）时不落盘：记不到任何人名下的数不该留下。
     func testNoAccountMeansNothingIsStored() {
