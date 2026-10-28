@@ -242,7 +242,7 @@ Do not implement Android, full admin backend, public real-time track sharing, ap
 - `BackendCoordinateNormalizer` 是唯一 WGS-84→GCJ-02 边界；后端订单、REST、peer 和 track 坐标不得二次转换。
 - `LiveEscortSessionCoordinator` 由 `AppState` 持有，绑定一个 owned order 和当前角色；终态、账号/token/角色变化、失去参与关系或 WebSocket 替换立即清理。
 - `updateOwnedOrder` 只保存最新订单状态并调度异步 reconcile；相同订单/状态重复输入直接合并，不同步启动定位或发送位置。
-- 普通定位由应用级生命周期幂等维护，同行协调器不得重复启动 `CLLocationManager`；增强后台模式只在首次进入或离开 `IN_PROGRESS` 时切换。
+- 普通定位由应用级生命周期幂等维护，同行协调器不得重复启动 `CLLocationManager`；同行定位档位（`EscortLocationMode`）只在状态跨档时切换：出发 / 汇合为 `.sharing`，跑步为 `.running`，离开三态为 `.off`（#523）。
 - 同一时刻最多执行一次同行位置发送；发送期间的新位置覆盖待发样本，完成后只发送最新值，禁止形成无界位置队列。
-- `LocationService` 普通策略为 10 米过滤；`IN_PROGRESS` 使用 fitness、高精度、5 米过滤、禁止自动暂停、允许后台和系统指示，离开后恢复。
+- `LocationService` 普通策略为 10 米过滤；同行三态都允许后台和系统指示（`.sharing`，#523），`IN_PROGRESS` 另加 fitness、高精度、5 米过滤（`.running`）；全 App 禁止自动暂停；离开三态后恢复普通策略。
 - Map bridge 支持稳定 ID annotation/polyline；业务层准备盲人主路线与摘要，View 只渲染。

@@ -112,7 +112,7 @@ OUTSIDE MAINLAND CHINA
 Maps and address search come from AMap (Gaode), a mainland-China provider. Outside China the map may show little detail and search returns no results. The order flow does not depend on them; matching is by distance.
 
 PERMISSIONS
-- Location (When In Use): sets the start point, matches nearby volunteers, and shares both people's positions from "on my way" until the run ends. Background location (UIBackgroundModes: location) is turned on ONLY while a run is in progress, because the blind runner's phone is locked in a pocket; the blue indicator is shown and it stops when the run ends. We never request Always.
+- Location (When In Use): sets the start point, matches nearby volunteers, and shares both people's positions from "on my way" until the run ends. Background location (UIBackgroundModes: location) is on only in that window: the volunteer often switches to a navigation app, and the waiting runner must see them coming. The blue indicator shows; it stops when the order ends. We never request Always.
 - Microphone + Speech Recognition: blind users describe the place, route and notes by voice instead of typing. Only while the voice button is active.
 - Motion & Fitness: steps, cadence and elevation gain, recorded only during an active run and shown in the run record. Optional; running works without it.
 - Camera: volunteer identity liveness check at sign-up. The review accounts are already verified, so you will not see it.
@@ -218,7 +218,8 @@ The help (SOS) button only sends an alert while a run is in progress. The alert 
    契约对起点经纬度只有 ±90 / ±180 的范围校验 ⇒ 境外能下单、能按距离派单。
    ⚠️ **高德底图在境外实际显示成什么没有实测**，备注里的措辞因此只说「可能细节很少」。
 8. **后台定位**：只申请 When In Use（`LocationService.requestPermission`）；`allowsBackgroundLocationUpdates`
-   只在 `IN_PROGRESS` 打开（`LiveEscortSessionCoordinator.evaluateSession`）。位置共享从 `DRIVER_EN_ROUTE` 起（`isSessionEligible`）。
+   在同行三态（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）打开（#523，`LiveEscortSessionCoordinator.evaluateSession` →
+   `LocationService.setEscortLocationMode`），跑步专用的增强精度只在 `IN_PROGRESS`。位置共享从 `DRIVER_EN_ROUTE` 起（`isSessionEligible`）。
 9. **运动数据**：只在 `IN_PROGRESS` 记录（`LiveEscortSessionCoordinator.syncMotionRecording`），两个角色都记。
 10. **权限文案**：`blindRun/Info.plist` 与 pbxproj 的 `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`；
    App 没有 `.lproj`，界面只有简体中文。
