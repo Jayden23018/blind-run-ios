@@ -35,7 +35,7 @@ enum LiveEscortHealthState: Equatable, Sendable {
         case .active(let background) where background:
             return "路线记录正在运行，锁屏后仍会持续使用定位，可能增加电量消耗。"
         case .active:
-            return "同行位置共享已开启；服务开始后锁屏仍会持续记录路线，可能增加电量消耗，并受系统定位限制影响。"
+            return "同行位置共享已开启，切到导航或锁屏后仍会继续共享；服务开始后还会记录路线，可能增加电量消耗。"
         case .trackConsentRequired:
             return nil
         case .locationSharingDeclined(let purpose):
@@ -366,10 +366,11 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         // 显式打开定位，不靠 `LocationService` 在授权回调里自己开（那一条不区分有没有同意）。
         // 以同行会话的名义要：会话结束只撤回这一份（`clearRuntimeSession`），不碰预约页、接单开关要的定位（#425）。
         locationService?.startUpdating(for: .escortSession)
-        let needsBackground = activeStatus == .inProgress
-        locationService?.setEscortBackgroundMode(enabled: needsBackground)
+        // 三态都允许后台继续共享（#523：陪跑员出发后切去外部导航，位置不能停在出发点）；增强精度只在跑步中。
+        let isRunning = activeStatus == .inProgress
+        locationService?.setEscortLocationMode(isRunning ? .running : .sharing)
         syncMotionRecording()
-        requestTemporaryPreciseLocationIfNeeded(inProgress: needsBackground)
+        requestTemporaryPreciseLocationIfNeeded(inProgress: isRunning)
         if reportTask == nil {
             reportTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -563,7 +564,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         sendGeneration &+= 1
         shouldSendLatestAfterCurrent = false
         lastSentAt = nil
-        locationService?.setEscortBackgroundMode(enabled: false)
+        locationService?.setEscortLocationMode(.off)
         // 此前只关后台模式、不停定位：会话结束后本机一直定位到退出登录（#425）。
         // 只撤回同行会话这一份 —— 接单开关还开着、或预约页还在要时，硬件照开。
         locationService?.stopUpdating(for: .escortSession)

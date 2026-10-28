@@ -226,7 +226,7 @@
 ## 实时协调范围
 
 - 本期包含 app-lifetime WebSocket 事件协调、订单刷新信号、导航期间派单保留、前台通知优先级/无障碍/去重、双向 peer-location 类型化路由和重连恢复信号。
-- 本期包含 `enable-live-escort-location-and-track-summary` 批准的订单双方实时位置、`IN_PROGRESS` 后台定位、服务端安全告警展示和完成后盲人轨迹总结；不包含客户端分离阈值判定、公共轨迹分享或 App 内导航；盲人 SOS UI 由 `enable-independent-sos-safely` 单独交付，不属于本条范围。
+- 本期包含 `enable-live-escort-location-and-track-summary` 批准的订单双方实时位置、同行三态后台定位（#523 起，增强精度只在 `IN_PROGRESS`）、服务端安全告警展示和完成后盲人轨迹总结；不包含客户端分离阈值判定、公共轨迹分享或 App 内导航；盲人 SOS UI 由 `enable-independent-sos-safely` 单独交付，不属于本条范围。
 - `/api/blind/volunteer-location` 只用于 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 的短期位置回退，不替代 `IN_PROGRESS` 双向流。
 8. HTTP 明文 IP 当前允许上线；token 已迁移 Keychain（`KeychainTokenStore`）。
 ## 当前发布范围：账户生命周期
@@ -236,6 +236,6 @@
 ## 当前发布范围：实时同行与完成总结
 
 - 两角色 30 秒心跳、服务阶段 5 秒真实位置、15 秒过期策略和 500 ms 串行发送。
-- `IN_PROGRESS` 开启系统后台位置能力并显示披露/降级状态，离开运行状态立即关闭。
+- 同行三态（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）开启系统后台位置能力并显示披露/降级状态（#523），离开这三态立即关闭；增强精度只在 `IN_PROGRESS`。
 - 双向同行 marker、`ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 高优先级提示，以及完成后“本次路线”。
 - 后端无历史坐标标记/迁移，且轨迹异常阈值未版本化，均列为发布风险而非客户端猜测。

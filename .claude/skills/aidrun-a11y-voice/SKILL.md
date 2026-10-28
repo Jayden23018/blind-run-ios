@@ -72,7 +72,7 @@ TTS 用 `AVSpeechSynthesizer`，STT 用 iOS `Speech` 框架。
 
 - 拥有 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 会话期间，双方每 5 秒上报最新有效真实位置。
 - **Mock / demo 坐标绝不允许上传到云端。**
-- 增强后台定位只允许在 `IN_PROGRESS` 期间，必须有告知，且订单/会话一旦不再符合条件必须立即停止。
+- 后台定位只在同行三态（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）允许（#523），跑步专用的增强精度只在 `IN_PROGRESS`；必须有告知（同意文案 + 系统蓝色定位标记），订单/会话一旦不再符合条件必须立即停止。
 - 完成后的总结用**盲人端**轨迹作为「本次路线」。志愿者轨迹在通过版本化的评估策略前，不得产出任何异常结论。
 
 ## 改完怎么验（不许只靠读代码）

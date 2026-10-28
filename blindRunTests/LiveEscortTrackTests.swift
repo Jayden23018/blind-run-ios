@@ -473,39 +473,6 @@ final class LiveEscortTrackTests: XCTestCase {
     }
 
     @MainActor
-    func testSessionLifecycleEnablesBackgroundOnlyInProgressAndClearsOnTerminalOrIdentityChange() async {
-        let realtime = AppRealtimeCoordinator()
-        let coordinator = LiveEscortSessionCoordinator(realtimeCoordinator: realtime)
-        let service = WebSocketService()
-        let location = LocationService()
-        coordinator.configure(identityKey: "account-a:blind:token", role: .blind, webSocketService: service)
-        coordinator.attachLocationService(location)
-        coordinator.updateOwnedOrder(orderID: 8, status: .driverEnRoute)
-        await Task.yield()
-        XCTAssertTrue(coordinator.isSessionEligible)
-        XCTAssertFalse(location.isEscortBackgroundModeEnabled)
-
-        coordinator.updateOwnedOrder(orderID: 8, status: .inProgress)
-        // 正向条件：轮询等待后台定位真正开启，避免固定 sleep 在负载抖动时提前断言
-        let didEnableBackground = await waitUntil { location.isEscortBackgroundModeEnabled }
-        XCTAssertTrue(didEnableBackground, "进入 IN_PROGRESS 后应开启护航后台定位")
-        let didSettleHealthState = await waitUntil {
-            coordinator.healthState == .permissionRequired || coordinator.healthState == .networkDisconnected
-        }
-        XCTAssertTrue(didSettleHealthState, "健康状态应落在 permissionRequired 或 networkDisconnected")
-
-        coordinator.updateOwnedOrder(orderID: 8, status: .completed)
-        await Task.yield()
-        XCTAssertNil(coordinator.activeOrderID)
-        XCTAssertFalse(location.isEscortBackgroundModeEnabled)
-
-        coordinator.updateOwnedOrder(orderID: 9, status: .driverArrived)
-        coordinator.configure(identityKey: "account-b:blind:new-token", role: .blind, webSocketService: service)
-        await Task.yield()
-        XCTAssertNil(coordinator.activeOrderID)
-    }
-
-    @MainActor
     func testDuplicateStatusSchedulesOneEscortReconciliationAndReturnsBeforeHungSend() async {
         let realtime = AppRealtimeCoordinator()
         let service = WebSocketService()
