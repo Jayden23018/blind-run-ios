@@ -93,7 +93,7 @@ enum EmergencySafetyCopy {
     /// 短信是在触发事务提交之后异步发的、失败也从不回告盲人（`AGENTS.md` §6），
     /// 所以 App 永远不能说「已经通知了谁」。这里说的是**我们会去做什么**，不是做成了什么。
     static let countdownPendingEffects = [
-        "通知你的陪跑志愿者",
+        "通知你的陪跑员",
         "转给客服并回拨你",
         "把你的实时位置一起发出",
     ]
@@ -237,13 +237,13 @@ enum EmergencySafetyCopy {
     static func submitted(_ status: EmergencyEventStatus) -> String {
         switch status {
         case .volunteerNotified:
-            return "求助已记录，正在通知同行志愿者确认情况。\(emergencyCallReminder)"
+            return "求助已记录，正在通知陪跑员确认情况。\(emergencyCallReminder)"
         case .contactNotified:
             return contactNotified
         case .csHandling:
             return "求助已记录，已转由客服处理。\(emergencyCallReminder)"
         case .volunteerConfirmed:
-            return "求助已记录，志愿者已确认，正在联系你的紧急联系人。\(emergencyCallReminder)"
+            return "求助已记录，陪跑员已确认，正在联系你的紧急联系人。\(emergencyCallReminder)"
         case .resolved, .falseAlarm:
             return "求助已记录并已结束。\(emergencyCallReminder)"
         // 恢复时可能读到（截止已过、服务端还没来得及推成正式求助）。不说「已发出」。
@@ -280,7 +280,7 @@ enum EmergencySafetyCopy {
     /// `EMERGENCY_TRIGGERED_BY_VOLUNTEER`：陪跑志愿者代盲人发起的求助。盲人自己没按过按钮，
     /// 所以第一句必须先说清是谁发起的，否则他会以为是误触。
     static let triggeredByVolunteer =
-        "同行志愿者已为你发出紧急求助，系统正在联系你的紧急联系人。\(emergencyCallReminder)"
+        "陪跑员已为你发出紧急求助，系统正在联系你的紧急联系人。\(emergencyCallReminder)"
 
     /// `EMERGENCY_VOLUNTEER_ACK`：志愿者点了「确认需要帮助」后给志愿者本人的回执。
     static let volunteerAcknowledged = "已确认需要帮助，客服正在跟进。\(emergencyCallReminder)"
@@ -382,7 +382,7 @@ enum EmergencySafetyCopy {
     /// Backend `EMERGENCY_NO_CONTACT`: no primary contact exists, so nobody will be texted at all.
     static let noContact = "未找到你的紧急联系人，求助已转客服处理。\(emergencyCallReminder)"
 
-    static let volunteerTimeout = "志愿者暂未响应你的求助，系统正在升级处理。\(emergencyCallReminder)"
+    static let volunteerTimeout = "陪跑员暂未响应你的求助，系统正在升级处理。\(emergencyCallReminder)"
 
     // MARK: 首页常驻求助条（非 IN_PROGRESS 的本地拨号分支）
 
@@ -535,7 +535,7 @@ enum EmergencySafetyCopy {
     /// 云端那一项选中后照常走 `emergencyConfirmationAlert`，`AGENTS.md` §6 的二次确认不减一步。
     static let hubDialogMessage = "还没有发送求助。请选择你现在要做的事。"
 
-    static let hubContactVolunteerTitle = "联系志愿者"
+    static let hubContactVolunteerTitle = "联系陪跑员"
     static let hubAnnounceLocationTitle = "播报我的位置"
     static let hubAskQuestionTitle = "问一句"
 

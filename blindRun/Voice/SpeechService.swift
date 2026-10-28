@@ -336,14 +336,14 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         // 与 `RunOrderStatus.blindRunnerAnnouncement` 逐字相同。
         // 🚨 不提轮次、不提「换了一位」——「无声拒绝」要求盲人无从得知自己被谁拒过。
         case .pendingIntroCall:
-            return "有位志愿者想陪你跑，可以打个电话聊聊。"
+            return "有位陪跑员想陪你跑，可以打个电话聊聊。"
         // 与 `RunOrderStatus.blindRunnerAnnouncement` 逐字相同（同该文件其余各态的既有写法）。
         case .scheduledConfirmed:
-            return "已经为你约好志愿者。到出发前如果计划有变，可以打电话告诉他。"
+            return "已经为你约好陪跑员。到出发前如果计划有变，可以打电话告诉他。"
         case .pendingAccept:
-            return "志愿者已接单，请前往或等待在预约出发地点。"
+            return "陪跑员已接单，请前往或等待在预约出发地点。"
         case .driverEnRoute:
-            return "志愿者已出发，正在前往出发地点。"
+            return "陪跑员已出发，正在前往出发地点。"
         // 与 `RunOrderStatus.blindRunnerAnnouncement` 同一句（不再叫盲人等对方开始，见那里）。
         case .driverArrived:
             return RunOrderStatus.blindRunnerArrivedCopy
@@ -354,13 +354,13 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:
-            return "正在确认志愿者状态，请稍候。"
+            return "正在确认陪跑员状态，请稍候。"
         // `NO_VOLUNTEER` 是**终态**：后端派单彻底失败时订单已经是
         // `NO_VOLUNTEER` + `cancelledBy=SYSTEM`，这一单结束了。
         // 旧文案「暂无可用志愿者，请稍后再试」把它说成还能等 —— 对看不见屏幕的人，
         // 「被告知继续等一件已经结束的事」不是措辞问题，是事故。必须说出终态与出路。
         case .noVolunteer:
-            return "没有匹配到志愿者，本次预约已取消，你可以重新发起一次。"
+            return "没有匹配到陪跑员，本次预约已取消，你可以重新发起一次。"
         // 后端新增了本客户端不认识的状态。宁可播一句「请刷新」，也不能因为编不出文案就静默 ——
         // 盲人用户没有别的渠道知道订单变了。
         case .unknown:

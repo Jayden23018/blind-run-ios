@@ -215,7 +215,7 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
         await waitUntil { viewModel.didCancelOrder }
 
         XCTAssertEqual(speech.spokenHistoryForTesting.filter { $0.contains("订单已取消") }, [VolunteerCancelAnnouncement.cancelledByVolunteer])
-        XCTAssertFalse(speech.spokenHistoryForTesting.contains { $0.contains("正在确认志愿者状态") })
+        XCTAssertFalse(speech.spokenHistoryForTesting.contains { $0.contains("正在确认陪跑员状态") })
     }
 
     // MARK: - 陪跑员端自己的状态播报（#333）

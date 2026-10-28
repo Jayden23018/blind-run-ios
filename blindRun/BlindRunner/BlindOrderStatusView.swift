@@ -2716,7 +2716,7 @@ struct BlindOrderStatusView: View {
             }
 
             if let distanceText = viewModel.volunteerDistanceToStartText {
-                Text("志愿者\(distanceText)")
+                Text("陪跑员\(distanceText)")
                     .font(.title.bold())
                     .foregroundColor(AppColors.textPrimary)
                     .multilineTextAlignment(.center)
@@ -2757,7 +2757,7 @@ struct BlindOrderStatusView: View {
             parts.append(waitedText)
         }
         if let distanceText = viewModel.volunteerDistanceToStartText {
-            parts.append("志愿者\(distanceText)")
+            parts.append("陪跑员\(distanceText)")
         }
         if let plannedEndText = plannedEndHeaderText(order) {
             parts.append(plannedEndText)
@@ -3027,7 +3027,7 @@ struct BlindOrderStatusView: View {
                     annotations: [MapAnnotationItem(
                         id: "associated-volunteer",
                         coordinate: peer,
-                        title: "同行志愿者",
+                        title: "陪跑员",
                         subtitle: "位置刚刚更新",
                         kind: .peer
                     )],
@@ -3072,7 +3072,7 @@ struct BlindOrderStatusView: View {
             Button {
                 EmergencyDialer.dial(telURL)
             } label: {
-                Text("打电话给志愿者")
+                Text("打电话给陪跑员")
                     .font(AppFonts.largeTitle())
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -3080,7 +3080,7 @@ struct BlindOrderStatusView: View {
                     .background(AppColors.primary)
                     .cornerRadius(16)
             }
-            .accessibilityLabel("打电话给志愿者")
+            .accessibilityLabel("打电话给陪跑员")
             // 这里此前是「拨打 \(volunteerPhone)，系统会先弹出拨号确认」——
             // VoiceOver 每次焦点落到按钮上就把 11 位号码整个念出来，用户还没决定要不要打。
             // 视障跑者在户外常常**不戴耳机**（要听车流），外放等于把志愿者的手机号广播给周围的人。
@@ -3636,7 +3636,7 @@ struct BlindOrderStatusView: View {
                 .stroke(AppColors.primary, lineWidth: 2)
         )
         .accessibilityLabel("问一句")
-        .accessibilityHint("点击后开始录音，可以问志愿者还有多远、几点开始，或者打电话给志愿者")
+        .accessibilityHint("点击后开始录音，可以问陪跑员还有多远、几点开始，或者打电话给陪跑员")
         .accessibilityIdentifier("blindOrderStatusAskQuestionButton")
     }
 }

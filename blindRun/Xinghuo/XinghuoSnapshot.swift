@@ -47,13 +47,13 @@ struct XinghuoSnapshot: Equatable {
                 ? "\(regionName)现在有 \(pairsRunning) 对跑友正在同行"
                 : "\(regionName)此刻没有人在同行")
         } else if volunteersOnline > 0 {
-            var head = "\(regionName)现在有 \(volunteersOnline) 位志愿者在线"
+            var head = "\(regionName)现在有 \(volunteersOnline) 位陪跑员在线"
             if role == .volunteer {
                 head += "，\(runnersWaiting) 位视障跑者在等待陪跑，\(pairsRunning) 对正在同行"
             }
             sentences.append(head)
         } else {
-            sentences.append("\(regionName)暂时没有志愿者在线")
+            sentences.append("\(regionName)暂时没有陪跑员在线")
         }
         if todayRuns > 0 {
             sentences.append("今天完成了 \(todayRuns) 次陪跑，一共 \(Self.kmText(todayKm)) 公里")

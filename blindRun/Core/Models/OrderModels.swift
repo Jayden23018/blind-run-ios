@@ -93,12 +93,12 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         case .scheduledConfirmed: return "已约好"
         case .pendingAccept: return "待出发"
         case .inProgress: return "进行中"
-        case .driverEnRoute: return "志愿者出发中"
-        case .driverArrived: return "志愿者已到达"
+        case .driverEnRoute: return "陪跑员出发中"
+        case .driverArrived: return "陪跑员已到达"
         case .completed: return "已完成"
         case .cancelled: return "已取消"
         case .rematching: return "重新匹配中"
-        case .noVolunteer: return "暂无志愿者"
+        case .noVolunteer: return "暂无陪跑员"
         case .unknown: return "状态未知"
         }
     }
@@ -258,7 +258,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// `RunOrderStatus.volunteerAnnouncement`，这一句只对盲人说了（措辞暂未收窄）。
     /// 不写「你或志愿者都可以开始」，那半句在同意闸下不成立。
     /// 不写「轻点下方」：首页与语音状态查询也用这一句，那里没有那枚按钮。
-    static let blindRunnerArrivedCopy = "志愿者已到达约定地点。见面后，在订单页按「开始跑步」出发。"
+    static let blindRunnerArrivedCopy = "陪跑员已到达约定地点。见面后，在订单页按「开始跑步」出发。"
 
     var startServiceBlockedMessage: String {
         switch self {
@@ -1105,7 +1105,7 @@ struct OrderStatusLog: Decodable, Sendable, Equatable, Identifiable {
         guard remark.hasPrefix(Self.cancelledByPrefix) else { return remark }
         switch String(remark.dropFirst(Self.cancelledByPrefix.count)).trimmed {
         case "BLIND": return "你取消了订单"
-        case "VOLUNTEER": return "志愿者取消了订单"
+        case "VOLUNTEER": return "陪跑员取消了订单"
         case "SYSTEM": return "系统自动取消了订单"
         default: return toStatus.displayName
         }

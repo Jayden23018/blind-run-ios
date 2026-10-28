@@ -3918,11 +3918,11 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .pendingAccept),
-            "志愿者已接单，请前往或等待在预约出发地点。"
+            "陪跑员已接单，请前往或等待在预约出发地点。"
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverEnRoute),
-            "志愿者已出发，正在前往出发地点。"
+            "陪跑员已出发，正在前往出发地点。"
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .completed),
@@ -4582,10 +4582,10 @@ final class blindRunTests: XCTestCase {
     func testRematchingCopyKeepsBlindRunnerInStableWaitingState() {
         XCTAssertEqual(
             RunOrderStatus.rematching.blindRunnerDescription,
-            "正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"
+            "正在确认陪跑员状态，请稍候；如需更换陪跑员，系统会继续处理。"
         )
-        XCTAssertEqual(RunOrderStatus.rematching.blindRunnerAnnouncement, "正在确认志愿者状态，请稍候。")
-        XCTAssertEqual(VoiceService.statusAnnouncement(for: .rematching), "正在确认志愿者状态，请稍候。")
+        XCTAssertEqual(RunOrderStatus.rematching.blindRunnerAnnouncement, "正在确认陪跑员状态，请稍候。")
+        XCTAssertEqual(VoiceService.statusAnnouncement(for: .rematching), "正在确认陪跑员状态，请稍候。")
     }
 
     /// `NO_VOLUNTEER` 是**终态** —— 后端派单彻底失败时订单已经是
@@ -4765,10 +4765,10 @@ final class blindRunTests: XCTestCase {
         let order = makeOrder(orderId: 1, status: .pendingAccept)
         let announcement = order.blindRunnerAnnouncement()
 
-        XCTAssertEqual(RunOrderStatus.pendingAccept.blindRunnerDescription, "志愿者已接单，请按预约时间前往或等待在出发地点。")
+        XCTAssertEqual(RunOrderStatus.pendingAccept.blindRunnerDescription, "陪跑员已接单，请按预约时间前往或等待在出发地点。")
         XCTAssertTrue(announcement.contains("志愿者已接单"))
         XCTAssertTrue(announcement.contains("朝阳公园南门"))
-        XCTAssertTrue(announcement.contains("志愿者出发后会继续通知你"))
+        XCTAssertTrue(announcement.contains("陪跑员出发后会继续通知你"))
         XCTAssertFalse(announcement.contains("待确认"))
     }
 
@@ -5768,7 +5768,7 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerServicePendingAcceptUsesDepartureCopy() {
         XCTAssertEqual(RunOrderStatus.pendingAccept.volunteerServiceDisplayName, "待出发")
-        XCTAssertEqual(RunOrderStatus.driverEnRoute.volunteerServiceDisplayName, "志愿者出发中")
+        XCTAssertEqual(RunOrderStatus.driverEnRoute.volunteerServiceDisplayName, "陪跑员出发中")
     }
 
     func testAMapWrappersHideCompassByDefault() {
@@ -5969,7 +5969,7 @@ final class blindRunTests: XCTestCase {
             speechService.lastSpokenText,
             viewModel.activeOrder?.blindRunnerAnnouncement()
         )
-        XCTAssertEqual(viewModel.currentStatusText.contains("志愿者出发中"), true)
+        XCTAssertEqual(viewModel.currentStatusText.contains("陪跑员出发中"), true)
 
         refresh.cancel()
         await refresh.value

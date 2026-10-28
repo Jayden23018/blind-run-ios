@@ -491,7 +491,7 @@ struct BlindOrderFlowPresentation: Equatable {
         case .matching:
             // 通话磨合态单独说，否则「正在匹配陪跑员」与状态卡念的
             // 「有位志愿者想陪你跑」自相矛盾。
-            if order.status == .pendingIntroCall { return "有位志愿者想陪你跑" }
+            if order.status == .pendingIntroCall { return "有位陪跑员想陪你跑" }
             if order.status == .rematching { return "正在重新匹配陪跑员" }
             return "正在匹配陪跑员"
         case .booked:

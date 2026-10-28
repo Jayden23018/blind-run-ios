@@ -32,7 +32,7 @@ enum RunPlanShareConsentCopy {
     static let repeatConfirmationMessage = "任何拿到链接的人都能看到你的实时位置，随时可以停止。"
 
     /// 用户拒绝时的反馈。不劝、不重试 —— 拒绝是一个完整的答案。
-    static let declined = "没有分享，位置只有你和志愿者能看到。"
+    static let declined = "没有分享，位置只有你和陪跑员能看到。"
 }
 
 // MARK: - Consent Store

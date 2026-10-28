@@ -1876,6 +1876,44 @@ const cases = [
     swift: 'Button("x", action: f)\n    .buttonStyle(.bordered) // guard:allow bordered-frame-hit-area\n    .frame(minHeight: 64)\n'
   },
 
+  // blind-side-escort-term（2026-10-28，#527）。盲人端对陪跑一方一律叫「陪跑员」。
+  {
+    name: '盲人端字符串里写「志愿者」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/BlindRunner/BlindOrderStatusView.swift',
+    swift: 'Text("打电话给志愿者")'
+  },
+  {
+    name: '盲人端写「陪跑员」（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/BlindRunner/BlindOrderStatusView.swift',
+    swift: 'Text("打电话给陪跑员")'
+  },
+  {
+    name: '盲人端调试按钮「模拟志愿者接单」（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/BlindRunner/BlindOrderStatusView.swift',
+    swift: 'Button("模拟志愿者接单") { simulate() }'
+  },
+  {
+    name: '盲人端注释里写「志愿者」（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/BlindRunner/BlindOrderStatusView.swift',
+    swift: '// 原先叫「打电话给志愿者」\nlet a = 1'
+  },
+  {
+    // 反向哨兵：路径闸真的在生效 —— 共享目录里的身份类用法不该被拦。
+    name: '角色选择页「我是志愿者」（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Role/RoleSelectionView.swift',
+    swift: 'Text("我是志愿者")'
+  },
+
   // bordered-prominent（2026-10-28，#527）。白字压环境 tint：标签页里暗色是白底白字，标签页外是系统蓝。
   // 上面 bordered-frame-hit-area 的用例因此都改写成 `.bordered`，免得两条规则互相替对方「拦下」。
   {

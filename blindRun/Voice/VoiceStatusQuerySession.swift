@@ -100,7 +100,7 @@ final class VoiceStatusQuerySession {
         let (order, _) = context?() ?? (nil, nil)
         guard order?.status.offersVolunteerCall == true,
               let telURL = EmergencyDialer.telURL(for: phone) else {
-            speechService?.speak("订单状态已经变了，现在不能打电话给志愿者。", priority: .onDemand)
+            speechService?.speak("订单状态已经变了，现在不能打电话给陪跑员。", priority: .onDemand)
             return
         }
         speechService?.speak("正在拨号。", priority: .onDemand)

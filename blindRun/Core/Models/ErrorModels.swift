@@ -292,7 +292,7 @@ enum ErrorCode: String, Codable, Sendable {
             return "身份信息核验未通过，请检查后重试。"
         case .orderInProgress:
             // 后端只在「取消受阻」这一处抛该码（`OrderLifecycleService`），文案跟着这个唯一场景走。
-            return "志愿者已出发或服务进行中，如需取消请联系志愿者。"
+            return "陪跑员已出发或服务进行中，如需取消请联系陪跑员。"
         case .orderPermissionDenied:
             // 后端确认该码只剩 `OrderQueryService` 一个抛出点，场景是只读查询越权（handoff Q8）。
             return "您无权查看此订单。"

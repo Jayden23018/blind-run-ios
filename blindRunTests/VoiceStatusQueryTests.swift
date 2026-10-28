@@ -156,7 +156,7 @@ final class VoiceStatusQueryTests: XCTestCase {
             volunteerCoordinate: Self.volunteerCoordinate,
             fallbackAnnouncement: "整段状态"
         )
-        XCTAssertTrue(answer.speech.contains("还没有志愿者接单"), answer.speech)
+        XCTAssertTrue(answer.speech.contains("还没有陪跑员接单"), answer.speech)
         XCTAssertTrue(answer.speech.contains(RunOrderStatus.pendingMatch.displayName), answer.speech)
         XCTAssertFalse(answer.speech.contains("整段状态"), "空数据不该降级去念整段")
     }
@@ -181,7 +181,7 @@ final class VoiceStatusQueryTests: XCTestCase {
             volunteerCoordinate: nil,
             fallbackAnnouncement: "整段状态"
         )
-        XCTAssertTrue(answer.speech.contains("暂时收不到志愿者位置"), answer.speech)
+        XCTAssertTrue(answer.speech.contains("暂时收不到陪跑员位置"), answer.speech)
         XCTAssertFalse(answer.speech.contains("米"), "不许念出任何距离数字：\(answer.speech)")
         XCTAssertFalse(answer.speech.contains("公里"), "不许念出任何距离数字：\(answer.speech)")
     }
@@ -275,7 +275,7 @@ final class VoiceStatusQueryTests: XCTestCase {
             } else {
                 XCTAssertNil(answer.pendingAction, "\(status) 不得拨号")
                 XCTAssertTrue(
-                    answer.speech.contains("现在还不能打电话给志愿者"),
+                    answer.speech.contains("现在还不能打电话给陪跑员"),
                     "\(status) 要说清为什么不能打：\(answer.speech)"
                 )
                 XCTAssertTrue(
@@ -308,7 +308,7 @@ final class VoiceStatusQueryTests: XCTestCase {
                 fallbackAnnouncement: "整段状态"
             )
             XCTAssertNil(answer.pendingAction, "号码是 \(phone ?? "nil") 时不得拨号")
-            XCTAssertTrue(answer.speech.contains("还没有拿到志愿者的电话号码"), answer.speech)
+            XCTAssertTrue(answer.speech.contains("还没有拿到陪跑员的电话号码"), answer.speech)
             XCTAssertTrue(answer.speech.contains(RunOrderStatus.driverArrived.displayName), answer.speech)
         }
     }
@@ -389,10 +389,10 @@ final class VoiceStatusQueryTests: XCTestCase {
     /// 清单是**教用户怎么问**的，所以里面每一句都必须真的能被判出意图。
     /// 两边任一处改词而另一处没跟，用户照着念就不生效。
     func testEveryExampleInTheHintActuallyMatchesAnIntent() {
-        XCTAssertEqual(VoiceStatusQuery.classify("志愿者还有多远"), .distance)
+        XCTAssertEqual(VoiceStatusQuery.classify("陪跑员还有多远"), .distance)
         XCTAssertEqual(VoiceStatusQuery.classify("几点开始"), .schedule)
-        XCTAssertEqual(VoiceStatusQuery.classify("打电话给志愿者"), .callVolunteer)
-        for example in ["志愿者还有多远", "几点开始", "打电话给志愿者"] {
+        XCTAssertEqual(VoiceStatusQuery.classify("打电话给陪跑员"), .callVolunteer)
+        for example in ["陪跑员还有多远", "几点开始", "打电话给陪跑员"] {
             XCTAssertTrue(
                 VoiceStatusQuery.askableHint.contains(example),
                 "清单里少了「\(example)」，与上面的断言对不上"

@@ -37,7 +37,7 @@ final class ScreenTourTests: XCTestCase {
 
     @MainActor func testTour_B03_RoleSelection() {
         let app = launch(role: nil, token: "roleless-token", env: ["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS": "1"])
-        shoot(app, "B03-role-selection", anchor: app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch, scroll: true)
+        shoot(app, "B03-role-selection", anchor: app.buttons["我是盲人跑者，预约陪跑员陪我跑步"].firstMatch, scroll: true)
     }
 
     @MainActor func testTour_B04_FirstRunHelp() {
