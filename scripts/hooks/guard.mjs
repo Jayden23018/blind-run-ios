@@ -224,10 +224,10 @@ const rules = {
     // 点提交即 `EXC_BAD_ACCESS`。单测直调 view model 全绿，只有「经闭包调用」才走到那层 thunk。
     // #451 把同写法的其余 9 处全部标成 `@MainActor`，这一条拦新写的。
     //
-    // 只认 `let/var 名字: (…) async` 这一种形状（含外面包一层 `(…)?` 的可选闭包）；
+    // 只认 `let/var 名字: (…) async` 这一种形状（含外面包一层 `(…)?` 的可选闭包，括号里可带 `@Sendable`）；
     // 写成 `@MainActor (…) async` 时冒号后第一个属性不是 `@escaping` / `@Sendable`，不会匹配。
     pattern:
-      /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|internal|public|open)(?:\(set\))?\s+|static\s+|lazy\s+|nonisolated\s+)*(?:let|var)\s+\w+\s*:\s*(?:@escaping\s+|@Sendable\s+)*\(?\s*\((?:[^()]|\([^()]*\))*\)\s*async\b/,
+      /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|internal|public|open)(?:\(set\))?\s+|static\s+|lazy\s+|nonisolated\s+)*(?:let|var)\s+\w+\s*:\s*(?:@escaping\s+|@Sendable\s+)*\(?\s*(?:@Sendable\s+)*\((?:[^()]|\([^()]*\))*\)\s*async\b/,
     why: '存储型 async 闭包要显式标隔离：写成 `@MainActor (…) async -> …`，init 参数同样写 `@escaping @MainActor (…) async -> …`（#449 / #451）。不标的话它默认是 `nonisolated(nonsending)`，调用方传进来的 MainActor 闭包要经一层转换 thunk，真机上参数会在到达服务层前被释放（`EXC_BAD_ACCESS`，单测直调抓不到）。配一条「造出视图 → 调它存的闭包」的用例。确实需要非 MainActor 的闭包，行尾加 `// guard:allow unannotated-async-closure` 并写明为什么。',
   },
 };

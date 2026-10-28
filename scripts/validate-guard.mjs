@@ -1914,6 +1914,19 @@ const cases = [
     swift: 'final class VM {\n    private var onSave: ((String) async throws -> String?)?\n}'
   },
   {
+    // #540 审查 B3：可选闭包的括号里写 @Sendable，此前整条漏掉。
+    name: '可选闭包括号里只写 @Sendable（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Sheet: View {\n    let onX: (@Sendable () async -> Void)?\n}'
+  },
+  {
+    name: '可选闭包括号里标了 @MainActor（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct Sheet: View {\n    let onX: (@MainActor () async -> Void)?\n}'
+  },
+  {
     // 只写 @Sendable 不算标了隔离：它照样是 nonisolated(nonsending)。
     name: '只写 @Sendable 的 async 闭包（拦下）',
     mode: 'post',
