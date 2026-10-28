@@ -360,6 +360,23 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// AX5 下整张卡装不进一屏：常驻 `ScrollView` 要让两个回复按钮滚得到、点得到（#181 换掉 `ViewThatFits` 的主要收益，代码复核 B）。
+    @MainActor
+    func testVolunteerInviteSheetScrollsToItsButtonsAtTheLargestTextSize() throws {
+        let app = launchVolunteerHome(
+            extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"],
+            seedInvites: 1
+        )
+        let accept = app.buttons["接下这次陪跑"].firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 20), "邀请卡没弹出来")
+        for _ in 0..<6 where !accept.isHittable { app.swipeUp() }
+        XCTAssertTrue(accept.isHittable, "AX5 下滚到底也点不到「接下这次陪跑」")
+        let decline = app.buttons["volunteerInviteDeclineButton"].firstMatch
+        for _ in 0..<3 where !decline.isHittable { app.swipeUp() }
+        XCTAssertTrue(decline.isHittable, "AX5 下点不到「这次去不了」")
+        XCTAssertGreaterThanOrEqual(decline.frame.height, 44, "「这次去不了」触达不足 44pt（label 里那层 frame 没生效）")
+    }
+
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
     /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏
