@@ -26,6 +26,19 @@ final class PushPermissionPromptTests: XCTestCase {
         XCTAssertNotEqual(PushPermissionPrompt.promptedKey(for: .blind), PushPermissionPrompt.promptedKey(for: .volunteer))
     }
 
+    /// 精确位置关着时，陪跑员打开接单开关先只出精确位置那条提示（念一句、弹临时精确位置框）；
+    /// 通知说明等派单位置恢复上报再出 —— 同时出的话后一句会切断前一句，两个弹窗叠在一起。
+    @MainActor
+    func testVolunteerPushAskWaitsWhilePreciseLocationBlocksDispatch() {
+        let location = EscortPreciseLocationGateTests.locationService(accuracy: 5000)
+        location.simulatePreciseLocationOffForTesting()
+        XCTAssertFalse(PushPermissionPrompt.volunteerNeedsPush(isAvailable: true, location: location), "精确位置关着时不该同时问通知")
+
+        location.simulatePreciseLocationOffForTesting(false)
+        XCTAssertTrue(PushPermissionPrompt.volunteerNeedsPush(isAvailable: true, location: location), "打开精确位置后照常问")
+        XCTAssertFalse(PushPermissionPrompt.volunteerNeedsPush(isAvailable: false, location: location), "没开接单开关不问")
+    }
+
     /// UI 用例（进程内 Mock）默认不弹，专测这道提示的用例能强制打开；真实安装不受影响。
     func testPromptIsSuppressedOnlyForUITestLaunches() {
         XCTAssertTrue(PushPermissionPrompt.isSuppressedForUITests(environment: ["AIDRUN_UI_TEST_RESET_STATE": "1"]))

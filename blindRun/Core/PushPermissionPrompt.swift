@@ -48,6 +48,13 @@ enum PushPermissionPrompt: Equatable {
         "pushPermissionPrompted.\(role.rawValue)"
     }
 
+    /// 陪跑员端「第一个需要推送的时刻」：开着接单开关，且派单位置没被「精确位置」拦住（#520）。
+    /// 拦住时顶部那条精确位置提示同一拍在念、在弹临时精确位置框：同档播报后到的会切断先到的，两个弹窗也会叠在一起。
+    /// 拦住时本来也收不到邀请，等派单位置恢复上报再问通知不晚。
+    static func volunteerNeedsPush(isAvailable: Bool, location: LocationService?) -> Bool {
+        isAvailable && !VolunteerLocationReporter.isBlockedByPreciseLocation(location)
+    }
+
     /// UI 用例默认不弹，专测这道提示的用例设 `AIDRUN_UI_TEST_FORCE_PUSH_PROMPT=1`。真实安装没有这些环境变量。
     static func isSuppressedForUITests(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         environment["AIDRUN_UI_TEST_RESET_STATE"] == "1" && environment["AIDRUN_UI_TEST_FORCE_PUSH_PROMPT"] != "1"
