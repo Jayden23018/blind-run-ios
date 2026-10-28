@@ -174,10 +174,13 @@ final class EmergencyCoordinator: ObservableObject {
             let status: EmergencyEventStatus = event.eventStatus == .countdown ? .pending : event.eventStatus
             // 自己的倒数正在跑（同一事件）就别打断它 —— 它到点会自己再来问一次。
             if state.isCountingDown, activeEvent?.eventID == event.id { return }
+            // 同一条、同一个状态 = 对账没带来新信息（#546）：倒计时到点后的宽限刷新、断线重连的补读都会撞上。
+            let bringsNoNews = activeEvent?.eventID == event.id && activeEvent?.status == status
             activeEvent = .recovered(
                 eventID: event.id, orderID: orderID, userID: event.userId ?? userID,
                 status: status, triggeredAt: event.triggeredAt?.backendTimestamp, previous: activeEvent
             )
+            guard !(bringsNoNews && state.refinesAcknowledgedEvent) else { return }
             state = .acknowledged(status)
         } catch {
             return
