@@ -494,7 +494,7 @@ struct ContentView: View {
             }
         }
         .alert("确认仅退出本机", isPresented: $showRestorationLocalSignOutConfirmation) {
-            Button("仅退出本机", role: .destructive) { appState.clearSession() }
+            Button("仅退出本机", role: .destructive) { appState.signOutLocallyRecordingRevocation() }
             Button("取消", role: .cancel) {}
         } message: {
             Text("当前无法确认服务端 Token 已撤销。仅退出本机会清除本机登录信息，但远端 Token 可能继续有效。")
