@@ -588,32 +588,12 @@ extension MockAPIClient {
         "跑到([^，,。！？!?\\s]{2,15})(?:[，,。！？!?]|$)"
     )
 
-    /// 日期词表 —— **唯一来源**。`mockVoiceStartTime` 的日偏移、「明晚」的 +12、
-    /// 下面 `timeLikeRegex` 的日期词、`trailingNumber` 对「明早/明晚」的程度副词豁免，全部从它派生。
-    ///
-    /// 立这张表的理由是漂移：这几处原先各抄一份词表，后端 #472 加「明早/明晚」时只有解析处跟上了，
-    /// `timeLikeRegex` 的注释写着「逐字照抄」却已经少了两个词 —— 「从明早出发」的 span 因此被当成地名。
-    /// 加一个日期词（后端先加）只改这一处。
-    ///
-    /// 顺序有意义：先到先得，「后天」必须排在「明天」之前。
-    private static let voiceDateWords: [(form: String, dayOffset: Int, impliesEvening: Bool)] = [
-        ("后天", 2, false),
-        ("明天", 1, false), ("明早", 1, false), ("明晚", 1, true),
-        ("第二天", 1, false), ("第2天", 1, false),
-        ("今天", 0, false)
-    ]
-
-    /// 原话里先出现在表中的那个日期词。没有 = 没说日期（与「说了今天」不是一回事）。
-    private static func voiceDateWord(in transcript: String) -> (form: String, dayOffset: Int, impliesEvening: Bool)? {
-        voiceDateWords.first { transcript.contains($0.form) }
-    }
-
     /// 对齐后端 `VoiceSlotParser.TIME_LIKE`（`VoiceSlotParser.java:201`）：钟点 / 冒号钟点 / 日期词 / 时段词。
     ///
     /// `\d{1,2}[:：][0-5]\d` 那一段是 2026-08-08 后端 PR #14 补的：只认「点」时，
     /// 「从8:00开始跑」的 span 抽出来是 `8:00`，判不出是时间就当地名送高德了。
-    /// 日期词段取自 `voiceDateWords`、时段词段取自 `voicePeriodWords`（后者含后端没有的「傍晚」），
-    /// 比后端多收「第二天 / 第2天」「傍晚」—— 这个方向是安全的
+    /// 日期词段取自 `voiceDateWords`、时段词段取自 `voicePeriodWords`（两张表在 `MockAPIClient+VoiceClock.swift`），
+    /// 比后端多收「第二天 / 第2天」—— 这个方向是安全的
     /// （后端注释：误杀只是多走一次兜底，漏杀会把时间片送去高德）。
     private static let timeLikeRegex = try! Regex(
         "[0-9零一二两三四五六七八九十半]\\s*(?:点|分|小时|分钟)|\\d{1,2}[:：][0-5]\\d"
@@ -706,7 +686,7 @@ extension MockAPIClient {
     static var voiceClockForTesting: Date?
     #endif
 
-    private static var voiceNow: Date {
+    static var voiceNow: Date {
         #if DEBUG
         return voiceClockForTesting ?? Date()
         #else
@@ -765,230 +745,20 @@ extension MockAPIClient {
         MockVoicePlace(keyword: "公园", address: "本市公园", latitude: 31.2304, longitude: 121.4737)
     ]
 
-    /// 开始时间解析。取值与 `demo/docs/voice-golden-corpus.json` 里 `field: "START_TIME"`、
-    /// `source: "regex"` 的 10 条用例一致，`VoiceOrderWizardTests` 锁了这份对齐。
-    ///
-    /// 此前这里只认 5 个钟点、且落点恒定是「明天」，10 条语料只对得上 3 条 —— 于是开发期用 Mock 说
-    /// 「今天八点半」会被念成明天，说「下午三点」「半小时后」则直接走重问，**而线上这三种都解得出**。
-    /// Mock 比线上严和比线上松一样有害：一个让开发期以为功能没有，一个让上真机才发现走不通。
-    static func mockVoiceStartTime(in transcript: String, now: Date? = nil) -> Date? {
-        let now = now ?? voiceNow
-        let calendar = Calendar.current
-
-        // ⓪ 认不了的日期表达一律整句认输（语料 `_unsupported_date_note`）。
-        //
-        // 下面的日期词只认明天/后天/今天三个，碰上「8月10号」「下周三」它不会失败，
-        // 而是**只取钟点、把日期当没说**，再套 ④ 的「已过就滚次日」—— 于是任何日期
-        // 都被静默解析成今天或明天：「8月10号早上8点」→ 次日 08:00（差 1 天）。
-        // 这个值能过提前量校验、读回念得很顺，而盲人无从判断这不是自己说的那天。
-        if unsupportedDateRegex.firstMatch(in: transcript, range: NSRange(transcript.startIndex..., in: transcript)) != nil { return nil }
-
-        // ① 相对时间优先。「半小时后」不能被下面的钟点分支按「半」误读。
-        if let offset = relativeMinutesOffset(in: transcript) {
-            return calendar.date(byAdding: .minute, value: offset, to: now)
-        }
-
-        // ② 钟点。没有「N点」就不是时间表达（llm 那几条走这里返回 nil）。
-        guard let clock = clockTime(in: transcript) else { return nil }
-
-        // ③ 日期词。没说日期词时 dayOffset 为 nil —— 与「说了今天」不是一回事，见 ④。
-        //
-        // 「第二天」= 明天（产品 2026-08-09 拍板）。⓪ 那条黑名单专门把它放行到这里，
-        // 这里再不认就等于「只取钟点、把日期当没说」，正是 ⓪ 要防的那个静默篡改。
-        // 阿拉伯写法也要收：识别器把「第二天」渲染成「第2天」时，只认中文会静默丢掉日期。
-        let dayOffset: Int? = voiceDateWord(in: transcript)?.dayOffset
-
-        var components = calendar.dateComponents(
-            [.year, .month, .day],
-            from: calendar.date(byAdding: .day, value: dayOffset ?? 0, to: now) ?? now
-        )
-        components.hour = clock.hour
-        components.minute = clock.minute
-        guard let candidate = calendar.date(from: components) else { return nil }
-
-        // ④ 没带日期词的钟点若早于现在，自动滚次日（语料 `_past_time_note`）。
-        // 不滚的话「八点半」会返回今天 08:30，被提前量校验判成「太近了」—— 而用户压根没打算约今天。
-        // 显式说了「今天」则不滚：那是用户的明确选择，该让提前量校验去拒绝它。
-        if dayOffset == nil, candidate <= now {
-            return calendar.date(byAdding: .day, value: 1, to: candidate)
-        }
-        return candidate
-    }
-
-    /// 「半小时后」「四十分钟后」「两个小时后」→ 相对分钟数。没有「后」字就不是相对表达。
-    private static func relativeMinutesOffset(in transcript: String) -> Int? {
-        guard transcript.contains("后"), !transcript.contains("后天") else { return nil }
-        if containsStandaloneHalfHour("后", in: transcript) { return 30 }
-        if let minutes = chineseNumber(before: "分钟后", in: transcript) { return minutes }
-        if let hours = chineseNumber(before: "个小时后", in: transcript)
-            ?? chineseNumber(before: "小时后", in: transcript) {
-            return hours * 60
-        }
-        return nil
-    }
-
-    /// 时段词表 —— **唯一来源**（与 `voiceDateWords` 同理）。`clockTime` 的 12 → 24 小时换算和
-    /// `timeLikeRegex` 的时段词都从它派生，加一个时段词只改这一处 —— 不然「凌晨」这类词会在
-    /// 判据与换算里各手抄一份，后端加词时只跟上一处（「明早/明晚」漏进 `timeLikeRegex` 就是这么漂的）。
-    /// 「傍晚」后端没有，Mock 多收（算下午）；方向安全，见 `timeLikeRegex`。
-    private enum VoicePeriod { case morning, noon, afternoon, dawn }
-
-    private static let voicePeriodWords: [(form: String, period: VoicePeriod)] = [
-        ("上午", .morning), ("早上", .morning), ("中午", .noon),
-        ("下午", .afternoon), ("傍晚", .afternoon), ("晚上", .afternoon),
-        ("凌晨", .dawn)
-    ]
-
-    /// 「中午」之后最晚到几点还算下午。对齐后端 `VoiceSlotParser.NOON_LAST_AFTERNOON_HOUR`。
-    private static let noonLastAfternoonHour = 4
-
-    /// 12 小时口语的钟点 → 24 小时制，由时段词决定。对应后端 `VoiceSlotParser.to24Hour`。
-    /// 时段词只决定「几点」，不决定「哪天」。
-    /// - 下午 / 晚上：`<12` 的 +12
-    /// - 中午：一~四点 +12；十 / 十一 / 十二点照旧。不换的话「中午一点」读成凌晨 01:00，
-    ///   值能过提前量校验、读回念得很顺的静默篡改
-    /// - 凌晨：整体不变，**只有 12 点是 0 点**：凌晨十二点 = 次日零点，不是正午
-    private static func to24Hour(_ hour: Int, period: VoicePeriod?) -> Int {
-        switch period {
-        case .afternoon: return hour < 12 ? hour + 12 : hour
-        case .noon: return hour <= noonLastAfternoonHour ? hour + 12 : hour
-        case .dawn: return hour == 12 ? 0 : hour
-        case .morning, nil: return hour
-        }
-    }
-
-    /// 「八点半」「下午三点」「8:00」→ 24 小时制时分。时段词负责 12 小时制换算。
-    private static func clockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        guard var parsed = colonClockTime(in: transcript) ?? spokenClockTime(in: transcript) else {
-            return nil
-        }
-        // 原话里**最左**的时段词。
-        var period = voicePeriodWords
-            .compactMap { word in transcript.range(of: word.form).map { ($0.lowerBound, word.period) } }
-            .min { $0.0 < $1.0 }?.1
-        // 「明晚」= 明天 + 晚上（后端 #472）：日期与时段写在同一个词里，+12 要单补 ——
-        // 哪些日期词自带「晚上」由 `voiceDateWords` 的 `impliesEvening` 说了算。
-        // 查的是「原话里有没有这样的词」，**不是**「第一个命中的日期词是不是」：「不是明天，是明晚八点」
-        // 里先命中的是「明天」，按后者判会丢掉 +12，静默读成 08:00（差 12 小时）。
-        if period == nil,
-           voiceDateWords.contains(where: { $0.impliesEvening && transcript.contains($0.form) }) {
-            period = .afternoon
-        }
-        parsed.hour = to24Hour(parsed.hour, period: period)
-        return parsed
-    }
-
-    /// 冒号钟点：`8:00`、`8：00`、`18:30`。
-    ///
-    /// **这条起初在黄金语料里找不到依据，是照真机实况补的**（2026-08-06 手测「说了时间但识别不了
-    /// 时间点」）：iOS 的 `SFSpeechRecognizer` 说中文时经常把「八点钟」渲染成 `8:00`，
-    /// 句子里连「点」字都没有。后端 2026-08-08 的 PR #14 补齐同一条并进了语料，
-    /// 现在两边同口径。
-    ///
-    /// 分钟写 `[0-5]\d` 而不是 `\d{2}` + 范围校验：非法分钟（`8:75`）直接不匹配，
-    /// 与后端 `CLOCK_TIME` 逐字一致。
-    private static func colonClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        for match in transcript.matches(of: colonClockRegex) {
-            // ⚠️「跑1:30」是**时长**口语（识别器可能把「跑一个半小时」渲染成这样），不是 01:30 出发。
-            // 不挡的话它会被当成钟点 → 01:30 已过 → 滚到次日 → 提前量校验放行 →
-            // 读回念出一个用户从没说过的时刻。**静默篡改比抽不出更糟**：抽不出至少读回时听得出来。
-            //
-            // 跳过本次继续找，不是直接返 nil ——「跑1:30，明天早上8点出发」里真正的钟点在后面。
-            if isDurationLeadIn(transcript, hourStart: match.range.lowerBound) { continue }
-            let parts = transcript[match.range].split(whereSeparator: { $0 == ":" || $0 == "：" })
-            guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
-                  (0...24).contains(hour) else { continue }
-            return (hour, minute)
-        }
-        return nil
-    }
-
-    private static let colonClockRegex = try! Regex(#"\d{1,2}[:：][0-5]\d"#)
-
-    /// 数字紧跟在时长引导词后面吗（「跑1:30」「跑步1:30」）。照抄后端
-    /// `VoiceSlotParser.isDurationLeadIn`。
-    ///
-    /// **只在冒号钟点上判**：「跑8点」这种写法现实中不存在，加进来只会多一条没人走的分支。
-    /// 用引导词而不是「小时数看着像时长」之类的启发式 —— 后者会把「跑到1:30」这类真钟点误杀。
-    private static func isDurationLeadIn(_ transcript: String, hourStart: String.Index) -> Bool {
-        guard hourStart > transcript.startIndex else { return false }
-        return "跑步".contains(transcript[transcript.index(before: hourStart)])
-    }
-
-    /// 逐字照抄后端 `VoiceSlotParser.UNSUPPORTED_DATE`（`VoiceSlotParser.java:87-109`，2026-10-28 按后端 #876 同步），**在原文上判**
-    /// （后端在中文数字归一化之前匹配，归一化后「下周三」变「下周3」）。用 `NSRegularExpression`（ICU）：反向后顾 `(?<!…)`
-    /// 与占有量词 `\s*+` 它和 Java 一样认；Swift `Regex` 在 iOS 16 不支持反向后顾，`try!` 会在运行时崩。后端改了整段再抄一次。
-    /// ponytail: 只让它认输，**不新增「认识 X月Y号」的解析分支**。日期表达是开放的
-    /// （下下周二 / 这个月底 / 月底前），正则永远穷举不完，那是大模型该干的活。
-    private static let unsupportedDateRegex = try! NSRegularExpression(
-        pattern: "[0-9零一二两三四五六七八九十]{1,3}\\s*月\\s*[0-9零一二两三四五六七八九十]{1,3}\\s*[号日]"
-            + "|[下这本上那]{1,2}\\s*+个?\\s*+(?:周|星期|礼拜)(?![围边])"
-            + "|大[前后]天"
-            + "|[下这本]\\s*个\\s*月"
-            // 「第三天」以上相对哪天没说清；**「第二天」当明天解**（产品 2026-08-09 拍板），用 `(?![二2]\s*天)` 放行。
-            + "|第(?![二2]\\s*天)[0-9零一二两三四五六七八九十]{1,3}\\s*天"
-            + "|隔天"  // **刻意不当明天**：中文里也常指「每隔一天」（「隔天跑一次」），这个歧义是真的，宁可追问一次
-            + "|(?<![每个几0-9零一二两三四五六七八九十])(?:周|星期|礼拜)[一二三四五六七日天末1-7]"  // 裸星期几、周末（不含「每周一次」）
-            + "|[0-9零一二两三四五六七八九十几半]{1,3}\\s*(?:天|个?(?:周|星期|礼拜|月))\\s*[以之]?后"  // 三天后、一个月后
-            + "|月[底初]"
-            + "|(?<![然以之最])后儿"  // 方言「后儿」= 后天，「然后儿」不是
-    )
-
-    /// 「N点」「N点半」。N 中文与阿拉伯数字都认。
-    ///
-    /// **扫描每一个「点」，不是只看第一个**：对齐后端 `while (clock.find())` 的「跳过本次继续找」。
-    /// 只看第一个的话，「跑慢一点，明天早上八点出发」会停在被守卫拒掉的「慢一点」上，
-    /// 而真正的钟点在后面。
-    private static func spokenClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        var cursor = transcript.startIndex
-        while let range = transcript.range(of: "点", range: cursor..<transcript.endIndex) {
-            cursor = range.upperBound
-            let head = String(transcript[transcript.startIndex..<range.lowerBound])
-            guard let hour = trailingNumber(in: head, blockingDegreeLeadIn: true),
-                  (1...24).contains(hour) else { continue }
-            // 「N点一刻」= :15、「N点三刻」= :45（后端 #472）。「两刻」「十一刻」这类不认的刻数
-            // **整体不匹配**（对应后端 `(?!\d*刻)`），不是只取「N点」—— 此前「八点一刻」就是这样
-            // 被静默读成 08:00，而用户说了 15 分、读回却念整点。`continue` 与后端一样继续找下一个「点」。
-            let afterDot = transcript[range.upperBound...]
-            let quarterDigits = afterDot.prefix(while: { numeralCharacters.contains($0) })
-            if afterDot.dropFirst(quarterDigits.count).first == "刻" {
-                switch quarterDigits {
-                case "一", "1": return (hour, 15)
-                case "三", "3": return (hour, 45)
-                default: continue
-                }
-            }
-            // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
-            // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
-            // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
-            let isHalfPast = transcript.contains("\(chineseDigits[hour] ?? "")点半")
-                || transcript.contains("\(hour)点半")
-            return (hour, isHalfPast ? 30 : 0)
-        }
-        return nil
-    }
-
     /// 汉字数字 → 整数，只覆盖 Mock 语料需要的 1~59。找 `suffix` 前面那一段来解。
-    private static func chineseNumber(before suffix: String, in transcript: String) -> Int? {
+    static func chineseNumber(before suffix: String, in transcript: String) -> Int? {
         guard let range = transcript.range(of: suffix) else { return nil }
-        return trailingNumber(in: String(transcript[transcript.startIndex..<range.lowerBound]))
+        return trailingNumeral(in: String(transcript[transcript.startIndex..<range.lowerBound]))?.value
     }
 
-    /// 从一段文字的**尾部**往前吃数字字符（最多 3 个，够「四十五」）并解成整数。
-    ///
-    /// - Parameter blockingDegreeLeadIn: 数字紧跟在程度副词后面时拒绝。
-    ///   照抄后端 `VoiceSlotParser.isDegreeLeadIn`（`VoiceSlotParser.java:405`），**只在钟点上开**：
-    ///   「慢一点」里的「一点」正好长得像「1 点」，认了就凭空造出一个凌晨 1 点 ——
-    ///   而用户根本没提时间，这个时刻还能过提前量校验、被读回念得很顺。
-    ///   只收「慢快早晚」四个字，刻意**不收「多少」**（会误杀「差不多1点」）。
-    ///   时长那几个后缀（分钟后 / 小时后）不开，那里没有这个歧义。
-    private static func trailingNumber(in head: String, blockingDegreeLeadIn: Bool = false) -> Int? {
-        let chars = Array(head)
-        let digits = chars.suffix(3).map(String.init)
+    /// 从一段文字的**尾部**往前吃数字字符（最多 3 个，够「四十五」）并解成整数，连同吃掉了几个字
+    /// （钟点要靠它定位数字的起点，判前面挨着什么，见 `MockAPIClient+VoiceClock.swift`）。
+    static func trailingNumeral(in head: String) -> (value: Int, length: Int)? {
+        let digits = Array(head).suffix(3).map(String.init)
         for start in 0..<digits.count {
             // 从最长的后缀开始，第一个能解成数的就是这个数。
             guard let value = chineseNumberValue(digits[start...].joined()) else { continue }
-            // ⚠️ 下面两道守卫拒绝的是**整个数**，不是「换个更短的后缀再试」。
+            // ⚠️ 下面这道守卫、以及钟点的程度副词守卫，拒绝的都是**整个数**，不是「换个更短的后缀再试」。
             // 缩短重试会把「十一」缩成末位的「一」：「今晚十一点」被程度副词守卫拒掉「十一」后读成 1 点，
             // 静默变成明天 01:00 —— 而后端是整数拒绝（返回 empty，走兜底）。
             //
@@ -997,20 +767,14 @@ extension MockAPIClient {
             // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:94`）：
             // 只挡「抽错」，不新增「认小数时长」—— 落到追问是诚实的降级。
             if start > 0, digits[start - 1] == "." { return nil }
-            if blockingDegreeLeadIn, start > 0, "慢快早晚".contains(digits[start - 1]) {
-                // 日期词里的「早/晚」不是程度副词：「明早八点」「明晚十一点」的「晚」属于「明晚」
-                // （后端 #472：只在没有日期词时才判 `isDegreeLeadIn`）。词表见 `voiceDateWords`。
-                let upToGuard = String(chars[..<(chars.count - digits.count + start)])
-                if !voiceDateWords.contains(where: { upToGuard.hasSuffix($0.form) }) { return nil }
-            }
-            return value
+            return (value, digits.count - start)
         }
         return nil
     }
 
-    private static func chineseNumberValue(_ text: String) -> Int? {
+    static func chineseNumberValue(_ text: String) -> Int? {
         if let arabic = Int(text) { return arabic }
-        // 「零五」= 5（「一小时零五分钟」）。后端先把中文数字归一成阿拉伯数字，「零五」就是「05」。
+        // 「零五」= 5（「一小时零五分钟」）。后端先把中文数字归一成阿拉伯数字，「零五」归一成 `5`。
         if text.count > 1, text.hasPrefix("零") { return chineseNumberValue(String(text.dropFirst())) }
         let units = ["零": 0, "一": 1, "两": 2, "二": 2, "三": 3, "四": 4,
                      "五": 5, "六": 6, "七": 7, "八": 8, "九": 9]
@@ -1024,11 +788,6 @@ extension MockAPIClient {
         return tens * 10 + ones
     }
 
-    private static let chineseDigits: [Int: String] = [
-        1: "一", 2: "两", 3: "三", 4: "四", 5: "五", 6: "六",
-        7: "七", 8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二"
-    ]
-
     /// 取值与 `demo/docs/voice-golden-corpus.json` 里 `source: "regex"` 的 DURATION 用例一致。
     /// Mock 与真实解析器漂移会让开发期调通的向导在真机上走不通，`VoiceOrderWizardTests` 锁了这份对齐。
     ///
@@ -1041,9 +800,15 @@ extension MockAPIClient {
         // 「一个钟」「一个钟头」「一个半钟头」「半个钟头」里的「钟/钟头」就是小时（后端 #472
         // `HOUR_COLLOQUIAL = (?<=[个半])钟头?`）。只收紧跟「个/半」的：「八点钟」「分钟」不受影响。
         // 长的在前：「个钟头」不先换，会被「个钟」吃掉一半留下一个「头」。
-        let text = ["个钟头", "半钟头", "个钟", "半钟"].reduce(transcript) { text, form in
+        let colloquial = ["个钟头", "半钟头", "个钟", "半钟"].reduce(transcript) { text, form in
             text.replacingOccurrences(of: form, with: String(form.first!) + "小时")
         }
+        // 「X后 / X以后 / 过X」是多久以后出发，不是跑多久（后端 #864 `START_OFFSET`），先剥掉：
+        // 「两个小时以后出发，跑一个小时」以前得 120，「半小时后出发，跑40分钟」以前得 30。
+        // 换成逗号而不是删掉：别让两侧的字拼出一个新的时长。
+        let text = startOffsetRegex.stringByReplacingMatches(
+            in: colloquial, range: NSRange(colloquial.startIndex..., in: colloquial), withTemplate: "，"
+        )
         // N个半小时 / N个?小时半 = N 小时 30 分（后端 `HOUR_HALF_COMPOUND` / `HOUR_TRAILING_HALF`）。
         // 不先判的话「两个半钟头」归一成「两个半小时」后会落进下面的「半小时」→ 30 分钟。
         if let hours = numberBefore(["个半小时"], in: text) { return hours * 60 + 30 }
@@ -1066,9 +831,8 @@ extension MockAPIClient {
     /// （后端 `HALF_HOUR_LATER` 的「后」）。中文数字也算「数字」：后端是归一化之后才匹配的，
     /// Mock 不归一化，所以把中文数字一并排除。
     ///
-    /// 用手工回看而不是正则 lookbehind：仓库里没有别处用过 Swift Regex 的 lookbehind，
-    /// 为这一处冒一个运行时版本差异不值得。
-    private static func containsStandaloneHalfHour(_ suffix: String = "", in transcript: String) -> Bool {
+    /// 用手工回看而不是正则 lookbehind：Swift `Regex` 在 iOS 16 不支持反向后顾（见 `unsupportedDateRegex`）。
+    static func containsStandaloneHalfHour(_ suffix: String = "", in transcript: String) -> Bool {
         for needle in ["半小时", "半个小时"].map({ $0 + suffix }) {
             var cursor = transcript.startIndex
             while let range = transcript.range(of: needle, range: cursor..<transcript.endIndex) {
@@ -1095,7 +859,20 @@ extension MockAPIClient {
     }
 
     /// 口语里数字会用到的全部字符（中文与阿拉伯）。
-    private static let numeralCharacters = "零一二两三四五六七八九十0123456789"
+    static let numeralCharacters = "零一二两三四五六七八九十0123456789"
+
+    /// 出发偏移 —— 对齐后端 `VoiceSlotParser.START_OFFSET`（#864）。后端在中文数字归一化之后匹配，
+    /// Mock 不归一化，所以数字类同时收中文与阿拉伯数字。用 `NSRegularExpression`：要反向后顾。
+    ///
+    /// 「跑X后」「跑步X后」「跑完X之后」不剥（「跑一个小时后回到人民广场」的 X 是时长）；
+    /// 「超过 / 经过」里的「过」不是「过X」（「不超过一个小时」）。剥多了的后果是时长为空、追问一次，不会算错。
+    private static let startOffsetRegex: NSRegularExpression = {
+        let digit = "[0-9零一二两三四五六七八九十]"
+        let number = "(?<!\(digit))\(digit){1,4}"
+        let anyDuration = "(?:\(number)个?(?:半小时|小时(?:半|\(digit){1,3}分钟?)?)"
+            + "|(?<![0-9零一二两三四五六七八九十个])半个?小时|\(number)分钟)"
+        return try! NSRegularExpression(pattern: "(?<![跑步完])\(anyDuration)\\s*[以之]?后|(?<![超经])过\\s*\(anyDuration)")
+    }()
 
     /// 取某个后缀之前紧邻的数字，中文与阿拉伯数字都认。
     ///

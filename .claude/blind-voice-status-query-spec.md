@@ -49,7 +49,7 @@
   向导抢 `SpeechInputService` 的单会话。
 - ❌ **唤醒词 / 摇一摇 / Siri App Intents**。入口就是屏幕上一个按钮。
 - ❌ **不动黄金语料**。`demo/docs/voice-golden-corpus.json` 和
-  `blindRunTests/VoiceOrderWizardTests.swift` 里的镜像清单是**下单**语料
+  `blindRunTests/VoiceGoldenCorpusMirror.swift` 里的镜像清单是**下单**语料
   （DURATION / START_TIME / ADDRESS / GUIDE_DOG / PACE），与本期无关。碰它会让
   `scripts/validate-golden-corpus.mjs` 报错。
 - ❌ **不重写 `SpeechService` / `SpeechInputService` 的既有行为**。只新增枚举 case 和调用点。
