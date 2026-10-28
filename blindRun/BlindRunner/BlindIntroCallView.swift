@@ -555,8 +555,9 @@ private struct PlanRowIdentifier: ViewModifier {
 }
 
 extension IntroCallRunnerStep {
-    /// 盲人通话页绳子第一格挂什么：B1 电话 → B2 灰色单子（单子还没来）→ 确认后「我」头像打勾。
-    /// B3 正常不画绳子（视觉稿 v2 决定 2：改成大标题），这里的 `.afterCall` 只给安排单拉不全时那张兜底头卡。
+    /// 盲人通话页绳子第一格挂什么：B1 电话 → B2 灰色单子（单子还没来）。
+    /// B3 与已确认走 `planContent`，不画绳子（视觉稿 v2 决定 2：改成大标题）；那两档的返回值只为 switch 穷举，
+    /// 读不懂的安排单走 `isUnavailable`，也不会落到头卡上。
     var blindRopeStage: IntroCallRopeStage {
         switch self {
         case .awaitingCall: return .beforeCall

@@ -23,8 +23,9 @@ final class FlowActionButtonHeightTests: XCTestCase {
         XCTAssertEqual(primary, FlowMetrics.actionButtonMinHeight, accuracy: 0.5)
     }
 
+    /// 字号钉在默认档：测试宿主继承设备的动态字号，调大了文字自己就会把按钮撑过最小高度。
     private static func height<V: View>(_ view: V) -> CGFloat {
-        UIHostingController(rootView: view)
+        UIHostingController(rootView: view.environment(\.dynamicTypeSize, .large))
             .sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
             .height
     }
