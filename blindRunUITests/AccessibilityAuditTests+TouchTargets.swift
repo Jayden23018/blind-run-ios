@@ -10,12 +10,16 @@ extension AccessibilityAuditTests {
     @MainActor
     func testBlindProfileControlsAreTallEnoughAndPassAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
+        // 右上角的退出图标只在**首次填资料**（引导里的「完善信息」，`isEditing == false`）出现；
+        // 从「设置 → 个人资料」进来的是「编辑资料」，没有这枚图标（退出在设置页）。不预置资料，Mock 就停在引导这一页。
+        let onboarding = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE": "0"], tapsAfterLaunch: false)
+        let logout = onboarding.buttons["退出登录"].firstMatch
+        XCTAssertTrue(logout.waitForExistence(timeout: 20), "首次填资料页没有退出登录")
+        assertBlindTouchTarget(logout, name: "退出登录")
+        onboarding.terminate()
+
         let app = launchBlindHome()
         openBlindProfile(app)
-
-        let logout = app.buttons["退出登录"].firstMatch
-        XCTAssertTrue(logout.waitForExistence(timeout: 10), "资料页没有退出登录")
-        assertBlindTouchTarget(logout, name: "退出登录")
 
         let tether = app.descendants(matching: .any)["blindProfileTetherPreferencePicker"].firstMatch
         XCTAssertTrue(swipeUntilHittable(tether, in: app), "资料页没有「希望怎么被引导」")
