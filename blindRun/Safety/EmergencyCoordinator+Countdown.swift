@@ -11,7 +11,8 @@ extension EmergencyCoordinator {
 
     /// 倒数显示的上限。挡的是两端时钟差：本机比服务端慢半分钟时，照 `countdownEndsAt` 算出来的
     /// 「还有 33 秒」是假的，而服务端 3 秒后就开火。夹在这里，最坏是屏幕上多数几秒。
-    static let maxDisplayedCountdownSeconds = 10
+    /// `nonisolated`：下面那个 `nonisolated` 的 `secondsRemaining` 要读它（#549，Swift 6 下读 MainActor 常量是编译错误）。
+    nonisolated static let maxDisplayedCountdownSeconds = 10
 
     /// 到点后多等这么久再去问后端「推成正式求助了没有」—— 服务端开火在截止之后还有一段宽限
     /// （`app.emergency.countdown-grace-ms`，默认 1.5 秒），调度器每秒扫一次。
