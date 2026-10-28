@@ -45,6 +45,17 @@ final class IntroCallIncomingFreshnessTests: XCTestCase {
         XCTAssertEqual(coordinator.currentNotification?.displayText, Self.body)
     }
 
+    /// 补读的 `sentAt` 可能是带时区的 ISO-8601（与 WS 信封的无时区 LocalDateTime 不同）。解不出来会按「刚刚」算，
+    /// 修复就静默失效 —— 这里钉住那种格式也能判出过期（复核 B）。
+    func testCaughtUpTimestampInIso8601WithZoneIsStillJudgedByItsSendTime() {
+        let (coordinator, _) = makeCoordinator()
+        let tenMinutesAgo = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-600))
+        coordinator.ingestCatchUp([MissedNotificationResponse(
+            id: 3, eventType: "INTRO_CALL_INCOMING", body: Self.body, ttsText: nil, priority: "HIGH", sentAt: tenMinutesAgo, orderId: nil
+        )])
+        XCTAssertNil(coordinator.currentNotification, "带时区的 10 分钟前时刻被当成了「刚刚」")
+    }
+
     // MARK: - Fixture
 
     private func makeCoordinator() -> (AppRealtimeCoordinator, WebSocketService) {

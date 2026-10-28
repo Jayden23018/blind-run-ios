@@ -150,8 +150,9 @@ final class VolunteerIntroCallViewModel: ObservableObject {
 
     /// 收到 `INTRO_CALL_INCOMING`。`sentAt` 是后端发出的时刻：重连补读来的旧提醒若已过 2 分钟，不显示也不播。
     func noteIncomingCall(sentAt: Date, now: Date = Date()) {
+        // 同一条提醒实时与补读各来一次时两边的时刻可能差几毫秒（格式不同），1 秒内按同一条算，不念两遍。
         guard outcome == .active, let until = IntroCallCopy.incomingCallDisplayUntil(sentAt: sentAt, now: now),
-              sentAt != lastIncomingSentAt else { return }
+              lastIncomingSentAt.map({ abs(sentAt.timeIntervalSince($0)) >= 1 }) ?? true else { return }
         lastIncomingSentAt = sentAt
         incomingCallUntil = until
         speechService?.speak(IntroCallCopy.volunteerIncomingCallAnnouncement(counterpartName: introCall?.counterpartName))
