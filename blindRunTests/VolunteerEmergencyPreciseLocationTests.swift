@@ -171,6 +171,78 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
 
     // MARK: - Fixture
 
+    // MARK: - 有回答就走，不等超时（#547）
+
+    /// 🔴 #547 原样：点了「保持关闭」就立刻降级，不再空等满超时。
+    /// 超时给 5 秒、0.3 秒时回答：旧实现要等满 5 秒，新实现 0.6 秒内返回 —— 门槛 2 秒落在两者之间。
+    func testKeepingPreciseLocationOffReturnsAtOnceInsteadOfWaitingOutTheTimeout() async {
+        let location = Self.locationService()
+        location.simulatePreciseLocationOffForTesting()
+        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        defer { EmergencySOSTests.teardownAlarmObservers() }
+        Self.answer(location, allowed: false, afterNanoseconds: 300_000_000)
+
+        let started = Date()
+        let outcome = await trigger(coordinator, safety: safety, location: location, answerTimeout: 5)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 2, "点了「保持关闭」还在空等超时（\(elapsed) 秒）")
+        XCTAssertTrue(safety.calls.isEmpty, "区域代表点发出去了：\(safety.calls)")
+        XCTAssertEqual(outcome.state, .unsentNoLocation(.preciseLocationOff))
+        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer])
+    }
+
+    /// 弹窗里点了允许：回答一到就带着精确坐标发出去，同样不等超时。
+    /// 对照组：没有它，「一有回答就放弃」的实现也能让上一条变绿。
+    func testAllowingInTheDialogReturnsAtOnceWithThePreciseCoordinate() async {
+        let location = Self.locationService()
+        location.simulatePreciseLocationOffForTesting()
+        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        defer { EmergencySOSTests.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "CONTACT_NOTIFIED"))
+        Self.answer(location, allowed: true, afterNanoseconds: 300_000_000)
+
+        let started = Date()
+        let outcome = await trigger(coordinator, safety: safety, location: location, answerTimeout: 5)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 2, "允许之后还在等（\(elapsed) 秒）")
+        XCTAssertEqual(safety.calls, ["triggerEmergency(_:)"])
+        XCTAssertNotNil(safety.lastTriggerRequest?.gpsLat, "允许之后要带坐标发出")
+        XCTAssertEqual(outcome.state, .acknowledged(.contactNotified))
+    }
+
+    /// `LocationService` 这一层：回答到了才返回，返回值是「是否仍然关着」；开着时不申请、立刻返回 false。
+    func testWaitingForTheAnswerReportsWhetherPreciseLocationIsStillOff() async {
+        let location = Self.locationService()
+        location.simulatePreciseLocationOffForTesting()
+
+        Self.answer(location, allowed: false, afterNanoseconds: 100_000_000)
+        let stillOffAfterDeclining = await location.requestTemporaryPreciseLocationAndWaitForAnswer(for: .escortVolunteer)
+        Self.answer(location, allowed: true, afterNanoseconds: 100_000_000)
+        let stillOffAfterAllowing = await location.requestTemporaryPreciseLocationAndWaitForAnswer(for: .escortVolunteer)
+        let alreadyOn = await location.requestTemporaryPreciseLocationAndWaitForAnswer(for: .escortVolunteer)
+
+        XCTAssertTrue(stillOffAfterDeclining)
+        XCTAssertFalse(stillOffAfterAllowing)
+        XCTAssertFalse(alreadyOn)
+        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer, .escortVolunteer], "开着时不该再申请")
+    }
+
+    /// 等申请真的挂上（它在一个独立的 Task 里发出）再替用户回答，免得回答早于申请、落了空。
+    private static func answer(_ location: LocationService, allowed: Bool, afterNanoseconds: UInt64) {
+        let asked = location.temporaryPreciseLocationRequestsForTesting.count
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: afterNanoseconds)
+            var polls = 0
+            while location.temporaryPreciseLocationRequestsForTesting.count == asked, polls < 50 {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                polls += 1
+            }
+            location.answerTemporaryPreciseLocationForTesting(allowed: allowed)
+        }
+    }
+
     private func trigger(
         _ coordinator: EmergencyCoordinator,
         safety: FakeSafetyService,

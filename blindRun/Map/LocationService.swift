@@ -233,6 +233,8 @@ final class LocationService: NSObject, ObservableObject {
     private var preciseLocationOffOverrideForTesting: Bool?
     /// 申请过的临时精确位置用途，按调用顺序。接缝打开时不碰 `CLLocationManager`。
     private(set) var temporaryPreciseLocationRequestsForTesting: [PreciseLocationPurpose] = []
+    /// 还没回答的临时精确位置申请（#547）。`answerTemporaryPreciseLocationForTesting` 替用户回答。
+    private var pendingTemporaryPreciseAnswersForTesting: [CheckedContinuation<Void, Never>] = []
 
     /// 把「精确位置」开关钉在给定状态。与 `simulateDeviceLocationForTesting` 同一种接缝：
     /// 打开后申请临时精确位置只记账，不弹系统窗。
@@ -518,6 +520,46 @@ final class LocationService: NSObject, ObservableObject {
         return abs(lhs.latitude - rhs.latitude) <= 0.000001 &&
             abs(lhs.longitude - rhs.longitude) <= 0.000001
     }
+}
+
+// MARK: - 临时精确位置：等用户回答（#547）
+
+// 单独一个 extension：类体在 SwiftLint 基线上，不许再长；同文件的 extension 读得到 `private` 成员。
+extension LocationService {
+    /// 同 `requestTemporaryPreciseLocation(for:)`，但等到有回答才返回；返回时「精确位置」是否**仍然关着**。
+    ///
+    /// SDK（`CLLocationManager.h`）：用户回答了弹窗，completion 带 nil；系统决定不弹（App 在后台、已有精确位置、
+    /// 用途键不在 Info.plist 等）时带一个 NSError —— 两种都会回调，所以用户点「保持关闭」之后调用方立刻就能降级，
+    /// 不必空等超时。completion 与代理回调在同一个 runloop 上（这里是主线程）。
+    /// 回调之后直接读 manager 的精度授权并同步进来：授权回调可能晚于 completion 到达，不同步的话调用方紧接着读到的还是旧值。
+    /// 超时由调用方负责：completion 照 SDK 说总会来，但求助不赌这一点。
+    func requestTemporaryPreciseLocationAndWaitForAnswer(for purpose: PreciseLocationPurpose) async -> Bool {
+        guard isPreciseLocationOff else { return false }
+        #if DEBUG
+        if preciseLocationOffOverrideForTesting != nil || suppressHardwareUpdatesForTesting {
+            temporaryPreciseLocationRequestsForTesting.append(purpose)
+            await withCheckedContinuation { pendingTemporaryPreciseAnswersForTesting.append($0) }
+            return isPreciseLocationOff
+        }
+        #endif
+        await withCheckedContinuation { (answered: CheckedContinuation<Void, Never>) in
+            locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose.rawValue) { _ in
+                answered.resume()
+            }
+        }
+        applyAccuracyAuthorization(locationManager.accuracyAuthorization)
+        return isPreciseLocationOff
+    }
+
+    #if DEBUG
+    /// 替用户回答临时精确位置弹窗：`allowed` = 点了允许。先把开关钉到对应状态，再放行所有在等回答的申请。
+    func answerTemporaryPreciseLocationForTesting(allowed: Bool) {
+        simulatePreciseLocationOffForTesting(!allowed)
+        let pending = pendingTemporaryPreciseAnswersForTesting
+        pendingTemporaryPreciseAnswersForTesting = []
+        pending.forEach { $0.resume() }
+    }
+    #endif
 }
 
 // MARK: - CLLocationManagerDelegate
