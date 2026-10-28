@@ -8,4 +8,5 @@
 
 - [x] 2.1 单测：关闭不报、开启照报、文案四要素
 - [x] 2.2 编译门禁、SwiftLint 棘轮
-- [ ] 2.3 真机：关精确位置开接单开关，顶部出现并念、弹临时精确位置；`passed=N failed=0` 与验红
+- [x] 2.3 真机（iPhone 16 Pro 有线，2026-10-28）：`DispatchPreciseLocationGateTests` 等 4 个 suite `passed=50 failed=0`；验红让 `isBlockedByPreciseLocation` 恒返回 false → 预期的 2 条红（`failed=2`）。
+  人工部分（关精确位置开接单开关，顶部出现并念、弹临时精确位置）挪到人工验收 issue #410
