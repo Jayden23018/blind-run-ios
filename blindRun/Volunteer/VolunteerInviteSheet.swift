@@ -171,8 +171,6 @@ struct VolunteerInviteSheet: View {
             Text(VolunteerInviteCopy.sheetTitle(count: viewModel.invites.count))
                 .flowFont(FlowFonts.inviteHeader())
                 .foregroundColor(AppColors.Flow.primaryText)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($titleFocused)
 
             Spacer(minLength: 0)
 
@@ -180,7 +178,13 @@ struct VolunteerInviteSheet: View {
         }
         // 挂了翻页动作 ⇒ 审计把这一行当成可交互元素，要 44pt 高（#181 真机审计：只有一行字高，报 Hit area is too small）。
         // 读屏用户摸索时也要摸得到它。多出来的高度放在字的上方，进度条与倒计时的间距不变。
+        // 🔴 只撑 frame 不够（10-29 真机重跑照样报）：没有显式元素时，读屏元素的框按子视图并起来算，撑出来的空白不算。
+        // 所以在撑高之后把整行合成一个元素，「标题」特征与焦点也挂在这一层（挂在里面的 Text 上，合成后不作数）。
         .frame(minHeight: 44, alignment: .bottom)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityFocused($titleFocused)
         // 多张卡时给读屏一条**确定**能用的翻页路径。手势翻页对 VoiceOver 用户不可用：
         // 开了读屏之后单指拖动是「探索」，到不了下面那个 `DragGesture`。
         //
