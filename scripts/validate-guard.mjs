@@ -425,6 +425,165 @@ const cases = [
       '}'
     ].join('\n')
   },
+  // 2026-10-28 #543 审查补的回归：每条对应一个曾经判错的形状。
+  {
+    // `.init(` / `super.init(` 是调用不是声明：当成声明会把后面整个类当成它的函数体。
+    name: '`.init(` 调用后面紧跟别的测试类（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class ATests: XCTestCase {',
+      '    func testA() {',
+      '        XCTAssertEqual(Row.caption(), .init(title: "a", detail: nil))',
+      '    }',
+      '}',
+      'final class BTests: XCTestCase {',
+      '    func testB() {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.configure(appState: appState)',
+      '        XCTAssertTrue(vm.ready)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '协议里没有函数体的声明后面紧跟测试类（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'protocol Maker { init(x: Int) }',
+      'protocol Fake { func make() -> Int }',
+      'final class BTests: XCTestCase {',
+      '    func testB() {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.configure(appState: appState)',
+      '        XCTAssertTrue(vm.ready)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '赋给 view model 自己的 weak 属性不算持有（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func make() -> VM {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.appState = appState',
+      '        vm.configure(appState: appState)',
+      '        return vm',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // 没有它，去掉「剥离注释与字符串」这一步也没有任何用例会红（审查做过变异实测）。
+    name: '注释里写着 return appState 不算交出去（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func make() -> VM {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.configure(appState: appState)',
+      '        // return (vm, appState)',
+      '        return vm',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '字符串里写着 return appState 不算交出去（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func make() -> VM {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.configure(appState: appState)',
+      '        vm.note = "return appState"',
+      '        return vm',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: 'return 里只有同名实参标签不算交出去（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeHarness(other: AppState) -> Harness {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.configure(appState: appState)',
+      '        return Harness(vm: vm, appState: other)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // setUp 没有返回值，但局部变量照样在它结束时释放，而 vm 存在测试类上活到每条用例。
+    name: 'setUp 里建的 AppState 没存下（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private var vm: VM!',
+      '    override func setUp() {',
+      '        super.setUp()',
+      '        let appState = AppState()',
+      '        vm = VM()',
+      '        vm.configure(appState: appState)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: 'return 跨行链式调用里带上了 AppState（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeHarness() -> Harness {',
+      '        let appState = AppState()',
+      '        let vm = VM()',
+      '        vm.configure(appState: appState)',
+      '        return Harness(vm: vm)',
+      '            .with(appState: appState)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '经实参标签交给强持有的 Harness、再经局部变量返回（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeHarness() -> Harness {',
+      '        let appState = AppState()',
+      '        let h = Harness(vm: VM(), appState: appState)',
+      '        return h',
+      '    }',
+      '}'
+    ].join('\n')
+  },
   {
     // 2026-08-06：verify.yml 里两处 `if: ${{ secrets.X != '' }}` 让 workflow 连续 9 次
     // 启动失败 —— 0 个 job、0 条日志，UI 上看不出红在哪，只有邮件。这条守卫防的就是它。
