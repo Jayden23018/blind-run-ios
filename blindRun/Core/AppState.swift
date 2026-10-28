@@ -566,7 +566,7 @@ final class AppState: ObservableObject {
 
     /// 按**账号**记（理由同 `ProfileModule` 的视力状况同意）。拿不到 userId 时退到 `.device`：
     /// 宁可多问一次，也不让界面一声不响。
-    var voiceOrderConsentScope: PrivacyConsentScope {
+    private var voiceOrderConsentScope: PrivacyConsentScope {
         currentUser.map { .user(String($0.userId)) } ?? .device
     }
 
@@ -609,7 +609,7 @@ final class AppState: ObservableObject {
 
     /// 本次登录里按下过「同意共享位置」的目的。拿不到 userId 时写不了盘，
     /// 这一份让「刚同意完又被问一次」不会发生；换 token 就清掉。
-    var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
+    private var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
 
     /// 按**账号**记。拿不到 userId 时不读盘 —— 宁可多问一次，也不让一个身份不明的会话继承别人的同意。
     var locationTrackConsentScope: PrivacyConsentScope? {
@@ -624,6 +624,11 @@ final class AppState: ObservableObject {
         if locationTrackConsentGrantedThisSession.contains(purpose) { return true }
         guard let scope = locationTrackConsentScope else { return false }
         return PrivacyConsentStore(persistence: persistence).hasConsented(to: purpose, scope: scope)
+    }
+
+    /// 撤回时忘掉本次登录里记下的那一份（#393）。集合本身保持私有，「唯一写入点」的约定不破。
+    func forgetLocationTrackConsentThisSession(_ purpose: PrivacyConsentPurpose) {
+        locationTrackConsentGrantedThisSession.remove(purpose)
     }
 
     /// 唯一的写入点：触发者只能是用户按下同意页上的「同意共享位置」。

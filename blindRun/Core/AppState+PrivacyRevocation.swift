@@ -30,7 +30,7 @@ extension AppState {
     func revokeLocationTrackConsent(_ purpose: PrivacyConsentPurpose) -> Bool {
         guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack,
               canRevokeLocationTrackConsentNow else { return false }
-        locationTrackConsentGrantedThisSession.remove(purpose)
+        forgetLocationTrackConsentThisSession(purpose)
         if let scope = locationTrackConsentScope {
             PrivacyConsentStore(persistence: persistence).revokeConsent(to: purpose, scope: scope)
         }

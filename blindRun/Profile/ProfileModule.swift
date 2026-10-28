@@ -1,21 +1,6 @@
 import Combine
 import SwiftUI
 
-// MARK: - 撤回视力同意的文案
-
-/// 撤回「视力状况 + 导盲犬」同意（#352）。原与安卓 #91 逐字一致（负责人 2026-10-07 同意）；
-/// 2026-10-19 起后两句改成「改成不提供」（#472）：后端存的是「不提供」这个值，不是删掉了这一项，
-/// 负责人要求文案严格成立。按钮标题未变。
-enum VisionConsentWithdrawalCopy {
-    static let buttonTitle = "撤回同意，不再提供这两项"
-    static let accessibilityLabel = "撤回同意，不再提供视力状况和导盲犬。按下后立刻把资料里这两项改成不提供，以后想填可以再同意"
-    static let succeeded = "已撤回。资料里的视力状况和导盲犬已改成不提供，以后想填可以再点「填写视力状况」。"
-
-    static func failed(saveButtonTitle: String) -> String {
-        "撤回还没有保存成功，请再点一次「\(saveButtonTitle)」。"
-    }
-}
-
 // MARK: - Blind Runner Profile ViewModel
 
 @MainActor
@@ -68,6 +53,9 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
     /// 撤回成功后那一句（同时上屏和朗读）。
     @Published private(set) var visionConsentWithdrawnNotice: String?
+    /// 撤回没存上时，失败文案里让用户「再点一次」的那个按钮名。nil = 本页的「保存」/「完成」；
+    /// 「隐私与授权」页没有保存按钮，设成它自己的撤回按钮名（#393）。
+    var withdrawalRetryButtonTitle: String?
 
     /// 档案里认得出的引导方式。用户改选「还没决定」时据它判断要不要发 `NOT_SPECIFIED`（#472）：
     /// 原来有值 ⇒ 发，才撤得回；原来就没有或认不出 ⇒ 不带键，免得覆盖一个这个版本不认识的值。
@@ -273,7 +261,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 撤回那一次没存上：同意记录不删，说清要再按一次保存（按钮名在首次引导态是「完成」）。
     private func reportSaveFailure(_ message: String, withdrawing: Bool) {
         let text = withdrawing
-            ? VisionConsentWithdrawalCopy.failed(saveButtonTitle: isEditing ? "保存" : "完成")
+            ? VisionConsentWithdrawalCopy.failed(saveButtonTitle: withdrawalRetryButtonTitle ?? (isEditing ? "保存" : "完成"))
             : message
         errorMessage = text
         speechService?.speakError(text)

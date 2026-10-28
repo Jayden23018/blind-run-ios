@@ -84,10 +84,56 @@ final class PrivacyAuthorizationTests: XCTestCase {
         XCTAssertTrue(PrivacyAuthorizationCopy.voiceRevoked.contains("重新问你"))
         XCTAssertTrue(PrivacyAuthorizationCopy.voiceRevoked.contains("手动填写"), "要给出不用语音的出路")
         XCTAssertTrue(PrivacyAuthorizationCopy.locationRevoked.contains("求助"))
+        XCTAssertTrue(PrivacyAuthorizationCopy.locationRevoked.contains("已约好"), "已约好的单在出发时就会问，不是只在下次预约前")
         XCTAssertTrue(PrivacyAuthorizationCopy.locationBlockedDuringEscort.contains("系统设置"))
     }
 
+    // MARK: - 视力那一项（复用资料页的撤回）
+
+    /// 🔴 审查 A3：撤回保存失败后，这一页要能原地重试 —— 状态说「撤回还没完成」、按钮还在，
+    /// 失败那句让用户再点的是本页的撤回按钮，不是这一页没有的「保存」。
+    func testFailedVisionWithdrawalStaysRetryableOnThisPage() async {
+        let appState = makeBlindAppState(client: ParseCountingClient())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试跑者"))
+        let viewModel = BlindRunnerProfileViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.acceptVisionConsent()
+        viewModel.withdrawalRetryButtonTitle = VisionConsentWithdrawalCopy.buttonTitle
+
+        viewModel.withdrawVisionConsent()
+        let settled = await waitUntil { !viewModel.isLoading && viewModel.errorMessage != nil }
+
+        XCTAssertTrue(settled, "保存失败没有落到错误态")
+        XCTAssertTrue(viewModel.isVisionConsentWithdrawalPending, "失败后撤回仍待完成")
+        XCTAssertTrue(viewModel.errorMessage?.contains(VisionConsentWithdrawalCopy.buttonTitle) == true, viewModel.errorMessage ?? "")
+        let row = VisionRevokeRow.resolve(
+            hasConsent: viewModel.hasVisionConsent,
+            withdrawalPending: viewModel.isVisionConsentWithdrawalPending,
+            profileLoaded: true
+        )
+        XCTAssertEqual(row, .withdrawalPending)
+        XCTAssertTrue(row.offersRevoke, "重试按钮不许消失")
+    }
+
+    /// 四种状态各自的说法与按钮：只断「待完成」的话，一个永远显示按钮的实现也会绿。
+    func testVisionRowStates() {
+        XCTAssertEqual(VisionRevokeRow.resolve(hasConsent: true, withdrawalPending: false, profileLoaded: true), .granted)
+        XCTAssertEqual(VisionRevokeRow.resolve(hasConsent: false, withdrawalPending: false, profileLoaded: true), .notGranted)
+        XCTAssertEqual(VisionRevokeRow.resolve(hasConsent: true, withdrawalPending: false, profileLoaded: false), .profileNotLoaded)
+        XCTAssertFalse(VisionRevokeRow.notGranted.offersRevoke)
+        XCTAssertFalse(VisionRevokeRow.profileNotLoaded.offersRevoke)
+    }
+
     // MARK: - Helpers
+
+    private func waitUntil(timeout: TimeInterval = 2, _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return condition()
+    }
 
     private func makeBlindAppState(client: ParseCountingClient) -> AppState {
         let appState = AppState(apiClient: client, persistence: AppStatePersistenceFactory.makeIsolatedTest(), tokenStore: InMemoryTokenStore())
