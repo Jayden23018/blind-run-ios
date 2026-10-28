@@ -22,11 +22,18 @@ extension EmergencyCoordinator {
     ///
     /// 🔴 **本角色没有同意共享位置时（`sharingBlocked`，#368）同样直接返回 nil。**
     /// 同意页写着「不同意 …… 走散提醒和求助定位也用不了」—— 拒绝之后再把位置随求助发出去，就是拿走了用户刚说不的东西。
+    /// - Parameter environment: 只给 DEBUG 下的 UI 测试定位接缝读，单测用它钉住接缝排在同意闸之后。
     static func freshEmergencyCoordinate(
         using locationService: LocationService?,
-        sharingBlocked: Bool = false
+        sharingBlocked: Bool = false,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) async -> LocatedCoordinate? {
         guard !sharingBlocked else { return nil }
+        #if DEBUG
+        // UI 测试定位接缝（#500）：排在同意闸之后，同意页的约束照样成立；排在精确位置闸之前，
+        // 所以和 `AIDRUN_UI_TEST_PRECISE_LOCATION_OFF` 同开时照样出样本 —— 验「精确位置关→不发」的 UI 用例别开接缝。
+        if let sample = uiTestEmergencySample(environment: environment) { return sample }
+        #endif
         guard let locationService, !locationService.isPreciseLocationOff else { return nil }
         if let sample = locationService.latestBackendSample() {
             return sample
@@ -58,4 +65,32 @@ extension EmergencyCoordinator {
         if locationService.isPreciseLocationOff { return .preciseLocationOff }
         return locationService.locationError
     }
+
+    #if DEBUG
+    /// UI 测试定位接缝的开关（#500）。
+    static let uiTestEmergencyLocationKey = "AIDRUN_UI_TEST_EMERGENCY_LOCATION"
+
+    /// UI 测试里拿不到设备采样，求助恒落「未发出：拿不到定位」，于是没有任何 UI 用例走得到屏 3b，
+    /// 它的弹出接线（`EmergencyRecoveryPresentation` 的两个 `onChange`）改坏了也不会有用例报红。
+    /// 这里产出一份**标记为测试来源**（`.uiTestSeam`）的 GCJ-02 样本，只为让 UI 用例走完这条路。
+    ///
+    /// 「演示坐标绝不上传」（`AGENTS.md` §6）由三道互相独立的闸守：
+    /// ① 只编进 DEBUG；② 只在 UI 测试设了这个开关、**且**选的是 Mock 环境时才有样本；
+    /// ③ `trigger` 在客户端不是 Mock 时硬性拒绝测试来源的样本 —— 哪怕前两道都被绕开，
+    ///    坐标也一个字节都不会发往真实后端。
+    static func uiTestEmergencySample(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        now: Date = Date()
+    ) -> LocatedCoordinate? {
+        guard environment[uiTestEmergencyLocationKey] == "1",
+              environment["AIDRUN_UI_TEST_API_ENV"] == "mock" else { return nil }
+        return LocatedCoordinate(
+            coordinate: CLLocationCoordinate2D(latitude: 39.9289, longitude: 116.3883),
+            system: .gcj02Backend,
+            capturedAt: now,
+            horizontalAccuracy: 10,
+            source: .uiTestSeam
+        )
+    }
+    #endif
 }
