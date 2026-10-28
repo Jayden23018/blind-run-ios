@@ -294,6 +294,7 @@ struct ContentView: View {
                 .padding(24)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.recoveryFailed")
+                .announcesFailure("暂时无法恢复账号资料。\(message)", using: speechService)
             case .unauthenticated:
                 LoginView()
                     .accessibilityElement(children: .contain)
