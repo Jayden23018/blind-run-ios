@@ -2224,7 +2224,7 @@ struct BlindBookingView: View {
             VoiceTextField(
                 title: "路线备注",
                 placeholder: "例如：沿公园慢跑一圈",
-                text: $viewModel.routeNotes,
+                text: $viewModel.routeNotes, allowsLineBreaks: true,
                 speechInputService: speechInputService,
                 speechService: speechService,
                 speechField: .destinationRoute,

@@ -9,6 +9,8 @@ struct VoiceTextField: View {
     let placeholder: String
     @Binding var text: String
     var isMultiline = false
+    /// 回车保留换行（路线备注这种本来就该多行的框）。其余单行框回车 = 提交，换行会被拦掉（`VoiceTextFieldReturn`）。
+    var allowsLineBreaks = false
     @ObservedObject var speechInputService: SpeechInputService
     @ObservedObject var speechService: SpeechService
     let speechField: SpeechInputField
@@ -18,6 +20,7 @@ struct VoiceTextField: View {
     /// 键盘 / 听写输入完按回车时做什么（#295 走查 B4）。下单页的地点搜索用它直接搜，
     /// 不必再划到下方那枚「搜索地点」按钮。
     var onSubmit: (() -> Void)? = nil
+    @FocusState private var isTyping: Bool
 
     var body: some View {
         let isListening = speechInputService.isListening(for: speechField)
@@ -35,8 +38,16 @@ struct VoiceTextField: View {
                         TextEditor(text: $text)
                             .frame(minHeight: 96)
                     } else {
-                        TextField(placeholder, text: $text)
-                            .onSubmit { onSubmit?() }
+                        // 可折行：单行 `TextField` 在大字号下把字截掉（真机审计 textClipped）。回车见 `VoiceTextFieldReturn`。
+                        TextField(placeholder, text: $text, axis: .vertical)
+                            .lineLimit(1...6)
+                            .focused($isTyping)
+                            .onChange(of: text) { newText in
+                                let result = VoiceTextFieldReturn.apply(to: newText, allowsLineBreaks: allowsLineBreaks, isTyping: isTyping)
+                                guard result.text != newText else { return }
+                                text = result.text
+                                if result.submitted { isTyping = false; onSubmit?() }
+                            }
                     }
                 }
                 .font(AppFonts.body())
