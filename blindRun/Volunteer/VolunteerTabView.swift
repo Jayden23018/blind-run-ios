@@ -98,6 +98,8 @@ struct VolunteerTabView: View {
         }
         // #520：开着接单开关、精确位置却关着时，派单位置已停报 —— 顶部说清原因、念一次、申请临时精确位置。
         .dispatchPreciseLocationNotice(isDispatching: viewModel.isAvailable)
+        // 「隐私与授权」撤回位置同意时要关掉同一个接单开关（#530），所以把首页 view model 往下传。
+        .environmentObject(viewModel)
         .onAppear {
             // **删地图 ≠ 停定位**：授权是派单的前提，没有位置上报就收不到单。
             // #368：没有位置轨迹同意时不弹系统授权框（告知在前）。

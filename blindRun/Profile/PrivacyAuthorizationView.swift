@@ -97,11 +97,11 @@ struct PrivacyAuthorizationView: View {
 
     private var voiceSection: some View {
         let granted = appState.hasVoiceOrderConsent
-        return consentSection(
+        return PrivacyConsentRow(
             title: PrivacyAuthorizationCopy.voiceTitle,
             purpose: PrivacyAuthorizationCopy.voicePurpose,
             status: granted ? PrivacyAuthorizationCopy.granted : PrivacyAuthorizationCopy.voiceNotGranted,
-            revoke: granted ? RevokeAction(
+            revoke: granted ? PrivacyRevokeAction(
                 title: PrivacyAuthorizationCopy.voiceRevokeButtonTitle,
                 label: PrivacyAuthorizationCopy.voiceRevokeLabel,
                 identifier: "privacyRevokeVoiceOrderConsent",
@@ -117,11 +117,11 @@ struct PrivacyAuthorizationView: View {
             withdrawalPending: profileViewModel.isVisionConsentWithdrawalPending,
             profileLoaded: appState.blindProfile != nil
         )
-        return consentSection(
+        return PrivacyConsentRow(
             title: PrivacyAuthorizationCopy.visionTitle,
             purpose: PrivacyAuthorizationCopy.visionPurpose,
             status: row.status,
-            revoke: row.offersRevoke ? RevokeAction(
+            revoke: row.offersRevoke ? PrivacyRevokeAction(
                 title: VisionConsentWithdrawalCopy.buttonTitle,
                 label: VisionConsentWithdrawalCopy.accessibilityLabel,
                 identifier: "privacyRevokeVisionConsent",
@@ -136,11 +136,11 @@ struct PrivacyAuthorizationView: View {
 
     private var locationSection: some View {
         let granted = appState.hasLocationTrackConsent(.blindLocationTrack)
-        return consentSection(
+        return PrivacyConsentRow(
             title: PrivacyAuthorizationCopy.locationTitle,
             purpose: PrivacyAuthorizationCopy.locationPurpose,
             status: granted ? PrivacyAuthorizationCopy.granted : PrivacyAuthorizationCopy.locationNotGranted,
-            revoke: granted ? RevokeAction(
+            revoke: granted ? PrivacyRevokeAction(
                 title: PrivacyAuthorizationCopy.locationRevokeButtonTitle,
                 label: PrivacyAuthorizationCopy.locationRevokeLabel,
                 identifier: "privacyRevokeLocationTrackConsent",
@@ -169,59 +169,5 @@ struct PrivacyAuthorizationView: View {
         store(text)
         refreshTick += 1
         speechService.speak(text)
-    }
-
-    // MARK: 一项的版式
-
-    private struct RevokeAction {
-        let title: String
-        let label: String
-        let identifier: String
-        var isDisabled = false
-        let perform: () -> Void
-    }
-
-    private func consentSection(
-        title: String,
-        purpose: String,
-        status: String,
-        revoke: RevokeAction?,
-        notice: String?
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Text(purpose)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(status)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let revoke {
-                // 64pt 写在标签内部：外挂在按钮外的 frame 撑不大可点区（记忆 button-frame-outside-label-does-not-grow-hit-area）。
-                Button(action: revoke.perform) {
-                    Text(revoke.title)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
-                        .frame(maxWidth: .infinity, minHeight: 64)
-                        .background(AppColors.secondaryBackground)
-                        .cornerRadius(12)
-                }
-                .disabled(revoke.isDisabled)
-                .accessibilityLabel(revoke.label)
-                .accessibilityIdentifier(revoke.identifier)
-            }
-            if let notice {
-                Text(notice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
