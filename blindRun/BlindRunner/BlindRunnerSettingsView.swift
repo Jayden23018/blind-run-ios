@@ -47,6 +47,13 @@ struct BlindRunnerSettingsView: View {
                 .accessibilityHint("查看你的邀请码和已经邀请的人数")
                 .accessibilityIdentifier("blindInviteCodeSettingsEntry")
 
+                // 三项单独同意（语音大模型 / 视力与导盲犬 / 陪跑位置）的撤回放在一处（#393）。
+                NavigationLink(PrivacyAuthorizationCopy.title) {
+                    PrivacyAuthorizationView()
+                }
+                .accessibilityHint("查看并撤回语音下单、视力状况和陪跑位置共享这三项同意")
+                .accessibilityIdentifier("blindPrivacyAuthorizationSettingsEntry")
+
                 // 实名是下单硬门槛（后端 403 IDENTITY_NOT_VERIFIED），引导流里「稍后再说」跳过后
                 // 必须还有一条随时能走回实名页的路，否则未实名用户会被永久挡在预约之外。
                 NavigationLink("实名认证") {

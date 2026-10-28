@@ -566,7 +566,7 @@ final class AppState: ObservableObject {
 
     /// 按**账号**记（理由同 `ProfileModule` 的视力状况同意）。拿不到 userId 时退到 `.device`：
     /// 宁可多问一次，也不让界面一声不响。
-    private var voiceOrderConsentScope: PrivacyConsentScope {
+    var voiceOrderConsentScope: PrivacyConsentScope {
         currentUser.map { .user(String($0.userId)) } ?? .device
     }
 
@@ -609,10 +609,10 @@ final class AppState: ObservableObject {
 
     /// 本次登录里按下过「同意共享位置」的目的。拿不到 userId 时写不了盘，
     /// 这一份让「刚同意完又被问一次」不会发生；换 token 就清掉。
-    private var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
+    var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
 
     /// 按**账号**记。拿不到 userId 时不读盘 —— 宁可多问一次，也不让一个身份不明的会话继承别人的同意。
-    private var locationTrackConsentScope: PrivacyConsentScope? {
+    var locationTrackConsentScope: PrivacyConsentScope? {
         userId.map { .user(String($0)) }
     }
 
