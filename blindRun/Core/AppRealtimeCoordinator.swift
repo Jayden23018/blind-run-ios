@@ -499,6 +499,18 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     func introCallPageDidAppear() { introCallPagesShowingIncomingCalls += 1 }
     func introCallPageDidDisappear() { introCallPagesShowingIncomingCalls = max(0, introCallPagesShowingIncomingCalls - 1) }
+    /// 一张还没回复的邀请失效了（撤回推送，或待回复快照里已经没有它）。
+    /// 协调器自己的队列已经移走它；首页那张卡要不要原地变「已失效」由首页决定（它手里有「正在看哪一张」）。
+    private let inviteWithdrawalSubject = PassthroughSubject<RealtimeInviteWithdrawal, Never>()
+    var inviteWithdrawalPublisher: AnyPublisher<RealtimeInviteWithdrawal, Never> {
+        inviteWithdrawalSubject.eraseToAnyPublisher()
+    }
+    /// 一次待回复快照到了。首页拿它对**自己手里的卡**对账 —— 协调器的队列在断线重连时会被清空，
+    /// 而首页的卡还在，只在这里对账的话，离线期间被接走的那张卡会一直挂着一个点了必定 409 的按钮。
+    private let pendingInviteSnapshotSubject = PassthroughSubject<RealtimePendingInviteSnapshot, Never>()
+    var pendingInviteSnapshotPublisher: AnyPublisher<RealtimePendingInviteSnapshot, Never> {
+        pendingInviteSnapshotSubject.eraseToAnyPublisher()
+    }
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
     var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
@@ -514,6 +526,8 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 每条派单各自的到期任务。**按 orderId 分开存**：一个共享的 task 只能跟住最后一条，
     /// 其余的到期之后会永远留在队列里（而它们已经被后端转给别人了）。
     private var dispatchExpiryTasks: [Int64: Task<Void, Never>] = [:]
+    /// 本地已经了结的邀请，记到它原本的回复期限为止。为什么要记见 `RetiredInviteLedger`。
+    private var retiredInvites = RetiredInviteLedger()
     private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
     private var orderRefreshRetryCounts: [Int64: Int] = [:]
     private var queuedNotifications: [RealtimeForegroundNotification] = []
@@ -689,11 +703,6 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
     }
 
-    func clearDispatch(orderID: Int64) {
-        dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
-        pendingDispatches.removeAll { $0.order.orderId == orderID }
-    }
-
     func markDispatchPresented(orderID: Int64) {
         guard let diagnostic = dispatchDiagnostic,
               diagnostic.orderID == orderID,
@@ -757,8 +766,8 @@ final class AppRealtimeCoordinator: ObservableObject {
                 }
                 requestOrderRefresh(message.orderId, reason: .statusChanged)
             }
-        case .newOrder(let message):
-            retainDispatch(message)
+        case .newOrder, .inviteWithdrawn:
+            routeInviteEvent(event)
         case .volunteerLocation(let message):
             routePeerLocation(
                 RealtimePeerLocationSample(
@@ -817,25 +826,6 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
     }
 
-    /// 这些通知意味着订单详情里有字段变了、但没有配套的 `ORDER_STATUS_CHANGED`，要重拉一次
-    /// （陪跑员订单页 v2）。通知本身照常入队播报 —— 重拉只是让页面上的数据跟上。
-    ///
-    /// - `DEPART_REMINDER`：出发时刻可能被重算过
-    /// - `RUNNER_AT_MEETING_POINT`：`runnerAtMeetingPoint` 变 `true`
-    /// - `RUNNER_MESSAGE_UPDATED`：`messageToVolunteer` 变了（正文**不含**留言，只能从详情读）
-    /// - `ORDER_WAIT_ENDED`：另有 `ORDER_STATUS_CHANGED`，这里是兜底
-    /// - 跑步中四个（DECISIONS-v2 V14–V16，⚠️ V18 的建议名，后端 BE-1/BE-2 合并后核对）：
-    ///   `run.lastSignal*` / `run.paused` / `run.runnerBatteryLow` 变了。陪跑员页的「信号到达」
-    ///   就是从重拉后 `lastSignalAt` 的变化推出来的，不解析推送载荷。
-    static let orderRefreshingEventTypes: Set<String> = [
-        "DEPART_REMINDER", "RUNNER_AT_MEETING_POINT", "RUNNER_MESSAGE_UPDATED", "ORDER_WAIT_ENDED",
-        "RUN_RHYTHM", "RUN_PAUSED", "RUN_RESUMED", "RUNNER_BATTERY_LOW",
-    ]
-
-    /// 只刷新、不进横幅的事件。`RUN_RHYTHM`：跑步页的节奏卡原地变黄就是它的唯一呈现
-    /// （交付包 08 §三「不另外弹横幅，同一时刻这个信号只在一处出现」）。
-    static let refreshOnlyEventTypes: Set<String> = ["RUN_RHYTHM"]
-
     private func requestOrderRefresh(_ orderID: Int64, reason: RealtimeOrderRefreshRequest.Reason) {
         orderRefreshRetryTasks.removeValue(forKey: orderID)?.cancel()
         guard !pendingOrderRefreshIDs.contains(orderID) else { return }
@@ -849,15 +839,24 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     private func retainDispatch(_ message: WSNewOrder) {
         guard attachedRole == nil || attachedRole == .volunteer else { return }
-        // 同一单重发（后端重试 / 断线重连补推）不进第二条。判据是 orderId 而不是整条消息相等：
+        guard !retiredInvites.contains(message, now: now()) else { return }
+        // 同一张邀请重发（后端重试 / 快照与推送都带着它）不进第二条。判据是邀请身份而不是整条消息相等：
         // 重发的 `timestamp` 会变，按值去重等于去不掉。
-        guard !pendingDispatches.contains(where: { $0.order.orderId == message.orderId }) else { return }
+        // 🚩 **身份是 `inviteId`**（后端 #371）：同一张单撤回后可能发来**新的**一张邀请，
+        // 那时旧的那条（若还在）让位给新的，而不是把新的当重复丢掉。
+        if let index = pendingDispatches.firstIndex(where: { $0.order.orderId == message.orderId }) {
+            guard Self.isDifferentInvite(pendingDispatches[index].order, message) else { return }
+            dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
+            pendingDispatches.remove(at: index)
+        }
         guard pendingDispatches.count < Self.maxPendingDispatches else { return }
         let receivedAt = now()
-        let timeout = max(0, message.dispatchTimeoutSeconds ?? 30)
-        let sentAt = Self.parseISO8601(message.timestamp) ?? receivedAt
-        let expiresAt = sentAt.addingTimeInterval(TimeInterval(timeout))
-        guard expiresAt > receivedAt else { return }
+        let expiresAt = Self.dispatchExpiry(message, receivedAt: receivedAt)
+        guard expiresAt > receivedAt else {
+            // 到手时就已过期：后端的期限比本机时钟早（时钟误差、或推送在路上太久）。不静默 —— 留一条诊断。
+            ClientFlowDiagnostics.record(event: "dropped-expired", operation: "dispatch-retain")
+            return
+        }
         pendingDispatches.append(
             RealtimeDispatchPrompt(order: message, receivedAt: receivedAt, expiresAt: expiresAt)
         )
@@ -871,12 +870,13 @@ final class AppRealtimeCoordinator: ObservableObject {
             dispatchDiagnostic = diagnostic.advancing(to: .retained, recordedAt: receivedAt)
         }
         dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
+        let inviteID = message.inviteId
         dispatchExpiryTasks[message.orderId] = Task { [weak self] in
             let nanos = UInt64(max(0, expiresAt.timeIntervalSince(receivedAt)) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
             guard !Task.isCancelled, let self else { return }
             self.dispatchExpiryTasks.removeValue(forKey: message.orderId)
-            self.pendingDispatches.removeAll { $0.order.orderId == message.orderId }
+            self.pendingDispatches.removeAll { $0.order.orderId == message.orderId && $0.order.inviteId == inviteID }
         }
     }
 
@@ -1031,26 +1031,6 @@ final class AppRealtimeCoordinator: ObservableObject {
             : KeepWaitingCopy.cancellationWarningWithoutControl
     }
 
-    /// 展示优先级。默认照后端模板给的 `priority`，**只有一条例外**。
-    ///
-    /// `ORDER_OVERDUE`（陪跑超过约定结束时间）在后端盲人侧模板里是 `NORMAL`
-    /// （`websocket-protocol.md:158`；志愿者侧同一个 eventType 是 `HIGH`，见 `:451`）。
-    /// `NORMAL` 在这里的后果是它**排在派单进度那类通知后面**，用蓝色铃铛、不带 header trait。
-    /// 而这条告警的语义是「跑者可能失联」—— 后端 N63 的复盘逐字写着：修复前失联和
-    /// 「跑完了忘了点结束」在系统里长得一模一样，对看不见屏幕的人是安全缺口不是体验问题。
-    ///
-    /// 后端 2026-08-13 的通报把这件事划成了我们的边界：「播报文案和打断策略是你们的设计边界，
-    /// 不自己改」。所以在这里抬，不去改后端模板。
-    ///
-    /// ⚠️ **这只影响 App 在前台时的横幅与播报顺序，改不了推送能不能到达。**
-    /// 后端只对模板 `priority == HIGH` 的通知补发 APNs（`NotificationService.java:134`），
-    /// 判据是模板值不是客户端的展示值 —— 所以盲人端 App 不在前台时**这条告警根本收不到**。
-    /// 那一半只能后端把模板提到 HIGH，已投 handoff。别以为抬了这一下就补上了。
-    static func clientPriority(forEventType eventType: String, serverPriority: String?) -> RealtimePriority {
-        if eventType == "ORDER_OVERDUE" { return .high }
-        return RealtimePriority(rawValue: serverPriority)
-    }
-
     private func retainOrderStatusIdentity(
         for message: WSOrderStatusChanged
     ) -> OrderStatusIdentityDecision {
@@ -1110,101 +1090,6 @@ final class AppRealtimeCoordinator: ObservableObject {
         let cutoff = now().addingTimeInterval(-lifecycleNotificationSuppressionWindow)
         recentLifecycleStatusDates = recentLifecycleStatusDates.filter { $0.value >= cutoff }
         return recentLifecycleStatusDates[status] != nil
-    }
-
-    /// 该不该按「安全提醒」呈现（队列裁剪时最后被丢、抢占正在显示的 NORMAL 横幅）。
-    ///
-    /// 这不是求助事件（那条走 `emergencyKind`，还会落 `latestSafetyEvent`、驱动求助 UI），
-    /// 只是**呈现强度**。后端把 `priority` 给到 HIGH 就到边界了，剩下的是端上的事
-    /// （后端 2026-08-15 原话：「具体做成什么样是你们的决定，我们不越界」）。
-    ///
-    /// `REMATCHING_MID_RUN`：志愿者在**已经出发之后**取消（`DRIVER_EN_ROUTE` /
-    /// `DRIVER_ARRIVED` / `IN_PROGRESS`），盲人很可能正独自在户外，而他看不见身边还有没有人。
-    /// 同一件事在派单等待期取消走的是 `REMATCHING`(NORMAL) —— 那时人还没出门，
-    /// 一起提上来只会制造噪音，而噪音会让真正紧急的那条被忽略。
-    ///
-    /// 🔴 **本表里的每一条都绝对不能进 `lifecycleStatus(forEventType:)` 那张表。**
-    /// `shouldSuppressLifecycleNotification` 的第一条就是「有活跃订单 ⇒ 抑制」，
-    /// 而这些通知发生时**必然**有活跃订单 ⇒ 一旦映射进去就是 100% 静默吞掉，
-    /// 恰好是后端拆出这些档想避免的后果。未知 `eventType` 不抑制的默认方向在这里正好是对的，
-    /// 所以这里只加呈现强度、不加状态映射。
-    ///
-    /// 无进展看门狗三条（后端 2026-09-04 新增，架构复核 S-2 / `ISSUES.md` N127 / 迁移 `0038`）：
-    ///
-    /// - `ORDER_DEPARTURE_STALLED` —— 志愿者接了单，但计划开始时间过了还没点「出发」⇒ 判失联。
-    ///   🚨 **不是 `REMATCHING` 的同义词，别合并分支。** 两者都以订单转入 `REMATCHING` 收场，
-    ///   但 `REMATCHING` 是志愿者**主动点了取消**（NORMAL，不补 APNs）；这一条是他**接了单之后
-    ///   再无动静**（HIGH，补 APNs），触发的那一刻盲人正站在起跑点等着。紧跟着还会来一条
-    ///   `ORDER_STATUS_CHANGED`(→`REMATCHING`)，而 `.rematching` 的本地播报是中性的
-    ///   「正在确认志愿者状态，请稍候」—— 缺了这一条，「为什么没人来」就没有任何人告诉他。
-    /// - `ORDER_ARRIVAL_STALLED` —— 志愿者标了「已到达」却迟迟没点「开始服务」，多半是没碰上头。
-    ///   **双方各收一条、文案不同**（后端按 `TargetRole` 分模板），两端都在引导打电话，
-    ///   而 `DRIVER_ARRIVED` 这一态两侧都有拨号入口，所以这条通知落地是有动作的。
-    /// - `EMERGENCY_UNATTENDED` —— SOS 触发后长时间没推进到结案。要说的是「别再干等，
-    ///   自己拨 120/110」，后端点名**不要做成普通提示**。
-    /// - `ORDER_VOLUNTEER_LOST`（后端 2026-10-10，#616 M6）—— 志愿者点了「已出发 / 已到达」之后
-    ///   失联或迟迟不到，订单转 `REMATCHING`。**双方各收一条、文案不同**。
-    ///   🚨 不是 `ORDER_DEPARTURE_STALLED`（他根本没出发）或 `REMATCHING_MID_RUN`（他主动取消）的同义词，
-    ///   别合并分支 —— 原因不同、文案不同。
-    ///
-    /// ⚠️ `EMERGENCY_UNATTENDED` **刻意不走 `emergencyKind`**：那条链路会落 `latestSafetyEvent`
-    /// 并驱动 `EmergencyCoordinator.apply` 改求助状态机，而这条事件本身不改变求助的任何状态
-    /// （它是催办，不是新事实）。混进去只会让状态机按一条没有权威来源的事件跳档。
-    /// 同理它的文案照后端原样播 —— 后端刻意没写「有没有人接手」（它同时覆盖「真的没人接手」
-    /// 与「客服已接手但迟迟没结案」，写死任一种在另一种下就是假话），**客户端也不许自己补这句**。
-    static func isSafetyEventType(_ eventType: String) -> Bool {
-        switch eventType {
-        case "REMATCHING_MID_RUN",
-             "ORDER_DEPARTURE_STALLED",
-             "ORDER_ARRIVAL_STALLED",
-             "ORDER_VOLUNTEER_LOST",
-             "EMERGENCY_UNATTENDED":
-            return true
-        default:
-            return false
-        }
-    }
-
-    static func emergencyKind(forEventType eventType: String) -> RealtimeSafetyEvent.Kind? {
-        switch eventType {
-        case "EMERGENCY_TRIGGERED": return .emergencyTriggered
-        case "EMERGENCY_CONTACT_NOTIFIED": return .emergencyContactNotified
-        case "EMERGENCY_NO_CONTACT": return .emergencyNoContact
-        case "EMERGENCY_VOLUNTEER_TIMEOUT": return .emergencyVolunteerTimeout
-        case "EMERGENCY_TRIGGERED_BY_VOLUNTEER": return .emergencyTriggeredByVolunteer
-        case "EMERGENCY_CONTACT_SMS_DELIVERED": return .emergencyContactSmsDelivered
-        case "EMERGENCY_CONTACT_NOTIFY_FAILED": return .emergencyContactNotifyFailed
-        case "EMERGENCY_VOLUNTEER_ACK": return .emergencyVolunteerAck
-        case "EMERGENCY_CLOSED_RESOLVED": return .emergencyClosedResolved
-        case "EMERGENCY_CLOSED_FALSE_ALARM": return .emergencyClosedFalseAlarm
-        default: return nil
-        }
-    }
-
-    /// Emergency copy is always the client's own, never the backend's notification body.
-    ///
-    /// The backend template for `EMERGENCY_CONTACT_NOTIFIED` reads "已通知紧急联系人{contactName}"
-    /// / "已通知你的联系人{contactName}，请保持冷静" (`demo/src/main/resources/data.sql:72`). It is
-    /// pushed synchronously inside the trigger transaction, strictly before the SMS is handed to
-    /// the provider (`EmergencyService.java:370-373` vs `EmergencyContactNotifier.java:60-62`), and
-    /// an SMS failure is never corrected back to the blind runner (`:126-135`). Rendering that text
-    /// verbatim would tell a blind user their family already knows, which is the one thing the app
-    /// must not do. Local progressive-tense copy is substituted for every emergency event type.
-    static func emergencyCopy(for kind: RealtimeSafetyEvent.Kind) -> String? {
-        switch kind {
-        case .emergencyTriggered: return EmergencySafetyCopy.triggeredAcknowledged
-        case .emergencyContactNotified: return EmergencySafetyCopy.contactNotified
-        case .emergencyNoContact: return EmergencySafetyCopy.noContact
-        case .emergencyVolunteerTimeout: return EmergencySafetyCopy.volunteerTimeout
-        case .emergencyTriggeredByVolunteer: return EmergencySafetyCopy.triggeredByVolunteer
-        // 唯一允许完成时的一句，依据是运营商回执，不是「已发起」。
-        case .emergencyContactSmsDelivered: return EmergencySafetyCopy.contactSmsDelivered
-        case .emergencyContactNotifyFailed: return EmergencySafetyCopy.contactNotifyFailed
-        case .emergencyVolunteerAck: return EmergencySafetyCopy.volunteerAcknowledged
-        case .emergencyClosedResolved: return EmergencySafetyCopy.closedResolved
-        case .emergencyClosedFalseAlarm: return EmergencySafetyCopy.closedFalseAlarm
-        case .emergencyResolved, .emergencyVolunteerAlert: return nil
-        }
     }
 
     private func routeEmergencyNotification(_ message: WSAppNotification, kind: RealtimeSafetyEvent.Kind) {
@@ -1425,6 +1310,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         for task in peerPublishTasks.values { task.cancel() }
         notificationTask = nil
         dispatchExpiryTasks = [:]
+        retiredInvites = RetiredInviteLedger()
         orderRefreshRetryTasks = [:]
         orderRefreshRetryCounts = [:]
         pendingOrderRefreshIDs = []
@@ -1452,53 +1338,101 @@ final class AppRealtimeCoordinator: ObservableObject {
         "\(orderID):\(ownerRole.rawValue)"
     }
 
-    /// 通知 `eventType` → 它宣布的订单状态。返回 nil 表示「这条不是状态变化的重复播报」，一律照播。
-    ///
-    /// 常量取自后端 `docs/websocket-protocol.md` §2.2（盲人端）与 §3.2（志愿者端）事件表 ——
-    /// 那份表明写着「不应依赖 body/ttsText 文案匹配」，这里就是照它办。
-    ///
-    /// **刻意不在表里的，每一条都有理由：**
-    /// - `REMATCH_ACCEPTED` —— 状态与 `ORDER_ACCEPTED` 同为 `PENDING_ACCEPT`，但订单页两次念的是
-    ///   同一句「志愿者已接单」，既没有「重新」也没有新志愿者的名字。抑制它，用户就分不出
-    ///   这是新人还是原来那个 —— 而他刚被告知上一个志愿者取消了。这条**必须播**。
-    /// - `DISPATCH_STARTED` / `DISPATCH_EXPANDING` / `REMATCH_TIMEOUT` /
-    ///   `ORDER_CANCELLATION_WARNING` / `ORDER_OVERDUE` —— **不改订单状态**，订单页不会播。
-    ///   抑制它们等于让派单期（最长 30 分钟、3 轮扩圈）整段静音。
-    /// - `ROUTE_CONFIRM_REQUIRED*` / `PROXIMITY_ALERT` / `CERT_*` / `ID_VERIFY_*` ——
-    ///   与订单状态无关，本来就不该进这条闸。
-    /// - 🔴 **跨天预约那三条一个都不许加**（`SCHEDULED_RUN_REMINDER` / `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` /
-    ///   `SCHEDULED_DEPARTURE_GATE_MISSED`，后端迁移 `0041`）。理由与 `REMATCHING_MID_RUN`
-    ///   那条逐字相同：`shouldSuppressLifecycleNotification` 的第一条是「有活跃订单 ⇒ 抑制」，
-    ///   而这三条**必然**在有活跃订单时触发 ⇒ 映射进去就是 100% 静默吞掉。
-    ///   其中 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` 被吞掉的代价最重：志愿者收不到提醒 ⇒
-    ///   60 分钟后被判未确认、订单转走，而他并没有拒绝过。
-    /// - 🔴 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`（后端 #682，HIGH）**不许加**，虽然它也宣布 `CANCELLED`。
-    ///   它只发给标了「已到达」的陪跑员 ⇒ 必然有活跃订单 ⇒ 映射进来就是 100% 被吞。而它的 `ttsText`
-    ///   带着「你可以离开集合点了」，这一刻人正站在集合点 —— 订单页那句通用状态句不说这个。
-    ///   用例 `RealtimeNotificationRoutingTests` 钉住。
-    static func lifecycleStatus(forEventType eventType: String) -> RunOrderStatus? {
-        switch eventType {
-        case "ORDER_ACCEPTED": return .pendingAccept
-        case "DRIVER_EN_ROUTE": return .driverEnRoute
-        case "DRIVER_ARRIVED": return .driverArrived
-        case "ORDER_COMPLETED": return .completed
-        case "ORDER_AUTO_CANCELLED", "ORDER_CANCELLED_BY_BLIND": return .cancelled
-        case "REMATCHING": return .rematching
-        case "NO_VOLUNTEER_AVAILABLE": return .noVolunteer
-        default: return nil
-        }
-    }
-
     private static func fallbackDeduplicationKey(type: String, text: String, timestamp: String?) -> String {
         let normalized = text.lowercased().split(whereSeparator: { $0.isWhitespace }).joined()
         let timeBucket = parseISO8601(timestamp).map { String(Int($0.timeIntervalSince1970 / 60)) } ?? "no-time"
         return "\(type)|\(normalized)|\(timeBucket)"
     }
 
-    private static func parseISO8601(_ value: String?) -> Date? {
+    static func parseISO8601(_ value: String?) -> Date? {
         guard let value else { return nil }
         let formatter = ISO8601DateFormatter()
         return formatter.date(from: value) ?? ISO8601DateFormatter.withoutFractionalSeconds.date(from: value)
+    }
+}
+
+// 邀请队列的增删（后端 #371 / #366）。写在类外、同一个文件里：仍能动 private 状态（同文件扩展看得见），
+// 又不让类体继续变大（SwiftLint 棘轮 #488）。值类型与纯函数在 `AppRealtimeCoordinator+Invites.swift`。
+extension AppRealtimeCoordinator {
+    /// 首页了结一张邀请（回复、收起、失效）时调。**只清同一张**：同一张单可能已经有一张新邀请（新 `inviteId`）
+    /// 进了队列，按 `orderId` 整单清会把它一起删掉 —— 而首页按「已了结」不会再把它补回来，就是丢单。
+    ///
+    /// - Parameters:
+    ///   - inviteID: `nil` = 不知道是哪一张（老服务端），按 `orderId` 清。
+    ///   - retiredUntil: 这张邀请原本的期限。到期之前快照里再出现它也不收（见 `retiredInvites`）。
+    func clearDispatch(orderID: Int64, inviteID: Int64? = nil, retiredUntil: Date? = nil) {
+        let matches: (RealtimeDispatchPrompt) -> Bool = { prompt in
+            prompt.order.orderId == orderID
+                && (inviteID == nil || prompt.order.inviteId == nil || prompt.order.inviteId == inviteID)
+        }
+        let removed = pendingDispatches.first(where: matches)
+        if removed != nil {
+            dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
+            pendingDispatches.removeAll(where: matches)
+        }
+        retiredInvites.retire(
+            orderID: orderID,
+            inviteID: inviteID ?? removed?.order.inviteId,
+            until: retiredUntil ?? removed?.expiresAt,
+            now: now()
+        )
+    }
+
+    /// 撤回一张邀请：从队列里移走（**只移走同一张**），并告诉首页。
+    ///
+    /// 推送里的 `inviteId` 与队列里那张对不上时不动队列 —— 那是同一张单更早一张邀请的迟到撤回，
+    /// 队列里的是新的那张。首页那边照样收到事件，由它按同一条规则自己判。
+    private func withdrawDispatch(orderID: Int64, inviteID: Int64?, reason: InviteWithdrawReason) {
+        let matches: (RealtimeDispatchPrompt) -> Bool = { prompt in
+            prompt.order.orderId == orderID
+                && (inviteID == nil || prompt.order.inviteId == nil || prompt.order.inviteId == inviteID)
+        }
+        let removed = pendingDispatches.first(where: matches)
+        if removed != nil {
+            dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
+            pendingDispatches.removeAll(where: matches)
+        }
+        // 早于这条撤回发出的那次快照回来时还带着它 —— 记下来，别让它被灌回来。
+        retiredInvites.retire(orderID: orderID, inviteID: inviteID ?? removed?.order.inviteId, until: removed?.expiresAt, now: now())
+        inviteWithdrawalSubject.send(RealtimeInviteWithdrawal(orderId: orderID, inviteId: inviteID, reason: reason))
+    }
+
+    /// 与服务端的待回复列表对账（`GET /api/volunteer/pending-invites`，后端 #366）。
+    ///
+    /// 为什么需要：撤回只走 WS、不能重连补读；锁屏 / 杀 App / 断网期间收到的新邀请也只有 APNs。
+    /// 契约：「冷启动、从后台回前台、WS 重连成功后，各调一次」。
+    ///
+    /// - 快照里有、队列里没有的 ⇒ 补进来（期限读 `expiresAt`）。
+    /// - 队列里有、快照里没有的 ⇒ 移走。**只移请求发出之前就在队列里的**（`receivedAt < requestedAt`）：
+    ///   请求在路上时推送来的新邀请不在这份快照里，移走它就是丢单。
+    /// - 快照整份发给首页，首页对自己手里的卡做同样的判断并决定原地变「已失效」还是静默移除。
+    func reconcilePendingInvites(_ invites: [WSNewOrder], requestedAt: Date) {
+        guard attachedRole == nil || attachedRole == .volunteer else { return }
+        let snapshot = RealtimePendingInviteSnapshot(invites: invites, requestedAt: requestedAt)
+        let stale = pendingDispatches.filter { prompt in
+            prompt.receivedAt < requestedAt
+                && !snapshot.contains(orderID: prompt.order.orderId, inviteID: prompt.order.inviteId)
+        }
+        for prompt in stale {
+            dispatchExpiryTasks.removeValue(forKey: prompt.order.orderId)?.cancel()
+            pendingDispatches.removeAll { $0.order.orderId == prompt.order.orderId }
+        }
+        for invite in invites {
+            retainDispatch(invite)
+        }
+        pendingInviteSnapshotSubject.send(snapshot)
+    }
+
+    /// 邀请类事件：新邀请进队，撤回从队里移走同一张。从 `route` 分出来，那个 switch 只许变短。
+    private func routeInviteEvent(_ event: WSIncomingEvent) {
+        switch event {
+        case .newOrder(let message):
+            retainDispatch(message)
+        case .inviteWithdrawn(let message):
+            withdrawDispatch(orderID: message.orderId, inviteID: message.inviteId, reason: message.withdrawReason)
+        default:
+            break
+        }
     }
 }
 

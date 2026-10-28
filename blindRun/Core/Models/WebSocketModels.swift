@@ -25,6 +25,8 @@ nonisolated enum WSMessageType: String, Codable, Sendable {
     case orderEtaUpdated = "ORDER_ETA_UPDATED"
     /// 汇合距离档位变了才推，只推陪跑员。⚠️ 一侧先到时会先推一条 `UNKNOWN`。
     case meetDistanceBucket = "MEET_DISTANCE_BUCKET"
+    /// 邀请被撤回（后端 #371，只走 WS）。按 `inviteId` 指认是哪一张。
+    case inviteWithdrawn = "INVITE_WITHDRAWN"
 }
 
 // MARK: - Outgoing Messages (Client -> Server)
@@ -273,95 +275,6 @@ nonisolated struct WSPong: Codable, Sendable {
     let timestamp: Int64?
 }
 
-/// New order dispatch (sent to volunteer)
-///
-/// ⚠️ **刻意不解 `specialNotes`。** 后端的 `NEW_ORDER` 载荷现在仍带这个字段
-/// （`websocket-protocol.md:359,376`），这里不声明它 —— `JSONDecoder` 忽略多余的键，
-/// 于是那段文本进不了 App 的任何一个类型，也就没有任何视图能把它渲染出来。
-///
-/// 理由是 `AGENTS.md §8`「接单前隐藏盲人**敏感健康信息**」。派单是串行的，一单会依次推给
-/// 多个候选志愿者，而这个弹窗紧挨着「接单 / 拒绝」按钮 —— 也就是接单前。`specialNotes` 是
-/// 自由文本，取值空间开放、敏感度无法预判；语音下单落地后它装的就是用户原话
-/// （「我有低血糖，如果我说头晕请马上停下来」），等于广播给所有最终拒单的人。
-///
-/// 只删渲染那几行不够：字段还在类型上，下一个人加回去没有任何东西拦着。删字段才是根因修法，
-/// 编译器从此替我们守着。接单后的完整备注走 `OrderDetailResponse.specialNotes`，那条路不变。
-///
-/// 回归用例 `AppRealtimeCoordinatorTests.testNewOrderCarryingSpecialNotesDecodesButNeverReachesTheClient`
-/// （已验红：把字段加回来，该用例立刻失败）。
-/// 对照：`pacePreference` / `hasGuideDog` 留着 —— 取值空间封闭（枚举 / 布尔），且它们是志愿者
-/// 判断「我接不接得下来」的依据，藏起来只会让人盲接、接了再取消，成本落回盲人身上。
-nonisolated struct WSNewOrder: Codable, Sendable {
-    let type: String
-    let timestamp: String?
-    let orderId: Int64
-    let startAddress: String?
-    let startLatitude: Double?
-    let startLongitude: Double?
-    let distanceKm: Double?
-    let plannedStart: String?
-    let plannedEnd: String?
-    let dispatchTimeoutSeconds: Int?
-    let priority: String?
-    let pacePreference: String?
-    let hasGuideDog: Bool?
-
-    /// 这一单要不要先通电话磨合。**决定 `/respond` 发哪个 `action`**（见 `dispatchRespondAction`）。
-    ///
-    /// ⚠️ **契约把它标成「必填」，这里却是 optional —— 是刻意的，不要改成非可选。**
-    /// 非可选意味着缺这个键时 `WSNewOrder` 整条解不出来，而
-    /// `WebSocketService.decodeTextMessage` 对解不出的**消息**是丢弃：志愿者连派单弹窗都看不到，
-    /// 静默退出派单池，而盲人正在等这一轮。缺失时落回的 `INTERESTED` 后端在
-    /// `app.intro-call.enabled` 开与关两种情况下都放行（`DispatchService.introCallEnabled`
-    /// 的注释：关掉只是不再**强制**），所以降级路径本身是通的 —— 代价只是熟人多打一通电话，
-    /// 正是这个字段上线前的既有行为。
-    /// 缺失不是静默的：`WebSocketService` 会把 `failedField: "requiresIntroCall"` 记进派单诊断，
-    /// 那条诊断渲染在志愿者首页（`VolunteerHomeView` 的「派单诊断：…」）。
-    ///
-    /// 🚨 **不许在客户端自己推算这个值**（例如拿 `plannedStart - now` 跟 20 分钟比）：
-    /// 判断的另一半「这两人磨合成功过没有」客户端根本拿不到，窗口长度又是后端配置
-    /// （`app.intro-call.window-minutes`）。自己算必然与后端守卫漂移，
-    /// 而漂移的表现是「界面说能直接接、后端回 409」。
-    /// 后端已把这个判断收成一份（`DispatchService.introCallWindowFits`），三个消费者共用。
-    let requiresIntroCall: Bool?
-
-    /// 配速区间与本次计划里程。契约里从 2026-08-09 就在 `NEW_ORDER` 上
-    /// （`websocket-protocol.md` 的 NEW_ORDER 字段表），客户端此前没解码。
-    ///
-    /// 接进来的理由：设计交付文档 v3 §5 的「邀请」屏要显示「跑多远 / 配速」——
-    /// 那是志愿者判断「我跟不跟得下来」的两个量，而定性档位（`pacePreference`）答不了。
-    /// 三项**接单前可见**的判据与 `pacePreference` / `hasGuideDog` 一致：取值空间封闭
-    /// （数值区间可以逐个判定给陌生人看行不行），自由文本才一律推迟到接单后（`AGENTS.md` §8）。
-    ///
-    /// ⚠️ 用户没填时后端**整个键不出现**（不发 `null`），所以缺值 = 那一行不渲染，
-    /// 不是显示「未填写」。三项声明成 `var` 只为让 memberwise init 自动给 nil 默认值 ——
-    /// 用例里的构造点因此不必各加三行，同 `OrderDetailResponse.volunteerId` 那条。
-    var paceMinSecondsPerKm: Int?
-    var paceMaxSecondsPerKm: Int?
-    var plannedDistanceMeters: Int?
-
-    /// 邀请卡跑者行那几项（后端 #306，2026-09-18 起两个入口都有）。前四项档案缺失时**整键不出现**，
-    /// 缺 = 那一项不渲染，**不脑补默认值**（把「不知道」显示成「全盲」同样是错的）。
-    /// 全部接成 `String?`：开放枚举，认不出的取值由展示层兜底，不许整条派单解不出来。
-    var visionLevel: String?
-    var tetherPreference: String?
-    var chatPreference: String?
-    var routePreference: String?
-    /// 你和这位盲人一起跑完过几单。契约里**必填、0 也下发**；可选只为缺键时不崩 ——
-    /// 缺键 = 什么都不显示，`0` = 「第一次一起跑」，两者在卡片上说的话不同。
-    var completedTogetherCount: Int?
-    /// 预计时长（#357，2026-09-25 起在推送里）。与 `AvailableOrderResponse` 同名同值。
-    var expectedDurationMinutes: Int?
-
-    /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
-    ///
-    /// `false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 / 距开跑已不够聊一轮）
-    /// 客户端**不需要也无法区分**，所以界面上不解释原因，只把主按钮换成「接单」。
-    var dispatchRespondAction: OrderRespondAction {
-        (requiresIntroCall ?? true) ? .interested : .accept
-    }
-}
-
 /// Emergency alert for volunteer
 nonisolated struct WSEmergencyVolunteerAlert: Codable, Sendable {
     let type: String
@@ -401,5 +314,6 @@ nonisolated enum WSIncomingEvent: Sendable {
     case emergencyAlert(WSEmergencyVolunteerAlert)
     case orderEtaUpdated(WSOrderEtaUpdated)
     case meetDistanceBucket(WSMeetDistanceBucket)
+    case inviteWithdrawn(WSInviteWithdrawn)
     case unknown(String)
 }

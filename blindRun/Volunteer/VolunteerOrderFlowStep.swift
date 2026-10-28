@@ -238,18 +238,6 @@ enum VolunteerOrderFlowCopy {
         return "\(name)没能和你碰上，已取消这次陪跑。你可以离开集合点了，不算你的取消。"
     }
 
-    /// 「还剩 25 秒回复」。
-    ///
-    /// ⚠️ 设计稿写的是「请在今晚 22:00 前回复」（距开始 >24 小时给 1 小时，否则 15 分钟）。
-    /// **后端没有这个期限**：派单是串行瞬时推送 + `dispatchTimeoutSeconds`（默认 30 秒）
-    /// 超时自动转下一位。写一个不存在的绝对时间，志愿者会以为还能慢慢想，
-    /// 而这一单已经推给下一个人了。已投 handoff。
-    static func replyCountdown(seconds: Int) -> String { "还剩 \(max(seconds, 0)) 秒回复" }
-
-    /// 倒计时转「紧迫」的阈值。同时决定颜色和那个感叹号 —— 两处各写一个 10，
-    /// 改一处漏一处的表现是「图标出现了但字还是蓝的」。
-    static let urgentCountdownSeconds = 10
-
     /// 「我去不了」那道二次确认的四句话。
     ///
     /// 🔴 **必须与按钮上的词一致。** 对志愿者「取消订单」读起来像在替盲人取消这一单，
@@ -712,7 +700,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
             titleSpoken: nil,
             subtitle: subtitleParts.joined(separator: "　"),
             replyNotice: VolunteerOrderFlowCopy.replyCountdown(seconds: remainingSeconds),
-            isReplyUrgent: remainingSeconds <= VolunteerOrderFlowCopy.urgentCountdownSeconds,
+            isReplyUrgent: VolunteerOrderFlowCopy.isReplyUrgent(remainingSeconds: remainingSeconds),
             rows: rows,
             primaryAction: .acceptInvite(respond: dispatch.dispatchRespondAction),
             helpMode: .localCall

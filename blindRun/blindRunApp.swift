@@ -130,25 +130,12 @@ struct blindRunApp: App {
                         Task { await appState.catchUpMissedNotifications() }
                         // 契约：回到前台时检查 access 是否过了半衰期，过了就续（#391）。
                         Task { await appState.renewSessionIfDue() }
+                        // 同一个理由：邀请撤回只走 WS、不能补读，锁屏期间的新邀请只有 APNs。
+                        // 契约要求回前台对一次待回复列表（只对陪跑员，函数里判）。
+                        Task { await appState.restorePendingInvites() }
                     }
                 }
         }
-    }
-
-    /// UI 测试截深色图用（`AIDRUN_UI_TEST_COLOR_SCHEME` = `light` / `dark`）。
-    ///
-    /// **只在 DEBUG 构建生效**：两端跟随系统明暗是定死的（`docs/ui/design-direction.md` §2），
-    /// 发布构建里这里恒为 `nil` = 不覆盖。没有它，真机截深色图就得先手动去系统设置里切。
-    static var uiTestColorScheme: ColorScheme? {
-        #if DEBUG
-        switch ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_COLOR_SCHEME"] {
-        case "dark": return .dark
-        case "light": return .light
-        default: return nil
-        }
-        #else
-        return nil
-        #endif
     }
 
     /// APNs 只是 WS 离线时的 HIGH 优先级兜底通道，注册失败不影响任何主流程。

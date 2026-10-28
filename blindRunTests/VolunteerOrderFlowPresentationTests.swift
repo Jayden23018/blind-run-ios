@@ -498,28 +498,11 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
     func testReplyCountdownStaysOutOfTheStatusSubtitle() {
         let presentation = VolunteerOrderFlowPresentation.make(
             dispatch: OrderDetailResponse.previewDispatch(),
-            remainingSeconds: 25
+            remainingSeconds: 25 * 60
         )
-        XCTAssertEqual(presentation.replyNotice, "还剩 25 秒回复")
+        XCTAssertEqual(presentation.replyNotice, "还剩 25 分钟回复")
         XCTAssertFalse(presentation.subtitle.contains("25"))
         XCTAssertFalse(presentation.isReplyUrgent)
-    }
-
-    /// 紧迫阈值取在**边界两侧**，而不是随手取一个明显该红的值。
-    ///
-    /// 10 与 11 分别落在 `<=` 的两边：把判据写成 `< 10` 的实现在第一条上红，
-    /// 写成 `<= 15` 的在第二条上红。取 3 和 30 两个值则两种错误实现都测不出来。
-    func testReplyUrgencyFlipsExactlyAtTheNamedThreshold() {
-        func urgent(_ seconds: Int) -> Bool {
-            VolunteerOrderFlowPresentation.make(
-                dispatch: OrderDetailResponse.previewDispatch(),
-                remainingSeconds: seconds
-            ).isReplyUrgent
-        }
-
-        XCTAssertEqual(VolunteerOrderFlowCopy.urgentCountdownSeconds, 10)
-        XCTAssertTrue(urgent(10), "恰好到阈值就算紧迫")
-        XCTAssertFalse(urgent(11), "阈值上面一秒还不算")
     }
 
     // MARK: - 退出这一单：行 + 确认层

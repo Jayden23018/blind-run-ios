@@ -327,7 +327,7 @@ struct VolunteerInviteCard: View {
                 awaitingContent
             case .accepted:
                 acceptedContent
-            case .expired:
+            case .expired, .withdrawn:
                 expiredContent
             }
         }
@@ -589,7 +589,7 @@ struct VolunteerInviteCard: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .accessibilityAddTraits(.isHeader)
 
-        Text(VolunteerInviteCopy.expiredDetail)
+        Text(invite.outcome.map(VolunteerInviteCopy.invalidatedDetail) ?? VolunteerInviteCopy.expiredDetail) // 撤回时说原因（#371）
             .flowFont(FlowFonts.invitePlace())
             .foregroundColor(AppColors.Flow.secondaryText)
             .frame(maxWidth: .infinity, alignment: .center)

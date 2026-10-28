@@ -705,31 +705,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
-        // 功能开关（`GET /api/config/features`）。需登录、不限角色。
-        //
-        // 🚩 **默认返回「全开」，与 Mock 其余激励数据保持同一个前提**（见
-        // `MockAPIClient+Incentive` 顶部：Mock 演的是三个开关都打开之后的行为）。
-        // 若这里返回生产的真实值（全关），火花种子数据与空态文案会自相矛盾：
-        // 列表里有四位搭档，空态却说「功能还没有开放」。
-        //
-        // 生产现状那一档（全关）由 `AIDRUN_MOCK_FEATURE_FLAGS_OFF=1` 覆盖 ——
-        // 「关着时空态说什么」这条分支正是本次改动要验的，没有它就只能靠单测。
-        if path == "/api/config/features" && method == .get {
-            guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
-            let allOff = ProcessInfo.processInfo.environment["AIDRUN_MOCK_FEATURE_FLAGS_OFF"] == "1"
-            return FeatureFlagsResponse(
-                partnerStreakEnabled: !allOff,
-                favoriteDispatchRoundEnabled: !allOff,
-                invitationRewardEnabled: !allOff
-            )
-        }
-
-        // 规则参数（`GET /api/config/rules`）。需登录、不限角色。返回契约里的默认值
-        // （`RuleParamsResponse` 的 `example`），与客户端的回退值相同 —— Mock 里两条路走出来的行为一样，
-        // 拿不到时那条由 `RuleParamsAndLateCancelTests` 覆盖。
-        if path == "/api/config/rules" && method == .get {
-            guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
-            return RuleParamsResponse(lateCancelWindowHours: 12, volunteerOrderAutoOpenLeadMinutes: 120)
+        // 需登录、无参数的只读端点（功能开关 / 待回复邀请 / 规则参数），见 `MockAPIClient+AuthenticatedReads.swift`。
+        if method == .get, let response = try handleAuthenticatedRead(path: path) {
+            return response
         }
 
         // 陪跑员锁屏卡的推送 token。Mock 只收下不做事 —— 进程内没有 APNs 可推。
