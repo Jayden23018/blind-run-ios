@@ -282,14 +282,13 @@ struct ContentView: View {
                         .font(.headline)
                     Text(message)
                         .multilineTextAlignment(.center)
-                    Button("重试恢复") {
-                        rootRouter.synchronize(with: appState)
-                    }
+                    Button("重试恢复") { rootRouter.synchronize(with: appState) }
                     .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("重新加载当前账号资料")
                     Button("退出登录", role: .destructive) {
                         Task { await appState.logout() }
                     }
+                    .buttonStyle(TextButtonStyle(alignment: .center))
                     .accessibilityHint("退出当前账号并返回登录页")
                 }
                 .padding(24)

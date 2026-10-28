@@ -380,7 +380,8 @@ struct BlindRunnerProfileView: View {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 18))
                         .foregroundColor(AppColors.destructive)
-                        .frame(width: 44, height: 44)
+                        .frame(width: AppTouchTarget.blindPrimary, height: AppTouchTarget.blindPrimary)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("退出登录")
                 .accessibilityHint("退出后需要重新登录，需要二次确认")
@@ -512,57 +513,49 @@ struct BlindRunnerProfileView: View {
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
 
-            Picker("希望怎么被引导", selection: $viewModel.tetherPreference) {
+            // 用菜单而不是 `.segmented`：四个中文选项在 AX4 / AX5 档会被挤成截断的省略号，
+            // 而那两档正是低视力用户实际会设的（见记忆 `low-vision-visual-channel-unaudited`）。
+            BlindMenuPicker(
+                title: "希望怎么被引导",
+                selection: $viewModel.tetherPreference,
+                valueText: viewModel.tetherPreference?.displayName ?? "还没决定",
+                showsTitle: false,
+                accessibilityLabel: "希望怎么被引导，选填",
+                accessibilityHint: "选择牵引绳、搀扶，或者只用语言引导"
+            ) {
                 Text("还没决定").tag(TetherPreference?.none)
                 ForEach(TetherPreference.allCases, id: \.self) { preference in
                     Text(preference.displayName).tag(TetherPreference?.some(preference))
                 }
             }
-            // 用系统菜单而不是 `.segmented`：四个中文选项在 AX4 / AX5 档会被挤成截断的省略号，
-            // 而那两档正是低视力用户实际会设的（见记忆 `low-vision-visual-channel-unaudited`）。
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-            .accessibilityLabel("希望怎么被引导，选填")
-            .accessibilityHint("选择牵引绳、搀扶，或者只用语言引导")
             .accessibilityIdentifier("blindProfileTetherPreferencePicker")
         }
     }
 
     // MARK: - 导盲犬三选一（#472）
 
-    /// 「有 / 没有 / 不说」。用 `Menu` 包 `Picker` 而不是照抄上面视力状况那种 `Picker(.menu)`：
-    /// 那种写法外挂的 `frame(minHeight: 64)` 撑不大可点区（记忆
-    /// `button-frame-outside-label-does-not-grow-hit-area`），这里把 64pt 写进标签内部。
-    /// 不用分段控件：AX5 下会截断，高度也固定在约 32pt。
+    /// 「有 / 没有 / 不说」。这一枚是 `BlindMenuPicker` 的原型（#472 先在这里写成 `Menu` 包 `Picker`，#527 提成共享控件）。
     private var guideDogMenu: some View {
-        Menu {
-            Picker("平时使用导盲犬", selection: $viewModel.guideDog) {
-                ForEach(GuideDogStatus.allCases, id: \.self) { status in
-                    Text(status.profileOptionTitle).tag(status)
-                }
+        BlindMenuPicker(
+            title: "平时使用导盲犬",
+            selection: $viewModel.guideDog,
+            valueText: viewModel.guideDog.profileOptionTitle,
+            accessibilityLabel: "平时使用导盲犬，选填",
+            accessibilityHint: "可以选有、没有或不说。选有之后，只会给你派接受与导盲犬同行的志愿者"
+        ) {
+            ForEach(GuideDogStatus.allCases, id: \.self) { status in
+                Text(status.profileOptionTitle).tag(status)
             }
-        } label: {
-            HStack(spacing: 8) {
-                Text("平时使用导盲犬")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Text(viewModel.guideDog.profileOptionTitle)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.primary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.primary)
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .accessibilityLabel("平时使用导盲犬，选填")
-        .accessibilityValue(viewModel.guideDog.profileOptionTitle)
-        .accessibilityHint("可以选有、没有或不说。选有之后，只会给你派接受与导盲犬同行的志愿者")
         .accessibilityIdentifier("blindProfileGuideDogMenu")
+    }
+
+    private static func visionLevelTitle(_ level: VisionLevel?) -> String {
+        switch level {
+        case .totalBlind: return "完全看不见"
+        case .lowVision: return "还有一些视力"
+        default: return "不填"
+        }
     }
 
     // MARK: - 视力状况（敏感，走单独同意）
@@ -581,19 +574,22 @@ struct BlindRunnerProfileView: View {
                 .accessibilityAddTraits(.isHeader)
 
             if viewModel.hasVisionConsent {
-                Picker("视力状况", selection: $viewModel.visionLevel) {
-                    Text("不填").tag(VisionLevel?.none)
-                    // 文案用**功能性自述**而不是残疾等级：同类产品（United In Stride 的
-                    // "How would you characterize your vision?"）与 Washington Group 的
-                    // WHO/联合国统计标准都是这个问法。写「一级/二级视力残疾」是医学分级口径，
-                    // 用途不对，用户也未必知道自己证上是几级。
-                    Text("完全看不见").tag(VisionLevel?.some(VisionLevel.totalBlind))
-                    Text("还有一些视力").tag(VisionLevel?.some(VisionLevel.lowVision))
+                // 文案用**功能性自述**而不是残疾等级：同类产品（United In Stride 的
+                // "How would you characterize your vision?"）与 Washington Group 的
+                // WHO/联合国统计标准都是这个问法。写「一级/二级视力残疾」是医学分级口径，
+                // 用途不对，用户也未必知道自己证上是几级。
+                BlindMenuPicker(
+                    title: "视力状况",
+                    selection: $viewModel.visionLevel,
+                    valueText: Self.visionLevelTitle(viewModel.visionLevel),
+                    showsTitle: false,
+                    accessibilityLabel: "视力状况，选填",
+                    accessibilityHint: "选择完全看不见，或者还有一些视力"
+                ) {
+                    ForEach([nil, VisionLevel.totalBlind, VisionLevel.lowVision], id: \.self) { level in
+                        Text(Self.visionLevelTitle(level)).tag(level)
+                    }
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-                .accessibilityLabel("视力状况，选填")
-                .accessibilityHint("选择完全看不见，或者还有一些视力")
                 .accessibilityIdentifier("blindProfileVisionLevelPicker")
 
                 guideDogMenu

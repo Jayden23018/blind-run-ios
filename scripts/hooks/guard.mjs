@@ -721,12 +721,21 @@ function main() {
       /\.swift$/.test(filePath) &&
       !/\/blindRun(Tests|UITests)\//.test(filePath) &&
       !/\/blindRun\/Volunteer\//.test(filePath);
-    const smallTargetLine = isBlindFacingSwift
-      ? nonCommentLines(body).find((l) => {
-          const m = l.match(/\.frame\((?:[^)]*,\s*)?minHeight:\s*(\d+)/);
-          return m && Number(m[1]) < 64 && !l.includes('guard:allow small-touch-target');
-        })
-      : undefined;
+    //
+    // 2026-10-28 扩到 `.frame(height:)` / `.frame(width:height:)`（#527）：静态审查在盲人端扫出 19 处
+    // 低于 64pt，其中删除常用地点、退出登录、语音输入麦克风都是写死的 `height: 44` / `52`，
+    // 原规则只认 `minHeight`，一处也没拦到。`height:` 也大量用在装饰上（进度条、分隔线、图片），
+    // 所以它只在**本行及前 8 行内出现可点控件**（Button / Link / Menu / `label: {` / onTapGesture）时才算触达目标；
+    // `minHeight:` 维持原判据，不看上下文。
+    const smallTargetLines = isBlindFacingSwift ? nonCommentLines(body) : [];
+    const tappableNearby = /\bButton\b|\bLink\b|\bMenu\b|\blabel:\s*\{|\.onTapGesture/;
+    const smallTargetLine = smallTargetLines.find((l, i) => {
+      if (l.includes('guard:allow small-touch-target')) return false;
+      const m = l.match(/\.frame\((?:[^)]*,\s*)?(minHeight|height):\s*(\d+(?:\.\d+)?)\b/);
+      if (!m || Number(m[2]) >= 64) return false;
+      if (m[1] === 'minHeight') return true;
+      return smallTargetLines.slice(Math.max(0, i - 8), i + 1).some((x) => tappableNearby.test(x));
+    });
     if (smallTargetLine) {
       fail(
         'small-touch-target',

@@ -253,9 +253,7 @@ struct RoleSelectionView: View {
             Button(InviteCodeEntryCopy.disclosureTitle) {
                 showsInviteCodeField = true
             }
-            .font(AppFonts.body())
-            .foregroundColor(AppColors.primary)
-            .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+            .buttonStyle(TextButtonStyle())
             .disabled(viewModel.isLoading)
             .accessibilityHint("展开后可以填写邀请你的人的邀请码，只能填这一次")
             .accessibilityIdentifier("roleSelectionInviteCodeDisclosure")

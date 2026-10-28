@@ -92,9 +92,7 @@ struct InviteCodeView: View {
                     UIPasteboard.general.string = InviteCodeFormatting.copyable(response.inviteCode)
                     speechService.announce(InviteCodeCopy.copied)
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .buttonStyle(TextButtonStyle())
                 .accessibilityIdentifier("inviteCodeCopyButton")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

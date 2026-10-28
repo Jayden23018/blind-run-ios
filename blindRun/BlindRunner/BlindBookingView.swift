@@ -1981,7 +1981,8 @@ struct BlindBookingView: View {
                         } label: {
                             Image(systemName: "trash")
                                 .foregroundColor(AppColors.destructive)
-                                .frame(width: 44, height: 44)
+                                .frame(width: AppTouchTarget.blindPrimary, height: AppTouchTarget.blindPrimary)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("删除常用地点，\(place.title)")
@@ -2238,46 +2239,42 @@ struct BlindBookingView: View {
                 accessibilityHint: "可以使用语音或键盘输入路线说明"
             )
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("预计时长")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                Picker("预计时长", selection: $viewModel.duration) {
-                    ForEach(BookingDurationOption.allCases) { option in
-                        Text(option.displayName).tag(option)
-                    }
+            // 三个都走 `BlindMenuPicker`（#527）：原来的菜单 Picker 约 34pt、分段控件约 32pt，
+            // 低于盲人端 64pt；分段控件在 AX5 下还会把中文选项挤成省略号。
+            BlindMenuPicker(
+                title: "预计时长",
+                selection: $viewModel.duration,
+                valueText: viewModel.duration.displayName,
+                accessibilityLabel: "预计时长，选填",
+                accessibilityHint: "点击选择预计跑步时长"
+            ) {
+                ForEach(BookingDurationOption.allCases) { option in
+                    Text(option.displayName).tag(option)
                 }
-                .pickerStyle(.menu)
-                .accessibilityLabel("预计时长，选填")
-                .accessibilityHint("点击选择预计跑步时长")
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("配速偏好")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                Picker("配速偏好", selection: $viewModel.pacePreference) {
-                    ForEach(PacePreference.allCases, id: \.self) { option in
-                        Text(option.displayName).tag(option)
-                    }
+            BlindMenuPicker(
+                title: "配速偏好",
+                selection: $viewModel.pacePreference,
+                valueText: viewModel.pacePreference.displayName,
+                accessibilityLabel: "配速偏好，选填",
+                accessibilityHint: "选择走跑结合、轻松、中等或快速"
+            ) {
+                ForEach(PacePreference.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
                 }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("配速偏好，选填")
-                .accessibilityHint("选择走跑结合、轻松、中等或快速")
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("路线偏好")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                Picker("路线偏好", selection: $viewModel.routePreference) {
-                    ForEach(RoutePreference.allCases, id: \.self) { option in
-                        Text(option.displayName).tag(option)
-                    }
+            BlindMenuPicker(
+                title: "路线偏好",
+                selection: $viewModel.routePreference,
+                valueText: viewModel.routePreference.displayName,
+                accessibilityLabel: "路线偏好，选填",
+                accessibilityHint: "选择公园步道、街道或跑道"
+            ) {
+                ForEach(RoutePreference.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
                 }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("路线偏好，选填")
-                .accessibilityHint("选择公园步道、街道或跑道")
             }
 
             // 开关只能表达 `nil`/`true`：关掉等于「没提」，不是「明确不带」——

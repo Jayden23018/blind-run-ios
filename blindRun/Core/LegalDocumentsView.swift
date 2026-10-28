@@ -90,7 +90,7 @@ struct LegalFallbackDocumentView<Footer: View>: View {
                         Link(destination: link.url) {
                             Text(link.title)
                                 .font(AppFonts.body())
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
                         }
                         .accessibilityHint("在浏览器里打开")
                     }

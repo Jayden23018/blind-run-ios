@@ -189,9 +189,7 @@ struct IncentiveFailureSection: View {
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Button(retryTitle, action: retry)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .buttonStyle(TextButtonStyle())
                 .accessibilityIdentifier(identifier)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

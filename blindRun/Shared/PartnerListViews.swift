@@ -467,9 +467,7 @@ struct VolunteerPartnersView: View {
             )) {
                 pendingOptOut = row
             }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.destructive)
-            .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
+            .buttonStyle(TextButtonStyle(tint: AppColors.destructive))
             // 标题上屏留星号，念出来那份去掉。
             .accessibilityLabel(PartnerStreakCopy.optOutButtonTitle(
                 row.spokenName(fallback: PartnerStreakCopy.unknownBlindName)
