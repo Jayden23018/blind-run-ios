@@ -300,12 +300,6 @@ struct VolunteerDeclineStreak {
     }
 }
 
-/// 锁屏「接下」对上了队列里的哪一张、该发哪个 `action`（#338）。`action` 仍由推送里的 `requiresIntroCall` 定。
-struct VolunteerLockScreenAcceptRequest: Equatable {
-    let orderId: Int64
-    let action: OrderRespondAction
-}
-
 // MARK: - 文案
 
 /// 逐字取自《陪跑员端首页与接单 设计交付文档 v3》§4.4.2 / §4.4.3。

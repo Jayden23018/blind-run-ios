@@ -539,6 +539,8 @@ final class AppRealtimeCoordinator: ObservableObject {
     @Published private(set) var lockScreenInviteAction: InviteNotificationActions.Request?
     /// 按下的时刻。只有之后发出的那次对账才能判「这张已经没了」。
     private(set) var lockScreenInviteActionAt: Date?
+    /// 按下时登录的账号（冷启动时可能还没恢复，是 `nil`）。首页对不上当前账号就丢掉。
+    private(set) var lockScreenInviteActionUserID: Int64?
     private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
     private var orderRefreshRetryCounts: [Int64: Int] = [:]
     private var queuedNotifications: [RealtimeForegroundNotification] = []
@@ -1406,10 +1408,14 @@ extension AppRealtimeCoordinator {
         }
         // 早于这条撤回发出的那次快照回来时还带着它 —— 记下来，别让它被灌回来。
         retiredInvites.retire(orderID: orderID, inviteID: inviteID ?? removed?.order.inviteId, until: removed?.expiresAt, now: now())
-        // 撤回不会销毁锁屏上那条旧通知（契约），点它只会得到 409 —— 自己收掉。只收这一张，同单的新邀请留着。
-        pruneDeliveredInviteNotifications(.invites([InviteIdentity(
-            orderId: orderID, inviteId: inviteID ?? removed?.order.inviteId, expiresAt: removed?.expiresAt
-        )]))
+        // 撤回不会销毁锁屏上那条旧通知（契约），点它只会得到 409 —— 自己收掉。只收这一张，同单的新邀请留着：
+        // 队列里没有它时不知道它的期限，而 `NEW_ORDER` 的通知没有 `inviteId`，按单号收会连新邀请那条一起收掉。
+        // 那时留给下一次对账收（快照里没有、且早于请求送达的才收）。
+        if let removed {
+            pruneDeliveredInviteNotifications(.invites([InviteIdentity(
+                orderId: orderID, inviteId: inviteID ?? removed.order.inviteId, expiresAt: removed.expiresAt
+            )]))
+        }
         inviteWithdrawalSubject.send(RealtimeInviteWithdrawal(orderId: orderID, inviteId: inviteID, reason: reason))
     }
 
@@ -1455,8 +1461,9 @@ extension AppRealtimeCoordinator {
     }
 
     /// 锁屏邀请操作（`ACCEPT_INVITE` / `DECLINE_INVITE`，#338）：记下来，等首页拿走。只记最后按的那一下。
-    func requestLockScreenInviteAction(_ request: InviteNotificationActions.Request) {
+    func requestLockScreenInviteAction(_ request: InviteNotificationActions.Request, userID: Int64? = nil) {
         lockScreenInviteActionAt = now()
+        lockScreenInviteActionUserID = userID
         lockScreenInviteAction = request
     }
 
@@ -1464,6 +1471,7 @@ extension AppRealtimeCoordinator {
     func consumeLockScreenInviteAction() {
         lockScreenInviteAction = nil
         lockScreenInviteActionAt = nil
+        lockScreenInviteActionUserID = nil
     }
 
     /// 邀请类事件：新邀请进队，撤回从队里移走同一张。从 `route` 分出来，那个 switch 只许变短。

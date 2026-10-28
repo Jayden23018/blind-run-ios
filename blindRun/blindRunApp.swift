@@ -141,8 +141,7 @@ struct blindRunApp: App {
     /// APNs 只是 WS 离线时的 HIGH 优先级兜底通道，注册失败不影响任何主流程。
     private func configurePushNotifications() {
         pushNotificationsManager.configure(appState: appState, speechService: speechService)
-        // 登出流程要在拉黑 JWT 之前解绑本机 token，所以反向也要连上（`weak`，真正的持有者是上面的
-        // `@StateObject`）。
+        // 登出流程要在拉黑 JWT 之前解绑本机 token，所以反向也要连上（`weak`，真正的持有者是 `AppDelegate`）。
         appState.pushNotificationsManager = pushNotificationsManager
         pushNotificationsManager.requestAuthorizationAndRegister()
     }

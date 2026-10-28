@@ -89,8 +89,6 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var currentInviteID: Int64?
     /// 刚点了「这次去不了」、还在 5 秒撤销窗口里的那条（§4.4.3）。
     @Published private(set) var pendingDecline: VolunteerInviteState?
-    /// 锁屏「接下」对上了队列里的这张（#338）：宿主视图拿它走卡片上同一条接单路径（要带定位），然后清掉。
-    @Published var lockScreenAcceptRequest: VolunteerLockScreenAcceptRequest?
 
     /// 队列里当前这一张。
     var currentInvite: VolunteerInviteState? {
@@ -2002,12 +2000,17 @@ extension VolunteerHomeViewModel {
     }
 
     /// 锁屏邀请操作（#338）落地。这张邀请在**当前账号的队列里**还等着回复 ⇒ 翻到它、弹出卡片：
-    /// 「接下」交给宿主走卡片上同一个 `respondToDispatch`（要带定位），「这次去不了」走同一个 `declineInvite`（带撤销）。
+    /// 「接下」走卡片上同一个 `respondToDispatch`（定位取宿主注入的提供者），「这次去不了」走同一个 `declineInvite`（带撤销）。
+    /// 按下时记下的账号与当前账号不同 ⇒ 丢掉，不替别人回复。
     /// 邀请期限已过，或按下之后的那次对账里没有它 ⇒ 已失效，告诉他（他按了，就得有回应）。两样都不是就再等。
     ///
     /// 只认身份对得上的那张（`inviteId`，否则期限）：同一单撤回后的新邀请、换账号后旧账号的通知，都不会被它回复。
     private func resolveLockScreenAccept(after snapshot: RealtimePendingInviteSnapshot? = nil, now: Date = Date()) {
         guard let coordinator = appState?.realtimeCoordinator, let request = coordinator.lockScreenInviteAction else { return }
+        if let owner = coordinator.lockScreenInviteActionUserID, owner != appState?.userId {
+            coordinator.consumeLockScreenInviteAction()
+            return
+        }
         let target = request.invite
         if let invite = invites.first(where: {
             $0.isAwaitingReply && target.matches(orderId: $0.id, inviteId: $0.order.inviteId, expiresAt: $0.expiresAt)
@@ -2017,7 +2020,12 @@ extension VolunteerHomeViewModel {
             switch request.action {
             case .accept:
                 isInviteSheetPresented = true
-                lockScreenAcceptRequest = VolunteerLockScreenAcceptRequest(orderId: invite.id, action: invite.order.dispatchRespondAction)
+                respondToDispatch(
+                    action: invite.order.dispatchRespondAction,
+                    currentLocation: currentLocationProvider(),
+                    locationAuthorized: locationAuthorizedProvider(),
+                    orderId: invite.id
+                )
             case .decline:
                 declineInvite(orderID: invite.id)
             }

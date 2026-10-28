@@ -255,11 +255,13 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         Task { @MainActor in
             let signedIn = self.appState?.isLoggedIn == true
             // 没人登录：一律不上屏（#459）。有人登录：新邀请交给 App 内卡片（#338），其余照常横幅 + 提示音。
-            let isInvite = signedIn && InviteNotificationActions.isForegroundDuplicate(notification.request.content.userInfo)
-            completionHandler(isInvite ? [] : Self.foregroundPresentation(isSignedIn: signedIn))
+            let options = signedIn
+                ? InviteNotificationActions.foregroundPresentationOptions(for: notification.request.content.userInfo)
+                : Self.foregroundPresentation(isSignedIn: false)
+            completionHandler(options)
             guard signedIn else { return }
-            if isInvite {
-                await self.appState?.restorePendingInvites()
+            if options.isEmpty {
+                await self.absorbForegroundInvite()
             } else {
                 self.speak(from: notification)
             }
@@ -269,6 +271,11 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
     /// 前台推送怎么呈现：有人登录才出横幅和提示音，没人登录一律不上屏（#459）。
     nonisolated static func foregroundPresentation(isSignedIn: Bool) -> UNNotificationPresentationOptions {
         isSignedIn ? [.banner, .sound] : []
+    }
+
+    /// 前台收到的 `NEW_ORDER` APNs：不出横幅、不念，对一次待回复列表，由 App 内邀请卡呈现（WS 后到按 `inviteId` 去重）。
+    func absorbForegroundInvite() async {
+        await appState?.restorePendingInvites()
     }
 
     /// 后台/冷启动时用户点开推送：补一次朗读。锁屏上按的是邀请操作时改走 `handleInviteAction`。
@@ -296,7 +303,7 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
             inviteActionsBeforeConfigure.append(request)
             return
         }
-        appState.realtimeCoordinator.requestLockScreenInviteAction(request)
+        appState.realtimeCoordinator.requestLockScreenInviteAction(request, userID: appState.userId)
         Task { await appState.restorePendingInvites() }
     }
 

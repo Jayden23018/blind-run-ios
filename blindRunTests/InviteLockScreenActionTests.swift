@@ -1,3 +1,4 @@
+import CoreLocation
 import UserNotifications
 import XCTest
 @testable import blindRun
@@ -55,6 +56,28 @@ final class InviteLockScreenActionTests: XCTestCase {
         }
     }
 
+    /// 前台的 `NEW_ORDER`：系统什么都不出，改去对一次待回复列表（复核 A：接线要有用例）。
+    func testForegroundNewInviteShowsNothingAndReconciles() async {
+        XCTAssertEqual(InviteNotificationActions.foregroundPresentationOptions(for: ["eventType": "NEW_ORDER"]), [])
+        XCTAssertEqual(InviteNotificationActions.foregroundPresentationOptions(for: ["eventType": "INVITE_EXPIRING"]), [.banner, .sound])
+        XCTAssertEqual(InviteNotificationActions.foregroundPresentationOptions(for: ["eventType": "EMERGENCY_TRIGGERED"]), [.banner, .sound])
+
+        let orders = FakeOrderService()
+        orders.pendingInvitesResult = .success(PendingInvitesResponse(consecutiveDeclineCount: 0, invites: []))
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let appState = AppState(orders: orders, persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token"
+        appState.userId = 42
+        appState.activeRole = .volunteer
+        let manager = PushNotificationsManager()
+        manager.configure(appState: appState, speechService: SpeechService())
+
+        await manager.absorbForegroundInvite()
+
+        XCTAssertEqual(orders.callCount("pendingInvites()"), 1)
+    }
+
     /// 前台只吞 `NEW_ORDER`（WS 也会到）；`INVITE_EXPIRING` 照旧弹出 —— App 不处理 WS 那一条，吞掉就什么提醒都没有。
     func testOnlyNewInvitesAreSwallowedInTheForeground() {
         XCTAssertTrue(InviteNotificationActions.isForegroundDuplicate(["eventType": "NEW_ORDER"]))
@@ -90,128 +113,22 @@ final class InviteLockScreenActionTests: XCTestCase {
     }
 
     func testCoordinatorPrunesOnWithdrawReplyAndReconcile() async {
-        let (viewModel, appState, service, _) = makeHome()
+        let (viewModel, appState, service, _) = InviteLockScreenFixture.makeHome()
         _ = viewModel
         var prunes: [InviteNotificationPrune] = []
         appState.realtimeCoordinator.pruneDeliveredInviteNotifications = { prunes.append($0) }
 
         service.simulateIncomingEventForTesting(.inviteWithdrawn(WSInviteWithdrawn(orderId: 7, inviteId: 71, reason: "TAKEN")))
-        await waitUntil { !prunes.isEmpty }
+        await InviteLockScreenFixture.waitUntil { !prunes.isEmpty }
         appState.realtimeCoordinator.clearDispatch(orderID: 8)
         let requestedAt = Date()
-        appState.realtimeCoordinator.reconcilePendingInvites([Self.dispatch(orderId: 9, inviteId: 91)], requestedAt: requestedAt)
+        appState.realtimeCoordinator.reconcilePendingInvites([InviteLockScreenFixture.dispatch(orderId: 9, inviteId: 91)], requestedAt: requestedAt)
 
         XCTAssertEqual(prunes, [
             .invites([InviteIdentity(orderId: 7, inviteId: 71, expiresAt: nil)]),
             .invites([InviteIdentity(orderId: 8, inviteId: nil, expiresAt: nil)]),
             .allExcept([9], deliveredBefore: requestedAt),
         ])
-    }
-
-    // MARK: - 锁屏操作落地
-
-    /// 「接下」：翻到那一张、弹出卡片，交给宿主走卡片上同一个 `respondToDispatch`。
-    func testLockScreenAcceptOpensTheInviteAndHandsTheSameAcceptToTheHost() async {
-        let (viewModel, appState, _, _) = makeHome()
-        let coordinator = appState.realtimeCoordinator
-        let target = Self.dispatch(orderId: 22, inviteId: 221)
-        coordinator.reconcilePendingInvites([Self.dispatch(orderId: 21, inviteId: 211), target], requestedAt: Date())
-        await waitUntil { viewModel.invites.count == 2 }
-
-        coordinator.requestLockScreenInviteAction(Self.lockScreen(.accept, for: target))
-        await waitUntil { viewModel.lockScreenAcceptRequest != nil }
-
-        XCTAssertEqual(viewModel.lockScreenAcceptRequest, VolunteerLockScreenAcceptRequest(orderId: 22, action: .accept))
-        XCTAssertEqual(viewModel.currentInviteID, 22, "要翻到锁屏上那一张，不是队首")
-        XCTAssertTrue(viewModel.isInviteSheetPresented)
-        XCTAssertNil(coordinator.lockScreenInviteAction, "接手之后要清掉，免得下一次对账再触发一次")
-    }
-
-    /// 「这次去不了」：走卡片上同一个 `declineInvite`（进 5 秒撤销窗口、有回执），不在后台直接发。
-    func testLockScreenDeclineUsesTheSameUndoableDecline() async {
-        let (viewModel, appState, _, speech) = makeHome()
-        let coordinator = appState.realtimeCoordinator
-        let target = Self.dispatch(orderId: 23, inviteId: 231)
-        coordinator.reconcilePendingInvites([target], requestedAt: Date())
-        await waitUntil { viewModel.invites.count == 1 }
-
-        coordinator.requestLockScreenInviteAction(Self.lockScreen(.decline, for: target))
-        await waitUntil { viewModel.pendingDecline != nil }
-
-        XCTAssertEqual(viewModel.pendingDecline?.id, 23)
-        XCTAssertTrue(viewModel.invites.isEmpty)
-        XCTAssertTrue(speech.lastSpokenText?.hasPrefix(VolunteerInviteCopy.declineToastText) == true)
-    }
-
-    /// 锁屏那条是旧邀请（期限不同），队列里是同一单撤回后的新邀请：不许替他回复新的那张（安全复核 MEDIUM 6 / 7）。
-    func testLockScreenActionIgnoresANewerInviteForTheSameOrder() async {
-        let (viewModel, appState, _, _) = makeHome()
-        let coordinator = appState.realtimeCoordinator
-        coordinator.reconcilePendingInvites([Self.dispatch(orderId: 41, inviteId: 412, expiresIn: 900)], requestedAt: Date())
-        await waitUntil { viewModel.invites.count == 1 }
-
-        let oldNotification = InviteIdentity(orderId: 41, inviteId: nil, expiresAt: Date().addingTimeInterval(300))
-        coordinator.requestLockScreenInviteAction(.init(action: .accept, invite: oldNotification))
-        try? await Task.sleep(nanoseconds: 300_000_000)
-
-        XCTAssertNil(viewModel.lockScreenAcceptRequest)
-        XCTAssertNotNil(coordinator.lockScreenInviteAction, "还没等到对账，先留着")
-    }
-
-    /// 按下之后的那次对账里没有它 ⇒ 已失效，告诉他。他按了，不能没有回应。
-    func testLockScreenActionForAGoneInviteSaysItIsInvalid() async {
-        let (viewModel, appState, _, speech) = makeHome()
-        let coordinator = appState.realtimeCoordinator
-        coordinator.requestLockScreenInviteAction(.init(
-            action: .accept, invite: InviteIdentity(orderId: 31, inviteId: nil, expiresAt: Date().addingTimeInterval(600))
-        ))
-
-        coordinator.reconcilePendingInvites([], requestedAt: Date())
-        await waitUntil { coordinator.lockScreenInviteAction == nil }
-
-        XCTAssertNil(viewModel.lockScreenAcceptRequest)
-        XCTAssertEqual(speech.lastSpokenText, "这个邀请已失效，不需要再回复了")
-    }
-
-    /// 邀请期限已过：不等对账，直接告诉他。
-    func testLockScreenActionForAnExpiredInviteSaysItIsInvalid() async {
-        let (_, appState, _, speech) = makeHome()
-        let coordinator = appState.realtimeCoordinator
-        coordinator.requestLockScreenInviteAction(.init(
-            action: .decline, invite: InviteIdentity(orderId: 32, inviteId: nil, expiresAt: Date().addingTimeInterval(-1))
-        ))
-        await waitUntil { coordinator.lockScreenInviteAction == nil }
-
-        XCTAssertEqual(speech.lastSpokenText, "这个邀请已失效，不需要再回复了")
-    }
-
-    /// 冷启动：按下时首页还没建、WS 接上那一刻协调器会走一次会话清理。意图不能被那次清理抹掉（安全复核 HIGH 1）。
-    func testLockScreenActionSurvivesTheColdStartSessionReset() async {
-        let appState = AppState()
-        let coordinator = appState.realtimeCoordinator
-        let target = Self.dispatch(orderId: 51, inviteId: 511)
-        coordinator.requestLockScreenInviteAction(Self.lockScreen(.accept, for: target))
-
-        coordinator.attach(to: WebSocketService(), role: .volunteer)  // 冷启动接 WS：detach(clearSessionState: true)
-        XCTAssertNotNil(coordinator.lockScreenInviteAction)
-
-        let viewModel = VolunteerHomeViewModel()
-        viewModel.configure(with: appState, speechService: SpeechService())
-        coordinator.reconcilePendingInvites([target], requestedAt: Date())
-        await waitUntil { viewModel.lockScreenAcceptRequest != nil }
-        XCTAssertEqual(viewModel.lockScreenAcceptRequest?.orderId, 51)
-    }
-
-    /// 冷启动：系统在 `configure` 之前就回调了 delegate。那一下要存着，配好之后交给协调器。
-    func testActionArrivingBeforeConfigureIsKept() {
-        let manager = PushNotificationsManager()
-        let request = InviteNotificationActions.Request(action: .accept, invite: InviteIdentity(orderId: 61, inviteId: nil, expiresAt: nil))
-        manager.handleInviteAction(request)
-
-        let appState = AppState()
-        manager.configure(appState: appState, speechService: SpeechService())
-
-        XCTAssertEqual(appState.realtimeCoordinator.lockScreenInviteAction, request)
     }
 
     // MARK: - 连续拒绝：后端计数（SPEC D11）
@@ -246,46 +163,11 @@ final class InviteLockScreenActionTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
-        let (viewModel, appState, _, _) = makeHome(declineStreak: VolunteerDeclineStreak(defaults: defaults))
+        let (viewModel, appState, _, _) = InviteLockScreenFixture.makeHome(declineStreak: VolunteerDeclineStreak(defaults: defaults))
 
         appState.realtimeCoordinator.reconcilePendingInvites([], requestedAt: Date(), consecutiveDeclineCount: 3)
-        await waitUntil { viewModel.shouldAskAboutAvailability }
+        await InviteLockScreenFixture.waitUntil { viewModel.shouldAskAboutAvailability }
 
         XCTAssertTrue(viewModel.shouldAskAboutAvailability)
-    }
-
-    // MARK: - Fixture
-
-    /// 锁屏那条通知对应的操作：身份取自同一张邀请（`NEW_ORDER` 的 APNs 没有 `inviteId`，只有单号与期限）。
-    private static func lockScreen(_ action: InviteNotificationActions.Action, for dispatch: WSNewOrder) -> InviteNotificationActions.Request {
-        .init(action: action, invite: InviteIdentity(orderId: dispatch.orderId, inviteId: nil, expiresAt: dispatch.expiresAt?.backendTimestamp))
-    }
-
-    private static func dispatch(orderId: Int64, inviteId: Int64, expiresIn seconds: TimeInterval = 900) -> WSNewOrder {
-        var order = OrderDetailResponse.previewDispatch(orderId: orderId, requiresIntroCall: false)
-        order.inviteId = inviteId
-        order.expiresAt = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(seconds))
-        return order
-    }
-
-    /// 返回 `AppState` 让调用方攥着：view model 对它是 `weak`。
-    private func makeHome(
-        declineStreak: VolunteerDeclineStreak? = nil
-    ) -> (VolunteerHomeViewModel, AppState, WebSocketService, SpeechService) {
-        let appState = AppState()
-        let service = WebSocketService()
-        appState.realtimeCoordinator.attach(to: service, role: .volunteer)
-        let speech = SpeechService()
-        let viewModel = declineStreak.map { VolunteerHomeViewModel(declineStreak: $0) } ?? VolunteerHomeViewModel()
-        viewModel.configure(with: appState, speechService: speech)
-        viewModel.isDispatchHubVisible = true
-        return (viewModel, appState, service, speech)
-    }
-
-    private func waitUntil(timeout: TimeInterval = 3, _ condition: () -> Bool) async {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
     }
 }

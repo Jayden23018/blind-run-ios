@@ -70,6 +70,11 @@ enum InviteNotificationActions {
     static func isForegroundDuplicate(_ userInfo: [AnyHashable: Any]) -> Bool {
         (userInfo["eventType"] as? String) == "NEW_ORDER"
     }
+
+    /// 前台收到推送时系统该怎么呈现：`NEW_ORDER` 什么都不出（交给 App 内），其余照旧横幅加提示音。
+    static func foregroundPresentationOptions(for userInfo: [AnyHashable: Any]) -> UNNotificationPresentationOptions {
+        isForegroundDuplicate(userInfo) ? [] : [.banner, .sound]
+    }
 }
 
 /// 一张邀请的身份：单号必有；`inviteId` 只有 `INVITE_EXPIRING` 的 APNs 带（`NEW_ORDER` 那条没有，契约原话）；
