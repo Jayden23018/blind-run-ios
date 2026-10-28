@@ -17,4 +17,4 @@
 
 - [x] 4.1 单测：两端发送闸（关闭不发、恢复后发）、两端横幅文案、陪跑员用途的申请与去重
 - [x] 4.2 编译门禁 `build-for-testing`、SwiftLint 棘轮、`openspec validate --strict` 通过
-- [ ] 4.3 真机跑覆盖到的 suite，`passed=N failed=0`，并做一次验红
+- [x] 4.3 真机跑覆盖到的 suite，`passed=N failed=0`，并做一次验红
