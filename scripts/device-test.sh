@@ -34,6 +34,8 @@ set -uo pipefail
 #                         AIDRUN_TEAM=YSSGRV9Z96 AIDRUN_BUNDLE_ID_PREFIX=com.tigerwang.aidrun scripts/device-test.sh ...
 #                       设了它脚本还会清空 CODE_SIGN_ENTITLEMENTS：免费团队不支持推送能力（aps-environment），
 #                       带着它签名直接失败。单测与 UI 测试不依赖推送。
+#                       设了它编译产物还会放进独立的 DerivedData，不与编译门禁共用（#452，见下面 DERIVED_DATA 那段）。
+#   AIDRUN_DERIVED_DATA_PATH  设了前缀时覆盖那份独立 DerivedData 的位置（不设前缀时不生效）。
 
 DEVICE_ID="${AIDRUN_DEVICE_ID:-00008140-000161D62112801C}"
 SCHEME="${AIDRUN_SCHEME:-blindRun}"
@@ -41,6 +43,29 @@ TEAM="${AIDRUN_TEAM:-8LG486RF64}"
 LOCAL_SIGNING_ARGS=()
 if [ -n "${AIDRUN_BUNDLE_ID_PREFIX:-}" ]; then
   LOCAL_SIGNING_ARGS=("AIDRUN_BUNDLE_ID_PREFIX=${AIDRUN_BUNDLE_ID_PREFIX}" "CODE_SIGN_ENTITLEMENTS=")
+fi
+# 设了个人前缀就用一份**只属于这个工作区 + 这个前缀**的 DerivedData（#452）。
+#
+# 不分开的后果：AGENTS.md §11 的编译门禁（`build-for-testing`，不带前缀）和这里共用同一个
+# DerivedData（`blindRun-<hash>/Build/Products/Debug-iphoneos`），门禁会把 `blindRunUITests-Runner.app`
+# 改写成默认 bundle id。下一次带前缀跑测会重编重签 runner，而启动那一步
+# （`XCTHRuntimeProfileGenerationCoordinator`）仍按默认 id `com.culiu-tech.aidrun1.uitests.xctrunner`
+# 去设备上找数据容器，报 `Failed to create directory on device … to hold runtime profiles`，一条用例都没跑。
+# 2026-10-16 #434 现场四次跑测「这次重签了 runner ⇔ 失败」全部对上；Xcode 内部在哪里留着旧 id 没查到，
+# 所以不去清它，而是让带前缀的跑测永远碰不到门禁写的那份产物。
+# 代价：每个工作区换前缀后第一次跑要完整编译一遍。不设前缀时不传，和以前一样用默认目录
+# （那时门禁与跑测的 bundle id 一致，不存在这个问题）。`AIDRUN_DERIVED_DATA_PATH` 可覆盖。
+# 先清空：外部环境里恰好有同名变量时，下面打印与自测报出的会是别人的值。
+DERIVED_DATA=""
+DERIVED_DATA_ARGS=()
+if [ -n "${AIDRUN_BUNDLE_ID_PREFIX:-}" ]; then
+  # 按工作区路径分：同一前缀在两个 worktree 里各编各的，不互相覆盖（默认 DerivedData 也是按路径分的）。
+  # `cksum` 是 POSIX 自带的（macOS / Linux / Rust coreutils 都有）；`shasum` 来自 perl，缺了会静默算出空串，
+  # 所有工作区退回共用一份目录。
+  DERIVED_DATA_KEY="$(printf '%s' "$PWD" | cksum | cut -d' ' -f1)"
+  DERIVED_DATA_PREFIX_SLUG="$(printf '%s' "$AIDRUN_BUNDLE_ID_PREFIX" | tr -c 'A-Za-z0-9.-' '_')"
+  DERIVED_DATA="${AIDRUN_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/DerivedData/aidrun-device-${DERIVED_DATA_PREFIX_SLUG}-${DERIVED_DATA_KEY}}"
+  DERIVED_DATA_ARGS=(-derivedDataPath "$DERIVED_DATA")
 fi
 WORKSPACE="blindRun.xcworkspace"
 LOG="$(mktemp -t aidrun-device-test)"
@@ -107,6 +132,8 @@ trap 'rm -rf "$LOCK_DIR"' EXIT
 # 自测钩子：拿到锁后原地待命，让 validate-device-lock.sh 能验并发/死锁回收两条分支
 # 而不用真去跑 xcodebuild。生产路径上这个变量永远是空的。
 if [ -n "${AIDRUN_LOCK_SELFTEST:-}" ]; then
+  # 顺带报出这一次会用哪份 DerivedData（#452），让 validate-device-lock.sh 不跑 xcodebuild 也能验。
+  say "derivedDataPath=${DERIVED_DATA:-（默认）}"
   say "已持有设备锁（pid $$），selftest 模式待命 ${AIDRUN_LOCK_SELFTEST}s"
   sleep "$AIDRUN_LOCK_SELFTEST"
   exit 0
@@ -189,12 +216,16 @@ say "    锁屏会让 xcodebuild 静默挂起，本脚本在日志停滞 ${PREFL
 
 # ---------- 2. 跑测试，同时盯着锁屏挂起 ----------
 say "开始 xcodebuild test（日志：${LOG}）"
+if [ -n "$DERIVED_DATA" ]; then
+  say "设了 AIDRUN_BUNDLE_ID_PREFIX：编译产物放在独立的 ${DERIVED_DATA}，不与编译门禁共用（#452）"
+fi
 xcodebuild test \
   -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \
   -destination "platform=iOS,id=${DEVICE_ID}" \
   -allowProvisioningUpdates \
   -resultBundlePath "$BUNDLE" \
+  ${DERIVED_DATA_ARGS[@]+"${DERIVED_DATA_ARGS[@]}"} \
   DEVELOPMENT_TEAM="$TEAM" \
   ${LOCAL_SIGNING_ARGS[@]+"${LOCAL_SIGNING_ARGS[@]}"} \
   "$@" >"$LOG" 2>&1 &
