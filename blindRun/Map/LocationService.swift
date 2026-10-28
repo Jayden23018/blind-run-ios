@@ -44,6 +44,16 @@ enum PreciseLocationPurpose: String, Sendable {
     case escortVolunteer = "AidRunEscortVolunteer"
 }
 
+/// 同行会话的定位档位（#523）。
+enum EscortLocationMode: Equatable, Sendable {
+    /// 没有同行会话：普通前台策略，不在后台定位。
+    case off
+    /// 出发 / 汇合：后台继续共享位置，普通精度。
+    case sharing
+    /// 跑步中：后台 + 跑步专用的增强精度。
+    case running
+}
+
 // MARK: - Location Service
 
 /// 设备定位服务封装，管理 CLLocationManager 生命周期、权限状态和当前位置。
@@ -204,7 +214,10 @@ final class LocationService: NSObject, ObservableObject {
     // MARK: - Private
 
     private let locationManager: CLLocationManager
-    private(set) var isEscortBackgroundModeEnabled = false
+    /// 同行会话的定位档位（#523）。`.off` = 没有同行会话。
+    private(set) var escortLocationMode: EscortLocationMode = .off
+    /// 允许后台继续定位（出发 / 汇合 / 跑步三态都允许）。
+    var isEscortBackgroundModeEnabled: Bool { escortLocationMode != .off }
     private(set) var isUpdatingLocation = false
     /// 要过持续定位、还没撤回的调用方（#413 / #425）。授权回调只替这些调用方开定位，集合空了才停硬件。
     ///
@@ -306,7 +319,7 @@ final class LocationService: NSObject, ObservableObject {
         // 本 App 只申请 in-use（全仓无 `requestAlwaysAuthorization`），所以一次暂停 = 到重启为止
         // 都拿不到新位置，而调用方完全不知道。
         //
-        // 此前这一行写在 `setEscortBackgroundMode` 里，形如 `= !enabled`，于是：
+        // 此前这一行写在旧的 `setEscortBackgroundMode` 里，形如 `= !enabled`，于是：
         // ① 该方法开头的 `guard isEscortBackgroundModeEnabled != enabled` 在初值 `false` 时
         //    把第一次 `enabled: false` 的调用整段吞掉，这一行从未执行；
         // ② 即便执行，非 `IN_PROGRESS`（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`）反而会把它设回 `true`。
@@ -400,17 +413,22 @@ final class LocationService: NSObject, ObservableObject {
         locationManager.stopUpdatingLocation()
     }
 
-    /// 进行中服务使用适合跑步的高精度持续定位；离开后恢复普通前台策略。
-    func setEscortBackgroundMode(enabled: Bool) {
-        guard isEscortBackgroundModeEnabled != enabled else { return }
-        isEscortBackgroundModeEnabled = enabled
-        locationManager.activityType = enabled ? .fitness : .other
-        locationManager.desiredAccuracy = enabled ? kCLLocationAccuracyBestForNavigation : kCLLocationAccuracyBest
-        locationManager.distanceFilter = enabled ? 5 : 10
+    /// 同行会话三态都允许后台继续定位（#523）：陪跑员按「出发」后通常切到外部导航，本 App 进后台，
+    /// 此前只在 `IN_PROGRESS` 允许后台，盲人那边看到的陪跑员位置就停在出发点。两端的位置轨迹同意
+    /// 都写了「从出发到跑步结束……锁屏后仍在定位」，系统的蓝色定位标记同时告知。
+    /// 跑步专用的增强精度（fitness、导航级精度、5 米）仍只在 `IN_PROGRESS`（`.running`）。
+    func setEscortLocationMode(_ mode: EscortLocationMode) {
+        guard escortLocationMode != mode else { return }
+        escortLocationMode = mode
+        let running = mode == .running
+        locationManager.activityType = running ? .fitness : .other
+        locationManager.desiredAccuracy = running ? kCLLocationAccuracyBestForNavigation : kCLLocationAccuracyBest
+        locationManager.distanceFilter = running ? 5 : 10
         // `pausesLocationUpdatesAutomatically` **不在这里设** —— 见 `init`。它是全 App 恒 false 的
         // 不变量，放在这个带 guard 的分支方法里正是它此前从未生效的原因。
-        locationManager.showsBackgroundLocationIndicator = enabled
-        locationManager.allowsBackgroundLocationUpdates = enabled
+        let background = mode != .off
+        locationManager.showsBackgroundLocationIndicator = background
+        locationManager.allowsBackgroundLocationUpdates = background
         // 这里不开定位：开不开由调用方的意图决定（同行会话先 `startUpdating(for: .escortSession)` 再调这里）。
         // 这个方法只改精度与后台策略，否则它会替一个不知道是谁的调用方立起意图、没人撤回（#425）。
     }
@@ -574,7 +592,7 @@ extension LocationService {
         case .denied, .restricted:
             setLocationError(.permissionDenied)
             clearDeviceLocation()
-            setEscortBackgroundMode(enabled: false)
+            setEscortLocationMode(.off)
             // 只停硬件、不撤回意图：用户在系统设置里重新打开权限时，原来在跑的定位要恢复。
             haltHardwareUpdates()
         case .notDetermined:

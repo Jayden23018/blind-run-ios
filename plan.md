@@ -98,7 +98,7 @@ node scripts/cloud-e2e.mjs
 
 - 两角色 WebSocket 每 30 秒 PING；服务端 90 秒无消息以 `SESSION_NOT_RELIABLE` 关闭，客户端沿用 3/6/12/30 秒重连。
 - WebSocket 以递增 generation 隔离旧连接回调且一代只调度一次重连；志愿者重连立即补报真实位置并刷新派单摘要。派单链路只保留不含 token/坐标/联系人/地址/正文的内存诊断，且不以 `/api/orders/available` 代替定向 `NEW_ORDER`。
-- 订单双方在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 每 5 秒上报真实 GCJ-02 位置；仅 `IN_PROGRESS` 开启锁屏/后台定位。
+- 订单双方在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 每 5 秒上报真实 GCJ-02 位置；三态都允许锁屏/后台继续定位（#523，同意文案已写「从出发到跑步结束……锁屏后仍在定位」），跑步专用的增强精度只在 `IN_PROGRESS`。
 - 同行 marker 超过 15 秒未刷新即隐藏；同行会话在定位权限有效且 Core Location 未报告失败时按五秒 cadence 复用最近一次真实设备样本，静止不视为定位失效。权限撤销或明确定位失败时停止上传并显示/TTS 降级。
 - `ESCORT_DISTANCE_ALERT` 与 `ESCORT_SIGNAL_LOST` 使用 `messageId` 去重，不改变订单或 SOS 状态。
 - 所有模板 `APP_NOTIFICATION` 均在最外层下发模板 `eventType`；iOS 通过 `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 分流，`body`/`ttsText` 不参与识别。当前仍无 `orderId`，所以告警要求唯一关联 `IN_PROGRESS` 订单。

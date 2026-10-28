@@ -398,8 +398,9 @@ sequenceDiagram
   -> 同行样本匹配订单且 <=15 秒 -> 更新辅助 marker
   -> 设备/同行样本 >15 秒 -> 停止复用旧值 / 隐藏 marker / 可见与 TTS 降级
 
-IN_PROGRESS -> 开启 fitness 后台定位
-离开 IN_PROGRESS 或会话/身份失效 -> 关闭后台定位并清空同行内存
+DRIVER_EN_ROUTE / DRIVER_ARRIVED -> 允许后台继续共享（普通精度，#523：陪跑员出发后常切去外部导航）
+IN_PROGRESS -> 开启 fitness 后台定位（增强精度）
+离开这三态或会话/身份失效 -> 关闭后台定位并清空同行内存
 
 COMPLETED -> GET /api/orders/{id}/track
   -> blindTrack 作为“本次路线”
