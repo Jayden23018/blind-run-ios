@@ -2579,9 +2579,8 @@ struct VolunteerInServiceView: View {
                         speechService.speak("服务已完成。\(message)")
                     } label: {
                         Text("重复当前状态")
-                            .frame(minHeight: 64)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("朗读服务完成和本次路线暂时不可用状态")
                     .accessibilityIdentifier("volunteerCompletedTrackRepeatStatus")
                 }

@@ -66,9 +66,8 @@ struct CompletedTrackSummaryView: View {
 
             Button(action: repeatSummary) {
                 Text("重复当前状态")
-                    .frame(minHeight: 64)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PrimaryButtonStyle())
             .accessibilityIdentifier("completedTrackRepeatSummary")
             .accessibilityHint("朗读本次路线的里程、时长和平均配速")
         }

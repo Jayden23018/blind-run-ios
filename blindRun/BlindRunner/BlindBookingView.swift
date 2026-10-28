@@ -1885,11 +1885,8 @@ struct BlindBookingView: View {
                     }
                     Text(searchButtonTitle)
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PrimaryButtonStyle(isLoading: viewModel.isSearchingPlaces))
             .disabled(isRecognizingStartPlace || viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
             .accessibilityLabel(searchButtonTitle)
             .accessibilityHint(isRecognizingStartPlace ? "请说出地点名称，识别结束后会自动搜索" : "搜索高德地点并显示可选择的出发地点列表")
@@ -2145,16 +2142,15 @@ struct BlindBookingView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(notice)
 
-            // 🔴 `frame` 挂在 label 里面：挂在 Button 外面只撑大布局、不撑大可点区域 ——
+            // 🔴 64pt 由 `PrimaryButtonStyle` 挂在 label 上：frame 挂在 Button 外面只撑大布局、不撑大可点区域 ——
             // 真机量到的是 34.7pt（2026-10-09，#373 的 UI 用例），低于盲人端 64pt 下限。
             if offersTemporaryPreciseLocation {
                 Button {
                     viewModel.requestTemporaryPreciseLocation()
                 } label: {
                     Text("临时开启精确位置")
-                        .frame(maxWidth: .infinity, minHeight: 64)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .accessibilityLabel("临时开启精确位置")
                 .accessibilityHint("如果弹出系统提示，选允许后就能用当前位置作为出发地点；不开启也可以继续手动搜索")
                 .accessibilityIdentifier("bookingRequestTemporaryPreciseLocationButton")
@@ -2166,9 +2162,8 @@ struct BlindBookingView: View {
                 }
             } label: {
                 Text(settingsTitle)
-                    .frame(maxWidth: .infinity, minHeight: 64)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PrimaryButtonStyle())
             .accessibilityLabel(settingsTitle)
             .accessibilityHint(
                 offersTemporaryPreciseLocation

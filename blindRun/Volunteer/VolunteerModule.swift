@@ -321,12 +321,9 @@ struct VolunteerProfileView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "person.badge.shield.checkmark")
                         Text(viewModel.certificationButtonTitle)
-                            .font(AppFonts.primaryButton())
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle())
                 .disabled(viewModel.isApproved || viewModel.isPendingReview)
                 .accessibilityLabel("开始认证")
                 .accessibilityHint(viewModel.certificationAccessibilityHint)
@@ -345,12 +342,9 @@ struct VolunteerProfileView: View {
                             ProgressView()
                         }
                         Text(viewModel.certificationButtonTitle)
-                            .font(AppFonts.primaryButton())
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryButtonStyle(isLoading: viewModel.isCertificationRunning))
                 .disabled(viewModel.isCertificationRunning || viewModel.isApproved)
                 .accessibilityLabel("开始模拟认证")
                 .accessibilityHint(viewModel.certificationAccessibilityHint)

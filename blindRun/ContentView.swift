@@ -285,7 +285,7 @@ struct ContentView: View {
                     Button("重试恢复") {
                         rootRouter.synchronize(with: appState)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("重新加载当前账号资料")
                     Button("退出登录", role: .destructive) {
                         Task { await appState.logout() }

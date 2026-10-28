@@ -2690,7 +2690,7 @@ final class AccessibilityAuditTests: XCTestCase {
     /// `BlindLayout.readableContentWidth` 的副本。XCUITest 是黑盒，进不了 app 的类型 ——
     /// 只能抄一份。抄错的方向是安全的：把生产值调**大**而这里没跟，断言会红不会绿。
     private static let readableContentWidth: CGFloat = 700
-    private static let minimumBlindPrimaryButtonHeight: CGFloat = 64
+    static let minimumBlindPrimaryButtonHeight: CGFloat = 64
 
     /// 求助按钮按 **accessibilityLabel** 找，不按可见文字 —— 两端的可见文字已经不一样了
     /// （盲人端仍是「一键求助」，志愿者端是圆形盾牌里的「求助」两个字），而读屏念出来的
@@ -2833,7 +2833,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
     /// 下单页起来了没有 —— 语音态和表单态各有一个标志元素，命中任一即可。
     @MainActor
-    private func waitForBookingScreen(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
+    func waitForBookingScreen(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
         let voiceSurface = app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch
         let formButton = app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch
         let deadline = Date().addingTimeInterval(timeout)
