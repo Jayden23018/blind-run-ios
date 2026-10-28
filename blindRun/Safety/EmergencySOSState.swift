@@ -112,7 +112,7 @@ enum EmergencySOSState: Equatable {
 
     /// 这一态在「那条已受理的事件处于某状态」之上多说了一层：这一按被并进了旧事件，或家属短信送达 / 没送到。
     /// `refreshActiveEvent` 对账回来的是同一条事件、同一个状态时据此保留它 —— 对账没带来新信息，
-    /// 不该把这一层抹成通用的「已发出」（#546）。新加的状态在这里表态，所以不写 `default`。
+    /// 不该把这一层抹成通用的「已发出」（iOS #546）。新加的状态在这里表态，所以不写 `default`。
     var refinesAcknowledgedEvent: Bool {
         switch self {
         case .mergedIntoOpenEvent, .contactSmsDelivered, .contactNotifyFailed:

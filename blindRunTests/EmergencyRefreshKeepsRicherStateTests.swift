@@ -42,7 +42,8 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
         try await Self.waitUntil(seconds: EmergencyCoordinator.serverFireGrace + 2) {
             safety.calls.contains("activeEmergency()")
         }
-        await Task.yield()
+        // 「已问过」不等于「已写回」：给对账留出写 state 的时间再断言，否则删掉那道 guard 也可能撞上「还没写」而变绿。
+        try await Task.sleep(nanoseconds: 500_000_000)
 
         XCTAssertEqual(coordinator.state, .mergedIntoOpenEvent(.pending), "宽限刷新把合并文案盖掉了")
         XCTAssertTrue(coordinator.statusMessage?.hasPrefix("这次没有新建求助") == true, "\(coordinator.statusMessage ?? "nil")")
@@ -102,6 +103,30 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
             await coordinator.refreshActiveEvent(userID: 7)
 
             XCTAssertEqual(coordinator.state, receiptState, "\(kind) 被对账抹成了通用的已发出")
+        }
+    }
+
+    /// 对照组（「不该保留」那一侧）：已有一条事件时再按、网络断了，`reconcile` 先写「未发出 / 冷却」再对账，
+    /// 读回的正是同一条、同一状态。这时必须改写成「已受理」—— 求助其实已生效，屏幕却停在「未发出」，
+    /// 盲人会据此重按或放弃。把 `.failed` / `.cooldown` 挪进 `refinesAcknowledgedEvent` 的改动会让它变红。
+    func testFailedRetriggerOnAnOpenEventIsStillReconciledIntoAcknowledged() async throws {
+        let failures: [Error] = [
+            URLError(.networkConnectionLost),
+            APIError.rateLimited(RateLimitInfo(message: "刚刚已经发送过求助", retryAfterSeconds: 42)),
+        ]
+        for failure in failures {
+            let (coordinator, safety) = Self.makeRecoverableFixture()
+            safety.triggerEmergencyResult = .success(
+                EmergencyTriggerResponse(success: true, eventId: 830, status: "CONTACT_NOTIFIED")
+            )
+            _ = await Self.trigger(coordinator, safety: safety)
+            safety.triggerEmergencyResult = .failure(failure)
+            safety.activeEmergencyResult = .success(try Self.openEvent(id: 830, status: "CONTACT_NOTIFIED"))
+
+            let outcome = await Self.trigger(coordinator, safety: safety)
+
+            XCTAssertEqual(coordinator.state, .acknowledged(.contactNotified), "\(failure) 之后停在了 \(coordinator.state)")
+            XCTAssertFalse(outcome.isFailure, "求助其实已生效，却说「未发出」：\(outcome.message)")
         }
     }
 
