@@ -40,8 +40,10 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "\(variant)：底部标签栏不在")
         tabBar.buttons["我的"].tap()
         let entry = app.descendants(matching: .any)[entryIdentifier].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 15), "\(variant)：设置页没有「隐私与授权」入口")
-        scrollAboveBottomBars(entry, app: app)
+        // 先拖再断言：最大字号下入口在列表很下面，`List` 不渲染屏幕外的行，不拖就永远等不到（2026-10-28 真机 ax5 红过一次）。
+        _ = entry.waitForExistence(timeout: 5)
+        scrollAboveBottomBars(entry, app: app, maxDrags: 24)
+        XCTAssertTrue(entry.exists && entry.isHittable, "\(variant)：设置页拖到底也没有「隐私与授权」入口")
         entry.tap()
         XCTAssertTrue(
             app.navigationBars["隐私与授权"].waitForExistence(timeout: 10),
