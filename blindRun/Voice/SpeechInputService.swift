@@ -724,7 +724,7 @@ final class SpeechInputService: ObservableObject {
 
         markRecognitionStarted()
         startStopTimers()
-        announce("语音输入已开启，请说话。")
+        // 开麦后不发通告：朗读会被录进转写（#558），开麦信号只靠 `RecordingCue.begin()` 的提示音与震动。
         recognitionTask = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }

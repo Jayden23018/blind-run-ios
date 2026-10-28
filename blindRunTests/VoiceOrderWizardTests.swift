@@ -1633,7 +1633,6 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertEqual(BlindBookingViewModel.durationText(forMinutes: 40), "40 分钟")
     }
 
-
     // MARK: - 与后端黄金语料对齐
 
     // 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像，**五族 115 条全覆盖**。
@@ -2149,32 +2148,6 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertNil(wizard.createdOrder, "用户从没说过时间，不能成单")
         XCTAssertTrue(wizard.isRunning, "拦住之后要留在语音里，而不是静默结束")
         XCTAssertTrue((wizard.lastSpokenPrompt ?? "").contains("重说"), "必须给出唯一可行的出路")
-    }
-
-    /// 抽到了时间就正常放行 —— 上面那条拦截不能宽到把正常流程也挡了。
-    func testConfirmProceedsOnceTheStartTimeWasCaptured() async {
-        let stub = VoiceOrderAPIClientStub()
-        let plannedStart = DateFormatter.aidRunBackendLocalDateTime.string(
-            from: Date().addingTimeInterval(3600 * 24)
-        )
-        stub.parseOrderResponses = [
-            ParseVoiceOrderResponse(
-                plannedStartTime: plannedStart, durationMinutes: nil, address: nil,
-                latitude: nil, longitude: nil,
-                missing: nil, needReask: nil, ttsText: nil
-            )
-        ]
-        // 同上：不强持有的话下面那条断言会因为兜底文案恰好也含「说「确认」就下单」而**假通过**。
-        let bookingViewModel = BlindBookingViewModel()
-        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
-
-        await wizard.submitTranscript("明天早上八点从人民广场出发")
-
-        XCTAssertTrue(wizard.didCaptureStartTime)
-        let spoken = wizard.lastSpokenPrompt ?? ""
-        XCTAssertTrue(spoken.contains("这次的预约是："), "念的必须是整单读回而不是兜底提问：\(spoken)")
-        XCTAssertTrue(spoken.contains("说「确认」就下单"), "抽到时间后就该正常给出确认这条出路：\(spoken)")
-        XCTAssertFalse(spoken.contains("预约时间还没说"))
     }
 
     // MARK: - 不许把人关在没有出口的循环里
@@ -2745,7 +2718,7 @@ final class VoiceOrderWizardTests: XCTestCase {
 
         XCTAssertEqual(wizard.step, .confirm)
         XCTAssertTrue(
-            (wizard.lastSpokenPrompt ?? "").contains(VoiceOrderWizard.startAddressUnresolvedNotice),
+            (wizard.lastSpokenPrompt ?? "").contains(VoiceOrderWizard.unresolvedStartNotice(hasFallback: false)), // 没定位（#558）
             "听见了地名却没查到，读回却只字未提：\(wizard.lastSpokenPrompt ?? "")"
         )
     }

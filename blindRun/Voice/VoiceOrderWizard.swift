@@ -59,7 +59,7 @@ final class VoiceOrderWizard: ObservableObject {
         var prompt: String {
             switch self {
             case .freeform:
-                return "请说你想从哪儿出发、什么时候跑、跑多久，比如：明天早上八点从人民广场出发跑一个小时。说完再点一下就好。"
+                return "请说你想从哪儿出发、什么时候跑、跑多久，比如：明天早上八点从人民广场出发跑一个小时。说完稍停，会自动结束。"
             case .disambiguateStart(_, let prompt):
                 return prompt
             case .confirm:
@@ -189,6 +189,8 @@ final class VoiceOrderWizard: ObservableObject {
     /// `nil` 时确认轮照样发 `/parse`，只是不带 `current` —— 后端行为退回老客户端那一档，
     /// 意图判定仍然可用（`userIntent` 的正则兜底不依赖 `current`）。
     private var lastParsed: ParseVoiceOrderResponse?
+    /// 最近一次读回念到的起点（只认 id：设备位置的 id 固定，GPS 漂移不算换了起点）。见 `confirmBooking`。
+    private var readBackStartPlaceID: String?
 
     /// 连着这么多轮拿不到开始时间就不再让人重说。取 2：给一次重说的机会，不给第二次。
     static let maximumRoundsWithoutStartTime = 2
@@ -290,8 +292,20 @@ final class VoiceOrderWizard: ObservableObject {
     }
 
     /// 重复当前这一轮的问题。语音消失得快，重听是基本诉求。
+    ///
+    /// **录音中按它要先停麦再念，念完再重新开麦**（#558 走查卡死 1）。以前直接 `speak`、麦克风照开，
+    /// 合成器从扬声器念出的提示会被录进转写 —— 整句轮的提示里有示例句「明天早上八点从人民广场出发」，
+    /// 最坏会读回一张用户没说过的单。停麦用 `cancelRecognitionForLifecycle`（不发完成回调）：
+    /// 走 `stopRecognition` 会触发一次空转录的 `handle`，被记成一次「没听清」重问。
     func repeatCurrentPrompt() {
+        let wasListening = speechInputService?.isListening == true
+        if wasListening {
+            speechInputService?.cancelRecognitionForLifecycle()
+        }
         speak(lastSpokenPrompt ?? step.prompt)
+        if wasListening, isRunning, let field = step.speechField {
+            listen(for: field)
+        }
     }
 
     // MARK: Asking
@@ -301,6 +315,7 @@ final class VoiceOrderWizard: ObservableObject {
         let prompt: String
         if step == .confirm, let bookingViewModel {
             prompt = confirmPrompt(for: bookingViewModel)
+            readBackStartPlaceID = bookingViewModel.resolvedStartPlace?.id
         } else {
             prompt = step.prompt
         }
@@ -354,14 +369,23 @@ final class VoiceOrderWizard: ObservableObject {
         return Step.confirmOutroText
     }
 
-    /// 关键槽位缺失时的说明。**只有开始时间是关键的**：
-    /// 起点缺失有正当默认（当前位置，且读回会念出来）；时长在产品上就是选填，
+    /// 关键槽位缺失时的说明。**开始时间和出发地点是关键的**；时长在产品上就是选填，
     /// 读回念「没有填写选填跑步需求」本来就是诚实的，没有编造。
+    ///
+    /// 起点以前不算关键槽位，理由是「缺失时有正当默认（当前位置）」。这个假设在定位被拒、
+    /// 精确位置关闭、定位还没回来时不成立：`resolvedStartPlace` 为 nil，读回却照样教「说确认」，
+    /// 用户照做后语音面板消失、落到表单，只听到「请选择出发地点。」（#558 走查卡死 2）。
+    /// 判据用 `resolvedStartPlace` 而不是自己判定位状态 —— 提交时 `makeCreateOrderRequest` 认的就是它。
+    ///
+    /// 没有 view model 时不拦：那时什么都提交不了（`submitConfirmedBooking` 第一行就 `guard` 掉）。
     private var missingRequiredSlotMessage: String? {
-        guard !didCaptureStartTime else { return nil }
         // 2026-08-10：先教「直接说时间」。跨轮修正之后补一个槽位不再需要把整句重说一遍，
         // 而对听不见屏幕的人，少说一整句就是少一次出错的机会。「重说」仍然留着当第二条出路。
-        return "还没听到你说预约时间，现在不能下单。直接说时间就行，比如「明天早上八点」；要整句重说就说「重说」。"
+        guard didCaptureStartTime else { return Self.missingStartTimeMessage }
+        if let bookingViewModel, bookingViewModel.resolvedStartPlace == nil {
+            return Self.missingStartPointMessage
+        }
+        return nil
     }
 
     private func listen(for field: SpeechInputField) {
@@ -772,52 +796,14 @@ final class VoiceOrderWizard: ObservableObject {
         // ⚠️ 后端 2026-08-10 起不再拿全国范围的正向编码兜底（那条路曾把深圳说的地名解析到海南），
         // 所以这个 `true` 会**变常见** —— 在此之前它几乎不出现，接不接看不出差别。
         if parsed.resolvedStartPlace == nil, parsed.addressUnresolved == true {
-            notice = [notice, Self.startAddressUnresolvedNotice].compactMap { $0 }.joined()
+            let hasFallback = bookingViewModel?.resolvedStartPlace != nil // 没有可用起点就不说「按当前位置来」（#558）
+            notice = [notice, Self.unresolvedStartNotice(hasFallback: hasFallback)].compactMap { $0 }.joined()
         }
         return notice
     }
 
-    /// 说得超过后端的大模型字数线时，读回前先说的那一句。
-    ///
-    /// **不做客户端截断**（`design.md` D4）：截断是无声的信息丢失，而丢的必然是句子后半段 ——
-    /// 「我有低血糖，如果我说头晕请马上停下来扶我坐到路边」里要执行的那半句正好在后半段。
-    /// 静默取整已经被判过一次「对听不见屏幕的人等于篡改」，这是同一类问题的更严重版本。
-    ///
-    /// 措辞的两条约束，与 `startAddressUnresolvedNotice` 同源：
-    /// **说清楚是「太长没记全」而不是「没听见」**（我们听见了），
-    /// 以及**给出唯一的出路**（说短一点重说）。不列举具体丢了哪几项 ——
-    /// 读回紧接着就会把记下的念一遍，用户自己听得出缺什么，而读回本来就要 15~25 秒。
-    static func longUtteranceNotice(forCharacterCount count: Int) -> String? {
-        guard count > ParseVoiceOrderRequest.modelFallbackCharacterLimit else { return nil }
-        return "这句话超过 \(ParseVoiceOrderRequest.modelFallbackCharacterLimit) 个字，"
-            + "我只能按关键词记，终点和备注可能没记下。缺了就说「重说」，讲短一点。"
-    }
-
-    /// 听见了地名却没查到时，读回前先说的那一句。
-    ///
-    /// 措辞的两条约束：**说清楚「没找到」而不是「没听到」**（我们听到了，是查不到），
-    /// 以及**说清楚起点现在是什么**（不说的话用户得从后面那句 `startPointSummary` 里自己推）。
-    static let startAddressUnresolvedNotice =
-        "没找到你说的那个地点，出发地先按当前位置来，要改就说「重说」。"
-
-    /// 整句解析失败时先说的那句话。
-    ///
-    /// 措辞上的三条约束：
-    /// - **不说「网络」**。404、超时、鉴权过期表现相同，客户端分不出来，断言原因就是编。
-    /// - **不说「没听到」**。ASR 是成功的，紧接着的「我听到你说：⋯⋯」会念出原话，说没听到自相矛盾。
-    ///   失败的是把原话转成预约内容这一步。
-    /// - **不给指令**。读回结尾那句「要改就说『改地点』⋯⋯」已经把出路说全了，再说一遍只是把
-    ///   本就 15~25 秒的读回拖得更长。
-    static let parseFailureNotice = "这次没能把你说的话转成预约内容，下面念的是默认值。"
-
-    /// 「这个接口在服务端根本不存在」——**重说多少遍都不会变好**，与「没听懂」必须分开。
-    ///
-    /// 上面 `parseFailureNotice` 那三条措辞约束（不说网络、不说没听到、不给指令）针对的是
-    /// **偶发**失败。端点未部署不是偶发，它是常态，而对它说「下面念的是默认值」等于邀请用户
-    /// 再试一次 —— 试一万次也一样。所以这一路单独播、并且直接交回表单。
-    static let parseUnavailableNotice = "语音下单暂时用不了，"
-
-    // `isEndpointMissing` / `isIdentityRejection` 与时长换算在 `VoiceOrderWizard+ServerReplies.swift`。
+    // `isEndpointMissing` / `isIdentityRejection` 与时长换算在 `VoiceOrderWizard+ServerReplies.swift`；
+    // 读回前的提示文案（`parseFailureNotice` 等）在 `VoiceOrderWizard+SpokenCopy.swift`。
 
     /// - Parameter notice: 需要先说一句再读回的话（例如时长被取整）。**必须和读回拼成同一段**，
     ///   分两次 `speak` 会让 `lastSpokenPrompt` 只剩后一句，「重复一遍」就再也念不到取整提示了 ——
@@ -907,7 +893,8 @@ final class VoiceOrderWizard: ObservableObject {
             // **不再回「没听懂」** —— 这里失败的是网络，不是听力，说成没听懂会让用户去改说法，
             // 而改说法一点用都没有。本地那几个词仍然直通，所以「确认」这条出路没有被网络挡住，
             // 提示里必须把它说出来。
-            reask(with: Self.confirmRoundNetworkFailureNotice)
+            // 缺关键槽位时「确认」不生效，不能教它（#558）；说缺什么。
+            reask(with: missingRequiredSlotMessage ?? Self.confirmRoundNetworkFailureNotice)
             return
         }
 
@@ -1035,6 +1022,8 @@ final class VoiceOrderWizard: ObservableObject {
             reask(with: blocked)
             return
         }
+        // 起点在读回之后才有（定位晚到）或换了：用户没听过这个起点，先重念再确认（#558）。
+        if let viewModel = bookingViewModel, viewModel.resolvedStartPlace?.id != readBackStartPlaceID { return repeatReadback() }
         await submitConfirmedBooking()
     }
 
@@ -1043,13 +1032,6 @@ final class VoiceOrderWizard: ObservableObject {
         reaskCount = 0
         askCurrentStep()
     }
-
-    /// 确认轮网络失败时说的那句话。
-    ///
-    /// 三条约束与 `parseFailureNotice` 同源（不说网络、不说没听到、不编原因），
-    /// 但**必须把本地还能用的那两条出路念出来** —— 网络断着的时候它们是仅存的通路。
-    static let confirmRoundNetworkFailureNotice =
-        "这次没能听明白你想改什么。说「确认」就按刚才念的下单，说「重说」重新说一遍。"
 
     /// 后端 `ttsText` 缺失时的定向追问兜底。正常情况下用不到 —— 后端保证 `correctionTarget`
     /// 非 null 时 `ttsText` 是该项的追问语；这里只防「字段在、文案空」那种线上偶发。
@@ -1282,6 +1264,7 @@ final class VoiceOrderWizard: ObservableObject {
         endedMessage = nil
         endedAfterFailure = false
         self.didCaptureStartTime = didCaptureStartTime
+        readBackStartPlaceID = bookingViewModel?.resolvedStartPlace?.id // 当作用户已听过当前起点
     }
 
     /// 把一次录音完成回调直接喂进来，不碰麦克风。
@@ -1378,11 +1361,6 @@ final class VoiceOrderWizard: ObservableObject {
         "算了", "不下单", "不下了", "不订了", "不跑了", "不要了", "取消", "取消吧", "放弃"
     ]
     private static let normalizedCancelWords = Set(cancelWords.map(normalizedCommand))
-
-    static let cancelledReason = "已取消这次语音下单"
-    /// 文案取自后端 #502 的提议，负责人 2026-10-05 确认。**不提表单**：用户是想退出，不是想填表。
-    static let cancelledMessage = "\(cancelledReason)。"
-    static let notUnderstoodMessage = "暂时没听清，你可以稍后再试，或者让身边的人帮忙。"
 
     static func isCancel(_ transcript: String) -> Bool {
         let normalized = normalizedCommand(transcript)

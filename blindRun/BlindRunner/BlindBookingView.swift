@@ -525,8 +525,8 @@ final class BlindBookingViewModel: ObservableObject {
     /// 读回里那句出发地点。**念 `spokenStartLocationDescription` 而不是完整地址** ——
     /// 见 `voiceStartAddressShort` 与后端 `api_spec.yaml:3032`。
     var startPointSummary: String {
-        let placeText = spokenStartLocationDescription.nilIfBlank ?? "正在获取当前位置"
-        return "\(startPointSourceText)出发地点：\(placeText)。"
+        guard resolvedStartPlace != nil else { return "出发地点还没有确定。" } // 定位不可用时等不到当前位置（#558）
+        return "\(startPointSourceText)出发地点：\(spokenStartLocationDescription.nilIfBlank ?? "正在获取当前位置")。"
     }
 
     /// `resolvedStartLocationDescription` 的朗读版：底座换成 POI 名，**补充说明照旧带着**。
@@ -1480,7 +1480,7 @@ struct BlindBookingView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(voiceStageAccessibilityLabel)
-        .accessibilityValue(voiceWizard.lastSpokenPrompt ?? "")
+        .accessibilityValue(isRecording ? "" : (voiceWizard.lastSpokenPrompt ?? "")) // 录音中念出的示例句会被录进去（#558）
         .accessibilityHint(voiceStageAccessibilityHint)
         .accessibilityAddTraits(voiceWizard.isParsing ? [] : .isButton)
         .accessibilityIdentifier("blindBookingFinishSpeakingSurface")
@@ -1559,7 +1559,7 @@ struct BlindBookingView: View {
     private var voiceStageAccessibilityHint: String {
         if voiceWizard.isParsing { return "" }
         if isVoiceSessionEnded { return "" }
-        return isRecording ? "也可以停顿几秒自动结束" : "也可以听完播报，麦克风会自动打开"
+        return isRecording ? "" : "也可以听完播报，麦克风会自动打开" // 录音中不给 hint，同上（#558）
     }
 
     /// 读回轮把整单摆在屏幕上。**服务的是低视力用户和陪同的明眼人** —— 全盲用户靠读回听，
