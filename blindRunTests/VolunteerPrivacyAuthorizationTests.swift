@@ -8,16 +8,30 @@ final class VolunteerPrivacyAuthorizationTests: XCTestCase {
     /// 🔴 开着接单开关时撤回：开关要同步关掉（服务端也关），否则服务端一直当他在线、却收不到他的位置。
     func testRevokingWhileDispatchingTurnsDispatchOffOnTheServer() async {
         let orders = FakeOrderService()
+        orders.setDispatchStatusResult = .success(())
         let (appState, home) = makeVolunteerHome(orders: orders)
         home.isAvailable = true
 
-        let notice = VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
+        let notice = await VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
 
         XCTAssertEqual(notice, VolunteerPrivacyCopy.revokedAndPausedDispatch)
+        XCTAssertEqual(orders.lastWantsDispatch, false, "服务端的接单开关没关")
         XCTAssertFalse(home.isAvailable)
         XCTAssertFalse(appState.hasLocationTrackConsent(.volunteerLocationTrack))
-        let synced = await waitUntil { orders.lastWantsDispatch == false }
-        XCTAssertTrue(synced, "服务端的接单开关没关")
+    }
+
+    /// 🔴 审查 A：服务端没关成就不撤 —— 否则页面说「已关闭」，开关却还开着、服务端还当他在线，而本机同意已删。
+    func testFailingToTurnDispatchOffKeepsTheConsentAndSaysSo() async {
+        let orders = FakeOrderService()
+        orders.setDispatchStatusResult = .failure(URLError(.notConnectedToInternet))
+        let (appState, home) = makeVolunteerHome(orders: orders)
+        home.isAvailable = true
+
+        let notice = await VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
+
+        XCTAssertEqual(notice, VolunteerPrivacyCopy.dispatchOffFailed)
+        XCTAssertTrue(appState.hasLocationTrackConsent(.volunteerLocationTrack), "开关没关成，同意不许先删")
+        XCTAssertTrue(home.isAvailable)
     }
 
     /// 对照：开关本来关着就只撤回，不发多余的请求。
@@ -25,7 +39,7 @@ final class VolunteerPrivacyAuthorizationTests: XCTestCase {
         let orders = FakeOrderService()
         let (appState, home) = makeVolunteerHome(orders: orders)
 
-        let notice = VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
+        let notice = await VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
 
         XCTAssertEqual(notice, VolunteerPrivacyCopy.revoked)
         XCTAssertFalse(appState.hasLocationTrackConsent(.volunteerLocationTrack))
@@ -34,14 +48,19 @@ final class VolunteerPrivacyAuthorizationTests: XCTestCase {
     }
 
     /// 陪跑进行中拒绝撤回，同意与开关都不动（同盲人端）。
-    func testRevokingIsRefusedDuringAnEscortSession() {
-        let (appState, home) = makeVolunteerHome(orders: FakeOrderService())
+    func testRevokingIsRefusedDuringAnEscortSession() async {
+        let orders = FakeOrderService()
+        orders.setDispatchStatusResult = .success(())
+        let (appState, home) = makeVolunteerHome(orders: orders)
+        home.isAvailable = true
         appState.liveEscortCoordinator.updateOwnedOrder(orderID: 88, status: .driverEnRoute)
 
-        let notice = VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
+        let notice = await VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: home)
 
         XCTAssertEqual(notice, PrivacyAuthorizationCopy.locationBlockedDuringEscort)
         XCTAssertTrue(appState.hasLocationTrackConsent(.volunteerLocationTrack))
+        XCTAssertTrue(home.isAvailable, "陪跑中开关也不许动")
+        XCTAssertNil(orders.lastWantsDispatch, "陪跑中不许发关开关的请求")
         appState.liveEscortCoordinator.reset()
     }
 

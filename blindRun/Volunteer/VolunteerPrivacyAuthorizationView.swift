@@ -11,21 +11,30 @@ enum VolunteerPrivacyCopy {
     static let locationRevokeLabel = "撤回接单和陪跑时位置共享的同意。撤回后不再获取你的位置，接单开关会关闭"
     static let revokedAndPausedDispatch = "已撤回。不再获取你的位置，接单开关已关闭；想再接单，打开开关时会重新问你。"
     static let revoked = "已撤回。不再获取你的位置；想接单时，打开接单开关会重新问你。"
+    static let dispatchOffFailed = "没有撤回：接单开关没能关闭（网络或服务器暂时有问题），同意还在。请稍后再点一次「\(locationRevokeButtonTitle)」。"
 }
 
 /// 撤回的流程（抽出来只为可测）：
 /// 1. 陪跑进行中拒绝（同盲人端：撤回会让对方立刻看不到位置、同意页马上再弹）。
-/// 2. 接单开关开着就先关掉（`setAvailability(false)` 会同步服务端）：否则服务端一直当他在线，却再也收不到他的位置 ——
-///    同意页上按「先不同意」时 `declineTrackConsent` 也是这么处理的。
+/// 2. 接单开关开着就先在服务端关掉，**等它成功**：否则服务端一直当他在线，却再也收不到他的位置。
+///    关不掉就不撤，如实说（审查 A：此前只把 PUT 丢进 Task 就照撤，失败时页面说「已关闭」而开关回滚成开着）。
 /// 3. 撤回同意记录，停掉为派单要的定位（`AppState.revokeLocationTrackConsent` 内重算定位意图）。
 enum VolunteerLocationConsentRevocation {
     /// - Returns: 要上屏并朗读的那一句。
-    static func revoke(appState: AppState, homeViewModel: VolunteerHomeViewModel) -> String {
+    static func revoke(appState: AppState, homeViewModel: VolunteerHomeViewModel) async -> String {
         guard appState.canRevokeLocationTrackConsentNow else {
             return PrivacyAuthorizationCopy.locationBlockedDuringEscort
         }
         let wasDispatching = homeViewModel.isAvailable
-        if wasDispatching { homeViewModel.setAvailability(false) }
+        if wasDispatching {
+            do {
+                try await appState.orders.setDispatchStatus(wantsDispatch: false)
+            } catch {
+                return VolunteerPrivacyCopy.dispatchOffFailed
+            }
+            // 首页那份跟着服务端：`isAvailable` 的 didSet 同步 `AppState.volunteerWantsDispatch`，下一拍刷新摘要再对账。
+            homeViewModel.isAvailable = false
+        }
         appState.revokeLocationTrackConsent(.volunteerLocationTrack)
         return wasDispatching ? VolunteerPrivacyCopy.revokedAndPausedDispatch : VolunteerPrivacyCopy.revoked
     }
@@ -39,6 +48,7 @@ struct VolunteerPrivacyAuthorizationView: View {
     /// 同意记录是现读的计算属性，撤回后自增一次让页面重读（不拿它当 `.id`：换 id 会让读屏焦点跳回页首）。
     @State private var refreshTick = 0
     @State private var notice: String?
+    @State private var isRevoking = false
 
     var body: some View {
         let _ = refreshTick
@@ -52,7 +62,7 @@ struct VolunteerPrivacyAuthorizationView: View {
                     title: VolunteerPrivacyCopy.locationRevokeButtonTitle,
                     label: VolunteerPrivacyCopy.locationRevokeLabel,
                     identifier: "volunteerPrivacyRevokeLocationTrackConsent",
-                    isDisabled: homeViewModel.isUpdatingAvailability,
+                    isDisabled: isRevoking || homeViewModel.isUpdatingAvailability,
                     perform: revoke
                 ) : nil,
                 notice: notice
@@ -66,9 +76,13 @@ struct VolunteerPrivacyAuthorizationView: View {
     }
 
     private func revoke() {
-        let text = VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: homeViewModel)
-        notice = text
-        refreshTick += 1
-        speechService.speak(text)
+        isRevoking = true
+        Task {
+            let text = await VolunteerLocationConsentRevocation.revoke(appState: appState, homeViewModel: homeViewModel)
+            isRevoking = false
+            notice = text
+            refreshTick += 1
+            speechService.speak(text)
+        }
     }
 }
