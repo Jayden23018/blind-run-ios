@@ -117,6 +117,12 @@ jobs:
       - name: validate shared-checkout guard
         run: node scripts/validate-shared-checkout-guard.mjs
 
+      # 钩子转发器（#483）。它坏掉的样子是 worktree 会话照样跑主 checkout 那份旧钩子 ——
+      # 不报错，只是 main 上的钩子修复又到不了 worktree。这里真建 worktree 跑一遍，
+      # 并检查 settings.json 里没有绕开转发器的钩子。
+      - name: validate hook launcher
+        run: node scripts/validate-hook-launcher.mjs
+
       # 新 worktree 自动带上 LocalConfig.xcconfig 的 post-checkout 钩子。它坏掉的样子是什么都不发生 ——
       # 下一个会话照样编译不过，还得让人手动 cp。这里真跑 install + git worktree add。
       - name: validate worktree LocalConfig hook

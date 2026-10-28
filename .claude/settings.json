@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard.mjs\" pre"
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" guard pre"
           }
         ]
       },
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/shared-checkout-guard.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" shared-checkout-guard"
           }
         ]
       },
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/design-direction-reminder.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" design-direction-reminder"
           }
         ]
       },
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/research-log.mjs\" pre"
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" research-log pre"
           }
         ]
       },
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/openspec-reminder.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" openspec-reminder"
           }
         ]
       }
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard.mjs\" post"
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" guard post"
           }
         ]
       }
@@ -84,7 +84,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/session-context.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" session-context"
           }
         ]
       }
@@ -94,7 +94,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/stop-checklist.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/run.mjs\" stop-checklist"
           }
         ]
       }
