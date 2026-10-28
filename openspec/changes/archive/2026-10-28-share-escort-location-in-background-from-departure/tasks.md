@@ -8,4 +8,5 @@
 
 - [x] 2.1 单测：出发即 `.sharing`、跑步 `.running`、终态与换身份 `.off`
 - [x] 2.2 编译门禁、SwiftLint 棘轮、`openspec validate --strict`
-- [ ] 2.3 真机：陪跑员出发后切到高德导航，盲人端持续看到位置移动；`passed=N failed=0` 与验红
+- [x] 2.3 真机（iPhone 16 Pro 有线，2026-10-28）：`EscortBackgroundLocationTests` 等 6 个 suite `passed=91 failed=0`；验红把出发 / 汇合档位打回 `.off` → 预期的 1 条红（`failed=1`）。
+  双真机人工验收（陪跑员出发后切到高德导航，盲人端持续看到位置移动）单台 iPhone 做不了，挪到人工验收 issue #410
