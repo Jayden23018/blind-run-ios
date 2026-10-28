@@ -66,6 +66,26 @@ final class VolunteerUpcomingOrdersTests: XCTestCase {
         )
     }
 
+    /// 确认 / 释放成功后本地移走了那一单：发出早于这一刻的摘要（在途的那次刷新）不许把它放回来（复核 B）。
+    func testASummaryRequestedBeforeALocalChangeDoesNotBringTheOrderBack() async {
+        let orders = FakeOrderService()
+        let summary = Self.summary(upcoming: #"[{"orderId":73,"status":"SCHEDULED_CONFIRMED","plannedStartTime":"2026-11-03T07:00:00"}]"#)
+        orders.dispatchSummaryResult = .success(summary)
+        orders.confirmDepartureResult = .success(())
+        let (_, viewModel) = Self.makeHome(orders: orders)
+        await viewModel.load(currentLocation: nil, locationAuthorized: false)
+        await Self.waitUntil { viewModel.scheduledOrders.count == 1 }
+        let beforeTheChange = Date()
+
+        await viewModel.confirmScheduledDeparture(orderID: 73)
+        XCTAssertTrue(viewModel.scheduledOrders.isEmpty)
+
+        viewModel.apply(summary: summary, requestedAt: beforeTheChange)
+        XCTAssertTrue(viewModel.scheduledOrders.isEmpty, "在途的旧摘要把刚确认的单放回来了")
+        viewModel.apply(summary: summary, requestedAt: Date().addingTimeInterval(1))
+        XCTAssertEqual(viewModel.scheduledOrders.map(\.orderId), [73], "改动之后发出的摘要照常生效")
+    }
+
     // MARK: - Fixture
 
     private static func summary(upcoming: String) -> VolunteerDispatchSummaryResponse {

@@ -177,6 +177,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 撤销窗口里的那张邀请被撤回 / 判失效了：撤销时以这个结果恢复（`nil` = 没有）。
     private var pendingDeclineInvalidation: VolunteerInviteState.Outcome?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
+    /// 本地刚改过预约列表（确认 / 释放成功后移走那一单）的时刻。发出早于它的摘要不再覆盖预约列表 ——
+    /// 否则在途的那次刷新会把刚移走的单放回来，最长 10 秒（#471 代码复核）。
+    private var scheduledOrdersChangedLocallyAt: Date?
     private let declineStreak: VolunteerDeclineStreak
     /// 撤销窗口的长度（设计交付 v3 §10「撤销『去不了』时长 = 5 秒」）。
     private let declineUndoWindow: TimeInterval
@@ -837,6 +840,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
         do {
             let orders = appState.orders
+            let requestedAt = Date()
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-initial"
@@ -844,7 +848,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 try await orders.dispatchSummary()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
-            apply(summary: summary)
+            apply(summary: summary, requestedAt: requestedAt)
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
@@ -1049,6 +1053,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         do {
             let followUp = try await operation(appState.orders) ?? ""
             scheduledOrders.removeAll { $0.orderId == orderID }
+            scheduledOrdersChangedLocallyAt = Date()
             speechService?.speak(successSpeech + followUp)
             return true
         } catch let error as APIError {
@@ -1063,6 +1068,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             // 现在这句话对三种成因**都为真**，且给出的下一步（不用再确认）也都对。
             if case .serverError(let response) = error, response.errorCode == .invalidOrderStatus {
                 scheduledOrders.removeAll { $0.orderId == orderID }
+                scheduledOrdersChangedLocallyAt = Date()
                 let message = "这一单的状态已经变了，不用再确认。可以到「近期服务」里看它现在怎么样。"
                 scheduledOrdersMessage = message
                 speechService?.speakError(message)
@@ -1239,7 +1245,8 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 动状态机，把「摘要里有 introCallOrderId 会怎样」这一条断言埋进一堆无关请求里。
     func apply(
         summary: VolunteerDispatchSummaryResponse,
-        statusRequestToken: OrderStatusRequestToken? = nil
+        statusRequestToken: OrderStatusRequestToken? = nil,
+        requestedAt: Date? = nil
     ) {
         let previousOrderID = activeOrder?.orderId
         dispatchSummary = summary
@@ -1281,10 +1288,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
         // 订单交给协调器之后再判：协调器这时才答得出这一单要不要问同一件事（#420）。
         requestTrackConsentIfStandbyResumesWithoutIt()
-        if let upcoming = summary.upcomingOrders { applyUpcoming(fromSummary: upcoming) }
+        if let upcoming = summary.upcomingOrders,
+           (requestedAt ?? .distantFuture) >= (scheduledOrdersChangedLocallyAt ?? .distantPast) {
+            applyUpcoming(fromSummary: upcoming)
+        }
         recoverIntroCallIfNeeded(summary: summary)
-        // 三岔路的「有进行中订单」那一岔在这里就判得了，不必等预约单那条请求回来。
-        // 另一岔（2 小时内开始的陪跑）在 `startAuxiliaryLoad` 的收尾里。
+        // 三岔路的「有进行中订单」那一岔在这里就判得了。另一岔（2 小时内开始的陪跑）：摘要带了 `upcomingOrders`
+        // 时这里也判得了（#471）；没带时等 `startAuxiliaryLoad` 回落的那两条请求回来，在它的收尾里判。
         resolveLaunchRouteIfNeeded()
     }
 
@@ -1388,6 +1398,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
+            let requestedAt = Date()
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-refresh"
@@ -1395,7 +1406,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 try await orders.dispatchSummary()
             }
             guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
-            apply(summary: summary, statusRequestToken: statusRequestToken)
+            apply(summary: summary, statusRequestToken: statusRequestToken, requestedAt: requestedAt)
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
