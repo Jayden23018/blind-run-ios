@@ -123,6 +123,18 @@ enum EmergencySOSState: Equatable {
         }
     }
 
+    /// 「这一次确定一个字节都没发出去」。陪跑员那边据此自动弹出本地拨号兜底（#407 第 1 项）：
+    /// 只有这两态能如实说「求助没有发出去」—— `failed` / `cooldown` 都可能是请求已到服务端、回程丢了。
+    var isDefinitelyUnsent: Bool {
+        switch self {
+        case .unsentNoLocation, .unsentSessionExpired:
+            return true
+        case .idle, .countingDown, .locating, .submitting, .acknowledged, .mergedIntoOpenEvent, .failed, .cooldown,
+             .contactSmsDelivered, .contactNotifyFailed, .cancelledByOwner, .withdrawnBeforeSending, .withdrawFailed:
+            return false
+        }
+    }
+
     /// 这一刻求助是否「已发出或即将发出」—— 只有这些状态下说「所附位置误差约 N 米」才有意义。
     var carriesSubmittedLocation: Bool {
         switch self {

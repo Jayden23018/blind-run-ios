@@ -1516,11 +1516,12 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     /// 代被陪同的盲人发起求助。与盲人侧同一条路径、同一个 GPS 严格门槛（拿不到真实定位就不发），
     /// 区别只在后端把事件挂在订单的盲人身上、并用 `VOLUNTEER_BUTTON` 标注来源。
+    /// 返回结果给页面判本地拨号兜底（#407 第 1 项）；订单或 `appState` 不在时返回 nil。
     func enterEmergency(
         locate: @escaping @MainActor () async -> LocatedCoordinate?,
         locationFailureReason: @escaping () -> LocationError? = { nil }
-    ) async {
-        guard let order, let appState else { return }
+    ) async -> EmergencyCoordinator.TriggerOutcome? {
+        guard let order, let appState else { return nil }
         let outcome = await appState.emergencyCoordinator.trigger(
             order: order,
             role: appState.activeRole,
@@ -1534,6 +1535,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         } else {
             speechService?.speak(outcome.message)
         }
+        return outcome
     }
 
     /// 对被陪同者的求助回一句「确认需要帮助」。这是志愿者唯一能做的响应。
@@ -1894,6 +1896,7 @@ struct VolunteerInServiceView: View {
     @State private var didBuzzWithin10 = false
     /// 兜底页右上的求助（只会是本地拨号，见 `fallbackContent`）。
     @State private var showsLocalHelp = false
+    @State private var showsUnsentLocalCall = false // 云端求助确定没发出去后的本地拨号（#407 第 1 项）
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
     /// 收起面板的动画时长（系统 sheet 约 0.35 秒）。等它收完再出栈，见 `didLoseOrder` 那条。
@@ -2036,13 +2039,9 @@ struct VolunteerInServiceView: View {
         }
         // `.volunteer`：他按下去之后撤销不了（后端恒 403），文案要把这一半后果说出来。
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
-            Task {
-                await viewModel.enterEmergency(
-                    locate: { emergencyLocate() },
-                    locationFailureReason: { emergencyLocationFailureReason() }
-                )
-            }
+            Task { await sendCloudEmergency() }
         }
+        .emergencyCallOptionsDialog(isPresented: $showsUnsentLocalCall, context: .volunteerCloudUnsent, primaryContact: nil)
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .navigation(let request):
@@ -2085,12 +2084,7 @@ struct VolunteerInServiceView: View {
                         onRing: { Task { await viewModel.ringRunner() } },
                         onContactSupport: { Task { await viewModel.requestSupportCallback() } },
                         onEmergency: {
-                            Task {
-                                await viewModel.enterEmergency(
-                                    locate: { emergencyLocate() },
-                                    locationFailureReason: { emergencyLocationFailureReason() }
-                                )
-                            }
+                            Task { await sendCloudEmergency() }
                         }
                     )
                     .presentationDetents([.large])
@@ -2316,16 +2310,18 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    /// 代跑者求助时取的坐标。本角色没同意共享位置（#368）就不取 —— 同意页写着拒绝后
-    /// 「求助定位也用不了」，按 `AGENTS.md` §6「拿不到坐标就不发」处理，原因单独说。
-    private func emergencyLocate() -> LocatedCoordinate? {
-        guard !appState.isEmergencyLocationSharingBlocked else { return nil }
-        return locationService.latestBackendSample()
-    }
-
-    private func emergencyLocationFailureReason() -> LocationError? {
-        if appState.isEmergencyLocationSharingBlocked { return .locationSharingNotConsented }
-        return locationService.locationError
+    /// 两个云端求助入口共用。取坐标与跑者端同一道闸，精确位置关着先问一次临时精确位置；
+    /// 确定没发出去就弹本地拨号兜底（#407 第 1 项，原因已播报、也写在 `EmergencyStatusNotice`）。
+    private func sendCloudEmergency() async {
+        let outcome = await viewModel.enterEmergency(
+            locate: { await EmergencyCoordinator.freshEmergencyCoordinateAskingForPrecision(
+                using: locationService, sharingBlocked: appState.isEmergencyLocationSharingBlocked
+            ) },
+            locationFailureReason: { EmergencyCoordinator.locationFailureReason(
+                using: locationService, sharingBlocked: appState.isEmergencyLocationSharingBlocked
+            ) }
+        )
+        if outcome?.state.isDefinitelyUnsent == true { showsUnsentLocalCall = true }
     }
 
     /// 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉
