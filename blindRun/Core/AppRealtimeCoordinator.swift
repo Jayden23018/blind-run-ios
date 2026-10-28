@@ -556,6 +556,9 @@ final class AppRealtimeCoordinator: ObservableObject {
     func simulateIncomingEventForTesting(_ event: WSIncomingEvent) {
         route(event)
     }
+
+    /// 注册进位置协同的单号。用例守「预约单不进位置协同」（#471）。
+    var registeredActiveOrderIDsForTesting: Set<Int64> { activeOrderIDs }
     #endif
 
     init(

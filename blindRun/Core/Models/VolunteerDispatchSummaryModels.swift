@@ -102,6 +102,13 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
     /// 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单，
     /// 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
     let introCallOrderId: Int64?
+    /// 已接单、**还没出发**的订单（`PENDING_ACCEPT` / `SCHEDULED_CONFIRMED`，后端 #774，iOS #471），按开跑时间升序。
+    ///
+    /// 🚨 **`nil` 与 `[]` 意思相反**（契约原话）：`[]` = 确实没有；`nil` = 这一块服务端没取到，
+    /// 要回落到 `GET /api/orders/mine?role=VOLUNTEER&status=…`（`startAuxiliaryLoad`）。当成空列表就会把他的预约单抹掉。
+    /// 🚨 **不要并进 `activeOrders`、也不要注册进位置协同**：这两态不共享实时位置，注册进去会让安全网空转。
+    /// `var` 只为让既有构造点不必补参数；解码照常读。
+    var upcomingOrders: [VolunteerDispatchSummaryActiveOrder]? = nil
 
     var completedCount: Int {
         totalCompleted ?? 0
