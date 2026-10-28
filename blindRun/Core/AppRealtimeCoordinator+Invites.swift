@@ -26,18 +26,6 @@ struct RealtimePendingInviteSnapshot: Sendable {
     }
 }
 
-/// 锁屏上按下的「接下」（#338）。
-struct RealtimeLockScreenAccept: Equatable, Sendable {
-    let orderId: Int64
-    /// `NEW_ORDER` 的 APNs 没有 `inviteId`，那时只按 `orderId` 认（契约）。
-    let inviteId: Int64?
-    let requestedAt: Date
-
-    func matches(_ order: WSNewOrder) -> Bool {
-        order.orderId == orderId && (inviteId == nil || order.inviteId == nil || order.inviteId == inviteId)
-    }
-}
-
 /// 本地已经了结的邀请（回复过、收起、撤回、失效），记到它原本的回复期限为止。
 ///
 /// 存在的理由：「本地已经回复、后端还没收到」这段时间里（「去不了」有 5 秒撤销窗口才真正发出），

@@ -1993,7 +1993,7 @@ extension VolunteerHomeViewModel {
             .sink { [weak self] snapshot in
                 self?.reconcileInvites(with: snapshot)
             }
-        lockScreenAcceptCancellable = appState.realtimeCoordinator.$lockScreenAccept
+        lockScreenAcceptCancellable = appState.realtimeCoordinator.$lockScreenInviteAction
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -2001,22 +2001,35 @@ extension VolunteerHomeViewModel {
             }
     }
 
-    /// 锁屏「接下」（#338）落地：这张邀请在队列里还等着回复 ⇒ 翻到它、弹出卡片、交给宿主走同一条接单路径；
-    /// 这次按下之后的对账回来了而它不在 ⇒ 已经失效，告诉他（他按了，就得有回应）。两样都不是就再等。
-    private func resolveLockScreenAccept(after snapshot: RealtimePendingInviteSnapshot? = nil) {
-        guard let coordinator = appState?.realtimeCoordinator, let request = coordinator.lockScreenAccept else { return }
-        if let invite = invites.first(where: { $0.isAwaitingReply && request.matches($0.order) }) {
-            coordinator.consumeLockScreenAccept()
+    /// 锁屏邀请操作（#338）落地。这张邀请在**当前账号的队列里**还等着回复 ⇒ 翻到它、弹出卡片：
+    /// 「接下」交给宿主走卡片上同一个 `respondToDispatch`（要带定位），「这次去不了」走同一个 `declineInvite`（带撤销）。
+    /// 邀请期限已过，或按下之后的那次对账里没有它 ⇒ 已失效，告诉他（他按了，就得有回应）。两样都不是就再等。
+    ///
+    /// 只认身份对得上的那张（`inviteId`，否则期限）：同一单撤回后的新邀请、换账号后旧账号的通知，都不会被它回复。
+    private func resolveLockScreenAccept(after snapshot: RealtimePendingInviteSnapshot? = nil, now: Date = Date()) {
+        guard let coordinator = appState?.realtimeCoordinator, let request = coordinator.lockScreenInviteAction else { return }
+        let target = request.invite
+        if let invite = invites.first(where: {
+            $0.isAwaitingReply && target.matches(orderId: $0.id, inviteId: $0.order.inviteId, expiresAt: $0.expiresAt)
+        }) {
+            coordinator.consumeLockScreenInviteAction()
             currentInviteID = invite.id
-            isInviteSheetPresented = true
-            lockScreenAcceptRequest = VolunteerLockScreenAcceptRequest(
-                orderId: invite.id, action: invite.order.dispatchRespondAction
-            )
+            switch request.action {
+            case .accept:
+                isInviteSheetPresented = true
+                lockScreenAcceptRequest = VolunteerLockScreenAcceptRequest(orderId: invite.id, action: invite.order.dispatchRespondAction)
+            case .decline:
+                declineInvite(orderID: invite.id)
+            }
             return
         }
-        guard let snapshot, snapshot.requestedAt >= request.requestedAt,
-              !snapshot.invites.contains(where: request.matches) else { return }
-        coordinator.consumeLockScreenAccept()
+        let expired = target.expiresAt.map { $0 <= now } ?? false
+        let gone = snapshot.map { snapshot in
+            snapshot.requestedAt >= (coordinator.lockScreenInviteActionAt ?? .distantFuture)
+                && !snapshot.invites.contains { target.matches(orderId: $0.orderId, inviteId: $0.inviteId, expiresAt: $0.expiresAt?.backendTimestamp) }
+        } ?? false
+        guard expired || gone else { return }
+        coordinator.consumeLockScreenInviteAction()
         speechService?.speak("\(VolunteerInviteCopy.expiredTitle)，\(VolunteerInviteCopy.withdrawnDetail(.noLongerPending))")
     }
 }

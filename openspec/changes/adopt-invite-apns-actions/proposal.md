@@ -7,17 +7,23 @@
 
 ## What Changes
 
-- 注册两个 category：`INVITE`（接下 + 这次去不了）、`INVITE_INTRO_CALL`（只有这次去不了）。两个操作都要解锁；「接下」另外拉起 App，「这次去不了」是 destructive。
-- 锁屏「接下」：记下单号，App 前台后等这张邀请进了队列，翻到它、弹出卡片，走卡片上同一个 `respondToDispatch`（定位闸、`INTRO_CALL_REQUIRED` 改发、409 原地失效都在那条路上）；
-  按下之后的对账里没有它 ⇒ 念「这个邀请已失效，不需要再回复了」。
-- 锁屏「这次去不了」：后台直接 `POST /respond DECLINE`，成功静默并记为已了结；409 用本地通知说原因（与 App 里「已失效」卡同一套字），前台时念出来。
-- 撤回、本地回复、对账时按单号收掉已送达的邀请通知（对账只收早于请求送达、且不在快照里的）。
-- 前台收到邀请 APNs：系统横幅不出、不念，改去对一次待回复列表，由 App 内邀请卡呈现；WS 后到按 `inviteId` 去重。
+- 注册两个 category：`INVITE`（接下 + 这次去不了）、`INVITE_INTRO_CALL`（只有这次去不了）。两个操作都要解锁、**都拉起 App**；「这次去不了」是 destructive。
+- 锁屏操作记给协调器，App 前台后等这张邀请进了**当前账号的队列**，翻到它：「接下」走卡片上同一个 `respondToDispatch`
+  （定位闸、`INTRO_CALL_REQUIRED` 改发、409 原地失效都在那条路上），「这次去不了」走同一个带 5 秒撤销的 `declineInvite`。
+  只认身份对得上的那张（`inviteId`，否则期限）；邀请期限已过、或按下之后的对账里没有它 ⇒ 念「这个邀请已失效，不需要再回复了」。
+- 通知中心 delegate 在 `didFinishLaunching` 里设好，`configure` 之前到的锁屏操作先存着；锁屏意图不随 WS 接线时的会话清理抹掉。
+- 撤回、本地了结、对账时收掉已送达的邀请通知：按邀请身份收（同单新邀请留着），对账只收早于请求送达、且不在快照里的。
+- 前台收到 `NEW_ORDER` APNs：系统横幅不出、不念，改去对一次待回复列表，由 App 内邀请卡呈现；WS 后到按 `inviteId` 去重。
+  `INVITE_EXPIRING` 照旧弹出（App 不处理 WS 那一条）。
+
+**为什么不在后台直接回复「去不了」**（第一版就是这么做的，安全复核 HIGH 2 推翻）：后台拉起时根视图未必加载、会话未必恢复，
+回复会静默丢失；换账号后还会拿新账号的 token 回复旧账号的通知；点过期的旧通知会按订单拒掉同一单的新邀请。
+拉起 App 走卡片路径，三件事都由「只回复当前队列里身份对得上的那张」挡住，并且有可听可见的回执与撤销。
 - 连续拒绝改以后端 `consecutiveDeclineCount` 为准，两次对账之间本地先 +1；「问过一次」本地记下问时的次数，再涨 3 才再问，后端清零后从头算；「有意向」同样清零。
 
 ## Impact
 
-- 新文件 `blindRun/Core/InviteNotificationActions.swift`；`PushNotificationsManager.swift`（category 注册与操作处理）
+- 新文件 `blindRun/Core/InviteNotificationActions.swift`；`PushNotificationsManager.swift`（category 注册与操作处理）、`AppDelegate.swift`、`blindRunApp.swift`（启动时设 delegate）
 - `AppRealtimeCoordinator.swift`、`AppRealtimeCoordinator+Invites.swift`、`AppState+PendingInvites.swift`
 - `VolunteerHomeView.swift`、`VolunteerInviteQueue.swift`、`VolunteerTabView.swift`
 - 测试 `blindRunTests/InviteLockScreenActionTests.swift`

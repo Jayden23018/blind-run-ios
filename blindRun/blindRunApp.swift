@@ -64,7 +64,7 @@ struct blindRunApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var appState = AppState()
-    @StateObject private var pushNotificationsManager = PushNotificationsManager()
+    private var pushNotificationsManager: PushNotificationsManager { appDelegate.pushNotificationsManager }
     @StateObject private var speechService = SpeechService()
     @StateObject private var speechInputService = SpeechInputService()
     @StateObject private var locationService = LocationService()
@@ -141,7 +141,6 @@ struct blindRunApp: App {
     /// APNs 只是 WS 离线时的 HIGH 优先级兜底通道，注册失败不影响任何主流程。
     private func configurePushNotifications() {
         pushNotificationsManager.configure(appState: appState, speechService: speechService)
-        appDelegate.pushNotificationsManager = pushNotificationsManager
         // 登出流程要在拉黑 JWT 之前解绑本机 token，所以反向也要连上（`weak`，真正的持有者是上面的
         // `@StateObject`）。
         appState.pushNotificationsManager = pushNotificationsManager

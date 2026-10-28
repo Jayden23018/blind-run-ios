@@ -65,11 +65,21 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
 
     var registrar: RemoteNotificationRegistrar =
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil ? .system : .inert
+    /// `configure` 之前就到了的锁屏邀请操作（冷启动：系统在启动结束前就回调 delegate，根视图还没出来）。
+    private var inviteActionsBeforeConfigure: [InviteNotificationActions.Request] = []
+
+    /// 启动结束前调（`AppDelegate.didFinishLaunching`）。系统要求通知中心的 delegate 在那之前设好，
+    /// 否则冷启动时那一下点击 / 锁屏操作的回调会丢（#338 安全复核 HIGH 2）。
+    func installAtLaunch() {
+        UNUserNotificationCenter.current().delegate = self
+        // 邀请类 APNs 的锁屏操作（#338）。category 不分角色注册：跑者收不到邀请推送，注册了也不会出现。
+        UNUserNotificationCenter.current().setNotificationCategories(InviteNotificationActions.categories)
+    }
 
     func configure(appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
-        UNUserNotificationCenter.current().delegate = self
+        installAtLaunch()
         // 只在有人登录时向 APNs 注册（#459）。会话一结束就注销：服务端解绑可能没成（断网登出），
         // 旧账号的推送还会发到这个 token，而 App 不在前台时横幅由系统直接弹，前台闸拦不住。
         // Apple 文档把「用户登出与推送关联的账号」列为调用 `unregisterForRemoteNotifications` 的场景。
@@ -89,11 +99,12 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
                 // 两件事互不依赖（后端解绑只删属于旧账号的那一行，新账号上报会自己换绑）。
                 Task { await appState?.pendingSessionRevoker.retryIfPending() }
             }
-        // 邀请类 APNs 的锁屏操作（#338）。category 不分角色注册：跑者收不到邀请推送，注册了也不会出现。
-        UNUserNotificationCenter.current().setNotificationCategories(InviteNotificationActions.categories)
         appState.realtimeCoordinator.pruneDeliveredInviteNotifications = { prune in
             Task { await InviteNotificationCenter.prune(prune) }
         }
+        let early = inviteActionsBeforeConfigure
+        inviteActionsBeforeConfigure = []
+        for request in early { handleInviteAction(request) }
     }
 
     /// 这个会话状态下要不要收推送。nil = 还不知道（恢复中 / 校验失败），保持现状。
@@ -233,9 +244,9 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
     ///
     /// **没人登录时不朗读、不上屏**（#459）：这时收到的只可能是上一个账号的（服务端解绑可能还没补上），
     /// 念出来就是把上一个人的求助 / 订单消息念给下一个拿手机的人。
-    /// 邀请类（#338）例外：同一条邀请 WS 也会到，App 里的邀请卡 / 横幅才是它在前台的样子（设计交付 v3 §4.4.1）。
+    /// 新邀请（`NEW_ORDER`，#338）例外：同一条邀请 WS 也会到，App 里的邀请卡 / 横幅才是它在前台的样子（设计交付 v3 §4.4.1）。
     /// 系统横幅不出、不念，改去对一次待回复列表 —— APNs 先到时由对账把它放进队列，WS 后到按 `inviteId` 去重，
-    /// 两路只出现一次。
+    /// 两路只出现一次。`INVITE_EXPIRING` 照旧弹出（App 不处理 WS 那一条）。
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -244,7 +255,7 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         Task { @MainActor in
             let signedIn = self.appState?.isLoggedIn == true
             // 没人登录：一律不上屏（#459）。有人登录：新邀请交给 App 内卡片（#338），其余照常横幅 + 提示音。
-            let isInvite = signedIn && InviteNotificationActions.isInviteEvent(notification.request.content.userInfo)
+            let isInvite = signedIn && InviteNotificationActions.isForegroundDuplicate(notification.request.content.userInfo)
             completionHandler(isInvite ? [] : Self.foregroundPresentation(isSignedIn: signedIn))
             guard signedIn else { return }
             if isInvite {
@@ -273,27 +284,20 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
             return
         }
         Task { @MainActor in
-            await self.handleInviteAction(request)
+            self.handleInviteAction(request)
             completionHandler()
         }
     }
 
-    /// 锁屏邀请操作（#338）。「接下」交给首页走卡片上同一条路径（App 已被拉到前台）；
-    /// 「这次去不了」在后台直接回复，回复不成就用本地通知说清楚（前台时念出来）。
-    func handleInviteAction(_ request: InviteNotificationActions.Request) async {
-        guard let appState else { return }
-        switch request.action {
-        case .accept:
-            appState.realtimeCoordinator.requestLockScreenAccept(orderID: request.orderId, inviteID: request.inviteId)
-            await appState.restorePendingInvites()
-        case .decline:
-            guard let failure = await appState.declineInviteFromNotification(request) else { return }
-            if UIApplication.shared.applicationState == .active {
-                speechService?.speak("\(failure.title)，\(failure.body)")
-            } else {
-                await InviteNotificationCenter.post(title: failure.title, body: failure.body)
-            }
+    /// 锁屏邀请操作（#338）。两个操作都已把 App 拉到前台：记给协调器，由首页对上队列里那一张后
+    /// 走卡片上同一条路径；顺手对一次账，冷启动时队列是空的。还没 `configure` 就先存着。
+    func handleInviteAction(_ request: InviteNotificationActions.Request) {
+        guard let appState else {
+            inviteActionsBeforeConfigure.append(request)
+            return
         }
+        appState.realtimeCoordinator.requestLockScreenInviteAction(request)
+        Task { await appState.restorePendingInvites() }
     }
 
     private nonisolated func speak(from notification: UNNotification) {
