@@ -1671,7 +1671,7 @@ const cases = [
     name: 'bordered 按钮外挂 frame(minHeight:)（拦下）',
     mode: 'post',
     expect: 2,
-    swift: 'Button("重复当前状态", action: f)\n    .buttonStyle(.borderedProminent)\n    .frame(minHeight: 64)\n'
+    swift: 'Button("重复当前状态", action: f)\n    .buttonStyle(.bordered)\n    .frame(minHeight: 64)\n'
   },
   {
     name: '中间隔一层 frame(maxWidth:) 也要拦',
@@ -1683,13 +1683,53 @@ const cases = [
     name: 'frame 挂在 label 里（正解，放行）',
     mode: 'post',
     expect: 0,
-    swift: 'Button { f() } label: {\n    Text("重复当前状态")\n        .frame(minHeight: 64)\n}\n.buttonStyle(.borderedProminent)\n.accessibilityHint("x")\n'
+    swift: 'Button { f() } label: {\n    Text("重复当前状态")\n        .frame(minHeight: 64)\n}\n.buttonStyle(.bordered)\n.accessibilityHint("x")\n'
   },
   {
     name: 'bordered 违规行带 guard:allow 标注（放行）',
     mode: 'post',
     expect: 0,
     swift: 'Button("x", action: f)\n    .buttonStyle(.bordered) // guard:allow bordered-frame-hit-area\n    .frame(minHeight: 64)\n'
+  },
+
+  // bordered-prominent（2026-10-28，#527）。白字压环境 tint：标签页里暗色是白底白字，标签页外是系统蓝。
+  // 上面 bordered-frame-hit-area 的用例因此都改写成 `.bordered`，免得两条规则互相替对方「拦下」。
+  {
+    name: '.buttonStyle(.borderedProminent)（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'Button("重试恢复") { f() }\n    .buttonStyle(.borderedProminent)\n'
+  },
+  {
+    name: '括号里带空格的 .borderedProminent 也要拦',
+    mode: 'post',
+    expect: 2,
+    swift: 'Button("重试恢复") { f() }\n    .buttonStyle( .borderedProminent )\n'
+  },
+  {
+    name: '改用 PrimaryButtonStyle（正解，放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'Button("重试恢复") { f() }\n    .buttonStyle(PrimaryButtonStyle())\n'
+  },
+  {
+    // 反向哨兵：前缀相同的 `.bordered` 不该被 `\b` 之外的写法误伤。
+    name: '.buttonStyle(.bordered)（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'Button("去设置") { f() }\n    .buttonStyle(.bordered)\n'
+  },
+  {
+    name: '注释里解释为什么不用 .buttonStyle(.borderedProminent)（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: '/// 不要换回 `.buttonStyle(.borderedProminent)`，标签页里暗色是白底白字。\nstruct A {}\n'
+  },
+  {
+    name: 'bordered-prominent 违规行带 guard:allow 标注（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'Button("x") { f() }\n    .buttonStyle(.borderedProminent) // guard:allow bordered-prominent tint 固定为 primary\n'
   },
 
   // server-addr 的 scheme 那一半（2026-09-14 补）。

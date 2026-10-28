@@ -230,24 +230,12 @@ struct LoginView: View {
                             }
                         }
 
-                        // "获取验证码" / 倒计时 按钮
-                        Button {
+                        // "获取验证码" / 倒计时 按钮。走 `PrimaryButton`：原先自拼的按钮固定高 52（大字号会裁字、
+                        // 低于盲人端 64pt），不可用态白字压 `systemGray4` 只有 1.5:1（#527）。
+                        PrimaryButton(viewModel.countdownText) {
                             requestCodeAndPrepareVerificationFocus(using: scrollProxy)
-                        } label: {
-                            Text(viewModel.countdownText)
-                                .font(AppFonts.primaryButton())
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 52)
-                                .background(
-                                    (!viewModel.canRequestCode)
-                                        ? Color(.systemGray4)
-                                        : AppColors.primary
-                                )
-                                .cornerRadius(12)
                         }
                         .disabled(!viewModel.canRequestCode)
-                        .accessibilityLabel(viewModel.countdownText)
                         .accessibilityHint(viewModel.isCountdownActive ? "服务端限制发送频率，倒计时结束后可重试" : "点击后发送验证码到手机")
 
                         // 验证码输入区（条件显示）
@@ -433,9 +421,12 @@ struct LoginView: View {
                 let nextIndex = (currentIndex + 1) % allEnvs.count
                 appState.currentEnvironment = allEnvs[nextIndex]
             } label: {
+                // 只在调试构建出现，但同样按盲人端 64pt 画可点区：真机审计点名过它只有 14pt 高（#527）。
                 Text(environmentLabel)
                     .font(.caption)
                     .foregroundColor(AppColors.textSecondary)
+                    .frame(minHeight: AppTouchTarget.blindPrimary)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("API 环境切换")
             .accessibilityHint("当前环境：\(environmentLabel)")

@@ -143,6 +143,15 @@ const rules = {
       statement.split('\n').slice(1).some((l) => /^\s*\.frame\([^)]*minHeight/.test(l)),
     why: 'bordered 按钮外挂 `.frame(minHeight:)` 撑不大可点区（真机实测 34.7pt，盲人端要求 ≥64pt）。把 frame 挪进 label：`Button { … } label: { Text(…).frame(minHeight: 64) }`。记忆 `button-frame-outside-label-does-not-grow-hit-area`。确实不是可点区问题，行尾加 `// guard:allow bordered-frame-hit-area`。',
   },
+  'bordered-prominent': {
+    // 2026-10-28 立（#527）。`.borderedProminent` 的字恒为白，底色取环境 tint，而 tint 在本 App 里
+    // 有三个值：标签页容器里是 `Flow.tabSelected`（暗色档纯白 ⇒ 白底白字，2026-09-25 截图撞过一次），
+    // 标签页外是 `AccentColor`（没定义时是系统蓝，白字亮 4.02:1、暗 3.65:1）。一共 8 处，两端都有 ——
+    // 同一个错第二次以上，按 AGENTS.md §1 落成守卫。替代品 `PrimaryButtonStyle` 把底色与字色成对给出。
+    pattern: /\.buttonStyle\(\s*\.borderedProminent\b/,
+    check: () => true,
+    why: '不用 `.borderedProminent`：它的白字压在环境 tint 上，标签页里暗色是白底白字，标签页外是系统蓝（白字亮 4.02:1、暗 3.65:1）。实心主按钮改用 `.buttonStyle(PrimaryButtonStyle())` 或 `PrimaryButton`（`Core/DesignSystem/PrimaryButton.swift`），底色与字色在那里成对给出并有对比度用例。确实要用（例如明确设了不变的 `.tint`），行尾加 `// guard:allow bordered-prominent` 并写清 tint 从哪来。',
+  },
   'invite-code-reward-flag': {
     // 2026-09-14 立。契约 `FeatureFlagsResponse.invitationRewardEnabled` 的 description 逐字：
     //
