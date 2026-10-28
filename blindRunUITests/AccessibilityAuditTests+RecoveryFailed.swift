@@ -9,10 +9,8 @@ extension AccessibilityAuditTests {
     @MainActor
     func testRecoveryFailedLogoutAsksForConfirmationAndPassesAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
-        let app = launchBlindHome(
-            extraEnvironment: ["AIDRUN_MOCK_RESTORE_SESSION_FAILURE": "1"],
-            tapsAfterLaunch: false
-        )
+        // 默认那一下点在顶部（这一页那里只有图标），顺带触发系统权限弹窗的 interruption monitor。
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_MOCK_RESTORE_SESSION_FAILURE": "1"])
         let page = app.descendants(matching: .any)["rootRoute.recoveryFailed"].firstMatch
         XCTAssertTrue(page.waitForExistence(timeout: 20), "启动恢复失败页没出来")
         waitUntilSettled(page)

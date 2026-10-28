@@ -167,7 +167,8 @@ const rules = {
     // 2026-10-28 立（#561）。退出登录是危险操作，要二次确认。四个页面各抄一份同样的确认弹窗，
     // 第五处（启动恢复失败页）漏抄，按下就退 —— 复制粘贴式的安全约束总会漏一处。
     // 弹窗收成 `logoutConfirmation(isPresented:)` 一份，只有它所在的文件可以调 `appState.logout()`。
-    pattern: /\bappState\.logout\(\)/,
+    // 认可选链：view model 多半 weak 持有 appState，写成 `appState?.logout()`。
+    pattern: /\bappState[?!]?\.logout\(\)/,
     check: () => true,
     exceptFiles: /\/Auth\/LogoutConfirmation\.swift$/,
     why: '不要在按钮里直接调 `appState.logout()`：退出登录必须二次确认（skill `aidrun-a11y-voice`），读屏用户滑过按钮时双击一下就会被退出。按钮只把开关置真，弹窗用 `.logoutConfirmation(isPresented: $showLogoutConfirm)`（`blindRun/Auth/LogoutConfirmation.swift`）。确有不经用户的退出路径（例如服务端吊销），行尾加 `// guard:allow logout-without-confirmation` 并写清为什么。',

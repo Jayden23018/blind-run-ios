@@ -1963,6 +1963,14 @@ const cases = [
     swift: 'Button("退出登录", role: .destructive) {\n    Task { await appState.logout() }\n}\n'
   },
   {
+    // view model 多半 weak 持有 appState：可选链是最常见的绕过写法。
+    name: 'view model 里 appState?.logout()（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Profile/ProfileViewModel.swift',
+    swift: 'func signOut() async {\n    await appState?.logout()\n}\n'
+  },
+  {
     name: '按钮只置开关、弹窗走 logoutConfirmation（正解，放行）',
     mode: 'post',
     expect: 0,
