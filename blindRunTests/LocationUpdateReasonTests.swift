@@ -1,4 +1,5 @@
 import CoreLocation
+import SwiftUI
 import XCTest
 @testable import blindRun
 
@@ -134,6 +135,43 @@ final class LocationUpdateReasonTests: XCTestCase {
 
         appState.switchRole(to: .volunteer)
         XCTAssertFalse(service.isUpdatingLocation, "陪跑员开关关着，没有理由定位")
+    }
+
+    /// 定位服务后注入（真 App 里根视图那一行晚于恢复会话）也要补算：此前同意过的盲人，注入那一刻就该开始定位。
+    func testInjectingTheLocationServiceLaterStillAppliesTheRoleIntent() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest(), tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token-56"
+        appState.userId = 56
+        appState.activeRole = .blind
+        appState.recordLocationTrackConsent(.blindLocationTrack)
+        let service = Self.makeAuthorizedService()
+
+        appState.locationService = service
+
+        XCTAssertEqual(service.updateReasons, [.blindRole])
+    }
+
+    // MARK: - 页面修饰符
+
+    /// `requestsLocationUpdates`：页面出现时以自己的名义要，消失时只撤自己那一份（#425 之前三处页面都只开不撤）。
+    func testPageModifierRequestsOnAppearAndWithdrawsOnDisappear() async {
+        let service = Self.makeAuthorizedService()
+        service.startUpdating(for: .escortSession)
+        let host = UIHostingController(
+            rootView: Color.clear.requestsLocationUpdates(.blindBooking).environmentObject(service)
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+
+        let requested = await Self.waitUntil { service.updateReasons.contains(.blindBooking) }
+        XCTAssertTrue(requested, "页面出现时没要定位")
+
+        window.rootViewController = nil
+        window.isHidden = true
+        let withdrawn = await Self.waitUntil { !service.updateReasons.contains(.blindBooking) }
+        XCTAssertTrue(withdrawn, "页面消失后没撤回")
+        XCTAssertEqual(service.updateReasons, [.escortSession], "只撤自己那一份")
     }
 
     // MARK: - 同行会话（协调器）
