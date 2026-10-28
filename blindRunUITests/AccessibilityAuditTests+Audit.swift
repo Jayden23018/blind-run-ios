@@ -26,12 +26,14 @@ extension AccessibilityAuditTests {
         // 判据是几何不是文案：**整个落在栏上沿以下**的元素才放过，露出一截的照样审。
         // 2026-10-06（#349）盲人订单页的底栏同理：「求助与安全」那条是不透明栏，横屏下 v2 头卡把副文与信息卡
         // 推到它后面，元素截图里只有栏的红边与粉底（「系统正在派单，请稍候。」「时间」两条）。
-        let occludingBarTop: CGFloat? = {
+        let occludingBarTop: OccludingBar? = {
             // 盲人通话页（#434）同一条底栏组件：B3 的安排单在「求助与安全」后面滚动。
+            // 陪跑员首页底部的接单滑块（滑块后面压着徽章与「最近陪跑」，#515）。
             // 盲人「我的」tab 底部常驻求助条（资料页、紧急联系人页的下半截在它后面滚动，#565）。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "blindTabBottomSOSBar"] {
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "blindTabBottomSOSBar", "volunteerHomeBottomBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
-                if bar.exists { return bar.frame.minY }
+                // 栏自己的子元素（按钮、滑块）是看得见的，照常审计；只有压在栏后面的页面内容才算被遮挡。
+                if bar.exists { return OccludingBar(top: bar.frame.minY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame)) }
             }
             return nil
         }()
@@ -99,7 +101,7 @@ extension AccessibilityAuditTests {
     @available(iOS 17.0, *)
     private func recheckContrastFullyOnScreen(
         _ element: XCUIElement, label: String, in app: XCUIApplication,
-        occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
+        occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?
     ) throws {
         let screen = app.frame
         // 回调给的元素绑定的是那一个无障碍元素；`List` 复用行之后它会消失，这时按文案找回来。
@@ -150,7 +152,7 @@ extension AccessibilityAuditTests {
     /// `audit` 的放行判据：返回 `true` 表示这一条不算失败；不放行时打出 `[AUDIT]` 那一行。
     @available(iOS 17.0, *)
     private func isIgnoredAuditIssue(
-        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
+        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?
     ) -> Bool {
         if isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame) {
             return true
@@ -167,10 +169,11 @@ extension AccessibilityAuditTests {
     /// 遮挡与白名单：几何上看不见的、或白名单里的元素，返回 `true`。
     @available(iOS 17.0, *)
     private func isAllowedAuditIssue(
-        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: CGFloat?, mockBannerFrame: CGRect?
+        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?
     ) -> Bool {
-        if issue.auditType == .contrast, let top = occludingBarTop,
-           let frame = issue.element?.frame, frame.minY >= top - 0.5 {
+        if issue.auditType == .contrast, let bar = occludingBarTop, let frame = issue.element?.frame,
+           frame.minY >= bar.top - 0.5, !bar.ownFrames.contains(frame) {
+            let top = bar.top
             print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
             return true
         }
@@ -218,3 +221,11 @@ extension AccessibilityAuditTests {
         "地图服务暂不可用，请配置高德地图 API Key"
     ]
 }
+
+/// 底部不透明栏：上沿以下、又不是栏自己子元素的，算被栏挡住（`isAllowedAuditIssue`）。
+struct OccludingBar {
+    let top: CGFloat
+    /// 栏里每个子元素的 frame。审计点名的元素与其中之一重合 = 栏自己的内容（看得见），照常审。
+    let ownFrames: [CGRect]
+}
+

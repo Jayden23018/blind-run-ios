@@ -199,9 +199,10 @@ struct VolunteerAvailabilitySlider: View {
                 // 「我现在到底在不在接单」唯一的全局视觉线索，两态同色等于没有这条线索。
                 Capsule().fill(isAvailable ? AppColors.availabilityOnSurface : AppColors.voiceStageSurface)
 
-                // 已滑过的轨道变亮，给连续的进度反馈。
+                // 已滑过的轨道变亮，给连续的进度反馈。**只在拖动时亮**（#515）：已开启的静止态里旋钮在最右，
+                // 这层 16% 白会盖满整条绿轨，白字从 5.07:1 掉到 3.79:1（真机审计「要大字才够」）。
                 Capsule()
-                    .fill(Color.white.opacity(0.16))
+                    .fill(Color.white.opacity(leftTravel > 0 || rightTravel > 0 ? 0.16 : 0))
                     .frame(width: knobOffset + knobSize + Self.knobInset * 2)
 
                 trackLabel(willOpen: willOpen, willClose: willClose)
@@ -297,7 +298,6 @@ struct VolunteerAvailabilitySlider: View {
             if isAvailable, !willClose {
                 Text(VolunteerAvailabilityCopy.availableActionHint)
                     .font(AppFonts.caption())
-                    .opacity(0.9)
             }
         }
         .foregroundColor(.white)
