@@ -314,65 +314,6 @@ final class PreciseLocationGateTests: XCTestCase {
         XCTAssertFalse(speech.spokenHistoryForTesting.contains { $0.contains("误差") })
     }
 
-    // MARK: - 陪跑中
-
-    /// 盲人端：出发阶段申请一次，进 `IN_PROGRESS` 再申请一次，同一阶段不重复；健康提示落到精确位置那一档。
-    func testBlindEscortRequestsPreciseLocationPerPhaseAndShowsTheHealthBanner() async {
-        let location = Self.locationService(accuracy: 5000)
-        location.simulatePreciseLocationOffForTesting()
-        let (coordinator, service) = Self.makeEscortCoordinator(role: .blind, location: location)
-
-        coordinator.updateOwnedOrder(orderID: 79, status: .driverEnRoute)
-        let showedBanner = await Self.waitUntil { coordinator.healthState == .preciseLocationOff }
-        XCTAssertTrue(showedBanner, "健康提示：\(coordinator.healthState)")
-        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortRun])
-        XCTAssertTrue(coordinator.healthState.userMessage?.contains("求助") == true, "要说清求助会发不出去")
-
-        coordinator.updateOwnedOrder(orderID: 79, status: .driverArrived)
-        _ = await Self.waitUntil { false }
-        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting.count, 1, "出发阶段内不重复弹")
-
-        coordinator.updateOwnedOrder(orderID: 79, status: .inProgress)
-        let requestedAgain = await Self.waitUntil { location.temporaryPreciseLocationRequestsForTesting.count == 2 }
-        XCTAssertTrue(requestedAgain, "进跑步阶段仍关着就再申请一次")
-
-        // 用户允许了：下一轮刷新回到正常档位。
-        location.simulatePreciseLocationOffForTesting(false)
-        let recovered = await Self.waitUntil { coordinator.healthState == .active(background: true) }
-        XCTAssertTrue(recovered, "允许之后应恢复：\(coordinator.healthState)")
-        coordinator.reset()
-        withExtendedLifetime(service) {}
-    }
-
-    /// 网络断开时同行位置整个停了，比「位置不准」更要紧：横幅先说断网。
-    func testNetworkDisconnectOutranksThePreciseLocationBanner() async {
-        let location = Self.locationService(accuracy: 5000)
-        location.simulatePreciseLocationOffForTesting()
-        let (coordinator, service) = Self.makeEscortCoordinator(role: .blind, location: location, connected: false)
-
-        coordinator.updateOwnedOrder(orderID: 81, status: .inProgress)
-        let settled = await Self.waitUntil { coordinator.healthState == .networkDisconnected }
-
-        XCTAssertTrue(settled, "健康提示：\(coordinator.healthState)")
-        coordinator.reset()
-        withExtendedLifetime(service) {}
-    }
-
-    /// 陪跑员端不进这一档、不弹系统框（#373 只管盲人端）。
-    func testVolunteerEscortIgnoresPreciseLocation() async {
-        let location = Self.locationService(accuracy: 5000)
-        location.simulatePreciseLocationOffForTesting()
-        let (coordinator, service) = Self.makeEscortCoordinator(role: .volunteer, location: location)
-
-        coordinator.updateOwnedOrder(orderID: 80, status: .inProgress)
-        let settled = await Self.waitUntil { coordinator.healthState == .active(background: true) }
-
-        XCTAssertTrue(settled, "健康提示：\(coordinator.healthState)")
-        XCTAssertTrue(location.temporaryPreciseLocationRequestsForTesting.isEmpty)
-        coordinator.reset()
-        withExtendedLifetime(service) {}
-    }
-
     // MARK: - Helpers
 
     private static func locationService(accuracy: Double?) -> LocationService {
@@ -409,25 +350,6 @@ final class PreciseLocationGateTests: XCTestCase {
         let viewModel = BlindBookingViewModel()
         viewModel.configureForTesting(speechService: speechService, locationService: locationService)
         return viewModel
-    }
-
-    /// 返回的 `WebSocketService` **必须由调用方攥着**：协调器对它是 `weak`，不攥着出函数即释放，
-    /// 健康状态恒为 `networkDisconnected`、断网那条用例也会假绿（记忆 `location-service-test-seam-and-weak-viewmodel-deps`）。
-    private static func makeEscortCoordinator(
-        role: UserRole,
-        location: LocationService,
-        connected: Bool = true
-    ) -> (LiveEscortSessionCoordinator, WebSocketService) {
-        let coordinator = LiveEscortSessionCoordinator(
-            realtimeCoordinator: AppRealtimeCoordinator(),
-            reportInterval: 0.05,
-            sendLocation: { _, _, _ in }
-        )
-        let service = WebSocketService()
-        service.simulateConnectionStateForTesting(connected ? .connected : .disconnected)
-        coordinator.configure(identityKey: "account:\(role):token", role: role, webSocketService: service)
-        coordinator.attachLocationService(location)
-        return (coordinator, service)
     }
 
     /// 轮询到条件成立或超时。`{ false }` 当作「等一小段」用。

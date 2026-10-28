@@ -10,8 +10,8 @@ enum LocationError: String, Sendable {
     case timeout
     /// 已授权，但系统「精确位置」关闭：只拿得到区域代表点（约 5 公里）。
     ///
-    /// **`LocationService.locationError` 从不取这个值** —— 那个属性还是陪跑会话的闸门，
-    /// 模糊位置下同行位置照常共享（陪跑员端按 `accuracyM` 放宽方位扇形）。
+    /// **`LocationService.locationError` 从不取这个值** —— 同行会话自己读 `isPreciseLocationOff`
+    /// 停发同行位置、亮健康横幅（#407），不经过 `locationError`。
     /// 它只由 `EmergencyCoordinator.locationFailureReason(using:)` 产出，供求助文案分岔。
     case preciseLocationOff
     /// 当前角色在本机没有位置轨迹同意（#368，按角色判，见 `AppState.isEmergencyLocationSharingBlocked`）。
@@ -38,7 +38,10 @@ enum LocationAccuracyPolicy {
 /// 否则系统不弹（SDK `CLLocationManager.h` 原文：「Passing any other string would result in the prompt not being displayed」）。
 enum PreciseLocationPurpose: String, Sendable {
     case bookingStartPoint = "AidRunBookingStartPoint"
+    /// 盲人端陪跑（说明讲求助与陪跑员找人）。
     case escortRun = "AidRunEscortRun"
+    /// 陪跑员端陪跑（#407）。不借用上一条：那条讲的是「求助才能带上你的准确位置」，对陪跑员不成立。
+    case escortVolunteer = "AidRunEscortVolunteer"
 }
 
 // MARK: - Location Service

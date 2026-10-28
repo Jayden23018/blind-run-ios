@@ -20,8 +20,8 @@
 
 **Non-Goals:**
 - 不改求助请求体与后端契约（不加精度字段）。
-- 不改陪跑员端（求助取坐标、健康提示、临时精确位置都不动）。
-- 不停发陪跑中的同行位置：陪跑员端的方位盘本来就按 `accuracyM` 放宽扇形。
+- 不改陪跑员端（求助取坐标、健康提示、临时精确位置都不动）。健康提示与临时精确位置（2026-10-28 起被 `gate-escort-sharing-on-precise-accuracy` 取代：#407 定为两端都拦。）
+- 不停发陪跑中的同行位置：陪跑员端的方位盘本来就按 `accuracyM` 放宽扇形。（2026-10-28 起被 `gate-escort-sharing-on-precise-accuracy` 取代：#407 定为两端都拦。）
 - 语音下单向导的就近消歧坐标（`latestBackendSample(freshness: 300)`）不拦：它只用于 50 公里半径消歧，5 公里误差不改变结果。
 
 ## Decisions
