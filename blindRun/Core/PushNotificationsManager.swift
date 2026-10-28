@@ -116,15 +116,16 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         }
     }
 
-    /// 请求通知授权。启动时调用一次即可；注册本身跟着登录状态走（见 `configure`）。
-    func requestAuthorizationAndRegister() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return }
-            Task { @MainActor in
-                guard self.appState?.isLoggedIn == true else { return }
-                self.registrar.register()
-            }
-        }
+    /// 请求通知授权。**只由「用到时再问」的提示调用**（#521，`asksForPushPermission`）：启动时不再弹，
+    /// 那时还没过首启隐私同意、也没登录。注册本身跟着登录状态走（见 `configure`）。
+    func requestAuthorization() async -> Bool {
+        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
+        if granted, appState?.isLoggedIn == true { registrar.register() }
+        return granted
+    }
+
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
     /// APNs 回调：转 hex 字符串，已登录则上报，未登录则缓存等登录后补报。

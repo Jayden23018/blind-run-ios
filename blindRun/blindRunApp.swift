@@ -143,7 +143,7 @@ struct blindRunApp: App {
         pushNotificationsManager.configure(appState: appState, speechService: speechService)
         // 登出流程要在拉黑 JWT 之前解绑本机 token，所以反向也要连上（`weak`，真正的持有者是 `AppDelegate`）。
         appState.pushNotificationsManager = pushNotificationsManager
-        pushNotificationsManager.requestAuthorizationAndRegister()
+        // 不在启动时请求通知授权（#521）：用到时由 `asksForPushPermission` 先说明再问。
     }
 
     #if DEBUG || DEMO

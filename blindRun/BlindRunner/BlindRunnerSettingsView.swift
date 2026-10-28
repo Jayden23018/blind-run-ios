@@ -87,6 +87,9 @@ struct BlindRunnerSettingsView: View {
                 }
             }
 
+            // #521：通知开没开，拒绝过时给去系统设置的入口。
+            Section { NotificationPermissionRow() }
+
             Section {
                 Button("退出登录", role: .destructive) {
                     showLogoutConfirm = true
