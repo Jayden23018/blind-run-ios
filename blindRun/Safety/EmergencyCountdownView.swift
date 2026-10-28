@@ -64,9 +64,9 @@ struct EmergencyCountdownView: View {
     /// 主紧急联系人。屏 3b 的拨号项与首页那套同一个来源。
     let primaryContact: EmergencyContactResponse?
     /// 倒计时里的「取消」。要走一趟后端（`PUT /api/emergency/{id}/cancel`）—— 倒计时是服务端在数。
-    let onCancelCountdown: () async -> Void
+    let onCancelCountdown: @MainActor () async -> Void
     /// 撤销自己已经发出的求助（`PUT /api/emergency/{id}/cancel`）。**只有本人和客服有这个权力。**
-    let onCancelOwnEmergency: () async -> Void
+    let onCancelOwnEmergency: @MainActor () async -> Void
     /// 发送失败之后由**用户**决定要不要再发一次。
     let onRetry: () -> Void
     let onClose: () -> Void
