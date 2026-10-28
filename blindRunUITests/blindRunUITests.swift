@@ -2051,7 +2051,7 @@ final class blindRunUITests: XCTestCase {
     /// Mock 种子联系人（`MockAPIClient.seedDemoData`）：张三 / 13900139001 / 家人 / 主联系人。
     private static let seededContactSummary = "共 1 位紧急联系人，最多 5 位。主联系人是张三。"
 
-    private func launchBlindContactsApp() -> XCUIApplication {
+    func launchBlindContactsApp() -> XCUIApplication {
         launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -2137,7 +2137,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     /// List 里的 `NavigationLink` 可能暴露成 button 也可能暴露成 cell，两种都试。
-    private func tapNavigationRow(_ app: XCUIApplication, labelBeginsWith prefix: String) {
+    func tapNavigationRow(_ app: XCUIApplication, labelBeginsWith prefix: String) {
         let predicate = NSPredicate(format: "label BEGINSWITH %@", prefix)
         let button = app.buttons.matching(predicate).firstMatch
         if button.waitForExistence(timeout: 10) {
@@ -2160,7 +2160,7 @@ final class blindRunUITests: XCTestCase {
     /// 元素压根不在树里，`exists` 为 false，那个 helper 会直接放弃、`waitForExistence` 也永远等不到。
     /// 联系人列表随数量增长会把下方的「新增」入口顶出屏幕，必须先滚动才谈得上断言存在。
     @discardableResult
-    private func scrollUntilExists(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
+    func scrollUntilExists(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
         if element.exists { return true }
         for _ in 0..<maxSwipes {
             scrollableSurface(app).swipeUp()
@@ -2192,7 +2192,7 @@ final class blindRunUITests: XCTestCase {
     /// 返回是否真的滚到位。**底部有常驻栏的页面必须断言返回值** —— 否则滚不动时这里静默放弃，
     /// 接下来的 `tap()` 打在别的控件上，报出来的错和真因毫无关系。
     @discardableResult
-    private func scrollElementIntoView(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 5) -> Bool {
+    func scrollElementIntoView(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 5) -> Bool {
         let appFrame = app.frame
         guard !appFrame.isNull, !appFrame.isEmpty else { return false }
         let top = appFrame.minY + 44

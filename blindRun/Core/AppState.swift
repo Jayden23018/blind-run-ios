@@ -612,7 +612,7 @@ final class AppState: ObservableObject {
     private var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
 
     /// 按**账号**记。拿不到 userId 时不读盘 —— 宁可多问一次，也不让一个身份不明的会话继承别人的同意。
-    private var locationTrackConsentScope: PrivacyConsentScope? {
+    var locationTrackConsentScope: PrivacyConsentScope? {
         userId.map { .user(String($0)) }
     }
 
@@ -624,6 +624,11 @@ final class AppState: ObservableObject {
         if locationTrackConsentGrantedThisSession.contains(purpose) { return true }
         guard let scope = locationTrackConsentScope else { return false }
         return PrivacyConsentStore(persistence: persistence).hasConsented(to: purpose, scope: scope)
+    }
+
+    /// 撤回时忘掉本次登录里记下的那一份（#393）。集合本身保持私有，「唯一写入点」的约定不破。
+    func forgetLocationTrackConsentThisSession(_ purpose: PrivacyConsentPurpose) {
+        locationTrackConsentGrantedThisSession.remove(purpose)
     }
 
     /// 唯一的写入点：触发者只能是用户按下同意页上的「同意共享位置」。
