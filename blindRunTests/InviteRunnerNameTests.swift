@@ -42,4 +42,24 @@ final class InviteRunnerNameTests: XCTestCase {
         let withoutName = VolunteerOrderFlowPresentation.make(dispatch: dispatch, remainingSeconds: 600)
         XCTAssertFalse(withoutName.rows.contains { $0.id == "runner" }, "没给姓名就不出这一行")
     }
+
+    /// 邀请卡跑者行（复核 A）：屏幕保留掩码、头像取姓、读屏去星号。把 `display` 与 `spoken` 用反的实现在这里红。
+    func testInviteCardRunnerRowKeepsTheMaskOnScreenAndDropsItForSpeech() throws {
+        var order = OrderDetailResponse.previewDispatch()
+        order.blindName = "李*"
+        let row = try XCTUnwrap(VolunteerInviteRunnerRow(order: order, summary: "全盲，牵引绳", together: "一起跑过 3 次"))
+        XCTAssertEqual(row.title, "跑者李*")
+        XCTAssertEqual(row.avatarName, "李")
+        XCTAssertEqual(row.spokenLabel, "跑者李，全盲，牵引绳，一起跑过 3 次")
+    }
+
+    /// 没有称呼：屏幕「跑者」、头像占位「跑」；三样都没有时整行不渲染。
+    func testInviteCardRunnerRowWithoutANameFallsBackWithoutInventingOne() throws {
+        let order = OrderDetailResponse.previewDispatch()
+        let row = try XCTUnwrap(VolunteerInviteRunnerRow(order: order, summary: "全盲", together: nil))
+        XCTAssertEqual(row.title, "跑者")
+        XCTAssertNil(row.avatarName)
+        XCTAssertEqual(row.spokenLabel, "跑者，全盲")
+        XCTAssertNil(VolunteerInviteRunnerRow(order: order, summary: nil, together: nil))
+    }
 }

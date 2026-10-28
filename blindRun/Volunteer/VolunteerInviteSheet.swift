@@ -492,11 +492,10 @@ struct VolunteerInviteCard: View {
     private var runnerRow: some View {
         let summary = invite.supplement?.runnerSummary
         let together = invite.supplement?.togetherText
-        let name = invite.order.runnerName
-        if name != nil || summary != nil || together != nil {
+        if let row = VolunteerInviteRunnerRow(order: invite.order, summary: summary, together: together) {
             HStack(spacing: 9) {
                 FlowAvatar(
-                    name: name?.spoken,
+                    name: row.avatarName,
                     diameter: FlowMetrics.inviteAvatarDiameter,
                     background: AppColors.Flow.avatarBackground,
                     foreground: AppColors.Flow.avatarInitial,
@@ -504,7 +503,7 @@ struct VolunteerInviteCard: View {
                 )
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(VolunteerOrderFlowCopy.runnerLabel + (name?.display ?? ""))
+                    Text(row.title)
                         .flowFont(FlowFonts.inviteRunnerName())
                         .foregroundColor(AppColors.Flow.primaryText)
                     if let summary {
@@ -526,10 +525,7 @@ struct VolunteerInviteCard: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(
-                ([VolunteerOrderFlowCopy.runnerLabel + (name?.spoken ?? ""), summary, together].compactMap { $0 })
-                    .joined(separator: "，")
-            )
+            .accessibilityLabel(row.spokenLabel)
         }
     }
 
