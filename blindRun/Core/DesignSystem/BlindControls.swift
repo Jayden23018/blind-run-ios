@@ -58,9 +58,10 @@ struct BlindMenuPicker<Value: Hashable, Options: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                 }
+                // 当前值用主文字色，可点由右侧主色箭头表示：主色字在这里真机审计报过「要大字才够」（#565）。
                 Text(valueText)
                     .font(AppFonts.body())
-                    .foregroundColor(AppColors.primary)
+                    .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(AppFonts.caption())

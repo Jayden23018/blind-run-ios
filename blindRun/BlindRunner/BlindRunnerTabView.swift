@@ -177,6 +177,9 @@ struct BlindRunnerTabView: View {
         .padding(.top, 12)
         .padding(.bottom, 4)
         .background(.ultraThinMaterial)
+        // 整条底栏（含材质与上边距）的范围：审计按它判「内容滚到栏后面」，不按文案放行（`AccessibilityAuditTests+Audit`）。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("blindTabBottomSOSBar")
     }
 
     // MARK: - 求助判定（与改版前逐字相同）

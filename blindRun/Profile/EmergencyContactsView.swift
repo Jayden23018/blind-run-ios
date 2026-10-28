@@ -345,7 +345,7 @@ struct EmergencyContactsView: View {
                     }
                 }
             } header: {
-                Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）")
+                Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）\u{202F}").foregroundColor(AppColors.textSecondary) // 默认灰只有约 3.3:1；全角「）」后补窄空格防判截断
             }
 
             Section {
