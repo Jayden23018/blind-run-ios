@@ -132,7 +132,7 @@ xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
 真机是唯一 XCTest 通道。**先解锁设备并把自动锁定设为「永不」**，否则脚本判定锁屏直接失败：
 
 ```bash
-DEVELOPMENT_TEAM=ZW39BS8NXT scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTests
+DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号> scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTests
 ```
 
 - 全量约 10 分钟、会超 Bash 600s 上限 → 用后台跑

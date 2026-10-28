@@ -262,9 +262,9 @@
 ## 五、验证纪律（**一个字都不要跳过**）
 
 - **CI 跑不了任何 XCTest**（高德无 arm64-sim slice）。CI 绿只等于编译门禁 + 规格校验过了。
-- 真机是唯一 XCTest 通道：`scripts/device-test.sh`，命令行必须带 `DEVELOPMENT_TEAM=ZW39BS8NXT`。
-- **默认只跑覆盖本次改动的 suite**，不要裸跑全量（约 10 分钟，会超 Bash 600s 上限）。
-  全量只留给「全 App 唯一出口 / 共享单例 / 全局配置」类改动。
+- 真机是唯一 XCTest 通道：`scripts/device-test.sh`。用哪个签名团队、要不要换 bundle id 前缀，跑前调 skill `aidrun-device-test` 当场判定，不写死团队号（#441 #442）。
+- **只跑覆盖本次改动的 suite**，不要裸跑全量（约 10 分钟，会超 Bash 600s 上限）。
+  改共享单例也一样按符号搜调用方，非全量不可时先问负责人（skill `aidrun-ship-check` §六）。
 - **`passed=0` 一律当失败查。** 零执行不是通过。
 - 设备：iPhone 16 Pro `00008140-000161D62112801C`（脚本默认）。
   iPad Air 5 `00008103-001C71490E62201E` **还没点过「信任证书」**，跑不了。

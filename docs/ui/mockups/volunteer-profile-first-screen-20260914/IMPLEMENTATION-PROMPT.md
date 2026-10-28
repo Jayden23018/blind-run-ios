@@ -145,7 +145,7 @@
   `blindRunTests/` 定范围，只跑命中的 suite：
   `scripts/device-test.sh -only-testing:blindRunTests/XxxTests`
   只有改到「全 App 唯一出口 / 共享单例 / 全局配置」才必须全量
-- 命令行跑测试要显式传 `DEVELOPMENT_TEAM=ZW39BS8NXT`
+- 命令行跑测试要显式传 `DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号>`
 - **零执行不是通过**：`passed=0 failed=0` 一律当失败查
 - **「真机验过」默认只验了 iPhone**。这次是布局几何类改动，**必须两台**
   （`111` 与 `iPad Pro (2)`，`scripts/dual-device-validation.sh`），或在 PR 里说清只验了哪台

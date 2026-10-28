@@ -168,7 +168,7 @@
   任何构建文件**不得写入 `EXCLUDED_ARCHS`**
 - 新增 `.swift` 文件**不需要**改 pbxproj
 - 纯 iOS 前端仓库，**不要加服务端代码**；接口契约的唯一源在后端仓库，本仓库不改契约
-- 命令行跑测试要显式传 `DEVELOPMENT_TEAM=ZW39BS8NXT`
+- 命令行跑测试要显式传 `DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号>`
 
 ### 九、收尾
 

@@ -142,7 +142,7 @@ node scripts/validate-docs.mjs
 openspec validate --all --strict --no-interactive
 ```
 
-- **命令行传测试要带 `DEVELOPMENT_TEAM=ZW39BS8NXT`**（工程里写死的是别人的团队号）。
+- **命令行传测试要带 `DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号>`**（工程里写死的是别人的团队号）。
 - **零执行不是通过**：`passed=0` 一律当失败查（设备锁屏、`-only-testing` 名字打错、
   测试目标没编出来都长这样）。
 - **先定范围再跑**：把你改到的类型 / 方法名拿去 `blindRunTests` 里搜，只跑命中的 suite。
