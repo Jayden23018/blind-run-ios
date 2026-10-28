@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// 黄金语料对齐检查：后端 `demo/docs/voice-golden-corpus.json` vs 前端 `VoiceOrderWizardTests` 里的镜像清单。
+// 黄金语料对齐检查：后端 `demo/docs/voice-golden-corpus.json` vs 前端 `blindRunTests/VoiceGoldenCorpusMirror.swift` 里的镜像清单（断言在 `VoiceOrderWizardTests`）。
 //
 // 存在理由：那份清单是**人工誊抄**进 Swift 的。后端改一条语料，前端的抄件不会自己变，
 // 而 Swift 测试照样全绿 —— 它测的是抄件，不是语料。
@@ -25,7 +25,7 @@ const corpusPath = path.resolve(
   repoRoot,
   process.argv[2] ?? process.env.AIDRUN_GOLDEN_CORPUS ?? '../demo/docs/voice-golden-corpus.json'
 );
-const swiftPath = path.join(repoRoot, 'blindRunTests/VoiceOrderWizardTests.swift');
+const swiftPath = path.join(repoRoot, 'blindRunTests/VoiceGoldenCorpusMirror.swift');
 
 if (!fs.existsSync(corpusPath)) {
   console.error(`[golden-corpus] 读不到语料：${corpusPath}`);

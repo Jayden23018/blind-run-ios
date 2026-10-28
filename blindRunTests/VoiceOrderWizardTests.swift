@@ -1642,9 +1642,8 @@ final class VoiceOrderWizardTests: XCTestCase {
     // （语料里 `source: "llm"` 那几条）在开发期就该走到 `needReask` 分支，否则向导的重问路径
     // 永远没被走过，上真机才发现是死的。
     //
-    // ⚠️ 下面每个清单上方的 `golden-corpus:` 标记是给 `scripts/validate-golden-corpus.mjs` 认的，
-    // 别删。在 2026-08-06 之前那个脚本只比对 DURATION 的 11 条，另外 34 条既无镜像也无告警，
-    // 却照样打印「通过」—— 假绿比没有守卫更坏，因为它让人以为查过了。
+    // 镜像清单本身在 `VoiceGoldenCorpusMirror.swift`（2026-10-28 挪出，#528），
+    // `scripts/validate-golden-corpus.mjs` 读的是那个文件；这里只放断言。
 
     /// 语料的时间基准。START_TIME 的期望值全是相对它算出的绝对时间戳，
     /// 不钉住基准就验不出「过去的钟点滚次日」这条规则。
@@ -1657,30 +1656,8 @@ final class VoiceOrderWizardTests: XCTestCase {
     }
 
     func testMockDurationParsingMatchesTheBackendGoldenCorpus() {
-        // golden-corpus: DURATION regex
-        let regexCases: [(transcript: String, expected: Int)] = [
-            ("跑一小时", 60),
-            ("跑一个小时", 60),
-            ("四十分钟", 40),
-            ("半小时", 30),
-            ("一个半小时", 90),
-            ("一小时二十分钟", 80),
-            ("两个小时", 120),
-            ("就跑二十分钟吧", 20),
-            // 配速词打头。时长这一路不该被「快一点」带偏 —— 两条正则各管各的。
-            ("快一点跑四十分钟", 40),
-            // 起终点同现的三条：时长要照常抽出来，不受多出来的那个地点影响。
-            ("明天早上8:00从人民广场跑到五角场，跑四十分钟", 40),
-            ("明天早上8:00跑到五角场，从人民广场出发，跑四十分钟", 40),
-            ("明天下午三点跑到中山公园，跑半小时", 30),
-            // 2026-10-02 后端 #472：「半个小时」与口语「钟/钟头」（= 小时）。
-            ("后天早上7:30在阳光棕榈园跑半个小时", 30),
-            ("跑半个小时就行", 30),
-            ("明天早上8:00从人民广场出发跑一个钟", 60),
-            ("明天早上8:00从人民广场出发跑一个钟头", 60),
-            ("跑一个半钟头", 90),
-            ("跑两个钟头", 120)
-        ]
+        // 镜像清单在 `VoiceGoldenCorpusMirror.durationRegex`（DURATION regex）。
+        let regexCases = VoiceGoldenCorpusMirror.durationRegex
 
         for testCase in regexCases {
             XCTAssertEqual(
@@ -1690,13 +1667,8 @@ final class VoiceOrderWizardTests: XCTestCase {
             )
         }
 
-        // golden-corpus: DURATION llm
-        // `source: "llm"` 的长尾表达：Mock 没有模型兜底，必须落到 needReask，不能瞎猜一个值。
-        //
-        // 「跑1.5小时」「跑0.5小时」是 2026-08-08 后端 PR #14 补进语料的，锁的是一次**静默篡改**：
-        // 没有小数守卫时它们会匹配到小数部分的「5小时」→ 300 分钟，而 300 正好是时长上限，
-        // 范围校验拦不住。用户说 1.5 小时、读回念 5 小时，比抽不出更糟。
-        for transcript in ["随便说点什么", "陪我跑个把小时吧", "跑到我累了为止", "跑1.5小时", "跑0.5小时"] {
+        // 镜像清单在 `VoiceGoldenCorpusMirror.durationLlm`（DURATION llm）。
+        for transcript in VoiceGoldenCorpusMirror.durationLlm {
             XCTAssertNil(
                 MockAPIClient.mockVoiceMinutes(in: transcript),
                 "「\(transcript)」在 Mock 里不该被解析出数值"
@@ -1709,86 +1681,8 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// 说「下午三点」「半小时后」直接走重问，而线上这三种都解得出。
     func testMockStartTimeParsingMatchesTheBackendGoldenCorpus() {
         withCorpusClock {
-            // golden-corpus: START_TIME regex
-            let regexCases: [(transcript: String, expected: String)] = [
-                ("八点半", "2026-07-25T08:30:00"),
-                ("今天八点半", "2026-07-24T08:30:00"),
-                ("明天早上八点", "2026-07-25T08:00:00"),
-                ("后天上午九点", "2026-07-26T09:00:00"),
-                ("下午三点", "2026-07-24T15:00:00"),
-                ("晚上七点半", "2026-07-24T19:30:00"),
-                ("半小时后", "2026-07-24T10:30:00"),
-                ("两个小时后", "2026-07-24T12:00:00"),
-                ("四十分钟后", "2026-07-24T10:40:00"),
-                ("呃，明天早上八点吧", "2026-07-25T08:00:00"),
-                // 冒号钟点（后端 PR #14 补进语料）。识别器说中文时常把「八点钟」渲染成 `8:00`，
-                // 全角 `8：00` 同样出现过 —— 这类句子里连「点」字都没有。
-                ("8:00", "2026-07-25T08:00:00"),
-                ("8：00", "2026-07-25T08:00:00"),
-                ("18:45", "2026-07-24T18:45:00"),
-                ("下午3:00", "2026-07-24T15:00:00"),
-                ("8点半", "2026-07-25T08:30:00"),
-                ("明天早上8:00从阳光棕榈园跑", "2026-07-25T08:00:00"),
-                // 前半句的「跑1:30」必须被跳过、且**继续往后找** —— 真正的钟点在后面。
-                // 直接返 nil 会让这句整个抽不出时间。
-                ("跑1:30，明天早上8点出发", "2026-07-25T08:00:00"),
-                // ⚠️ 这条的期望值是**非 null 的错值**，别改成 null、别删。
-                // 它钉的是「确定性解析层的缺陷本身还在」：日期词表只有 明天/后天/今天/第2天，
-                // 「下月10号」不在其中，于是**只取钟点、把日期当没说**，
-                // 再套「已过就滚次日」→ 次日 08:00。
-                // 注意「下月10号」比「下个月10号」只少一个「个」字，后者是对的 ——
-                // 两种说法口语里同样自然，差别只在一个字。
-                //
-                // 后端在**整句端点** `/voice/parse` 上有「正则↔模型交叉验证」，端到端这句会被
-                // 接住走追问（`needReask=true`），**但那是另一层** —— 这里镜像的是确定性解析层，
-                // 照端到端结果改这条会让镜像不再反映真实行为。
-                //
-                // 2026-08-12 我一度以为后端语料里没有这条而删掉，是错的：当时读的是后端
-                // **陈旧的本地 origin/main 引用**。`git fetch` 之后它就在（`source: regex`，
-                // 期望值与此处逐字一致）。判「后端有没有」之前先 fetch，别信手上的 ref。
-                ("下月10号早上8:00", "2026-07-25T08:00:00"),
-                // 同一条「跳过继续找」，被拒的是程度副词而不是时长引导词：
-                // 「慢一点」归一化后长得像「慢1点」，真正的钟点在后半句。
-                ("跑慢一点，明天早上八点出发", "2026-07-25T08:00:00"),
-                ("慢点跑，明天早上八点从人民广场出发", "2026-07-25T08:00:00"),
-                // 起终点同现：多出来的那个地点不该影响时间抽取。
-                ("明天早上8:00从人民广场跑到五角场，跑四十分钟", "2026-07-25T08:00:00"),
-                // 日期词与钟点之间夹一个助词「的」或逗号（语料 `_date_particle_note`，后端 N44）。
-                // 后端原来只允许空白，夹了助词就把日期那一组断开 → 日期被当成没说过 →
-                // 再套「已过就滚次日」：早上 7 点说「明天的九点」得到**今天** 09:00。
-                // 而「明天九点」（不带「的」）一直是对的 —— 两种说法在口语里同样自然，
-                // 差别只在一个助词上，没人能预料到它会改变结果。
-                ("明天的九点", "2026-07-25T09:00:00"),
-                ("明天早上的八点", "2026-07-25T08:00:00"),
-                ("明天的早上八点", "2026-07-25T08:00:00"),
-                ("后天的八点半", "2026-07-26T08:30:00"),
-                ("明天，九点", "2026-07-25T09:00:00"),
-                // 「第二天」= 明天（产品 2026-08-09 拍板）。`UNSUPPORTED_DATE` 里有一条
-                // 负向前瞻专门把它从「第 N 天」黑名单里放行出来 —— 放行了却不认，
-                // 就等于「只取钟点、把日期当没说」，正是那条黑名单要防的静默篡改。
-                ("第二天早上八点", "2026-07-25T08:00:00"),
-                ("第二天的九点钟", "2026-07-25T09:00:00"),
-                // 2026-10-02 后端 #472：「半个小时后」、「明早/明晚」（日期与时段写在一个词里，
-                // 「明晚」的 +12 要单补）、「X点一刻/三刻」（此前被静默读成整点 X:00）。
-                ("半个小时后", "2026-07-24T10:30:00"),
-                ("明早8:00从人民广场出发跑一个小时", "2026-07-25T08:00:00"),
-                ("明晚7:30", "2026-07-25T19:30:00"),
-                ("明天早上八点一刻", "2026-07-25T08:15:00"),
-                ("明天早上八点三刻", "2026-07-25T08:45:00"),
-                // 2026-10-03 后端 #501 的时段词修复（语料 `_period_note`）：时段词只决定「几点」，不决定「哪天」。
-                // 「凌晨」此前不在 CLOCK_TIME 的时段词里，「后天凌晨三点」的「后天」被断开、日期当没说 →
-                // 滚到明天 03:00，差一天。中午一~四点 +12，否则「中午一点」读成凌晨 1 点；凌晨十二点 = 0 点。
-                // 其余几条「本来就对，这里只是钉住」。
-                ("今天晚上八点", "2026-07-24T20:00:00"),
-                ("今天早上八点", "2026-07-24T08:00:00"),
-                ("今天中午十二点", "2026-07-24T12:00:00"),
-                ("今天中午一点", "2026-07-24T13:00:00"),
-                ("后天早上八点", "2026-07-26T08:00:00"),
-                ("后天晚上八点", "2026-07-26T20:00:00"),
-                ("后天凌晨三点", "2026-07-26T03:00:00"),
-                ("后天凌晨十二点", "2026-07-26T00:00:00"),
-                ("凌晨三点", "2026-07-25T03:00:00")
-            ]
+            // 镜像清单在 `VoiceGoldenCorpusMirror.startTimeRegex`（START_TIME regex）。
+            let regexCases = VoiceGoldenCorpusMirror.startTimeRegex
             for testCase in regexCases {
                 let parsed = MockAPIClient.mockVoiceStartTime(in: testCase.transcript)
                 XCTAssertEqual(
@@ -1798,53 +1692,16 @@ final class VoiceOrderWizardTests: XCTestCase {
                 )
             }
 
-            // golden-corpus: START_TIME llm
-            // 「跑1:30」「跑步1:30」是**时长**口语（识别器可能这么渲染「跑一个半小时」），
-            // 当成 01:30 出发就会滚到次日、通过提前量校验，然后读回一个用户从没说过的时刻。
-            //
-            // 后 8 条是**日期表达**（语料 `_unsupported_date_note`）。它们比「解析不出」更危险：
-            // Mock 的日期词只认明天/后天/今天，碰上「8月10号」不会失败，而是只取钟点、
-            // 把日期当没说，再套「已过就滚次日」—— 于是「8月10号早上8点」被静默解析成次日 08:00。
-            // 差 1 天、差 5 天的单都能过提前量校验，读回还念得很顺。
-            for transcript in [
-                "随便说点什么", "明天差不多这个点吧", "等我吃完早饭吧", "跑1:30", "跑步1:30",
-                "8月10号早上8点跑步", "八月十号早上八点跑步", "8月10日早上8点跑步",
-                "下周三早上8点跑步", "下下周二早上八点", "这个星期五早上八点",
-                "大后天早上八点", "下个月十号早上八点",
-                // 「第三天」以上：相对哪一天的第三天没说清（相对今天？相对刚提到的某天？）。
-                // 「隔天」在中文里同样常指「每隔一天」（「隔天跑一次」）—— 这是个跑步 App，
-                // 这个歧义是真的。两者都宁可追问一次，不猜。
-                "第三天早上八点", "隔天八点",
-                // 2026-08-11 语料新增：**真机识别器实际吐的字**（后端 `_asr_date_rendering_note`）。
-                // 说「早上八点」识别器吐的是 `8:00`、说「八月十号」吐的是 `8月10号`，
-                // 而日期词一律保留中文词形。上面那批中文数字形与这批真机形**走的不是同一段代码路径**
-                // （后端在中文数字归一化之前判日期），两批都要留着。
-                //
-                // ⚠️ **这里期望 nil 不代表用户会被追问。** 后端从 2026-08-11 起，正则认输时改为
-                // 采信大模型推算出的日期，「8月10号」「下周三」「这个月底」在整句端点
-                // `/voice/parse` 上**能拿到 plannedStartTime**（模型可用时）。本断言测的是
-                // Mock 的确定性解析层，它与后端的正则层对齐 —— 那一层确实解析不出，这没变。
-                // 「第三天」「隔天」「下下周X」「上周三」则是**真的**仍然追问（后端刻意不问模型）。
-                "8月10号早上8:00跑步", "下周三早上8:00跑步", "这个月底下午3:00",
-                "第三天早上8:00", "隔天8:00",
-                "三天后早上8:00"  // 后端 #876 把「X天后」收进 UNSUPPORTED_DATE；此前在 regex 组钉的是错值「次日 08:00」
-            ] {
+            // 镜像清单在 `VoiceGoldenCorpusMirror.startTimeLlm`（START_TIME llm）。
+            for transcript in VoiceGoldenCorpusMirror.startTimeLlm {
                 XCTAssertNil(
                     MockAPIClient.mockVoiceStartTime(in: transcript),
                     "「\(transcript)」在 Mock 里不该被解析出时间"
                 )
             }
 
-            // golden-corpus: START_TIME none
-            // 「没说时间」而不是「说了但正则解不出」—— 后端连大模型兜底都不走。
-            // 对 Mock 的要求相同（返回 nil），但拦住它们的是另一道守卫：归一化把「一」转成「1」，
-            // 「慢一点」变成「慢1点」正好落进「N点」分支 → 凌晨 1 点。用户根本没提时间，
-            // 系统却造出一个能过提前量校验的时刻读给他听，同时「慢一点」还被配速正则认作 EASY
-            // —— 同一句话上两条正则打架，时间那条赢了。
-            //
-            // 「八点两刻」（2026-10-02 后端 #472）是另一种：说了时间、但「两刻」不是合法刻数。
-            // 只取「八点」读成 08:00 是静默篡改，整体不认才对 —— 与上面几条同样断言 nil。
-            for transcript in ["跑慢一点", "快一点跑四十分钟", "晚一点跑", "早一点出发", "明天早上八点两刻"] {
+            // 镜像清单在 `VoiceGoldenCorpusMirror.startTimeNone`（START_TIME none）。
+            for transcript in VoiceGoldenCorpusMirror.startTimeNone {
                 XCTAssertNil(
                     MockAPIClient.mockVoiceStartTime(in: transcript),
                     "「\(transcript)」里没有时间表达，不该被解析出时刻"
@@ -1958,26 +1815,8 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// ADDRESS 9 条。语料只断言**剥壳抽取**，不断言地理编码结果（语料 `_address_note`）：
     /// 抽出「五角场」而 Mock 的地点表里查不到坐标，正是线上「抽到 span 但正向编码失败」的同形场景。
     func testMockAddressSpanExtractionMatchesTheBackendGoldenCorpus() {
-        // golden-corpus: ADDRESS regex
-        let regexCases: [(transcript: String, expected: String)] = [
-            ("明天早上八点从五角场出发跑一小时", "五角场"),
-            ("我想在人民广场跑步", "人民广场"),
-            ("到中山公园那边跑四十分钟", "中山公园"),
-            ("从我家楼下出发", "我家楼下"),
-            ("在天安门集合", "天安门"),
-            // 壳是「从…跑」。手列壳对时这一条一对都不中 —— 抽不出起点，人被约到默认位置。
-            ("明天早上8:00从阳光棕榈园跑", "阳光棕榈园"),
-            // 起终点同现（语料 `_end_address_note`）。`ADDRESS_SPAN` 只产出「起点」这一种角色，
-            // 两个地点同现时它必须挑中**出发地**，挑错就是把人约到他要去的终点等着。
-            ("明天早上8:00从人民广场跑到五角场，跑四十分钟", "人民广场"),
-            // 倒装。SPEC B 刻意不做介词位置一致性校验（中文口语里倒装、省略介词都合法，
-            // 位置规则会误杀），所以这条只能靠壳词本身挑对。
-            ("明天早上8:00跑到五角场，从人民广场出发，跑四十分钟", "人民广场"),
-            ("明天早上8:00从人民广场出发跑到五角场，跑一个小时", "人民广场"),
-            // ⚠️ 只有一个地点时「到五角场跑」抽出五角场是**对的**：口语里它就是出发地
-            // （到那儿去跑），不是终点。Mock 的终点抽取因此刻意只认「跑到」不认裸「到」。
-            ("明天早上8:00到五角场跑四十分钟", "五角场")
-        ]
+        // 镜像清单在 `VoiceGoldenCorpusMirror.addressRegex`（ADDRESS regex）。
+        let regexCases = VoiceGoldenCorpusMirror.addressRegex
         for testCase in regexCases {
             XCTAssertEqual(
                 MockAPIClient.mockVoiceAddressSpan(in: testCase.transcript),
@@ -1986,22 +1825,8 @@ final class VoiceOrderWizardTests: XCTestCase {
             )
         }
 
-        // golden-corpus: ADDRESS llm
-        // 「从明天早上八点开始跑」这类最危险：壳字「从」在，但后面跟的是时间。
-        // 抽出来当地点就把人约到了一个不存在的起点，所以必须一条都不许命中。
-        // 「从8:00开始跑」的壳内是 `8:00`：不认冒号就判不出它是时间，会当地名送去正向编码。
-        // 这是冒号钟点漏洞的**第二个出口**，与 START_TIME 那条是同一个根因。
-        //
-        // 「明天下午三点跑到中山公园，跑半小时」只说了终点，**起点是真的没说** ——
-        // 抽出中山公园当起点会把人约到目的地，所以这里必须是 nil，由 `missing` 含 ADDRESS
-        // 走「落回当前位置并读回念出来」那条路。
-        for transcript in [
-            "从明天早上八点开始跑", "从8:00开始跑", "从8：00开始跑",
-            "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么",
-            "明天下午三点跑到中山公园，跑半小时",
-            // 壳字「从」后面跟的是「日期词 + 凌晨 + 钟点」：凌晨补进时段词之前，这一段认不出是时间。
-            "从后天凌晨三点开始跑"
-        ] {
+        // 镜像清单在 `VoiceGoldenCorpusMirror.addressLlm`（ADDRESS llm）。
+        for transcript in VoiceGoldenCorpusMirror.addressLlm {
             XCTAssertNil(
                 MockAPIClient.mockVoiceAddressSpan(in: transcript),
                 "「\(transcript)」不该被抽出地名"
@@ -2012,13 +1837,8 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// GUIDE_DOG 6 条。`nil`（没提）与 `false`（明确不带）必须分得开 ——
     /// 这个字段进派单硬过滤，混淆会让登记了导盲犬的用户被静默按「不带」派单。
     func testMockGuideDogExtractionMatchesTheBackendGoldenCorpus() {
-        // golden-corpus: GUIDE_DOG regex
-        let regexCases: [(transcript: String, expected: Bool)] = [
-            ("明天八点从五角场出发跑一小时，我带导盲犬", true),
-            ("我牵着导盲犬", true),
-            ("今天不带导盲犬", false),
-            ("这次没带导盲犬", false)
-        ]
+        // 镜像清单在 `VoiceGoldenCorpusMirror.guideDogRegex`（GUIDE_DOG regex）。
+        let regexCases = VoiceGoldenCorpusMirror.guideDogRegex
         for testCase in regexCases {
             XCTAssertEqual(
                 MockAPIClient.mockVoiceGuideDog(in: testCase.transcript),
@@ -2036,11 +1856,8 @@ final class VoiceOrderWizardTests: XCTestCase {
         //
         // 这不是边角情况：语音的定点修改会**主动引导用户说出这类句子**
         // （`correctionTarget = GUIDE_DOG` 的定向追问）。
-        // golden-corpus: GUIDE_DOG none
-        for transcript in [
-            "跑步的时候有狗叫", "明天八点从五角场出发跑一小时",
-            "带不带导盲犬改一下", "用不用导盲犬那个改一下"
-        ] {
+        // 镜像清单在 `VoiceGoldenCorpusMirror.guideDogNone`（GUIDE_DOG none）。
+        for transcript in VoiceGoldenCorpusMirror.guideDogNone {
             XCTAssertNil(
                 MockAPIClient.mockVoiceGuideDog(in: transcript),
                 "「\(transcript)」不是在答带不带导盲犬，必须是 nil 而不是 false —— nil 才会回落档案默认值"
@@ -2050,18 +1867,8 @@ final class VoiceOrderWizardTests: XCTestCase {
 
     /// PACE 8 条。
     func testMockPaceExtractionMatchesTheBackendGoldenCorpus() {
-        // golden-corpus: PACE regex
-        let regexCases: [(transcript: String, expected: String)] = [
-            // 这两条同时出现在 `START_TIME none` 里：配速要抽出来，时间必须是 nil。
-            // 「慢一点」两条正则都想要它，赢的必须是配速这条。
-            ("跑慢一点", "EASY"),
-            ("快一点跑四十分钟", "FAST"),
-            ("慢一点跑", "EASY"),
-            ("想轻松跑跑", "EASY"),
-            ("能不能快一点", "FAST"),
-            ("走跑结合就行", "WALK_RUN"),
-            ("中等速度", "MODERATE")
-        ]
+        // 镜像清单在 `VoiceGoldenCorpusMirror.paceRegex`（PACE regex）。
+        let regexCases = VoiceGoldenCorpusMirror.paceRegex
         for testCase in regexCases {
             XCTAssertEqual(
                 MockAPIClient.mockVoicePace(in: testCase.transcript)?.rawValue,
@@ -2070,8 +1877,8 @@ final class VoiceOrderWizardTests: XCTestCase {
             )
         }
 
-        // golden-corpus: PACE none
-        for transcript in ["明天八点从五角场出发跑一小时"] {
+        // 镜像清单在 `VoiceGoldenCorpusMirror.paceNone`（PACE none）。
+        for transcript in VoiceGoldenCorpusMirror.paceNone {
             XCTAssertNil(
                 MockAPIClient.mockVoicePace(in: transcript),
                 "「\(transcript)」没提配速，必须是 nil"
