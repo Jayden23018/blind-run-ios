@@ -578,15 +578,13 @@ extension LocationService: CLLocationManagerDelegate {
 
 extension LocationService {
 
-    /// 带回调的临时精确位置申请：用户回答、或系统决定不弹之后才返回（#547）。放这里是因为扩展文件读不到 `locationManager`。
-    /// 别直接调：用 `requestTemporaryPreciseLocationAndWaitForAnswer(for:)`，它带测试接缝和回调后的精度同步。
+    /// 给 `LocationService+PreciseAccuracy.swift`（#547，那边读不到 `locationManager`）：带回调的申请（用户回答、或系统决定不弹之后才返回）
+    /// 与 manager 此刻的精度授权（不等授权回调）。别直接调：用 `requestTemporaryPreciseLocationAndWaitForAnswer(for:)`。
     func requestTemporaryFullAccuracyFromSystem(for purpose: PreciseLocationPurpose) async {
         await withCheckedContinuation { (answered: CheckedContinuation<Void, Never>) in
             locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose.rawValue) { _ in answered.resume() }
         }
     }
-
-    /// `CLLocationManager` 此刻的精度授权，不等授权回调（#547）。
     var managerAccuracyAuthorization: CLAccuracyAuthorization { locationManager.accuracyAuthorization }
 
     /// 🔴 **「已授权」不等于「开定位」（#413）。** `CLLocationManager` 一创建就回调一次，
