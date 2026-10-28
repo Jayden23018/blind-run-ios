@@ -1165,7 +1165,8 @@ struct BlindBookingView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if !placesVoiceControlsBeside {
-                submitArea
+                // 整条底栏的范围：审计按它判「内容滚到栏后面」，不按文案放行（`AccessibilityAuditTests+Audit`）。
+                submitArea.accessibilityElement(children: .contain).accessibilityIdentifier("blindBookingBottomBar")
             }
         }
         .safeAreaInset(edge: .trailing, spacing: 0) {
