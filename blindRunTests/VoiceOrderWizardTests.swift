@@ -1958,6 +1958,8 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// `submitConfirmedBooking` 会停在 `guard let` 上，用例根本走不到要测的那一行还照样绿。
     func testParsingNoticeDoesNotBecomeWhatRepeatSpeaks() async {
         let bookingViewModel = BlindBookingViewModel()
+        // 起点是关键槽位（#558）：没有它「确认」在提交前就被拦下，走不到等待提示那一步。要在建向导前设好。
+        bookingViewModel.selectedStartPlace = ResolvedPlace(id: "people-square", title: "人民广场", addressText: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737, source: .manual)
         let wizard = makeWizard(
             stub: VoiceOrderAPIClientStub(),
             bookingViewModel: bookingViewModel,
