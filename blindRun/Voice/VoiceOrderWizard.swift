@@ -1120,7 +1120,7 @@ final class VoiceOrderWizard: ObservableObject {
     /// 给一次解析请求加超时。后端的模型兜底自己有 3 秒降级，这层防的是网络卡死 ——
     /// 没有它，向导会静默地永远停在「正在识别」，而盲人听不到任何提示。
     private func withParseTimeout<T: Sendable>(
-        _ operation: @escaping @Sendable () async throws -> T
+        _ operation: @escaping @concurrent @Sendable () async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask { try await operation() }

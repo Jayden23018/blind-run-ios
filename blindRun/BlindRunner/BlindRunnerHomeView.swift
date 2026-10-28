@@ -510,7 +510,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     private func performAction(
         failureMessage: String,
-        operation: () async throws -> Void
+        operation: @MainActor () async throws -> Void
     ) async {
         isPerformingAction = true
         errorMessage = nil

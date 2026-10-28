@@ -324,7 +324,7 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 请求被 401 打回 = 服务端在过滤器那一层就拒了、业务没执行，所以 POST 重试一次是安全的。
     private func withSessionRenewal<T>(
         requiresAuth: Bool,
-        _ send: (_ accessToken: String?) async throws -> T
+        _ send: @MainActor (_ accessToken: String?) async throws -> T
     ) async throws -> T {
         guard requiresAuth else { return try await send(nil) }
         // 需要鉴权却拿不到 Token 时**不发请求**。

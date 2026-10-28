@@ -31,7 +31,7 @@ extension EmergencyCoordinator {
         role: UserRole?,
         userID: Int64?,
         safety: any SafetyServing,
-        locate: () async -> LocatedCoordinate?,
+        locate: @MainActor () async -> LocatedCoordinate?,
         locationFailureReason: () -> LocationError? = { nil },
         useCountdown: Bool = false
     ) async -> TriggerOutcome {

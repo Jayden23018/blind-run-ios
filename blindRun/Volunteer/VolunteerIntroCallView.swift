@@ -269,7 +269,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
 
     /// 两个表态端点共用的收尾。`orderId` 由这里 guard 出来再交给闭包 ——
     /// 迁移前是先用 `orderId ?? 0` 拼好路径再在这里 guard，那条路径永远不该被构造出来。
-    private func perform(_ call: (any SafetyServing, Int64) async throws -> Void) async {
+    private func perform(_ call: @MainActor (any SafetyServing, Int64) async throws -> Void) async {
         guard let orderId, let appState else { return }
         isSubmitting = true
         errorMessage = nil

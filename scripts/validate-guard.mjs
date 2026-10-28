@@ -1947,7 +1947,7 @@ const cases = [
     swift: 'struct Sheet: View {\n    let onSave: @MainActor (String) async -> String?\n    let onCancel: @MainActor () async -> Void\n    let serverAddress: @MainActor (Int64) async -> OrderLocationAddressResponse?\n}'
   },
   {
-    // 同步闭包与 init 参数不在这条的管辖内（init 参数靠 why 里的写法提示，不靠拦）。
+    // 同步闭包不在这条的管辖内；init 参数标了 `@MainActor` 就放行。
     name: '同步闭包属性与 async 函数声明（放行）',
     mode: 'post',
     expect: 0,
@@ -1958,6 +1958,55 @@ const cases = [
     mode: 'post',
     expect: 0,
     swift: 'struct W {\n    let work: () async -> Void // guard:allow unannotated-async-closure 后台任务，不碰 UI\n}'
+  },
+  // #550：函数 / init 参数同样要标。转换 thunk 在「传参」那一刻就生成，存不存起来不是条件。
+  {
+    // #550 原样（通话磨合页）：非逃逸参数，实参带引用计数的服务对象。
+    name: '函数参数没标隔离（拦下，#550 原样）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class VM {\n    private func perform(_ call: (any SafetyServing, Int64) async throws -> Void) async {}\n}'
+  },
+  {
+    // #550 原样（紧急联系人）：多行签名里单独一行的 @escaping 参数。
+    name: '多行签名里的 @escaping 参数没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class VM {\n    private func mutate(\n        successMessage: String,\n        operation: @escaping (AppState, Int64) async throws -> Void\n    ) async -> Bool { true }\n}'
+  },
+  {
+    // 只写 @Sendable 不算标了隔离（与存储属性那半同一判据）。
+    name: '只写 @escaping @Sendable 的参数（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C {\n    nonisolated static func run<T>(operation: @escaping @Sendable () async throws -> T) async throws -> T { try await operation() }\n}'
+  },
+  {
+    name: 'init 参数没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Sheet: View {\n    init(onSave: @escaping (String) async -> String?) {}\n}'
+  },
+  {
+    // 三种显式写法都算标了：MainActor、调用方执行器（与不写同一类型，但写出来就是有意的）、离开调用方。
+    name: '参数标了 @MainActor / nonisolated(nonsending) / @concurrent（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'final class VM {\n    private func perform(_ call: @MainActor (any SafetyServing, Int64) async throws -> Void) async {}\n    func mutate(operation: @escaping @MainActor (AppState, Int64) async throws -> Void) async {}\n    nonisolated static func run<T>(operation: nonisolated(nonsending) @escaping @Sendable () async throws -> T) async throws -> T { try await operation() }\n    nonisolated static func race<T>(operation: @escaping @concurrent @Sendable () async throws -> T) async throws -> T { try await operation() }\n}'
+  },
+  {
+    // 参数那半不锚行首：行尾注释里写的示例不能被当成声明。
+    name: '行尾注释里的参数示例（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct S {\n    func f() {} // 旧写法 perform(_ call: (Int) async -> Void) 已改\n}'
+  },
+  {
+    // 同步闭包参数、传闭包字面量的调用点都不是 async 函数类型声明。
+    name: '同步闭包参数与传字面量的调用点（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'final class VM {\n    func f(done: @escaping (Int) -> Void) {}\n    func g() async {\n        _ = try? await HomeLoadCoordinator.run(timeout: 1, operation: { try await load() })\n        await perform { safety, id in try await safety.report(id) }\n    }\n}'
   }
 ];
 

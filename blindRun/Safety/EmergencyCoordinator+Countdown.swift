@@ -33,7 +33,7 @@ extension EmergencyCoordinator {
         role: UserRole?,
         userID: Int64?,
         safety: any SafetyServing,
-        locate: @escaping () async -> LocatedCoordinate?,
+        locate: @escaping @MainActor () async -> LocatedCoordinate?,
         locationFailureReason: @escaping () -> LocationError? = { nil },
         announce: @escaping (String) -> Void = { _ in }
     ) {

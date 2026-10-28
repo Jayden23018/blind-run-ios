@@ -208,7 +208,7 @@ final class EmergencyContactsViewModel: ObservableObject {
     /// 失败（含可恢复冲突）时保留当前列表，不清空、不局部改写。
     private func mutate(
         successMessage: String,
-        operation: @escaping (AppState, Int64) async throws -> Void
+        operation: @escaping @MainActor (AppState, Int64) async throws -> Void
     ) async -> Bool {
         guard let appState, let userId = appState.userId else {
             fail(with: "用户未登录，请重新登录后再试。")

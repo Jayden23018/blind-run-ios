@@ -75,7 +75,7 @@ enum HomeLoadCoordinator {
     nonisolated static func run<T: Sendable>(
         timeout: TimeInterval,
         operationName: String = "home",
-        operation: @escaping @Sendable () async throws -> T
+        operation: @escaping @concurrent @Sendable () async throws -> T
     ) async throws -> T {
         let boundedTimeout = max(0.05, timeout)
         let race = HomeLoadRace(operationName: operationName)
@@ -150,7 +150,7 @@ private final class HomeLoadRace: @unchecked Sendable {
     nonisolated func start(
         timeout: TimeInterval,
         terminalHandler: @escaping TerminalHandler,
-        operation: @escaping @Sendable () async -> Void
+        operation: @escaping @concurrent @Sendable () async -> Void
     ) {
         lock.lock()
         if isCompleted {
