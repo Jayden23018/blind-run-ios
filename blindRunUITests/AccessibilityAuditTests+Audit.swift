@@ -114,7 +114,11 @@ extension AccessibilityAuditTests {
         while element.exists, swipes < Self.maxSwipesToRevealCutElement {
             let frame = element.frame
             if Self.isShownAsFullyAsPossible(frame, on: screen) { break }
-            if frame.midY < screen.midY { app.swipeDown() } else { app.swipeUp() }
+            // 差多少拖多少、按住再拖（不带惯性）：整页 `swipeUp` 一次跨度比高个子元素的余量大，
+            // 会在「从底下露出」与「甩出顶部」之间来回振荡（#515，AX5 下 408pt 高的培训卡说明）。
+            let shift = frame.maxY > screen.maxY ? -(frame.maxY - screen.maxY + 24) : (-frame.minY + 24)
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: shift < 0 ? 0.7 : 0.3))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: shift)))
             swipes += 1
         }
         guard element.exists, Self.isShownAsFullyAsPossible(element.frame, on: screen) else {
