@@ -3021,6 +3021,10 @@ struct VolunteerSettingsView: View {
                 }
                 .accessibilityLabel("个人资料")
                 .accessibilityHint("编辑志愿者资料")
+                // 位置共享同意的撤回（#530，与盲人端 #393 同一套交互）。
+                NavigationLink(PrivacyAuthorizationCopy.title) { VolunteerPrivacyAuthorizationView() }
+                    .accessibilityHint("查看并撤回接单和陪跑时位置共享的同意")
+                    .accessibilityIdentifier("volunteerPrivacyAuthorizationSettingsEntry")
 
                 NavigationLink("资质证书") {
                     VolunteerCertificateUploadView()

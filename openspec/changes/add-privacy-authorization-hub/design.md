@@ -9,7 +9,7 @@
 
 **Goals:** 三项同意一处可见、一样的撤回交互；撤回即时生效；读屏可用；按钮 ≥ 64pt。
 
-**Non-Goals:** 陪跑员端位置同意的撤回（接单开关联动，另开 issue）；改同意页文案或告知版本；在本页重新同意（重新同意走各自原来的入口，下次用到时自然会问）。
+**Non-Goals:** 改同意页文案或告知版本；在本页重新同意（重新同意走各自原来的入口，下次用到时自然会问）。
 
 ## Decisions
 
@@ -17,6 +17,9 @@
 2. **视力那项复用资料页的 view model。** 本页建一份 `BlindRunnerProfileViewModel` 并调它的 `withdrawVisionConsent()`，成功 / 失败文案与资料页一字不差。
 3. **陪跑进行中拒绝撤回位置同意。** 撤回会让同行会话立刻停发、同意页马上再弹出来，对正在跑的人只有干扰；真要停，系统设置关定位权限是即时的，文案指过去。
 4. **撤回位置同意后马上重算定位意图**（`syncRoleLocationIntents`），并通知同行协调器（`trackConsentDidChange`），不等下一次换角色。
+
+5. **陪跑员端（#530）复用同一个版式**（`PrivacyConsentRow`）。撤回时接单开关开着就先 `setAvailability(false)`（同步服务端），
+   与同意页上「先不同意」的处理一致：否则服务端一直当他在线，却再也收不到他的位置。首页 view model 由 `VolunteerTabView` 注入。
 
 ## Risks / Trade-offs
 
