@@ -97,9 +97,9 @@ Enter the phone number from the Sign-in field, tap the button to get a code, the
 BEFORE YOU START (both devices)
 1. Set the time zone to Shanghai, China: Settings > General > Date & Time > turn off Set Automatically > Time Zone. Our server runs on China time; with a US time zone, bookings are rejected as "in the past". This is a known issue we are fixing.
 2. Runs cannot overlap 22:00-05:00 China time, which is 07:00-14:00 US Pacific Daylight Time (06:00-13:00 PST after Nov 1). Please book from 13:30 PDT for a start at 14:00 or later.
-3. Allow Location on both devices. Keep the two devices within 5 km of each other; volunteers are matched by distance to the start point.
+3. Allow Location on both devices. Keep the two devices within 5 km of each other.
 
-STEPS (the whole flow takes about 25 minutes, mostly waiting for the start time)
+STEPS (about 25 minutes, mostly waiting for the start time)
 1. Volunteer device: sign in, swipe the slider right to start taking orders, keep the app open in the foreground.
 2. Runner device: sign in, tap "预约新的陪跑" (book a run). Start point: keep "当前位置" (current location); address search only covers mainland China. Start time: 30-35 minutes from now. Submit with "提交预约".
 3. Volunteer device: an invitation appears, usually within a minute. Tap "接下这次陪跑" (accept).
@@ -109,7 +109,7 @@ STEPS (the whole flow takes about 25 minutes, mostly waiting for the start time)
 7. Volunteer: long-press "长按 2 秒，结束陪跑" (finish). Both devices show the completed run.
 
 OUTSIDE MAINLAND CHINA
-Maps and address search come from AMap (Gaode), a mainland-China provider. Outside China the map may show little detail and search returns no results. Matching and the order flow do not depend on them: coordinates are used as-is and matching is by distance.
+Maps and address search come from AMap (Gaode), a mainland-China provider. Outside China the map may show little detail and search returns no results. The order flow does not depend on them; matching is by distance.
 
 PERMISSIONS
 - Location (When In Use): sets the start point, matches nearby volunteers, and shares both people's positions from "on my way" until the run ends. Background location (UIBackgroundModes: location) is turned on ONLY while a run is in progress, because the blind runner's phone is locked in a pocket; the blue indicator is shown and it stops when the run ends. We never request Always.
@@ -118,8 +118,11 @@ PERMISSIONS
 - Camera: volunteer identity liveness check at sign-up. The review accounts are already verified, so you will not see it.
 - Notifications: new orders and order status.
 
+NO HIDDEN FEATURES (Guideline 2.5.19)
+No hidden, dormant or remotely enabled features. Our development-only mock server, server switcher and an unfinished companion-map tab are compiled out of this build; it always uses our production server.
+
 HELP / SOS - PLEASE DO NOT TRIGGER
-The help (SOS) button only sends an alert while a run is in progress. The alert goes to our real support staff, and the server tries to text the account's emergency contact. At any other time the help button only offers to dial the emergency contact or local emergency numbers (110/120). Please do not dial them either.
+The help (SOS) button only sends an alert while a run is in progress. The alert goes to our real support staff, and the server tries to text the account's emergency contact. It does not replace a call to 110 or 120 and does not contact the police or an ambulance service. At any other time the help button only offers to dial the emergency contact or local emergency numbers (110/120). Please do not dial them either.
 ```
 
 ### 2.3 账号（✅ 后端已建好；号码不进本仓库）
