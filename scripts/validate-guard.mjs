@@ -1988,11 +1988,68 @@ const cases = [
     swift: 'struct Sheet: View {\n    init(onSave: @escaping (String) async -> String?) {}\n}'
   },
   {
-    // 三种显式写法都算标了：MainActor、调用方执行器（与不写同一类型，但写出来就是有意的）、离开调用方。
-    name: '参数标了 @MainActor / nonisolated(nonsending) / @concurrent（放行）',
+    // 两种显式写法算标了：MainActor、离开调用方（`@concurrent`）。
+    name: '参数标了 @MainActor / @concurrent（放行）',
     mode: 'post',
     expect: 0,
-    swift: 'final class VM {\n    private func perform(_ call: @MainActor (any SafetyServing, Int64) async throws -> Void) async {}\n    func mutate(operation: @escaping @MainActor (AppState, Int64) async throws -> Void) async {}\n    nonisolated static func run<T>(operation: nonisolated(nonsending) @escaping @Sendable () async throws -> T) async throws -> T { try await operation() }\n    nonisolated static func race<T>(operation: @escaping @concurrent @Sendable () async throws -> T) async throws -> T { try await operation() }\n}'
+    swift: 'final class VM {\n    private func perform(_ call: @MainActor (any SafetyServing, Int64) async throws -> Void) async {}\n    func mutate(operation: @escaping @MainActor (AppState, Int64) async throws -> Void) async {}\n    nonisolated static func race<T>(operation: @escaping @concurrent @Sendable () async throws -> T) async throws -> T { try await operation() }\n}'
+  },
+  {
+    // #592 审查：显式 nonisolated(nonsending) 与不写是同一个类型，传 MainActor 函数值进去照样生成 ImplicitActor thunk。
+    name: '参数显式写 nonisolated(nonsending)（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C {\n    nonisolated static func run<T>(operation: nonisolated(nonsending) @escaping @Sendable () async throws -> T) async throws -> T { try await operation() }\n}'
+  },
+  {
+    name: '存储属性显式写 nonisolated(nonsending)（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct Sheet: View {\n    let onSave: nonisolated(nonsending) (String) async -> String?\n}'
+  },
+  {
+    // #592 审查 B1：同一行第二个及以后的参数只靠逗号分支命中（RunRecordHistoryView 的 monthSwitchRow 原样）。
+    name: '同一行第二个参数没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V: View {\n    private func row(title: String, identifier: String, action: @escaping () async -> Void) -> some View { EmptyView() }\n}'
+  },
+  {
+    // 先清字符串再切注释：按 `//` 一刀切会把 URL 之后的参数一起切掉。用保留域名，免得撞上「写死服务端地址」那条。
+    name: '带 URL 默认值的参数后面跟着没标隔离的参数（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class C {\n    func f(url: String = "https://example.com", op: () async -> Void) async {}\n}'
+  },
+  {
+    name: '字符串里的参数示例（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct S {\n    let doc = "func f(op: () async -> Void)"\n}'
+  },
+  {
+    name: 'sending 修饰的参数没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class C {\n    func f(op: sending () async -> Void) async {}\n}'
+  },
+  {
+    name: 'inout 修饰的参数没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class C {\n    func f(op: inout () async -> Void) async {}\n}'
+  },
+  {
+    name: '@autoclosure 参数没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class C {\n    func f(_ value: @autoclosure () async -> Int) async {}\n}'
+  },
+  {
+    name: '反引号参数名没标隔离（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'final class C {\n    func f(`op`: () async -> Void) async {}\n}'
   },
   {
     // 参数那半不锚行首：行尾注释里写的示例不能被当成声明。
