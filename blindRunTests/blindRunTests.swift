@@ -4766,7 +4766,7 @@ final class blindRunTests: XCTestCase {
         let announcement = order.blindRunnerAnnouncement()
 
         XCTAssertEqual(RunOrderStatus.pendingAccept.blindRunnerDescription, "陪跑员已接单，请按预约时间前往或等待在出发地点。")
-        XCTAssertTrue(announcement.contains("志愿者已接单"))
+        XCTAssertTrue(announcement.contains("陪跑员已接单"))
         XCTAssertTrue(announcement.contains("朝阳公园南门"))
         XCTAssertTrue(announcement.contains("陪跑员出发后会继续通知你"))
         XCTAssertFalse(announcement.contains("待确认"))

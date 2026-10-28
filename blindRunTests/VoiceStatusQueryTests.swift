@@ -196,7 +196,7 @@ final class VoiceStatusQueryTests: XCTestCase {
             volunteerCoordinate: Self.volunteerCoordinate,
             fallbackAnnouncement: "整段状态"
         )
-        XCTAssertEqual(answer.speech, "志愿者\(expected ?? "")。")
+        XCTAssertEqual(answer.speech, "陪跑员\(expected ?? "")。")
         XCTAssertFalse(answer.speech.contains("整段状态"), "问距离就只念距离，不念整段")
     }
 
