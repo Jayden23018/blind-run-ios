@@ -8,7 +8,8 @@ enum LiveEscortHealthState: Equatable, Sendable {
     case waitingForLocation
     case permissionRequired
     /// 已授权但「精确位置」关闭（盲人端 #373，两端 #407）：同行位置已暂停共享。带上角色，两端的后果不一样。
-    case preciseLocationOff(UserRole)
+    /// `running`：已进 `IN_PROGRESS`。进跑步时状态变化，根视图再念一次（后端只在跑步中按失联升级求助）。
+    case preciseLocationOff(UserRole, running: Bool)
     case networkDisconnected
     case active(background: Bool)
     /// 同行态里本机还没有这一角色的位置轨迹同意（#368）：不开定位、不上报，同意页正盖在界面上。
@@ -23,14 +24,8 @@ enum LiveEscortHealthState: Equatable, Sendable {
         case .idle: return nil
         case .waitingForLocation: return "设备位置暂时不可用，已暂停同行位置共享。"
         case .permissionRequired: return "定位权限已关闭，同行位置与路线记录已暂停，请前往系统设置开启。"
-        // 先说已经暂停、后果是什么，再说怎么办。「如果弹出提示」是因为系统可能不弹（App 在后台时）。
-        case .preciseLocationOff(let role):
-            // 后果的说法照抄拒绝共享那两句（`escortDeclinedFeedback`）：同一件事（对方没有你的位置）只用一种说法。
-            let consequence = role == .blind
-                ? "已暂停同行位置共享：对方看不到你的位置，走散提醒用不了，紧急求助也会因此发不出去。"
-                : "已暂停同行位置共享：对方看不到你的位置，走散提醒也用不了。"
-            return "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里，" + consequence
-                + "如果弹出提示请选允许，或到系统设置里为助盲跑打开「精确位置」。"
+        case .preciseLocationOff(let role, let running):
+            return EscortPreciseLocationCopy.message(role: role, running: running)
         case .networkDisconnected: return "网络连接已中断，同行位置将在重连后自动恢复。"
         case .active(let background) where background:
             return "路线记录正在运行，锁屏后仍会持续使用定位，可能增加电量消耗。"
@@ -458,7 +453,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         // 排在样本档位之前：模糊位置下样本最旧可能 20 分钟才来一个，
         // 否则会落到「设备位置暂时不可用」，把真正的原因（一个开关）盖住，用户只会去换地方。两端都进这一档（#407）。
         if let role, locationService?.isPreciseLocationOff == true {
-            setHealthState(.preciseLocationOff(role))
+            setHealthState(.preciseLocationOff(role, running: activeStatus == .inProgress))
             return
         }
         // 样本年龄闸在 `latestEscortBackendSample` 里，所以「样本停更超过 60 秒」和
