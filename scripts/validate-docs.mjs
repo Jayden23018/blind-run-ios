@@ -109,6 +109,28 @@ for (const relativePath of ['AGENTS.md', 'CLAUDE.md']) {
   });
 }
 
+// App Store Connect cuts the Beta App Review notes at 4000 characters. The notes grow with
+// every new permission or review rule (2026-10-28: 3720 -> 4291 after two short additions),
+// and nobody counts by hand before pasting.
+const REVIEW_NOTES_DOC = 'docs/testflight/test-information.md';
+const REVIEW_NOTES_LIMIT = 4000;
+{
+  const text = fs.readFileSync(path.join(repoRoot, REVIEW_NOTES_DOC), 'utf8');
+  const section = text.indexOf('### 2.2 Review Notes');
+  const open = section < 0 ? -1 : text.indexOf('```text\n', section);
+  const close = open < 0 ? -1 : text.indexOf('```', open + '```text\n'.length);
+  if (close < 0) {
+    console.error(`[validate-docs] ${REVIEW_NOTES_DOC}: cannot find the §2.2 Review Notes code block`);
+    failed = true;
+  } else {
+    const length = [...text.slice(open + '```text\n'.length, close)].length;
+    if (length > REVIEW_NOTES_LIMIT) {
+      console.error(`[validate-docs] ${REVIEW_NOTES_DOC}: Review Notes has ${length} characters (limit ${REVIEW_NOTES_LIMIT})`);
+      failed = true;
+    }
+  }
+}
+
 if (failed) {
   process.exitCode = 1;
 } else {
