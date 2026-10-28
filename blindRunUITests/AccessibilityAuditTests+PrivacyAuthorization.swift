@@ -33,6 +33,30 @@ extension AccessibilityAuditTests {
         }
     }
 
+    /// 陪跑员端同一页（#530）：只有位置共享一项。撤回按钮可点高度 ≥ 64pt、读屏标签说清撤回哪一项，再整页审计。
+    @MainActor
+    func testVolunteerPrivacyAuthorizationPagePassesAuditInLightDarkAndLargestText() throws {
+        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        for variant in privacyAuditVariants {
+            let app = launchVolunteerHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
+            openPrivacyAuthorization(app, entryIdentifier: "volunteerPrivacyAuthorizationSettingsEntry", variant: variant.name)
+            let revoke = app.buttons["volunteerPrivacyRevokeLocationTrackConsent"].firstMatch
+            XCTAssertTrue(revoke.waitForExistence(timeout: 10), "\(variant.name)：没有撤回位置共享的按钮")
+            // 63.5 而不是 64：真机浮点噪声，口径同 `testPrivacyAuthorizationRevokeButtonsAreTallAndSayWhatTheyRevoke`。
+            XCTAssertGreaterThanOrEqual(revoke.frame.height, 63.5, "\(variant.name)：可点高度不足 64pt：\(revoke.frame)")
+            XCTAssertTrue(revoke.label.contains("位置"), "\(variant.name)：读屏标签没说撤回哪一项：\(revoke.label)")
+            try auditPrivacyPage(
+                app,
+                firstButton: "volunteerPrivacyRevokeLocationTrackConsent",
+                lastButton: "volunteerPrivacyRevokeLocationTrackConsent",
+                name: "volunteer-privacy-\(variant.name)"
+            )
+            app.terminate()
+        }
+    }
+
     /// 「我的」→ 设置页里的「隐私与授权」入口。
     @MainActor
     func openPrivacyAuthorization(_ app: XCUIApplication, entryIdentifier: String, variant: String) {

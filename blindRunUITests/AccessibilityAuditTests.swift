@@ -3064,7 +3064,7 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     @MainActor
-    private func launchVolunteerHome(
+    func launchVolunteerHome(
         seedOrderStatus: String? = nil,
         available: Bool = true,
         extraEnvironment: [String: String] = [:],
