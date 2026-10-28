@@ -37,6 +37,27 @@ final class DispatchPreciseLocationGateTests: XCTestCase {
         withExtendedLifetime(location) {}
     }
 
+    /// 两条上报路径共用的判定（根视图定时上报也读它）：关着拦、开着放。
+    func testSharedGateBlocksOnlyWhilePreciseLocationIsOff() {
+        let location = LocationService()
+        location.simulatePreciseLocationOffForTesting()
+        XCTAssertTrue(VolunteerLocationReporter.isBlockedByPreciseLocation(location))
+        location.simulatePreciseLocationOffForTesting(false)
+        XCTAssertFalse(VolunteerLocationReporter.isBlockedByPreciseLocation(location))
+    }
+
+    /// 告知出现的那一刻：念出原因，并以陪跑员派单的用途申请一次临时精确位置。
+    func testNoticeSpeaksAndAsksForTemporaryPreciseLocationForDispatch() {
+        let location = LocationService()
+        location.simulatePreciseLocationOffForTesting()
+        let speech = SpeechService()
+
+        DispatchPreciseLocationCopy.announceBecameVisible(speech: speech, location: location)
+
+        XCTAssertTrue(speech.spokenHistoryForTesting.contains(DispatchPreciseLocationCopy.notice))
+        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.volunteerDispatch])
+    }
+
     /// 停报的原因要说清：已暂停、后果（收不到附近的邀请）、怎么恢复。
     func testNoticeStatesThePauseTheConsequenceAndTheWayBack() {
         let notice = DispatchPreciseLocationCopy.notice
