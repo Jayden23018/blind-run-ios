@@ -65,11 +65,15 @@ extension MockAPIClient {
 
     /// 后端 #841（交接 blind-run-backend#843）：本人已有一条**已发出**、未结案的求助时再按不新建 ——
     /// 回同一个 `eventId` 与它当下的状态，并用这次的坐标更新那条事件。Mock 只有一个事件槽，「本人的」就是它。
-    /// 倒计时中的不在此列：那几秒客户端自己挡着重复触发（`EmergencySOSState.isBusy`）。
+    /// 倒计时中的不在此列（后端 `MERGEABLE_STATUSES` 不含 COUNTDOWN）；也只并同一张订单（后端 `findMergeTarget` 比 `orderId`）。
     /// 此前 Mock 每次都新建，于是「再按一次被合并、屏 3b 重新弹出」只有连真实后端才走得到（#500）。
+    ///
+    /// ponytail: 比后端宽的三处是有意的 —— 不演 60 秒冷却（真实后端 60 秒内再按先回 429，UI 用例不想干等）、
+    /// 不演 30 分钟合并窗口、不给 PENDING 补一次升级。要验这三条只能连真实后端。
     private func mergeIntoOpenMockEmergency(_ request: EmergencyTriggerRequest) -> EmergencyTriggerResponse? {
         fireDueMockCountdown()
         guard let open = activeEmergencyEvent,
+              open.orderId == request.orderId,
               open.eventStatus != .countdown,
               !open.eventStatus.isTerminal else { return nil }
         activeEmergencyEvent = EmergencyEventResponse(

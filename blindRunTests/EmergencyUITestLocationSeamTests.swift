@@ -19,11 +19,22 @@ final class EmergencyUITestLocationSeamTests: XCTestCase {
         XCTAssertNil(EmergencyCoordinator.uiTestEmergencySample(environment: [:]))
         XCTAssertNil(EmergencyCoordinator.uiTestEmergencySample(environment: [key: "1"]), "没选 Mock 环境也出了样本")
         XCTAssertNil(EmergencyCoordinator.uiTestEmergencySample(environment: ["AIDRUN_UI_TEST_API_ENV": "mock"]))
-        XCTAssertNil(EmergencyCoordinator.uiTestEmergencySample(environment: [key: "1", "AIDRUN_UI_TEST_API_ENV": "demo"]))
+        XCTAssertNil(EmergencyCoordinator.uiTestEmergencySample(environment: [key: "1", "AIDRUN_UI_TEST_API_ENV": "demoCloud"]))
 
         let sample = EmergencyCoordinator.uiTestEmergencySample(environment: [key: "1", "AIDRUN_UI_TEST_API_ENV": "mock"])
         XCTAssertEqual(sample?.source, .uiTestSeam, "接缝产出的样本必须带测试来源标记")
         XCTAssertEqual(sample?.system, .gcj02Backend)
+    }
+
+    /// 接缝排在同意闸之后：拒绝共享位置时，开着接缝也拿不到样本（同意页「求助定位也用不了」那句照样成立）。
+    func testSeamDoesNotBypassTheSharingConsent() async {
+        let environment = [EmergencyCoordinator.uiTestEmergencyLocationKey: "1", "AIDRUN_UI_TEST_API_ENV": "mock"]
+
+        let blocked = await EmergencyCoordinator.freshEmergencyCoordinate(using: nil, sharingBlocked: true, environment: environment)
+        let allowed = await EmergencyCoordinator.freshEmergencyCoordinate(using: nil, sharingBlocked: false, environment: environment)
+
+        XCTAssertNil(blocked, "接缝绕过了同意闸")
+        XCTAssertEqual(allowed?.source, .uiTestSeam, "前提：同意时接缝确实出样本")
     }
     #endif
 
@@ -128,6 +139,32 @@ final class EmergencyUITestLocationSeamTests: XCTestCase {
 
         XCTAssertEqual(spoken, [EmergencySafetyCopy.mergedIntoOpenEvent])
         XCTAssertEqual(coordinator.mergedRetriggerCount, 1)
+    }
+
+    /// 倒计时中的事件不合并（后端 `MERGEABLE_STATUSES` 不含 COUNTDOWN）：Mock 那一行条件此前没有任何用例守着（#541 审查 A）。
+    /// 直接打服务层：客户端在倒计时里自己就挡着重复触发，走 coordinator 测不到 Mock 这一层。
+    func testMockDoesNotMergeIntoAnEventStillCountingDown() async throws {
+        let mock = Self.makeMock()
+        let safety = SafetyService(transport: mock)
+        let request = EmergencyTriggerRequest(orderId: Self.orderId, gpsLat: 39.9, gpsLng: 116.4, useCountdown: true)
+
+        let first = try await safety.triggerEmergency(request)
+        let second = try await safety.triggerEmergency(request)
+
+        XCTAssertEqual(first.eventStatus, .countdown, "前提：第一条还在倒计时")
+        XCTAssertNotEqual(second.eventId, first.eventId, "倒计时中的事件被合并了")
+    }
+
+    /// 只并同一张订单（后端 `findMergeTarget` 比 `orderId`）。
+    func testMockDoesNotMergeAcrossOrders() async throws {
+        let mock = Self.makeMock()
+        mock.orders.append(.preview(orderId: Self.orderId + 1, status: .inProgress))
+        let safety = SafetyService(transport: mock)
+
+        let first = try await safety.triggerEmergency(EmergencyTriggerRequest(orderId: Self.orderId, gpsLat: 39.9, gpsLng: 116.4))
+        let other = try await safety.triggerEmergency(EmergencyTriggerRequest(orderId: Self.orderId + 1, gpsLat: 39.9, gpsLng: 116.4))
+
+        XCTAssertNotEqual(other.eventId, first.eventId, "另一张订单的求助被并进了这一张")
     }
 
     /// 合并只发生在**未结案**时：撤销之后再按是一条新求助。

@@ -22,14 +22,17 @@ extension EmergencyCoordinator {
     ///
     /// 🔴 **本角色没有同意共享位置时（`sharingBlocked`，#368）同样直接返回 nil。**
     /// 同意页写着「不同意 …… 走散提醒和求助定位也用不了」—— 拒绝之后再把位置随求助发出去，就是拿走了用户刚说不的东西。
+    /// - Parameter environment: 只给 DEBUG 下的 UI 测试定位接缝读，单测用它钉住接缝排在同意闸之后。
     static func freshEmergencyCoordinate(
         using locationService: LocationService?,
-        sharingBlocked: Bool = false
+        sharingBlocked: Bool = false,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) async -> LocatedCoordinate? {
         guard !sharingBlocked else { return nil }
         #if DEBUG
-        // UI 测试定位接缝（#500）：排在同意闸之后，同意页的约束照样成立。
-        if let sample = uiTestEmergencySample() { return sample }
+        // UI 测试定位接缝（#500）：排在同意闸之后，同意页的约束照样成立；排在精确位置闸之前，
+        // 所以和 `AIDRUN_UI_TEST_PRECISE_LOCATION_OFF` 同开时照样出样本 —— 验「精确位置关→不发」的 UI 用例别开接缝。
+        if let sample = uiTestEmergencySample(environment: environment) { return sample }
         #endif
         guard let locationService, !locationService.isPreciseLocationOff else { return nil }
         if let sample = locationService.latestBackendSample() {

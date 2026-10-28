@@ -41,6 +41,9 @@ extension blindRunUITests {
         )
         attachSentScreenShot("sos-sent-first")
 
+        // 倒计时到点后 coordinator 还会再等 3 秒（`serverFireGrace`）去问一次后端，那次刷新会把状态写回「已发出」。
+        // 第二次按得比它早，合并那句会被盖掉（#541 审查）—— 先等它过去，测的是合并接线而不是这个竞态。
+        RunLoop.current.run(until: Date().addingTimeInterval(4))
         backToRun.tap()
         XCTAssertTrue(sentScreen.waitForNonExistence(timeout: 5), "「返回跑步」没有关掉屏 3b")
 
