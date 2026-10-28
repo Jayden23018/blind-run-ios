@@ -107,6 +107,9 @@ final class SessionTokenRefresher {
 
     var hasCredential: Bool { credentialStore.read() != nil }
 
+    /// 当前这次登录的 refresh token。只给登出用：服务端没撤成时连同 access 记进待撤记录（#459）。
+    var currentRefreshToken: String? { credentialStore.read()?.refreshToken }
+
     // MARK: - 主动续期
 
     /// 过了半衰期就起一个续期任务，**不等它**：此刻旧 access 还能用，没必要让手上这条请求跟着等。

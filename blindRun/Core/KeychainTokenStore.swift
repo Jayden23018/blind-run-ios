@@ -43,6 +43,8 @@ final class KeychainTokenStore: TokenStoring {
     enum Account: String {
         case accessToken
         case refreshSession
+        /// 退出登录时服务端没撤成的那一次登录（#459，`PendingSessionRevocationStore`）。
+        case pendingSessionRevocation
     }
 
     private let service: String

@@ -93,7 +93,8 @@ final class AccountDeletionViewModel: ObservableObject {
 @MainActor
 final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
-    private let apiClientOverride: (any APIClientProtocol)?
+    /// 补撤（`revocationTransport`）也要用它，所以不是 private。
+    let apiClientOverride: (any APIClientProtocol)?
     private let authOverride: (any AuthServing)?
     private let incentiveOverride: (any IncentiveServing)?
     private let safetyOverride: (any SafetyServing)?
@@ -102,6 +103,11 @@ final class AppState: ObservableObject {
     private let tokenStore: any TokenStoring
     /// refresh token 续期（#391）。每次新建的 `URLSessionAPIClient` 都带上它，single-flight 才是全 App 一份。
     let tokenRefresher: SessionTokenRefresher
+    /// 退出登录时服务端没撤成的部分（解绑推送、登出），联网 / 回前台 / 下次登录前补撤（#459）。
+    private(set) lazy var pendingSessionRevoker = PendingSessionRevoker(
+        store: PendingSessionRevocationStore(storage: TokenStoreFactory.makeDefault(account: .pendingSessionRevocation)),
+        transport: { [weak self] accessToken in self?.revocationTransport(accessToken: accessToken) }
+    )
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
     let emergencyCoordinator: EmergencyCoordinator
@@ -1005,28 +1011,11 @@ final class AppState: ObservableObject {
         // 而旧账号的 HIGH 推送（求助 / 走散告警 / 到达 / 取消预警）会继续送到这台手机
         // 并被前台朗读出来。后端契约把这条顺序写在 `unregisterApnsToken` 的 description 里。
         // 解绑失败不阻断登出：接口幂等、可安全重试。
-        await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
-        do {
-            _ = try await auth.logout()
-        } catch let error as APIError where Self.logoutIsWorthRetrying(error) {
-            _ = try? await auth.logout()
-        } catch {
-            // 401（续期也救不回来）= 这次登录本来就结束了；断网 = 服务端没收到。都照样清本地。
-        }
+        let stillBoundDeviceToken = await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
+        let serverLoggedOut = await logOutOnServer()
+        // 没撤成的部分记进待撤记录，之后补撤（#459）。凭据要在下面清本地会话之前取。
+        recordUnfinishedRevocation(deviceToken: stillBoundDeviceToken, needsLogout: !serverLoggedOut)
         performLocalSessionCleanup()
-    }
-
-    /// 服务端那边的错重试一次可能就过了。`.serverError` 不带状态码，4xx 业务错误也会落在这里 ——
-    /// 登出幂等，多发一次无害，所以不再细分。断网不重试：超时要 15 秒，重试会让用户对着遮罩再等一轮。
-    static func logoutIsWorthRetrying(_ error: APIError) -> Bool {
-        switch error {
-        case .serverError:
-            return true
-        case .unknown(let statusCode):
-            return (500...599).contains(statusCode)
-        case .unauthorized, .missingCredentials, .rateLimited, .networkError, .decodingError, .invalidURL:
-            return false
-        }
     }
 
     func dismissAccountDeletionFailure() {
