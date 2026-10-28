@@ -122,12 +122,30 @@ mkdir -p "$SANDBOX/Pods"
 # 名字要短：进程名 macOS 只留 16 字符、Linux 15 字符，超长被截断后 `pgrep -x` 全名匹配不上。
 FAKE_XCODE="fxc$$"
 FAKE_BIN="$SANDBOX/$FAKE_XCODE"
-# 用符号链接不用 cp：macOS 上复制出来的系统 sleep 一启动就被杀（签名校验），进程根本不存在；
-# 符号链接的进程名取链接名（macOS / Linux 都是），`pgrep -x` 能认出来。
+# 先用符号链接不用 cp：macOS 上复制出来的系统 sleep 一启动就被杀（签名校验），进程根本不存在；
+# 符号链接的进程名取链接名，`pgrep -x` 能认出来。
 ln -s "$(command -v sleep)" "$FAKE_BIN"
-"$FAKE_BIN" 30 &
+"$FAKE_BIN" 30 2>/dev/null &
 FAKE_PID=$!
 trap 'kill "$FAKE_PID" 2>/dev/null; rm -rf "$LOCK" "$SANDBOX"' EXIT
+sleep 0.3
+# Rust 版 coreutils（GitHub Ubuntu 运行器 2026-10-27 起）是多合一程序，按 argv[0] 认身份：
+# 链接名不是 sleep 就报 `Security violation` 退出，假进程没起来，第 6 条被误报成「没拦 Xcode」。
+# 认不出来就换同名 shell 脚本 —— Linux 上脚本进程的名字就是脚本文件名。
+if ! pgrep -x "$FAKE_XCODE" >/dev/null; then
+  kill "$FAKE_PID" 2>/dev/null
+  rm -f "$FAKE_BIN"
+  printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$FAKE_BIN"
+  chmod +x "$FAKE_BIN"
+  "$FAKE_BIN" &
+  FAKE_PID=$!
+  sleep 0.3
+fi
+# 两种都造不出来就直说，别让「假进程没起来」冒充「Xcode 检查坏了」。
+if ! pgrep -x "$FAKE_XCODE" >/dev/null; then
+  echo "[validate-device-lock] ❌ 造不出名叫 $FAKE_XCODE 的进程，第 6–7 条测不了（不是 device-test.sh 的问题）"
+  exit 1
+fi
 
 echo "[validate-device-lock] 6/7 Xcode 开着时在 xcodebuild 之前拦下"
 SIXTH="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_XCODE_PROCESS_NAME="$FAKE_XCODE" bash "$SCRIPT_ABS" 2>&1)"
