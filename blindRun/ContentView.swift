@@ -508,6 +508,8 @@ struct ContentView: View {
               // #368：开着接单开关、且同意过位置轨迹，才为派单上报。
               appState.allowsVolunteerDispatchLocationReporting,
               locationService.isAuthorized,
+              // #520：「精确位置」关着时不为派单上报，理由同 `VolunteerLocationReporter`。
+              !locationService.isPreciseLocationOff,
               !appState.liveEscortCoordinator.isSessionEligible,
               let sample = locationService.latestBackendSample() else {
             return

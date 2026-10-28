@@ -11,6 +11,9 @@ enum VolunteerLocationReporter {
         // #368：没有志愿者位置轨迹同意就不往服务器发位置。接单那一下的补报也算 ——
         // 重装后服务端开关仍开着、同意页还没答或已拒绝时，他照样可能点开一张邀请接下来。
         guard appState.hasLocationTrackConsent(.volunteerLocationTrack) else { return false }
+        // #520：「精确位置」关着时不为派单上报（同 #407 同行位置那道闸）：区域代表点偏差约 5 公里，
+        // 服务端会按它算「附近」、派错单，还会写进 ETA。不传比传错位置诚实；原因由 `DispatchPreciseLocationNotice` 说清。
+        guard appState.locationService?.isPreciseLocationOff != true else { return false }
         return reportIfNeeded(
             currentLocation: currentLocation,
             locationAuthorized: locationAuthorized,

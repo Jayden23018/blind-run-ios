@@ -105,7 +105,7 @@ final class EscortPreciseLocationGateTests: XCTestCase {
     /// 新加用途只改枚举、忘了 plist 的话，申请会静默什么都不发生。
     func testEveryPreciseLocationPurposeHasAnInfoPlistDescription() {
         let descriptions = Bundle.main.object(forInfoDictionaryKey: "NSLocationTemporaryUsageDescriptionDictionary") as? [String: String]
-        for purpose in [PreciseLocationPurpose.bookingStartPoint, .escortRun, .escortVolunteer] {
+        for purpose in PreciseLocationPurpose.allCases {
             XCTAssertFalse(descriptions?[purpose.rawValue]?.isEmpty ?? true, "缺 \(purpose.rawValue) 的用途说明")
         }
     }
