@@ -9,7 +9,7 @@ import XCTest
 /// 现在关着时先问一次临时精确位置；仍关着就不发，页面据 `isDefinitelyUnsent` 弹本地拨号兜底。
 @MainActor
 final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
-    /// 精确位置关着、弹窗没人回答：问一次（用途键 `escortRun`），等到超时，一个字节都不发，原因说的是精确位置。
+    /// 精确位置关着、弹窗没人回答：问一次（用途键 `escortVolunteer`），等到超时，一个字节都不发，原因说的是精确位置。
     func testPreciseLocationOffAsksOnceThenSendsNothing() async {
         let location = Self.locationService()
         location.simulatePreciseLocationOffForTesting()
@@ -19,7 +19,7 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
 
         let outcome = await trigger(coordinator, safety: safety, location: location, answerTimeout: 0.3)
 
-        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortRun], "关着时要先问一次，且只问一次")
+        XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.escortVolunteer], "关着时要先问一次、只问一次，且用陪跑员自己的用途说明")
         XCTAssertTrue(safety.calls.isEmpty, "区域代表点发出去了：\(safety.calls)")
         XCTAssertEqual(outcome.state, .unsentNoLocation(.preciseLocationOff))
         XCTAssertTrue(outcome.state.isDefinitelyUnsent, "页面靠它弹本地拨号兜底")

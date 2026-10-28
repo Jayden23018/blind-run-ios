@@ -9,7 +9,7 @@ security-reviewer 复核后开了 Jayden23018/blind-run-ios#407；2026-10-28 协
 
 - 陪跑员两处云端求助入口（确认框、跑步中求助面板）改走跑者端同一道闸 `EmergencyCoordinator.freshEmergencyCoordinate`：
   新鲜、真实、精确位置开着、本角色同意过共享位置，四条缺一条就不发。
-- 精确位置关着时先用已有的 `LocationService.requestTemporaryPreciseLocation(for: .escortRun)` 申请一次临时精确位置，
+- 精确位置关着时先用已有的 `LocationService.requestTemporaryPreciseLocation(for: .escortVolunteer)` 申请一次临时精确位置，
   最多等 15 秒（`EmergencyCoordinator.preciseLocationAnswerTimeout`）；允许了就带坐标发出。
 - 仍关着（或没同意共享位置、拿不到定位）：不发云端求助，播报并在页面上写出原因（「求助未发出：…精确位置已关闭…请直接拨打120或110」），
   并自动弹出本地拨号兜底（新语境 `EmergencyCallContext.volunteerCloudUnsent`，只列 120 / 110，说清 App 不会代你发送求助）。

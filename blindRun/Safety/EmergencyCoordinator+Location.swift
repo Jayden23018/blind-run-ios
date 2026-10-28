@@ -70,7 +70,8 @@ extension EmergencyCoordinator {
     ) async -> LocatedCoordinate? {
         // 没同意共享位置时不问：问了也不会用这个坐标（同意闸在 `freshEmergencyCoordinate` 里）。
         if !sharingBlocked, let locationService, locationService.isPreciseLocationOff {
-            locationService.requestTemporaryPreciseLocation(for: .escortRun)
+            // 用陪跑员自己的用途说明（#534 起两端分开）：`escortRun` 那条写的是「陪跑志愿者也能看到你在哪」，对陪跑员说不通。
+            locationService.requestTemporaryPreciseLocation(for: .escortVolunteer)
             let deadline = Date().addingTimeInterval(answerTimeout)
             while locationService.isPreciseLocationOff, Date() < deadline {
                 guard !Task.isCancelled else { return nil }

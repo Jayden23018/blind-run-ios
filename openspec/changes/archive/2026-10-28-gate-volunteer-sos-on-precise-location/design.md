@@ -14,7 +14,8 @@
 1. **复用闸，不另写一份**：新增 `freshEmergencyCoordinateAskingForPrecision` 只多做「先问一次、等回答」，然后调 `freshEmergencyCoordinate`。
    两份实现意味着这条安全约束要守两遍。
 2. **陪跑员端问、跑者端不问**：跑者端不问的理由是系统弹窗会和「求助未发出」的播报抢读屏焦点；陪跑员一般看得见屏幕，弹窗是最快的出路。
-   用途键沿用 `escortRun`，它的系统文案就是「跑步中的紧急求助才能带上你的准确位置」。
+   用途键用陪跑员自己的 `escortVolunteer`（#534 起两端分开；`escortRun` 那条写的是「陪跑志愿者也能看到你在哪」，对陪跑员说不通），
+   它的系统文案末尾补了一句「陪跑中代发的紧急求助也才能带上你的准确位置」。
 3. **等 15 秒**：`LocationService.requestTemporaryPreciseLocation(for:)` 用的是不带回调的 SDK 接口，只能轮询 `isPreciseLocationOff`（SDK 有带 completion 的版本，改 LocationService 记在 #547）。求助等不起一个没人点的弹窗；超时按仍关着处理，降级出来的本地拨号此刻就能打。
 4. **只在「确定没发出去」时弹本地拨号**：`failed` / `cooldown` 都可能是请求到了服务端、回程丢了（见 `reconcile`），
    这时说「求助没有发出去」是假话。只有 `unsentNoLocation` / `unsentSessionExpired` 能如实这么说。
