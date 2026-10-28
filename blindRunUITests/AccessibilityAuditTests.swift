@@ -2604,7 +2604,7 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertTrue(button.exists, "缺少「\(name)」按钮")
             XCTAssertTrue(button.isHittable, "「\(name)」在树里但按不到")
             XCTAssertGreaterThanOrEqual(
-                button.frame.height,
+                button.frame.height + Self.layoutRoundingTolerance,
                 Self.minimumBlindPrimaryButtonHeight,
                 "「\(name)」只有 \(button.frame.height)pt，低于盲人端 64pt 触达下限"
             )

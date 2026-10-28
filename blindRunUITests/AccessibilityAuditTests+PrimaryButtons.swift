@@ -7,6 +7,10 @@ import XCTest
 /// `systemGray4` 约 1.5:1。这一屏此前**没有任何审计用例**。
 extension AccessibilityAuditTests {
 
+    /// 量出来的 `frame.height` 带浮点误差：正好 64pt 的按钮压在 1/3pt 的坐标上，真机报 63.99999999999994。
+    /// 0.01pt 远小于一个像素（1/3pt），只吸收换算误差，不放宽触达下限。
+    static let layoutRoundingTolerance: CGFloat = 0.01
+
     /// 亮 / 暗 × 默认 / 最大字号。整页审计的四种外观都从这里取。
     static let appearanceVariants: [(name: String, environment: [String: String], arguments: [String])] = [
         ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
@@ -32,7 +36,7 @@ extension AccessibilityAuditTests {
             scrollIntoView(request, in: app)
             XCTAssertFalse(request.isEnabled, "\(variant.name)：没填手机号时「获取验证码」应不可用")
             XCTAssertGreaterThanOrEqual(
-                request.frame.height, Self.minimumBlindPrimaryButtonHeight,
+                request.frame.height + Self.layoutRoundingTolerance, Self.minimumBlindPrimaryButtonHeight,
                 "\(variant.name)：「获取验证码」只有 \(request.frame.height)pt"
             )
             attachScreenshot(app, name: "login-request-disabled-\(variant.name)")

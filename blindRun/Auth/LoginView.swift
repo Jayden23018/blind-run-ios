@@ -421,9 +421,12 @@ struct LoginView: View {
                 let nextIndex = (currentIndex + 1) % allEnvs.count
                 appState.currentEnvironment = allEnvs[nextIndex]
             } label: {
+                // 只在调试构建出现，但同样按盲人端 64pt 画可点区：真机审计点名过它只有 14pt 高（#527）。
                 Text(environmentLabel)
                     .font(.caption)
                     .foregroundColor(AppColors.textSecondary)
+                    .frame(minHeight: AppTouchTarget.blindPrimary)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("API 环境切换")
             .accessibilityHint("当前环境：\(environmentLabel)")
