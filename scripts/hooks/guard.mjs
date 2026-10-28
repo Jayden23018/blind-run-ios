@@ -17,6 +17,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { findWeakHelperLeaks } from './weak-helper-leaks.mjs';
 
 const MODE = process.argv[2] === 'pre' ? 'pre' : 'post';
 const REAL_HOST = '47.114.113.171';
@@ -925,6 +926,35 @@ function main() {
         `不想查某一项：把 \`// guard:allow a11y-audit-types\` 写进**这个列表内部**并说明理由。\n` +
         `想用全集又不想逐个列：\`performAccessibilityAudit()\` 不传实参即默认 \`.all\`，本规则放行。`
     );
+  }
+
+  // weak-helper：测试 helper 自己造了一个被 view model `weak` 持有的依赖，却没交还给调用方（#450）。
+  //
+  // helper 一返回那个局部变量就被释放，被测方法在 `guard let appState else { return }` 处整个早退：
+  // 一组用例同时红、报错大量是「期望 X 实际 0 / nil」，断言「没发生」的用例则**假绿**。
+  // 三次现场：① 2026-08-06 内联临时对象 —— 归 pre 段的 `weak-temporary`；
+  // ② 2026-09-08 helper 局部 `let appState = AppState()`，`return (vm, speech)` 漏了它（一整轮真机）；
+  // ③ 2026-10-16 #434 / PR #447 `return Harness(viewModel:fake:speech:)` 唯独没装 appState（19 条里 11 红、2 条假绿）。
+  // ②③ 传的是变量名不是构造器，`weak-temporary` 抓不到，所以这里按函数体判：
+  // 有返回值的函数（或 `init`）里 `let X = <被 weak 持有的类型>(…)`，X 被传进 `configure…(…)` 或带 weak 依赖标签的实参，
+  // 而 X 既不在任何 `return` 里、也没被赋给别的东西（`self.x = X` / `retained = X` / `_ = X`）—— 拦。
+  // 测试方法本身（没有返回值）不查：局部变量活到方法结束，正是正确写法。
+  if (/\/blindRunTests\/.*\.swift$/.test(filePath)) {
+    const src = readFileOrEmpty(filePath);
+    const leak = findWeakHelperLeaks(src).find(({ line }) => {
+      const lines = src.split('\n');
+      return ![lines[line - 1], lines[line - 2]].some((l) => (l ?? '').includes('guard:allow weak-helper'));
+    });
+    if (leak) {
+      fail(
+        'weak-helper',
+        `${filePath}:${leak.line}\n  ${leak.fn} 里的 \`${leak.name}\`（${leak.type}）被传进了 view model，却没随返回值交出去，也没被别处持有。\n\n` +
+          `view model 对它是 \`weak\` 持有：helper 一返回它就被释放，被测方法在 \`guard let ${leak.name} else { return }\` 处整个早退，\n` +
+          `一组用例同时红（「期望 X 实际 0 / nil」），断言「没发生」的用例则假绿（#450，已发生三次）。\n` +
+          `改法（任选其一）：把它放进返回值（元组 / Harness 加一个字段）；或让调用方 \`let\` 住再传进 helper；\n` +
+          `或赋给测试类的属性（\`retainedAppState = ${leak.name}\`）。确实就要 nil 语义，在声明行加 \`// guard:allow weak-helper\`。`
+      );
+    }
   }
 
   // 只查生产 target。测试里出现这些字符串是**正确**的 —— 红线用例本身就得把违规文案
