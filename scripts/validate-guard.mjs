@@ -1870,6 +1870,28 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRun/Core/LiveEscortSessionCoordinator.swift',
     swift: 'func f() { coordinator.state = .idle }'
+  },
+  {
+    // 视图里持有 EmergencyCoordinator 的属性多半就叫 `coordinator`（#539 审查 B1）。
+    name: '持有 EmergencyCoordinator 的视图写 coordinator.state（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Safety/EmergencyCountdownView.swift',
+    swift: 'struct V: View {\n    @ObservedObject var coordinator: EmergencyCoordinator\n    func f() { coordinator.state = .idle }\n}'
+  },
+  {
+    name: '持有 EmergencyCoordinator 的视图写 coordinator.activeEvent（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Volunteer/VolunteerOrderFlowPage.swift',
+    swift: 'struct V: View {\n    @ObservedObject var coordinator: EmergencyCoordinator\n    func f() { coordinator.activeEvent = nil }\n}'
+  },
+  {
+    name: '持有 EmergencyCoordinator 的视图只读 coordinator.state（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Safety/EmergencyCountdownView.swift',
+    swift: 'struct V: View {\n    @ObservedObject var coordinator: EmergencyCoordinator\n    var busy: Bool { coordinator.state == .idle || coordinator.state.isBusy }\n}'
   }
 ];
 
