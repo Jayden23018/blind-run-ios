@@ -25,6 +25,11 @@ const REAL_HOST = '47.114.113.171';
 // RFC 2606 保留域名，永远不可能是真实服务端，不必标注
 const DOC_DOMAINS = /^https?:\/\/(www\.)?example\.(com|org|net)/;
 
+// `emergency-state-write` 的两半，拆开是为了让 `check` 能分辨命中的是哪一半。
+const EMERGENCY_STATE_WRITE =
+  /\bemergencyCoordinator\s*\??\.\s*(state|activeEvent)\b(\s*\??\.\s*\w+)*\s*(=(?!=)|\+=|-=)|\b(emergencyCoordinator|coordinator)\s*\??\.\s*((submittedLocationAccuracyMeters|mergedRetriggerCount|volunteerAlert|countdownTask|countdownAnnouncer|isWithdrawing)\b(\s*\??\.\s*\w+)*\s*(=(?!=)|\+=|-=)|(finish|outcome|locationNote|startServerCountdown)\s*\()/;
+const BARE_COORDINATOR_STATE_WRITE = /\bcoordinator\s*\??\.\s*(state|activeEvent)\b(\s*\??\.\s*\w+)*\s*(=(?!=)|\+=|-=)/;
+
 const rules = {
   'legacy-status': {
     // AGENTS.md 第 5 节：禁用的遗留订单词汇
@@ -194,6 +199,24 @@ const rules = {
     pattern: /\.set\([^)]*(?:UserDefaultsKeys\.accessToken|forKey:\s*"[^"]*(?:accessToken|access_token|authToken|jwt)[^"]*")/i,
     why: '不要把 access token 写进 `UserDefaults`（AGENTS.md 第 8 节）——那是 App 容器里的明文 plist，还会进备份。Token 只能经 `KeychainTokenStore`（`blindRun/Core/KeychainTokenStore.swift`，`kSecAttrAccessibleAfterFirstUnlock`，这样锁屏期间的后台陪跑仍读得到）。`AppState.restoredToken()` 里对历史值的一次性迁移只读取和删除，不写入，不会碰到这条。',
   },
+  'emergency-state-write': {
+    // 2026-10-28（#502）：`EmergencyCoordinator` 拆成 `Safety/EmergencyCoordinator*.swift` 几个文件后，
+    // 求助状态的 setter 与几个内部方法只能从 private 放宽到 internal —— Swift 的 private 不跨文件。
+    // 放宽之后编译器不再拦「别的文件直接写求助状态」，这一条补上：在外面写 `state = .idle`
+    // 会绕过倒计时任务的收尾（`state.didSet`）、重复提交保护与发送失败后的对账，而且没有任何用例会红。
+    //
+    // 接收者认 `emergencyCoordinator`，以及只有这个类型才有的成员名前的 `coordinator`
+    // （`state` / `activeEvent` 太常见，`coordinator.state = …` 在别的协调器上是合法写法，见下）。
+    // 视图里持有它的属性多半就叫 `coordinator`（求助屏、陪跑员页、跑者执行屏都是），所以裸 `coordinator.state =`
+    // 也拦，但只在**本文件声明过 `: EmergencyCoordinator`** 时 —— 由 `check` 判（#539 审查 B1）。
+    pattern: new RegExp(`${EMERGENCY_STATE_WRITE.source}|${BARE_COORDINATOR_STATE_WRITE.source}`),
+    check: (line, _statement, src) => {
+      if (EMERGENCY_STATE_WRITE.test(line)) return true;
+      return /:\s*EmergencyCoordinator\b/.test(src);
+    },
+    exceptFiles: /\/Safety\/EmergencyCoordinator[^/]*\.swift$/,
+    why: '求助状态机只许在 `blindRun/Safety/EmergencyCoordinator*.swift` 里改写（#502 拆文件后这些成员只能是 internal，编译器不再替你拦）。在别处要改求助状态，给 coordinator 加一个方法（写在那几个文件里），由它在内部改写。确有正当理由，行尾加 `// guard:allow emergency-state-write` 并写明。',
+  },
 };
 
 // Podfile 保持整文件冻结：架构排除设置与 pod 列表都在里面，没有安全的局部改法。
@@ -342,6 +365,8 @@ function scanSwift(filePath) {
     // `files` 是可选的路径闸：多数内容规则对整个生产 target 生效，少数只在特定文件里成立
     // （某个字段在别处读是对的，只在某一屏读是错的）。不写这个字段就是全量，行为不变。
     if (rule.files && !rule.files.test(filePath)) continue;
+    // `exceptFiles` 反过来：规则只在这些文件**以外**成立（例：求助状态只许在 coordinator 自己的文件里写）。
+    if (rule.exceptFiles && rule.exceptFiles.test(filePath)) continue;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // 纯注释行跳过：守卫管的是出货代码。引用后端的坏文案来解释「为什么要覆盖它」
@@ -354,7 +379,8 @@ function scanSwift(filePath) {
       if (!rule.pattern.test(line)) continue;
       // check 拿得到后续几行：SwiftUI 经常把动画曲线折到 `.animation(` 的下一行，
       // 只看当前行会把已经做了降级的写法误判成违规。
-      if (rule.check && !rule.check(line, lines.slice(i, i + 4).join('\n'))) continue;
+      // 第三个实参是整份文件：少数规则要看「本文件声明过什么」才判得了（`emergency-state-write`）。
+      if (rule.check && !rule.check(line, lines.slice(i, i + 4).join('\n'), src)) continue;
       fail(id, `${filePath}:${i + 1}\n  ${line.trim()}\n\n${rule.why}`);
     }
   }

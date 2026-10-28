@@ -684,7 +684,7 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 | WebSocket | `blindRun/Core/WebSocketService.swift`（581 行） |
 | 语音下单状态机 | `blindRun/Voice/VoiceOrderWizard.swift`（1174 行） |
 | 语音输入层 | `blindRun/Voice/SpeechInputService.swift`（1011 行） |
-| 求助状态机 | `blindRun/Safety/EmergencyCoordinator.swift`（452 行） |
+| 求助状态机 | `blindRun/Safety/EmergencyCoordinator.swift` + 同目录 `EmergencyCoordinator+*.swift`（倒计时 / 发送 / 实时跟进 / 取定位）+ `EmergencySOSState.swift`（2026-10-28 拆分，#502） |
 | 求助文案与判定 | `blindRun/Safety/SafetyModule.swift`（315 行） |
 | 订单模型与状态机 | `blindRun/Core/Models/OrderModels.swift`（637 行） |
 | 坐标系 | `blindRun/Map/CoordinateSystem.swift`（112 行） |
