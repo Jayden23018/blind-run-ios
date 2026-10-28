@@ -118,7 +118,7 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
 
     /// 请求通知授权。**只由「用到时再问」的提示调用**（#521，`asksForPushPermission`）：启动时不再弹，
     /// 那时还没过首启隐私同意、也没登录。注册本身跟着登录状态走（见 `configure`）。
-    func requestAuthorization() async -> Bool {
+    func requestAuthorization(after _: PushPermissionExplained) async -> Bool {
         let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
         if granted, appState?.isLoggedIn == true { registrar.register() }
         return granted

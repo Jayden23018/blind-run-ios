@@ -47,6 +47,17 @@ enum PushPermissionPrompt: Equatable {
     static func promptedKey(for role: UserRole) -> String {
         "pushPermissionPrompted.\(role.rawValue)"
     }
+
+    /// UI 用例默认不弹，专测这道提示的用例设 `AIDRUN_UI_TEST_FORCE_PUSH_PROMPT=1`。真实安装没有这些环境变量。
+    static func isSuppressedForUITests(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        environment["AIDRUN_UI_TEST_RESET_STATE"] == "1" && environment["AIDRUN_UI_TEST_FORCE_PUSH_PROMPT"] != "1"
+    }
+}
+
+/// 「已经先说明过用途」的凭证。只有本文件能造（`fileprivate init`），而 `PushNotificationsManager.requestAuthorization`
+/// 要它才肯调 —— 于是「启动时直接请求」这种回退在编译期就写不出来（审查 A：此前没有任何检查守着）。
+struct PushPermissionExplained {
+    fileprivate init() {}
 }
 
 /// 打开系统设置里本 App 那一页（通知开关在里面）。不是拨号，不走 `EmergencyDialer`。
@@ -73,13 +84,14 @@ private struct AsksForPushPermission: ViewModifier {
                 isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } })
             ) {
                 if prompt == .offerSettings {
-                    Button(PushPermissionCopy.settingsButton) { SystemSettingsLink.open() }
+                    Button(PushPermissionCopy.settingsButton) { markPrompted(); SystemSettingsLink.open() }
                 } else {
                     Button(PushPermissionCopy.askButton) {
-                        Task { _ = await appState.pushNotificationsManager?.requestAuthorization() }
+                        markPrompted()
+                        Task { _ = await appState.pushNotificationsManager?.requestAuthorization(after: PushPermissionExplained()) }
                     }
                 }
-                Button(PushPermissionCopy.laterButton, role: .cancel) {}
+                Button(PushPermissionCopy.laterButton, role: .cancel) { markPrompted() }
             } message: {
                 Text(message)
             }
@@ -89,16 +101,24 @@ private struct AsksForPushPermission: ViewModifier {
         prompt == .offerSettings ? PushPermissionCopy.denied(for: role) : PushPermissionCopy.explanation(for: role)
     }
 
+    private var promptedKey: String { PushPermissionPrompt.promptedKey(for: role) }
+
     private func evaluate() async {
-        guard prompt == nil, appState.isLoggedIn, let push = appState.pushNotificationsManager else { return }
-        let key = PushPermissionPrompt.promptedKey(for: role)
-        let alreadyPrompted = appState.persistence.object(forKey: key) as? Bool ?? false
-        guard let next = PushPermissionPrompt.decide(status: await push.authorizationStatus(), alreadyPrompted: alreadyPrompted) else {
-            return
-        }
-        appState.persistence.set(true, forKey: key)
+        // UI 用例（进程内 Mock）不弹：应用内 alert 会挡住几十条靠建单 / 开开关进页面的用例，系统弹窗的中断监视器也点不掉它。
+        guard !PushPermissionPrompt.isSuppressedForUITests(), prompt == nil, appState.isLoggedIn,
+              let push = appState.pushNotificationsManager else { return }
+        let status = await push.authorizationStatus()
+        // await 回来后重读：两次触发交错时，标记与 `prompt` 都可能已经变了。
+        let alreadyPrompted = appState.persistence.object(forKey: promptedKey) as? Bool ?? false
+        guard prompt == nil, let next = PushPermissionPrompt.decide(status: status, alreadyPrompted: alreadyPrompted) else { return }
         prompt = next
-        speechService.speak(message)
+        // 读屏开着时 alert 本身会被念，不再朗读第二遍（也免得切断刚才那句订单播报）。
+        if !UIAccessibility.isVoiceOverRunning { speechService.speak(message) }
+    }
+
+    /// 「本机已提示过」只在用户真的看到并关掉提示时记（审查 A）：先记再显示的话，alert 没弹出来（同一宿主上已有别的模态）标记也烧掉了。
+    private func markPrompted() {
+        appState.persistence.set(true, forKey: promptedKey)
     }
 }
 
@@ -150,6 +170,20 @@ struct NotificationPermissionRow: View {
                 }
                 .accessibilityHint("打开系统设置里助盲跑的通知开关")
                 .accessibilityIdentifier("notificationPermissionSettingsLink")
+            } else if status == .notDetermined {
+                // 在说明页点过「暂不开启」的人系统设置里还没有通知开关（从没请求过），出口只能在这里（审查 A）。
+                Button {
+                    Task {
+                        _ = await appState.pushNotificationsManager?.requestAuthorization(after: PushPermissionExplained())
+                        await refresh()
+                    }
+                } label: {
+                    Text(PushPermissionCopy.askButton)
+                        .font(AppFonts.body())
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                }
+                .accessibilityHint("接单、到达和订单变化时提醒你，接下来系统会问你是否允许")
+                .accessibilityIdentifier("notificationPermissionRequestButton")
             }
         }
         .task { await refresh() }
@@ -162,7 +196,7 @@ struct NotificationPermissionRow: View {
         switch status {
         case .authorized, .provisional, .ephemeral: return "已开启"
         case .denied: return "已关闭，订单与邀请的提醒会收不到"
-        case .notDetermined: return "还没开启，第一次用到时会问你"
+        case .notDetermined: return "还没开启"
         case .none: return "正在读取"
         @unknown default: return "正在读取"
         }

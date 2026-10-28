@@ -26,6 +26,15 @@ final class PushPermissionPromptTests: XCTestCase {
         XCTAssertNotEqual(PushPermissionPrompt.promptedKey(for: .blind), PushPermissionPrompt.promptedKey(for: .volunteer))
     }
 
+    /// UI 用例（进程内 Mock）默认不弹，专测这道提示的用例能强制打开；真实安装不受影响。
+    func testPromptIsSuppressedOnlyForUITestLaunches() {
+        XCTAssertTrue(PushPermissionPrompt.isSuppressedForUITests(environment: ["AIDRUN_UI_TEST_RESET_STATE": "1"]))
+        XCTAssertFalse(PushPermissionPrompt.isSuppressedForUITests(environment: [
+            "AIDRUN_UI_TEST_RESET_STATE": "1", "AIDRUN_UI_TEST_FORCE_PUSH_PROMPT": "1"
+        ]))
+        XCTAssertFalse(PushPermissionPrompt.isSuppressedForUITests(environment: [:]), "真实安装照常提示")
+    }
+
     /// 说明要讲清用途（两端各自的提醒），拒绝那句要讲后果与出路。
     func testCopyStatesPurposeConsequenceAndWayOut() {
         XCTAssertTrue(PushPermissionCopy.explanation(for: .blind).contains("到达"))
