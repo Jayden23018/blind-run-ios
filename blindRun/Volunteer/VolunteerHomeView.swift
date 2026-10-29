@@ -169,6 +169,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var realtimeVolunteerLostCancellable: AnyCancellable?
     private var inviteWithdrawalCancellable: AnyCancellable?
     private var inviteSnapshotCancellable: AnyCancellable?
+    private var lockScreenAcceptCancellable: AnyCancellable?
     /// 一条 ticker 刷**整队**邀请的剩余秒数。**不是每条一个** —— 每条一个的话
     /// 队列增删时要各自建/撤，而它们刷新的是同一个时钟。
     private var countdownTask: Task<Void, Never>?
@@ -513,6 +514,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     // 那边 20 分钟的通话窗口已经在走，多一次「查看订单」的点击是在烧他的窗口。
                     removeInvite(orderID: order.orderId)
                     pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
+                    declineStreak.reset()  // 后端「有意向」同样清零连续拒绝（#338）
                 case .accept:
                     // 🚩 **接下之后不再自动 push 订单页。** §4.4.3：卡片**原地**变成「已约好」，
                     // 由用户点「查看订单」才走。自动跳等于把那张确认卡一闪而过 ——
@@ -644,7 +646,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     /// 问过一次就够。反复问就成了惩罚，而设计稿写死了「不做任何惩罚」。
     func acknowledgeAvailabilityPrompt() {
-        declineStreak.reset()
+        declineStreak.acknowledgeAsked()
         objectWillChange.send()
     }
 
@@ -1553,6 +1555,7 @@ extension VolunteerHomeViewModel {
                 expiresAt: prompt.expiresAt
             )
         }
+        resolveLockScreenAccept()
     }
 
     /// - Parameters:
@@ -1723,6 +1726,11 @@ extension VolunteerHomeViewModel {
            !snapshot.contains(orderID: declined.id, inviteID: declined.order.inviteId) {
             pendingDeclineInvalidation = .withdrawn(.noLongerPending)
         }
+        if let count = snapshot.consecutiveDeclineCount {
+            declineStreak.adoptServerCount(count)
+            objectWillChange.send()
+        }
+        resolveLockScreenAccept(after: snapshot)
     }
 
     /// 从队列移走一条。
@@ -1983,6 +1991,54 @@ extension VolunteerHomeViewModel {
             .sink { [weak self] snapshot in
                 self?.reconcileInvites(with: snapshot)
             }
+        lockScreenAcceptCancellable = appState.realtimeCoordinator.$lockScreenInviteAction
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.resolveLockScreenAccept()
+            }
+    }
+
+    /// 锁屏邀请操作（#338）落地。这张邀请在**当前账号的队列里**还等着回复 ⇒ 翻到它、弹出卡片：
+    /// 「接下」走卡片上同一个 `respondToDispatch`（定位取宿主注入的提供者），「这次去不了」走同一个 `declineInvite`（带撤销）。
+    /// 按下时记下的账号与当前账号不同 ⇒ 丢掉，不替别人回复。
+    /// 邀请期限已过，或按下之后的那次对账里没有它 ⇒ 已失效，告诉他（他按了，就得有回应）。两样都不是就再等。
+    ///
+    /// 只认身份对得上的那张（`inviteId`，否则期限）：同一单撤回后的新邀请、换账号后旧账号的通知，都不会被它回复。
+    private func resolveLockScreenAccept(after snapshot: RealtimePendingInviteSnapshot? = nil, now: Date = Date()) {
+        guard let coordinator = appState?.realtimeCoordinator, let request = coordinator.lockScreenInviteAction else { return }
+        if let owner = coordinator.lockScreenInviteActionUserID, owner != appState?.userId {
+            coordinator.consumeLockScreenInviteAction()
+            return
+        }
+        let target = request.invite
+        if let invite = invites.first(where: {
+            $0.isAwaitingReply && target.matches(orderId: $0.id, inviteId: $0.order.inviteId, expiresAt: $0.expiresAt)
+        }) {
+            coordinator.consumeLockScreenInviteAction()
+            currentInviteID = invite.id
+            switch request.action {
+            case .accept:
+                isInviteSheetPresented = true
+                respondToDispatch(
+                    action: invite.order.dispatchRespondAction,
+                    currentLocation: currentLocationProvider(),
+                    locationAuthorized: locationAuthorizedProvider(),
+                    orderId: invite.id
+                )
+            case .decline:
+                declineInvite(orderID: invite.id)
+            }
+            return
+        }
+        let expired = target.expiresAt.map { $0 <= now } ?? false
+        let gone = snapshot.map { snapshot in
+            snapshot.requestedAt >= (coordinator.lockScreenInviteActionAt ?? .distantFuture)
+                && !snapshot.invites.contains { target.matches(orderId: $0.orderId, inviteId: $0.inviteId, expiresAt: $0.expiresAt?.backendTimestamp) }
+        } ?? false
+        guard expired || gone else { return }
+        coordinator.consumeLockScreenInviteAction()
+        speechService?.speak("\(VolunteerInviteCopy.expiredTitle)，\(VolunteerInviteCopy.withdrawnDetail(.noLongerPending))")
     }
 }
 
