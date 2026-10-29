@@ -178,6 +178,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 撤销窗口里的那张邀请被撤回 / 判失效了：撤销时以这个结果恢复（`nil` = 没有）。
     private var pendingDeclineInvalidation: VolunteerInviteState.Outcome?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
+    /// 本地刚改过预约列表（确认 / 释放成功后移走那一单）的时刻。发出早于它的摘要不再覆盖预约列表 ——
+    /// 否则在途的那次刷新会把刚移走的单放回来，最长 10 秒（#471 代码复核）。
+    private var scheduledOrdersChangedLocallyAt: Date?
     private let declineStreak: VolunteerDeclineStreak
     /// 撤销窗口的长度（设计交付 v3 §10「撤销『去不了』时长 = 5 秒」）。
     private let declineUndoWindow: TimeInterval
@@ -839,6 +842,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
         do {
             let orders = appState.orders
+            let requestedAt = Date()
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-initial"
@@ -846,7 +850,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 try await orders.dispatchSummary()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
-            apply(summary: summary)
+            apply(summary: summary, requestedAt: requestedAt)
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
@@ -905,38 +909,10 @@ final class VolunteerHomeViewModel: ObservableObject {
                 }
             }
 
-            // 「接下来要去的单」两条（后端 `dispatch-summary` 两态都拿不到，
-            // 见 `OrderServing.volunteerOrders(status:)` 的注释）。一次只能问一个状态，
-            // 所以是两条请求而不是一条带两个值的。
-            //
-            // 与档案那两条**并行**，也彼此并行，不串在后面 —— 首页已经有三次往返，
-            // 每多排一条就让面板多等一个 RTT。
-            let orders = appState.orders
-            async let scheduledResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
-                try await HomeLoadCoordinator.run(
-                    timeout: self.loadTimeout,
-                    operationName: "volunteer-scheduled-orders"
-                ) {
-                    try await orders.volunteerOrders(status: .scheduledConfirmed)
-                }
-            }
-            // 🔴 **`PENDING_ACCEPT` 这一条是 2026-09-18 补的，它此前是个黑洞。**
-            // 陪跑员谈成之后点「确认我还会去」，订单 `SCHEDULED_CONFIRMED → PENDING_ACCEPT`，
-            // 而那一态**两个数据源都不含它**：预约列表按 `SCHEDULED_CONFIRMED` 拉，
-            // `dispatch-summary.activeOrders` 的后端白名单也没有它。
-            // 真机表现是「刚接下的那一单，一退出订单页就从自己的 App 里消失了」。
-            async let pendingAcceptResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
-                try await HomeLoadCoordinator.run(
-                    timeout: self.loadTimeout,
-                    operationName: "volunteer-pending-accept-orders"
-                ) {
-                    try await orders.volunteerOrders(status: .pendingAccept)
-                }
-            }
-
-            let (profile, registration, scheduled, pendingAccept) = await (
-                profileResult, registrationResult, scheduledResult, pendingAcceptResult
-            )
+            // 「接下来要去的单」：派单摘要带了 `upcomingOrders`（#471）就不再打这两条；没带（`nil`）才回落。
+            let lists = self.dispatchSummary?.upcomingOrders == nil
+                ? await self.fetchUpcomingOrderLists(appState.orders) : nil
+            let (profile, registration) = await (profileResult, registrationResult)
             guard !Task.isCancelled, self.auxiliaryRequestID == requestID else { return }
             if case .success(let value) = profile {
                 appState.updateVolunteerProfile(value)
@@ -945,7 +921,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             if case .success(let value) = registration {
                 appState.updateVolunteerRegistrationStatus(value)
             }
-            self.applyUpcoming(scheduled: scheduled, pendingAccept: pendingAccept)
+            if let lists { self.applyUpcoming(scheduled: lists.scheduled, pendingAccept: lists.pendingAccept) }
             // 三岔路的另一岔（2 小时内开始的陪跑）只有等这条请求回来才判得了 —— 跨天预约单
             // 不在 `dispatch-summary` 里。判完这一轮就关窗，之后每 10 秒的刷新不再自动导航。
             self.resolveLaunchRouteIfNeeded()
@@ -1079,6 +1055,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         do {
             let followUp = try await operation(appState.orders) ?? ""
             scheduledOrders.removeAll { $0.orderId == orderID }
+            scheduledOrdersChangedLocallyAt = Date()
             speechService?.speak(successSpeech + followUp)
             return true
         } catch let error as APIError {
@@ -1093,6 +1070,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             // 现在这句话对三种成因**都为真**，且给出的下一步（不用再确认）也都对。
             if case .serverError(let response) = error, response.errorCode == .invalidOrderStatus {
                 scheduledOrders.removeAll { $0.orderId == orderID }
+                scheduledOrdersChangedLocallyAt = Date()
                 let message = "这一单的状态已经变了，不用再确认。可以到「近期服务」里看它现在怎么样。"
                 scheduledOrdersMessage = message
                 speechService?.speakError(message)
@@ -1269,7 +1247,8 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 动状态机，把「摘要里有 introCallOrderId 会怎样」这一条断言埋进一堆无关请求里。
     func apply(
         summary: VolunteerDispatchSummaryResponse,
-        statusRequestToken: OrderStatusRequestToken? = nil
+        statusRequestToken: OrderStatusRequestToken? = nil,
+        requestedAt: Date? = nil
     ) {
         let previousOrderID = activeOrder?.orderId
         dispatchSummary = summary
@@ -1311,9 +1290,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
         // 订单交给协调器之后再判：协调器这时才答得出这一单要不要问同一件事（#420）。
         requestTrackConsentIfStandbyResumesWithoutIt()
+        if let upcoming = summary.upcomingOrders,
+           (requestedAt ?? .distantFuture) >= (scheduledOrdersChangedLocallyAt ?? .distantPast) {
+            applyUpcoming(fromSummary: upcoming)
+        }
         recoverIntroCallIfNeeded(summary: summary)
-        // 三岔路的「有进行中订单」那一岔在这里就判得了，不必等预约单那条请求回来。
-        // 另一岔（2 小时内开始的陪跑）在 `startAuxiliaryLoad` 的收尾里。
+        // 三岔路的「有进行中订单」那一岔在这里就判得了。另一岔（2 小时内开始的陪跑）：摘要带了 `upcomingOrders`
+        // 时这里也判得了（#471）；没带时等 `startAuxiliaryLoad` 回落的那两条请求回来，在它的收尾里判。
         resolveLaunchRouteIfNeeded()
     }
 
@@ -1417,6 +1400,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
+            let requestedAt = Date()
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-refresh"
@@ -1424,7 +1408,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 try await orders.dispatchSummary()
             }
             guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
-            apply(summary: summary, statusRequestToken: statusRequestToken)
+            apply(summary: summary, statusRequestToken: statusRequestToken, requestedAt: requestedAt)
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
@@ -2039,6 +2023,46 @@ extension VolunteerHomeViewModel {
         guard expired || gone else { return }
         coordinator.consumeLockScreenInviteAction()
         speechService?.speak("\(VolunteerInviteCopy.expiredTitle)，\(VolunteerInviteCopy.withdrawnDetail(.noLongerPending))")
+    }
+}
+
+// MARK: - 接下来要去的单（`PENDING_ACCEPT` / `SCHEDULED_CONFIRMED`）
+
+extension VolunteerHomeViewModel {
+    /// 派单摘要带回来的 `upcomingOrders`（#471）：直接当预约列表，省掉两条 `orders/mine`。
+    ///
+    /// 🚨 **只进 `scheduledOrders`，不进 `activeOrder`、不调 `registerActiveOrder`**：这两态不共享实时位置，
+    /// 注册进位置协同会让安全网空转（契约原话）。`nil` 不走这里 —— 那是「服务端没取到」，由 `startAuxiliaryLoad` 回落。
+    private func applyUpcoming(fromSummary upcoming: [VolunteerDispatchSummaryActiveOrder]) {
+        var seen = Set<Int64>()
+        scheduledOrders = upcoming
+            .map(\.orderDetail)
+            .filter { Self.upcomingVolunteerStatuses.contains($0.status) && seen.insert($0.orderId).inserted }
+            .sorted { ($0.plannedStart ?? "\u{FFFF}") < ($1.plannedStart ?? "\u{FFFF}") }
+        scheduledOrdersMessage = nil
+    }
+
+    /// 回落路径：摘要的 `upcomingOrders` 是 `nil`（或摘要没拉到）时，按状态各拉一次。
+    fileprivate func fetchUpcomingOrderLists(
+        _ orders: any OrderServing
+    ) async -> (scheduled: Result<PagedOrderResponse, Error>, pendingAccept: Result<PagedOrderResponse, Error>) {
+        // 一次只能问一个状态（`OrderServing.volunteerOrders(status:)` 的注释），所以是两条请求，彼此并行。
+        async let scheduledResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
+            try await HomeLoadCoordinator.run(timeout: self.loadTimeout, operationName: "volunteer-scheduled-orders") {
+                try await orders.volunteerOrders(status: .scheduledConfirmed)
+            }
+        }
+        // 🔴 **`PENDING_ACCEPT` 这一条是 2026-09-18 补的，它此前是个黑洞。**
+        // 陪跑员谈成之后点「确认我还会去」，订单 `SCHEDULED_CONFIRMED → PENDING_ACCEPT`，
+        // 而那一态**两个数据源都不含它**：预约列表按 `SCHEDULED_CONFIRMED` 拉，
+        // `dispatch-summary.activeOrders` 的后端白名单也没有它（#471 之前的摘要也没有 `upcomingOrders`）。
+        // 真机表现是「刚接下的那一单，一退出订单页就从自己的 App 里消失了」。
+        async let pendingAcceptResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
+            try await HomeLoadCoordinator.run(timeout: self.loadTimeout, operationName: "volunteer-pending-accept-orders") {
+                try await orders.volunteerOrders(status: .pendingAccept)
+            }
+        }
+        return await (scheduledResult, pendingAcceptResult)
     }
 }
 
