@@ -917,6 +917,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published private(set) var blindStats: TrackStats?
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
     @Published private(set) var isAcknowledgingEmergency = false
+    /// 云端求助确定一个字节都没发出去时打开，页面据此弹只列 120 / 110 的本地拨号兜底（#407 第 1 项）。
+    @Published var offersLocalCallAfterUnsentSOS = false
     /// 按下「开始跑步」后后端答 409 `BLIND_CONFIRMATION_PENDING`（盲人还没点头，后端 #307 ①）。
     /// 页面据此把按钮上方小字换成「等待对方确认」；**按钮不置灰**，对方随时可能点。
     /// 收到 WS `BLIND_START_CONFIRMED`、或订单离开 `DRIVER_ARRIVED` 时清除。
@@ -1534,6 +1536,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
         } else {
             speechService?.speak(outcome.message)
         }
+        // 确定一个字节都没发：弹本地拨号兜底（#407 第 1 项）。先等确认框 / 求助面板收起 —— 立刻失败（没同意共享位置、
+        // 登录过期）时同一拍里又弹一个对话框，iOS 16 会丢掉其中一个，只剩播报。
+        guard outcome.state.isDefinitelyUnsent else { return }
+        try? await Task.sleep(nanoseconds: VolunteerInServiceView.sheetDismissalDelayNanoseconds)
+        offersLocalCallAfterUnsentSOS = true
     }
 
     /// 对被陪同者的求助回一句「确认需要帮助」。这是志愿者唯一能做的响应。
@@ -1897,7 +1904,7 @@ struct VolunteerInServiceView: View {
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
     /// 收起面板的动画时长（系统 sheet 约 0.35 秒）。等它收完再出栈，见 `didLoseOrder` 那条。
-    private static let sheetDismissalDelayNanoseconds: UInt64 = 400_000_000
+    static let sheetDismissalDelayNanoseconds: UInt64 = 400_000_000
 
     private struct MeetCue: Equatable {
         let bucket: DistanceBucket
@@ -2011,9 +2018,11 @@ struct VolunteerInServiceView: View {
         .onChange(of: viewModel.didLoseOrder) { lost in
             guard lost else { return }
             let hadPresentation = activeSheet != nil || showsLocalHelp || showEmergencyConfirm
+                || viewModel.offersLocalCallAfterUnsentSOS
             activeSheet = nil
             showsLocalHelp = false
             showEmergencyConfirm = false
+            viewModel.offersLocalCallAfterUnsentSOS = false
             guard hadPresentation else {
                 dismiss()
                 return
@@ -2036,13 +2045,11 @@ struct VolunteerInServiceView: View {
         }
         // `.volunteer`：他按下去之后撤销不了（后端恒 403），文案要把这一半后果说出来。
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
-            Task {
-                await viewModel.enterEmergency(
-                    locate: { emergencyLocate() },
-                    locationFailureReason: { emergencyLocationFailureReason() }
-                )
-            }
+            Task { await sendCloudEmergency() }
         }
+        .emergencyCallOptionsDialog(
+            isPresented: $viewModel.offersLocalCallAfterUnsentSOS, context: .volunteerCloudUnsent, primaryContact: nil
+        )
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .navigation(let request):
@@ -2085,12 +2092,7 @@ struct VolunteerInServiceView: View {
                         onRing: { Task { await viewModel.ringRunner() } },
                         onContactSupport: { Task { await viewModel.requestSupportCallback() } },
                         onEmergency: {
-                            Task {
-                                await viewModel.enterEmergency(
-                                    locate: { emergencyLocate() },
-                                    locationFailureReason: { emergencyLocationFailureReason() }
-                                )
-                            }
+                            Task { await sendCloudEmergency() }
                         }
                     )
                     .presentationDetents([.large])
@@ -2316,16 +2318,17 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    /// 代跑者求助时取的坐标。本角色没同意共享位置（#368）就不取 —— 同意页写着拒绝后
-    /// 「求助定位也用不了」，按 `AGENTS.md` §6「拿不到坐标就不发」处理，原因单独说。
-    private func emergencyLocate() -> LocatedCoordinate? {
-        guard !appState.isEmergencyLocationSharingBlocked else { return nil }
-        return locationService.latestBackendSample()
-    }
-
-    private func emergencyLocationFailureReason() -> LocationError? {
-        if appState.isEmergencyLocationSharingBlocked { return .locationSharingNotConsented }
-        return locationService.locationError
+    /// 两个云端求助入口共用。取坐标与跑者端同一道闸，精确位置关着先问一次临时精确位置（#407 第 1 项）；
+    /// 确定没发出去时 view model 打开本地拨号兜底。
+    private func sendCloudEmergency() async {
+        await viewModel.enterEmergency(
+            locate: { await EmergencyCoordinator.freshEmergencyCoordinateAskingForPrecision(
+                using: locationService, sharingBlocked: appState.isEmergencyLocationSharingBlocked
+            ) },
+            locationFailureReason: { EmergencyCoordinator.locationFailureReason(
+                using: locationService, sharingBlocked: appState.isEmergencyLocationSharingBlocked
+            ) }
+        )
     }
 
     /// 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉

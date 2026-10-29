@@ -29,6 +29,12 @@ enum EmergencyCallContext {
     ///
     /// 不复用 `cloudFailed`：那句「求助没有发出去」此刻是假的，会让人以为求助白按了。
     case cloudSent
+    /// 陪跑员跑步中按了云端求助，却确定一个字节都没发出去（拿不到准确位置等，`EmergencySOSState.isDefinitelyUnsent`，#407 第 1 项）。
+    /// 求助失败后自动弹出，把「改为自己打电话」放到眼前。
+    ///
+    /// 不复用 `cloudFailed`：那一档按跑者写，提示里说「紧急联系人」、无联系人时还追加一句设置提醒，
+    /// 而陪跑员这里只列 120 / 110。
+    case volunteerCloudUnsent
     /// 屏 3b 上「发没发出不确定，或已经撤销」的几种状态（撤销后、倒计时内撤回后、正在发出、撤回失败、冷却未对上账）。
     /// 这时「已经发出」与「没有发出去」都可能是假话，只说要做什么（#506 code review A1）。
     case cloudUncertain
@@ -47,7 +53,7 @@ enum EmergencyCallContext {
     var dialogMessage: String {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage
-        case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallDialogMessage
+        case .cloudFailed, .volunteerCloudUnsent: return EmergencySafetyCopy.cloudFailedCallDialogMessage
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallDialogMessage
         // 这句不提联系人，两端都成立。
         case .runnerSessionExpired, .volunteerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallDialogMessage
@@ -63,6 +69,7 @@ enum EmergencyCallContext {
         case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallAccessibilityHint
         case .runnerSessionExpired: return EmergencySafetyCopy.sessionExpiredCallAccessibilityHint
         case .volunteerSessionExpired: return EmergencySafetyCopy.volunteerSessionExpiredCallAccessibilityHint
+        case .volunteerCloudUnsent: return EmergencySafetyCopy.volunteerCloudUnsentCallAccessibilityHint
         case .cloudSent, .cloudUncertain: return EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: true)
         }
     }
@@ -72,7 +79,14 @@ enum EmergencyCallContext {
     var appendsNoContactHint: Bool {
         switch self {
         case .homeIdle, .cloudFailed, .runnerSessionExpired, .cloudSent, .cloudUncertain: return true
-        case .volunteerBeforeRun, .volunteerSessionExpired: return false
+        case .volunteerBeforeRun, .volunteerSessionExpired, .volunteerCloudUnsent: return false
         }
     }
+}
+
+extension EmergencySafetyCopy {
+    /// `EmergencyCallContext.volunteerCloudUnsent` 的读屏提示。不复用 `cloudFailedCallAccessibilityHint`：
+    /// 那句说「紧急联系人或110」，而陪跑员这边只列 120 / 110（`SafetyModule.swift` 已超长，写在这里）。
+    static let volunteerCloudUnsentCallAccessibilityHint =
+        "求助没有发出去。点击后由你选择拨打120或110，App 不会代你发送求助。"
 }

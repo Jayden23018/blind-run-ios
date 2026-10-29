@@ -51,6 +51,36 @@ extension EmergencyCoordinator {
         return nil
     }
 
+    /// 临时精确位置的系统弹窗最多等陪跑员这么久回答（#407 第 1 项）。超时按「仍然关着」处理：
+    /// 求助等不起一个没人点的弹窗，而降级出来的本地拨号此刻就能打。
+    /// `nonisolated`：它是下面那个函数参数的默认值，默认值在非隔离上下文里求值。
+    nonisolated static let preciseLocationAnswerTimeout: TimeInterval = 15
+
+    /// 陪跑员代发求助取坐标（#407 第 1 项）：与跑者同一道闸（`freshEmergencyCoordinate`），
+    /// 区别只在「精确位置」关着时**先申请一次**临时精确位置、等他回答。
+    ///
+    /// 此前陪跑员这边直接拿 `latestBackendSample()`，精确位置关着时会把约 5 公里外的区域代表点
+    /// 当成求助坐标发出去 —— 违反 `AGENTS.md` §6「必须带新鲜的真实 GCJ-02 坐标，拿不到就不发」。
+    /// 跑者端不问（系统弹窗会和「求助未发出」的播报抢读屏焦点）；陪跑员一般看得见屏幕，弹窗是最快的出路。
+    /// 系统也可能不弹（SDK：App 不在前台等情况），所以等不到就照常返回 nil，由调用方降级本地拨号。
+    static func freshEmergencyCoordinateAskingForPrecision(
+        using locationService: LocationService?,
+        sharingBlocked: Bool,
+        answerTimeout: TimeInterval = preciseLocationAnswerTimeout
+    ) async -> LocatedCoordinate? {
+        // 没同意共享位置时不问：问了也不会用这个坐标（同意闸在 `freshEmergencyCoordinate` 里）。
+        if !sharingBlocked, let locationService, locationService.isPreciseLocationOff {
+            // 用陪跑员自己的用途说明（#534 起两端分开）：`escortRun` 那条写的是「陪跑志愿者也能看到你在哪」，对陪跑员说不通。
+            locationService.requestTemporaryPreciseLocation(for: .escortVolunteer)
+            let deadline = Date().addingTimeInterval(answerTimeout)
+            while locationService.isPreciseLocationOff, Date() < deadline {
+                guard !Task.isCancelled else { return nil }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+        return await freshEmergencyCoordinate(using: locationService, sharingBlocked: sharingBlocked)
+    }
+
     /// `freshEmergencyCoordinate` 返回 nil 之后，文案该按哪个原因说。与它配对使用。
     ///
     /// 精确位置关闭排在 `locationError` 之前：那时 `locationError` 通常是 nil，

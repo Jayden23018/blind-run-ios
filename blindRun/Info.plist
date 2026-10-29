@@ -28,7 +28,7 @@
 		<key>AidRunVolunteerDispatch</key>
 		<string>精确位置已关闭时，系统只给大致位置，可能偏差几公里，助盲跑会暂停为派单上报你的位置。允许后，才能按你的准确位置给你派附近的陪跑邀请。</string>
 		<key>AidRunEscortVolunteer</key>
-		<string>精确位置已关闭时，系统只给大致位置，可能偏差几公里，助盲跑会暂停共享你的位置。允许后，跑者才能知道你在哪，走散提醒也才能正常工作。</string>
+		<string>精确位置已关闭时，系统只给大致位置，可能偏差几公里，助盲跑会暂停共享你的位置。允许后，跑者才能知道你在哪，走散提醒也才能正常工作，陪跑中代发的紧急求助也才能带上你的准确位置。</string>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>

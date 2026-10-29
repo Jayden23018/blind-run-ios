@@ -67,6 +67,9 @@ final class EmergencyCoordinator: ObservableObject {
     /// 两端的求助入口在暂缓期间本该已经切到本地拨号；这一道是**兜底** —— 漏网的入口（陪跑员跑步中求助面板、
     /// 任何以后新加的入口）按下去也只会落到「求助未发出」，绝不会拿着过期凭证发请求、再被说成「网络异常，请重试」。
     private(set) var blocksCloudSOSForExpiredSession = false
+    /// 每次 `reset()` 加一。`trigger` 取坐标前记下、取完再比：等定位那几秒（陪跑员最长约 20 秒）里会话结束或换人，
+    /// 就一个字节都不发 —— 那个任务不一定是 `countdownTask`，`reset()` 取消不到它（#542 审查）。
+    private(set) var sessionGeneration = 0
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
     @Published var volunteerAlert: VolunteerEmergencyAlert?
 
@@ -107,6 +110,7 @@ final class EmergencyCoordinator: ObservableObject {
         countdownTask?.cancel()
         countdownTask = nil
         countdownAnnouncer = nil
+        sessionGeneration += 1
         EmergencyAlarm.stopAll()
         state = .idle
         activeEvent = nil

@@ -59,10 +59,15 @@ extension EmergencyCoordinator {
         }
 
         state = .locating
+        let generation = sessionGeneration
         let coordinate = await locate()
         // 等定位这几秒里会话可能已经结束（`reset()` 取消了倒计时任务）：那就一个字节都别发，
         // 否则上一个账号的求助会带着新账号的 token 出去。
         guard !Task.isCancelled else { return finish(.idle) }
+        // 不是倒计时任务发起的（陪跑员的确认框 / 求助面板）取消不到，靠会话代号认出来；状态已被 `reset()` 写成 idle，不再改写。
+        guard generation == sessionGeneration else { return outcome(state) }
+        // 等的这段时间里登录过期了：与开头那道同一个结论，凭证不会自己好。
+        guard !blocksCloudSOSForExpiredSession else { return finish(.unsentSessionExpired) }
 
         // 🔴 测试来源的样本（UI 测试定位接缝，#500）只许发给 Mock（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
         // 排在「没坐标照样发」那条降级之前，且不走它：测试样本出现在真实客户端上，说明接缝漏进了真实运行，
