@@ -194,7 +194,7 @@ final class VolunteerOrderV2Tests: XCTestCase {
             XCTAssertNil(
                 MeetDirection.make(
                     device: CLLocationCoordinate2D(latitude: 22.5, longitude: 113.9),
-                    runner: LocatedCoordinate(coordinate: CLLocationCoordinate2D(latitude: 22.501, longitude: 113.9), system: .gcj02Backend),
+                    runner: LocatedCoordinate(coordinate: CLLocationCoordinate2D(latitude: 22.501, longitude: 113.9), system: .gcj02Backend, source: .backend),
                     runnerAccuracyMeters: 5,
                     heading: 0,
                     bucket: bucket,
@@ -209,10 +209,11 @@ final class VolunteerOrderV2Tests: XCTestCase {
     /// 不转的话两套坐标在深圳差出约 500 米，方位会整个偏掉。
     func testDirectionConvertsTheDeviceToGCJBeforeTakingTheBearing() {
         let device = CLLocationCoordinate2D(latitude: 22.5, longitude: 113.9)
-        let deviceGCJ = BackendCoordinateNormalizer.normalize(LocatedCoordinate(coordinate: device, system: .wgs84Device))!.coordinate
+        let deviceGCJ = BackendCoordinateNormalizer.normalize(LocatedCoordinate(coordinate: device, system: .wgs84Device, source: .device))!.coordinate
         let runner = LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: deviceGCJ.latitude + 0.00045, longitude: deviceGCJ.longitude),
-            system: .gcj02Backend
+            system: .gcj02Backend,
+            source: .backend
         )
         func direction(heading: Double) -> MeetDirection? {
             MeetDirection.make(device: device, runner: runner, runnerAccuracyMeters: 5, heading: heading, bucket: .within50, previous: nil)

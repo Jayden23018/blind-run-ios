@@ -77,6 +77,63 @@ final class EmergencyUITestLocationSeamTests: XCTestCase {
         XCTAssertEqual(outcome.state, .acknowledged(.contactNotified))
     }
 
+    // MARK: - 来源必须显式写（#548）
+
+    /// 🔴 #548 原样：`source` 曾默认 `.device`，`BackendCoordinateNormalizer.backend` 没写来源，
+    /// 于是后端推来的对方位置也被标成「本机定位」—— 当成求助坐标交给真实后端时一路放行。
+    func testBackendSourcedCoordinateIsNeverSentAsThisPhonesFix() async throws {
+        let coordinator = EmergencyCoordinator()
+        let transport = NonMockSafetyTransport()
+        let peer = try XCTUnwrap(BackendCoordinateNormalizer.backend(latitude: 39.915, longitude: 116.404))
+
+        let outcome = await trigger(coordinator, safety: SafetyService(transport: transport), sample: peer)
+
+        XCTAssertEqual(transport.paths, [], "后端来源的坐标冒充本机定位发出去了")
+        XCTAssertEqual(outcome.state, .unsentNoLocation(nil))
+    }
+
+    func testBackendFactoryMarksItsSamplesAsBackend() {
+        XCTAssertEqual(BackendCoordinateNormalizer.backend(latitude: 39.915, longitude: 116.404)?.source, .backend)
+    }
+
+    /// 反向哨兵：`LocationService` 的设备采样（经同一个 `applyDeviceLocation`）必须标 `.device`，
+    /// 否则上面那道闸会把真机上的每一次求助都拦掉。
+    func testLocationServiceDeviceSamplesAreMarkedDevice() {
+        let location = LocationService()
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
+            capturedAt: Date(),
+            horizontalAccuracy: 10
+        )
+
+        XCTAssertEqual(location.latestBackendSample()?.source, .device)
+    }
+
+    /// 整条路连起来（#594 审查 B1）：`LocationService` 的设备采样 → `freshEmergencyCoordinate` → `trigger` → 非 Mock 传输，
+    /// 请求真的发出去。上面那条只查 `latestBackendSample()`；以后有人在 `freshEmergencyCoordinate` 里把样本重包一层、
+    /// 来源变了，真机上每次求助都会被拦成「未发出」，只有这一条会红。
+    func testDeviceFixFromLocationServiceReachesARealTransport() async {
+        let location = LocationService()
+        location.simulatePreciseLocationOffForTesting(false)
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
+            capturedAt: Date(),
+            horizontalAccuracy: 10
+        )
+        let coordinator = EmergencyCoordinator()
+        let transport = NonMockSafetyTransport()
+
+        _ = await coordinator.trigger(
+            order: .preview(orderId: Self.orderId, status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: SafetyService(transport: transport),
+            locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: location, environment: [:]) }
+        )
+
+        XCTAssertEqual(transport.paths.first, "/api/emergency/trigger", "本机定位被拦在了来源闸前：\(transport.paths)")
+    }
+
     /// 坐标系转换不许把标记洗掉：洗掉了，测试样本就变成了「设备采样」，闸形同虚设。
     func testNormalizerKeepsTheSourceMarker() {
         let wgs = LocatedCoordinate(

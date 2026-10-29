@@ -145,14 +145,14 @@ final class RunRecordTests: XCTestCase {
             coordinate: CLLocationCoordinate2D(latitude: 22.5, longitude: 113.9),
             system: .gcj02Backend,
             horizontalAccuracy: -1,
-            speed: -1
+            speed: -1, source: .device
         )
         let bare = LiveEscortSessionCoordinator.locationMessage(sample: sample, motion: RunMotionSnapshot())
         XCTAssertEqual(try Set(Self.keys(of: bare)), ["type", "lat", "lng"])
 
         let full = LiveEscortSessionCoordinator.locationMessage(
             sample: LocatedCoordinate(
-                coordinate: sample.coordinate, system: .gcj02Backend, horizontalAccuracy: 5, speed: 0
+                coordinate: sample.coordinate, system: .gcj02Backend, horizontalAccuracy: 5, speed: 0, source: .device
             ),
             motion: RunMotionSnapshot(steps: 0, cadence: 168, altitude: -2.5)
         )
@@ -176,7 +176,7 @@ final class RunRecordTests: XCTestCase {
     func testNormalizationCarriesAccuracyAndSpeed() throws {
         let device = LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: 22.5, longitude: 113.9),
-            system: .wgs84Device, horizontalAccuracy: 8, speed: 2.4
+            system: .wgs84Device, horizontalAccuracy: 8, speed: 2.4, source: .device
         )
         let backend = try XCTUnwrap(BackendCoordinateNormalizer.normalize(device))
         XCTAssertEqual(backend.system, .gcj02Backend)

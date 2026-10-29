@@ -109,7 +109,7 @@ final class LocationService: NSObject, ObservableObject {
     var effectiveBackendLocation: CLLocationCoordinate2D {
         guard let currentLocation else { return effectiveLocation }
         return BackendCoordinateNormalizer.normalize(
-            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
+            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device, source: .device)
         )?.coordinate ?? currentLocation
     }
 
@@ -486,7 +486,8 @@ final class LocationService: NSObject, ObservableObject {
             system: .wgs84Device,
             capturedAt: capturedAt,
             horizontalAccuracy: horizontalAccuracy,
-            speed: speed
+            speed: speed,
+            source: .device
         )
         latestDeviceSample = sample
         lastLocationUpdatedAt = capturedAt

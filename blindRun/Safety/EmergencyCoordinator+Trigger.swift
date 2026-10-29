@@ -14,7 +14,7 @@ extension EmergencyCoordinator {
         var isFailure: Bool { state.isFailure }
     }
 
-    /// 这次求助是不是发往 Mock（进程内的假后端，不发网络请求）。测试来源的坐标只许走这一条（#500）。
+    /// 这次求助是不是发往 Mock（进程内的假后端，不发网络请求）。不是本机定位的坐标（测试接缝、后端来源）只许走这一条（#500 / #548）。
     ///
     /// 只认「`SafetyService` 包着 `MockAPIClient`」这一种形状，别的实现（包括单测的替身）一律按真实后端算：
     /// 判错的代价不对称 —— 判成「不是 Mock」最多让一条 UI 用例走不通，判成「是 Mock」就是测试坐标出了门。
@@ -69,7 +69,7 @@ extension EmergencyCoordinator {
         // 等的这段时间里登录过期了：与开头那道同一个结论，凭证不会自己好。
         guard !blocksCloudSOSForExpiredSession else { return finish(.unsentSessionExpired) }
 
-        // 🔴 测试来源的样本（UI 测试定位接缝，#500）只许发给 Mock（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
+        // 🔴 不是本机定位的样本（UI 测试接缝 `.uiTestSeam`、后端来源 `.backend`，#500 / #548）只许发给 Mock（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
         // 排在「没坐标照样发」那条降级之前，且不走它：测试样本出现在真实客户端上，说明接缝漏进了真实运行，
         // 此时连「不带坐标的求助」也不该发 —— 发出去的是一条用户从没按过的求助。
         if let coordinate, coordinate.source != .device, !Self.isMockBacked(safety) {

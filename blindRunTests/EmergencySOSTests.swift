@@ -461,7 +461,7 @@ final class EmergencySOSTests: XCTestCase {
         let raw = LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
             system: .wgs84Device,
-            capturedAt: Date()
+            capturedAt: Date(), source: .device
         )
         _ = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
@@ -1365,7 +1365,7 @@ final class EmergencySOSTests: XCTestCase {
         LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
             system: .gcj02Backend,
-            capturedAt: Date()
+            capturedAt: Date(), source: .device
         )
     }
 

@@ -40,7 +40,7 @@ enum VolunteerLocationReporter {
             return false
         }
         guard let normalized = BackendCoordinateNormalizer.normalize(
-            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
+            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device, source: .device)
         ) else { return false }
         send(normalized.coordinate.latitude, normalized.coordinate.longitude)
         return true

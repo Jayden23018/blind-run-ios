@@ -257,7 +257,8 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         let sample = LocatedCoordinate(
             coordinate: .init(latitude: 22.5, longitude: 113.9),
             system: .gcj02Backend,
-            capturedAt: now
+            capturedAt: now,
+            source: .device
         )
         let without = try JSONEncoder().encode(LiveEscortSessionCoordinator.locationMessage(sample: sample, motion: nil))
         XCTAssertFalse(String(decoding: without, as: UTF8.self).contains("batteryLevel"))

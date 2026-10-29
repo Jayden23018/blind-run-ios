@@ -330,7 +330,8 @@ final class PreciseLocationGateTests: XCTestCase {
         LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
             system: .wgs84Device,
-            horizontalAccuracy: accuracy
+            horizontalAccuracy: accuracy,
+            source: .device
         )
     }
 
@@ -339,7 +340,8 @@ final class PreciseLocationGateTests: XCTestCase {
             coordinate: CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
             system: .gcj02Backend,
             capturedAt: Date(),
-            horizontalAccuracy: accuracy
+            horizontalAccuracy: accuracy,
+            source: .device
         )
     }
 

@@ -16,13 +16,17 @@ struct LocatedCoordinate: Sendable, Equatable {
     /// 契约要求拿不到就不传，不能传 0。
     let horizontalAccuracy: Double?
     let speed: Double?
-    /// 这份样本从哪来。**只有 `.device` 能发往真实云端**（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
+    /// 这份样本从哪来。**只有 `.device` 能作为求助坐标发往真实云端**（`AGENTS.md` §6「Mock / demo 坐标绝不上传」）。
     let source: Source
 
-    /// `.uiTestSeam` 只由 UI 测试定位接缝产出（`EmergencyCoordinator.uiTestEmergencySample`，#500，仅 DEBUG），
-    /// 云端求助在客户端不是 Mock 时硬性拒绝它（`EmergencyCoordinator.trigger`）。
+    /// 云端求助在客户端不是 Mock 时，只收 `.device`，其余一律硬性拒绝（`EmergencyCoordinator.trigger`）。
     enum Source: Sendable, Equatable {
+        /// 本机这一刻的定位读数（`LocationService` 的设备采样，或包一下设备坐标去做坐标系转换）。
         case device
+        /// 后端推来或已是 GCJ-02 的坐标：对方位置、轨迹点、选好的地点（`BackendCoordinateNormalizer.backend`）。
+        /// 不是本机的定位，不能冒充求助坐标（#548）。
+        case backend
+        /// 只由 UI 测试定位接缝产出（`EmergencyCoordinator.uiTestEmergencySample`，#500，仅 DEBUG）。
         case uiTestSeam
     }
 
@@ -32,7 +36,8 @@ struct LocatedCoordinate: Sendable, Equatable {
         capturedAt: Date = Date(),
         horizontalAccuracy: Double? = nil,
         speed: Double? = nil,
-        source: Source = .device
+        // 不给默认值（#548）：默认 `.device` 是默认放行 —— 漏写一次，测试或后端坐标就被当成本机定位。
+        source: Source
     ) {
         self.coordinate = coordinate
         self.system = system
@@ -80,7 +85,8 @@ enum BackendCoordinateNormalizer {
             LocatedCoordinate(
                 coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
                 system: .gcj02Backend,
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                source: .backend
             )
         )
     }

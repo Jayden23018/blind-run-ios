@@ -54,7 +54,7 @@ final class MapViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] coordinate in
                 self?.centerCoordinate = BackendCoordinateNormalizer.normalize(
-                    LocatedCoordinate(coordinate: coordinate, system: .wgs84Device)
+                    LocatedCoordinate(coordinate: coordinate, system: .wgs84Device, source: .device)
                 )?.coordinate ?? coordinate
             }
             .store(in: &cancellables)

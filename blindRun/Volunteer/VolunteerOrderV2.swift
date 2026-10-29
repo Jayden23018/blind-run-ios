@@ -478,7 +478,7 @@ struct MeetDirection: Equatable {
         guard MeetBucketCopy.showsDirection(for: bucket),
               let device, let runner, let heading,
               let here = BackendCoordinateNormalizer.normalize(
-                LocatedCoordinate(coordinate: device, system: .wgs84Device)
+                LocatedCoordinate(coordinate: device, system: .wgs84Device, source: .device)
               ),
               let there = BackendCoordinateNormalizer.normalize(runner) else { return nil }
         let bearing = DirectionSector.bearing(from: here.coordinate, to: there.coordinate)
