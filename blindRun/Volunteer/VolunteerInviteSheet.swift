@@ -94,13 +94,11 @@ struct VolunteerInviteSheet: View {
     /// **贴底**：下两角不圆、背景一直铺到屏幕最下缘。`padding-bottom:24` 就是稿子给
     /// Home Indicator 留的那段距离，不要再叠一份安全区内边距。
     private var card: some View {
-        // 装得下就按内容高度（第一个分支），装不下才滚（第二个分支）。
-        // AX5 下一张完整的卡装不进一屏，而这一屏的每个字都要能看见 ——
-        // 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
-        // ⚠️ 同样的写法在星火页上被真机无障碍审计判成「整页改不了字号」（2026-09-23，已验红），
-        // 而这张卡没有审计用例覆盖 —— 很可能有同一个问题，见 `XinghuoMapView.overlay` 的改法。
-        ViewThatFits(in: .vertical) {
-            cardContent
+        // 常驻滚动容器，高度取「内容高度」与上限中较小的那个：装得下贴合内容，AX5 下装不进一屏才滚。
+        // 不用 `ViewThatFits { cardContent; ScrollView { cardContent } }`：字号一变它就换一棵子树，真机审计把卡上
+        // 每个字都判成「改不了字号」（2026-09-23 验红 18 条，`testVolunteerInviteSheetPassesAccessibilityAudit`）。
+        // 也不照搬星火页的 `GeometryReader + minHeight`：那会把卡撑到上限高度，压暗层几乎点不到。
+        HugContentHeight {
             ScrollView { cardContent }
         }
         .background(sheetBackground)
@@ -173,13 +171,20 @@ struct VolunteerInviteSheet: View {
             Text(VolunteerInviteCopy.sheetTitle(count: viewModel.invites.count))
                 .flowFont(FlowFonts.inviteHeader())
                 .foregroundColor(AppColors.Flow.primaryText)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($titleFocused)
 
             Spacer(minLength: 0)
 
             pageDots
         }
+        // 挂了翻页动作 ⇒ 审计把这一行当成可交互元素，要 44pt 高（#181 真机审计：只有一行字高，报 Hit area is too small）。
+        // 读屏用户摸索时也要摸得到它。多出来的高度放在字的上方，进度条与倒计时的间距不变。
+        // 🔴 只撑 frame 不够（10-29 真机重跑照样报）：没有显式元素时，读屏元素的框按子视图并起来算，撑出来的空白不算。
+        // 所以在撑高之后把整行合成一个元素，「标题」特征与焦点也挂在这一层（挂在里面的 Text 上，合成后不作数）。
+        .frame(minHeight: 44, alignment: .bottom)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityFocused($titleFocused)
         // 多张卡时给读屏一条**确定**能用的翻页路径。手势翻页对 VoiceOver 用户不可用：
         // 开了读屏之后单指拖动是「探索」，到不了下面那个 `DragGesture`。
         //
@@ -376,22 +381,21 @@ struct VolunteerInviteCard: View {
         )
 
         HStack {
-            Button(VolunteerOrderFlowCopy.declineInvite) { onDecline() }
+            Button { onDecline() } label: { Text(VolunteerOrderFlowCopy.declineInvite).frame(minHeight: 44).contentShape(Rectangle()) }
                 .accessibilityHint("直接回复去不了，不问原因、不计任何记录。5 秒内可以撤销")
                 .accessibilityIdentifier("volunteerInviteDeclineButton")
 
             Spacer(minLength: 0)
 
-            Button(VolunteerInviteCopy.detail) { showsDetail = true }
+            Button { showsDetail = true } label: { Text(VolunteerInviteCopy.detail).frame(minHeight: 44).contentShape(Rectangle()) }
                 .accessibilityHint("打开完整的陪跑订单页，倒计时继续走")
                 .accessibilityIdentifier("volunteerDispatchDetailButton")
         }
         .flowFont(FlowFonts.inviteSecondaryAction())
         .foregroundColor(AppColors.Flow.accent)
-        // `.two{padding:0 18px}`。**高度仍是 44** —— 稿子只给了字号，没给触达区，
-        // 而这两枚是真的要按的。
+        // `.two{padding:0 18px}`。**触达高 44 挂在 label 里** —— 挂在外面的 frame 只撑行高，
+        // 真机审计量到按钮本身只有 15.7pt（#181；同类见记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
         .padding(.horizontal, FlowMetrics.inviteSecondaryActionInset)
-        .frame(minHeight: 44)
         .disabled(isResponding)
     }
 
