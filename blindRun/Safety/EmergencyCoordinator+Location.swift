@@ -53,6 +53,7 @@ extension EmergencyCoordinator {
 
     /// 临时精确位置的系统弹窗最多等陪跑员这么久回答（#407 第 1 项）。超时按「仍然关着」处理：
     /// 求助等不起一个没人点的弹窗，而降级出来的本地拨号此刻就能打。
+    /// 有了回答（允许 / 保持关闭 / 系统不弹）就不再等它（#547），它只是 SDK 回调迟迟不来时的上限。
     /// `nonisolated`：它是下面那个函数参数的默认值，默认值在非隔离上下文里求值。
     nonisolated static let preciseLocationAnswerTimeout: TimeInterval = 15
 
@@ -62,7 +63,8 @@ extension EmergencyCoordinator {
     /// 此前陪跑员这边直接拿 `latestBackendSample()`，精确位置关着时会把约 5 公里外的区域代表点
     /// 当成求助坐标发出去 —— 违反 `AGENTS.md` §6「必须带新鲜的真实 GCJ-02 坐标，拿不到就不发」。
     /// 跑者端不问（系统弹窗会和「求助未发出」的播报抢读屏焦点）；陪跑员一般看得见屏幕，弹窗是最快的出路。
-    /// 系统也可能不弹（SDK：App 不在前台等情况），所以等不到就照常返回 nil，由调用方降级本地拨号。
+    /// 点了「保持关闭」或系统决定不弹（SDK：App 不在前台等情况）时 SDK 立刻回调，这里随即返回 nil，
+    /// 由调用方降级本地拨号（#547；此前不知道有没有回答，只能空等满 `answerTimeout`）。
     static func freshEmergencyCoordinateAskingForPrecision(
         using locationService: LocationService?,
         sharingBlocked: Bool,
@@ -71,9 +73,15 @@ extension EmergencyCoordinator {
         // 没同意共享位置时不问：问了也不会用这个坐标（同意闸在 `freshEmergencyCoordinate` 里）。
         if !sharingBlocked, let locationService, locationService.isPreciseLocationOff {
             // 用陪跑员自己的用途说明（#534 起两端分开）：`escortRun` 那条写的是「陪跑志愿者也能看到你在哪」，对陪跑员说不通。
-            locationService.requestTemporaryPreciseLocation(for: .escortVolunteer)
+            // 回答、开关打开、超时三者先到先走（#547）。等回答放在独立的 Task 里，不用 task group 赛跑：
+            // 那一边挂在 SDK 的 completion 上取消不掉，task group 收尾时会被它拖住。
+            let answer = PreciseLocationAnswer()
+            Task {
+                _ = await locationService.requestTemporaryPreciseLocationAndWaitForAnswer(for: .escortVolunteer)
+                answer.arrived = true
+            }
             let deadline = Date().addingTimeInterval(answerTimeout)
-            while locationService.isPreciseLocationOff, Date() < deadline {
+            while locationService.isPreciseLocationOff, !answer.arrived, Date() < deadline {
                 guard !Task.isCancelled else { return nil }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
@@ -123,4 +131,9 @@ extension EmergencyCoordinator {
         )
     }
     #endif
+}
+
+/// 临时精确位置申请有没有回答（#547）。只在 `freshEmergencyCoordinateAskingForPrecision` 里用。
+private final class PreciseLocationAnswer {
+    var arrived = false
 }

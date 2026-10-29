@@ -233,6 +233,11 @@ final class LocationService: NSObject, ObservableObject {
     private var preciseLocationOffOverrideForTesting: Bool?
     /// 申请过的临时精确位置用途，按调用顺序。接缝打开时不碰 `CLLocationManager`。
     private(set) var temporaryPreciseLocationRequestsForTesting: [PreciseLocationPurpose] = []
+    /// 以下 4 个给 `LocationService+PreciseAccuracy.swift`（#547）。只记账的条件与 `requestTemporaryPreciseLocation(for:)` 是同一道。
+    var interceptsTemporaryPreciseLocationForTesting: Bool { preciseLocationOffOverrideForTesting != nil || suppressHardwareUpdatesForTesting }
+    var pinsPreciseLocationOffForTesting: Bool { preciseLocationOffOverrideForTesting != nil }
+    var pendingTemporaryPreciseAnswersForTesting: [CheckedContinuation<Void, Never>] = []
+    var systemAccuracyAuthorizationForTesting: CLAccuracyAuthorization?
 
     /// 把「精确位置」开关钉在给定状态。与 `simulateDeviceLocationForTesting` 同一种接缝：
     /// 打开后申请临时精确位置只记账，不弹系统窗。
@@ -573,6 +578,15 @@ extension LocationService: CLLocationManagerDelegate {
 }
 
 extension LocationService {
+
+    /// 给 `LocationService+PreciseAccuracy.swift`（#547，那边读不到 `locationManager`）：带回调的申请（用户回答、或系统决定不弹之后才返回）
+    /// 与 manager 此刻的精度授权（不等授权回调）。别直接调：用 `requestTemporaryPreciseLocationAndWaitForAnswer(for:)`。
+    func requestTemporaryFullAccuracyFromSystem(for purpose: PreciseLocationPurpose) async {
+        await withCheckedContinuation { (answered: CheckedContinuation<Void, Never>) in
+            locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose.rawValue) { _ in answered.resume() }
+        }
+    }
+    var managerAccuracyAuthorization: CLAccuracyAuthorization { locationManager.accuracyAuthorization }
 
     /// 🔴 **「已授权」不等于「开定位」（#413）。** `CLLocationManager` 一创建就回调一次，
     /// 这里若无条件开定位，已授权的设备一启动 App 就在本机持续定位 —— 早于位置轨迹同意（#368），
