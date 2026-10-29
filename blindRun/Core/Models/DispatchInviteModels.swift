@@ -94,6 +94,10 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     var expiresAt: String?
     /// 邀请发出的时刻。**只有 REST**（`pending-invites`）带，WS 推送里没有。
     var sentAt: String?
+    /// 跑者姓名，**已掩码**（`李*`，后端 #357，推送与待回复列表都有）；查不到时键不出现。
+    /// 接单前能给看（`AGENTS.md` §8 的判据）：掩码后只剩一个姓，不是跑者写的自由文本；契约也明说它发给所有候选人。
+    /// 别直接上屏或朗读，走 `runnerName`。
+    var blindName: String?
 
     /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
     ///
@@ -101,6 +105,13 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     /// 客户端**不需要也无法区分**，所以界面上不解释原因，只把主按钮换成「接单」。
     var dispatchRespondAction: OrderRespondAction {
         (requiresIntroCall ?? true) ? .interested : .accept
+    }
+
+    /// 邀请上的跑者称呼（DECISIONS-v2 V11）：屏幕那份保留掩码（`李*`），朗读那份去掉星号（「李」），
+    /// 否则读屏念「李星号」。去掉星号什么都不剩 = 没有称呼，返回 `nil`，调用方不渲染、不编名字。
+    var runnerName: (display: String, spoken: String)? {
+        guard let display = blindName?.nilIfBlank, let spoken = display.unmaskedForSpeech.nilIfBlank else { return nil }
+        return (display, spoken)
     }
 }
 

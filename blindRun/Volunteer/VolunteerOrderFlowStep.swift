@@ -611,8 +611,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
     /// 这一态他拿不到 `OrderDetailResponse`：后端 `OrderQueryService.getOrder` 只认
     /// `order.volunteer`，而接单前（含通话磨合期）它恒为 null ⇒ `GET /api/orders/{id}` 恒 403。
     ///
-    /// 🔴 **姓氏这里仍然拿不到**（`NEW_ORDER` 与 `AvailableOrderResponse` 都没有 `blindName`），
-    /// 所以头像圆里是「跑」，**不编一个名字**。已投 handoff。
+    /// 跑者称呼来自推送的掩码 `blindName`（后端 #357，iOS #339），屏幕掩码、读屏去星；没给就不出那一行，**不编名字**。
     ///
     /// 视力情况与引导方式从 2026-09-18 起有了：`supplement` 由 `GET /api/orders/available`
     /// 补进来（见 `VolunteerInviteSupplement`）。**`nil` = 补不到 ⇒ 那两行不渲染** ——
@@ -672,8 +671,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
             )
         }
 
-        // 导盲犬来自派单载荷，视力 / 引导方式来自 `available` 补数 —— **两个数据源，一份渲染**。
-        rows.append(contentsOf: escortRows(dispatch.escortNeeds + (supplement?.escortNeeds ?? [])))
+        // 跑者称呼在陪跑要求前面。导盲犬来自派单载荷，视力 / 引导方式来自 `available` 补数 —— **两个数据源，一份渲染**。
+        rows.append(contentsOf: inviteRunnerRows(dispatch) + escortRows(dispatch.escortNeeds + (supplement?.escortNeeds ?? [])))
         rows.append(
             Row(
                 id: "decline",
@@ -964,5 +963,17 @@ struct VolunteerOrderFlowPresentation: Equatable {
                 accessibilityHint: nil
             )
         }
+    }
+}
+
+// 写在结构体外、同一个文件里：结构体体积只许变短（SwiftLint 棘轮 #488）。
+extension VolunteerOrderFlowPresentation {
+    /// 邀请态的跑者行（#339）：屏幕掩码「李*」，读屏「跑者李」。后端没给称呼就是空数组，不编名字。
+    fileprivate static func inviteRunnerRows(_ dispatch: WSNewOrder) -> [Row] {
+        guard let name = dispatch.runnerName else { return [] }
+        return [Row(
+            id: "runner", label: VolunteerOrderFlowCopy.runnerLabel, value: name.display, detail: nil, action: nil,
+            accessibilityLabel: "\(VolunteerOrderFlowCopy.runnerLabel)\(name.spoken)", accessibilityHint: nil
+        )]
     }
 }

@@ -807,8 +807,8 @@ final class blindRunUITests: XCTestCase {
         // —— 真实路径上这两项由 `GET /api/orders/available` 补，而 mock 对那条路径恒返空数组。
         // 断的是「这一行在无障碍树里长什么样」，数据怎么来的由 `VolunteerInviteState.merge` 的单测验。
         XCTAssertTrue(
-            app.descendants(matching: .any)["跑者，全盲，牵引绳"].firstMatch.exists,
-            "跑者行要合成一个焦点念全，不能让读屏用户分三次划过\n\(app.debugDescription)"
+            app.descendants(matching: .any)["跑者李，全盲，牵引绳"].firstMatch.exists,
+            "跑者行要合成一个焦点念全；种子姓名「李*」读屏只念「李」（#339）\n\(app.debugDescription)"
         )
 
         // 🔴 **邀请卡弹出时，下面那一屏必须从无障碍树里消失。**
