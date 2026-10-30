@@ -2980,12 +2980,11 @@ final class VoiceOrderWizardTests: XCTestCase {
         currentCoordinate: (() -> LocatedCoordinate?)? = nil
     ) -> VoiceOrderWizard {
         let bookingViewModel = bookingViewModel ?? BlindBookingViewModel()
+        addTeardownBlock { _ = bookingViewModel } // wizard 对它是 weak：不攥到用例结束就等于传 nil（#601）
         let wizard = VoiceOrderWizard()
         wizard.configure(
-            bookingViewModel: bookingViewModel,
-            speechService: speechService,
-            // 同上：wizard 侧是 weak，这个临时对象等于传 nil。这批用例全走 `startForTesting(at:)`，
-            // 不经过真正的开麦路径，所以不需要一个活着的语音服务。
+            bookingViewModel: bookingViewModel, speechService: speechService,
+            // 这批用例全走 `startForTesting(at:)`，不开麦，不需要活着的语音服务（等于传 nil）。
             speechInputService: SpeechInputService(), // guard:allow weak-temporary
             voiceOrderService: VoiceOrderService(transport: stub),
             currentCoordinate: currentCoordinate

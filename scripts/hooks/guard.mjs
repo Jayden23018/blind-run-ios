@@ -17,7 +17,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { findWeakHelperLeaks } from './weak-helper-leaks.mjs';
+import { findDiscardedHolders, findWeakHelperLeaks } from './weak-helper-leaks.mjs';
 
 const MODE = process.argv[2] === 'pre' ? 'pre' : 'post';
 const REAL_HOST = '47.114.113.171';
@@ -1038,6 +1038,19 @@ function main() {
           `一组用例同时红（「期望 X 实际 0 / nil」），断言「没发生」的用例则假绿（#450，已发生三次）。\n` +
           `改法（任选其一）：把它放进返回值（元组 / Harness 加一个字段）；或让调用方 \`let\` 住再传进 helper；\n` +
           `或赋给测试类的属性（\`retainedAppState = ${leak.name}\`）。确实就要 nil 语义，在声明行加 \`// guard:allow weak-helper\`。`
+      );
+    }
+    // 同一类缺陷的另一种建法（#598）：夹具把持有者交出来了，调用方却用 `_` 丢掉。
+    const discarded = findDiscardedHolders(src, (name) =>
+      readFileOrEmpty(path.join(path.dirname(filePath), `${name}.swift`))
+    ).find(({ line }) => !(src.split('\n')[line - 1] ?? '').includes('guard:allow weak-helper'));
+    if (discarded) {
+      fail(
+        'weak-helper',
+        `${filePath}:${discarded.line}\n  \`${discarded.helper}()\` 返回的元组里，\`${discarded.type}\` 那一项被 \`_\` 丢掉了。\n` +
+          `被测对象靠它活着：丢的是 weak 依赖，被测方法在 \`guard let\` 处早退；丢的是 view model，协调器的 \`[weak self]\` 订阅没人接。\n` +
+          `断言「会发生」的用例红，断言「不会发生」的用例永远假绿（#598，#551、#556 各踩过一次）。\n` +
+          `改法：给它起名字并用到用例结束（真实断言，或 \`withExtendedLifetime\`）。确实就要释放后的语义，在这一行加 \`// guard:allow weak-helper\`。`
       );
     }
   }

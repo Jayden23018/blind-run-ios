@@ -2,10 +2,12 @@
 // 判据与三次现场见那里的注释；正反用例在 scripts/validate-guard.mjs（搜 weak-helper）。
 //
 // 只做词法级判断（去掉注释与字符串后数括号），不解析 Swift。漏判的形状写在下面，误判走 `guard:allow weak-helper`。
-// ponytail: 只认函数 / init / setUp 体内 `let|var X = 类型(` 这一种建法、经 `configure…()` 交出去这一种入口；
-// 工厂方法（`AppState.make()`）、计算属性里建的、经 init 注入或 `attach(to:)` 交出去的、无返回值的普通 helper、
-// 字符串插值里的嵌套字符串与 `#"…"#` 原始字符串都不查。`PlaceSearchProvider` 的测试替身类型名各不相同，也不在名单里。
-// 真出现第四次换形状再加。
+// ponytail: 只认函数 / init / setUp 体内 `let|var X = 类型(` 与 `let X = X ?? 类型(`（#601）这两种建法、
+// 经 `configure…()` 交出去这一种入口；工厂方法（`AppState.make()`）、计算属性里建的、经 init 注入或
+// `attach(to:)` 交出去的、无返回值的普通 helper、字符串插值里的嵌套字符串与 `#"…"#` 原始字符串都不查。
+// `PlaceSearchProvider` 的测试替身类型名各不相同，也不在名单里。
+// 元组解构（#598）只查得到本文件里的 helper 和 `类型.helper(` 且该类型有同名文件的夹具，别的文件里的自由函数查不到。
+// 真出现下一种形状再加。
 
 // 在 view model 里**全部**以 `weak var` 存的依赖类型（核对于 2026-10-28：`weak var appState: AppState` 24 处等）。
 // `SpeechService` 不在内：它在 3 处是 weak、十几处是强引用，按类型拦全是误报（与 `weak-temporary` 同一取舍）。
@@ -104,7 +106,8 @@ export function findWeakHelperLeaks(src) {
     const body = code.slice(bodyOpen + 1, bodyClose);
     const returns = returnStatements(body);
 
-    for (const decl of body.matchAll(/\b(?:let|var)\s+(\w+)\s*(?::\s*[\w.?!]+\s*)?=\s*(\w+)\s*\(/g)) {
+    // `(?:\w+\s*\?\?\s*)?`：`let vm = vm ?? BlindBookingViewModel()`，不传参时走的就是这个临时对象（#601）。
+    for (const decl of body.matchAll(/\b(?:let|var)\s+(\w+)\s*(?::\s*[\w.?!]+\s*)?=\s*(?:\w+\s*\?\?\s*)?(\w+)\s*\(/g)) {
       const [, name, type] = decl;
       if (!WEAK_HELD_TYPES.has(type)) continue;
       const word = new RegExp(`\\b${name}\\b`);
@@ -130,4 +133,65 @@ export function findWeakHelperLeaks(src) {
     }
   }
   return leaks;
+}
+
+// 元组返回类型的各项类型：去掉 `标签:`、结尾的 `?` / `!`。只按顶层逗号切，泛型与闭包类型里的逗号不算。
+function tupleElementTypes(text) {
+  const items = [];
+  let depth = 0;
+  let current = '';
+  for (const c of text) {
+    if ('(<['.includes(c)) depth++;
+    else if (')>]'.includes(c)) depth--;
+    if (c === ',' && depth === 0) {
+      items.push(current);
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  items.push(current);
+  return items.map((item) => item.replace(/^\s*\w+\s*:/, '').trim().replace(/[?!]+$/, ''));
+}
+
+// 找 `func name(…) -> (A, B, …)` 里项数等于 `arity` 的那个声明，返回各项类型；找不到返回 null。
+function helperTupleTypes(code, name, arity) {
+  for (const m of code.matchAll(new RegExp(`\\bfunc\\s+${name}\\s*(?:<[^>{]*>)?\\s*\\(`, 'g'))) {
+    const paramsClose = matching(code, m.index + m[0].length - 1);
+    if (paramsClose < 0) continue;
+    const arrow = code.slice(paramsClose + 1).match(/^\s*(?:async\s+)?(?:throws\s+)?->\s*\(/);
+    if (!arrow) continue;
+    const open = paramsClose + arrow[0].length;
+    const close = matching(code, open);
+    if (close < 0) continue;
+    const types = tupleElementTypes(code.slice(open + 1, close));
+    if (types.length === arity) return types;
+  }
+  return null;
+}
+
+// 从夹具返回的元组里用 `_` 丢掉了「被测对象靠它活着」的那一项（#598、#601 同一类，第四、五次现场）：
+// - 被 weak 持有的依赖：`let (_, viewModel) = makeHome()` 丢的是 `AppState`，`load()` 开头 `guard let appState` 直接早退；
+// - view model 本身：它对协调器的订阅都是 `[weak self]`，丢掉后没人处理事件。
+// 两种都是断言「会发生」的用例红、断言「不会发生」的用例永远假绿。
+// `readFixture(类型名)` 返回 `类型名.swift` 的内容，夹具在别的文件时用；读不到返回 ''。
+// 返回 [{ helper, type, line }]，line 是那句解构在原文里的行号（1 起）。
+export function findDiscardedHolders(src, readFixture = () => '') {
+  const code = blankCommentsAndStrings(src);
+  const found = [];
+  const isHolder = (type) => WEAK_HELD_TYPES.has(type) || /ViewModel$/.test(type);
+  for (const m of code.matchAll(/\b(?:let|var)\s*\(([^()]*)\)\s*=\s*(?:(?:try|await)\s+)*(?:(\w+)\.)?(\w+)\s*\(/g)) {
+    const names = m[1].split(',').map((name) => name.trim());
+    if (!names.includes('_')) continue;
+    const [, , host, helper] = m;
+    const types =
+      helperTupleTypes(code, helper, names.length) ??
+      (host && host !== 'Self' ? helperTupleTypes(blankCommentsAndStrings(readFixture(host)), helper, names.length) : null);
+    if (!types) continue;
+    names.forEach((name, index) => {
+      if (name !== '_' || !isHolder(types[index])) return;
+      found.push({ helper, type: types[index], line: code.slice(0, m.index).split('\n').length });
+    });
+  }
+  return found;
 }

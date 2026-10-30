@@ -393,6 +393,105 @@ const cases = [
     ].join('\n')
   },
   {
+    // #601 现场原样：不传参时走的是 `??` 右边那个临时对象，函数一返回就释放。
+    name: 'helper 的 `X ?? 类型()` 默认值没被持有（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeWizard(bookingViewModel: BlindBookingViewModel? = nil) -> VoiceOrderWizard {',
+      '        let bookingViewModel = bookingViewModel ?? BlindBookingViewModel()',
+      '        let wizard = VoiceOrderWizard()',
+      '        wizard.configure(bookingViewModel: bookingViewModel, speechService: SpeechService())',
+      '        return wizard',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: 'helper 的 `X ?? 类型()` 默认值交给 teardown 持有（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeWizard(bookingViewModel: BlindBookingViewModel? = nil) -> VoiceOrderWizard {',
+      '        let bookingViewModel = bookingViewModel ?? BlindBookingViewModel()',
+      '        addTeardownBlock { _ = bookingViewModel }',
+      '        let wizard = VoiceOrderWizard()',
+      '        wizard.configure(bookingViewModel: bookingViewModel, speechService: SpeechService())',
+      '        return wizard',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // #556 现场原样：丢的是 AppState，view model 对它是 weak。
+    name: '元组解构用 _ 丢掉 weak 依赖（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private static func makeHome(orders: FakeOrderService) -> (AppState, HomeViewModel) { fatalError() }',
+      '    func testA() async {',
+      '        let (_, viewModel) = Self.makeHome(orders: FakeOrderService())',
+      '        await viewModel.load()',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // #551 现场原样：丢的是 view model，协调器的 `[weak self]` 订阅没人接。夹具在 `类型.helper(` 上，带标签的元组。
+    name: '元组解构用 _ 丢掉 view model（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'enum HomeFixture {',
+      '    static func makeHome() -> (viewModel: VolunteerHomeViewModel, appState: AppState, speech: SpeechService) { fatalError() }',
+      '}',
+      'final class FooTests: XCTestCase {',
+      '    func testA() {',
+      '        let (_, appState, speech) = HomeFixture.makeHome()',
+      '        XCTAssertNil(speech.lastSpoken ?? appState.name)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    // 丢的是强持有的替身：判据要看类型，不能见 `_` 就拦。全仓有几十处这种正确写法。
+    name: '元组解构用 _ 丢掉无关的一项（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeViewModel() -> (FaceVerifyViewModel, AppState, SpeechService) { fatalError() }',
+      '    func testA() {',
+      '        let (viewModel, appState, _) = makeViewModel()',
+      '        XCTAssertEqual(viewModel.name, appState.name)',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
+    name: '元组解构那一行标注 guard:allow weak-helper（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunTests/FooTests.swift',
+    swift: [
+      'final class FooTests: XCTestCase {',
+      '    private func makeHome() -> (AppState, HomeViewModel) { fatalError() }',
+      '    func testA() {',
+      '        let (_, viewModel) = makeHome() // guard:allow weak-helper 这条就是要测 appState 释放后的早退',
+      '        viewModel.load()',
+      '    }',
+      '}'
+    ].join('\n')
+  },
+  {
     name: '声明行标注 guard:allow weak-helper（放行）',
     mode: 'post',
     expect: 0,
