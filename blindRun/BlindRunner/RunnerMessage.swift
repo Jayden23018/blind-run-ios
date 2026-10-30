@@ -5,7 +5,13 @@ import SwiftUI
 extension RunOrderStatus {
     /// 陪跑员已确定、还没开跑的四态才能留言（契约 `runner-message` 的前置状态，逐字）。
     var acceptsRunnerMessage: Bool {
-        [.scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived].contains(self)
+        switch self {
+        case .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived:
+            return true
+        case .pendingMatch, .pendingIntroCall, .inProgress, .completed, .cancelled,
+             .rematching, .noVolunteer, .unknown:
+            return false
+        }
     }
 }
 

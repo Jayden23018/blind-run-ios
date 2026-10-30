@@ -118,6 +118,8 @@ extension MockAPIClient {
     /// 没有活跃订单时 `data` 为 `null`（不是 404、不是空对象）。
     func handleGetActiveOrder() -> ActiveOrderEnvelope {
         let active = orders
+            // 理由就是上面那段注释：这里演的是**后端**的判断，换成客户端判定
+            // 会让「两边口径不一致」这件事再也看不见。 guard:allow status-set-literal
             .filter { ![.completed, .cancelled, .noVolunteer].contains($0.status) }
             .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
             .first
