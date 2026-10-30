@@ -177,6 +177,7 @@ struct OptedOutBadge: View {
 
 /// 加载失败时的一段文字 + 重试按钮，四个新页面共用。
 struct IncentiveFailureSection: View {
+    @EnvironmentObject private var speechService: SpeechService
     let message: String
     let retryTitle: String
     let identifier: String
@@ -193,5 +194,6 @@ struct IncentiveFailureSection: View {
                 .accessibilityIdentifier(identifier)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .announcesFailure(message, using: speechService)
     }
 }

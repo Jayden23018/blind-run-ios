@@ -2804,7 +2804,7 @@ struct BlindOrderStatusView: View {
             } else if trackViewModel.isLoading {
                 ProgressView("正在加载本次路线")
             } else if let error = trackViewModel.errorMessage {
-                Text(error).foregroundColor(AppColors.textSecondary)
+                Text(error).foregroundColor(AppColors.textSecondary).announcesFailure(error, using: speechService)
             }
 
             if viewModel.didSubmitReview {
