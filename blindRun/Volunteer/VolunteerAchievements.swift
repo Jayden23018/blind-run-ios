@@ -149,7 +149,7 @@ struct VolunteerNextBadgeDto: Decodable, Sendable, Equatable {
     ///
     /// 🔴 **不写阈值 4.8**：后端刻意不下发，抄进客户端会一改就漂移。
     /// **也不写「快解锁了」**：满格的进度条已经在暗示这句话了，正是要纠正的误会。
-    static let ratingShortNote = "评分还差一点"
+    static let ratingShortNote = "评分未达标"
 
     var displayName: String { name?.nilIfBlank ?? code?.nilIfBlank ?? "下一枚勋章" }
 

@@ -158,7 +158,7 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
     func testOrderCreateResponseSurvivesAnUnknownStatus() throws {
         let response = try decode(OrderResponse.self, #"{"id":77,"status":"QUEUED_V2","success":true}"#)
 
-        XCTAssertEqual(response.id, 77, "下单返回的 orderId 丢了等于这一单彻底跟丢")
+        XCTAssertEqual(response.id, 77, "下单返回的 orderId 丢了等于此订单彻底跟丢")
         XCTAssertEqual(response.status, .unknown)
         XCTAssertEqual(response.success, true)
     }

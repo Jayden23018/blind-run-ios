@@ -96,7 +96,7 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// 现在第 1 档判不出来只意味着「本地接不住」，第 2 档发 `/parse` 由后端分意图。
     func testUnrecognizedConfirmCommandGoesToTheBackendInsteadOfGivingUp() async {
         let stub = VoiceOrderAPIClientStub()
-        stub.parseOrderResponses = [Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)]
+        stub.parseOrderResponses = [Self.parseResponse(ttsText: "你想改哪一项？", correctionUnclear: true)]
         let wizard = makeWizard(stub: stub, startingAt: .confirm)
 
         await wizard.submitTranscript("嗯那个啊")
@@ -257,7 +257,7 @@ final class VoiceOrderWizardTests: XCTestCase {
             address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
             hasGuideDog: true
         )
-        stub.parseOrderResponses = [first, Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)]
+        stub.parseOrderResponses = [first, Self.parseResponse(ttsText: "你想改哪一项？", correctionUnclear: true)]
         let wizard = makeWizard(stub: stub, startingAt: .freeform)
 
         await wizard.submitTranscript("明天早上八点从人民广场出发跑一个小时")
@@ -286,7 +286,7 @@ final class VoiceOrderWizardTests: XCTestCase {
                 address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
                 missing: [.startTime, .duration]
             ),
-            Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)
+            Self.parseResponse(ttsText: "你想改哪一项？", correctionUnclear: true)
         ]
         let viewModel = BlindBookingViewModel()
         let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
@@ -369,7 +369,7 @@ final class VoiceOrderWizardTests: XCTestCase {
                 ttsText: "明天早上几点？",
                 partialStartTime: Self.halfSaidTomorrowMorning
             ),
-            Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)
+            Self.parseResponse(ttsText: "你想改哪一项？", correctionUnclear: true)
         ]
         let viewModel = BlindBookingViewModel()
         viewModel.applyVoiceResolvedStartPlace(
@@ -399,7 +399,7 @@ final class VoiceOrderWizardTests: XCTestCase {
                 missing: [.startTime],
                 partialStartTime: Self.halfSaidTomorrowMorning
             ),
-            Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)
+            Self.parseResponse(ttsText: "你想改哪一项？", correctionUnclear: true)
         ]
         let wizard = makeWizard(stub: stub, startingAt: .freeform)
 
@@ -668,14 +668,14 @@ final class VoiceOrderWizardTests: XCTestCase {
     func testCorrectionUnclearCountsTowardTheReaskLimit() async {
         let stub = VoiceOrderAPIClientStub()
         stub.parseOrderResponses = [
-            Self.parseResponse(ttsText: "您想改哪一项？出发地、开始时间，还是时长？", correctionUnclear: true)
+            Self.parseResponse(ttsText: "你想改哪一项？出发地、开始时间，还是时长？", correctionUnclear: true)
         ]
         let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
 
         await wizard.submitTranscript("不对")
 
         XCTAssertEqual(wizard.reaskCount, 1)
-        XCTAssertEqual(wizard.lastSpokenPrompt, "您想改哪一项？出发地、开始时间，还是时长？")
+        XCTAssertEqual(wizard.lastSpokenPrompt, "你想改哪一项？出发地、开始时间，还是时长？")
         XCTAssertEqual(wizard.step, .confirm)
     }
 
@@ -773,7 +773,7 @@ final class VoiceOrderWizardTests: XCTestCase {
                 durationMinutes: 60,
                 missing: [.address]
             ),
-            Self.parseResponse(ttsText: "您想改哪一项？", correctionUnclear: true)
+            Self.parseResponse(ttsText: "你想改哪一项？", correctionUnclear: true)
         ]
         let viewModel = BlindBookingViewModel()
         viewModel.applyVoiceResolvedStartPlace(
@@ -2573,7 +2573,7 @@ final class VoiceOrderWizardTests: XCTestCase {
             latitude: 22.5333,
             longitude: 113.9300,
             needReask: true,
-            ttsText: "找到3个地点，请说第几个。第一个，阳光棕榈园，南山区，距您400米。",
+            ttsText: "找到3个地点，请说第几个。第一个，阳光棕榈园，南山区，距你400米。",
             candidates: [
                 Self.candidate("阳光棕榈园"),
                 Self.candidate("阳光棕榈园北门", latitude: 22.5400, longitude: 113.9350),
@@ -2870,7 +2870,7 @@ final class VoiceOrderWizardTests: XCTestCase {
         for ordinal in VoiceOrderWizard.ordinalWords {
             XCTAssertTrue(tts.contains(ordinal), "序数要逐个念出来，否则用户不知道能说什么：\(tts)")
         }
-        XCTAssertTrue(tts.contains("距您"), "距离是同名地点唯一能靠听分辨的信息：\(tts)")
+        XCTAssertTrue(tts.contains("距你"), "距离是同名地点唯一能靠听分辨的信息：\(tts)")
         // 最近的那条排第一 —— 深圳那家离请求坐标最近。
         XCTAssertEqual(response.candidates?.first?.adname, "南山区")
         XCTAssertEqual(response.address, response.candidates?.first?.readbackAddress,

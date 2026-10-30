@@ -1460,7 +1460,7 @@ final class AccessibilityAuditTests: XCTestCase {
             send.tap()
             sleep(1)
             attachScreenshot(app, name: "messages-volunteer-\(variant.name)-2-blank")
-            let phrase = app.buttons["快捷短语：下次试试再快一点"]
+            let phrase = app.buttons["快捷短语：下次可以再快一点"]
             for _ in 0..<4 where !phrase.isHittable { app.swipeDown() }
             if phrase.isHittable { phrase.tap() }
             scrollTo(send, in: app)

@@ -6,7 +6,7 @@ import Foundation
 /// 2026-10-19 起后两句改成「改成不提供」（#472）：后端存的是「不提供」这个值，不是删掉了这一项，
 /// 负责人要求文案严格成立。按钮标题未变。
 enum VisionConsentWithdrawalCopy {
-    static let buttonTitle = "撤回同意，不再提供这两项"
+    static let buttonTitle = "撤回同意"
     static let accessibilityLabel = "撤回同意，不再提供视力状况和导盲犬。按下后立刻把资料里这两项改成不提供，以后想填可以再同意"
     static let succeeded = "已撤回。资料里的视力状况和导盲犬已改成不提供，以后想填可以再点「填写视力状况」。"
 

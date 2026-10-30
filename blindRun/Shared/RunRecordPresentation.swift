@@ -113,9 +113,9 @@ final class RunRecordViewModel: ObservableObject {
             return APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "请检查网络后再发一次。"
         case .serverError(let response):
             switch response.errorCode {
-            case .invalidOrderStatus: return "这一单还没完成，暂时不能留言。"
-            case .notOrderParticipant: return "你不是这一单的参与者。"
-            case .orderNotFound: return "这一单已经不存在了。"
+            case .invalidOrderStatus: return "此订单还没完成，暂时不能留言。"
+            case .notOrderParticipant: return "你不是此订单的参与者。"
+            case .orderNotFound: return "此订单已经不存在了。"
             default: return error.localizedMessage
             }
         default:
@@ -149,11 +149,11 @@ final class RunRecordViewModel: ObservableObject {
             phase = .loaded(try await service.record(orderId: orderId))
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
-            phase = .failed("跑后记录没能加载。\(error.localizedMessage)")
+            phase = .failed("跑后记录加载失败。\(error.localizedMessage)")
         } catch is CancellationError {
             return
         } catch {
-            phase = .failed("跑后记录没能加载，请检查网络后重试。")
+            phase = .failed("跑后记录加载失败，请检查网络后重试。")
         }
     }
 }

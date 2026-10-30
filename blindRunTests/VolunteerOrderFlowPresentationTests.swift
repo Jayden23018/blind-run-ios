@@ -528,7 +528,7 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
             let sheet = VolunteerOrderFlowCopy.cancelSheet(for: status, plannedStart: nil, lateCancelWindowHours: 12)
             XCTAssertTrue(
                 sheet.message.contains("转给其他志愿者"),
-                "\(status.rawValue)：确认层要说清后果 —— 这一单换个人，不是替盲人取消"
+                "\(status.rawValue)：确认层要说清后果 —— 此订单换个人，不是替盲人取消"
             )
             XCTAssertEqual(sheet.keep, "保留这次陪跑")
             XCTAssertEqual(sheet.cancel, "仍然取消")

@@ -58,7 +58,7 @@ enum BookingTimeProblem: Equatable {
             // 念钟点比念数字冒号稳，所以只取小时数、自己拼成钟点。
             let start = AppConstants.Timing.nightWindowStartHour
             let end = AppConstants.Timing.nightWindowEndHour
-            return "晚上\(start - 12)点到次日早上\(end)点之间不安排陪跑。这一单从开始到结束整段都要避开这个时段，"
+            return "晚上\(start - 12)点到次日早上\(end)点之间不安排陪跑。此订单从开始到结束整段都要避开这个时段，"
                 + "请改到白天，或者把时长改短、让它在晚上\(start - 12)点前结束。"
         }
     }
@@ -460,13 +460,13 @@ final class BlindBookingViewModel: ObservableObject {
 
     var startPointSourceText: String {
         guard let place = resolvedStartPlace else {
-            return "出发地点尚未解析。"
+            return "未识别到出发地点。"
         }
         switch place.source {
         case .deviceLocation:
-            return selectedStartPlace == nil ? "使用设备当前位置。" : "已选择高德地点。"
+            return selectedStartPlace == nil ? "使用设备当前位置。" : "已选择地点。"
         case .manual:
-            return "已选择高德地点。"
+            return "已选择地点。"
         case .demoDefault:
             return "正在使用演示坐标，不代表真实会合点。"
         }
@@ -1700,7 +1700,7 @@ struct BlindBookingView: View {
 
                     // 误按第一步的出口。第二步是个占满宽度的大按钮，读屏用户滑过去就可能激活，
                     // 而它的后果是一张真实订单加一次真实派单。
-                    Button("不用了，我自己填") {
+                    Button("手动填写") {
                         isZeroInputConfirming = false
                         // 在语音面板上时下面没有表单，别指一个不存在的地方。
                         speechService.speak(showsVoiceStage
@@ -1713,14 +1713,14 @@ struct BlindBookingView: View {
                     .frame(minHeight: 64)
                     .background(AppColors.secondaryBackground)
                     .cornerRadius(12)
-                    .accessibilityLabel("不用了，我自己填")
+                    .accessibilityLabel("手动填写")
                     .accessibilityHint(showsVoiceStage ? "放弃直接下单，留在语音页" : "放弃直接下单，回到表单")
                 } else {
-                    PrimaryButton("不用填，直接下单") {
+                    PrimaryButton("直接下单") {
                         isZeroInputConfirming = true
                         speechService.speak("\(viewModel.zeroInputSummary)。确认就再点一次。")
                     }
-                    .accessibilityLabel("不用填，直接下单")
+                    .accessibilityLabel("直接下单")
                     .accessibilityHint("用当前位置和最早可约时间创建预约，点击后会先念一遍要下的单")
                     .accessibilityIdentifier("blindBookingZeroInputOfferButton")
                 }
@@ -2334,7 +2334,7 @@ struct BlindBookingView: View {
                 }
                 .buttonShapeOutlineIfNeeded(color: AppColors.primary)
                 .accessibilityLabel("去个人资料填写希望怎么被引导")
-                .accessibilityHint("这一项不影响本次下单，可以之后再填")
+                .accessibilityHint("选填")
                 .accessibilityIdentifier("blindBookingEscortGuidanceHintLink")
             }
         }

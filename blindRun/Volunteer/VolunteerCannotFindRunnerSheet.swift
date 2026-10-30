@@ -78,11 +78,11 @@ enum VolunteerCannotFindRunnerCopy {
     static let advice = [
         "先打电话给跑者，说清你现在站在哪个出入口。",
         "跑者看不见你挥手，在电话里出声、喊他一声，比找他更快。",
-        "站在原地别动，让他朝你的声音走过来。"
+        "原地等候，出声引导跑者靠近。"
     ]
 
     /// 🔴 号码为空时**说清楚是什么状况**，不要静默少一个按钮。
-    static let noPhoneNotice = "这一单没有可以拨打的号码。如果一直碰不到面，先上报问题。"
+    static let noPhoneNotice = "此订单没有可以拨打的号码。如果一直碰不到面，先上报问题。"
 }
 
 #if DEBUG

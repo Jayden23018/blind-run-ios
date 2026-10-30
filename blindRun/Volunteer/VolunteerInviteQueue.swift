@@ -282,7 +282,7 @@ enum VolunteerInviteCopy {
         switch reason {
         case .taken: return "已有其他陪跑员接下"
         case .conflict: return "和你已约好的陪跑时间冲突"
-        case .orderClosed: return "这一单已经结束"
+        case .orderClosed: return "此订单已经结束"
         // 不再写「这个邀请」：播报时前面已经有标题「这个邀请已失效」，拼起来会念两遍。
         case .noLongerPending, .other: return "不需要再回复了"
         }

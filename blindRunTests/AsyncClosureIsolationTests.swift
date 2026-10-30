@@ -152,7 +152,7 @@ final class AsyncClosureIsolationTests: XCTestCase {
 
         XCTAssertEqual(place, "朝阳公园南门（39.94）")
         XCTAssertEqual(address, serverAnswer, "服务端地址经闭包回来后变了")
-        XCTAssertEqual(safety.orderIds, [4_242], "问的不是这一单")
+        XCTAssertEqual(safety.orderIds, [4_242], "问的不是此订单")
     }
 
     // MARK: - Fixture

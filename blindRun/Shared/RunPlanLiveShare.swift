@@ -44,7 +44,7 @@ enum RunPlanLiveShareCopy {
     static let stopping = "正在停止分享。"
     /// 停止是**服务端确认过的** 204，这句可以用完成时。
     static let stopped = "已停止分享，链接已失效。"
-    static let stopFailed = "没能停止分享，链接可能仍然有效，请稍后再试一次。"
+    static let stopFailed = "停止分享失败，链接可能仍然有效，请稍后再试一次。"
 
     /// 终态竞态：页面每 5 秒轮询，用户可能在订单刚结束的那个窗口里按下按钮。
     /// 后端此时返 409 `SHARE_ORDER_ALREADY_FINISHED`。

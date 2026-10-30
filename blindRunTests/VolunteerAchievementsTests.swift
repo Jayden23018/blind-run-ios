@@ -244,14 +244,14 @@ final class VolunteerAchievementsTests: XCTestCase {
             #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 10, "target": 10, "blockedBy": "RATING"}"#
         )
 
-        XCTAssertEqual(next.progressText, "已完成 10 / 10 条评价，评分还差一点")
+        XCTAssertEqual(next.progressText, "已完成 10 / 10 条评价，评分未达标")
         XCTAssertEqual(
             VolunteerAchievementsCopy.nextBadgeAccessibilityLabel(next),
-            "下一枚勋章，口碑之星，已完成 10 / 10 条评价，评分还差一点"
+            "下一枚勋章，口碑之星，已完成 10 / 10 条评价，评分未达标"
         )
         XCTAssertEqual(
             VolunteerProfileBadgeRow.nextBadgeCaption(next),
-            .init(title: "口碑之星", detail: "评分还差一点")
+            .init(title: "口碑之星", detail: "评分未达标")
         )
 
         let spoken = [
@@ -271,7 +271,7 @@ final class VolunteerAchievementsTests: XCTestCase {
         let next = try decodeNextBadge(
             #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 7, "target": 10, "blockedBy": "RATING"}"#
         )
-        XCTAssertEqual(next.progressText, "已完成 7 / 10 条评价，评分还差一点")
+        XCTAssertEqual(next.progressText, "已完成 7 / 10 条评价，评分未达标")
     }
 
     /// `RATINGS_COUNT` 与进度条是同一维，进度本身已经在说了 —— 照原样显示。
@@ -319,7 +319,7 @@ final class VolunteerAchievementsTests: XCTestCase {
         XCTAssertTrue(summary.showsBadgeRow)
         XCTAssertTrue(summary.isRenderable)
         XCTAssertTrue(
-            VolunteerHomeIncentiveCopy.accessibilityLabel(summary).contains("评分还差一点")
+            VolunteerHomeIncentiveCopy.accessibilityLabel(summary).contains("评分未达标")
         )
     }
 

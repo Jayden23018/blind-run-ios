@@ -170,7 +170,7 @@ enum BlindRunCopy {
     /// 还没到 `earliestServiceStartAt` 时的副标题与读屏提示。
     static func metUpLockedSubtitle(opensAt: String) -> String { "见面后，\(opensAt) 起可以开始跑步" }
     static func startRunLockedHint(opensAt: String) -> String { "\(opensAt) 起可以按" }
-    static let startRunFailed = "没能开始跑步，请再按一次。"
+    static let startRunFailed = "跑步开始失败，请再按一次。"
 
     static let countdownTitle = "准备开始"
     static let countdownSubtitle = "握好引导绳"

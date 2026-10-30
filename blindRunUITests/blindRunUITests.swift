@@ -304,7 +304,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(runRecordRow.waitForExistence(timeout: 10), "结束陪跑后应落在已完成屏")
         XCTAssertTrue(
             app.descendants(matching: .any)["volunteerOrderFlowRow-reportIssue"].firstMatch.exists,
-            "已完成屏必须留一条「上报问题」—— 陪跑员对这一单的异议只有这一个出口"
+            "已完成屏必须留一条「上报问题」—— 陪跑员对此订单的异议只有这一个出口"
         )
         // 🔴 志愿服务时长**不在这一屏**：后端没有按单口径（只有累计的 `totalServiceMinutes`）。
         // 这条负断言是那个决定的看门狗 —— 谁把轨迹耗时换算成「0.7 小时」摆上去，这里会红。
