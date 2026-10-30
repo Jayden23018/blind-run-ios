@@ -396,9 +396,8 @@ struct EmergencyContactsView: View {
     /// 表单以 sheet 呈现时不弹：被 sheet 盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
     /// 而表单自己就把同一条 message 显示在它那张三段式短表里，不会被挤出屏幕。
     ///
-    /// 关掉 sheet 时**不**顺手清 message：那等于在每一次保存成功的 dismiss 回调里都写一次
-    /// `@Published`，而保存成功是最热的那条路径。表单里失败过、用户又取消了的话，弹窗补报一次
-    /// 也不算错 —— 那条失败仍然成立。
+    /// 保存成功的回调不清 message：那条路径没有失败可清，白写一次 `@Published`。
+    /// 用户按「取消」时由表单自己清，失败已经显示在表单里了。
     private var failureAlertBinding: Binding<Bool> {
         Binding(
             get: { editingTarget == nil && viewModel.isShowingFailure },
@@ -547,11 +546,14 @@ struct EmergencyContactFormView: View {
                         if normalized != newValue { phone = normalized }
                     }
 
-                TextField("关系，选填，例如家人", text: $relationship)
+                TextField("关系，选填", text: $relationship)
                     .accessibilityLabel("与联系人的关系，选填")
                     .accessibilityHint("例如家人、朋友、同事")
             } footer: {
                 Text(smsNotice)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(smsNotice)
             }
 
@@ -583,7 +585,11 @@ struct EmergencyContactFormView: View {
         .navigationTitle(isEditing ? "编辑紧急联系人" : "新增紧急联系人")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消") { onFinish() }
+                Button("取消") {
+                    // 这条失败已经显示在表单里了，再回列表页弹一次只会多挡一层。
+                    viewModel.isShowingFailure = false
+                    onFinish()
+                }
                     .accessibilityLabel("取消")
                     .accessibilityHint("放弃本次修改并返回")
             }
