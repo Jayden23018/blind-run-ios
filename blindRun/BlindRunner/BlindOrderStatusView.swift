@@ -1968,7 +1968,7 @@ struct BlindOrderStatusView: View {
     /// 只读退路那条列表仍走自己的 `NavigationLink`。
     @State private var showDispatchAlgorithmNotice = false
     /// 屏 3 / 屏 3b 的全屏呈现。**由显式动作打开，不由 coordinator 状态推导** ——
-    /// 推导的话首页 SOS 条触发的求助也会在订单页上弹出这一屏，而那条路径有它自己的界面。
+    /// 推导的话恢复路径以外的状态变化也会弹出这一屏。
     @State private var showEmergencyCountdown = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
@@ -1992,6 +1992,8 @@ struct BlindOrderStatusView: View {
     /// 后者会把正在读订单信息的用户反复弹回顶部。
     @AccessibilityFocusState private var statusHeaderFocused: Bool
     let orderId: Int64
+    /// 「我的」或全屏手势转来的紧急请求（#605）。只有首页那条导航路径传它。
+    var safetyRequest: Binding<BlindOrderSafetyRequest?> = .constant(nil)
     let onOrderUpdated: (OrderDetailResponse) -> Void
 
     /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
@@ -2008,6 +2010,18 @@ struct BlindOrderStatusView: View {
     /// 表现为「底部四个按钮」，不会有任何东西报错。
     private var usesFlowSkeleton: Bool {
         flowPresentation != nil
+    }
+
+    private static let safetyRequestPresentDelay: UInt64 = 500_000_000
+
+    /// 订单还没加载出来时 `sosMode` 不是云端档，这时弹确认框，确认后会因为没有订单而零反应。
+    /// 所以落到求助中心：它按当前模式给出能按的选项，订单加载完自动换成云端档。
+    private func present(_ request: BlindOrderSafetyRequest) {
+        if request == .confirmEmergency, sosMode == .cloudTrigger {
+            showEmergencyConfirmation = true
+        } else {
+            showSafetyHub = true
+        }
     }
 
     /// 进倒计时并把屏 3 呈上来。**两条触发路径共用这一个函数** —— 长按直接调，
@@ -2630,6 +2644,15 @@ struct BlindOrderStatusView: View {
         }
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
+        }
+        // `.task(id:)` 同时盖住「订单页已在栈里」和「刚被推上来」两种到达顺序。
+        .task(id: safetyRequest.wrappedValue) {
+            guard let request = safetyRequest.wrappedValue else { return }
+            // 推入动画没结束时弹 alert 会被系统丢掉，而这是紧急入口，丢了就是按了没反应。
+            try? await Task.sleep(nanoseconds: Self.safetyRequestPresentDelay)
+            guard !Task.isCancelled else { return }
+            safetyRequest.wrappedValue = nil
+            present(request)
         }
         // 全屏，不是 sheet：这一态盲人只有一件该做的事，而 sheet 会把订单页的内容
         // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。

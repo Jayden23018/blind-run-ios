@@ -20,7 +20,7 @@ extension blindRunUITests {
             tabBar.buttons["我的"].tap()
 
             let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "通知：")).firstMatch
-            // 只滑不点：这一行在「退出登录」上面，靠近底部常驻求助条。
+            // 只滑不点：这一行在「退出登录」上面，靠近标签栏。
             for _ in 0..<10 where !row.exists { app.swipeUp() }
             XCTAssertTrue(row.exists, "\(role)：设置页没有「通知」一行")
             // 「正在读取」是读授权状态前的中间态，等它落定再判按钮。

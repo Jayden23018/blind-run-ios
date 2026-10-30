@@ -71,7 +71,7 @@ extension AccessibilityAuditTests {
         entry.tap()
         XCTAssertTrue(
             app.navigationBars["隐私与授权"].waitForExistence(timeout: 10),
-            "\(variant)：没进到隐私与授权页（失败现场若是「紧急呼叫」单，是点到了常驻求助条）"
+            "\(variant)：没进到隐私与授权页（失败现场若是「紧急呼叫」单，是点到了列表里的紧急入口）"
         )
     }
 
@@ -93,13 +93,12 @@ extension AccessibilityAuditTests {
         try audit(app)
     }
 
-    /// 把元素拖到底部常驻栏（求助条、标签栏）之上再点。`isHittable` 不判遮挡，直接点会落到求助条上，
-    /// 弹出「紧急呼叫」单（记忆 ui-test-tap-lands-on-persistent-sos-bar）。每次只拖四分之一屏，免得把它拖出页首。
+    /// 把元素拖到标签栏之上再点。`isHittable` 不判遮挡。每次只拖四分之一屏，免得把它拖出页首。
     @MainActor
     private func scrollAboveBottomBars(_ element: XCUIElement, app: XCUIApplication, maxDrags: Int = 8) {
         for _ in 0..<maxDrags {
-            let bars = [app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch, app.tabBars.firstMatch]
-            let barTop = bars.filter(\.exists).map(\.frame.minY).filter { $0 > 0 }.min() ?? app.frame.maxY
+            let tabBar = app.tabBars.firstMatch
+            let barTop = tabBar.exists ? tabBar.frame.minY : app.frame.maxY
             if element.isHittable, element.frame.maxY < barTop { return }
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))

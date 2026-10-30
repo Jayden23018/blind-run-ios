@@ -149,7 +149,7 @@ final class blindRunUITests: XCTestCase {
         // 误触求助条的回归钉子。真机上那条路径会真的拨出去，当时只有双卡选号单挡了一下。
         XCTAssertFalse(
             app.buttons["拨打110"].firstMatch.exists,
-            "切 tab 的触点落到了「我的」底部那条求助条上，弹出了本地拨号确认单"
+            "切 tab 的触点落到了紧急入口上，弹出了本地拨号确认单"
         )
 
         XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5)) // 标签根页叫「我的」，首页齿轮进去的仍叫「设置」
@@ -1621,9 +1621,7 @@ final class blindRunUITests: XCTestCase {
         let deleteButton = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
         XCTAssertTrue(deleteButton.isEnabled)
-        // 不滑到底，「删除账户」在常驻求助条（`blindRunnerHomeSOSBar`）后面，触点落在求助条上、
-        // 弹出的是「紧急呼叫」拨号单（记忆 `ui-test-tap-lands-on-persistent-sos-bar`）。
-        // 滑完两者的无障碍 frame 仍重叠，别拿 frame 断言 —— 09-27 真机实测点中心能点中删除按钮。
+        // 不滑到底，「删除账户」可能在标签栏后面，触点落不到它上面。
         app.swipeUp()
         app.swipeUp()
         deleteButton.tap()

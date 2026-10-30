@@ -983,14 +983,14 @@ final class AccessibilityAuditTests: XCTestCase {
             )
         }
 
-        // 紧急入口从首页移到了「我的」tab（项目负责人 2026-09-16 拍板）。
-        // **这条断言是那个决定的唯一机器守卫**：求助条在任何一个 tab 上都摸不到时，
-        // 表现只是「首页干净了」，没有任何东西会报警。
+        // 紧急入口在「我的」列表里（项目负责人 2026-10-30 拍板，#605）。
+        // **这条断言是那个决定的唯一机器守卫**：入口在任何一个 tab 上都摸不到时，
+        // 表现只是「页面干净了」，没有任何东西会报警。
         tabBar.buttons["我的"].tap()
-        let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
+        let emergencyRow = app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch
         XCTAssertTrue(
-            sosBar.waitForExistence(timeout: 10),
-            "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
+            emergencyRow.waitForExistence(timeout: 10),
+            "「我的」没有紧急入口 —— 这是首页之外不开读屏的用户唯一的落点"
         )
     }
 
@@ -2184,7 +2184,7 @@ final class AccessibilityAuditTests: XCTestCase {
         row.tap()
         let confirm = app.buttons["确认取消"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "取消是不可逆动作，必须先确认一次")
-        XCTAssertFalse(app.staticTexts["紧急呼叫"].exists, "点到了常驻求助条")
+        XCTAssertFalse(app.staticTexts["紧急呼叫"].exists, "点到了紧急入口")
         confirm.tap()
 
         let gone = NSPredicate(format: "exists == false")

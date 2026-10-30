@@ -122,7 +122,7 @@ REMATCHING → CANCELLED（只能盲人 token）
   跑者端两处共用 `BlindHomeSOSMode.resolve`，陪跑员端那处用 `VolunteerOrderSOSMode.resolve`
   （两者判据都只有 `canBlindRunnerTriggerEmergency` / `canVolunteerTriggerEmergency`）。
   **新增任何求助入口都必须读对应那一端的判定，不许自己判状态**：
-  1. 「我的」tab 底部那条常驻求助条（`BlindHomeSOSBar`）；
+  1. 「我的」列表里的紧急入口（`BlindProfileEmergencyRow`）与标签栏容器上的 Magic Tap；
   2. **求助与安全中心底部那条**（`BlindSafetyHubView.emergencyButton`，2026-09-16 起）——
      订单页四步骨架的底部有一枚「求助与安全」，而它覆盖的四态（匹配 / 约好 / 出发 / 汇合）
      一个都不是 `IN_PROGRESS`。
@@ -144,19 +144,13 @@ REMATCHING → CANCELLED（只能盲人 token）
      轻点与读屏双击弹本节锁定文案的确认框，长按 3 秒直发（与跑者端求助中心同一套 `safetyLongPress`），
      走的仍是同一条云端链路；副标题只说「求助会附带你的当前位置」。
      用例 `AccessibilityAuditTests.testVolunteerRunHelpPanelOffersPauseSupportAndConfirmedEmergency`。
-  > 🔄 **2026-09-16 改口径：它现在挂在「我的」tab 的底部，不在首页。**
-  > 首页按设计稿 `design-reference/order-flow/screens/01-home.png` 收成「问候 + 订单卡 + 预约块」
-  > 三块，那张稿上没有求助条；项目负责人当日拍板删除首页那条、由「我的」tab 兜底。
-  > 组件（`BlindHomeSOSBar`）、判据（`BlindHomeSOSMode.resolve`）、`safeAreaInset` 的挂法
-  > 与「不滚动即可达」这条性质**全部未变**，变的只是它在哪个 tab 上。落点 `BlindRunnerTabView`。
-  >
-  > ⚠️ **代价必须写在这里而不是只写在代码里**：紧急入口从「打开 App 就在眼前」变成
-  > 「先切到第三个 tab」。VoiceOver 用户仍有 magic tap 兜住（手势挂在 tab 容器上，三个 tab
-  > 都能用），而**不开读屏的低视力用户在首页确实够不到它** —— 这是已知的产品取舍，不是疏漏。
-  > 要翻回去只需把 `BlindRunnerTabView.sosBar` 挂回首页，判据一行不用改。
+  > 🔄 **2026-10-30 改口径（#605）：任何页面都没有常驻红条。** 红条挂在 `NavigationStack` 外层时
+  > 盖住了二级页底栏：「个人资料」的「保存」被盖 56/64pt，点它落到紧急呼叫上。
+  > 现在「我的」列表里是一行入口。陪跑中（`.cloudTrigger`）按它或做全屏手势都回订单页，
+  > 因为云端求助的结果面只在订单页，别的 tab 上发求助，失败时屏幕零变化。
+  > ⚠️ **代价**：不开读屏的低视力用户在首页够不到紧急入口，要切到「我的」。负责人两次确认的取舍。
   > 机器守卫：`AccessibilityAuditTests.testBlindRunnerTabBarOffersHomeHistoryAndProfile`
-  > 断言切到「我的」之后求助条真的在 —— 没有它，「三个 tab 上都摸不到求助」的表现
-  > 只是「首页干净了」，不会有任何东西报警。
+  > 断言「我的」有这一行；`testProfileSaveButtonIsNotCoveredByAnEmergencyBar` 守保存不被盖。
   > 2026-09-15 补 `120`。原文只写了「主紧急联系人 / 110」，而 2026-09-08 起 `120` 已是
   > 并列的可点入口（`EmergencySafetyCopy.homeCallMedicalTitle`）。理由写在 `SafetyModule.swift:203-206`：
   > 用户在**跑步**，摔倒、扭伤、心脏不适是最可能发生的紧急情况，而它们对应的是急救不是报警；

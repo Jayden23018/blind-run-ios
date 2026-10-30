@@ -11,31 +11,24 @@ import UIKit
 /// **三个 tab 都挂的是已经存在的页面**，不是新写的：
 /// `BlindRunnerHomeView` / `RunRecordHistoryView(role: .runner)` / `BlindRunnerSettingsView`。
 ///
-/// 🔴 **这一层还承担一件安全职责。** 改版前盲人首页底部有一条常驻求助条
-/// （`.safeAreaInset(edge: .bottom)`，`IN_PROGRESS` 走云端、其余状态降级为本地拨号），
-/// `AGENTS.md` §6 把它定为「唯一的例外形态」。本次改版按设计稿把它从首页移除，
-/// 由项目负责人 2026-09-16 拍板改由「我的」tab 兜底 —— 所以它现在挂在**「我的」那一个 tab**
-/// 的底部，仍然是 `safeAreaInset`、仍然不滚动即可达、仍然是同一个 `BlindHomeSOSBar` 组件
-/// 和同一条 `BlindHomeSOSMode.resolve` 判据（那条判据由 `EmergencySOSTests` 逐状态钉着，
-/// 一行未改）。
+/// 🔴 **这一层还承担一件安全职责。** 全屏手势挂在这里，「我的」列表里那一行的动作也从这里走：
+/// `activateSOS` 按 `BlindHomeSOSMode` 分流。本地拨号就地弹单；陪跑中把人带到订单页，
+/// 因为云端求助的结果面都在订单页上（#605）。
 ///
-/// ⚠️ **代价必须写明**：紧急入口从「打开 App 就在眼前」变成「先切到第三个 tab」。
-/// 对 VoiceOver 用户仍有首页的 magic tap 手势兜住（见 `BlindRunnerHomeView`），
-/// 而**不开读屏的低视力用户在首页确实够不到它**。这不是实现疏漏，是已知的产品取舍。
+/// ⚠️ **代价必须写明**：首页没有可见的紧急入口。VoiceOver 用户有全屏手势，
+/// 不开读屏的低视力用户要切到「我的」。这是项目负责人 2026-09-16 与 2026-10-30 两次确认的产品取舍。
 struct BlindRunnerTabView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
-    @EnvironmentObject private var locationService: LocationService
 
-    /// **所有权在这一层而不是首页**：「我的」tab 底部那条求助条的云端分支需要同一个
-    /// `activeOrder`（`BlindHomeSOSMode.resolve` 要读订单状态）。两个 tab 各持一个
-    /// view model 会让两处看到不同的订单 —— 而其中一处决定的是求助走云端还是走拨号。
+    /// **所有权在这一层而不是首页**：紧急入口的分流需要同一个 `activeOrder`
+    /// （`BlindHomeSOSMode.resolve` 要读订单状态）。两个 tab 各持一个 view model
+    /// 会让两处看到不同的订单 —— 而其中一处决定的是求助走云端还是走拨号。
     @StateObject private var homeViewModel = BlindRunnerHomeViewModel()
     /// 陪跑员按了「让 TA 的手机响起来」。挂在根容器上：跑者此刻在哪个 tab、哪一层 push 都得响。
     @StateObject private var ringController = RunnerRingController()
 
     @State private var selection: Tab = .home
-    @State private var showEmergencyConfirmation = false
     @State private var showCallOptions = false
 
     private enum Tab: Hashable {
@@ -98,15 +91,14 @@ struct BlindRunnerTabView: View {
         // 协调器是 AppState 上的嵌套对象，改它不会让这一层重绘，只能订阅（记忆
         // `nested-observableobject-does-not-republish`）。重新订阅会回放当前值，控制器自己去重。
         .onReceive(appState.realtimeCoordinator.$runnerRing) { ringController.handle($0) }
+        #if DEBUG
+        .onChange(of: selection) { simulateSOSGestureForUITestIfNeeded(on: $0) }
+        #endif
         // 全屏手势：读屏用户不必先找到按钮。**挂在这一层而不是某一个 tab 上** ——
         // 三个 tab 上都能用，而首页现在已经没有可见的求助入口了，这是它在首页唯一的通道。
-        .accessibilityAction(.magicTap) { activateSOS() }
-        // 🔴 两个弹窗也必须挂在这一层。挂在「我的」tab 里的话，magic tap 从首页或「记录」
+        .accessibilityAction(.magicTap) { activateSOS(request: sosMode.orderSafetyRequestForGesture) }
+        // 🔴 拨号单也必须挂在这一层。挂在「我的」tab 里的话，手势从首页或「记录」
         // 触发时弹窗所在的视图不在屏上 —— 用户做了手势、听到确认音、然后什么都没发生。
-        // 这正是「静默失败」最坏的一种形态，而且只在紧急时刻才会被发现。
-        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
-            Task { await homeViewModel.enterEmergency(locationService: locationService) }
-        }
         .emergencyCallOptionsDialog(
             isPresented: $showCallOptions,
             context: callContext,
@@ -127,6 +119,17 @@ struct BlindRunnerTabView: View {
     }
 
     #if DEBUG
+    private static var didSimulateSOSGesture = false
+
+    /// XCUITest 触发不了 Magic Tap（记忆 `xcuitest-cannot-invoke-accessibility-actions`）。
+    /// 这个开关让用例在切到「我的」时走同一条手势分流，验「从别的 tab 回订单页并弹确认」。
+    private func simulateSOSGestureForUITestIfNeeded(on tab: Tab) {
+        let flag = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SOS_GESTURE_ON_PROFILE"]
+        guard flag == "1", tab == .profile, !Self.didSimulateSOSGesture else { return }
+        Self.didSimulateSOSGesture = true
+        activateSOS(request: sosMode.orderSafetyRequestForGesture)
+    }
+
     private static var didSimulateRunnerRing = false
 
     /// UI 测试与真机人耳验证用：启动后注入一条 10 秒的响铃，不用另找一台陪跑员手机。
@@ -154,34 +157,17 @@ struct BlindRunnerTabView: View {
     }
     #endif
 
-    // MARK: - 「我的」：设置 + 兜底的紧急入口
+    // MARK: - 「我的」：设置 + 紧急入口
 
     private var profileTab: some View {
         NavigationStack {
-            BlindRunnerSettingsView(isTabRoot: true)
+            BlindRunnerSettingsView(
+                isTabRoot: true,
+                emergencyEntry: BlindSettingsEmergencyEntry(mode: sosMode) {
+                    activateSOS(request: sosMode.orderSafetyRequestForRow)
+                }
+            )
         }
-        // 与改版前首页同一个结构、同一个组件、同一条判据。挂 `safeAreaInset` 而不是塞进
-        // `List` 的某一行：那条列表有十来行，紧急入口排在中间等于要先滚动才摸得到。
-        .safeAreaInset(edge: .bottom) { sosBar }
-    }
-
-    private var sosBar: some View {
-        BlindHomeSOSBar(
-            coordinator: appState.emergencyCoordinator,
-            mode: sosMode,
-            action: activateSOS,
-            onLocalCall: { showCallOptions = true }
-        )
-        // 与内容列同宽：不限的话求助条在 iPad 上是一条 1024pt 宽的红杠，
-        // 和上面的设置列表左右都对不齐。材质背景仍铺满整宽。
-        .readableContentColumn()
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
-        .background(.ultraThinMaterial)
-        // 整条底栏（含材质与上边距）的范围：审计按它判「内容滚到栏后面」，不按文案放行（`AccessibilityAuditTests+Audit`）。
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("blindTabBottomSOSBar")
     }
 
     // MARK: - 求助判定（与改版前逐字相同）
@@ -205,33 +191,19 @@ struct BlindRunnerTabView: View {
         EmergencyCallContext.runner(for: sosMode)
     }
 
-    /// 求助入口的统一分流。magic tap 与「我的」tab 底部那条求助条走同一个入口。
+    /// 紧急入口的统一分流。`request` 为 nil 就地弹本地拨号单，不切页面。
     ///
-    /// 🔴 **先切到「我的」tab，再弹确认。** 这一行不是为了好看，是为了满足
-    /// `AGENTS.md` §6 的「拿不到坐标就不发，并且**可见且可听**地告知用户」：
-    ///
-    /// 云端求助的**可见面**（`EmergencyStatusNotice`，以及失败时那枚「求助没发出去时
-    /// 屏幕上必须有个能按的东西」的兜底拨号按钮）整块长在 `BlindHomeSOSBar` 里，
-    /// 而这条 bar 只在「我的」tab。`BlindRunnerHomeViewModel.enterEmergency` 当初
-    /// **刻意不写 `errorMessage`**，理由是「可见面就在同一屏，写了会让同一句话被念两遍」
-    /// —— 那个前提在求助条搬走之后不再成立。
-    ///
-    /// 不切 tab 的后果：在首页做两指双击 → 确认 → 坐标拿不到（`allowsSubmissionWithoutLocation`
-    /// 恒 false，这是**设计上会发生**的失败）→ 只有一句 TTS，屏幕零变化，
-    /// 而那枚兜底拨号按钮在另一个 tab 上够不到。命中记忆
-    /// `claimed-fallback-may-not-exist-in-release` 的第二种吃法。
-    ///
-    /// 紧急手势把用户带到安全面本身也是对的：他此刻要的就是这一屏。
-    private func activateSOS() {
-        selection = .profile
-        switch sosMode {
-        case .cloudTrigger:
-            showEmergencyConfirmation = true
-        case .localCall, .localCallSessionExpired:
+    /// 🔴 **陪跑中必须回到订单页。** 云端求助可能失败（拿不到新鲜坐标是设计上会发生的），
+    /// 失败提示和兜底拨号只在订单页上。留在别的 tab 发，失败时屏幕零变化
+    /// （记忆 `claimed-fallback-may-not-exist-in-release`）。
+    private func activateSOS(request: BlindOrderSafetyRequest?) {
+        guard let request else {
             showCallOptions = true
+            return
         }
+        selection = .home
+        homeViewModel.orderSafetyRequest = request
     }
-
 }
 
 #if DEBUG

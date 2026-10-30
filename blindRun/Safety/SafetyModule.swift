@@ -384,7 +384,7 @@ enum EmergencySafetyCopy {
 
     static let volunteerTimeout = "陪跑员暂未响应你的求助，系统正在升级处理。\(emergencyCallReminder)"
 
-    // MARK: 首页常驻求助条（非 IN_PROGRESS 的本地拨号分支）
+    // MARK: 本地拨号入口（非 IN_PROGRESS）
 
     /// **刻意不叫「一键求助」。** 那四个字在本 App 里专指云端求助 —— 会记录事件、通知同行志愿者
     /// 与客服。而这条分支只是拨一通电话，App 什么都没发出去。
@@ -882,7 +882,7 @@ enum EmergencyDialer {
     #endif
 }
 
-/// 首页求助条的两种模式。**由订单状态决定，不由用户选择。**
+/// 跑者端紧急入口的模式。**由订单状态决定，不由用户选择。**
 enum BlindHomeSOSMode: Equatable {
     /// `IN_PROGRESS`：走云端求助，与订单状态页同一条 `EmergencyCoordinator.trigger` 链路。
     case cloudTrigger
@@ -906,73 +906,6 @@ enum BlindHomeSOSMode: Equatable {
             return .localCall
         }
         return isSessionExpired ? .localCallSessionExpired : .cloudTrigger
-    }
-}
-
-/// 首页底部常驻求助条。挂在 `.safeAreaInset(edge: .bottom)` 上，所以滚动时不会离开屏幕。
-///
-/// 直接 `@ObservedObject` 持有 coordinator，而不是通过 `AppState` 读 ——
-/// `AppState.emergencyCoordinator` 是个 `let`（不是 `@Published`），嵌套 ObservableObject 的变化
-/// 不会经由 `AppState` 重新发布。订单状态页能刷新是因为它自己的 view model 恰好在 5 秒轮询里
-/// 一直发布，靠的是巧合；这里不重复那个巧合。
-struct BlindHomeSOSBar: View {
-    @ObservedObject var coordinator: EmergencyCoordinator
-    let mode: BlindHomeSOSMode
-    let action: () -> Void
-    /// 云端求助失败后的兜底出口。与 `.localCall` 分支按的是**同一个**拨号弹窗，
-    /// 只是文案换成不再声称「没有进行中的陪跑」。
-    let onLocalCall: () -> Void
-
-    var body: some View {
-        VStack(spacing: 8) {
-            switch mode {
-            case .cloudTrigger:
-                EmergencyActionButton(isLoading: coordinator.state.isBusy, action: action)
-            case .localCall, .localCallSessionExpired:
-                PrimaryButton(EmergencySafetyCopy.homeCallTitle, isDestructive: true, action: action)
-                    .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
-                    .accessibilityHint(EmergencyCallContext.runner(for: mode).accessibilityHint)
-            }
-
-            // 只有云端求助才有状态可播报；本地拨号不产生任何后端状态。
-            if mode == .cloudTrigger, let message = coordinator.statusMessage {
-                EmergencyStatusNotice(
-                    message: message,
-                    isFailure: coordinator.state.isFailure
-                )
-
-                // 求助没发出去时，屏幕上必须有一个**能按的东西**，而不只是一段说明。
-                // 覆盖 `.unsentNoLocation` / `.failed` / `.cooldown` / `.contactNotifyFailed`
-                // 四种 `isFailure`，判据直接读 `state.isFailure`，新增失败态自动进来。
-                if coordinator.state.isFailure {
-                    PrimaryButton(
-                        EmergencySafetyCopy.homeCallTitle,
-                        isDestructive: true,
-                        action: onLocalCall
-                    )
-                    .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
-                    .accessibilityHint(EmergencySafetyCopy.cloudFailedCallAccessibilityHint)
-                    .accessibilityIdentifier("blindRunnerHomeSOSFailureCallButton")
-                }
-            }
-        }
-        .accessibilityIdentifier("blindRunnerHomeSOSBar")
-    }
-}
-
-struct EmergencyActionButton: View {
-    let isLoading: Bool
-    let action: () -> Void
-
-    init(isLoading: Bool = false, action: @escaping () -> Void) {
-        self.isLoading = isLoading
-        self.action = action
-    }
-
-    var body: some View {
-        PrimaryButton(EmergencySafetyCopy.title, isDestructive: true, isLoading: isLoading, action: action)
-            .accessibilityLabel(EmergencySafetyCopy.accessibilityLabel)
-            .accessibilityHint(EmergencySafetyCopy.accessibilityHint)
     }
 }
 
