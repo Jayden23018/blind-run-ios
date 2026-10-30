@@ -112,7 +112,7 @@ final class VoiceOrderWizardTests: XCTestCase {
     func testConfirmRoundNetworkFailureKeepsTheLocalEscapeHatchesAudible() async {
         let stub = VoiceOrderAPIClientStub()
         stub.error = .serverError(ErrorResponse(code: "INTERNAL_ERROR", message: "boom"))
-        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
+        let wizard = makeWizard(stub: stub, bookingViewModel: .withStartPointForTesting(), startingAt: .confirm, didCaptureStartTime: true)
 
         await wizard.submitTranscript("把时间往后挪一挪吧")
 
@@ -125,7 +125,7 @@ final class VoiceOrderWizardTests: XCTestCase {
 
         // 网络还是坏的，但「确认」不经过网络 —— 一次已经解析成功的语音下单不该死在最后一步。
         await wizard.submitTranscript("确认")
-        XCTAssertFalse(wizard.isRunning, "本地确认必须能在断网时下单")
+        XCTAssertEqual(wizard.lastSpokenPrompt, "正在提交订单。", "本地确认必须能在断网时下单")
     }
 
     /// 确认走的是提交路径而不是解析端点。
@@ -134,11 +134,11 @@ final class VoiceOrderWizardTests: XCTestCase {
     /// `testConfirmIsRefusedWhenTheStartTimeWasNeverSpoken`），不传就变成在测拦截而不是提交。
     func testAffirmativeTakesTheSubmitPathInsteadOfParsing() async {
         let stub = VoiceOrderAPIClientStub()
-        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
+        let wizard = makeWizard(stub: stub, bookingViewModel: .withStartPointForTesting(), startingAt: .confirm, didCaptureStartTime: true)
 
         await wizard.submitTranscript("确认")
 
-        XCTAssertFalse(wizard.isRunning, "提交后不得继续占着麦克风")
+        XCTAssertEqual(wizard.lastSpokenPrompt, "正在提交订单。", "没有 view model 时走不到这一句（#601）")
         XCTAssertTrue(stub.paths.isEmpty, "确认判定不走后端：\(stub.paths)")
     }
 
@@ -482,11 +482,11 @@ final class VoiceOrderWizardTests: XCTestCase {
         // ② 槽位齐了：走提交。
         let stub = VoiceOrderAPIClientStub()
         stub.parseOrderResponses = [Self.parseResponse(userIntent: .confirm)]
-        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
+        let wizard = makeWizard(stub: stub, bookingViewModel: .withStartPointForTesting(), startingAt: .confirm, didCaptureStartTime: true)
 
         await wizard.submitTranscript("这样就行，直接下单吧")
 
-        XCTAssertFalse(wizard.isRunning, "提交后不得继续占着麦克风")
+        XCTAssertEqual(wizard.lastSpokenPrompt, "正在提交订单。", "槽位齐了要真走到提交（#601）")
     }
 
     /// 「算了不下了」结束整个语音流程，**不重问**。用户要退出时再追问一句是把人锁在里面。

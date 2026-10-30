@@ -131,7 +131,7 @@ final class VoiceOrderWizardStartPointTests: XCTestCase {
         wizard.stop()
     }
 
-    private static let peopleSquare = ResolvedPlace(
+    fileprivate static let peopleSquare = ResolvedPlace(
         id: "people-square", title: "人民广场", addressText: "上海市黄浦区人民广场",
         latitude: 31.2304, longitude: 121.4737, source: .manual
     )
@@ -163,5 +163,14 @@ final class VoiceOrderWizardStartPointTests: XCTestCase {
         )
         wizard.startForTesting(at: step)
         return wizard
+    }
+}
+
+extension BlindBookingViewModel {
+    /// 起点已定的 view model。走「确认」提交路径的用例要用它：没有起点时确认会被拦下（#558），走不到提交（#601）。
+    static func withStartPointForTesting() -> BlindBookingViewModel {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = VoiceOrderWizardStartPointTests.peopleSquare
+        return viewModel
     }
 }
