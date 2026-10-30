@@ -27,13 +27,18 @@ extension AccessibilityAuditTests {
         contactsRow.tap()
         XCTAssertTrue(app.navigationBars["紧急联系人"].waitForExistence(timeout: 12), "没进紧急联系人页")
 
-        // Mock 种子联系人只有张三一位且是主联系人：有「编辑」「删除」，没有「设为主联系人」。
-        for (label, name) in [("编辑张三", "编辑"), ("删除张三", "删除")] {
-            let button = app.buttons[label].firstMatch
-            XCTAssertTrue(swipeUntilHittable(button, in: app), "联系人行没有「\(name)」")
-            assertBlindTouchTarget(button, name: name)
-        }
+        // 联系人是整行按钮（#606），行与编辑页底部的「删除」都要够 64pt。
+        let contactRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "张三，")).firstMatch
+        XCTAssertTrue(swipeUntilHittable(contactRow, in: app), "列表没有张三这一行")
+        assertBlindTouchTarget(contactRow, name: "联系人行")
         attachScreenshot(app, name: "blind-emergency-contacts")
+        try audit(app)
+
+        contactRow.tap()
+        let deleteButton = app.buttons["删除张三"].firstMatch
+        XCTAssertTrue(swipeUntilHittable(deleteButton, in: app), "编辑页没有删除按钮")
+        assertBlindTouchTarget(deleteButton, name: "删除")
+        attachScreenshot(app, name: "blind-emergency-contact-editor")
         try audit(app)
     }
 

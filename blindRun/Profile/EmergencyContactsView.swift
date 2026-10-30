@@ -307,8 +307,6 @@ struct EmergencyContactsView: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = EmergencyContactsViewModel()
     @State private var editingTarget: EmergencyContactEditTarget?
-    @State private var pendingDeletion: EmergencyContactResponse?
-    @State private var pendingPrimary: EmergencyContactResponse?
 
     var body: some View {
         List {
@@ -325,8 +323,10 @@ struct EmergencyContactsView: View {
                         .accessibilityLabel(statusMessage)
                 }
 
-                Button("重复当前状态") {
+                Button {
                     viewModel.repeatStatus()
+                } label: {
+                    contactsActionLabel("重复当前状态", systemImage: "speaker.wave.2")
                 }
                 .accessibilityLabel("重复当前状态")
                 .accessibilityHint("再次朗读紧急联系人数量和主联系人")
@@ -349,8 +349,10 @@ struct EmergencyContactsView: View {
             }
 
             Section {
-                Button("新增紧急联系人") {
+                Button {
                     editingTarget = .new
+                } label: {
+                    contactsActionLabel("新增紧急联系人", systemImage: "plus")
                 }
                 .disabled(!viewModel.canAddContact || viewModel.isMutating)
                 .accessibilityLabel("新增紧急联系人")
@@ -389,22 +391,6 @@ struct EmergencyContactsView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .alert("确认删除联系人", isPresented: deletionAlertBinding, presenting: pendingDeletion) { contact in
-            Button("确认删除", role: .destructive) {
-                Task { await viewModel.delete(contact) }
-            }
-            Button("取消", role: .cancel) {}
-        } message: { contact in
-            Text("将删除紧急联系人\(contact.name?.nilIfBlank ?? "该联系人")。删除后无法恢复，需要时请重新添加。")
-        }
-        .alert("确认设为主联系人", isPresented: primaryAlertBinding, presenting: pendingPrimary) { contact in
-            Button("设为主联系人") {
-                Task { await viewModel.setPrimary(contact) }
-            }
-            Button("取消", role: .cancel) {}
-        } message: { contact in
-            Text("紧急情况下会优先联系\(contact.name?.nilIfBlank ?? "该联系人")。原主联系人会自动变为普通联系人。")
-        }
     }
 
     /// 表单以 sheet 呈现时不弹：被 sheet 盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
@@ -420,76 +406,60 @@ struct EmergencyContactsView: View {
         )
     }
 
-    private var deletionAlertBinding: Binding<Bool> {
-        Binding(
-            get: { pendingDeletion != nil },
-            set: { if !$0 { pendingDeletion = nil } }
-        )
-    }
-
-    private var primaryAlertBinding: Binding<Bool> {
-        Binding(
-            get: { pendingPrimary != nil },
-            set: { if !$0 { pendingPrimary = nil } }
-        )
-    }
-
-    @ViewBuilder
-    private func contactRow(_ contact: EmergencyContactResponse) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(contact.name?.nilIfBlank ?? "未命名联系人")
-                        .font(.headline)
-                    if contact.isPrimary == true {
-                        Text("主联系人")
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.primary)
-                    }
-                }
-                Text(contact.maskedPhone ?? "未填写手机号")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                if let relationship = contact.relationship?.nilIfBlank {
-                    Text("关系：\(relationship)")
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(viewModel.accessibilityLabel(for: contact))
-
-            VStack(alignment: .leading, spacing: 0) {
-                Button("编辑") {
-                    editingTarget = .existing(contact)
-                }
-                .buttonStyle(TextButtonStyle())
-                .accessibilityLabel("编辑\(contact.name?.nilIfBlank ?? "联系人")")
-                .accessibilityHint("修改姓名、手机号或关系")
-
-                if contact.isPrimary != true {
-                    Button("设为主联系人") {
-                        pendingPrimary = contact
-                    }
-                    .buttonStyle(TextButtonStyle())
-                    .accessibilityLabel("把\(contact.name?.nilIfBlank ?? "联系人")设为主联系人")
-                    .accessibilityHint("需要二次确认")
-                }
-
-                Button("删除", role: .destructive) {
-                    if viewModel.deletionBlockedReason(for: contact) == nil {
-                        pendingDeletion = contact
-                    } else {
-                        viewModel.reportDeletionBlocked(contact)
-                    }
-                }
-                .buttonStyle(TextButtonStyle())
-                .accessibilityLabel("删除\(contact.name?.nilIfBlank ?? "联系人")")
-                .accessibilityHint(viewModel.deletionBlockedReason(for: contact) ?? "危险操作，需要二次确认")
-            }
-            .disabled(viewModel.isMutating)
+    private func contactsActionLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: AppSpacing.small) {
+            Image(systemName: systemImage)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(AppFonts.body().weight(.semibold))
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .foregroundColor(AppColors.primary)
+        .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// 行里只放内容，整行进编辑页；设为主联系人和删除都在编辑页里（#606）。
+    /// Apple 通讯录式的「行 + 详情」：联系人多时列表仍然好扫读，空闲时间页也是这个写法（#481）。
+    private func contactRow(_ contact: EmergencyContactResponse) -> some View {
+        Button {
+            editingTarget = .existing(contact)
+        } label: {
+            HStack(spacing: AppSpacing.small) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(contact.name?.nilIfBlank ?? "未命名联系人")
+                            .font(.headline)
+                            .foregroundColor(AppColors.textPrimary)
+                        if contact.isPrimary == true {
+                            Text("主联系人")
+                                .font(AppFonts.caption())
+                                .foregroundColor(AppColors.primary)
+                        }
+                    }
+                    Text(contactDetailLine(contact))
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(AppFonts.caption().weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .disabled(viewModel.isMutating)
+        .accessibilityLabel(viewModel.accessibilityLabel(for: contact))
+        .accessibilityHint("修改资料、设为主联系人或删除")
+    }
+
+    private func contactDetailLine(_ contact: EmergencyContactResponse) -> String {
+        let phone = contact.maskedPhone ?? "未填写手机号"
+        guard let relationship = contact.relationship?.nilIfBlank else { return phone }
+        return "\(phone) · \(relationship)"
     }
 }
 
@@ -530,6 +500,9 @@ struct EmergencyContactFormView: View {
     @State private var relationship = ""
     @State private var makePrimary = false
     @State private var localErrorMessage: String?
+    /// 确认弹窗必须挂在表单上：表单是 sheet，挂在被它盖住的列表页上的 alert 会被 SwiftUI 丢掉。
+    @State private var showDeleteConfirmation = false
+    @State private var showPrimaryConfirmation = false
 
     /// 新增联系人有**外部副作用**：后端 `EmergencyContactService.addContact` 保存后会给这个第三方号码
     /// 发一条告知短信。盲人在按下「保存」之前有权知道这件事。
@@ -602,6 +575,10 @@ struct EmergencyContactFormView: View {
                         .accessibilityLabel(message)
                 }
             }
+
+            if let contact {
+                contactActions(contact)
+            }
         }
         .navigationTitle(isEditing ? "编辑紧急联系人" : "新增紧急联系人")
         .toolbar {
@@ -629,6 +606,74 @@ struct EmergencyContactFormView: View {
             speechService.speak(
                 "\(isEditing ? "编辑紧急联系人" : "新增紧急联系人")。姓名和手机号必填，关系选填。\(smsNotice)"
             )
+        }
+        .alert("确认删除联系人", isPresented: $showDeleteConfirmation) {
+            Button("确认删除", role: .destructive) {
+                perform { await viewModel.delete($0) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将删除紧急联系人\(displayName)。删除后无法恢复，需要时请重新添加。")
+        }
+        .alert("确认设为主联系人", isPresented: $showPrimaryConfirmation) {
+            Button("设为主联系人") {
+                perform { await viewModel.setPrimary($0) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("紧急情况下会优先联系\(displayName)。原主联系人会自动变为普通联系人。")
+        }
+    }
+
+    private var displayName: String {
+        contact?.name?.nilIfBlank ?? "该联系人"
+    }
+
+    /// 这两项会改变谁能接到紧急呼叫，所以放在页面最下面，都要二次确认。
+    @ViewBuilder
+    private func contactActions(_ contact: EmergencyContactResponse) -> some View {
+        if contact.isPrimary != true {
+            Section {
+                Button {
+                    showPrimaryConfirmation = true
+                } label: {
+                    contactActionLabel("设为主联系人", color: AppColors.primary)
+                }
+                .disabled(viewModel.isMutating)
+                .accessibilityLabel("把\(displayName)设为主联系人")
+                .accessibilityHint("需要二次确认")
+            }
+        }
+
+        Section {
+            Button(role: .destructive) {
+                if viewModel.deletionBlockedReason(for: contact) == nil {
+                    showDeleteConfirmation = true
+                } else {
+                    viewModel.reportDeletionBlocked(contact)
+                }
+            } label: {
+                contactActionLabel("删除联系人", color: AppColors.destructive)
+            }
+            .disabled(viewModel.isMutating)
+            .accessibilityLabel("删除\(displayName)")
+            .accessibilityHint(viewModel.deletionBlockedReason(for: contact) ?? "危险操作，需要二次确认")
+        }
+    }
+
+    private func contactActionLabel(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(color)
+            .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+            .contentShape(Rectangle())
+    }
+
+    /// 动作成功才关页：失败时 `errorMessage` 显示在表单里，用户要留在这里看到它。
+    private func perform(_ action: @escaping (EmergencyContactResponse) async -> Bool) {
+        guard let contact else { return }
+        Task {
+            if await action(contact) { onFinish() }
         }
     }
 
