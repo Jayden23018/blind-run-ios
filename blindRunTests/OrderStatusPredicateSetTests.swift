@@ -16,6 +16,7 @@ final class OrderStatusPredicateSetTests: XCTestCase {
 
     /// 把一条判定在**全部** case 上跑一遍，返回判 true 的那些。
     /// 用 `allCases` 而不是手写列表：手写列表会和枚举一起腐烂，而它腐烂时不会红。
+    /// ⚠️ `allCases` 是自定义的，故意不含 `.unknown`（`OrderModels.swift`）：它要单独断言。
     private func statuses(where predicate: (RunOrderStatus) -> Bool) -> Set<RunOrderStatus> {
         Set(RunOrderStatus.allCases.filter(predicate))
     }
@@ -60,10 +61,9 @@ final class OrderStatusPredicateSetTests: XCTestCase {
         let neither = RunOrderStatus.allCases.filter {
             !$0.runsLiveEscortSession && !$0.endsLiveEscortSession
         }
-        XCTAssertEqual(
-            Set(neither),
-            [.pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .unknown]
-        )
+        XCTAssertEqual(Set(neither), [.pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept])
+        XCTAssertFalse(RunOrderStatus.unknown.runsLiveEscortSession)
+        XCTAssertFalse(RunOrderStatus.unknown.endsLiveEscortSession)
     }
 
     /// `endsLiveEscortSession` 不能退化成 `isTerminal`：后者不含 `.rematching`。
@@ -103,8 +103,7 @@ final class OrderStatusPredicateSetTests: XCTestCase {
     func testVolunteerSideActiveSetStartsAtTheIntroCallNotAtDispatch() {
         XCTAssertEqual(
             statuses { $0.isActiveForVolunteer },
-            [.pendingIntroCall, .scheduledConfirmed, .pendingAccept,
-             .driverEnRoute, .driverArrived, .inProgress, .unknown]
+            [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress]
         )
         XCTAssertFalse(RunOrderStatus.pendingMatch.isActiveForVolunteer)
     }
