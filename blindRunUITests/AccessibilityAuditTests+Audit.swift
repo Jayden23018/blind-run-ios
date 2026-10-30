@@ -110,18 +110,23 @@ extension AccessibilityAuditTests {
             print("[AUDIT-partial] 「\(label)」原元素已不在（行被复用），按文案找同名元素复审")
             element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
         }
+        // 页面可见的部分到底栏上沿为止：露在屏内却压在栏后面，取到的是栏的颜色（#515，最大字号下元素高 408pt）。
+        let visibleArea = CGRect(
+            x: screen.minX, y: screen.minY, width: screen.width,
+            height: (occludingBarTop?.top ?? screen.maxY) - screen.minY
+        )
         var swipes = 0
         while element.exists, swipes < Self.maxSwipesToRevealCutElement {
             let frame = element.frame
-            if Self.isShownAsFullyAsPossible(frame, on: screen) { break }
+            if Self.isShownAsFullyAsPossible(frame, on: visibleArea) { break }
             // 差多少拖多少、按住再拖（不带惯性）：整页 `swipeUp` 一次跨度比高个子元素的余量大，
             // 会在「从底下露出」与「甩出顶部」之间来回振荡（#515，AX5 下 408pt 高的培训卡说明）。
-            let shift = frame.maxY > screen.maxY ? -(frame.maxY - screen.maxY + 24) : (-frame.minY + 24)
+            let shift = frame.maxY > visibleArea.maxY ? -(frame.maxY - visibleArea.maxY + 24) : (-frame.minY + 24)
             let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: shift < 0 ? 0.7 : 0.3))
             from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: shift)))
             swipes += 1
         }
-        guard element.exists, Self.isShownAsFullyAsPossible(element.frame, on: screen) else {
+        guard element.exists, Self.isShownAsFullyAsPossible(element.frame, on: visibleArea) else {
             XCTFail("""
             「\(label)」审计时被屏幕边缘切掉一截，滚了 \(Self.maxSwipesToRevealCutElement) 次也没能整个露出来 \
             —— 它的对比度没有被判定过（#480）
