@@ -1247,6 +1247,7 @@ final class blindRunUITests: XCTestCase {
 
         let logoutButton = app.buttons["退出登录"].firstMatch
         XCTAssertTrue(logoutButton.waitForExistence(timeout: 5), "Settings should expose logout")
+        XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
         logoutButton.tap()
 
         XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5), "Logout should require confirmation")
@@ -1452,7 +1453,10 @@ final class blindRunUITests: XCTestCase {
             mockLogoutFailure: true
         )
         openSettings(app)
-        app.buttons["退出登录"].tap()
+        let logoutButton = app.buttons["退出登录"].firstMatch
+        XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
+        XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
+        logoutButton.tap()
         app.buttons["确认退出"].tap()
 
         XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
@@ -1538,6 +1542,7 @@ final class blindRunUITests: XCTestCase {
         let logoutButton = app.buttons["退出登录"].firstMatch
         // 志愿者设置页更长，`List` 不渲染屏幕外的行 —— 不滚就不在树里（同 `assertLogoutRequiresConfirmation`）。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
+        XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
         logoutButton.tap()
         let confirm = app.buttons["确认退出"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
@@ -2227,10 +2232,14 @@ final class blindRunUITests: XCTestCase {
     /// 而是 helper 认为控件已经露出来了、直接返回 true，接着 `tap()` 打在底栏上。
     /// 那正是 2026-08-14 差点拨出 110 的同一个形状。
     ///
-    /// ponytail: 只登记**已知会超过 112pt 的**那一个，不做全量登记表 ——
+    /// 盲人标签页同理：求助条叠在标签栏上方之后顶边是 723（874 − 723 = 151pt），比 112 高 39pt。
+    /// 一行的底边压在 723–762 之间时 helper 判「已露出」，触点其实在求助条上，弹出「紧急呼叫」单
+    /// （记忆 `ui-test-tap-lands-on-persistent-sos-bar`）。
+    ///
+    /// ponytail: 只登记**已知会超过 112pt 的**那两个，不做全量登记表 ——
     /// 上面那条注释说得对，登记表必然漏掉下一个。这里漏掉的会退回旧行为，不会变得更糟。
     private func measuredBottomBarTop(_ app: XCUIApplication) -> CGFloat? {
-        ["volunteerAvailabilitySlider"]
+        ["volunteerAvailabilitySlider", "blindRunnerHomeSOSBar"]
             .map { app.descendants(matching: .any)[$0].firstMatch }
             .filter { $0.exists }
             .map(\.frame)
@@ -2257,6 +2266,7 @@ final class blindRunUITests: XCTestCase {
         // 已经在屏上时 `scrollUntilExists` 第一行就返回，对盲人端那两档是零开销。
         // 这里原本还跟一句 `waitForExistence(timeout: 10)`：上一行已断言存在，它只会白等约 1 秒。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
+        XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
         logoutButton.tap()
         let confirmAlert = app.alerts["确认退出"].firstMatch
         XCTAssertTrue(confirmAlert.exists || confirmAlert.waitForExistence(timeout: 5))
