@@ -181,7 +181,6 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 本地刚改过预约列表（确认 / 释放成功后移走那一单）的时刻。发出早于它的摘要不再覆盖预约列表 ——
     /// 否则在途的那次刷新会把刚移走的单放回来，最长 10 秒（#471 代码复核）。
     private var scheduledOrdersChangedLocallyAt: Date?
-    private let declineStreak: VolunteerDeclineStreak
     /// 撤销窗口的长度（设计交付 v3 §10「撤销『去不了』时长 = 5 秒」）。
     private let declineUndoWindow: TimeInterval
     private var isSceneActive = false
@@ -209,7 +208,6 @@ final class VolunteerHomeViewModel: ObservableObject {
     init(
         dispatchPropagationDelay: TimeInterval = 1,
         loadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
-        declineStreak: VolunteerDeclineStreak = VolunteerDeclineStreak(),
         declineUndoWindow: TimeInterval = 5,
         reportVolunteerLocation: @escaping @MainActor (AppState, CLLocationCoordinate2D?, Bool) -> Bool = {
             VolunteerLocationReporter.reportIfNeeded(
@@ -221,7 +219,6 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) {
         self.dispatchPropagationDelay = max(0, dispatchPropagationDelay)
         self.loadTimeout = max(0.05, loadTimeout)
-        self.declineStreak = declineStreak
         self.declineUndoWindow = max(0, declineUndoWindow)
         self.reportVolunteerLocation = reportVolunteerLocation
     }
@@ -646,6 +643,10 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     /// 连续 3 次「去不了」之后，接单主页上那句不带惩罚的询问该不该出现（§4.4.3）。
     var shouldAskAboutAvailability: Bool { declineStreak.shouldAskAboutAvailability }
+    /// 每次现取当前账号的（#552）：换账号后读到的是新账号自己的数，不会带上上一个人的。
+    private var declineStreak: VolunteerDeclineStreak {
+        VolunteerDeclineStreak(persistence: appState?.persistence, userID: appState?.userId)
+    }
 
     /// 问过一次就够。反复问就成了惩罚，而设计稿写死了「不做任何惩罚」。
     func acknowledgeAvailabilityPrompt() {

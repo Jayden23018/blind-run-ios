@@ -1059,6 +1059,8 @@ final class AppState: ObservableObject {
         // 在清 access 之前：进行中的续期回来时先看 refresh 还在不在，不在就丢弃结果。
         tokenRefresher.clearCredential()
         disconnectWebSocket()
+        // 连续拒绝次数按账号记（#552），要在 `userId = nil` 之前清：清的是这个账号的键。
+        VolunteerDeclineStreak.clearStoredCounts(for: userId, in: persistence)
         accessToken = nil
         userId = nil
         currentUser = nil

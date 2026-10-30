@@ -998,16 +998,14 @@ final class blindRunTests: XCTestCase {
     ///
     /// 🚩 **撤销掉的那次不算。** 他并没有拒绝这一单。
     func testThreeSentDeclinesAskAboutAvailabilityAndAcceptingClearsIt() async throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
-        defaults.removePersistentDomain(forName: #function)
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
         let client = RecordingRespondAPIClient()
-        let appState = AppState(apiClient: client)
+        let appState = AppState(apiClient: client, persistence: persistence)
         appState.currentEnvironment = .mock
+        appState.userId = 42  // 次数按账号记（#552），没有账号就不落盘
         appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
-        let viewModel = VolunteerHomeViewModel(
-            declineStreak: VolunteerDeclineStreak(defaults: defaults),
-            declineUndoWindow: 0
-        )
+        let viewModel = VolunteerHomeViewModel(declineUndoWindow: 0)
         viewModel.configure(with: appState, speechService: SpeechService())
 
         // 撤销掉的那一次不计数。
@@ -1034,8 +1032,6 @@ final class blindRunTests: XCTestCase {
         let didBook = await waitUntil { viewModel.currentInvite?.outcome == .accepted }
         XCTAssertTrue(didBook)
         XCTAssertFalse(viewModel.shouldAskAboutAvailability, "接下一单就该清零")
-
-        defaults.removePersistentDomain(forName: #function)
     }
 
     func testVolunteerHomeReceivesDispatchWhenWebSocketIsAssignedAfterConfigure() async throws {

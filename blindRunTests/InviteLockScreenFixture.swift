@@ -21,14 +21,17 @@ enum InviteLockScreenFixture {
     }
 
     /// 返回 `AppState` 让调用方攥着：view model 对它是 `weak`。
+    ///
+    /// 要读写连续拒绝次数的用例传自己的隔离域并在结束时 `reset()`：次数按账号存在 `AppState` 的持久化域里（#552），
+    /// 默认域是整个测试进程共用的，同一个 userId 的数会串到别的用例。
     static func makeHome(
-        declineStreak: VolunteerDeclineStreak? = nil
+        persistence: AppStatePersistence? = nil
     ) -> (VolunteerHomeViewModel, AppState, WebSocketService, SpeechService) {
-        let appState = AppState()
+        let appState = AppState(persistence: persistence)
         let service = WebSocketService()
         appState.realtimeCoordinator.attach(to: service, role: .volunteer)
         let speech = SpeechService()
-        let viewModel = declineStreak.map { VolunteerHomeViewModel(declineStreak: $0) } ?? VolunteerHomeViewModel()
+        let viewModel = VolunteerHomeViewModel()
         viewModel.configure(with: appState, speechService: speech)
         viewModel.isDispatchHubVisible = true
         return (viewModel, appState, service, speech)
@@ -36,9 +39,9 @@ enum InviteLockScreenFixture {
 
     /// 走真实回复路径用：订单服务是替身，资料已审核通过、定位已授权（`respondToDispatch` 的闸要放行）。
     static func makeVolunteerHome(
-        orders: FakeOrderService, declineStreak: VolunteerDeclineStreak? = nil
+        orders: FakeOrderService, persistence: AppStatePersistence? = nil
     ) -> (VolunteerHomeViewModel, AppState) {
-        let appState = AppState(orders: orders)
+        let appState = AppState(orders: orders, persistence: persistence)
         appState.currentEnvironment = .mock
         appState.userId = 42
         appState.updateVolunteerProfile(VolunteerProfileResponse(
@@ -46,7 +49,7 @@ enum InviteLockScreenFixture {
             canAcceptOrders: nil, isAvailable: true, availableTimeSlots: nil, acceptsGuideDog: nil, paceRange: nil
         ))
         appState.realtimeCoordinator.attach(to: WebSocketService(), role: .volunteer)
-        let viewModel = declineStreak.map { VolunteerHomeViewModel(declineStreak: $0) } ?? VolunteerHomeViewModel()
+        let viewModel = VolunteerHomeViewModel()
         viewModel.configure(
             with: appState, speechService: SpeechService(),
             currentLocationProvider: { CLLocationCoordinate2D(latitude: 22.52, longitude: 113.93) },

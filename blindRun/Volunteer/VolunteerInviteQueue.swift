@@ -247,59 +247,6 @@ extension VolunteerInviteState {
     }
 }
 
-// MARK: - 连续「去不了」
-
-/// 设计交付 v3 §4.4.3：「连续 3 次去不了后，下次打开接单主页询问『要不要调整空闲时间』，
-/// **不做任何惩罚**」。
-///
-/// 🔄 2026-10-28（#338，SPEC D11）：**次数以后端为准** —— `pending-invites` 的 `consecutiveDeclineCount`
-/// （拒绝、过期 +1，接单、有意向清零，撤回不计）。本地原先只数「去不了」，漏了过期、算错了撤回，重装还归零。
-/// 两次对账之间本地先 +1（他刚按的「去不了」），下一次快照以后端的数为准。
-///
-/// 「问过一次就不再问」仍由客户端记：存下问的那一刻的次数，**再涨 3 才再问**；后端清零后从头算。
-struct VolunteerDeclineStreak {
-    /// 设计交付 v3 §10「询问调整空闲时间 = 连续 3 次去不了」。
-    static let threshold = 3
-    /// 键名沿用本地计数时代的：升级后那个数当作「最近一次知道的次数」，第一次对账就被后端的数盖掉。
-    private static let storageKey = "aidrun.volunteer.consecutiveDeclineCount"
-    private static let askedAtKey = "aidrun.volunteer.consecutiveDeclineCountAskedAt"
-
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    var count: Int { defaults.integer(forKey: Self.storageKey) }
-    /// 上一次问的时候次数是多少。
-    var askedAt: Int { defaults.integer(forKey: Self.askedAtKey) }
-
-    var shouldAskAboutAvailability: Bool { count - askedAt >= Self.threshold }
-
-    /// **只在 `DECLINE` 真的发出去之后调**。5 秒撤销窗口内点了撤销的那次不算 —— 他并没有拒绝这一单。
-    func recordDecline() {
-        defaults.set(count + 1, forKey: Self.storageKey)
-    }
-
-    /// 待回复快照带回来的后端次数。比上次问时还小 = 后端清零过（接了单 / 有意向），问过的记号一起归零。
-    func adoptServerCount(_ serverCount: Int) {
-        let serverCount = max(0, serverCount)
-        defaults.set(serverCount, forKey: Self.storageKey)
-        if serverCount < askedAt { defaults.removeObject(forKey: Self.askedAtKey) }
-    }
-
-    /// 问过了：记下此刻的次数（问一次就够，反复问就成了惩罚）。
-    func acknowledgeAsked() {
-        defaults.set(count, forKey: Self.askedAtKey)
-    }
-
-    /// 接下任一单 / 有意向：后端会清零，本地先跟上。
-    func reset() {
-        defaults.removeObject(forKey: Self.storageKey)
-        defaults.removeObject(forKey: Self.askedAtKey)
-    }
-}
-
 // MARK: - 文案
 
 /// 逐字取自《陪跑员端首页与接单 设计交付文档 v3》§4.4.2 / §4.4.3。

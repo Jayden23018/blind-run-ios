@@ -166,16 +166,13 @@ final class InviteLockScreenLandingTests: XCTestCase {
     }
 
     /// 「有意向」与接单一样清零连续拒绝（后端口径），不等下一次快照（复核 A）。
-    func testInterestedClearsTheDeclineStreak() async throws {
-        let suite = "\(#function)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let streak = VolunteerDeclineStreak(defaults: defaults)
-        streak.adoptServerCount(3)
+    func testInterestedClearsTheDeclineStreak() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
         let orders = FakeOrderService()
         orders.respondResult = .success(())
-        let (viewModel, appState) = InviteLockScreenFixture.makeVolunteerHome(orders: orders, declineStreak: streak)
+        let (viewModel, appState) = InviteLockScreenFixture.makeVolunteerHome(orders: orders, persistence: persistence)
+        VolunteerDeclineStreak(persistence: persistence, userID: appState.userId).adoptServerCount(3)
         appState.realtimeCoordinator.reconcilePendingInvites([InviteLockScreenFixture.dispatch(orderId: 24, inviteId: 241, requiresIntroCall: true)], requestedAt: Date())
         await InviteLockScreenFixture.waitUntil { viewModel.invites.count == 1 }
         XCTAssertTrue(viewModel.shouldAskAboutAvailability)
