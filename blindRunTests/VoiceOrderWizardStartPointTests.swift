@@ -131,10 +131,31 @@ final class VoiceOrderWizardStartPointTests: XCTestCase {
         wizard.stop()
     }
 
-    private static let peopleSquare = ResolvedPlace(
+    fileprivate static let peopleSquare = ResolvedPlace(
         id: "people-square", title: "人民广场", addressText: "上海市黄浦区人民广场",
         latitude: 31.2304, longitude: 121.4737, source: .manual
     )
+
+    /// 确认走的是提交路径而不是解析端点。
+    ///
+    /// `didCaptureStartTime: true` 与起点都不能省：缺哪个「确认」都被拦下，就变成在测拦截而不是提交。
+    /// 断言落在「正在提交订单。」这一句上：`submitConfirmedBooking` 拿不到 view model 时走不到它（#601），
+    /// 只断 `isRunning` 的话，view model 被释放了也是绿的。
+    func testAffirmativeTakesTheSubmitPathInsteadOfParsing() async {
+        let stub = VoiceOrderAPIClientStub()
+        let bookingViewModel = BlindBookingViewModel.withStartPointForTesting()
+        let speechService = SpeechService()
+        let wizard = makeWizard(
+            stub: stub, bookingViewModel: bookingViewModel, speechService: speechService,
+            startingAt: .confirm, didCaptureStartTime: true
+        )
+
+        await wizard.submitTranscript("确认")
+
+        XCTAssertFalse(wizard.isRunning, "提交后不得继续占着麦克风")
+        XCTAssertTrue(speechService.spokenHistoryForTesting.contains("正在提交订单。"), "没有走到提交：\(speechService.spokenHistoryForTesting)")
+        XCTAssertTrue(stub.paths.isEmpty, "确认判定不走后端：\(stub.paths)")
+    }
 
     /// 只抽到了开始时间、其余全空的一条 `/voice/parse` 响应。
     private static func timeOnlyResponse(hoursFromNow hours: Double) -> ParseVoiceOrderResponse {
@@ -151,17 +172,28 @@ final class VoiceOrderWizardStartPointTests: XCTestCase {
     private func makeWizard(
         stub: VoiceOrderAPIClientStub,
         bookingViewModel: BlindBookingViewModel,
-        startingAt step: VoiceOrderWizard.Step
+        speechService: SpeechService = SpeechService(),
+        startingAt step: VoiceOrderWizard.Step,
+        didCaptureStartTime: Bool = false
     ) -> VoiceOrderWizard {
         let wizard = VoiceOrderWizard()
         wizard.configure(
             bookingViewModel: bookingViewModel,
-            // 两个语音服务在 wizard 侧都是 weak，临时对象等于传 nil：这批用例不经过真正的播报与开麦路径。
-            speechService: SpeechService(),
+            // 两个语音服务在 wizard 侧都是 weak，不攥住等于传 nil。要读念过什么的用例自己攥住 `speechService` 传进来。
+            speechService: speechService,
             speechInputService: SpeechInputService(), // guard:allow weak-temporary
             voiceOrderService: VoiceOrderService(transport: stub)
         )
-        wizard.startForTesting(at: step)
+        wizard.startForTesting(at: step, didCaptureStartTime: didCaptureStartTime)
         return wizard
+    }
+}
+
+extension BlindBookingViewModel {
+    /// 起点已定的 view model。走「确认」提交路径的用例要用它：没有起点时确认会被拦下（#558），走不到提交（#601）。
+    static func withStartPointForTesting() -> BlindBookingViewModel {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = VoiceOrderWizardStartPointTests.peopleSquare
+        return viewModel
     }
 }

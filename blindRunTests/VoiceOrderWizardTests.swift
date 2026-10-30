@@ -112,7 +112,11 @@ final class VoiceOrderWizardTests: XCTestCase {
     func testConfirmRoundNetworkFailureKeepsTheLocalEscapeHatchesAudible() async {
         let stub = VoiceOrderAPIClientStub()
         stub.error = .serverError(ErrorResponse(code: "INTERNAL_ERROR", message: "boom"))
-        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
+        let speechService = SpeechService() // 向导对它是 weak，下面要读它念过什么
+        let wizard = makeWizard(
+            stub: stub, bookingViewModel: .withStartPointForTesting(), speechService: speechService,
+            startingAt: .confirm, didCaptureStartTime: true
+        )
 
         await wizard.submitTranscript("把时间往后挪一挪吧")
 
@@ -125,21 +129,7 @@ final class VoiceOrderWizardTests: XCTestCase {
 
         // 网络还是坏的，但「确认」不经过网络 —— 一次已经解析成功的语音下单不该死在最后一步。
         await wizard.submitTranscript("确认")
-        XCTAssertFalse(wizard.isRunning, "本地确认必须能在断网时下单")
-    }
-
-    /// 确认走的是提交路径而不是解析端点。
-    ///
-    /// `didCaptureStartTime: true` 不能省 —— 没抽到时间时「确认」按设计不生效（见
-    /// `testConfirmIsRefusedWhenTheStartTimeWasNeverSpoken`），不传就变成在测拦截而不是提交。
-    func testAffirmativeTakesTheSubmitPathInsteadOfParsing() async {
-        let stub = VoiceOrderAPIClientStub()
-        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
-
-        await wizard.submitTranscript("确认")
-
-        XCTAssertFalse(wizard.isRunning, "提交后不得继续占着麦克风")
-        XCTAssertTrue(stub.paths.isEmpty, "确认判定不走后端：\(stub.paths)")
+        XCTAssertTrue(speechService.spokenHistoryForTesting.contains("正在提交订单。"), "本地确认必须能在断网时下单")
     }
 
     /// 「重说」回到整句那一轮，而不是跳进某个逐项流程（逐项修改已于 2026-08-06 删除）。
@@ -482,11 +472,16 @@ final class VoiceOrderWizardTests: XCTestCase {
         // ② 槽位齐了：走提交。
         let stub = VoiceOrderAPIClientStub()
         stub.parseOrderResponses = [Self.parseResponse(userIntent: .confirm)]
-        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
+        let speechService = SpeechService() // 向导对它是 weak，下面要读它念过什么
+        let wizard = makeWizard(
+            stub: stub, bookingViewModel: .withStartPointForTesting(), speechService: speechService,
+            startingAt: .confirm, didCaptureStartTime: true
+        )
 
         await wizard.submitTranscript("这样就行，直接下单吧")
 
         XCTAssertFalse(wizard.isRunning, "提交后不得继续占着麦克风")
+        XCTAssertTrue(speechService.spokenHistoryForTesting.contains("正在提交订单。"), "槽位齐了要真走到提交（#601）")
     }
 
     /// 「算了不下了」结束整个语音流程，**不重问**。用户要退出时再追问一句是把人锁在里面。
@@ -2980,12 +2975,11 @@ final class VoiceOrderWizardTests: XCTestCase {
         currentCoordinate: (() -> LocatedCoordinate?)? = nil
     ) -> VoiceOrderWizard {
         let bookingViewModel = bookingViewModel ?? BlindBookingViewModel()
+        addTeardownBlock { _ = bookingViewModel } // wizard 对它是 weak：不攥到用例结束就等于传 nil（#601）
         let wizard = VoiceOrderWizard()
         wizard.configure(
-            bookingViewModel: bookingViewModel,
-            speechService: speechService,
-            // 同上：wizard 侧是 weak，这个临时对象等于传 nil。这批用例全走 `startForTesting(at:)`，
-            // 不经过真正的开麦路径，所以不需要一个活着的语音服务。
+            bookingViewModel: bookingViewModel, speechService: speechService,
+            // 这批用例全走 `startForTesting(at:)`，不开麦，不需要活着的语音服务（等于传 nil）。
             speechInputService: SpeechInputService(), // guard:allow weak-temporary
             voiceOrderService: VoiceOrderService(transport: stub),
             currentCoordinate: currentCoordinate

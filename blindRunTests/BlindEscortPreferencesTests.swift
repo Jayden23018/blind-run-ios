@@ -334,7 +334,7 @@ final class BlindEscortPreferencesTests: XCTestCase {
     func testReconsentingWhileAWithdrawalIsPendingVoidsIt() async {
         let client = ProfileSaveSpy()
         client.result = .failure(APIError.networkError(URLError(.notConnectedToInternet)))
-        let (viewModel, _) = makeSavingViewModel(client: client)
+        let (viewModel, appState) = makeSavingViewModel(client: client)
         viewModel.withdrawVisionConsent()
         await waitUntil { viewModel.errorMessage != nil }
 
@@ -343,7 +343,7 @@ final class BlindEscortPreferencesTests: XCTestCase {
         viewModel.guideDog = .yes
 
         XCTAssertFalse(viewModel.isVisionConsentWithdrawalPending)
-        let request = viewModel.makeProfileUpdateRequest()
+        let request = withExtendedLifetime(appState) { viewModel.makeProfileUpdateRequest() }
         XCTAssertEqual(request.visionLevel, VisionLevel.totalBlind.rawValue)
         XCTAssertEqual(request.guideDog, "YES")
     }

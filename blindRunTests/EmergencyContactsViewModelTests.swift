@@ -77,7 +77,7 @@ final class EmergencyContactsViewModelTests: XCTestCase {
     func testDeletingCurrentPrimaryRequiresAnotherPrimaryFirst() async {
         let primary = makeContact(id: 1, name: "主联系人", isPrimary: true)
         let other = makeContact(id: 2, name: "备用联系人")
-        let (viewModel, _, client) = makeViewModel(contacts: [primary, other])
+        let (viewModel, appState, client) = makeViewModel(contacts: [primary, other])
 
         XCTAssertNotNil(viewModel.deletionBlockedReason(for: primary))
         XCTAssertNil(viewModel.deletionBlockedReason(for: other))
@@ -85,7 +85,7 @@ final class EmergencyContactsViewModelTests: XCTestCase {
         let deleted = await viewModel.delete(primary)
 
         XCTAssertFalse(deleted)
-        XCTAssertTrue(client.requests.isEmpty)
+        XCTAssertTrue(client.requests.isEmpty && appState.emergencyContacts.count == 2, "拦下来就不能发请求、不能动本地列表")
 
         // 拦截必须有一个**可见**的落点。它此前唯一的展示面是 `List` 末尾的一个 Section，
         // 而 5 位联系人时那一行落在窗口外 145pt（真机实测：window=874，元素 minY=747 且要滚一屏
@@ -193,9 +193,9 @@ final class EmergencyContactsViewModelTests: XCTestCase {
 
     func testContactAnnouncementUsesTheMaskedPhoneNotThePlainNumber() {
         let contact = makeContact(id: 1, name: "主联系人", phone: "13800138000", isPrimary: true)
-        let (viewModel, _, _) = makeViewModel(contacts: [contact])
+        let (viewModel, appState, _) = makeViewModel(contacts: [contact])
 
-        let label = viewModel.accessibilityLabel(for: contact)
+        let label = withExtendedLifetime(appState) { viewModel.accessibilityLabel(for: contact) }
 
         XCTAssertTrue(label.contains("138****8000"))
         XCTAssertFalse(label.contains("13800138000"), "VoiceOver 不得读出完整手机号")
