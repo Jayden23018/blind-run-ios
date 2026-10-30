@@ -60,7 +60,7 @@ struct VoiceTextField: View {
                 } label: {
                     Image(systemName: isListening ? "mic.fill" : "mic")
                         .font(.title2)
-                        .frame(width: 52, height: 52)
+                        .frame(width: AppTouchTarget.blindPrimary, height: AppTouchTarget.blindPrimary)
                         .background(isListening ? AppColors.warning : AppColors.primary)
                         .foregroundColor(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 8))

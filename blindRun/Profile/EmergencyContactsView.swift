@@ -345,7 +345,7 @@ struct EmergencyContactsView: View {
                     }
                 }
             } header: {
-                Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）")
+                Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）\u{202F}").foregroundColor(AppColors.textSecondary) // 默认灰只有约 3.3:1；全角「）」后补窄空格防判截断
             }
 
             Section {
@@ -459,11 +459,11 @@ struct EmergencyContactsView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(viewModel.accessibilityLabel(for: contact))
 
-            HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
                 Button("编辑") {
                     editingTarget = .existing(contact)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(TextButtonStyle())
                 .accessibilityLabel("编辑\(contact.name?.nilIfBlank ?? "联系人")")
                 .accessibilityHint("修改姓名、手机号或关系")
 
@@ -471,7 +471,7 @@ struct EmergencyContactsView: View {
                     Button("设为主联系人") {
                         pendingPrimary = contact
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(TextButtonStyle())
                     .accessibilityLabel("把\(contact.name?.nilIfBlank ?? "联系人")设为主联系人")
                     .accessibilityHint("需要二次确认")
                 }
@@ -483,7 +483,7 @@ struct EmergencyContactsView: View {
                         viewModel.reportDeletionBlocked(contact)
                     }
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(TextButtonStyle())
                 .accessibilityLabel("删除\(contact.name?.nilIfBlank ?? "联系人")")
                 .accessibilityHint(viewModel.deletionBlockedReason(for: contact) ?? "危险操作，需要二次确认")
             }

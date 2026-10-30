@@ -894,6 +894,91 @@ const cases = [
       }
     }
   },
+  // #527：`.frame(height:)` / `.frame(width:height:)` 在可点控件里也算触达目标（原规则只认 minHeight）。
+  {
+    name: '按钮 label 里 .frame(width: 44, height: 44)（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindBookingView.swift',
+        old_string: 'a',
+        new_string: 'Button {\n    remove()\n} label: {\n    Image(systemName: "trash")\n        .frame(width: 44, height: 44)\n}'
+      }
+    }
+  },
+  {
+    name: '按钮 label 里 .frame(height: 52)（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Voice/VoiceTextField.swift',
+        old_string: 'a',
+        new_string: 'Button { start() } label: {\n    Image(systemName: "mic")\n        .frame(height: 52)\n}'
+      }
+    }
+  },
+  {
+    name: 'Link 里 .frame(height: 44)（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Core/LegalDocumentsView.swift',
+        old_string: 'a',
+        new_string: 'Link(destination: url) {\n    Text(title)\n        .frame(maxWidth: .infinity, height: 44)\n}'
+      }
+    }
+  },
+  {
+    name: '没有可点控件的 .frame(height: 8) 进度条（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindOrderStatusView.swift',
+        old_string: 'a',
+        new_string: 'Capsule()\n    .fill(AppColors.primary)\n    .frame(height: 8)'
+      }
+    }
+  },
+  {
+    name: '按钮里 .frame(width: 64, height: 64)（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Profile/ProfileModule.swift',
+        old_string: 'a',
+        new_string: 'Button { logout() } label: {\n    Image(systemName: "rectangle.portrait.and.arrow.right")\n        .frame(width: 64, height: 64)\n}'
+      }
+    }
+  },
+  {
+    name: '按钮里 .frame(maxHeight: 40) 不是触达下限（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Profile/ProfileModule.swift',
+        old_string: 'a',
+        new_string: 'Button { f() } label: {\n    Image(systemName: "x")\n        .frame(maxHeight: 40)\n}'
+      }
+    }
+  },
+  {
+    name: '按钮 9 行之后的 .frame(height: 8)（放行 —— 证明上下文窗口真的在生效）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindOrderStatusView.swift',
+        old_string: 'a',
+        new_string: 'Button("x") { f() }\nlet a = 1\nlet b = 2\nlet c = 3\nlet d = 4\nlet e = 5\nlet g = 6\nlet h = 7\nlet k = 8\nCapsule().frame(height: 8)'
+      }
+    }
+  },
   {
     // 志愿者端是明眼人用的，走 Apple 的 44pt 线，不受这条约束。
     name: '志愿者端 52pt（放行）',

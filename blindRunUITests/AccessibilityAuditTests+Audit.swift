@@ -28,7 +28,8 @@ extension AccessibilityAuditTests {
         // 推到它后面，元素截图里只有栏的红边与粉底（「系统正在派单，请稍候。」「时间」两条）。
         let occludingBarTop: CGFloat? = {
             // 盲人通话页（#434）同一条底栏组件：B3 的安排单在「求助与安全」后面滚动。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar"] {
+            // 盲人「我的」tab 底部常驻求助条（资料页、紧急联系人页的下半截在它后面滚动，#565）。
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "blindTabBottomSOSBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
                 if bar.exists { return bar.frame.minY }
             }
