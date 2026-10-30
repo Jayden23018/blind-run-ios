@@ -1924,7 +1924,7 @@ struct BlindBookingView: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 64)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel("收藏这个出发地点，\(place.title)")
             .accessibilityHint("收藏后可以直接选择，不用再搜一次地名")
             .accessibilityIdentifier("bookingSaveFavoritePlaceButton")

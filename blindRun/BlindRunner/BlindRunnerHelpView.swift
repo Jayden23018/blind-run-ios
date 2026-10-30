@@ -195,12 +195,7 @@ struct BlindRunnerHelpView: View {
                     speak()
                 }
             }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .background(AppColors.secondaryBackground)
-                .cornerRadius(12)
+                .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityLabel(isSpeaking ? "停止播报" : "再听一遍")
                 .accessibilityHint(isSpeaking ? "立刻停止当前播报" : "从头重新播报这三条说明")
                 .accessibilityIdentifier("blindRunnerHelpRepeatButton")

@@ -326,7 +326,7 @@ struct RunRecordHistoryView: View {
                     Button("重试") {
                         Task { await viewModel.load() }
                     }
-                    .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
+                    .buttonStyle(TextButtonStyle())
                     .accessibilityHint("重新加载\(role.title)")
                     .accessibilityIdentifier("runRecordHistoryRetry")
                 }

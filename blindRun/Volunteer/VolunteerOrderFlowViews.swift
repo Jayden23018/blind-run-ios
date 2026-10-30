@@ -705,7 +705,7 @@ struct VolunteerOrderDetailView: View {
                             Button("重新确认状态") {
                                 viewModel.retryTransitionConfirmation()
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(OutlineSecondaryButtonStyle())
                             .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
                         }
                     }
@@ -2892,8 +2892,7 @@ struct VolunteerServiceRecognitionView: View {
             Button("重新加载") {
                 Task { await viewModel.load() }
             }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.primary)
+            .buttonStyle(TextButtonStyle())
             .accessibilityIdentifier("volunteerAchievementsRetryButton")
         }
         .frame(maxWidth: .infinity, alignment: .leading)

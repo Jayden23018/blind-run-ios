@@ -115,6 +115,8 @@ struct PrimaryButtonStyle: ButtonStyle {
 /// 与拨号大按钮抢主次）。
 struct OutlineSecondaryButtonStyle: ButtonStyle {
     var tint: Color = AppColors.primary
+    /// false 时按内容收窄，给一排可选短语这类小标签用。可点高度由标签自己的 frame 决定。
+    var fillsWidth = true
     /// 提交中被 `.disabled` 时要**看得出**按不了：描边与文字一起淡下去。不读它的话，
     /// 低视力用户看到的按钮与可用时一模一样，只会以为「按了没反应」。
     @Environment(\.isEnabled) private var isEnabled
@@ -124,8 +126,8 @@ struct OutlineSecondaryButtonStyle: ButtonStyle {
             .font(AppFonts.body().weight(.semibold))
             .foregroundColor(tint)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: AppTouchTarget.blindPrimary)
+            .frame(maxWidth: fillsWidth ? .infinity : nil)
+            .frame(minHeight: fillsWidth ? AppTouchTarget.blindPrimary : nil)
             .background(
                 RoundedRectangle(cornerRadius: AppCornerRadius.medium)
                     .strokeBorder(tint, lineWidth: 2)

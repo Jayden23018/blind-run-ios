@@ -382,8 +382,7 @@ struct BlindIdentityVerificationView: View {
                 Button(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号") {
                     isRevealingNumber.toggle()
                 }
-                .font(AppFonts.body())
-                .frame(minHeight: 64)
+                .buttonStyle(TextButtonStyle())
                 .accessibilityLabel(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号")
                 .accessibilityHint(
                     isRevealingNumber
