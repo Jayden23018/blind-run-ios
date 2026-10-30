@@ -1292,7 +1292,7 @@ final class blindRunUITests: XCTestCase {
         let summary = app.staticTexts[Self.seededContactSummary].firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 12))
 
-        let row = app.staticTexts["张三，关系家人，电话139****9001，主联系人"].firstMatch
+        let row = app.buttons["张三，关系家人，电话139****9001，主联系人"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5), "行内容应合并成一条含掩码手机号的播报")
         XCTAssertFalse(
             app.staticTexts["13900139001"].firstMatch.exists,
@@ -1315,15 +1315,11 @@ final class blindRunUITests: XCTestCase {
         addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
         waitForContactSummary(app, "共 2 位紧急联系人，最多 5 位。主联系人是张三。")
         XCTAssertTrue(
-            app.staticTexts["李四，关系朋友，电话137****7000，非主联系人"].firstMatch.waitForExistence(timeout: 8),
+            app.buttons["李四，关系朋友，电话137****7000，非主联系人"].firstMatch.waitForExistence(timeout: 8),
             "新增后应回写重新拉取的整份列表"
         )
 
-        let editButton = app.buttons["编辑李四"].firstMatch
-        XCTAssertTrue(editButton.waitForExistence(timeout: 8))
-        scrollElementIntoView(editButton, app: app)
-        tapWhenHittableOrByCoordinate(editButton, app: app)
-        XCTAssertTrue(app.navigationBars["编辑紧急联系人"].waitForExistence(timeout: 8))
+        openContactEditor(app, named: "李四")
 
         let phoneField = app.textFields["联系人手机号，必填，11 位"].firstMatch
         XCTAssertTrue(phoneField.waitForExistence(timeout: 5))
@@ -1339,7 +1335,7 @@ final class blindRunUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            app.staticTexts["李四，关系朋友，电话136****6666，非主联系人"].firstMatch.waitForExistence(timeout: 10)
+            app.buttons["李四，关系朋友，电话136****6666，非主联系人"].firstMatch.waitForExistence(timeout: 10)
         )
 
         deleteContact(app, named: "李四")
@@ -1354,31 +1350,26 @@ final class blindRunUITests: XCTestCase {
         waitForContactSummary(app, Self.seededContactSummary)
 
         // 只剩一位时删除被本地守卫拦下，不发请求、不弹确认框。
-        //
-        // 拦截必须**自己弹出来**。它此前唯一的展示面是 `List` 末尾的一个 Section，2026-09-05
-        // 真机实测（iPhone 16 Pro，window 高 874，**默认字号**，5 位联系人）：点完「删除张三」，
-        // 那一行 **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在
-        // minY=747.7 / maxY=820.0 —— 失败分支跑了、`speakError` 播了，屏幕上一个字都不多。
-        // 这里只有 1 位联系人，那一行本来就在屏内，所以断言弹窗才是能抓住回归的写法：
-        // 改回内联文字，`app.alerts` 这条立刻变红，与联系人有几位无关。
-        // 同形状的缺陷在账号删除预检那里同日修过
-        // （`testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`）。
+        // 原因显示在编辑表单里：表单是 sheet，列表页的弹窗在它后面呈现不出来。
+        openContactEditor(app, named: "张三")
         let deleteOnlyContact = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteOnlyContact, app: app)
         tapWhenHittableOrByCoordinate(deleteOnlyContact, app: app)
-        let blocked = app.alerts["紧急联系人提示"]
-        XCTAssertTrue(blocked.waitForExistence(timeout: 8))
-        XCTAssertTrue(blocked.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].exists)
+        XCTAssertTrue(
+            app.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].firstMatch.waitForExistence(timeout: 8),
+            "被拦下的删除必须在表单里说清原因"
+        )
         XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
-        blocked.buttons["知道了"].tap()
-        XCTAssertTrue(waitForElementToDisappear(blocked, timeout: 8))
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(waitForElementToDisappear(app.navigationBars["编辑紧急联系人"], timeout: 8))
 
         addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
         XCTAssertTrue(
-            app.staticTexts["李四，关系朋友，电话137****7000，非主联系人"].firstMatch.waitForExistence(timeout: 15)
+            app.buttons["李四，关系朋友，电话137****7000，非主联系人"].firstMatch.waitForExistence(timeout: 15)
         )
 
+        openContactEditor(app, named: "李四")
         let setPrimary = app.buttons["把李四设为主联系人"].firstMatch
         XCTAssertTrue(setPrimary.waitForExistence(timeout: 8))
         scrollElementIntoView(setPrimary, app: app)
@@ -1390,7 +1381,7 @@ final class blindRunUITests: XCTestCase {
 
         waitForContactSummary(app, "共 2 位紧急联系人，最多 5 位。主联系人是李四。")
         XCTAssertTrue(
-            app.staticTexts["张三，关系家人，电话139****9001，非主联系人"].firstMatch.waitForExistence(timeout: 8),
+            app.buttons["张三，关系家人，电话139****9001，非主联系人"].firstMatch.waitForExistence(timeout: 8),
             "原主联系人必须同步降级，保持恰好一位主联系人"
         )
     }
@@ -2104,7 +2095,17 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
+    /// 联系人行是整行按钮，读屏标签以姓名开头（#606）。
+    private func openContactEditor(_ app: XCUIApplication, named name: String) {
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(name)，")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 8), "列表里没有\(name)")
+        scrollElementIntoView(row, app: app)
+        tapWhenHittableOrByCoordinate(row, app: app)
+        XCTAssertTrue(app.navigationBars["编辑紧急联系人"].waitForExistence(timeout: 8))
+    }
+
     private func deleteContact(_ app: XCUIApplication, named name: String) {
+        openContactEditor(app, named: name)
         let deleteButton = app.buttons["删除\(name)"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteButton, app: app)
