@@ -157,12 +157,19 @@ struct BlindRunnerTabView: View {
     // MARK: - 「我的」：设置 + 兜底的紧急入口
 
     private var profileTab: some View {
-        NavigationStack {
-            BlindRunnerSettingsView()
+        // 与改版前首页同一个组件、同一条判据。放在 `List` 外面而不是塞进某一行：
+        // 那条列表有十来行，紧急入口排在中间等于要先滚动才摸得到。
+        //
+        // 🔴 用 `VStack` 让求助条占自己的高度，别改回 `.safeAreaInset`（#603）。挂在
+        // `NavigationStack` 外面的 `safeAreaInset` 里面的页面不认：真机 iOS 27 上 `List` 滚到底只让开
+        // 标签栏，最后一行「删除账户」在 y 719–771，整行藏在求助条（顶边 711）后面。放进 `VStack`
+        // 后根页和推出来的每一页都排在求助条上方，不必逐页留高度。
+        VStack(spacing: 0) {
+            NavigationStack {
+                BlindRunnerSettingsView()
+            }
+            sosBar
         }
-        // 与改版前首页同一个结构、同一个组件、同一条判据。挂 `safeAreaInset` 而不是塞进
-        // `List` 的某一行：那条列表有十来行，紧急入口排在中间等于要先滚动才摸得到。
-        .safeAreaInset(edge: .bottom) { sosBar }
     }
 
     private var sosBar: some View {

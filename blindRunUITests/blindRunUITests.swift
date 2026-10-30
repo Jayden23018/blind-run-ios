@@ -1620,9 +1620,8 @@ final class blindRunUITests: XCTestCase {
         let deleteButton = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
         XCTAssertTrue(deleteButton.isEnabled)
-        // 不滑到底，「删除账户」在常驻求助条（`blindRunnerHomeSOSBar`）后面，触点落在求助条上、
+        // 不滑到底，「删除账户」排在列表可见区下面，触点落在求助条上、
         // 弹出的是「紧急呼叫」拨号单（记忆 `ui-test-tap-lands-on-persistent-sos-bar`）。
-        // 滑完两者的无障碍 frame 仍重叠，别拿 frame 断言 —— 09-27 真机实测点中心能点中删除按钮。
         app.swipeUp()
         app.swipeUp()
         deleteButton.tap()
