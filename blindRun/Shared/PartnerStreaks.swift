@@ -287,7 +287,7 @@ enum PartnerStreakCopy {
     static let blindNavigationTitle = "我的固定搭档"
     static let volunteerNavigationTitle = "固定搭档"
 
-    static let unknownVolunteerName = "这位志愿者"
+    static let unknownVolunteerName = "这位陪跑员"
     static let unknownBlindName = "这位跑者"
 
     /// 空态分三档，判据是 `GET /api/config/features` 的 `partnerStreakEnabled`。
@@ -313,9 +313,9 @@ enum PartnerStreakCopy {
     static func blindEmpty(streakEnabled: Bool?) -> String {
         switch streakEnabled {
         case true:
-            return "还没有可以显示的搭档。和同一位志愿者连续两周一起跑步之后，这里会显示你们的连续记录。"
+            return "还没有可以显示的搭档。和同一位陪跑员连续两周一起跑步之后，这里会显示你们的连续记录。"
         case false:
-            return "还没有可以显示的搭档。连续一起跑步的记录功能还没有开放，开放之后这里会显示你和同一位志愿者连续跑步的周数。"
+            return "还没有可以显示的搭档。连续一起跑步的记录功能还没有开放，开放之后这里会显示你和同一位陪跑员连续跑步的周数。"
         case nil:
             return "还没有可以显示的搭档。"
         }
@@ -350,7 +350,7 @@ enum PartnerStreakCopy {
     /// 🚨 「没一起跑完过」与「这个 id 根本不是志愿者」后端**同码同文案**，
     /// 客户端不要试图区分 —— 区分开就等于确认了这个 id 是个志愿者。
     /// 所以这句只说门槛，不说「这个人不存在」。
-    static let favoriteNotEligible = "还不能设为固定搭档。需要先和这位志愿者一起跑完至少一次。"
+    static let favoriteNotEligible = "还不能设为固定搭档。需要先和这位陪跑员一起跑完至少一次。"
 
     static let favoriteLimitExceeded = "固定搭档的数量已经到上限了，先取消一位再添加。"
 

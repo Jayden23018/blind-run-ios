@@ -143,6 +143,17 @@ const rules = {
       statement.split('\n').slice(1).some((l) => /^\s*\.frame\([^)]*minHeight/.test(l)),
     why: 'bordered 按钮外挂 `.frame(minHeight:)` 撑不大可点区（真机实测 34.7pt，盲人端要求 ≥64pt）。把 frame 挪进 label：`Button { … } label: { Text(…).frame(minHeight: 64) }`。记忆 `button-frame-outside-label-does-not-grow-hit-area`。确实不是可点区问题，行尾加 `// guard:allow bordered-frame-hit-area`。',
   },
+  'blind-side-escort-term': {
+    // 2026-10-28 立（#527）。陪跑一方原有 6 种叫法（志愿者 151 处 / 陪跑员 68 处 / 搭档 / 陪跑志愿者 / 陪跑伙伴…），
+    // 盲人端同一段旅程先听到「志愿者」再看到「陪跑员」，语音词表又只认「联系志愿者」。
+    // 界面用词定在 GLOSSARY.md「界面用词」：盲人端一律「陪跑员」。只盯 `BlindRunner/` —— 那里只有盲人端；
+    // `Core/` `Shared/` `Voice/` 两端共用，身份类用法（「我是志愿者」）合法，静态分不清，靠表与评审。
+    // 只看字符串字面量；调试用的「模拟志愿者…」按钮是 UI 测试按标签点的入口，放行。
+    files: /\/blindRun\/BlindRunner\//,
+    pattern: /"[^"]*志愿者[^"]*"/,
+    check: (line) => !/模拟志愿者/.test(line),
+    why: '盲人端对陪跑一方一律叫「陪跑员」（GLOSSARY.md「界面用词」）：同一段旅程先听「志愿者」再看「陪跑员」，用户会以为是两个人；语音「问一句」也按屏幕上的叫法教用户说。身份类用法（角色、认证）不在这个目录。确实要用，行尾加 `// guard:allow blind-side-escort-term` 并写清为什么。',
+  },
   'bordered-prominent': {
     // 2026-10-28 立（#527）。`.borderedProminent` 的字恒为白，底色取环境 tint，而 tint 在本 App 里
     // 有三个值：标签页容器里是 `Flow.tabSelected`（暗色档纯白 ⇒ 白底白字，2026-09-25 截图撞过一次），

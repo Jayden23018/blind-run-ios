@@ -1433,7 +1433,7 @@ final class blindRunUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch.waitForExistence(timeout: 10),
+            app.buttons["我是盲人跑者，预约陪跑员陪我跑步"].firstMatch.waitForExistence(timeout: 10),
             "Valid role-less session should route to role selection"
         )
         XCTAssertFalse(app.staticTexts["正在验证登录状态"].exists)
@@ -2434,7 +2434,7 @@ final class blindRunUITests: XCTestCase {
 
     private func chooseBlindRunnerRoleIfNeeded(_ app: XCUIApplication) {
         waitForPostLoginRoute(app)
-        let blindRoleButton = app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch
+        let blindRoleButton = app.buttons["我是盲人跑者，预约陪跑员陪我跑步"].firstMatch
         if blindRoleButton.waitForExistence(timeout: 8) {
             blindRoleButton.tap()
             dismissSystemAlertsIfPresent(app: app)
@@ -2531,7 +2531,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     private func waitForPostLoginRoute(_ app: XCUIApplication) {
-        let role = app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch
+        let role = app.buttons["我是盲人跑者，预约陪跑员陪我跑步"].firstMatch
         let profile = app.staticTexts["完善信息"].firstMatch
         let editProfile = app.staticTexts["编辑资料"].firstMatch
         // 同上：按 identifier，不按已改的中文标签。此前这里是 `buttons["开始约跑"]`，

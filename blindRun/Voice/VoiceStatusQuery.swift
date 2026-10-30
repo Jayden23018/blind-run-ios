@@ -56,7 +56,7 @@ struct VoiceStatusAnswer: Equatable {
 enum VoiceStatusQuery {
 
     /// 兜底时追加的那句。单独暴露，测试里对得上字面量。
-    static let askableHint = "你还可以问：志愿者还有多远、几点开始、打电话给志愿者。"
+    static let askableHint = "你还可以问：陪跑员还有多远、几点开始、打电话给陪跑员。"
 
     /// 复述号码后用户没确认时念的那句。**必须说出「没有拨号」这件事** ——
     /// 静默返回等于让盲人不知道刚才那一轮到底发生了什么。
@@ -171,9 +171,9 @@ enum VoiceStatusQuery {
         guard let distanceText = order.volunteerDistanceToStartText(from: volunteerCoordinate) else {
             // 坐标过期、没收到过、或订单没有起点坐标。三者对用户的下一步是同一件事：
             // 现在这个数字不存在，别等它。
-            return "暂时收不到志愿者位置，所以算不出距离。当前是\(order.status.displayName)。"
+            return "暂时收不到陪跑员位置，所以算不出距离。当前是\(order.status.displayName)。"
         }
-        return "志愿者\(distanceText)。"
+        return "陪跑员\(distanceText)。"
     }
 
     /// 「为什么没有这个数据」比「暂时没有这个信息」多的那半句，就是盲人分辨
@@ -181,27 +181,27 @@ enum VoiceStatusQuery {
     private static func noDistanceReason(for status: RunOrderStatus) -> String {
         switch status {
         case .pendingMatch, .noVolunteer:
-            return "还没有志愿者接单，所以暂时算不出距离。"
+            return "还没有陪跑员接单，所以暂时算不出距离。"
         // 通话磨合期后端不下发候选人位置（他还没接单），不是「收不到」而是「本来就没有」。
         case .pendingIntroCall:
-            return "还在通话确认阶段，还没有志愿者接单，所以暂时算不出距离。"
+            return "还在通话确认阶段，还没有陪跑员接单，所以暂时算不出距离。"
         case .rematching:
-            return "正在重新匹配志愿者，暂时算不出距离。"
+            return "正在重新匹配陪跑员，暂时算不出距离。"
         // 下面两态都是「有志愿者，但后端在这一态不下发他的位置」（`sharesLiveLocation()` 判 false）
         // —— 「本来就没有」而不是「收不到」。说成收不到会让人以为再问一次就有了。
         case .pendingAccept:
-            return "志愿者已经接单，但还没出发，所以暂时算不出距离。"
+            return "陪跑员已经接单，但还没出发，所以暂时算不出距离。"
         case .scheduledConfirmed:
-            return "离出发还有一段时间，志愿者还不会往这边走，所以暂时算不出距离。"
+            return "离出发还有一段时间，陪跑员还不会往这边走，所以暂时算不出距离。"
         case .inProgress:
-            return "你和志愿者已经在一起了，不需要距离。"
+            return "你和陪跑员已经在一起了，不需要距离。"
         case .completed, .cancelled:
-            return "本次预约已经结束，没有志愿者位置。"
+            return "本次预约已经结束，没有陪跑员位置。"
         case .unknown:
             return "订单状态有更新，暂时算不出距离。"
         case .driverEnRoute, .driverArrived:
             // `offersVolunteerDistanceToStart` 已经把这两态挡在上面，走不到这里。
-            return "暂时收不到志愿者位置，所以算不出距离。"
+            return "暂时收不到陪跑员位置，所以算不出距离。"
         }
     }
 
@@ -220,20 +220,20 @@ enum VoiceStatusQuery {
                 // 结尾照样带上 `displayName`：这一族答句的共同不变式是「答完必须让用户知道
                 // 现在是什么状态」，只有开头那句「现在还不能打电话给志愿者」是这一态的例外。
                 speech: "这一单还在通话确认阶段，语音暂时不能替你拨号。"
-                    + "打电话给这位志愿者的按钮就在订单状态页上。当前是\(order.status.displayName)。",
+                    + "打电话给这位陪跑员的按钮就在订单状态页上。当前是\(order.status.displayName)。",
                 pendingAction: nil
             )
         }
         guard order.status.offersVolunteerCall else {
             return VoiceStatusAnswer(
-                speech: "现在还不能打电话给志愿者，\(noCallReason(for: order.status))当前是\(order.status.displayName)。",
+                speech: "现在还不能打电话给陪跑员，\(noCallReason(for: order.status))当前是\(order.status.displayName)。",
                 pendingAction: nil
             )
         }
         guard let phone = order.volunteerPhone?.nilIfBlank,
               EmergencyDialer.telURL(for: phone) != nil else {
             return VoiceStatusAnswer(
-                speech: "还没有拿到志愿者的电话号码，暂时不能拨号。当前是\(order.status.displayName)。",
+                speech: "还没有拿到陪跑员的电话号码，暂时不能拨号。当前是\(order.status.displayName)。",
                 pendingAction: nil
             )
         }
@@ -241,7 +241,7 @@ enum VoiceStatusQuery {
         // 只念数字位，与 `EmergencyDialer.telURL` 实际拨出去的完全一致。
         let spoken = phone.filter(\.isNumber).map(String.init).joined(separator: " ")
         return VoiceStatusAnswer(
-            speech: "志愿者电话是 \(spoken)。要拨打请说确认，不打就说不用了。",
+            speech: "陪跑员电话是 \(spoken)。要拨打请说确认，不打就说不用了。",
             pendingAction: .confirmDialVolunteer(phone: phone)
         )
     }
@@ -249,9 +249,9 @@ enum VoiceStatusQuery {
     private static func noCallReason(for status: RunOrderStatus) -> String {
         switch status {
         case .pendingMatch, .noVolunteer:
-            return "还没有志愿者接单。"
+            return "还没有陪跑员接单。"
         case .rematching:
-            return "原来的志愿者已经不在这一单里，正在重新匹配。"
+            return "原来的陪跑员已经不在这一单里，正在重新匹配。"
         case .completed, .cancelled:
             return "本次预约已经结束。"
         case .unknown:
@@ -273,8 +273,11 @@ enum VoiceStatusQuery {
     /// 写成「不跑了」就一条都不中（这一脚已经踩在用例 `testCancellationWordsAreBlocked...` 上）。
     private static let destructiveWords = ["取消", "退单", "退掉", "撤销", "不跑", "不去"]
 
+    /// 称呼三种都收（#527）：界面一律叫「陪跑员」，但用户嘴上也会说「志愿者」「对方」「他 / 她」——
+    /// 照屏幕说「联系陪跑员」落空，等于这个按钮在语音通道里不存在。
     private static let callWords = [
-        "打电话", "电话", "拨号", "拨打", "打给", "联系志愿者", "联系他", "通话"
+        "打电话", "电话", "拨号", "拨打", "打给", "通话",
+        "联系陪跑员", "联系志愿者", "联系对方", "联系他", "联系她"
     ]
 
     private static let statusWords = [

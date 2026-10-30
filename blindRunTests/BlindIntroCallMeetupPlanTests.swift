@@ -352,7 +352,7 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
         h.viewModel.stopPolling()
 
         XCTAssertTrue(
-            h.speech.spokenHistoryForTesting.contains("本次见面安排未生效。正在为你寻找合适的陪跑伙伴。"),
+            h.speech.spokenHistoryForTesting.contains("本次见面安排未生效。正在为你寻找合适的陪跑员。"),
             "实际念的：\(h.speech.spokenHistoryForTesting)"
         )
     }
@@ -381,7 +381,7 @@ final class BlindIntroCallMeetupPlanTests: XCTestCase {
         XCTAssertEqual(BlindIntroCallOutcomeCopy.roundEnded(hadPlan: false), IntroCallCopy.continuedSearch)
         XCTAssertEqual(
             BlindIntroCallOutcomeCopy.roundEnded(hadPlan: true),
-            "本次见面安排未生效。正在为你寻找合适的陪跑伙伴。"
+            "本次见面安排未生效。正在为你寻找合适的陪跑员。"
         )
     }
 

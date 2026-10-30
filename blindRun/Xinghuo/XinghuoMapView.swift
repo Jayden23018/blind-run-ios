@@ -292,7 +292,7 @@ struct XinghuoMapView: View {
                 (XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink),
             ]
             : [
-                ("\(snapshot.volunteersOnline)", "志愿者在线", AppColors.Xinghuo.ember),
+                ("\(snapshot.volunteersOnline)", "陪跑员在线", AppColors.Xinghuo.ember),
                 ("\(snapshot.runnersWaiting)", "视障跑者", AppColors.Xinghuo.moon),
                 ("\(snapshot.pairsRunning)", "正在同行", AppColors.Xinghuo.ink),
                 (XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink),
@@ -436,12 +436,12 @@ struct XinghuoMapView: View {
         if isBlind {
             return snapshot.pairsRunning > 0 ? (snapshot.pairsRunning, " 对跑友正在同行") : nil
         }
-        return snapshot.volunteersOnline > 0 ? (snapshot.volunteersOnline, " 位志愿者在线") : nil
+        return snapshot.volunteersOnline > 0 ? (snapshot.volunteersOnline, " 位陪跑员在线") : nil
     }
 
     private var headlineEmptyText: String {
         if snapshot == nil { return "正在点亮附近的星光" }
-        return isBlind ? "此刻没有人在同行" : "暂时没有志愿者在线"
+        return isBlind ? "此刻没有人在同行" : "暂时没有陪跑员在线"
     }
 
     /// 收起态的摘要：一行大数字 + 单位。读屏念的仍是完整摘要句（`accessibilityLabel(summary)`）。
@@ -506,7 +506,7 @@ struct XinghuoMapView: View {
     /// 图例（原型卡片最底下那一行）。对读屏隐藏：它解释的是地图，而地图本身对读屏隐藏。
     private var legend: some View {
         HStack(spacing: 14) {
-            legendItem("✦", "志愿者", AppColors.Xinghuo.ember)
+            legendItem("✦", "陪跑员", AppColors.Xinghuo.ember)
             if !isBlind {
                 legendItem("◉", "视障跑者", AppColors.Xinghuo.moon)
             }

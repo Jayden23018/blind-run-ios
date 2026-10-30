@@ -1043,7 +1043,7 @@ final class VoiceOrderWizard: ObservableObject {
         case .duration: return "好的，请说新的时长，比如「跑一个小时」。"
         case .guideDog: return "好的，请说这次带不带导盲犬。"
         case .pace: return "好的，请说这次的配速偏好。"
-        case .notes: return "好的，请说要给志愿者的备注。"
+        case .notes: return "好的，请说要给陪跑员的备注。"
         case .unknown: return "好的，请说新的内容。"
         }
     }

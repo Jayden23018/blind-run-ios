@@ -23,7 +23,7 @@ final class XinghuoSnapshotTests: XCTestCase {
         let text = makeSnapshot(volunteers: 48, runners: 9).summaryText(for: .volunteer)
         XCTAssertEqual(
             text,
-            "本市现在有 48 位志愿者在线，9 位视障跑者在等待陪跑，3 对正在同行。今天完成了 5 次陪跑，一共 12.5 公里。"
+            "本市现在有 48 位陪跑员在线，9 位视障跑者在等待陪跑，3 对正在同行。今天完成了 5 次陪跑，一共 12.5 公里。"
         )
     }
 
@@ -31,7 +31,7 @@ final class XinghuoSnapshotTests: XCTestCase {
         let blind = makeSnapshot(volunteers: 5, runners: 0, pairs: 0, todayRuns: 0).summaryText(for: .blind)
         XCTAssertEqual(blind, "本市此刻没有人在同行。今天还没有完成的陪跑。")
         let volunteer = makeSnapshot(volunteers: 0, runners: 0, todayRuns: 0).summaryText(for: .volunteer)
-        XCTAssertEqual(volunteer, "本市暂时没有志愿者在线。今天还没有完成的陪跑。")
+        XCTAssertEqual(volunteer, "本市暂时没有陪跑员在线。今天还没有完成的陪跑。")
     }
 
     // MARK: - 片区可见性

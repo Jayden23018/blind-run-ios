@@ -192,7 +192,7 @@ enum IntroCallCopy {
     /// 措辞是「更换陪跑员」而不是「拒绝这位志愿者」：后者把一次退出说成一次否定他人，
     /// 而这个功能的全部意义就是让退出不带评判。2026-10-15 视觉稿 v2 由「换一位」书面化而来。
     static let declineButtonTitle = "更换陪跑员"
-    static let declineAccessibilityHint = "结束这次通话确认，系统继续为你寻找陪跑伙伴"
+    static let declineAccessibilityHint = "结束这次通话确认，系统继续为你寻找陪跑员"
 
     /// 我已表态、等对方时的进行时文案。
     ///
@@ -207,7 +207,7 @@ enum IntroCallCopy {
     ///
     /// 存在的理由是 `.pendingMatch` 的常规播报是「订单提交成功，系统正在为你派单」——
     /// 订单是二十分钟前提交的，那句话在这一刻是**错的**。
-    static let continuedSearch = "正在为你寻找合适的陪跑伙伴。"
+    static let continuedSearch = "正在为你寻找合适的陪跑员。"
 
     static func blindCallSectionAnnouncement(counterpartName: String) -> String {
         "\(counterpartName)想陪你跑。先打个电话聊聊，双方都觉得合适就算约好了。"
@@ -221,7 +221,7 @@ enum IntroCallCopy {
     /// 立刻弹系统拨号确认，这个只是打开一个页面 —— 对看不见屏幕的人，两件事听起来一样
     /// 就等于随时可能误拨。所以措辞落在「确认」而不是「打电话」上，hint 里再说一遍
     /// 「打开一个页面」。
-    static let blindEntryButtonTitle = "和这位志愿者通话确认"
+    static let blindEntryButtonTitle = "和这位陪跑员通话确认"
     static let blindEntryAccessibilityHint = "打开通话确认页，在那里拨号，或收听并确认陪跑员发来的见面安排"
 
     // MARK: 盲人侧 B1–B3（#434，视觉稿 v2 `docs/ui/mockups/intro-call-meetup-plan-20261015/` ③④，逐字）
@@ -281,7 +281,7 @@ enum IntroCallCopy {
     /// 🚨 这一句是**独立页才需要**的：内嵌 section 时这个状态渲染成空视图没有代价
     /// （页面上还有状态卡和别的内容），而一个整屏空白的页面对读屏用户等同于死机 ——
     /// 他滑不到任何东西，也无从判断是没加载完还是 App 挂了。
-    static let blindLoadingNotice = "正在获取这位志愿者的通话信息"
+    static let blindLoadingNotice = "正在获取这位陪跑员的通话信息"
 
     /// 退回订单页。**不叫「关闭」** —— 盲人需要知道退回去之后到哪儿，
     /// 而不是知道这个动作会让当前这块东西消失。
@@ -475,5 +475,5 @@ enum IntroCallCopy {
     static let loadFailed = "暂时拿不到通话信息，请稍后重试。"
 
     static let retryButtonTitle = "重新加载"
-    static let retryAccessibilityHint = "再取一次这位志愿者的通话信息"
+    static let retryAccessibilityHint = "再取一次这位陪跑员的通话信息"
 }

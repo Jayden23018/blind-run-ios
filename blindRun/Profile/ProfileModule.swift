@@ -509,7 +509,7 @@ struct BlindRunnerProfileView: View {
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
 
-            Text("志愿者到场前会看到这一项，好提前准备。不填也能约跑。")
+            Text("陪跑员到场前会看到这一项，好提前准备。不填也能约跑。")
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
 
@@ -541,7 +541,7 @@ struct BlindRunnerProfileView: View {
             selection: $viewModel.guideDog,
             valueText: viewModel.guideDog.profileOptionTitle,
             accessibilityLabel: "平时使用导盲犬，选填",
-            accessibilityHint: "可以选有、没有或不说。选有之后，只会给你派接受与导盲犬同行的志愿者"
+            accessibilityHint: "可以选有、没有或不说。选有之后，只会给你派接受与导盲犬同行的陪跑员"
         ) {
             ForEach(GuideDogStatus.allCases, id: \.self) { status in
                 Text(status.profileOptionTitle).tag(status)

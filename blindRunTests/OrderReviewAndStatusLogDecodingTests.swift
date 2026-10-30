@@ -169,7 +169,7 @@ final class OrderReviewAndStatusLogDecodingTests: XCTestCase {
     /// 不翻译就会对着盲人念出「取消方=BLIND」。
     func testDisplayTextTranslatesTheRawCancelledByRemark() {
         XCTAssertEqual(makeLog(to: .cancelled, remark: "取消方=BLIND").displayText, "你取消了订单")
-        XCTAssertEqual(makeLog(to: .cancelled, remark: "取消方=VOLUNTEER").displayText, "志愿者取消了订单")
+        XCTAssertEqual(makeLog(to: .cancelled, remark: "取消方=VOLUNTEER").displayText, "陪跑员取消了订单")
         XCTAssertEqual(makeLog(to: .cancelled, remark: "取消方=SYSTEM").displayText, "系统自动取消了订单")
     }
 

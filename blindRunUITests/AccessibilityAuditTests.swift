@@ -1562,7 +1562,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来，后面的审计结果没有意义")
         // 盲人端摘要念同行的对数，不念在线志愿者数（2026-10-07 方向 A，#369）。
         XCTAssertTrue(summary.label.contains("跑友正在同行"), "摘要句该念同行的跑友对数，实际：\(summary.label)")
-        XCTAssertFalse(summary.label.contains("志愿者在线"), "盲人端摘要不该再念在线志愿者数，实际：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("陪跑员在线"), "盲人端摘要不该再念在线志愿者数，实际：\(summary.label)")
         XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
         // 足迹一律显示，开关已去掉（负责人 2026-09-24）。
         XCTAssertFalse(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关又回来了 —— 负责人要的是默认显示、没有开关")

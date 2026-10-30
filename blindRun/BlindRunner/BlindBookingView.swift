@@ -418,7 +418,7 @@ final class BlindBookingViewModel: ObservableObject {
 
     static let locationDeniedNotice =
         "定位权限未开启，无法自动获取当前位置。可以直接搜索地点作为出发地点，预约照常提交。"
-        + "但陪跑过程中志愿者看不到你的实时位置，紧急求助也可能因为拿不到位置发不出去，建议在系统设置里开启定位。"
+        + "但陪跑过程中陪跑员看不到你的实时位置，紧急求助也可能因为拿不到位置发不出去，建议在系统设置里开启定位。"
 
     var blockingReasonForCurrentStep: String? {
         switch currentStep {
@@ -557,7 +557,7 @@ final class BlindBookingViewModel: ObservableObject {
         if endPlace.isUnresolved {
             // 查不到坐标仍然照下单（后端允许「有地址无坐标」），但**必须说出来**：
             // 不说，盲人会以为终点已经定准了，而实际上志愿者拿到的只是一个地名。
-            return "结束地点：\(endPlace.spokenAddress)。这个地点没能定位到，志愿者会看到这个名字。"
+            return "结束地点：\(endPlace.spokenAddress)。这个地点没能定位到，陪跑员会看到这个名字。"
         }
         return "结束地点：\(endPlace.spokenAddress)。"
     }
@@ -2319,7 +2319,7 @@ struct BlindBookingView: View {
         // `NOT_SPECIFIED` 也算没填（#472）：后端 #800 起它是新建档默认值，只判 nil 会让新账号永远看不到这条。
         if TetherPreference.isUnprovided(appState.blindProfile?.tetherPreference) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("还没填「希望怎么被引导」。填了之后，志愿者到场前就知道该递牵引绳、让你挽住手臂，还是只用口令。")
+                Text("还没填「希望怎么被引导」。填了之后，陪跑员到场前就知道该递牵引绳、让你挽住手臂，还是只用口令。")
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
