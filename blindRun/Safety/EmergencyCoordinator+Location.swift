@@ -44,6 +44,9 @@ extension EmergencyCoordinator {
             // 被取消时 `Task.sleep` 立刻抛，不查这一句就会在主线程上空转到 deadline。
             guard !Task.isCancelled else { return nil }
             try? await Task.sleep(nanoseconds: 500_000_000)
+            // 入口那道闸只判了一次：这 5 秒里精确位置可能被收回（临时授权到期、用户去设置里关掉），
+            // 随后送来的新鲜样本就是区域代表点（#597）。`latestBackendSample()` 自己不看精度，要在这里拦。
+            guard !locationService.isPreciseLocationOff else { return nil }
             if let sample = locationService.latestBackendSample() {
                 return sample
             }
