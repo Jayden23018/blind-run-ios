@@ -698,7 +698,7 @@ struct VolunteerIntroCallView: View {
 
             FlowTextButton(
                 title: IntroCallCopy.volunteerDeclineButtonTitle,
-                accessibilityHint: "结束这次通话确认，系统会把这一单派给下一位"
+                accessibilityHint: "结束这次通话确认，系统会把此订单派给下一位"
             ) {
                 Task { await viewModel.submit(.decline) }
             }
@@ -712,7 +712,7 @@ struct VolunteerIntroCallView: View {
             IntroCallCopy.volunteerDeclineButtonTitle,
             style: style,
             isEnabled: !viewModel.isSubmitting,
-            accessibilityHint: "结束这次通话确认，系统会把这一单派给下一位"
+            accessibilityHint: "结束这次通话确认，系统会把此订单派给下一位"
         ) {
             Task { await viewModel.submit(.decline) }
         }

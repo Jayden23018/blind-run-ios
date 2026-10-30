@@ -499,7 +499,7 @@ struct ContentView: View {
             Button("仅退出本机", role: .destructive) { appState.signOutLocallyRecordingRevocation() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("当前无法确认服务端 Token 已撤销。仅退出本机会清除本机登录信息，但远端 Token 可能继续有效。")
+            Text("无法确认服务器端已退出。其他设备上的登录可能仍有效。")
         }
     }
 

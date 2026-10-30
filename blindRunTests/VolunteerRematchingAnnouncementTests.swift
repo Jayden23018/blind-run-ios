@@ -14,7 +14,7 @@ import XCTest
 final class VolunteerRematchingAnnouncementTests: XCTestCase {
 
     /// 后端陪跑员那条 `SCHEDULED_DEPARTURE_GATE_MISSED` 的意思（issue #477 原文）。
-    private static let gateMissedTTS = "你没有确认出发，这一单已转给其他志愿者"
+    private static let gateMissedTTS = "你没有确认出发，此订单已转给其他志愿者"
 
     // MARK: - 系统转走
 
@@ -94,7 +94,7 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
         fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
         // 取消后已不是参与者：确认拉取被后端 403，订单页只能靠推送知道。
         fixture.service.orderDetailResult = .failure(APIError.serverError(
-            ErrorResponse(code: "ORDER_PERMISSION_DENIED", message: "您无权查看此订单")
+            ErrorResponse(code: "ORDER_PERMISSION_DENIED", message: "你无权查看此订单")
         ))
 
         await page.cancel()
@@ -183,7 +183,7 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
                 fromStatus: from.rawValue,
                 toStatus: to.rawValue,
                 message: "原志愿者未确认出发，正在重新匹配",
-                ttsText: "原来的志愿者没有确认出发，系统正在为您重新匹配志愿者",
+                ttsText: "原来的志愿者没有确认出发，系统正在为你重新匹配志愿者",
                 priority: "NORMAL",
                 timestamp: "2026-10-22T10:00:00"
             ))

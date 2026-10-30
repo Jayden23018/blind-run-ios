@@ -162,7 +162,7 @@ final class VolunteerStartConsentGateTests: XCTestCase {
         await viewModel.confirmDeparture()
 
         XCTAssertEqual(viewModel.order?.status, .pendingAccept)
-        XCTAssertEqual(viewModel.errorMessage, "这一单的状态已经变了，不用再确认。")
+        XCTAssertEqual(viewModel.errorMessage, "此订单的状态已经变了，不用再确认。")
     }
 
     /// 信封**不带** `orderId`（`websocket-protocol.md`：这条是 2026-09-18 的事件，早于 orderId 约定）。

@@ -391,7 +391,7 @@ struct BlindRunnerProfileView: View {
                 isRequired: true,
                 errorMessage: viewModel.name.trimmed.isEmpty ? "请填写必填信息" : nil,
                 accessibilityLabel: "昵称，必填",
-                accessibilityHint: "请输入您的昵称"
+                accessibilityHint: "请输入你的昵称"
             )
         }
     }

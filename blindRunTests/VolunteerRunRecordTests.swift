@@ -127,7 +127,7 @@ final class VolunteerRunRecordTests: XCTestCase {
         XCTAssertEqual(content.timeline.map(\.time), ["08:00", "约08:10"])
         XCTAssertEqual(content.timeline[1].accessibilityLabel, "约08:10，休息1分40秒")
         XCTAssertEqual(content.sosLine, "全程没有触发紧急求助")
-        XCTAssertEqual(VolunteerRunRecordContent(record: record(sosTriggered: true)).sosLine, "这一单触发过紧急求助")
+        XCTAssertEqual(VolunteerRunRecordContent(record: record(sosTriggered: true)).sosLine, "此订单触发过紧急求助")
     }
 
     func testSplitsCarryPaceAsTextAndMarkTheFastest() {
@@ -161,7 +161,7 @@ final class VolunteerRunRecordTests: XCTestCase {
 
         XCTAssertEqual(content.primaryStats.map(\.label), ["运动时间", "平均配速"])
         XCTAssertFalse(content.secondaryStats.contains { $0.label == "步数" })
-        XCTAssertEqual(content.sosLine, "这一单触发过紧急求助")
+        XCTAssertEqual(content.sosLine, "此订单触发过紧急求助")
         XCTAssertEqual(content.splits.count, record.splits.count)
         XCTAssertEqual(content.timeline.count, record.events.count)
         XCTAssertTrue(content.mapDescription.contains("途中休息2次"))
@@ -250,9 +250,9 @@ final class VolunteerRunRecordTests: XCTestCase {
     func testSendFailureSaysItWasNotSentAndWhy() async {
         let cases: [(Error, String)] = [
             (APIError.networkError(URLError(.notConnectedToInternet)), "留言没有发出。请检查网络后再发一次。"),
-            (APIError.serverError(ErrorResponse(code: "ORDER_STATUS_NOT_ALLOWED", message: "订单完成后才能留言")), "留言没有发出。这一单还没完成，暂时不能留言。"),
-            (APIError.serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "x")), "留言没有发出。你不是这一单的参与者。"),
-            (APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "x")), "留言没有发出。这一单已经不存在了。")
+            (APIError.serverError(ErrorResponse(code: "ORDER_STATUS_NOT_ALLOWED", message: "订单完成后才能留言")), "留言没有发出。此订单还没完成，暂时不能留言。"),
+            (APIError.serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "x")), "留言没有发出。你不是此订单的参与者。"),
+            (APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "x")), "留言没有发出。此订单已经不存在了。")
         ]
         for (error, expected) in cases {
             let (viewModel, appState, service) = makeViewModel()

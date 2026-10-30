@@ -200,7 +200,7 @@ enum EmergencySafetyCopy {
         // #368：这一单拒绝了位置共享（或还没回答）。求助不附位置就不发（`AGENTS.md` §6），
         // 换地方、等一等都没用，所以只给能立刻做的：拨号。
         case .locationSharingNotConsented:
-            return "求助未发出：这一单你没有同意共享位置，求助无法附带你的位置。请直接拨打120或110。"
+            return "求助未发出：此订单你没有同意共享位置，求助无法附带你的位置。请直接拨打120或110。"
         }
     }
 
@@ -363,7 +363,7 @@ enum EmergencySafetyCopy {
 
     /// 底部主动作。**这句话是一个承诺**：按下去等于告诉客服「现场有人了」，
     /// 所以它说的必须是志愿者真的做得到的事 —— 人在旁边、正在处理。
-    static let volunteerAlertAcknowledgeTitle = "我在他身边，去处理"
+    static let volunteerAlertAcknowledgeTitle = "我在现场，前往处理"
 
     /// 按钮下面那行小字。**只说「同步给客服」，不说客服会做什么** ——
     /// 后端拿到 `NEED_HELP` 之后怎么调度不在客户端的知识范围里。
@@ -489,7 +489,7 @@ enum EmergencySafetyCopy {
     /// 读屏用户听到的是一句自相矛盾的话，中间没有停顿可以让他判断哪半句算数。
     ///
     /// 这一档要回答的是同一个问题的另一个答案：他刚离开的那一页还在不在。
-    static let hubSubtitleBeforeTheRun = "这一单还没开始陪跑"
+    static let hubSubtitleBeforeTheRun = "此订单还没开始陪跑"
 
     /// 跑步中登录已过期（#376）。不说「跑步仍在记录」—— 凭证过期后还在不在记，取决于 WebSocket 断没断，App 说不准。
     static let hubSubtitleSessionExpired = "登录已过期"

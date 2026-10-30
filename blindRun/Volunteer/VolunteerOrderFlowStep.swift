@@ -139,7 +139,7 @@ enum VolunteerOrderFlowCopy {
     /// 🚨 **不写「距开跑还有 X 小时要确认」**：那个提前量是后端配置
     /// （`app.order.departure-confirm-window-minutes`），客户端读不到，写死就是编一个数字。
     /// 只说清后果 —— 那才是他真正需要知道的。
-    static let scheduledSubtitle = "已约好。出发前请确认你还会去，没有确认这一单会转给其他志愿者"
+    static let scheduledSubtitle = "已约好。出发前请确认你还会去，未确认的订单将转给其他陪跑员"
     /// ⚠️ 设计稿这里是「8 分钟后到」。**做不出来** —— 全仓与后端契约都没有 ETA
     /// （出发地、交通方式、`etaMinutes` 在 `api_spec.yaml` 与 `websocket-protocol.md` 命中 0）。
     /// 编一个到达时间给正在集合点等人的盲人，比不给更糟。距离进副标题。已投 handoff。
@@ -287,8 +287,8 @@ enum VolunteerOrderFlowCopy {
                 ? "离开始不到 \(lateCancelWindowHours) 小时。现在取消会记一次临时取消，系统会马上为跑者重新找人。"
                 : nil,
             message: status == .scheduledConfirmed || status == .pendingAccept || status == .driverEnRoute
-                ? "这一单会转给其他志愿者，之后不一定还能接回来。"
-                : "这一单会转给其他志愿者。",
+                ? "此订单将转给其他陪跑员，之后不一定还能接回来。"
+                : "此订单将转给其他陪跑员。",
             keep: "保留这次陪跑",
             cancel: "仍然取消"
         )
@@ -330,7 +330,7 @@ extension RunOrderStatus {
     /// 穷举 switch：后端加状态时编译器逼一次决策。只描述状态，**不点按钮名**（按钮会改名，播报不该跟着漂）。
     var volunteerAnnouncement: String {
         switch self {
-        case .pendingMatch: return "这一单在重新找陪跑员。"
+        case .pendingMatch: return "此订单在重新找陪跑员。"
         case .pendingIntroCall: return "请先和跑者通个电话，双方都觉得合适再接单。"
         case .scheduledConfirmed: return "已经约好。出发前请确认你还会去。"
         case .pendingAccept: return "已接单，到时间请出发去约定地点。"
@@ -339,10 +339,10 @@ extension RunOrderStatus {
         case .inProgress: return "陪跑已开始，请注意安全。"
         case .completed: return "陪跑完成，谢谢你。"
         // 中性：跑者取消、结束等待、系统取消都会落这一态。跑者取消时订单页另念带「不算你的取消」的整句。
-        case .cancelled: return "这一单已取消。"
+        case .cancelled: return "此订单已取消。"
         // 走到通用句的 `REMATCHING` 都是系统转走的（自己取消由取消那一句说，#477），见 `reassignedBySystem`。
         case .rematching: return VolunteerCancelAnnouncement.reassignedBySystem
-        case .noVolunteer: return "这一单已结束。"
+        case .noVolunteer: return "此订单已结束。"
         case .unknown: return "订单状态有更新，请刷新页面或稍后重试。"
         }
     }
@@ -370,7 +370,7 @@ struct VolunteerCancelAnnouncement: Equatable {
     /// 取消那一句。**只说陪跑员自己那一半**：「系统将为跑者重新匹配」在后端重匹次数到上限时不成立
     /// （那时订单直接转 `CANCELLED`，见 `VolunteerHomeViewModel.releaseScheduledOrder` 的注释），
     /// 而「这一单不在你名下了」两种结局下都为真。只在这台手机上按了取消时念（#477）。
-    static let cancelledByVolunteer = "订单已取消，这一单不在你名下了。"
+    static let cancelledByVolunteer = "订单已取消，此订单不在你名下了。"
 
     /// 取消响应里的 `countedAsLateCancel`。`nil` = 这次取消的响应还没到（或根本没发起过取消）。
     private(set) var countedAsLateCancel: Bool?
@@ -793,7 +793,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
                 detail: nil,
                 action: .releaseOrder,
                 accessibilityLabel: VolunteerOrderFlowCopy.releaseOrder,
-                accessibilityHint: "双击后会先确认一次。这一单会转给其他志愿者"
+                accessibilityHint: "双击后会先确认一次。此订单将转给其他陪跑员"
             )
         )
 

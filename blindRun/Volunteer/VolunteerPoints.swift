@@ -190,7 +190,7 @@ enum VolunteerPointsCopy {
 
     /// ⚠️ **不是**「功能未开启」。后端 `PointService` 只有数值参数、没有 enabled 开关，
     /// 积分从第一天就在记（SPEC-E §1 决策 1）。带开关的是火花 / 派单优先轮 / 邀请奖励三个。
-    static let loadFailure = "暂时没能读到积分，请稍后重试。"
+    static let loadFailure = "积分加载失败，请稍后重试。"
 
     static let retry = "重新加载"
 

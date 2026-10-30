@@ -24,9 +24,9 @@ enum VolunteerTrainingCopy {
     static let allDoneBanner = "必修培训已全部完成。"
     static func certificateLine(_ no: String) -> String { "培训合格证编号 \(no)" }
 
-    static let loadFailure = "暂时没能读到培训课程。"
+    static let loadFailure = "培训课程加载失败。"
     static let retry = "重新加载"
-    static let emptyCourses = "当前没有可学习的课程，请稍后再来看看。"
+    static let emptyCourses = "暂无课程。"
 
     static let startLearning = "开始学习"
     static let continueLearning = "继续学习"
@@ -45,7 +45,7 @@ enum VolunteerTrainingCopy {
     /// 题目缺选项时的说明。
     /// 🚩 这条必须存在：静默渲染一道没有选项的题，用户点不下去也不知道为什么，
     /// 而「全对才过」意味着他永远交不了卷。
-    static let brokenQuestion = "这道题的选项没能加载出来，请退出后重新进入课程。如果反复出现，请联系客服。"
+    static let brokenQuestion = "题目选项加载失败，请退出后重新进入课程。如果反复出现，请联系客服。"
 }
 
 // MARK: - 课程列表 ViewModel

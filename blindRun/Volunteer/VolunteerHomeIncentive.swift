@@ -158,7 +158,7 @@ enum VolunteerHomeIncentiveCopy {
 
     /// 🔴 失败要说人话并给去处。此前失败是完全静默的 —— 那让「加载失败」
     /// 与「这个功能不存在」在屏幕上完全一样，2026-09-14 真机排查因此绕了一大圈。
-    static let loadFailure = "暂时没能读到你的服务记录。"
+    static let loadFailure = "服务记录加载失败。"
 
     static let retry = "重新加载"
 

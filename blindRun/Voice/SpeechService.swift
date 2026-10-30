@@ -336,10 +336,10 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         // 与 `RunOrderStatus.blindRunnerAnnouncement` 逐字相同。
         // 🚨 不提轮次、不提「换了一位」——「无声拒绝」要求盲人无从得知自己被谁拒过。
         case .pendingIntroCall:
-            return "有位陪跑员想陪你跑，可以打个电话聊聊。"
+            return "有陪跑员响应了你的预约，请先与对方通话确认。"
         // 与 `RunOrderStatus.blindRunnerAnnouncement` 逐字相同（同该文件其余各态的既有写法）。
         case .scheduledConfirmed:
-            return "已经为你约好陪跑员。到出发前如果计划有变，可以打电话告诉他。"
+            return "预约已确认。计划有变可在出发前致电陪跑员。"
         case .pendingAccept:
             return "陪跑员已接单，请前往或等待在预约出发地点。"
         case .driverEnRoute:
@@ -348,9 +348,9 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         case .driverArrived:
             return RunOrderStatus.blindRunnerArrivedCopy
         case .inProgress:
-            return "服务已开始，请注意安全。"
+            return "陪跑已开始。"
         case .completed:
-            return "服务已完成，感谢使用助盲跑。"
+            return "陪跑已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:

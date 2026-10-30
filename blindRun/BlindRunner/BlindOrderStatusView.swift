@@ -2239,7 +2239,7 @@ struct BlindOrderStatusView: View {
     /// 静默 return 在盲人端就是「点了没反应」。
     private func dialVolunteer(_ order: OrderDetailResponse) {
         guard let url = EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) else {
-            speechService.speakError("暂时拿不到陪跑员的电话，请稍后再试。")
+            speechService.speakError("暂时无法获取陪跑员电话，请稍后重试。")
             return
         }
         EmergencyDialer.dial(url)
@@ -2841,12 +2841,12 @@ struct BlindOrderStatusView: View {
                 .accessibilityLabel(viewModel.isSubmittingReview ? "正在提交评价" : "提交评价")
                 .accessibilityHint("提交本次服务评分和评价")
 
-                Button("跳过评价并返回首页") {
+                Button("跳过评价") {
                     viewModel.skipReview()
                     dismiss()
                 }
                 .buttonStyle(TextButtonStyle(tint: AppColors.textSecondary, alignment: .center))
-                .accessibilityLabel("跳过评价并返回首页")
+                .accessibilityLabel("跳过评价")
             }
 
             favoriteVolunteerSection(order)
@@ -2974,7 +2974,7 @@ struct BlindOrderStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
-        .accessibilityHint("展开后可以听到这一单每一次状态变化和发生时间")
+        .accessibilityHint("展开后可以听到此订单每一次状态变化和发生时间")
         .accessibilityIdentifier("blindOrderStatusLogsDisclosure")
     }
 

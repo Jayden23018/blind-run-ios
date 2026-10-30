@@ -219,7 +219,7 @@ enum VoiceStatusQuery {
             return VoiceStatusAnswer(
                 // 结尾照样带上 `displayName`：这一族答句的共同不变式是「答完必须让用户知道
                 // 现在是什么状态」，只有开头那句「现在还不能打电话给志愿者」是这一态的例外。
-                speech: "这一单还在通话确认阶段，语音暂时不能替你拨号。"
+                speech: "此订单还在通话确认阶段，语音暂时不能替你拨号。"
                     + "打电话给这位陪跑员的按钮就在订单状态页上。当前是\(order.status.displayName)。",
                 pendingAction: nil
             )
@@ -251,7 +251,7 @@ enum VoiceStatusQuery {
         case .pendingMatch, .noVolunteer:
             return "还没有陪跑员接单。"
         case .rematching:
-            return "原来的陪跑员已经不在这一单里，正在重新匹配。"
+            return "原来的陪跑员已经不在此订单里，正在重新匹配。"
         case .completed, .cancelled:
             return "本次预约已经结束。"
         case .unknown:

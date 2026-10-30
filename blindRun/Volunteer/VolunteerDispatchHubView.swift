@@ -543,7 +543,7 @@ struct VolunteerDispatchHubView: View {
             label: nil,
             kind: .navigable(action: { route = .order(id: order.orderId, initial: order) }),
             accessibilityLabel: laterOrderAnnouncement(order),
-            accessibilityHint: "双击打开这一单"
+            accessibilityHint: "双击打开此订单"
         ) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(order.blindRunnerShortStartText() ?? order.status.displayName)

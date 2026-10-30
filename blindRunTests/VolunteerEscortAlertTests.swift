@@ -241,7 +241,7 @@ final class VolunteerEscortAlertTests: XCTestCase {
             eventId: 77,
             orderId: 4242,
             userId: 1,
-            message: "您陪伴的盲人用户触发了紧急求助",
+            message: "你陪伴的盲人用户触发了紧急求助",
             ttsText: "盲人用户触发了紧急求助",
             priority: "HIGH",
             gpsLat: lat,

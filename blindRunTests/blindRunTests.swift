@@ -1151,7 +1151,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(
             merged.first?.supplement?.runnerSummary,
             "全盲，牵引绳",
-            "不许把别人那一单的引导方式安到这一单头上"
+            "不许把别人那一单的引导方式安到此订单头上"
         )
         XCTAssertEqual(merged.first?.supplement?.durationText, "60 分钟")
     }
@@ -3660,7 +3660,7 @@ final class blindRunTests: XCTestCase {
         )
 
         XCTAssertTrue(viewModel.auxiliaryMapAccessibilityLabel.contains("辅助地图"))
-        XCTAssertTrue(viewModel.auxiliaryMapAccessibilityLabel.contains("已选择高德地点"))
+        XCTAssertTrue(viewModel.auxiliaryMapAccessibilityLabel.contains("已选择地点"))
         XCTAssertFalse(viewModel.auxiliaryMapAccessibilityLabel.contains("25.024196"))
         XCTAssertFalse(viewModel.auxiliaryMapAccessibilityLabel.contains("102.673887"))
     }
@@ -3926,7 +3926,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .completed),
-            "服务已完成，感谢使用助盲跑。"
+            "陪跑已完成，感谢使用助盲跑。"
         )
 
         XCTAssertTrue(service.speakStatusChange(.pendingMatch))
@@ -4608,13 +4608,13 @@ final class blindRunTests: XCTestCase {
         ]
 
         for (name, copy) in copies {
-            XCTAssertTrue(copy.contains("已取消"), "\(name) 没说出这一单已经结束：\(copy)")
+            XCTAssertTrue(copy.contains("已取消"), "\(name) 没说出此订单已经结束：\(copy)")
             // 出路也要给：终态只说「结束了」而不说能怎么办，等于把人留在原地。
             XCTAssertTrue(copy.contains("重新发起"), "\(name) 没给出「可以重新发起」这条出路：\(copy)")
             for misleading in ["稍后再试", "稍后重试", "请稍候", "暂时"] {
                 XCTAssertFalse(
                     copy.contains(misleading),
-                    "\(name) 仍在暗示这一单还能等（「\(misleading)」）：\(copy)"
+                    "\(name) 仍在暗示此订单还能等（「\(misleading)」）：\(copy)"
                 )
             }
         }
@@ -4950,7 +4950,7 @@ final class blindRunTests: XCTestCase {
                 announcement.contains(distanceText),
                 "\(status.rawValue) announcement should include volunteer distance to the start point"
             )
-            XCTAssertFalse(announcement.contains("距您"))
+            XCTAssertFalse(announcement.contains("距你"))
         }
     }
 
@@ -5873,7 +5873,7 @@ final class blindRunTests: XCTestCase {
         // 已评价不是失败：页面切到已评价态，不显示错误。
         XCTAssertTrue(viewModel.didSubmitReview)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "您已评价过此订单。")
+        XCTAssertEqual(speechService.lastSpokenText, "你已评价过此订单。")
         XCTAssertFalse(
             (speechService.lastSpokenText ?? "").contains("进行中的订单"),
             "重复评价被念成了下单受阻的文案"
@@ -5903,7 +5903,7 @@ final class blindRunTests: XCTestCase {
 
         // 止血补丁撤除后，本地文案不再被后端 message 顶掉。
         let error = APIError.serverError(
-            ErrorResponse(code: "DUPLICATE_ORDER", message: "您有进行中的订单，请完成后再下单")
+            ErrorResponse(code: "DUPLICATE_ORDER", message: "你有进行中的订单，请完成后再下单")
         )
         XCTAssertEqual(error.localizedMessage, ErrorCode.duplicateOrder.localizedMessage)
     }
