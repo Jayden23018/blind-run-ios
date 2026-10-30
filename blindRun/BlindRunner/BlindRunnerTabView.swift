@@ -93,6 +93,8 @@ struct BlindRunnerTabView: View {
             }
         }
         .onAppear { configureRingController() }
+        // #521：第一次有订单时先说明用途再问通知权限（启动时不再弹）。
+        .asksBlindForPushPermissionOnFirstOrder()
         // 协调器是 AppState 上的嵌套对象，改它不会让这一层重绘，只能订阅（记忆
         // `nested-observableobject-does-not-republish`）。重新订阅会回放当前值，控制器自己去重。
         .onReceive(appState.realtimeCoordinator.$runnerRing) { ringController.handle($0) }

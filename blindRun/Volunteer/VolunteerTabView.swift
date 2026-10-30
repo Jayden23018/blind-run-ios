@@ -100,6 +100,11 @@ struct VolunteerTabView: View {
         .dispatchPreciseLocationNotice(isDispatching: viewModel.isAvailable)
         // 「隐私与授权」撤回位置同意时要关掉同一个接单开关（#530），所以把首页 view model 往下传。
         .environmentObject(viewModel)
+        // #521：第一次打开接单开关时先说明用途再问通知权限（邀请靠推送）。精确位置关着时先让上面那条说完。
+        .asksForPushPermission(
+            when: PushPermissionPrompt.volunteerNeedsPush(isAvailable: viewModel.isAvailable, location: locationService),
+            role: .volunteer
+        )
         .onAppear {
             // **删地图 ≠ 停定位**：授权是派单的前提，没有位置上报就收不到单。
             // #368：没有位置轨迹同意时不弹系统授权框（告知在前）。

@@ -3051,6 +3051,7 @@ struct VolunteerSettingsView: View {
                 }
             }
 
+            Section { NotificationPermissionRow() } // #521：通知开没开，拒绝过时给去系统设置的入口
             Section {
                 Button("退出登录", role: .destructive) {
                     showLogoutConfirm = true
