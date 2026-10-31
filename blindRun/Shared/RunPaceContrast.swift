@@ -19,14 +19,14 @@ struct RunPaceContrast: Equatable {
         self.init(isIncreased: environment.colorSchemeContrast == .increased, isDark: environment.colorScheme == .dark)
     }
 
-    /// 路线垫底的近黑描边：平时 11pt（配速线 6.5pt，两侧各露约 2.3pt）；增强时 15pt，两侧各露约 4.3pt。
+    /// 路线垫底的近黑描边：平时 11pt（配速线 6.5pt，两侧各露约 2.3pt）；增强时 16pt，两侧各露约 4.8pt，比平时翻一倍。
     var routeOutlineWidth: CGFloat { isIncreased ? Self.increasedRouteOutlineWidth : RunRouteGlyph.outlineWidth }
     /// 色条边框：平时没有；增强时 1.5pt。
     var barBorderWidth: CGFloat { isIncreased ? 1.5 : 0 }
     /// 亮色近黑、暗色纯白：压各自的页面底色都远过 3:1（WCAG 1.4.11）。
     var barBorderRGB: UInt32 { isDark ? 0xFFFFFF : 0x1C1C1E }
 
-    static let increasedRouteOutlineWidth: CGFloat = 15
+    static let increasedRouteOutlineWidth: CGFloat = 16
 }
 
 /// 色条（图例、分段条）在增强对比度下的边框。自己读环境，调用点只加一行。
