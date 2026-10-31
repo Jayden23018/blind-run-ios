@@ -698,6 +698,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "助盲跑";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -736,6 +737,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "助盲跑";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -920,6 +922,7 @@
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "助盲跑";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
