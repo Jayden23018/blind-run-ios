@@ -281,7 +281,7 @@ enum ErrorCode: String, Codable, Sendable {
             // 原文案「您有进行中的订单，请完成后再下单」自那天起就是错的 ——
             // 约了后天早上的单之后，今天临时想跑**照样能下单**，说成「有进行中的订单」
             // 会让用户去取消一张完全不冲突的预约。
-            return "该时段已有预约，请换一个时间。"
+            return "该时间段已有预约，请换一个时间。"
         case .reviewAlreadySubmitted:
             return "你已评价过此订单。"
         case .registrationStepInvalid:
@@ -340,7 +340,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .orderHasActiveEmergency:
             return "此订单还有没结束的求助，现在还不能结束服务。需要跑者本人撤销，或者等客服处理完。"
         case .volunteerAlreadyEngaged:
-            return "该时段你已接受其他预约，请选择其他时段。"
+            return "该时间段你已接受其他预约，请选择其他时间段。"
         case .idVerifyUnavailable:
             return "身份认证服务暂时不可用，请稍后重试。"
         case .departureTooEarly:

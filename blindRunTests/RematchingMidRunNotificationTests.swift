@@ -142,7 +142,7 @@ final class RematchingMidRunNotificationTests: XCTestCase {
     }
 
     private static let backendBody =
-        "你的陪跑志愿者已取消服务，现在只有你一个人。请先停下来，走到安全的地方等候，系统正在为你重新匹配志愿者。"
+        "您的陪跑志愿者已取消服务，现在只有您一个人。请先停下来，走到安全的地方等候，系统正在为您重新匹配志愿者。"
 
     private func makeMidRunRematch(messageID: String = "mid-run-1") -> WSAppNotification {
         WSAppNotification(

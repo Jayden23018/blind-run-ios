@@ -229,7 +229,7 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
 
     /// 后端 `OrderQueryService.getOrder` 对非参与者抛的那一条。
     private static let notParticipant = APIError.serverError(
-        ErrorResponse(code: "ORDER_PERMISSION_DENIED", message: "你无权查看此订单")
+        ErrorResponse(code: "ORDER_PERMISSION_DENIED", message: "您无权查看此订单")
     )
 
     /// 补读那条日志同样没有 `orderId`。

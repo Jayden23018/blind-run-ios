@@ -450,7 +450,7 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
             pendingAccept?.subtitle,
             "跨天预约多一件必须做的事，副标题不能和待出发那态说同一句话"
         )
-        XCTAssertTrue(scheduled?.subtitle.contains("转给其他志愿者") ?? false)
+        XCTAssertTrue(scheduled?.subtitle.contains("转给其他陪跑员") ?? false)
         for digit in ["小时", "分钟"] {
             XCTAssertFalse(
                 scheduled?.subtitle.contains(digit) ?? true,
@@ -527,7 +527,7 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
 
             let sheet = VolunteerOrderFlowCopy.cancelSheet(for: status, plannedStart: nil, lateCancelWindowHours: 12)
             XCTAssertTrue(
-                sheet.message.contains("转给其他志愿者"),
+                sheet.message.contains("转给其他陪跑员"),
                 "\(status.rawValue)：确认层要说清后果 —— 此订单换个人，不是替盲人取消"
             )
             XCTAssertEqual(sheet.keep, "保留这次陪跑")
