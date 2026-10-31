@@ -196,7 +196,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .orderNotFound:
             return "订单不存在。"
         case .orderAlreadyAccepted:
-            return "该订单已被其他志愿者接单。"
+            return "该订单已被其他陪跑员接单。"
         case .invalidOrderStatus:
             return "当前订单状态不允许此操作。"
         case .roleAlreadySet:
@@ -227,7 +227,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .appointmentTooLong:
             // 只说时长，不提夜间：两条同时命中时后端返回的就是这一条，
             // 而这种单（跨多天）先要改短，改时段没用。
-            return "单次陪跑最长5小时，此订单排得太长了。请把时长改短一些再提交。"
+            return "单次陪跑最长5小时，请缩短时长后再提交。"
         case .appointmentInNightWindow:
             // 🚨 必须说清判据是**整段**。只说「这个时间不能约」的话，21点出发的用户
             // 会认为自己没碰到22点，把开始时间往前挪一点再试一次 —— 而真正越界的是结束时间。
@@ -327,7 +327,7 @@ enum ErrorCode: String, Codable, Sendable {
             // 只有**自动改发 `INTERESTED` 也失败**时才会被念到（正常路径下用户看不到这一句）。
             // 所以文案说的是「再试一次」这个还能做的动作，不是让用户自己去选「有意向」——
             // 客户端已经替他选过了，再叫他选一遍只会让人以为按钮坏了。
-            return "此订单需要先和跑者通个电话，请再试一次。"
+            return "此订单需先与跑者通话确认，请再试一次。"
         // 反方向同理：只有**自动改发 `ACCEPT` 也失败**时才会被念到。
         case .introCallNotRequired:
             return "你们已完成通话确认，可直接接单。"

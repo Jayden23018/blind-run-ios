@@ -6,7 +6,7 @@ import Foundation
 extension VolunteerCancelAnnouncement {
     /// 不是自己按的取消、订单却进了 `REMATCHING`（系统转走）。不说「已取消」：订单没取消，是换人。
     /// 「正在重新匹配」对 `REMATCHING` 恒为真 —— 重匹到上限时后端直接转 `CANCELLED`，不会走到这一态。
-    static let reassignedBySystem = "此订单不在你名下了，系统正在为跑者重新匹配陪跑员。"
+    static let reassignedBySystem = "此订单已解除，系统正在为跑者重新匹配陪跑员。"
 }
 
 extension RunOrderStatus {

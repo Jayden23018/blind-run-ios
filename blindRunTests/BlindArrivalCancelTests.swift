@@ -200,7 +200,7 @@ final class BlindArrivalCancelTests: XCTestCase {
             eventType: "ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL",
             title: nil,
             body: "跑者没能和你碰上，已取消本单",
-            ttsText: "你标记已到达之后，跑者一直没能和你碰上面，已经取消了此订单。你可以离开集合点了，此订单不算你取消。",
+            ttsText: "你标记已到达之后，跑者一直没能和你碰上面，已经取消了这一单。你可以离开集合点了，这一单不算你取消。",
             priority: "HIGH",
             timestamp: "2026-10-10T10:12:00"
         )

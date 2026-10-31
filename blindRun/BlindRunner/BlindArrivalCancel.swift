@@ -50,7 +50,7 @@ enum BlindArrivalCancelCopy {
     static let openAccessibilityHint = "双击后会先确认一次"
 
     /// 二次确认弹窗的正文。不说「取消预约」—— 这一刻人已经到了集合点，取消的是一次见面。
-    static let confirmationMessage = "确认取消本单？陪跑员会收到通知，此订单就结束了。"
+    static let confirmationMessage = "确认取消此订单？陪跑员会收到通知。"
 
     static let unlockedAnnouncement = "已经等满了。如果还没碰上陪跑员，现在可以取消本单。"
 

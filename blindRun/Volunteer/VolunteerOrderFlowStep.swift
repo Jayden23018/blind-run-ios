@@ -370,7 +370,7 @@ struct VolunteerCancelAnnouncement: Equatable {
     /// 取消那一句。**只说陪跑员自己那一半**：「系统将为跑者重新匹配」在后端重匹次数到上限时不成立
     /// （那时订单直接转 `CANCELLED`，见 `VolunteerHomeViewModel.releaseScheduledOrder` 的注释），
     /// 而「这一单不在你名下了」两种结局下都为真。只在这台手机上按了取消时念（#477）。
-    static let cancelledByVolunteer = "订单已取消，此订单不在你名下了。"
+    static let cancelledByVolunteer = "订单已取消。"
 
     /// 取消响应里的 `countedAsLateCancel`。`nil` = 这次取消的响应还没到（或根本没发起过取消）。
     private(set) var countedAsLateCancel: Bool?

@@ -1369,7 +1369,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             // 手上的订单还停在 `DRIVER_ARRIVED`（宿主直接关页，不再刷新），锁屏卡不会自己走到结束分支。
             if #available(iOS 16.2, *) { GuideRunActivityController.shared.end() }
             stopPolling()
-            speechService?.speak("已结束等待。此订单取消了，不算你的取消。")
+            speechService?.speak("已结束等待。订单已取消，不算你的取消。")
             didEndWaiting = true
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
