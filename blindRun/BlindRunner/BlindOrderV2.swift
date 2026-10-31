@@ -129,12 +129,9 @@ struct BlindOrderHero: Equatable {
 ///
 /// 跑步中 / 已完成也在这里：那两幕的头卡由跑步卡承担，但用同一套色。
 enum BlindHeroTone: Equatable {
-    /// 匹配中（还没有陪跑员，`RopeState.invited`）。与陪跑员端「邀请」同一个钢蓝。
+    /// 匹配中（还没有陪跑员，`RopeState.invited`）与先通个电话（`PENDING_INTRO_CALL`）。与陪跑员端「邀请」同一个钢蓝。
+    /// v6 给通话前后各配过一色（紫 / 梅红），视觉稿 v2 决定 1 去掉，#446 删除。
     case matching
-    /// 先通个电话 · 还没打（订单页的 `PENDING_INTRO_CALL` 也用它）。
-    case calling
-    /// 先通个电话 · 打过了 / 已说合适。
-    case called
     case agreed
     case departed
     case arrived

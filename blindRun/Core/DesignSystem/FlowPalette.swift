@@ -297,12 +297,7 @@ extension AppColors {
         /// 中性灰 `#46506A` 与暂停灰 `statePaused` 肉眼分不开，而负责人要的是「不同状态不同颜色」。
         static let stateMatchingTone = Tone(light: 0x3D5A80, dark: 0x3D5A80)
         static let stateMatching = flowDynamic(stateMatchingTone)
-        /// 「先通个电话」· 还没打（盲人端没拨号 / 陪跑员端等来电）。白字 6.62、小标题 5.70。
-        static let stateCallingTone = Tone(light: 0x6941C6, dark: 0x6941C6)
-        static let stateCalling = flowDynamic(stateCallingTone)
-        /// 「先通个电话」· 打过了（盲人端拨号回来 / 任一端已说合适在等）。白字 7.33、小标题 6.27。
-        static let stateCalledTone = Tone(light: 0x86377F, dark: 0x86377F)
-        static let stateCalled = flowDynamic(stateCalledTone)
+        // v6 的「先通个电话」紫 / 梅红两色已删（#446）：视觉稿 v2 决定 1，通话整步沿用 `stateMatching`。
 
         // MARK: 彩色头卡上的字与引导绳（C02 / C03，替代 v1 的 onNavy* / volunteerDot / runnerDot / ropeOnNavy）
         //

@@ -102,7 +102,7 @@ struct FlowHelpPill: View {
 // MARK: 头卡里的小胶囊
 
 /// 彩色头卡里的一枚小胶囊：「这一轮通话还剩 18 分钟」「22:42 前聊完」（定稿 v6）。
-/// 白字压 12% 白底（`FlowMetrics.heroChipWhiteOpacity`）。**只给紫 / 梅红 / 钢蓝三种头卡用** ——
+/// 白字压 12% 白底（`FlowMetrics.heroChipWhiteOpacity`）。**只给匹配钢蓝头卡用**（紫 / 梅红已于 #446 删除）——
 /// 压出发蓝、完成绿时白字不到 4.5（`FlowDesignSystemTests.testHeroChipTextClearsTheBodyThreshold`）。
 /// 不单独进读屏：它总在一段合成标签里。
 struct FlowHeroPill: View {

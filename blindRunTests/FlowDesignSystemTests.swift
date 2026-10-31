@@ -335,9 +335,7 @@ final class FlowDesignSystemTests: XCTestCase {
         // FE-3：跑步中暂停时整张头卡换这个色，上面是同一套半透明白字。
         (AppColors.Flow.statePausedTone, "跑步中 · 已暂停"),
         // 2026-10-13 定稿 v6：不再有白卡。
-        (AppColors.Flow.stateMatchingTone, "匹配 / 邀请"),
-        (AppColors.Flow.stateCallingTone, "先通个电话 · 通话前"),
-        (AppColors.Flow.stateCalledTone, "先通个电话 · 通话后"),
+        (AppColors.Flow.stateMatchingTone, "匹配 / 邀请 / 先通个电话"),
     ]
 
     /// 钉住跑步中青绿**这个色值**：`heroStates` 只验对比度，取值被改成别的深色也照样绿。
@@ -380,19 +378,17 @@ final class FlowDesignSystemTests: XCTestCase {
         }
     }
 
-    /// 通话页的剩余时间胶囊（`FlowHeroPill`）：白字压「白 12% 叠头卡色」。只用在紫 / 梅红上；
-    /// 16% 时压紫只有 4.70 —— 那个取值在这里会红（见最后一行）。
+    /// 通话页的剩余时间胶囊（`FlowHeroPill`）：白字压「白 12% 叠头卡色」。通话整步沿用匹配钢蓝（视觉稿 v2 决定 1）。
+    /// 20% 时压钢蓝只有 4.34 —— 那个取值在这里会红（见最后一行）。#446 前验红用的是紫色 16%，紫色已删。
     func testHeroChipTextClearsTheBodyThreshold() {
         let F = AppColors.Flow.self
-        for (tone, name) in [(F.stateCallingTone, "通话前"), (F.stateCalledTone, "通话后"), (F.stateMatchingTone, "匹配")] {
-            for (appearance, hero) in [("亮色", tone.light), ("暗色", tone.dark)] {
-                let chip = Self.white(FlowMetrics.heroChipWhiteOpacity, over: hero)
-                assertContrast(0xFFFFFF, chip, Self.textMinimum, appearance, "\(name)：头卡小胶囊")
-            }
+        for (appearance, hero) in [("亮色", F.stateMatchingTone.light), ("暗色", F.stateMatchingTone.dark)] {
+            let chip = Self.white(FlowMetrics.heroChipWhiteOpacity, over: hero)
+            assertContrast(0xFFFFFF, chip, Self.textMinimum, appearance, "匹配：头卡小胶囊")
         }
         XCTAssertLessThan(
-            Self.contrastRatio(0xFFFFFF, Self.white(0.16, over: F.stateCallingTone.light)), 4.75,
-            "16% 的余量太薄，别为了「更显眼」调回去"
+            Self.contrastRatio(0xFFFFFF, Self.white(0.20, over: F.stateMatchingTone.light)), Self.textMinimum,
+            "胶囊底再白一点白字就不达标，别为了「更显眼」调高"
         )
     }
 
