@@ -1,6 +1,6 @@
 # 助盲跑 AidRun iOS 客户端
 
-AidRun helps blind and low-vision runners book a sighted volunteer guide, and supports the run itself with live location, voice feedback and VoiceOver. This repository holds the native iOS client, written in SwiftUI. The backend and the Android client live in private repositories and talk to this app through an API, so this repository alone does not run the full service. The project is pre-launch: testing is by invitation, and no blind or low-vision runner has completed a full order with it yet. No open source license has been chosen yet; see [许可证](#许可证).
+AidRun helps blind and low-vision runners book a sighted volunteer guide, and supports the run itself with live location, voice feedback and VoiceOver. This repository holds the native iOS client, written in SwiftUI. The backend and the Android client live in private repositories and talk to this app through an API, so this repository alone does not run the full service. The project is pre-launch: testing is by invitation, and no blind or low-vision runner has completed a full order with it yet. The project's own code is licensed under Apache-2.0; third-party SDKs are excluded, see [许可证](#许可证).
 
 ## 帮助谁
 
@@ -136,4 +136,12 @@ node scripts/validate-docs.mjs
 
 ## 许可证
 
-许可证尚未确定，仓库里还没有 `LICENSE` 文件。在它加入之前，本仓库的代码没有授予开源许可。
+本项目自己的代码和文档使用 [Apache License 2.0](LICENSE)。
+
+第三方组件是例外，不受这份许可证覆盖：
+
+- `Vendor/AliyunCloudAuth/` 里的阿里云实人认证 SDK 是闭源商业软件。
+- 高德地图 SDK 是闭源商业软件，由 CocoaPods 下载，不存放在本仓库里。
+- 开源依赖和 `.claude/skills/swiftui-pro/` 使用各自的许可证。
+
+各组件的条款见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
