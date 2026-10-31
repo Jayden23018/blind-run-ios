@@ -1165,7 +1165,8 @@ struct BlindBookingView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if !placesVoiceControlsBeside {
-                submitArea
+                // 整条底栏的范围：审计按它判「内容滚到栏后面」，不按文案放行（`AccessibilityAuditTests+Audit`）。
+                submitArea.accessibilityElement(children: .contain).accessibilityIdentifier("blindBookingBottomBar")
             }
         }
         .safeAreaInset(edge: .trailing, spacing: 0) {
@@ -2224,7 +2225,7 @@ struct BlindBookingView: View {
             VoiceTextField(
                 title: "路线备注",
                 placeholder: "例如：沿公园慢跑一圈",
-                text: $viewModel.routeNotes,
+                text: $viewModel.routeNotes, allowsLineBreaks: true,
                 speechInputService: speechInputService,
                 speechService: speechService,
                 speechField: .destinationRoute,
