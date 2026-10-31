@@ -79,7 +79,7 @@ extension AccessibilityAuditTests {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "标签栏没起来")
         tabBar.buttons["我的"].tap()
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 10), "「我的」里没有设置页")
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 10), "没有进到「我的」")
         let row = navigationRow(app, labelBeginsWith: "个人资料")
         XCTAssertTrue(swipeUntilHittable(row, in: app), "设置页没有「个人资料」")
         row.tap()
