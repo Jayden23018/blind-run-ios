@@ -1463,7 +1463,7 @@ struct VolunteerRegistrationFlowView: View {
                 Button("刷新注册状态") {
                     viewModel.refreshStatus()
                 }
-                .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+                .buttonStyle(TextButtonStyle(alignment: .center))
                 .accessibilityLabel("刷新注册状态")
                 .accessibilityHint("重新查询志愿者注册是否已完成")
             } else {
@@ -1479,7 +1479,7 @@ struct VolunteerRegistrationFlowView: View {
                     Button("返回修改身份信息") {
                         viewModel.returnToBasicInfoForIdentityEdit()
                     }
-                    .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+                    .buttonStyle(TextButtonStyle(alignment: .center))
                     .accessibilityLabel("返回修改身份信息")
                     .accessibilityHint("返回基本信息页面修改姓名和身份证号码")
                 }
@@ -1488,7 +1488,7 @@ struct VolunteerRegistrationFlowView: View {
                     Button("查询活体认证结果") {
                         Task { await viewModel.pollFaceVerifyResultUntilFinished() }
                     }
-                    .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+                    .buttonStyle(TextButtonStyle(alignment: .center))
                     .disabled(viewModel.isPollingFaceResult)
                     .accessibilityLabel("查询活体认证结果")
                 }
@@ -1629,7 +1629,7 @@ struct VolunteerRegistrationFlowView: View {
                 viewModel.prepareReturnToVolunteerHome()
                 dismiss()
             }
-            .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+            .buttonStyle(TextButtonStyle(alignment: .center))
             .accessibilityLabel("返回志愿者首页")
             .accessibilityHint("材料审核通过后才能接单")
 
@@ -1640,7 +1640,7 @@ struct VolunteerRegistrationFlowView: View {
             Button("改用人脸认证") {
                 viewModel.returnToFaceVerification()
             }
-            .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+            .buttonStyle(TextButtonStyle(alignment: .center))
             .accessibilityLabel("改用人脸认证")
             .accessibilityHint("回到活体认证页面，人脸认证通过后无需等待人工审核")
             .accessibilityIdentifier("volunteerReturnToFaceVerifyButton")

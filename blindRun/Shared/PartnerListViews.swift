@@ -278,7 +278,7 @@ struct BlindFavoriteVolunteersView: View {
                         await setFavorite(true, userId: userId, name: name, spokenName: spokenName)
                     }
                 }
-                .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+                .buttonStyle(TextButtonStyle(alignment: .center))
                 .disabled(busyUserId == userId)
                 .accessibilityLabel(PartnerStreakCopy.addFavoriteTitle(spokenName))
                 .accessibilityHint(PartnerStreakCopy.favoriteExplanation)

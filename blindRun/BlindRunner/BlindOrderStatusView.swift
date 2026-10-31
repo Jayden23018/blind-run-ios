@@ -2829,7 +2829,7 @@ struct BlindOrderStatusView: View {
                 // 描边次按钮：底部「完成」是这一屏唯一的实心主按钮（设计稿 ④；2026-10-05 评审第 2 条）。提交中淡下去并换文案。
                 Button(viewModel.isSubmittingReview ? "正在提交…" : "提交评价") { Task { await viewModel.submitReview() } }
                     .buttonStyle(OutlineSecondaryButtonStyle()).disabled(viewModel.isSubmittingReview)
-                .accessibilityLabel("提交评价")
+                .accessibilityLabel(viewModel.isSubmittingReview ? "正在提交评价" : "提交评价")
                 .accessibilityHint("提交本次服务评分和评价")
 
                 Button("跳过评价并返回首页") {
@@ -2886,7 +2886,7 @@ struct BlindOrderStatusView: View {
                     Button(PartnerStreakCopy.addFavoriteTitle(name)) {
                         Task { await viewModel.addVolunteerToFavorites() }
                     }
-                    .buttonStyle(TextButtonStyle(tint: AppColors.primary, alignment: .center))
+                    .buttonStyle(TextButtonStyle(alignment: .center))
                     .disabled(viewModel.isUpdatingFavorite)
                     // 🔴 承诺只能说到「更可能」。收藏加的 15 分在满分 100 的五维加权和之外，
                     // 附近有个不错的陌生人时固定搭档仍然会输 —— 说「优先派给他」是承诺一件系统做不到的事。
