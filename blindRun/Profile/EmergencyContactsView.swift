@@ -352,7 +352,7 @@ struct EmergencyContactsView: View {
                 Button {
                     editingTarget = .new
                 } label: {
-                    contactsActionLabel("新增紧急联系人", systemImage: "plus")
+                    contactsActionLabel("新增紧急联系人", systemImage: "plus", isEnabled: viewModel.canAddContact)
                 }
                 .disabled(!viewModel.canAddContact || viewModel.isMutating)
                 .accessibilityLabel("新增紧急联系人")
@@ -405,7 +405,7 @@ struct EmergencyContactsView: View {
         )
     }
 
-    private func contactsActionLabel(_ title: String, systemImage: String) -> some View {
+    private func contactsActionLabel(_ title: String, systemImage: String, isEnabled: Bool = true) -> some View {
         HStack(spacing: AppSpacing.small) {
             Image(systemName: systemImage)
                 .accessibilityHidden(true)
@@ -413,7 +413,8 @@ struct EmergencyContactsView: View {
                 .font(AppFonts.body().weight(.semibold))
             Spacer(minLength: 0)
         }
-        .foregroundColor(AppColors.primary)
+        // 写死颜色后系统不再把禁用态变灰，要自己分开。
+        .foregroundColor(isEnabled ? AppColors.primary : AppColors.textSecondary)
         .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
         .contentShape(Rectangle())
     }
@@ -452,7 +453,7 @@ struct EmergencyContactsView: View {
         }
         .disabled(viewModel.isMutating)
         .accessibilityLabel(viewModel.accessibilityLabel(for: contact))
-        .accessibilityHint("修改资料、设为主联系人或删除")
+        .accessibilityHint(contact.isPrimary == true ? "修改资料或删除" : "修改资料、设为主联系人或删除")
     }
 
     private func contactDetailLine(_ contact: EmergencyContactResponse) -> String {
@@ -502,6 +503,9 @@ struct EmergencyContactFormView: View {
     /// 确认弹窗必须挂在表单上：表单是 sheet，挂在被它盖住的列表页上的 alert 会被 SwiftUI 丢掉。
     @State private var showDeleteConfirmation = false
     @State private var showPrimaryConfirmation = false
+    /// 这两个动作的按钮在表单最下面，错误文字在它上方，大字号时已滚出屏幕，`Form` 不渲染屏幕外的行。
+    /// 所以失败要自己弹出来。
+    @State private var showActionFailure = false
 
     /// 新增联系人有**外部副作用**：后端 `EmergencyContactService.addContact` 保存后会给这个第三方号码
     /// 发一条告知短信。盲人在按下「保存」之前有权知道这件事。
@@ -627,8 +631,22 @@ struct EmergencyContactFormView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("紧急情况下会优先联系\(displayName)。原主联系人会自动变为普通联系人。")
+            Text("紧急情况下会优先联系\(displayName)。原主联系人会自动变为普通联系人。\(unsavedEditsNotice)")
         }
+        .alert("紧急联系人提示", isPresented: $showActionFailure) {
+            Button("知道了", role: .cancel) { viewModel.isShowingFailure = false }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
+    }
+
+    /// 设为主联系人成功后表单就关了，改到一半的内容不会存下。
+    private var unsavedEditsNotice: String {
+        guard let contact else { return "" }
+        let isUnchanged = name == (contact.name ?? "")
+            && phone == (contact.phone ?? "")
+            && relationship == (contact.relationship ?? "")
+        return isUnchanged ? "" : "本页未保存的修改不会保留。"
     }
 
     private var displayName: String {
@@ -657,6 +675,7 @@ struct EmergencyContactFormView: View {
                     showDeleteConfirmation = true
                 } else {
                     viewModel.reportDeletionBlocked(contact)
+                    showActionFailure = true
                 }
             } label: {
                 contactActionLabel("删除联系人", color: AppColors.destructive)
@@ -675,11 +694,15 @@ struct EmergencyContactFormView: View {
             .contentShape(Rectangle())
     }
 
-    /// 动作成功才关页：失败时 `errorMessage` 显示在表单里，用户要留在这里看到它。
+    /// 动作成功才关页：失败时用户留在这里看到原因。
     private func perform(_ action: @escaping (EmergencyContactResponse) async -> Bool) {
         guard let contact else { return }
         Task {
-            if await action(contact) { onFinish() }
+            if await action(contact) {
+                onFinish()
+            } else {
+                showActionFailure = true
+            }
         }
     }
 
