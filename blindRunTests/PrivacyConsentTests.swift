@@ -276,7 +276,7 @@ final class PrivacyConsentTests: XCTestCase {
 
     /// #374：语音下单的转写文字会交给第三方大模型，这件事必须在三处都点名 ——
     /// 首启告知（含首屏摘要）、内置隐私政策、语音下单前的单独同意页。少一处，
-    /// 用户在那一处读到的就是「只用于识别这一单」，而没有说它会被交给谁。
+    /// 用户在那一处读到的就是「只用于识别此订单」，而没有说它会被交给谁。
     func testEveryPlaceThatDescribesVoiceOrderingNamesTheThirdPartyLLM() throws {
         let launch = PrivacyConsentPurpose.appLaunch.disclosures
         let voiceLine = try XCTUnwrap(launch.first { $0.hasPrefix("语音下单会录下你说的话") })
@@ -340,21 +340,25 @@ final class PrivacyConsentTests: XCTestCase {
             // 2026-10-09 高德那句改按 iOS 条目写（去掉安卓合包才有的 Wi-Fi、基站），v3 未发布，版本号不再 +1。
             // 2026-10-10 指纹变了**且版本号 3 → 4**，「行为变了」那一档：新的接收方阿里云通义千问（#374）——
             // 语音下单的转写文字由后端交给它理解。#365 的 v3 未随任何构建发布，所以 +1 不拦任何真实老用户。
-            .appLaunch: (4, 528_145_870),
+            // 2026-10-31 指纹变了而版本号不动：称呼改成「此订单」「陪跑员」（#558），收集范围、用途、
+            // 接收方、保存期限都没变，属「同一行为换个说法」。同日改的还有下面 blindIdentity、
+            // blindVisionProfile、blindLocationTrack、volunteerLocationTrack 四行，判断相同。
+            .appLaunch: (4, 486_377_034),
             // 2026-09-10 指纹又变了而版本号仍不动，同样是**有意的**：
             // 第 4 条里把「视力状况」加进敏感信息那一句。这两个字段的收集、用途、接收方、
             // 保留规则一个字节都没改（iOS 侧此前压根没有采集入口，值来自后端建档默认值），
             // 变的只是我们把它的**分类**说准了 —— PIPL 第二十八条「特定身份」，
             // 依据链见 `docs/research/vision-level-collection-ui-20260910.md`。
             // 属「同一行为换个说法」，不属「行为变了」。
-            .blindIdentity: (1, 997_349_647),
+            .blindIdentity: (1, 525_013_232),
             .volunteerIdentity: (1, 57_319_275),
-            .blindVisionProfile: (1, 237_038_544),
+            .blindVisionProfile: (1, 72_001_287),
             .voiceOrderThirdPartyLLM: (1, 90_249_455),
             // 2026-10-14 新增（#368）。文案与安卓 `ConsentPurpose.kt` 的 BLIND_ / VOLUNTEER_LOCATION_TRACK 逐字一致，
             // 改这两行指纹时，去安卓仓库把同一段文案一起改（这里只拦得住 iOS 一侧单独变动）。
-            .blindLocationTrack: (1, 397_224_394),
-            .volunteerLocationTrack: (1, 204_043_472)
+            // 2026-10-31 的称呼改动由 Jayden23018/blind-run-android#416 同步。
+            .blindLocationTrack: (1, 605_998_375),
+            .volunteerLocationTrack: (1, 486_962_058)
         ]
 
         for purpose in PrivacyConsentPurpose.allCases {

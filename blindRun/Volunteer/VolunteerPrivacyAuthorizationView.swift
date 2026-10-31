@@ -5,7 +5,7 @@ import SwiftUI
 /// 陪跑员只有位置轨迹这一项单独同意（#368）。交互与盲人端（#393）同一套：管什么、当前状态、撤回按钮、结果留在页面上并朗读。
 enum VolunteerPrivacyCopy {
     static let locationTitle = "接单和陪跑时的位置共享"
-    static let locationPurpose = "打开接单开关后，为派单获取你的位置；接单后从出发到跑步结束，你的位置会显示给这一单的视障跑者。"
+    static let locationPurpose = "打开接单开关后，为派单获取你的位置；接单后从出发到跑步结束，你的位置会显示给此订单的视障跑者。"
     static let locationNotGranted = "当前：没有同意。下次打开接单开关、或已接的陪跑出发前会先问你。"
     static let locationRevokeButtonTitle = "撤回位置共享的同意"
     static let locationRevokeLabel = "撤回接单和陪跑时位置共享的同意。撤回后不再获取你的位置，接单开关会关闭"

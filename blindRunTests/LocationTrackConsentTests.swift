@@ -17,7 +17,7 @@ final class LocationTrackConsentTests: XCTestCase {
 
     // MARK: - 文案
 
-    /// 拒绝反馈三句与安卓逐字一致（告知七条由 `PrivacyConsentTests` 的指纹钉住）。
+    /// 拒绝反馈三句与安卓逐字一致（告知七条由指纹钉住）；同行态两句的称呼安卓由 blind-run-android#416 跟上。
     func testDeclinedFeedbackMatchesTheAndroidCopyVerbatim() {
         XCTAssertEqual(
             PrivacyConsentPurpose.blindLocationTrack.declinedFeedback,
@@ -29,8 +29,8 @@ final class LocationTrackConsentTests: XCTestCase {
         )
         // 同行态拒绝：两个角色出路不同（2026-10-14 负责人定）。盲人在出发 / 跑步中取消不了（契约 403 `ORDER_IN_PROGRESS`），
         // 所以盲人那句不许再出现「取消」；陪跑员三态都能取消，保留原句。
-        let blindEscort = "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以给志愿者打电话。"
-        let volunteerEscort = "没有共享位置。这一单对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
+        let blindEscort = "没有共享位置。此订单中对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以给陪跑员打电话。"
+        let volunteerEscort = "没有共享位置。此订单中对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
         XCTAssertEqual(PrivacyConsentPurpose.blindLocationTrack.escortDeclinedFeedback, blindEscort)
         XCTAssertEqual(PrivacyConsentPurpose.volunteerLocationTrack.escortDeclinedFeedback, volunteerEscort)
         XCTAssertFalse(blindEscort.contains("取消"), "盲人在同行态取消不了，不许指一条走不通的路")
