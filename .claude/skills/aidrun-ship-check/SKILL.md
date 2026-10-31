@@ -165,7 +165,15 @@ Apple 自己的立场是「审计是地板不是天花板」，且**只检查当
 > progressive disclosure（skill 注入不进缓存前缀，用到才付钱）。
 
 全量约 10 分钟、会超 Bash 600s 上限、还会撞上脚本的 preflight watchdog 反复被掐。
-**默认做法**：先查哪些用例真的碰了你改的东西，只跑那几个 suite。
+**默认做法**：先查哪些用例真的碰了你改的东西，只跑那些用例。能写到方法级就写到方法级。
+
+负责人 2026-10-31 第四次指出跑得太多（141 轮里三分之二的用例是重复，一半以上时间在编译安装）。
+一次超过 100 条，`device-test.sh` 在编译之前就拦下（#616），确实要跑才加 `AIDRUN_ALLOW_WIDE_RUN=1`，并先说明为什么。
+
+- 叠着的 PR 只在栈顶跑一次，结果写在栈顶，别的 PR 贴链接。
+- 跑之前先查 PR 评论：已有绿灯的不重跑，rebase 没改代码的不重跑。
+- 验红合成一轮：几处一次打回，跑一次。文案、纯重构、纯测试不验红。
+- 派子会话跑时，要它先报清单（多少条、几轮）。
 
 ```bash
 # ① 先定范围（把改动涉及的类型/方法名列进去）
@@ -179,9 +187,9 @@ for root, _, fs in os.walk('blindRunTests'):
         if n: print(f'{f}: {n} 处')
 PYEOF
 
-# ② 只跑命中的 suite
-scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
-                       -only-testing:blindRunTests/blindRunTests
+# ② 只跑命中的用例。`blindRunTests` 这个类有 310 条，别为一条用例带上整个类
+scripts/device-test.sh -only-testing:blindRunTests/PreciseLocationGateTests \
+                       -only-testing:blindRunTests/blindRunTests/testSomethingYouChanged
 ```
 
 **改共享单例也不全量**（负责人 2026-09-24 原话「每次只跑改了的部分，不要跑全量的测试」，

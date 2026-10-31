@@ -6,7 +6,8 @@ description: AidRun 真机跑测（scripts/device-test.sh）的跑前检查、�
 # AidRun 真机跑测
 
 真机是本仓库**唯一**的 XCTest 通道（高德无 arm64-sim slice，模拟器永久不可用）。
-跑多大范围（只跑改动覆盖的 suite）见 skill `aidrun-ship-check` §六，这里不重复。
+跑多大范围（只跑改动覆盖的用例）见 skill `aidrun-ship-check` §六，这里不重复。
+一次超过 100 条，`device-test.sh` 在编译之前就拦下（#616）。别急着放行，先按 §六缩小。
 
 > ⛔ **本文件不写任何具体的团队号、设备号、bundle id。** 它们都会变（2026-10-03 一天之内换过团队），
 > 每一项都给出「当场怎么查」。看到下面的 `<尖括号>` 就去跑旁边那条命令。

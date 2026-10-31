@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # device-test.sh 在 xcodebuild 之前那几道闸的自测：设备锁（1–3）、工作区完整性（4–5）、Xcode 图形界面占用（6–7）、
-# 个人前缀用独立 DerivedData（8–9，#452）。
+# 个人前缀用独立 DerivedData（8–10，#452）、一次跑多少条（11–12，#616）。
 #
 # 锁存在的理由见 device-test.sh 的「0. 设备互斥」注释：并发跑同一台真机会互相把
 # runner 装掉，两边都报 `Test crashed with signal kill`，与真回归无法区分。
@@ -198,6 +198,23 @@ case "$XCB_CMD" in
   *'${DERIVED_DATA_ARGS[@]+"${DERIVED_DATA_ARGS[@]}"}'*) ok "xcodebuild test 命令里展开了 DERIVED_DATA_ARGS" ;;
   '') bad "在 $SCRIPT 里找不到以「xcodebuild test \\」开头的那条命令，自测失去了对象" ;;
   *) bad "xcodebuild test 命令里没有展开 DERIVED_DATA_ARGS —— 算出的独立目录根本没传给 xcodebuild" ;;
+esac
+
+# ---- 11–12：一次跑多少条（device-test.sh 第 0.4 节，#616）----
+# 判定逻辑的边界在 scripts/validate-only-testing-estimate.mjs，这里只验脚本真的接上了：
+# 只有那份自测的话，把 0.4 节整段删掉它照样全绿。
+echo "[validate-device-lock] 11 裸跑超过上限，在编译之前就被拦下"
+ELEVENTH="$(AIDRUN_DEVICE_ID="$FAKE_ID" bash "$SCRIPT" 2>&1)"
+case "$ELEVENTH" in
+  *'超过上限'*'AIDRUN_ALLOW_WIDE_RUN=1'*) ok "裸跑被拦下，说明里给了放行开关" ;;
+  *) bad "裸跑没有被 100 条上限拦下：$ELEVENTH" ;;
+esac
+
+echo "[validate-device-lock] 12 AIDRUN_ALLOW_WIDE_RUN=1 放行"
+TWELFTH="$(AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_ALLOW_WIDE_RUN=1 bash "$SCRIPT" 2>&1)"
+case "$TWELFTH" in
+  *'超过上限'*) bad "设了 AIDRUN_ALLOW_WIDE_RUN=1 仍被拦下" ;;
+  *) ok "放行后往下走（假设备会在后面的闸停下，不碰真机）" ;;
 esac
 
 echo

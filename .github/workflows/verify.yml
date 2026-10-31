@@ -138,6 +138,10 @@ jobs:
       - name: validate only-testing coverage（每个 -only-testing 目标都要命中用例）
         run: node scripts/validate-only-testing-coverage.mjs
 
+      # 负责人 2026-10-31 定：一次超过 100 条用例就拦下（#616）。估算恒为 0 时闸会静默失效，自测对着真仓库核。
+      - name: validate only-testing estimate（一次跑多少条的上限）
+        run: node scripts/validate-only-testing-estimate.mjs
+
       # 真机只有一台而本机常开着多个会话。并发跑同一台设备时两边互相把 runner 装掉，
       # 报出的 `Test crashed with signal kill` 与真回归无法区分 —— 2026-09-05 一下午的
       # 结果因此作废。锁本身不碰真机，所以这条自测在 CI 上跑得了。
