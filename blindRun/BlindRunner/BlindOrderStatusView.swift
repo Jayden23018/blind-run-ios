@@ -2012,27 +2012,6 @@ struct BlindOrderStatusView: View {
         flowPresentation != nil
     }
 
-    private static let safetyRequestPresentDelay: UInt64 = 500_000_000
-    private static let safetyRequestOrderPollInterval: UInt64 = 100_000_000
-    private static let safetyRequestOrderPollLimit = 20
-
-    /// 订单页刚推上来时订单还在加载。等一下再判，否则网络一慢手势就多出求助中心这一层。
-    private func waitForOrderForSafetyRequest() async {
-        for _ in 0..<Self.safetyRequestOrderPollLimit where viewModel.order == nil {
-            try? await Task.sleep(nanoseconds: Self.safetyRequestOrderPollInterval)
-        }
-    }
-
-    /// 等过之后订单还没到时 `sosMode` 不是云端档，这时弹确认框，确认后会因为没有订单而零反应。
-    /// 所以落到求助中心：它按当前模式给出能按的选项，订单加载完自动换成云端档。
-    private func present(_ request: BlindOrderSafetyRequest) {
-        if request == .confirmEmergency, sosMode == .cloudTrigger {
-            showEmergencyConfirmation = true
-        } else {
-            showSafetyHub = true
-        }
-    }
-
     /// 进倒计时并把屏 3 呈上来。**两条触发路径共用这一个函数** —— 长按直接调，
     /// 轻点经二次确认后调。两处各写一遍的话，迟早只有一处记得打开那个全屏。
     private func startEmergencyCountdown() {
@@ -2654,16 +2633,13 @@ struct BlindOrderStatusView: View {
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
         }
-        // `.task(id:)` 同时盖住「订单页已在栈里」和「刚被推上来」两种到达顺序。
-        .task(id: safetyRequest.wrappedValue) {
-            guard let request = safetyRequest.wrappedValue else { return }
-            // 推入动画没结束时弹 alert 会被系统丢掉，而这是紧急入口，丢了就是按了没反应。
-            try? await Task.sleep(nanoseconds: Self.safetyRequestPresentDelay)
-            await waitForOrderForSafetyRequest()
-            guard !Task.isCancelled else { return }
-            safetyRequest.wrappedValue = nil
-            present(request)
-        }
+        .modifier(OrderSafetyRequestPresenter(
+            request: safetyRequest,
+            isOrderLoaded: { viewModel.order != nil },
+            isCloudMode: { sosMode == .cloudTrigger },
+            showConfirmation: { showEmergencyConfirmation = true },
+            showSafetyHub: { showSafetyHub = true }
+        ))
         // 全屏，不是 sheet：这一态盲人只有一件该做的事，而 sheet 会把订单页的内容
         // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。
         // 关闭只走「返回订单」按钮（`fullScreenCover` 本来就不能下滑关掉），
