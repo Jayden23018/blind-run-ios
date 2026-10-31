@@ -398,10 +398,10 @@ struct RunnerRunRecordView: View {
                     routeMap(geometry, record: record, height: 300)
                 }
                 header(content)
-                RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: retry)
                 if let narration = content.narration {
                     listenBlock(narration)
                 }
+                RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: retry) // 在「听」之后：头部右划一次就到「听」（§7 第 2 条）
                 if let sonification {
                     soundRouteBlock(sonification)
                 }

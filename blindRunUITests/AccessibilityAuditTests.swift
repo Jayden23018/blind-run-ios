@@ -1041,10 +1041,10 @@ final class AccessibilityAuditTests: XCTestCase {
     // MARK: - 记录 tab（OpenSpec `add-run-record-history-tab`）
 
     /// 记录页要拍的数据：Mock 的已完成单 #2（本月）+ 一张已取消单（`AIDRUN_UI_TEST_SEED_HISTORY`）。
-    private static let recordsSeed = ["AIDRUN_UI_TEST_SEED_HISTORY": "1"]
+    static let recordsSeed = ["AIDRUN_UI_TEST_SEED_HISTORY": "1"]
 
     @MainActor
-    private func openRecordsTab(_ app: XCUIApplication, title: String) {
+    func openRecordsTab(_ app: XCUIApplication, title: String) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
         tabBar.buttons["记录"].tap()
@@ -1095,7 +1095,7 @@ final class AccessibilityAuditTests: XCTestCase {
     // MARK: 陪跑员跑后详情（阶段 4）
 
     @MainActor
-    private func openVolunteerRunRecordDetail(_ app: XCUIApplication) {
+    func openVolunteerRunRecordDetail(_ app: XCUIApplication) {
         openRecordsTab(app, title: "陪跑记录")
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "陪", "公里")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的陪跑记录")
@@ -1123,6 +1123,9 @@ final class AccessibilityAuditTests: XCTestCase {
         let map = app.descendants(matching: .any)["runRecordMapDescription"].firstMatch
         XCTAssertTrue(map.exists, "地图的整体描述不在")
         XCTAssertTrue(map.label.contains("路线地图"), "地图描述：\(map.label)")
+        // 原型 data-vo：颜色的意思与最快的一公里（阶段 7 补）。
+        XCTAssertTrue(map.label.contains("颜色表示配速，蓝色快，黄色慢"), "地图描述：\(map.label)")
+        XCTAssertTrue(map.label.contains("第2公里最快"), "地图描述：\(map.label)")
         XCTAssertTrue(app.descendants(matching: .any)["runRecordDistance"].firstMatch.label.contains("3.2 公里"))
         let service = app.descendants(matching: .any)["runRecordServiceRow"].firstMatch
         XCTAssertTrue(service.exists, "志愿服务行不在")
@@ -1238,7 +1241,7 @@ final class AccessibilityAuditTests: XCTestCase {
     // MARK: 视障跑者跑后详情（阶段 5）
 
     @MainActor
-    private func openRunnerRunRecordDetail(_ app: XCUIApplication) -> XCUIElement {
+    func openRunnerRunRecordDetail(_ app: XCUIApplication) -> XCUIElement {
         openRecordsTab(app, title: "跑步记录")
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "和", "公里")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的跑步记录")

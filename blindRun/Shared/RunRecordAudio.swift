@@ -353,8 +353,13 @@ final class RunRecordAudioController: NSObject, ObservableObject {
     }
 
     func focusMoved(to identifier: String?) {
-        guard case .playing = state, identifier != activeControlIdentifier else { return }
-        pause()
+        guard identifier != activeControlIdentifier else { return }
+        switch state {
+        case .playing: pause()
+        // 声音路线还在渲染时焦点移走（HANDOFF §7 第 9 条）：取消这次开始，免得渲染完在用户已经离开时响起来。
+        case .preparing: stop()
+        case .idle, .paused: break
+        }
     }
 
     fileprivate func narrationEnded(_ ended: AVSpeechUtterance) {

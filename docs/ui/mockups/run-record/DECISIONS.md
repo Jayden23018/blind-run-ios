@@ -156,3 +156,13 @@
   - **只能人耳验、没验**：「朗读留言」的音色 / 语速 / 两条之间的停顿；朗读中 VoiceOver 焦点移开是否真停；朗读留言与讲述互相切换时有没有残音；发送失败时 `speakError` 是否念出、有没有被 VoiceOver 打断
 - 2026-09-25：**#197 已 squash 合并进 main（`a956e54`）**（CI 两项通过）。阶段 6 从 `main` 切分支即可，不用叠 PR。`add-runner-run-record-detail` 仍未归档（等 `enable-live-escort-location-and-track-summary`、`add-volunteer-run-record-detail` 先归档）
 - 2026-09-25：**#197 与 #203 已 squash 合并进 main**（负责人要求；#197 → `a956e54`，#203 → `93b2a98`，中间夹着别人合的 #195 契约同步）。#203 原先叠在 #197 上：#197 squash 后把 #203 rebase 到新 main（`--onto`，与 rebase 前只差一份无关调研文档）、force-push、改 base 为 `main`。force-push 后 GitHub 没自动触发 CI，用 `workflow_dispatch` 手动跑，两项通过；合并后 main 的 CI 两项通过。阶段 7 从 `main` 切分支即可，不用叠 PR。⚠️ 过程中 `/tmp/aidrun-stage6` 被外部清掉，一条 `cd … ; git rebase` 落到了主 checkout 上，已 `rebase --abort` 并切回原分支 `chore/auto-build-number`，无提交丢失
+- 2026-10-28：**阶段 7（无障碍走查）**，OpenSpec `audit-run-record-accessibility`，从 `/tmp` 抢救的草稿（#249）重做在新分支上。走查记录 `docs/review/run-record-accessibility-audit-20261028.md`。定下的事：
+  - **「快 ▬ 慢」图例画在 `RunRecordRouteMap` 里**，两个详情页同一处来；只有路线按配速着色（有 `RunPaceScale`）时才画，单色路线画图例是错的；图例对读屏隐藏，含义由地图描述说
+  - **掩码姓名的读屏标题走 `spokenNavigationTitle(_:spoken:)`**（principal 位置的 `Text` 换朗读串），`navigationTitle` 给不了单独的朗读串
+  - **掩码星号与撇号配速用整棵树扫描守**，不逐元素断言：新元素漏了星号不用有人想起来补断言也会红
+  - **跑者页无路线提示放在「听这次跑步」之后**：§7 第 2 条要求头部右划一次就到「听」
+  - **声音路线渲染中焦点移走 = 取消这次开始**（不是暂停）：渲染完在用户已离开时响起来比没响更糟
+  - **记录 tab「未完成的预约」字号审计判误报**（iOS 26 / 27 两次，AX-XXXL 截图字已放大），不加白名单，两条用例保持红
+  - **没做、已立 issue**：增强对比度（#579）、路线叙述 / 分段备注 / 途中记录措辞（#580）、Audio Graph 方向（#581）
+  - **没跑真机**：覆盖 suite 与四种外观截图（tasks 3.3 / 3.4）等真机；归档等 `add-volunteer-run-record-detail`、`add-runner-run-record-detail`、`add-run-record-messages` 先归档
+
