@@ -116,7 +116,7 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
             XCTAssertEqual(fixture.service.callCount("arrived(orderId:)"), 1, "前提：请求确实发出去了")
             XCTAssertTrue(fixture.page.didLoseOrder)
             XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(outcome)：\(fixture.speech.spokenHistoryForTesting)")
-            XCTAssertEqual(fixture.service.callCount("orderDetail(orderId:)"), 0, "\(outcome)：离开后还在拉这一单的确认")
+            XCTAssertEqual(fixture.service.callCount("orderDetail(orderId:)"), 0, "\(outcome)：离开后还在拉此订单的确认")
             XCTAssertEqual(fixture.page.transitionState, .idle, "\(outcome)")
         }
     }
@@ -280,7 +280,7 @@ extension VolunteerLostLeavesOrderTests {
             fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
             try await Task.sleep(nanoseconds: 300_000_000)
 
-            XCTAssertFalse(fixture.page.didLoseOrder, "\(status)：凭一条认不出订单的旧事件放下了手上这一单")
+            XCTAssertFalse(fixture.page.didLoseOrder, "\(status)：凭一条认不出订单的旧事件放下了手上此订单")
             XCTAssertEqual(fixture.page.order?.status, status, "\(status)")
             XCTAssertNotNil(fixture.home.activeOrder, "\(status)：首页的当前订单被清掉了")
             XCTAssertEqual(

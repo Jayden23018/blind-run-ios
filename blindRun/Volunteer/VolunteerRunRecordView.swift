@@ -71,7 +71,7 @@ struct VolunteerRunRecordContent {
     let spokenSendHint: String
 
     /// 原型的三个快捷短语，点一下把输入框换成「短语。」。
-    static let quickPhrases = ["节奏很稳", "下次试试再快一点", "折返配合得很好"]
+    static let quickPhrases = ["节奏很稳", "下次可以再快一点", "折返配合得很好"]
     static let partnerGoneNotice = "对方已注销账号，留言无法送达。"
 
     /// `messages` 传 view model 合并过的（含本页刚发出的），不传就用记录里的。
@@ -119,7 +119,7 @@ struct VolunteerRunRecordContent {
         serviceRange = serviceStart.flatMap { s in serviceEnd.map { "\(s)–\($0)" } }
 
         timeline = record.events.map { Self.timelineEntry($0) }
-        sosLine = record.sosTriggered ? "这一单触发过紧急求助" : "全程没有触发紧急求助"
+        sosLine = record.sosTriggered ? "此订单触发过紧急求助" : "全程没有触发紧急求助"
 
         mapDescription = Self.spokenMapDescription(record: record, spokenDistance: spokenDistance, geometry: geometry)
         let scale = RunPaceScale(samples: record.paceSamples)
@@ -616,7 +616,7 @@ struct RunRecordStatusNotice: View {
             .accessibilityIdentifier("runRecordGenerating")
         case .failed, .unknown:
             VStack(alignment: .leading, spacing: 12) {
-                Text(status == .failed ? "这条记录没能生成。" : "这条记录暂时无法显示。")
+                Text(status == .failed ? "记录生成失败。" : "这条记录暂时无法显示。")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.destructive)
                 RunRecordRetryButton(action: retry)

@@ -512,7 +512,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     /// 后端 200 的 `data` 缺失时的兜底播报。**不是错误文案**，端点已经成功了。
     static let declineFallbackAnnouncement =
         "已为你改用身份证二要素核验加人工审核。请上传能证明本人身份的材料，等待管理员审核。"
-    static let declineGenericFailureMessage = "暂时没能切换认证方式，请稍后再试一次。"
+    static let declineGenericFailureMessage = "认证方式切换失败，请稍后再试一次。"
     /// 409 之一：活体已经通过了。不能说「失败」，他其实已经认证完了。
     static let declineAlreadyVerifiedMessage = "你已完成人脸认证，无需再选择替代方式。"
     /// 409 之二：步骤位对不上，已经替他刷新。
@@ -1389,13 +1389,13 @@ struct VolunteerRegistrationFlowView: View {
                 .keyboardType(.phonePad)
             formField(title: "身份证号码", placeholder: "请输入18位身份证号码", text: $viewModel.idCardNumber)
                 .keyboardType(.asciiCapable)
-            formField(title: "跑步经验", placeholder: "描述您的跑步经验（选填）", text: $viewModel.runningExperience)
+            formField(title: "跑步经验", placeholder: "描述你的跑步经验（选填）", text: $viewModel.runningExperience)
 
             Toggle("是否有陪跑经验", isOn: $viewModel.hasGuidedBefore)
                 .font(AppFonts.body())
                 .accessibilityLabel("是否有陪跑经验")
 
-            formField(title: "急救经验", placeholder: "描述您的急救经验（选填）", text: $viewModel.emergencyExperience)
+            formField(title: "急救经验", placeholder: "描述你的急救经验（选填）", text: $viewModel.emergencyExperience)
 
             if let validationMessage = viewModel.basicInfoValidationMessage {
                 Text(validationMessage)
@@ -1563,7 +1563,7 @@ struct VolunteerRegistrationFlowView: View {
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("volunteerRegistrationCompleted")
 
-            Text("注册完成不会自动开启接单，请在志愿者首页手动开启可服务状态。")
+            Text("注册完成。接单开关默认关闭，可在首页开启。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
                 .multilineTextAlignment(.center)

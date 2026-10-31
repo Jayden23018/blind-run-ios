@@ -90,7 +90,7 @@ enum InviteCodeCopy {
     /// UNSET 用户调这个端点会 403。入口本就该放在设完角色之后，这一屏是防御分支。
     static let roleRequired = "需要先选择身份才能拿到邀请码。"
 
-    static let loadFailure = "暂时没能读到邀请码，请稍后重试。"
+    static let loadFailure = "邀请码加载失败，请稍后重试。"
     static let retry = "重新加载"
 
     static func countsText(_ response: InviteCodeResponse) -> String {

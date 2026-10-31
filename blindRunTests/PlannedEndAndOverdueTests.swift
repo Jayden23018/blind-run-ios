@@ -60,7 +60,7 @@ final class PlannedEndAndOverdueTests: XCTestCase {
         )
         let announcement = order.blindRunnerAnnouncement()
 
-        XCTAssertTrue(announcement.contains("服务已开始"), "状态本身仍要先说")
+        XCTAssertTrue(announcement.contains("陪跑已开始"), "状态本身仍要先说")
         XCTAssertTrue(announcement.contains("2026-08-13T10:30:00".displayDateTime))
         XCTAssertTrue(announcement.contains("结束"))
     }

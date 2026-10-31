@@ -530,7 +530,7 @@ final class IntroCallTests: XCTestCase {
             viewModel.stopPolling()
 
             XCTAssertTrue(didClose, "\(error) 没有收尾")
-            XCTAssertTrue(safety.calls.contains("matchedOrder(orderId:)"), "\(error) 没去判这一单是不是我的")
+            XCTAssertTrue(safety.calls.contains("matchedOrder(orderId:)"), "\(error) 没去判此订单是不是我的")
             XCTAssertNil(viewModel.errorMessage, "\(error) 是正常结束，不该挂「暂时拿不到」")
         }
     }
@@ -542,7 +542,7 @@ final class IntroCallTests: XCTestCase {
             XCTAssertFalse(IntroCallCopy.volunteerRoundClosed.contains(word), word)
         }
         XCTAssertFalse(
-            IntroCallCopy.volunteerMatchedAnnouncement(order: .preview(status: .pendingAccept)).contains("这一单是你的"),
+            IntroCallCopy.volunteerMatchedAnnouncement(order: .preview(status: .pendingAccept)).contains("此订单是你的"),
             "负责人 10-13：这一句不要"
         )
     }

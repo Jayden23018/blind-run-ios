@@ -40,7 +40,7 @@ struct VolunteerCancelSheet: View {
                 FlowActionButton(
                     copy.keep,
                     style: .primary,
-                    accessibilityHint: "关掉这一层，这一单仍然是你的"
+                    accessibilityHint: "关掉这一层，此订单仍然是你的"
                 ) {
                     onKeep()
                 }
@@ -62,7 +62,7 @@ struct VolunteerCancelSheet: View {
                 }
                 .disabled(isSubmitting)
                 .accessibilityLabel(copy.cancel)
-                .accessibilityHint("这一单会转给其他志愿者")
+                .accessibilityHint("此订单将转给其他陪跑员")
                 .accessibilityIdentifier("volunteerCancelSheetConfirm")
             }
             .padding(24)

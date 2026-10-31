@@ -255,7 +255,7 @@ final class ScheduledOrderTests: XCTestCase {
         XCTAssertEqual(
             VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [overdue], now: now, leadMinutes: 120)?.orderId,
             13,
-            "开跑时间已经过了 20 分钟，这一单比任何还没到点的都更该打开"
+            "开跑时间已经过了 20 分钟，此订单比任何还没到点的都更该打开"
         )
     }
 

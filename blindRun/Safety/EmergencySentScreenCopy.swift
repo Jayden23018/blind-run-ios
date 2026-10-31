@@ -19,7 +19,7 @@ extension EmergencySafetyCopy {
     static let uncertainCallDialogMessage = "请选择要拨打的号码。"
 
     /// 撤销降为底部一行弱化文字。可点高度仍是 64pt，点后照旧二次确认（`cancelOwnerConfirmation`）。
-    static let sentQuietCancelTitle = "误触了？撤销求助"
+    static let sentQuietCancelTitle = "撤销求助"
 
     /// 再按一次被并入同一条时的两行时间线（对读屏隐藏，正文那句已经说过）。
     static let sentTimelineFirstRow = "发出求助"

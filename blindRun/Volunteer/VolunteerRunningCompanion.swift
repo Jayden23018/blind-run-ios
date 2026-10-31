@@ -30,7 +30,7 @@ enum VolunteerRunCopy {
 
     // 求助面板
     static let helpTitle = "需要帮助？"
-    static let helpSubtitle = "打开这里不会暂停计时"
+    static let helpSubtitle = "计时不受影响"
     static func pauseRowTitle(_ name: String) -> String { "\(name)需要停下来" }
     /// 不写「并告知客服」：暂停后通知客服是后端的事（V8），客户端核实不了（同 `pausedBody`）。
     static let pauseRowSubtitle = "暂停计时，暂停期间不计志愿时长"

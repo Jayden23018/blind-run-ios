@@ -50,7 +50,7 @@ enum BlindArrivalCancelCopy {
     static let openAccessibilityHint = "双击后会先确认一次"
 
     /// 二次确认弹窗的正文。不说「取消预约」—— 这一刻人已经到了集合点，取消的是一次见面。
-    static let confirmationMessage = "确认取消本单？陪跑员会收到通知，这一单就结束了。"
+    static let confirmationMessage = "确认取消此订单？陪跑员会收到通知。"
 
     static let unlockedAnnouncement = "已经等满了。如果还没碰上陪跑员，现在可以取消本单。"
 
@@ -61,5 +61,5 @@ enum BlindArrivalCancelCopy {
     ///
     /// `ErrorCode.orderHasActiveEmergency.localizedMessage` 是写给陪跑员「结束服务」的，
     /// 而且刻意不提撤销（撤销对陪跑员恒 403）。跑者本人有撤销权，所以这里说出这条路。
-    static let activeEmergency = "这一单还有没结束的求助，现在还不能取消。可以先撤销求助，或者等客服处理完再取消。"
+    static let activeEmergency = "此订单还有没结束的求助，现在还不能取消。可以先撤销求助，或者等客服处理完再取消。"
 }

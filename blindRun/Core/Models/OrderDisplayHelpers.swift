@@ -414,18 +414,18 @@ extension RunOrderStatus {
         // 🚨 不提「第几位」「换了一位」「重新」——「无声拒绝」要求盲人无从得知自己被谁拒过。
         // 让他看到「第 3 位志愿者拒绝了你」，这个功能就从降低求助心理成本变成制造挫败。
         case .pendingIntroCall:
-            return "有位陪跑员想陪你跑。先打个电话聊聊，双方都觉得合适就算约好了。"
+            return "有陪跑员响应了你的预约。双方通话确认后，预约生效。"
         // 🚨 **不提临期闸门**：「他要在出发前确认，不确认就换人」是后端的内部机制，
         // 说出来只会让盲人在接下来的几天里替一件自己无法影响的事担心。真换了人他会收到
         // `SCHEDULED_DEPARTURE_GATE_MISSED`，那时再说不迟。
         // 也**不写具体提前多久确认** —— 那是后端配置（`departure-confirm-window-minutes`），
         // 写死就是编一个数字念给盲人听，同 `KeepWaitingCopy` 那条。
         case .scheduledConfirmed:
-            return "已经为你约好陪跑员。到出发前如果计划有变，可以打电话告诉他。"
+            return "预约已确认。计划有变可在出发前致电陪跑员。"
         case .pendingAccept:
             return "陪跑员已接单，请按预约时间前往或等待在出发地点。"
         case .inProgress:
-            return "服务已开始，请注意安全。"
+            return "陪跑已开始。"
         case .driverEnRoute:
             return "陪跑员已出发，正在前往出发地点。"
         // 🔴 不再说「请等待志愿者开始服务」：后端 #346 起盲人也能开始，而且陪跑员那一侧
@@ -435,7 +435,7 @@ extension RunOrderStatus {
         case .driverArrived:
             return RunOrderStatus.blindRunnerArrivedCopy
         case .completed:
-            return "服务已完成，感谢使用助盲跑。"
+            return "陪跑已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:
@@ -455,21 +455,21 @@ extension RunOrderStatus {
             return "订单提交成功，系统正在为你派单。"
         // 与 `blindRunnerDescription` 同一条无声拒绝口径：不出现轮次、不出现「换」。
         case .pendingIntroCall:
-            return "有位陪跑员想陪你跑，可以打个电话聊聊。"
+            return "有陪跑员响应了你的预约，请先与对方通话确认。"
         // 与 `blindRunnerDescription` 同一条口径：不提闸门、不写具体提前量。
         case .scheduledConfirmed:
-            return "已经为你约好陪跑员。到出发前如果计划有变，可以打电话告诉他。"
+            return "预约已确认。计划有变可在出发前致电陪跑员。"
         case .pendingAccept:
             return "陪跑员已接单，请前往或等待在预约出发地点。"
         case .inProgress:
-            return "服务已开始，请注意安全。"
+            return "陪跑已开始。"
         case .driverEnRoute:
             return "陪跑员已出发，正在前往出发地点。"
         // 与 `blindRunnerDescription` 同一句，理由写在那里。
         case .driverArrived:
             return RunOrderStatus.blindRunnerArrivedCopy
         case .completed:
-            return "服务已完成，感谢使用助盲跑。"
+            return "陪跑已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:
@@ -753,7 +753,7 @@ extension OrderDetailResponse {
         // 而他要在接下来几天里靠这句话安排自己的日程。
         case .scheduledConfirmed:
             guard let plannedStartForAnnouncement else { return status.blindRunnerAnnouncement }
-            return "已经为你约好陪跑员，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。到出发前如果计划有变，可以打电话告诉他。"
+            return "预约已确认，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。计划有变可在出发前致电陪跑员。"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
                 return "陪跑员已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)陪跑员出发后会继续通知你。"

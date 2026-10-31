@@ -23,7 +23,7 @@ enum RunPlanShareConsentCopy {
 
     static var allDisclosures: [String] { [whatIsShared, whoCanSee, howToStop] }
 
-    static let agreeButtonTitle = "我知道了，开始分享"
+    static let agreeButtonTitle = "开始分享"
     static let declineButtonTitle = "先不分享"
 
     /// 之后每次分享的简短确认。**不重复全文**（每次都念一遍长文本，用户会开始跳过它，

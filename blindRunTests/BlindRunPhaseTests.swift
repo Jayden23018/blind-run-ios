@@ -245,7 +245,7 @@ final class BlindRunPhaseTests: XCTestCase {
             .coldStart, order: order, stats: .previewFinished
         )
 
-        XCTAssertTrue(text.contains("服务已完成"), "状态那一半丢了")
+        XCTAssertTrue(text.contains("陪跑已完成"), "状态那一半丢了")
         XCTAssertTrue(text.contains("已跑 5.20 公里"), "数字那一半丢了 —— 它原先由被删掉的那句轨迹总结承担")
         XCTAssertTrue(text.contains("用时 33 分 41 秒"))
         XCTAssertTrue(text.contains("平均配速 6 分 28 秒每公里"))

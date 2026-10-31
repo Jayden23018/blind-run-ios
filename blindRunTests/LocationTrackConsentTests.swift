@@ -127,7 +127,7 @@ final class LocationTrackConsentTests: XCTestCase {
 
         coordinator.updateOwnedOrder(orderID: 93, status: .inProgress)
         _ = await Self.waitUntil(timeout: 0.3) { false }
-        XCTAssertNil(coordinator.pendingTrackConsent, "这一单不再问")
+        XCTAssertNil(coordinator.pendingTrackConsent, "此订单不再问")
         XCTAssertEqual(coordinator.healthState, .locationSharingDeclined(.volunteerLocationTrack))
         XCTAssertEqual(sent, 0)
         XCTAssertTrue(consent.recorded.isEmpty, "拒绝不许写成同意")
@@ -152,7 +152,7 @@ final class LocationTrackConsentTests: XCTestCase {
         coordinator.updateOwnedOrder(orderID: 97, status: .inProgress)
         _ = await Self.waitUntil(timeout: 0.3) { false }
 
-        XCTAssertNil(coordinator.pendingTrackConsent, "这一单已经拒绝过")
+        XCTAssertNil(coordinator.pendingTrackConsent, "此订单已经拒绝过")
         XCTAssertEqual(coordinator.healthState, .locationSharingDeclined(.blindLocationTrack))
         coordinator.reset()
         withExtendedLifetime(deps) {}
