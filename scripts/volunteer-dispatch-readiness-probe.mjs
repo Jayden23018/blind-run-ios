@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const baseURL = 'http://47.114.113.171';
+const baseURL = 'https://blindrun.culiu-tech.com';
 const phone = process.env.AIDRUN_DISPATCH_PROBE_PHONE;
 const fallbackCode = process.env.AIDRUN_DISPATCH_PROBE_CODE ?? '000000';
 const shouldSendCode = process.env.AIDRUN_DISPATCH_PROBE_SKIP_SEND_CODE !== '1';

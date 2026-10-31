@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // 管理员账号不设默认值：仓库是公开的，凭证向后端负责人索取后只放在环境变量里。
-const baseURL = process.env.AIDRUN_ADMIN_BASE_URL ?? 'https://47.114.113.171';
+const baseURL = process.env.AIDRUN_ADMIN_BASE_URL ?? 'https://blindrun.culiu-tech.com';
 const username = process.env.AIDRUN_ADMIN_USERNAME;
 const password = process.env.AIDRUN_ADMIN_PASSWORD;
 const explicitUserId = process.env.AIDRUN_ADMIN_REVIEW_USER_ID;
@@ -21,7 +21,7 @@ function usage() {
     '  AIDRUN_ADMIN_PASSWORD=<password>      Ask the backend owner. No default.',
     '',
     'Optional:',
-    '  AIDRUN_ADMIN_BASE_URL=<url>           Default: https://47.114.113.171.',
+    '  AIDRUN_ADMIN_BASE_URL=<url>           Default: https://blindrun.culiu-tech.com.',
     '  AIDRUN_ADMIN_REVIEW_PHONE=<phone>       Find userId from pending review lists.',
     '  AIDRUN_ADMIN_REVIEW_KIND=id|cert|both  Default: id.',
     '  AIDRUN_ADMIN_APPROVED=0                Reject instead of approve.',

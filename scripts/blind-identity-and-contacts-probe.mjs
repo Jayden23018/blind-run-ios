@@ -13,7 +13,7 @@
 // AIDRUN_BLIND_PROBE_CONTACT_PHONES 必须是**你本人控制的**号码列表，逐个列全。
 // 早先的版本只收一个号码再把末两位换成序号，那样发出去的短信会打到陌生人手机上。
 
-const baseURL = 'http://47.114.113.171';
+const baseURL = 'https://blindrun.culiu-tech.com';
 const phone = process.env.AIDRUN_BLIND_PROBE_PHONE;
 const contactPhonesRaw = process.env.AIDRUN_BLIND_PROBE_CONTACT_PHONES;
 const fallbackCode = process.env.AIDRUN_BLIND_PROBE_CODE ?? '000000';
