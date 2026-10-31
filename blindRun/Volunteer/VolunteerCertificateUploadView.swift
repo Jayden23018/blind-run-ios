@@ -105,7 +105,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .notSubmitted:
             return "尚未提交资质证书，当前无法接单。请上传资质证书图片或 PDF，提交后由管理员审核。"
         case .pending:
-            return "资质证书已提交，正在等待管理员审核。审核通过后即可接单。"
+            return "资质证书已提交，正在等待管理员审核。审核期间暂时无法接单。"
         case .approved:
             return "资质证书已通过审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
@@ -130,7 +130,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .notSubmitted:
             return "尚未提交身份材料，当前无法接单。请上传能证明本人身份的材料，图片或 PDF 均可，提交后由管理员人工审核。该方式审核时间较长，但结果等效。"
         case .pending:
-            return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核通过后即可接单。"
+            return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核期间暂时无法接单。"
         case .approved:
             return "身份材料已通过人工审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:

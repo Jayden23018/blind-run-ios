@@ -4950,7 +4950,7 @@ final class blindRunTests: XCTestCase {
                 announcement.contains(distanceText),
                 "\(status.rawValue) announcement should include volunteer distance to the start point"
             )
-            XCTAssertFalse(announcement.contains("距你"))
+            XCTAssertFalse(announcement.contains("距您"))
         }
     }
 
@@ -5873,7 +5873,7 @@ final class blindRunTests: XCTestCase {
         // 已评价不是失败：页面切到已评价态，不显示错误。
         XCTAssertTrue(viewModel.didSubmitReview)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "你已评价过此订单。")
+        XCTAssertEqual(speechService.lastSpokenText, "您已评价过此订单。")
         XCTAssertFalse(
             (speechService.lastSpokenText ?? "").contains("进行中的订单"),
             "重复评价被念成了下单受阻的文案"
@@ -5903,7 +5903,7 @@ final class blindRunTests: XCTestCase {
 
         // 止血补丁撤除后，本地文案不再被后端 message 顶掉。
         let error = APIError.serverError(
-            ErrorResponse(code: "DUPLICATE_ORDER", message: "你有进行中的订单，请完成后再下单")
+            ErrorResponse(code: "DUPLICATE_ORDER", message: "您有进行中的订单，请完成后再下单")
         )
         XCTAssertEqual(error.localizedMessage, ErrorCode.duplicateOrder.localizedMessage)
     }

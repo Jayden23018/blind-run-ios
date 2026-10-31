@@ -14,11 +14,11 @@ import XCTest
 final class AccountDeletionBlockedTests: XCTestCase {
 
     private static let emergencyBlockedBody = #"""
-    {"success":false,"code":409,"errorCode":"ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED","message":"你有未结束的紧急求助，请等待客服处理完毕后再注销","data":null}
+    {"success":false,"code":409,"errorCode":"ACTIVE_EMERGENCY_ACCOUNT_DELETION_BLOCKED","message":"您有未结束的紧急求助，请等待客服处理完毕后再注销","data":null}
     """#
 
     private static let orderBlockedBody = #"""
-    {"success":false,"code":409,"errorCode":"ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED","message":"你有进行中的订单，无法注销","data":null}
+    {"success":false,"code":409,"errorCode":"ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED","message":"您有进行中的订单，无法注销","data":null}
     """#
 
     override func tearDown() {

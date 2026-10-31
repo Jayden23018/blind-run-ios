@@ -609,7 +609,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 41,
-            body: "本次跑步已结束，感谢你的使用",
+            body: "本次跑步已结束，感谢您的使用",
             priority: "NORMAL",
             eventType: "ORDER_COMPLETED"
         )))
@@ -632,7 +632,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 42,
-            body: "已为你重新匹配志愿者张三，服务即将开始",
+            body: "已为您重新匹配志愿者张三，服务即将开始",
             priority: "NORMAL",
             eventType: "REMATCH_ACCEPTED"
         )))
@@ -640,7 +640,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(
             coordinator.currentNotification?.speechText,
-            "已为你重新匹配志愿者张三，服务即将开始"
+            "已为您重新匹配志愿者张三，服务即将开始"
         )
     }
 
@@ -663,7 +663,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 60,
-            body: "你的订单即将因长时间无人接单被取消，点击继续等待可延长",
+            body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
             priority: "HIGH",
             eventType: "ORDER_CANCELLATION_WARNING"
         )))
@@ -698,7 +698,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.attach(to: service, role: .blind)
         coordinator.registerActiveOrder(9, status: .rematching)
 
-        let backendBody = "你的订单即将因长时间无人接单被取消，点击继续等待可延长"
+        let backendBody = "您的订单即将因长时间无人接单被取消，点击继续等待可延长"
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 61,
             body: backendBody,
@@ -722,7 +722,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 62,
-            body: "你的订单即将因长时间无人接单被取消，点击继续等待可延长",
+            body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
             priority: "HIGH",
             eventType: "ORDER_CANCELLATION_WARNING"
         )))
@@ -754,7 +754,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 63,
-            body: "你的订单即将因长时间无人接单被取消，点击继续等待可延长",
+            body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
             priority: "HIGH",
             eventType: "ORDER_CANCELLATION_WARNING"
         )))
@@ -780,7 +780,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         // 同一账号的另一张远期单，与这条预警无关。
         coordinator.registerActiveOrder(11, status: .driverEnRoute)
 
-        let backendBody = "你的订单即将因长时间无人接单被取消，点击继续等待可延长"
+        let backendBody = "您的订单即将因长时间无人接单被取消，点击继续等待可延长"
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 64,
             body: backendBody,
@@ -826,8 +826,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
             MissedNotificationResponse(
                 id: 900,
                 eventType: "ORDER_CANCELLATION_WARNING",
-                body: "你的订单即将因长时间无人接单被取消，点击继续等待可延长",
-                ttsText: "你的订单即将因长时间无人接单被取消，点击继续等待可延长",
+                body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
+                ttsText: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
                 priority: "HIGH",
                 sentAt: "2026-09-16T08:00:00Z",
                 orderId: 9
@@ -1357,7 +1357,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
             eventId: 77,
             eventType: "EMERGENCY_CONTACT_NOTIFIED",
             title: nil,
-            body: "已通过短信通知你的联系人张三",
+            body: "已通过短信通知您的联系人张三",
             ttsText: "已通知你的联系人张三，请保持冷静",
             priority: "HIGH",
             timestamp: nil

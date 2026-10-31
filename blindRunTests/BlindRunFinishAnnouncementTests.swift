@@ -111,7 +111,7 @@ final class BlindRunFinishAnnouncementTests: XCTestCase {
 
         XCTAssertEqual(speech.spokenHistoryForTesting.count, 1, "冷启动也只该有一句")
         let spoken = speech.spokenHistoryForTesting.first ?? ""
-        XCTAssertTrue(spoken.contains("服务已完成"), "状态那一半丢了：\(spoken)")
+        XCTAssertTrue(spoken.contains("陪跑已完成"), "状态那一半丢了：\(spoken)")
         XCTAssertTrue(spoken.contains("已跑 5.20 公里"), "数字那一半丢了：\(spoken)")
         XCTAssertTrue(spoken.contains("平均配速 6 分 28 秒每公里"), "配速标签或数值不对：\(spoken)")
         XCTAssertFalse(spoken.contains("结束了本次陪跑"), "三天前的事不该说成刚刚发生：\(spoken)")
