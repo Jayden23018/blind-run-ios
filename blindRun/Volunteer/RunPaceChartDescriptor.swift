@@ -21,9 +21,19 @@ struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
         return parts.joined(separator: "，")
     }
 
+    /// Audio Graph 的纵轴取**速度**（公里 / 小时）而不是配速秒数（#581）。
+    ///
+    /// Audio Graph 数值越大音越高。配速秒数越大越慢，直接画会是「高 = 慢」，
+    /// 而跑者页的声音路线是「跑得越快音越高」（HANDOFF §6.3）—— 同一个 App 两种声音图方向相反，听过一边再听另一边会听反。
+    /// 换成速度后两处都是「高 = 快」；读出来的值仍换回配速（`spokenPace`），用户听到的单位不变。
+    static func audioGraphValue(paceSecPerKm: Int) -> Double {
+        paceSecPerKm > 0 ? 3600 / Double(paceSecPerKm) : 0
+    }
+
     func makeChartDescriptor() -> AXChartDescriptor {
-        let kilometres = samples.map { Double($0.distanceM) / 1000 }
-        let paces = samples.map { Double($0.paceSecPerKm) }
+        let valid = samples.filter { $0.paceSecPerKm > 0 }
+        let kilometres = valid.map { Double($0.distanceM) / 1000 }
+        let speeds = valid.map { Self.audioGraphValue(paceSecPerKm: $0.paceSecPerKm) }
         let xAxis = AXNumericDataAxisDescriptor(
             title: "距离",
             range: 0...(kilometres.max() ?? 0),
@@ -31,13 +41,13 @@ struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
         ) { "\($0.formatted(.number.precision(.fractionLength(0...2))))公里" }
         let yAxis = AXNumericDataAxisDescriptor(
             title: "配速",
-            range: (paces.min() ?? 0)...(paces.max() ?? 0),
+            range: (speeds.min() ?? 0)...(speeds.max() ?? 0),
             gridlinePositions: []
-        ) { RunRecordText.spokenPace(Int($0)) }
+        ) { $0 > 0 ? RunRecordText.spokenPace(Int((3600 / $0).rounded())) : "" }
         let series = AXDataSeriesDescriptor(
             name: "配速",
             isContinuous: true,
-            dataPoints: zip(kilometres, paces).map { AXDataPoint(x: $0, y: $1) }
+            dataPoints: zip(kilometres, speeds).map { AXDataPoint(x: $0, y: $1) }
         )
         return AXChartDescriptor(title: "配速图", summary: summary, xAxis: xAxis, yAxis: yAxis, additionalAxes: [], series: [series])
     }

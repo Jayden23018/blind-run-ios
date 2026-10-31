@@ -44,4 +44,27 @@ extension VolunteerRunRecordTests {
         let cadence = VolunteerRunRecordContent(record: record()).primaryStats.first { $0.label == "步频" }
         XCTAssertEqual(cadence?.spoken, "平均步频 每分钟162步")
     }
+
+    /// Audio Graph 与声音路线同方向：跑得越快值越大、音越高（#581）。直接用配速秒数会反过来。
+    func testAudioGraphPlotsFasterRunningHigher() {
+        let fast = RunPaceChartDescriptor.audioGraphValue(paceSecPerKm: 300)
+        let slow = RunPaceChartDescriptor.audioGraphValue(paceSecPerKm: 420)
+        XCTAssertGreaterThan(fast, slow, "5 分配速的值要高于 7 分配速")
+        XCTAssertEqual(fast, 12, accuracy: 0.001, "取速度：3600 ÷ 300 = 12 公里/小时")
+        XCTAssertEqual(RunPaceChartDescriptor.audioGraphValue(paceSecPerKm: 0), 0, "没有配速的点不画成无穷大")
+    }
+
+    /// 陪跑员页地图描述与跑者页同一个模板，带「最远跑到起点…」（#580）。
+    func testMapDescriptionSaysHowFarFromTheStartTheRunWent() {
+        let geometry = RunRouteGeometry(track: RunTrack(
+            coordSystem: "GCJ02",
+            startedAt: "2026-09-20T08:00:00",
+            points: [(0.0, 0), (1_000.0, 1_100), (0.0, 2_200)].enumerated().map {
+                RunTrackPoint(t: Double($0.offset), lat: 22.5 + $0.element.0 * 1e-5, lng: 113.9, d: $0.element.1)
+            }
+        ))
+        let description = VolunteerRunRecordContent(record: record(), geometry: geometry).mapDescription
+        XCTAssertTrue(description.contains("最远跑到起点"), description)
+    }
 }
+

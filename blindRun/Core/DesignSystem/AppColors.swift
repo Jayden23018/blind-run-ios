@@ -46,7 +46,16 @@ enum AppColors {
 
     /// 次级文本。系统的 `secondaryLabel` 在亮色下只有 3.26:1 —— 它是给「可以看不清」的
     /// 装饰性文本准备的，而本 App 用它承载状态说明和位置摘要，那是必须读得清的内容。
-    static let textSecondary = dynamic(0x5C5C61, 0xAEAEB2)
+    ///
+    /// 「增强对比度」打开时并到主文字（`label`），与 `Flow.secondaryText`、`HighContrastText` 同一个办法（#579）：
+    /// 用户显式要求增强时给到最高那一档。此前这里只看明暗，跑后记录等用 `AppColors` 的页面开了开关也没有变化。
+    static let textSecondary = Color(uiColor: textSecondaryUIColor)
+
+    /// `textSecondary` 的动态 `UIColor`，单独暴露给用例按 trait 解析（理由同 `tones`）。
+    static let textSecondaryUIColor = UIColor { traits in
+        if traits.accessibilityContrast == .high { return UIColor.label.resolvedColor(with: traits) }
+        return UIColor(rgb: traits.userInterfaceStyle == .dark ? 0xAEAEB2 : 0x5C5C61)
+    }
 
     /// 语音下单那块占满内容区的蓝底（`BlindBookingView.voiceStatusBlock`）。
     ///
