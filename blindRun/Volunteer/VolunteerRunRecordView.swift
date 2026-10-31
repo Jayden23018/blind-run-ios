@@ -797,6 +797,7 @@ private struct RunSplitList: View {
             Capsule()
                 .fill(color)
                 .frame(width: max(proxy.size.width * row.barFraction, 6))
+                .modifier(RunPaceBarBorder(shape: Capsule()))
         }
         .frame(height: 10)
         let layout = dynamicTypeSize.isAccessibilitySize

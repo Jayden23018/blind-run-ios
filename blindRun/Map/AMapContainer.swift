@@ -100,9 +100,8 @@ struct AMapContainer: UIViewRepresentable {
         mapView.showsScale = !nightSky
         // 跟随系统明暗（design-direction §2 的裁决），全 App 的地图都走这里。
         // 星火页在外面把环境锁成 `.dark`，于是同一条路径给它 `standardNight`。
-        let isDark = context.environment.colorScheme == .dark
-        context.coordinator.isDark = isDark
-        mapView.mapType = Self.mapType(isDark: isDark)
+        context.coordinator.routeContrast = RunPaceContrast(environment: context.environment)
+        mapView.mapType = Self.mapType(isDark: context.coordinator.isDark)
         context.coordinator.animates = !context.environment.accessibilityReduceMotion
         // AidRun updates peer/order markers at multi-second cadence and does not
         // perform in-app turn-by-turn navigation. A 10 fps ceiling is sufficient
@@ -140,11 +139,11 @@ struct AMapContainer: UIViewRepresentable {
             mapView.showsCompass = showsCompass
         }
 
-        let isDark = context.environment.colorScheme == .dark
-        if context.coordinator.isDark != isDark {
-            context.coordinator.isDark = isDark
-            mapView.mapType = Self.mapType(isDark: isDark)
-            // 跑后路线的配速色亮暗不同值：三层一起删，由下面的 syncPolylines 按数组顺序、按新配色加回，
+        let routeContrast = RunPaceContrast(environment: context.environment)
+        if context.coordinator.routeContrast != routeContrast {
+            context.coordinator.routeContrast = routeContrast
+            mapView.mapType = Self.mapType(isDark: routeContrast.isDark)
+            // 跑后路线的配速色亮暗不同值、描边随「增强对比度」变宽：三层一起删，由下面的 syncPolylines 按数组顺序、按新配色加回，
             // 叠放顺序才不会乱。
             for (id, entry) in context.coordinator.polylinesByID where entry.routeStyle != nil {
                 context.coordinator.remove(entry, from: mapView)
@@ -404,7 +403,8 @@ struct AMapContainer: UIViewRepresentable {
         var styledAnnotationsByID: [String: StyledMapPointAnnotation] = [:]
         var polylinesByID: [String: PolylineEntry] = [:]
         var lastFittedPrimarySignature: String?
-        var isDark = false
+        var routeContrast = RunPaceContrast() // 明暗 + 「增强对比度」：跑后路线的配色与描边宽度都取自它（#579）
+        var isDark: Bool { routeContrast.isDark }
         /// `false` = 系统「减弱动态效果」打开：星不闪、不按距离点亮、足迹上没有流动光点。
         var animates = true
         /// 星火页第一批星加进地图的时刻，点亮延迟从这里起算。
@@ -549,7 +549,7 @@ struct AMapContainer: UIViewRepresentable {
             }
             guard let polyline = overlay as? MAPolyline else { return nil }
             if let style = polylinesByID.values.first(where: { $0.overlay === polyline })?.routeStyle {
-                return RunRouteGlyph.renderer(for: polyline, style: style, isDark: isDark)
+                return RunRouteGlyph.renderer(for: polyline, style: style, contrast: routeContrast)
             }
             let renderer = MAPolylineRenderer(polyline: polyline)
             if polylinesByID.values.contains(where: { $0.glow === polyline }) {
