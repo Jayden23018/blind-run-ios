@@ -56,7 +56,7 @@ enum AppColors {
     /// `LowVisionChannelTests.testVoiceStageSurfaceKeepsWhiteTextReadable`：白字压在
     /// 它上面，亮暗两套都要过 4.5:1。
     ///
-    /// 暗色**不能**沿用 `primary` 的 `#0A84FF`：白字压上去只有 3.38:1，正文不达标。
+    /// 暗色**不能**沿用 `primary` 的 `#0A84FF`：白字压上去只有 3.65:1，正文不达标。
     /// 而这一块是**整个内容区**而不是一枚按钮，大面积亮蓝在暗色下也刺眼。
     /// `#0B4DA2` 白字 8.08:1。
     static let voiceStageSurface = dynamic(voiceStageSurfaceTone.light, voiceStageSurfaceTone.dark)
@@ -83,6 +83,17 @@ enum AppColors {
         availabilityOnSurfaceTone.light,
         availabilityOnSurfaceTone.dark
     )
+
+    /// 语音输入框的麦克风按钮「正在录音」时的底色（`VoiceTextField`），上面是白色麦克风图标。
+    ///
+    /// **同 `availabilityOnSurface` 的形状**：语义色当背景、白色压在上面，所以不进 `tones`。
+    /// 🔴 暗色不能沿用 `warning` 的 `#FF9F0A`：白图标压上去只有 **2.06:1**，低于图形对象的 3:1（WCAG 1.4.11），
+    /// 低视力用户在暗色下看不出「正在录音」（#562）。`warning` 本身暗色要亮，因为它在别处当文字压黑底。
+    /// 亮暗都取 `#B25000`（亮色 `warning` 同值）：白图标 5.20:1，按钮压黑底 4.04:1、压 `#1C1C1E` 3.27:1。
+    /// 自己的检查在 `LowVisionChannelTests.testRecordingSurfaceKeepsWhiteIconReadable`。
+    static let recordingSurfaceTone = Tone(light: 0xB25000, dark: 0xB25000)
+
+    static let recordingSurface = dynamic(recordingSurfaceTone.light, recordingSurfaceTone.dark)
 
     /// 陪跑进行中那一屏铺满的深灰底（`BlindActiveRunView`）。
     ///

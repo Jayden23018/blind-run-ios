@@ -222,6 +222,10 @@ extension MockAPIClient {
     }
 
     func handleGetMe() throws -> CurrentUserResponse {
+        // 启动时恢复会话失败（断网而不是 401）⇒ 根路由停在「暂时无法恢复账号资料」页（#561 的 UI 用例走这一页）。
+        if ProcessInfo.processInfo.environment["AIDRUN_MOCK_RESTORE_SESSION_FAILURE"] == "1" {
+            throw APIError.networkError(URLError(.notConnectedToInternet))
+        }
         guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
         return CurrentUserResponse(userId: mockUserId, phone: nil, role: mockRole?.rawValue)
     }

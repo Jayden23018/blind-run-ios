@@ -112,14 +112,7 @@ struct BlindRunnerSettingsView: View {
         } message: {
             Text(deletionViewModel.preflightMessage ?? "")
         }
-        .alert("确认退出", isPresented: $showLogoutConfirm) {
-            Button("确认退出", role: .destructive) {
-                Task { await appState.logout() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("确认后将清除当前登录状态，返回登录页。")
-        }
+        .logoutConfirmation(isPresented: $showLogoutConfirm)
         .alert("确认删除账户", isPresented: $showDeletionInitialConfirmation) {
             Button("继续删除账户", role: .destructive) {
                 Task {

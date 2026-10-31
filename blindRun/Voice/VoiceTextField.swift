@@ -69,7 +69,7 @@ struct VoiceTextField: View {
                     Image(systemName: isListening ? "mic.fill" : "mic")
                         .font(.title2)
                         .frame(width: AppTouchTarget.blindPrimary, height: AppTouchTarget.blindPrimary)
-                        .background(isListening ? AppColors.warning : AppColors.primary)
+                        .background(isListening ? AppColors.recordingSurface : AppColors.primary)
                         .foregroundColor(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .accessibilityHidden(true)

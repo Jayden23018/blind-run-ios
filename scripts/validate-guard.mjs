@@ -1954,6 +1954,51 @@ const cases = [
     swift: 'Button("x") { f() }\n    .buttonStyle(.borderedProminent) // guard:allow bordered-prominent tint 固定为 primary\n'
   },
 
+  // logout-without-confirmation（2026-10-28，#561）。启动恢复失败页按下「退出登录」就退，没有确认。
+  {
+    name: '按钮里直接调 appState.logout()（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/ContentView.swift',
+    swift: 'Button("退出登录", role: .destructive) {\n    Task { await appState.logout() }\n}\n'
+  },
+  {
+    // view model 多半 weak 持有 appState：可选链是最常见的绕过写法。
+    name: 'view model 里 appState?.logout()（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Profile/ProfileViewModel.swift',
+    swift: 'func signOut() async {\n    await appState?.logout()\n}\n'
+  },
+  {
+    name: '按钮只置开关、弹窗走 logoutConfirmation（正解，放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/ContentView.swift',
+    swift: 'Button("退出登录", role: .destructive) { showLogoutConfirmation = true }\n    .logoutConfirmation(isPresented: $showLogoutConfirmation)\n'
+  },
+  {
+    name: '共用确认弹窗自己的文件里调 appState.logout()（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Auth/LogoutConfirmation.swift',
+    swift: 'Button("确认退出", role: .destructive) {\n    Task { await appState.logout() }\n}\n'
+  },
+  {
+    // 反向哨兵：AppState 内部调接口的 `auth.logout()` 不是界面入口。
+    name: 'AppState 里调 auth.logout()（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppState+SessionRevocation.swift',
+    swift: '_ = try await auth.logout()\n'
+  },
+  {
+    name: 'logout-without-confirmation 违规行带 guard:allow 标注（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'Task { await appState.logout() } // guard:allow logout-without-confirmation 服务端已吊销，不经用户\n'
+  },
+
   // server-addr 的 scheme 那一半（2026-09-14 补）。
   // 原判据只看主机名，于是「主机对、scheme 退回明文」整类改动能原样穿过去 —— 实测 exit 0。
   // 下面头两条就是那个洞的形状；主机拼成字符串是为了本文件自己也过得了守卫。

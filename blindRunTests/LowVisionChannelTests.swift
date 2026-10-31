@@ -52,7 +52,7 @@ final class LowVisionChannelTests: XCTestCase {
     /// 所以它不在 `AppColors.tones` 里 —— 硬塞进去会得到一条方向反了的断言
     /// （暗色值 `#0B4DA2` 压在纯黑上只有 2.6:1，会把一个正确的取值判成不达标）。
     ///
-    /// 暗色**不能**沿用 `primary` 的 `#0A84FF`：白字压上去只有 3.38:1。这条用例就是
+    /// 暗色**不能**沿用 `primary` 的 `#0A84FF`：白字压上去只有 3.65:1。这条用例就是
     /// 挡住「顺手复用 primary」那一步的地方 —— 那是改这块底色时最自然的第一反应。
     func testVoiceStageSurfaceKeepsWhiteTextReadable() {
         let white: UInt32 = 0xFFFFFF
@@ -106,6 +106,27 @@ final class LowVisionChannelTests: XCTestCase {
             Self.contrastRatio(white, 0x30D158), Self.minimumContrast,
             "success 的暗色值当大面积底色时白字不达标，这条用例存在的理由就是挡住复用它"
         )
+    }
+
+    /// 语音输入框的麦克风按钮「正在录音」时的底色，白色麦克风图标压在上面（#562）。
+    ///
+    /// 图标是图形对象，阈值 3:1（WCAG 1.4.11），不是正文的 4.5:1。
+    /// 暗色不能沿用 `warning` 的 `#FF9F0A`（白图标 2.06:1）—— 这个按钮原来就是这么写的。
+    func testRecordingSurfaceKeepsWhiteIconReadable() {
+        let white: UInt32 = 0xFFFFFF
+        let minimumGraphicContrast = 3.0
+        let tone = AppColors.recordingSurfaceTone
+
+        for (mode, value) in [("亮色", tone.light), ("暗色", tone.dark)] {
+            let ratio = Self.contrastRatio(white, value)
+            XCTAssertGreaterThanOrEqual(
+                ratio, minimumGraphicContrast,
+                "\(mode)模式下白色麦克风压在录音中底色上只有 \(String(format: "%.2f", ratio)):1"
+            )
+        }
+
+        // 验红：被换掉的暗色 warning 必须真的算不过 3:1。
+        XCTAssertLessThan(Self.contrastRatio(white, 0xFF9F0A), minimumGraphicContrast)
     }
 
     /// 陪跑进行中那一屏铺满的深灰底。方向同上：它是背景，白字与次级灰字压在它上面。

@@ -62,7 +62,7 @@
 
 | 项 | 发现 | A 档 | B 档 | 一句话 |
 |---|---|---|---|---|
-| 颜色 | 14 | 6 | 8 | `Assets.xcassets/AccentColor.colorset` 未定义颜色、无根 `.tint`，系统样式按钮落到系统蓝（`AppColors.swift:8-11` 量过 4.02:1，暗色 3.38:1）；登录页不可用态白字压 `systemGray4` |
+| 颜色 | 14 | 6 | 8 | `Assets.xcassets/AccentColor.colorset` 未定义颜色、无根 `.tint`，系统样式按钮落到系统蓝（`AppColors.swift:8-11` 量过 4.02:1，暗色 3.65:1，原记 3.38 是算错，#563）；登录页不可用态白字压 `systemGray4` |
 | 字体 | 13 | 2 | 11 | 无 `Font.custom` 缺 `relativeTo`、无封顶、无无参 `.fixedSize()`；问题在登录页固定高 52 与语音回读地址 `lineLimit(1)` + `minimumScaleFactor(0.6)`（`BlindBookingView.swift:1613`） |
 | 按钮 | 9 | 2 | 7 | 4 套共享组件，同一角色仍有 4–5 种外观；主按钮蓝（`PrimaryButton` 38 处）黄（`FlowActionButton` 12 处）并存；「重复当前状态」5 种外观 |
 | 可点区 | 23 | 19 | 4 | 盲人端 19 处 < 64pt 或无 frame；守卫 `small-touch-target` 只认 `minHeight`，看不到 `.frame(height:)` / `.frame(width:height:)` |
