@@ -210,7 +210,7 @@ enum IntroCallCopy {
     static let continuedSearch = "正在为你寻找合适的陪跑员。"
 
     static func blindCallSectionAnnouncement(counterpartName: String) -> String {
-        "\(counterpartName)想陪你跑。先打个电话聊聊，双方都觉得合适就算约好了。"
+        "\(counterpartName)响应了你的预约。双方通话确认后，预约生效。"
     }
 
     // MARK: 盲人侧独立通话页
@@ -323,7 +323,7 @@ enum IntroCallCopy {
 
     /// 🚩 **「未接到来电」只在志愿者侧**，这处不对称是刻意的（见 `IntroCallEndpoint`）。
     static let volunteerUnreachableButtonTitle = "未接到来电"
-    static let volunteerUnreachableAccessibilityHint = "告诉系统这通电话没有打通，系统会把这一单派给下一位"
+    static let volunteerUnreachableAccessibilityHint = "告诉系统这通电话没有打通，系统会把此订单派给下一位"
 
     /// 本轮结束、但这一单不是你的（V4′）。中性、不归因 —— 跑者不合适、超时、跑者取消**全部同一句**。
     ///
@@ -472,7 +472,7 @@ enum IntroCallCopy {
     ///
     /// 🚩 措辞不许说成「打不通」「对方不在」—— 失败的是我们这次取号码的请求，
     /// 而志愿者那边一切正常。说错方向会让盲人以为该换人，而他只需要重试一下。
-    static let loadFailed = "暂时拿不到通话信息，请稍后重试。"
+    static let loadFailed = "暂时无法获取通话信息，请稍后重试。"
 
     static let retryButtonTitle = "重新加载"
     static let retryAccessibilityHint = "再取一次这位陪跑员的通话信息"

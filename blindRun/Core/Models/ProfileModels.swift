@@ -203,7 +203,7 @@ enum BlindIdentityVerificationFailure {
             // 「请重新输入姓名和身份证号后重试。」（提交失败一律 `clearSensitiveFields()`，
             // 字段确实被清空了），听起来就成了「你填错了」。
             case .idVerifyUnavailable:
-                return "身份认证服务暂时不可用，请稍后重试。这不是您填的信息有问题。"
+                return "身份认证服务暂时不可用，请稍后重试。"
             case .validationFailed, .badRequest:
                 return "身份信息格式不正确，请检查后重试。"
             case .tooManyRequests:

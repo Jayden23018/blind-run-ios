@@ -12,7 +12,7 @@ import XCTest
 final class VolunteerLostLeavesOrderTests: XCTestCase {
 
     /// 后端 `data.sql` 里陪跑员那一行模板的 `tts_text`。
-    private static let volunteerTTS = "已经过了约定的开跑时间，陪跑一直没能开始，系统已经把这一单转给其他志愿者。如果你仍然有空，可以在应用里接新的单。"
+    private static let volunteerTTS = "已经过了约定的开跑时间，陪跑一直没能开始，系统已经把此订单转给其他志愿者。如果你仍然有空，可以在应用里接新的单。"
 
     // MARK: - 判据
 
@@ -116,7 +116,7 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
             XCTAssertEqual(fixture.service.callCount("arrived(orderId:)"), 1, "前提：请求确实发出去了")
             XCTAssertTrue(fixture.page.didLoseOrder)
             XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(outcome)：\(fixture.speech.spokenHistoryForTesting)")
-            XCTAssertEqual(fixture.service.callCount("orderDetail(orderId:)"), 0, "\(outcome)：离开后还在拉这一单的确认")
+            XCTAssertEqual(fixture.service.callCount("orderDetail(orderId:)"), 0, "\(outcome)：离开后还在拉此订单的确认")
             XCTAssertEqual(fixture.page.transitionState, .idle, "\(outcome)")
         }
     }
@@ -236,7 +236,7 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
     private static let missedVolunteerLost = MissedNotificationResponse(
         id: 45_601,
         eventType: "ORDER_VOLUNTEER_LOST",
-        body: "陪跑一直没能开始，这一单已转给其他志愿者",
+        body: "陪跑一直没能开始，此订单已转给其他志愿者",
         ttsText: volunteerTTS,
         priority: "HIGH",
         sentAt: "2026-10-19T10:00:00",
@@ -251,7 +251,7 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
             messageId: "456-\(eventType)",
             eventType: eventType,
             title: nil,
-            body: eventType == "ORDER_VOLUNTEER_LOST" ? "陪跑一直没能开始，这一单已转给其他志愿者" : "安全提醒正文",
+            body: eventType == "ORDER_VOLUNTEER_LOST" ? "陪跑一直没能开始，此订单已转给其他志愿者" : "安全提醒正文",
             ttsText: eventType == "ORDER_VOLUNTEER_LOST" ? volunteerTTS : "安全提醒正文",
             priority: "HIGH",
             timestamp: "2026-10-19T10:00:00"
@@ -280,7 +280,7 @@ extension VolunteerLostLeavesOrderTests {
             fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
             try await Task.sleep(nanoseconds: 300_000_000)
 
-            XCTAssertFalse(fixture.page.didLoseOrder, "\(status)：凭一条认不出订单的旧事件放下了手上这一单")
+            XCTAssertFalse(fixture.page.didLoseOrder, "\(status)：凭一条认不出订单的旧事件放下了手上此订单")
             XCTAssertEqual(fixture.page.order?.status, status, "\(status)")
             XCTAssertNotNil(fixture.home.activeOrder, "\(status)：首页的当前订单被清掉了")
             XCTAssertEqual(

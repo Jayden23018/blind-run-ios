@@ -111,7 +111,7 @@ enum APIError: Error, Sendable {
         case .networkError(let underlying):
             return Self.isSecureConnectionFailure(underlying) ? Self.secureConnectionMessage : "网络连接失败，请检查网络设置。"
         case .decodingError:
-            return "数据解析错误，请稍后重试。"
+            return "服务暂时不可用，请稍后重试。"
         case .invalidURL:
             return "请求地址无效。"
         case .unknown(let statusCode):

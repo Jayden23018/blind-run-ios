@@ -11,7 +11,7 @@ import Foundation
 /// 这与 `AGENTS.md` §6 那条「App 永远不得宣称短信已发出、已送达」同源，
 /// 由 `RunPlanShareMessageTests` 逐条断言。
 enum RunPlanShareCopy {
-    static let buttonTitle = "把这次行程告诉家人"
+    static let buttonTitle = "分享行程给家人"
 
     /// hint 必须说清「需要你自己点发送」—— 盲人按下按钮后弹出的是系统短信界面，
     /// 如果以为按一下就发出去了，他会直接退出，而短信还躺在草稿里。
@@ -20,7 +20,7 @@ enum RunPlanShareCopy {
     /// 进行时，不是完成时。见本枚举顶部的约束说明。
     static let sent = "短信已交给系统，请在短信里确认已发出。"
     static let cancelled = "已取消，没有发送。"
-    static let failed = "短信没能发出，请稍后再试，或者直接打电话。"
+    static let failed = "短信发送失败，请稍后再试，或者直接打电话。"
 
     /// 设备根本不能发短信（iPad 无蜂窝、运营商未配置等）。不静默失败：
     /// 系统 composer 没有存草稿这一步，`canSendText` 为 false 时呈现它只会得到一个空壳。

@@ -467,7 +467,7 @@ final class VoiceOrderWizard: ObservableObject {
     /// 其余轮次的提问本身就短且带例子（见 `Step.prompt`），重复一遍反而拖长。
     private func silenceReaskMessage(for reason: SpeechInputStopReason) -> String {
         if reason == .error {
-            return "语音识别没能启动，我再问一次。"
+            return "语音识别启动失败，我再问一次。"
         }
         if step == .freeform {
             return "没有听到你说话。请说你想从哪儿出发、什么时候跑、跑多久，比如：明天早上八点从人民广场出发跑一个小时。"
@@ -931,7 +931,7 @@ final class VoiceOrderWizard: ObservableObject {
 
         if parsed.correctionUnclear == true {
             // 用户否定了读回但没说改哪一项。这一条**确实是没听懂**，计入上限。
-            reask(with: parsed.ttsText?.nilIfBlank ?? "您想改哪一项？出发地、开始时间，还是时长？")
+            reask(with: parsed.ttsText?.nilIfBlank ?? "你想改哪一项？出发地、开始时间，还是时长？")
             return
         }
 

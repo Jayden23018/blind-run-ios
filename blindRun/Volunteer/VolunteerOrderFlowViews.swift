@@ -145,7 +145,7 @@ extension RunOrderStatus {
         // （`app.order.departure-confirm-window-minutes`），客户端读不到，写死就是编一个数字。
         // 只说清后果（不确认会转给别人），因为那是他真正需要知道的。
         case .scheduledConfirmed:
-            return "这次陪跑还没到时间。出发前请确认你还会去，没有确认这一单会转给其他志愿者"
+            return "这次陪跑还没到时间。出发前请确认你还会去，未确认的订单将转给其他陪跑员"
         case .pendingAccept:
             return "请确认当前位置和出发地点，可使用外部地图步行导航"
         case .driverEnRoute:
@@ -155,7 +155,7 @@ extension RunOrderStatus {
         case .inProgress:
             return "完成本次陪跑后可结束服务"
         case .completed:
-            return "感谢您的爱心陪伴"
+            return "感谢你的陪伴"
         case .cancelled:
             return "本次服务已取消"
         case .rematching, .noVolunteer:
@@ -706,7 +706,7 @@ struct VolunteerOrderDetailView: View {
                                 viewModel.retryTransitionConfirmation()
                             }
                             .buttonStyle(.bordered)
-                            .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
+                            .accessibilityHint("刷新订单状态")
                         }
                     }
                 }
@@ -1315,7 +1315,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             appState: appState,
             // 不断言成因（转走了 / 盲人取消了 / 上一次其实已经成功），客户端分不出这三种。
             // 这句话对三种都为真，而且这条路径紧接着会 `load()` 刷新，屏幕自己会给出真相。
-            statusConflictMessage: "这一单的状态已经变了，不用再确认。"
+            statusConflictMessage: "此订单的状态已经变了，不用再确认。"
         ) {
             try await orders.confirmDeparture(orderId: orderID)
         }
@@ -1369,7 +1369,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             // 手上的订单还停在 `DRIVER_ARRIVED`（宿主直接关页，不再刷新），锁屏卡不会自己走到结束分支。
             if #available(iOS 16.2, *) { GuideRunActivityController.shared.end() }
             stopPolling()
-            speechService?.speak("已结束等待。这一单取消了，不算你的取消。")
+            speechService?.speak("已结束等待。此订单取消了，不算你的取消。")
             didEndWaiting = true
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
@@ -1404,7 +1404,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         case .some(let apiError) where appState.handleAuthenticatedAPIError(apiError):
             return
         case .some(.rateLimited(let info)):
-            message = info.retryAfterSeconds.map { "按得太频繁了，\($0) 秒后再试。" } ?? "按得太频繁了，请稍后再试。"
+            message = info.retryAfterSeconds.map { "操作过于频繁，\($0) 秒后再试。" } ?? "操作过于频繁，请稍后再试。"
         case .some(let apiError):
             message = apiError.localizedMessage
         case .none:
@@ -2414,7 +2414,7 @@ struct VolunteerInServiceView: View {
                     FlowActionButton("重新确认状态", style: .ghost) {
                         viewModel.retryTransitionConfirmation()
                     }
-                    .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
+                    .accessibilityHint("刷新订单状态")
                 }
             }
         }
@@ -2428,7 +2428,7 @@ struct VolunteerInServiceView: View {
         ) {
             activeSheet = .navigation(request)
         } else {
-            let message = "这一单还没有集合点坐标"
+            let message = "此订单还没有集合点坐标"
             viewModel.errorMessage = message
             speechService.speakError(message)
         }
@@ -2640,7 +2640,7 @@ final class VolunteerAchievementsViewModel: ObservableObject {
     func load() async {
         guard let appState else {
             isLoading = false
-            errorMessage = "暂时没能读到服务成就，请稍后重试。"
+            errorMessage = "服务成就加载失败，请稍后重试。"
             return
         }
         isLoading = true
@@ -2653,7 +2653,7 @@ final class VolunteerAchievementsViewModel: ObservableObject {
         } catch let error as APIError {
             errorMessage = error.localizedMessage
         } catch {
-            errorMessage = "暂时没能读到服务成就，请稍后重试。"
+            errorMessage = "服务成就加载失败，请稍后重试。"
         }
     }
 }
@@ -2906,7 +2906,7 @@ struct VolunteerServiceRecognitionView: View {
 
     private var errorSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(viewModel.errorMessage ?? "暂时没能读到服务成就。")
+            Text(viewModel.errorMessage ?? "服务成就加载失败。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)

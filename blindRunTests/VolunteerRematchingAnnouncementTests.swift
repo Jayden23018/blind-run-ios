@@ -14,7 +14,7 @@ import XCTest
 final class VolunteerRematchingAnnouncementTests: XCTestCase {
 
     /// 后端陪跑员那条 `SCHEDULED_DEPARTURE_GATE_MISSED` 的意思（issue #477 原文）。
-    private static let gateMissedTTS = "你没有确认出发，这一单已转给其他志愿者"
+    private static let gateMissedTTS = "你没有确认出发，此订单已转给其他志愿者"
 
     // MARK: - 系统转走
 

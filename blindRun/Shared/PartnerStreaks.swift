@@ -336,7 +336,7 @@ enum PartnerStreakCopy {
     static let partnerOptedOutSuffix = "对方已退出固定搭档"
     static let selfOptedOutSuffix = "你已退出"
 
-    static let loadFailure = "暂时没能读到固定搭档，请稍后重试。"
+    static let loadFailure = "固定搭档加载失败，请稍后重试。"
     static let retry = "重新加载"
 
     // MARK: 收藏 / 取消收藏（盲人侧）

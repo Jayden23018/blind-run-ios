@@ -281,9 +281,9 @@ struct blindRunApp: App {
                     eventId: nil,
                     messageId: "ui-test-volunteer-lost",
                     eventType: AppRealtimeCoordinator.volunteerLostEventType,
-                    title: "陪跑一直没能开始，这一单已转给其他志愿者",
-                    body: "陪跑一直没能开始，这一单已转给其他志愿者",
-                    ttsText: "已经过了约定的开跑时间，陪跑一直没能开始，系统已经把这一单转给其他志愿者。如果你仍然有空，可以在应用里接新的单。",
+                    title: "陪跑一直没能开始，此订单已转给其他志愿者",
+                    body: "陪跑一直没能开始，此订单已转给其他志愿者",
+                    ttsText: "已经过了约定的开跑时间，陪跑一直没能开始，系统已经把此订单转给其他志愿者。如果你仍然有空，可以在应用里接新的单。",
                     priority: "HIGH",
                     timestamp: nil
                 ))

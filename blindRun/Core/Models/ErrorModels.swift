@@ -202,7 +202,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .roleAlreadySet:
             return "身份已设定，不可修改。"
         case .volunteerNotAvailable:
-            return "您当前未开启接单状态。"
+            return "你当前未开启接单状态。"
         case .volunteerNotApproved:
             // 后端 `DispatchService` 的接单守卫（403 VOLUNTEER_NOT_VERIFIED）唯一解法是上传资质证书等审核。
             // case 名与 rawValue 不一致是历史命名，不要改 rawValue。
@@ -227,7 +227,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .appointmentTooLong:
             // 只说时长，不提夜间：两条同时命中时后端返回的就是这一条，
             // 而这种单（跨多天）先要改短，改时段没用。
-            return "单次陪跑最长5小时，这一单排得太长了。请把时长改短一些再提交。"
+            return "单次陪跑最长5小时，此订单排得太长了。请把时长改短一些再提交。"
         case .appointmentInNightWindow:
             // 🚨 必须说清判据是**整段**。只说「这个时间不能约」的话，21点出发的用户
             // 会认为自己没碰到22点，把开始时间往前挪一点再试一次 —— 而真正越界的是结束时间。
@@ -240,7 +240,7 @@ enum ErrorCode: String, Codable, Sendable {
             //
             // 时刻用「晚上10点 / 早上5点」而不是后端那句的 `22:00` / `05:00`：这段要过 TTS，
             // 念数字冒号不如念钟点稳。语义两边一致，措辞刻意不抄。
-            return "晚上10点到次日早上5点之间不安排陪跑。这一单从开始到结束整段都要避开这个时段，"
+            return "晚上10点到次日早上5点之间不安排陪跑。此订单从开始到结束整段都要避开这个时段，"
                 + "请改到白天，或者把时长改短、让它在晚上10点前结束。"
         case .appointmentTooFar:
             // 不写死「7 天」：那是后端配置，而这条码恰恰是在**客户端那个 7 天已经不对**时才会到达。
@@ -281,9 +281,9 @@ enum ErrorCode: String, Codable, Sendable {
             // 原文案「您有进行中的订单，请完成后再下单」自那天起就是错的 ——
             // 约了后天早上的单之后，今天临时想跑**照样能下单**，说成「有进行中的订单」
             // 会让用户去取消一张完全不冲突的预约。
-            return "这个时间段你已经有一单了。换个时间再试试。"
+            return "该时间段已有预约，请换一个时间。"
         case .reviewAlreadySubmitted:
-            return "您已评价过此订单。"
+            return "你已评价过此订单。"
         case .registrationStepInvalid:
             return "注册步骤不正确，请重新开始。"
         case .internalError:
@@ -295,7 +295,7 @@ enum ErrorCode: String, Codable, Sendable {
             return "陪跑员已出发或服务进行中，如需取消请联系陪跑员。"
         case .orderPermissionDenied:
             // 后端确认该码只剩 `OrderQueryService` 一个抛出点，场景是只读查询越权（handoff Q8）。
-            return "您无权查看此订单。"
+            return "你无权查看此订单。"
         case .smsSendLimitExceeded:
             return "短信发送已达上限，请稍后重试。"
         case .identityNotVerified:
@@ -303,7 +303,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .emergencyContactRequired:
             return "还没有设置紧急联系人，暂时不能下单。请先添加至少 1 位紧急联系人，并把其中 1 位设为主联系人。"
         case .notOrderParticipant:
-            return "您不是该订单的参与方。"
+            return "你不是该订单的参与方。"
         case .invalidTimestamp:
             return "时间参数格式错误。"
         case .emergencyVolunteerCannotDismiss:
@@ -327,10 +327,10 @@ enum ErrorCode: String, Codable, Sendable {
             // 只有**自动改发 `INTERESTED` 也失败**时才会被念到（正常路径下用户看不到这一句）。
             // 所以文案说的是「再试一次」这个还能做的动作，不是让用户自己去选「有意向」——
             // 客户端已经替他选过了，再叫他选一遍只会让人以为按钮坏了。
-            return "这一单需要先和跑者通个电话，请再试一次。"
+            return "此订单需要先和跑者通个电话，请再试一次。"
         // 反方向同理：只有**自动改发 `ACCEPT` 也失败**时才会被念到。
         case .introCallNotRequired:
-            return "你们之前已经聊过了，可以直接接单。请再点一次试试。"
+            return "你们已完成通话确认，可直接接单。"
         case .favoriteVolunteerNotEligible:
             return PartnerStreakCopy.favoriteNotEligible
         case .favoriteVolunteerLimitExceeded:
@@ -338,9 +338,9 @@ enum ErrorCode: String, Codable, Sendable {
         case .favoriteVolunteerOptedOut:
             return PartnerStreakCopy.favoriteOptedOut
         case .orderHasActiveEmergency:
-            return "这一单还有没结束的求助，现在还不能结束服务。需要跑者本人撤销，或者等客服处理完。"
+            return "此订单还有没结束的求助，现在还不能结束服务。需要跑者本人撤销，或者等客服处理完。"
         case .volunteerAlreadyEngaged:
-            return "这个时间段您已经答应了另一位跑者，换一个时间段的订单再试试。"
+            return "该时间段你已接受其他预约，请选择其他时间段。"
         case .idVerifyUnavailable:
             return "身份认证服务暂时不可用，请稍后重试。"
         case .departureTooEarly:

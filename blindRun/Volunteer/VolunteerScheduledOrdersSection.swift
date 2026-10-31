@@ -149,7 +149,7 @@ struct VolunteerScheduledOrdersSection: View {
                         style: .raisedPrimary,
                         isLoading: isSubmitting,
                         isEnabled: !anySubmitting && !gate.isLocked,
-                        accessibilityHint: [gate.caption, "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"]
+                        accessibilityHint: [gate.caption, "请确认按时到达。未确认的订单将转给其他陪跑员"]
                             .compactMap { $0 }.joined(separator: "。"),
                         action: { onConfirm(order.orderId) }
                     )
@@ -169,7 +169,7 @@ struct VolunteerScheduledOrdersSection: View {
                 FlowTextButton(
                     title: VolunteerServiceActionKind.releaseScheduled.title,
                     tone: .neutral,
-                    accessibilityHint: "这一单会转给其他志愿者，需要确认后释放",
+                    accessibilityHint: "此订单将转给其他陪跑员，需要确认后释放",
                     minHeight: AppTouchTarget.blindPrimary,
                     action: { pendingReleaseOrder = order }
                 )

@@ -1285,10 +1285,10 @@ const cases = [
     swift: 'enum C { static let sent = "短信已交给系统，请在短信里确认已发出。" }'
   },
   {
-    name: '按钮文案「把这次行程告诉家人」（放行）',
+    name: '按钮文案「分享行程给家人」（放行）',
     mode: 'post',
     expect: 0,
-    swift: 'enum C { static let buttonTitle = "把这次行程告诉家人" }'
+    swift: 'enum C { static let buttonTitle = "分享行程给家人" }'
   },
   {
     // 注释里引用坏文案来解释「为什么要覆盖它」是我们希望留在代码里的东西。

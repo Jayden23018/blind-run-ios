@@ -302,7 +302,7 @@ final class RunRecordAudioController: NSObject, ObservableObject {
                     play(player)
                 } catch {
                     state = .idle
-                    voice?.speakError("声音路线没能播放。")
+                    voice?.speakError("声音路线播放失败。")
                 }
             }
         }

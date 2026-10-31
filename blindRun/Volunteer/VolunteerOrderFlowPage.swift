@@ -533,9 +533,9 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         switch action {
         case .acceptInvite:
             // 不解释「先聊聊还是直接接」：两种 `OrderRespondAction` 下这枚按钮做的是同一件事。
-            return "接下这一单并通知跑者"
+            return "接受预约"
         case .confirmDeparture:
-            return "告诉跑者你仍然会来。不确认这一单会转给其他志愿者"
+            return "请确认按时到达。未确认的订单将转给其他陪跑员"
         case .enRoute, .alreadyDeparted:
             return "点击后通知跑者你正在前往"
         case .arrived:
@@ -543,7 +543,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         case .startRun:
             return "开始计时，跑者那边也会同步开始"
         case .endWaiting:
-            return "这一单会结束，跑者会收到通知"
+            return "此订单会结束，跑者会收到通知"
         case .doneReviewing, .backToHome:
             return nil
         }
@@ -816,7 +816,7 @@ struct VolunteerRunningPage<Footer: View>: View {
                 FlowTextButton(
                     title: VolunteerServiceActionKind.cancelOrder.title,
                     tone: .neutral,
-                    accessibilityHint: "双击后会先确认一次。这一单会转给其他志愿者",
+                    accessibilityHint: "双击后会先确认一次。此订单将转给其他陪跑员",
                     action: onCancel
                 )
                 .disabled(isFinishing || !isFinishEnabled)

@@ -74,7 +74,7 @@ final class VolunteerTrainingCourseViewModel: ObservableObject {
             detail = try await appState.training.courseDetail(courseId: courseId)
             if enteredAt == nil { enteredAt = Date() }
         } catch {
-            errorMessage = (error as? APIError)?.localizedMessage ?? "暂时没能读到课程内容。"
+            errorMessage = (error as? APIError)?.localizedMessage ?? "课程内容加载失败。"
         }
         isLoading = false
     }
@@ -169,7 +169,7 @@ struct VolunteerTrainingCourseView: View {
                         .accessibilityLabel("正在加载课程内容")
                 } else {
                     IncentiveFailureSection(
-                        message: viewModel.errorMessage ?? "暂时没能读到课程内容。",
+                        message: viewModel.errorMessage ?? "课程内容加载失败。",
                         retryTitle: VolunteerTrainingCopy.retry,
                         identifier: "volunteerTrainingCourseRetryButton"
                     ) {

@@ -105,7 +105,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .notSubmitted:
             return "尚未提交资质证书，当前无法接单。请上传资质证书图片或 PDF，提交后由管理员审核。"
         case .pending:
-            return "资质证书已提交，正在等待管理员审核。审核中暂时无法接单，也不需要重复上传，请耐心等待。"
+            return "资质证书已提交，正在等待管理员审核。审核期间暂时无法接单。"
         case .approved:
             return "资质证书已通过审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
@@ -130,7 +130,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .notSubmitted:
             return "尚未提交身份材料，当前无法接单。请上传能证明本人身份的材料，图片或 PDF 均可，提交后由管理员人工审核。该方式审核时间较长，但结果等效。"
         case .pending:
-            return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核期间暂时无法接单，也不需要重复上传。"
+            return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核期间暂时无法接单。"
         case .approved:
             return "身份材料已通过人工审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
@@ -470,7 +470,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
             // 状态一律回读，不用上传响应里的值臆测。
             await refreshStatus()
             successMessage = statusLoadFailed
-                ? "\(materialNoun)已提交，但暂时没能读回审核状态，请稍后重新获取。"
+                ? "\(materialNoun)已提交，但审核状态读取失败，请稍后重新获取。"
                 : "\(materialNoun)已提交，等待管理员审核。"
         } catch let error as APIError {
             isUploading = false
