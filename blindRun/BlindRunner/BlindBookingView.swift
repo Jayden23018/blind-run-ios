@@ -1602,18 +1602,7 @@ struct BlindBookingView: View {
     }
 
     private func recapRow(_ name: String, _ value: String) -> some View {
-        HStack(spacing: 12) {
-            Text(name)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-            Spacer(minLength: 12)
-            Text(value)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .multilineTextAlignment(.trailing)
-        }
+        BookingRecapRow(name: name, value: value)
     }
 
     // MARK: - 表单态
