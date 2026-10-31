@@ -417,12 +417,8 @@ struct BlindRunnerProfileView: View {
                 EmergencyContactsView()
             } label: {
                 Text("管理紧急联系人")
-                    .font(AppFonts.primaryButton())
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(12)
             }
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel("管理紧急联系人")
             .accessibilityHint("添加、编辑、删除紧急联系人，或切换主联系人")
         }
@@ -611,12 +607,8 @@ struct BlindRunnerProfileView: View {
                     showVisionConsent = true
                 } label: {
                     Text("填写视力状况")
-                        .font(AppFonts.primaryButton())
-                        .foregroundColor(AppColors.textPrimary)
-                        .frame(maxWidth: .infinity, minHeight: 64)
-                        .background(AppColors.secondaryBackground)
-                        .cornerRadius(12)
                 }
+                .buttonStyle(OutlineSecondaryButtonStyle())
                 // 撤回正在保存时不许重新打开同意页：结果回来前重新同意，最终状态取决于两件事谁先完成。
                 .disabled(viewModel.isLoading)
                 .accessibilityLabel("填写视力状况")

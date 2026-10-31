@@ -258,9 +258,7 @@ struct BlindFavoriteVolunteersView: View {
                         }
                     }
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.destructive)
-                .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
+                .buttonStyle(TextButtonStyle(tint: AppColors.destructive, alignment: .center))
                 .disabled(busyUserId == userId)
                 .padding(.bottom, 6)
                 .accessibilityLabel(PartnerStreakCopy.removeFavoriteTitle(spokenName))
@@ -280,9 +278,7 @@ struct BlindFavoriteVolunteersView: View {
                         await setFavorite(true, userId: userId, name: name, spokenName: spokenName)
                     }
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .buttonStyle(TextButtonStyle(alignment: .center))
                 .disabled(busyUserId == userId)
                 .accessibilityLabel(PartnerStreakCopy.addFavoriteTitle(spokenName))
                 .accessibilityHint(PartnerStreakCopy.favoriteExplanation)

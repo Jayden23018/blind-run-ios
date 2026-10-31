@@ -61,7 +61,7 @@ struct SessionExpiryNotice: View {
                     Text("现在重新登录")
                         .frame(maxWidth: .infinity, minHeight: 64)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityHint("退出当前账号并回到登录页，会先让你确认")
                 .accessibilityIdentifier("sessionExpiryReloginButton")
             }

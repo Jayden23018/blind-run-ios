@@ -465,7 +465,7 @@ struct VolunteerRunRecordView: View {
                     .frame(minHeight: FlowMetrics.infoRowTappableMinHeight)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(OutlineSecondaryButtonStyle(fillsWidth: false))
             .accessibilityLabel("快捷短语：\(phrase)")
             .accessibilityHint("填进输入框")
         }

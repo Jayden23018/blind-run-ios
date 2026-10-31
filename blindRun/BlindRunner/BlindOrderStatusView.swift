@@ -2829,18 +2829,14 @@ struct BlindOrderStatusView: View {
                 // 描边次按钮：底部「完成」是这一屏唯一的实心主按钮（设计稿 ④；2026-10-05 评审第 2 条）。提交中淡下去并换文案。
                 Button(viewModel.isSubmittingReview ? "正在提交…" : "提交评价") { Task { await viewModel.submitReview() } }
                     .buttonStyle(OutlineSecondaryButtonStyle()).disabled(viewModel.isSubmittingReview)
-                .accessibilityLabel("提交评价")
+                .accessibilityLabel(viewModel.isSubmittingReview ? "正在提交评价" : "提交评价")
                 .accessibilityHint("提交本次服务评分和评价")
 
                 Button("跳过评价并返回首页") {
                     viewModel.skipReview()
                     dismiss()
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textSecondary)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .buttonShapeOutlineIfNeeded(color: AppColors.textSecondary)
+                .buttonStyle(TextButtonStyle(tint: AppColors.textSecondary, alignment: .center))
                 .accessibilityLabel("跳过评价并返回首页")
             }
 
@@ -2890,11 +2886,7 @@ struct BlindOrderStatusView: View {
                     Button(PartnerStreakCopy.addFavoriteTitle(name)) {
                         Task { await viewModel.addVolunteerToFavorites() }
                     }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.primary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                    .buttonStyle(TextButtonStyle(alignment: .center))
                     .disabled(viewModel.isUpdatingFavorite)
                     // 🔴 承诺只能说到「更可能」。收藏加的 15 分在满分 100 的五维加权和之外，
                     // 附近有个不错的陌生人时固定搭档仍然会输 —— 说「优先派给他」是承诺一件系统做不到的事。
@@ -3427,14 +3419,7 @@ struct BlindOrderStatusView: View {
                 Button("取消订单") {
                     showCancelConfirmation = true
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.destructive)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                // 这一页只有这一个按钮是**纯文字**（其余都是实心色块），开启「按钮形状」时
-                // 它是唯一一个看不出可点的。而它是破坏性操作，认不出来的代价是两个方向的：
-                // 想取消的人找不到，不想取消的人以为那只是一行说明。
-                .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
+                .buttonStyle(TextButtonStyle(tint: AppColors.destructive, alignment: .center))
                 .accessibilityLabel("取消订单")
                 .accessibilityHint("需要确认后取消")
             }

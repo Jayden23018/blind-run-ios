@@ -84,7 +84,7 @@ extension VolunteerProfileFirstScreen {
                             locationService.requestOneTimeLocation()
                             Task { await onReload() }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(OutlineSecondaryButtonStyle())
                         .accessibilityHint("立即重新获取一次当前位置，并刷新派单状态")
                         .accessibilityIdentifier("volunteerDispatchRelocateButton")
                     }
@@ -100,7 +100,7 @@ extension VolunteerProfileFirstScreen {
                         Button("重试加载") {
                             Task { await onReload() }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(OutlineSecondaryButtonStyle())
                         .accessibilityHint("重新加载派单和当前订单状态")
                     }
                 }

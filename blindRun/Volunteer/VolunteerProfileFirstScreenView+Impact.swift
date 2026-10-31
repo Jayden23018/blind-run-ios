@@ -36,10 +36,7 @@ extension VolunteerProfileFirstScreen {
                 Button(VolunteerHomeIncentiveCopy.retry) {
                     Task { await incentive.load() }
                 }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
-                .frame(minHeight: 44)  // guard:allow small-touch-target
+                .buttonStyle(TextButtonStyle())
                 .accessibilityIdentifier("volunteerHomeIncentiveRetryButton")
             } else {
                 impactPlaceholder(

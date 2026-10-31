@@ -36,7 +36,7 @@ extension VolunteerProfileFirstScreen {
                     locationService.requestOneTimeLocation()
                     Task { await onReload() }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityHint("重新获取当前位置并加载派单状态")
                 .accessibilityIdentifier("volunteerHomeRefreshButton")
             }

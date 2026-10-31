@@ -581,7 +581,7 @@ struct RunnerRunRecordView: View {
                     .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel(audio.state == .idle ? "播放声音路线，大约 \(seconds) 秒" : "\(title)声音路线")
             .accessibilityIdentifier("runnerRunRecordSoundRoute")
         }
@@ -617,7 +617,7 @@ struct RunnerRunRecordView: View {
                     .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel(title)
             .accessibilityIdentifier("runnerRunRecordReadMessages")
         }
