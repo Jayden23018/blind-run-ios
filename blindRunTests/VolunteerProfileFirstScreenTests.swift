@@ -564,7 +564,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     /// 只填闸门用得到的两个字段，其余走解码的默认 null —— 手写 24 个 `nil` 会让
     /// 下次后端加字段时这里跟着改一遍，而它们与本用例无关。
-    private static func summary(
+    static func summary(
         reasons: [VolunteerDispatchNotAvailableReason]
     ) -> VolunteerDispatchSummaryResponse {
         let list = reasons.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")

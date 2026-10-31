@@ -84,13 +84,32 @@ extension VolunteerProfileFirstScreen {
     }
 
     /// 图标 + 名称共同区分徽章，**颜色不是唯一指示**（WCAG 1.4.1）；
-    /// 未解锁那一格用虚线圈，形状差异不依赖色觉。
+    /// 未解锁那一格用虚线圈，形状差异不依赖色觉。实现在共享的 `VolunteerBadgeMedallion`（成就页也用）。
     private func badgeCellBody(
         symbol: String,
         caption: VolunteerProfileBadgeRow.Caption,
         isLocked: Bool,
         spoken: String
     ) -> some View {
+        VolunteerBadgeMedallion(symbol: symbol, title: caption.title, detail: caption.detail, isLocked: isLocked, spoken: spoken)
+    }
+}
+
+/// 一枚圆形徽章：圆 + 图标 + 名称（+ 可选的一行进度）。首页「我的徽章」与服务成就页共用。
+///
+/// 图标 + 名称共同区分徽章，**颜色不是唯一指示**（WCAG 1.4.1）；未解锁用虚线圈，
+/// 形状差异不依赖色觉。`prominent` 是成就页的大号实心版（激励页属「明快」档，
+/// `docs/ui/design-direction.md` §6）：主色实心圆 + 白色图标，同一对颜色已在 `PrimaryButton` 上验过对比度。
+struct VolunteerBadgeMedallion: View {
+    let symbol: String
+    let title: String
+    let detail: String?
+    let isLocked: Bool
+    let spoken: String
+    var diameter: CGFloat = 48
+    var prominent = false
+
+    var body: some View {
         VStack(spacing: 6) {
             ZStack {
                 if isLocked {
@@ -100,20 +119,20 @@ extension VolunteerProfileFirstScreen {
                             style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])
                         )
                 } else {
-                    Circle().fill(AppColors.secondaryBackground)
+                    Circle().fill(prominent ? AppColors.primary : AppColors.secondaryBackground)
                 }
                 Image(systemName: symbol)
-                    .font(.title3)
-                    .foregroundColor(isLocked ? AppColors.textSecondary : AppColors.primary)
+                    .font(prominent ? .title : .title3)
+                    .foregroundColor(isLocked ? AppColors.textSecondary : (prominent ? .white : AppColors.primary))
             }
-            .frame(width: 48, height: 48)
+            .frame(width: diameter, height: diameter)
 
-            Text(caption.title)
-                .font(AppFonts.caption())
+            Text(title)
+                .font(prominent ? AppFonts.body().weight(.semibold) : AppFonts.caption())
                 .foregroundColor(isLocked ? AppColors.textSecondary : AppColors.textPrimary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            if let detail = caption.detail {
+            if let detail {
                 Text(detail)
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
@@ -126,3 +145,33 @@ extension VolunteerProfileFirstScreen {
         .accessibilityLabel(spoken)
     }
 }
+
+/// 服务成就页的勋章一排：与首页「我的徽章」同一个组件，用大号实心版 ——
+/// 勋章的视觉分级是 `docs/ui/design-direction.md` §1 允许从跑步 App 抄的三样之一。无障碍字号档由调用方退回逐行。
+struct VolunteerBadgeMedallionRow: View {
+    let badges: [VolunteerBadgeDto]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(badges) { badge in
+                VolunteerBadgeMedallion(
+                    symbol: badge.symbolName,
+                    title: badge.displayName,
+                    detail: nil,
+                    isLocked: false,
+                    spoken: VolunteerAchievementsCopy.badgeAccessibilityLabel(badge),
+                    diameter: 64,
+                    prominent: true
+                )
+            }
+            // 不足四枚时补空位，让每枚宽度稳定，不被拉成半屏宽（同首页）。
+            ForEach(badges.count..<VolunteerBadgeWall.previewLimit, id: \.self) { _ in
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+}
+
