@@ -814,8 +814,8 @@ final class AppRealtimeCoordinator: ObservableObject {
                 eventID: String(message.eventId),
                 orderID: nil,
                 kind: .emergencyResolved,
-                displayText: message.message ?? "紧急事件已由志愿者确认",
-                speechText: message.ttsText ?? message.message ?? "紧急事件已由志愿者确认",
+                displayText: message.message ?? "紧急事件已由陪跑员确认",
+                speechText: message.ttsText ?? message.message ?? "紧急事件已由陪跑员确认",
                 timestamp: message.timestamp
             )
         case .emergencyAlert(let message):
@@ -1514,8 +1514,13 @@ struct RealtimeForegroundNotificationBanner: View {
                 Text(notification.displayText).font(AppFonts.body())
             }
             Spacer(minLength: 8)
-            Button("关闭", action: onDismiss)
-                .accessibilityHint("关闭当前通知并显示下一条通知")
+            // `TextButtonStyle` 自带 `maxWidth: .infinity`：不收住宽度会和上面的 Spacer 对半分这一行，把通知文字挤窄。
+            Button(action: onDismiss) {
+                Text("关闭").frame(minWidth: AppTouchTarget.blindPrimary)
+            }
+            .buttonStyle(TextButtonStyle(alignment: .center))
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityHint("关闭当前通知并显示下一条通知")
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
