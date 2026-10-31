@@ -3484,7 +3484,7 @@ public enum Servers {
         /// 阿里云生产环境（只走 HTTPS，WebSocket 用 wss://；Swagger 已关闭，仅用于请求地址参考）
         public static func url() throws -> Foundation.URL {
             try Foundation.URL(
-                validatingOpenAPIServerURL: "https://47.114.113.171",
+                validatingOpenAPIServerURL: "https://blindrun.culiu-tech.com",
                 variables: []
             )
         }
@@ -3493,7 +3493,7 @@ public enum Servers {
     @available(*, deprecated, renamed: "Servers.Server2.url")
     public static func server2() throws -> Foundation.URL {
         try Foundation.URL(
-            validatingOpenAPIServerURL: "https://47.114.113.171",
+            validatingOpenAPIServerURL: "https://blindrun.culiu-tech.com",
             variables: []
         )
     }
