@@ -21,6 +21,8 @@ private enum BlindRunnerRoute: Hashable {
 @MainActor
 final class BlindRunnerHomeViewModel: ObservableObject {
     @Published var activeOrder: OrderDetailResponse?
+    /// 陪跑中按了紧急入口，等订单页接走（#605）。由 `BlindRunnerTabView` 写，订单页读完清空。
+    @Published var orderSafetyRequest: BlindOrderSafetyRequest?
     @Published private(set) var orderLoadState: AsyncLoadState<OrderDetailResponse?> = .idle
     @Published private(set) var refreshPhase: HomeRefreshPhase = .idle
     @Published var isPerformingAction = false
@@ -471,43 +473,6 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         }
     }
 
-    /// 首页 SOS 条的云端分支。与 `BlindOrderStatusViewModel.enterEmergency()` 同一条链路
-    /// （同一个 coordinator、同一个新鲜坐标闸门、同一套播报），只是入口不同。
-    ///
-    /// `locationService` 走参数而不是存成属性：这个 view model 的既有依赖都是 `weak`，
-    /// 而定位服务由环境对象持有，存一份只会多一个可能为 nil 的引用。
-    func enterEmergency(locationService: LocationService?) async {
-        guard let activeOrder, let appState else { return }
-        let outcome = await appState.emergencyCoordinator.trigger(
-            order: activeOrder,
-            role: appState.activeRole,
-            userID: appState.userId,
-            safety: appState.safety,
-            // 本角色没同意共享位置（#368）⇒ 不取位置、不发，文案说清原因。
-            locate: {
-                await EmergencyCoordinator.freshEmergencyCoordinate(
-                    using: locationService,
-                    sharingBlocked: appState.isEmergencyLocationSharingBlocked
-                )
-            },
-            locationFailureReason: {
-                EmergencyCoordinator.locationFailureReason(
-                    using: locationService,
-                    sharingBlocked: appState.isEmergencyLocationSharingBlocked
-                )
-            }
-        )
-        // 可见面是 SOS 条里的 `EmergencyStatusNotice`，这里只负责播报。
-        // 刻意不再写 `errorMessage`：那会让同一句话在屏幕上出现两次、被读屏念两遍。
-        // 优先级与 `BlindOrderStatusViewModel.enterEmergency` 一致 —— 同一条链路，
-        // 只有入口不同，两处的档位分叉会让「求助未发出」在首页被别的播报压住。
-        if outcome.isFailure {
-            speechService?.speakError(outcome.message, priority: .emergency)
-        } else {
-            speechService?.speak(outcome.message, priority: .emergency)
-        }
-    }
-
     private func performAction(
         failureMessage: String,
         operation: @MainActor () async throws -> Void
@@ -553,7 +518,7 @@ struct BlindRunnerHomeView: View {
 
     /// **由 `BlindRunnerTabView` 注入，不再自己 `@StateObject` 持有。**
     ///
-    /// 理由是安全的：「我的」tab 底部那条兜底求助条要用同一个 `activeOrder` 判走云端还是走
+    /// 理由是安全的：「我的」的紧急入口要用同一个 `activeOrder` 判走云端还是走
     /// 本地拨号（`BlindHomeSOSMode.resolve`）。两个 tab 各持一个 view model 会让两处看到
     /// 不同的订单，而其中一处决定的是求助发不发得出去。所有权因此上移一层。
     @ObservedObject var viewModel: BlindRunnerHomeViewModel
@@ -605,9 +570,8 @@ struct BlindRunnerHomeView: View {
         NavigationStack(path: $path) {
             contentLayer
             .background(AppColors.Flow.page)
-            // 🗑 底部常驻求助条已从首页移除（项目负责人 2026-09-16 拍板），改由「我的」tab
-            // 底部兜底 —— 同一个 `BlindHomeSOSBar`、同一条 `BlindHomeSOSMode.resolve` 判据，
-            // 见 `BlindRunnerTabView`。`AGENTS.md` §6 与 `docs/05-page-specs.md` 已同步改口径。
+            // 🗑 底部常驻求助条已删除（项目负责人 2026-09-16、2026-10-30 拍板）。紧急入口是
+            // 「我的」列表里的一行，同一条 `BlindHomeSOSMode.resolve` 判据，见 `BlindRunnerTabView`。
             //
             // 🔴 **magic tap 手势刻意保留，并上移到了 `BlindRunnerTabView`。**
             // 它不占任何像素，所以与设计稿不冲突；而删掉它是纯损失 ——
@@ -632,12 +596,12 @@ struct BlindRunnerHomeView: View {
                 }
             }
             // 🔴 **`onDisappear` 不再取消加载。** 2026-09-16 起这一页在 `TabView` 里，
-            // 切到「记录」/「我的」就会走 `onDisappear` —— 而「我的」那条兜底求助条的
+            // 切到「记录」/「我的」就会走 `onDisappear` —— 而「我的」那个紧急入口的
             // 模式判据（`BlindHomeSOSMode.resolve`）读的正是同一个 `activeOrder`。
             //
             // 取消的后果是一场**决定求助走不走云端的竞态**：`IN_PROGRESS` 中冷启动、
             // 用户在 20 秒加载上限内切到「我的」找求助 ⇒ 加载被这一行取消 ⇒ `activeOrder`
-            // 恒 nil ⇒ 求助条落 `.localCall` 本地拨号档，云端 SOS（记录事件 + 通知平台）
+            // 恒 nil ⇒ 入口落 `.localCall` 本地拨号档，云端 SOS（记录事件 + 通知平台）
             // 这一轮不会发生，而用户**无从得知模式被降级了**。而「我的」tab 自己没有加载入口，
             // WebSocket 那条也救不了（`applyRealtimeStatus` 首行 `guard let current = activeOrder`）。
             // `AGENTS.md` §6 写的是「模式由订单状态决定，用户不可选」—— 不是由一场竞态决定。
@@ -647,6 +611,14 @@ struct BlindRunnerHomeView: View {
             // `BlindRunnerTabView` 一起释放，`Task` 自然取消。
             .onChange(of: viewModel.activeOrder?.status) { status in
                 focusedSection = status == nil ? .newBooking : .activeOrder
+            }
+            // 陪跑中按了紧急入口（#605）：最前面不是这一单的订单页就推上去，请求由订单页接走。
+            // 比对订单号：可以同时有别的时段的预约，停在那一单的页面上发不出云端求助。
+            .onChange(of: viewModel.orderSafetyRequest) { request in
+                guard request != nil, let order = viewModel.activeOrder else { return }
+                let orderRoute = BlindRunnerRoute.orderStatus(order.orderId)
+                guard path.last != orderRoute else { return }
+                path = [orderRoute]
             }
             .task {
                 // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
@@ -699,13 +671,15 @@ struct BlindRunnerHomeView: View {
             .onChange(of: isShowingOrderStatus) { isShowing in
                 guard !isShowing else { return }
                 appState.endDeferredSessionExpiry()
+                // 紧急请求没等到弹出就离开了订单页。留着的话下一次按入口值不变、`onChange` 不触发。
+                viewModel.orderSafetyRequest = nil
             }
             // 🗑「取消订单」的确认弹窗已从首页移除。设计稿把首页收成两块，取消属于低频的
             // 破坏性操作，归宿是订单页信息列表的最后一行（`AGENTS.md` §5 的可取消状态不变，
             // `BlindRunnerHomeViewModel.cancelActiveOrder` 保留未动 —— 只是首页不再有入口）。
             //
-            // 🗑 两个紧急弹窗随求助条一并上移到 `BlindRunnerTabView`：magic tap 可以在任意
-            // tab 触发，弹窗挂在 tab 容器上才呈现得出来。挂在这一页的话，从「记录」或
+            // 🗑 本地拨号单挂在 `BlindRunnerTabView`：magic tap 可以在任意 tab 触发，
+            // 弹窗挂在 tab 容器上才呈现得出来。挂在这一页的话，从「记录」或
             // 「我的」触发时弹窗所在的视图不在屏上，用户按了没有任何反应。
         }
     }
@@ -900,7 +874,7 @@ struct BlindRunnerHomeView: View {
                 }
             }
         case .orderStatus(let orderId):
-            BlindOrderStatusView(orderId: orderId) { updatedOrder in
+            BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
                 viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
             }
         case .help:

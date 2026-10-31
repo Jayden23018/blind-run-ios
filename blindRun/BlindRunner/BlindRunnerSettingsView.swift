@@ -15,6 +15,8 @@ struct BlindRunnerSettingsView: View {
     /// 底部「我的」标签的根页为 true：标题叫「我的」、顶上有本月汇总卡。
     /// 从别处 push 进来（引导页）时仍是「设置」，那条路的用户是来改设置的。
     var isTabRoot = false
+    /// 「我的」标签传入。从引导页 push 进来时为 nil，那条路的用户是来改设置的。
+    var emergencyEntry: BlindSettingsEmergencyEntry?
 
     var body: some View {
         List {
@@ -37,6 +39,13 @@ struct BlindRunnerSettingsView: View {
             Section {
                 settingsRow("昵称", value: appState.blindProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "视障跑者")
+            }
+
+            // 放在列表靠前的位置：默认字号下不滚动就够得到。
+            if let emergencyEntry {
+                Section {
+                    BlindProfileEmergencyRow(mode: emergencyEntry.mode, action: emergencyEntry.action)
+                }
             }
 
             Section {

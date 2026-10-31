@@ -22,7 +22,7 @@ extension blindRunUITests {
         openSettings(app)
         let deleteButton = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
-        // 先滑到底，否则触点落在常驻求助条上（记忆 `ui-test-tap-lands-on-persistent-sos-bar`）。
+        // 先滑到底，否则触点可能落在标签栏上。
         app.swipeUp()
         app.swipeUp()
         deleteButton.tap()

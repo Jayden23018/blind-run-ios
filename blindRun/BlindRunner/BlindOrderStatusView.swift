@@ -1968,7 +1968,7 @@ struct BlindOrderStatusView: View {
     /// 只读退路那条列表仍走自己的 `NavigationLink`。
     @State private var showDispatchAlgorithmNotice = false
     /// 屏 3 / 屏 3b 的全屏呈现。**由显式动作打开，不由 coordinator 状态推导** ——
-    /// 推导的话首页 SOS 条触发的求助也会在订单页上弹出这一屏，而那条路径有它自己的界面。
+    /// 推导的话恢复路径以外的状态变化也会弹出这一屏。
     @State private var showEmergencyCountdown = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
@@ -1992,6 +1992,8 @@ struct BlindOrderStatusView: View {
     /// 后者会把正在读订单信息的用户反复弹回顶部。
     @AccessibilityFocusState private var statusHeaderFocused: Bool
     let orderId: Int64
+    /// 「我的」或全屏手势转来的紧急请求（#605）。只有首页那条导航路径传它。
+    var safetyRequest: Binding<BlindOrderSafetyRequest?> = .constant(nil)
     let onOrderUpdated: (OrderDetailResponse) -> Void
 
     /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
@@ -2631,6 +2633,13 @@ struct BlindOrderStatusView: View {
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
         }
+        .modifier(OrderSafetyRequestPresenter(
+            request: safetyRequest,
+            isOrderLoaded: { viewModel.order != nil },
+            isCloudMode: { sosMode == .cloudTrigger },
+            showConfirmation: { showEmergencyConfirmation = true },
+            showSafetyHub: { showSafetyHub = true }
+        ))
         // 全屏，不是 sheet：这一态盲人只有一件该做的事，而 sheet 会把订单页的内容
         // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。
         // 关闭只走「返回订单」按钮（`fullScreenCover` 本来就不能下滑关掉），
