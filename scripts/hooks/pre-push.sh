@@ -87,6 +87,7 @@ if [ "$FULL" = "1" ] || touches '^(scripts/|\.claude/|\.github/)'; then
   run_node "validate-worktree-localconfig（新 worktree 带 LocalConfig 钩子自测）" scripts/validate-worktree-localconfig.mjs
   run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
   run_node "validate-only-testing-coverage（-only-testing 部分零命中自测）" scripts/validate-only-testing-coverage.mjs
+  run_node "validate-only-testing-estimate（一次跑多少条的上限自测）" scripts/validate-only-testing-estimate.mjs
   run_node "validate-drift-fields（契约漂移字段归属自测）" scripts/validate-drift-fields.mjs
   run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
   if [ -f scripts/validate-preflight-watchdog.sh ]; then

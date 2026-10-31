@@ -35,6 +35,7 @@ set -uo pipefail
 #                       设了它脚本还会清空 CODE_SIGN_ENTITLEMENTS：免费团队不支持推送能力（aps-environment），
 #                       带着它签名直接失败。单测与 UI 测试不依赖推送。
 #                       设了它编译产物还会放进独立的 DerivedData，不与编译门禁共用（#452，见下面 DERIVED_DATA 那段）。
+#   AIDRUN_ALLOW_WIDE_RUN=1   放行一次超过 100 条用例的宽跑（#616）。先说明为什么要跑这么多
 #   AIDRUN_DERIVED_DATA_PATH  设了前缀时覆盖那份独立 DerivedData 的位置（不设前缀时不生效）。
 
 DEVICE_ID="${AIDRUN_DEVICE_ID:-00008140-000161D62112801C}"
@@ -137,6 +138,21 @@ if [ -n "${AIDRUN_LOCK_SELFTEST:-}" ]; then
   say "已持有设备锁（pid $$），selftest 模式待命 ${AIDRUN_LOCK_SELFTEST}s"
   sleep "$AIDRUN_LOCK_SELFTEST"
   exit 0
+fi
+
+# ---------- 0.4 一次跑多少条（#616）----------
+#
+# 负责人 2026-10-31 定：只测改了的地方，一次超过 100 条就拦下，确实要跑得显式放行。
+# 放在编译和探活之前：跑多了的代价主要在编译安装上，要拦就在开始之前拦。
+# 算不出来时不拦：这道闸是省时间的，不能反过来挡住测试。自测：scripts/validate-only-testing-estimate.mjs
+if [ "${AIDRUN_ALLOW_WIDE_RUN:-}" != "1" ]; then
+  WIDE_RUN_RC=0
+  WIDE_RUN_OUTPUT="$(node "$(dirname "$0")/only-testing-estimate.mjs" "$@" 2>&1)" || WIDE_RUN_RC=$?
+  case "$WIDE_RUN_RC" in
+    0) say "$WIDE_RUN_OUTPUT" ;;
+    2) die "$WIDE_RUN_OUTPUT" ;;
+    *) say "⚠️ 算不出这次要跑多少条，不拦，照常跑：$WIDE_RUN_OUTPUT" ;;
+  esac
 fi
 
 # ---------- 0.5 工作区完整性 ----------
