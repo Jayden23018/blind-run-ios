@@ -16,7 +16,7 @@
 const baseURL = 'http://47.114.113.171';
 const phone = process.env.AIDRUN_BLIND_PROBE_PHONE;
 const contactPhonesRaw = process.env.AIDRUN_BLIND_PROBE_CONTACT_PHONES;
-const fallbackCode = process.env.AIDRUN_BLIND_PROBE_CODE ?? '000000';
+const fallbackCode = process.env.AIDRUN_BLIND_PROBE_CODE;
 const shouldSendCode = process.env.AIDRUN_BLIND_PROBE_SKIP_SEND_CODE !== '1';
 const shouldSubmitIdentity = process.env.AIDRUN_BLIND_PROBE_SKIP_IDENTITY !== '1';
 const timeoutMs = Number(process.env.AIDRUN_BLIND_PROBE_TIMEOUT_MS ?? '20000');

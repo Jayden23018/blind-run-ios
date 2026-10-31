@@ -2,11 +2,16 @@
 
 const baseURL = 'http://47.114.113.171';
 const phone = process.env.AIDRUN_AUTH_LIFECYCLE_PHONE;
-const fallbackCode = process.env.AIDRUN_AUTH_LIFECYCLE_CODE ?? '000000';
+const contactPhone = process.env.AIDRUN_AUTH_LIFECYCLE_CONTACT_PHONE;
+const fallbackCode = process.env.AIDRUN_AUTH_LIFECYCLE_CODE;
 const timeoutMs = Number(process.env.AIDRUN_AUTH_LIFECYCLE_TIMEOUT_MS ?? 25000);
 
 if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
   throw new Error('Set AIDRUN_AUTH_LIFECYCLE_PHONE to an approved disposable phone number.');
+}
+// 后端会给新建的紧急联系人发短信，所以这个号必须是你本人控制的号码，不留默认值。
+if (!contactPhone || !/^1[3-9]\d{9}$/.test(contactPhone)) {
+  throw new Error('Set AIDRUN_AUTH_LIFECYCLE_CONTACT_PHONE to a phone number you control.');
 }
 
 const result = {
@@ -102,6 +107,9 @@ async function authenticate({ sendCode = false, code } = {}) {
     selectedCode = verificationCode(sent, undefined)
       ?? await readCode('enter-initial-code', process.env.AIDRUN_AUTH_LIFECYCLE_CODE);
   }
+  if (!selectedCode) {
+    throw new Error('No verification code is available. Set AIDRUN_AUTH_LIFECYCLE_CODE.');
+  }
   const verified = await http('POST', '/api/auth/verify-code', {
     body: { phone, code: selectedCode }
   });
@@ -161,7 +169,7 @@ async function prepareBlindProfile(session) {
     token: session.token,
     body: {
       name: '生命周期探针联系人',
-      phone: '13800001111',
+      phone: contactPhone,
       relationship: '家人',
       isPrimary: true
     }
