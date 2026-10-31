@@ -2198,9 +2198,9 @@ struct VolunteerHomeView: View {
             }
         )
         .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.top, 10).padding(.bottom, 8)
         .background(.regularMaterial)
+        .accessibilityElement(children: .contain).accessibilityIdentifier("volunteerHomeBottomBar") // 审计按它判内容滚到栏后，栏里的滑块照常审
     }
 
     /// 拒绝位置轨迹同意之后，滑块上方那句后果说明（#368）。拒绝时已念过一遍，这里是留在屏幕上的那一份。
