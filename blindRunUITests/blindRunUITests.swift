@@ -2473,7 +2473,7 @@ final class blindRunUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
-    private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+    func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !element.exists {
