@@ -34,7 +34,10 @@ extension AccessibilityAuditTests {
                 // 栏自己的子元素（按钮、滑块）是看得见的，照常审计；只有压在栏后面的页面内容才算被遮挡。
                 if bar.exists { return OccludingBar(top: bar.frame.minY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame)) }
             }
-            return nil
+            // 悬浮标签栏同理：#605 删掉红条后，二级页下半截滚到它后面，元素截图里只有栏的毛玻璃。
+            let tabBar = app.tabBars.firstMatch
+            guard tabBar.exists else { return nil }
+            return OccludingBar(top: tabBar.frame.minY, ownFrames: tabBar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame))
         }()
         // 顶部同理：测试构建才有的 Mock 横幅（`ContentView` 里 `#if DEBUG` 那枚黄胶囊）字号可缩放，
         // AX4/AX5 下会长到导航栏上，把页面标题整个盖住 —— 2026-10-19 空闲时间页 AX5 暗色（#466），
