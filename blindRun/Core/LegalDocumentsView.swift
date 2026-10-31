@@ -21,6 +21,7 @@ struct LegalDocumentsSection: View {
             }
         } header: {
             Text("法律条款")
+                .foregroundColor(AppColors.textSecondary)
         }
     }
 }

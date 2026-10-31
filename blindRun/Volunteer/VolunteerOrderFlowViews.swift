@@ -3117,22 +3117,12 @@ struct AboutAidRunView: View {
 
     var body: some View {
         List {
-            Section {
-                Text("助盲跑 MVP")
-                Text("iOS SwiftUI Demo")
-                    .foregroundColor(AppColors.textSecondary)
-            }
-
-            // 地图左下角那行读屏是隐藏的，这里给一份能念的（后端 issue #382）。
-            if let approvalNumber = AMapManager.mapContentApprovalNumber() {
-                Section {
-                    LabeledContent("地图审图号", value: approvalNumber)
-                        .accessibilityIdentifier("aboutMapApprovalNumber")
-                }
-            }
-
+            AppIdentitySection()
+            AppFilingSection(mapApprovalNumber: AMapManager.mapContentApprovalNumber())
+            GenerativeModelDisclosureSection()
             LegalDocumentsSection(links: appState.legalLinks)
         }
+        .aboutPageClearsBlindSOSBar()
         .navigationTitle("关于")
         // 进页面才拉，不在启动时打这个请求：它只影响这一页，而且失败了也有回退文案。
         .task { await appState.loadLegalLinksIfNeeded() }
