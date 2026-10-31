@@ -23,7 +23,7 @@
 ## 5. 本地验证
 
 - [x] 5.1 `node scripts/validate-guard.mjs`、`node scripts/validate-spec-coverage.mjs`、`node scripts/validate-agents-size.mjs` 全过
-- [ ] 5.2 工程编译通过
+- [x] 5.2 工程编译通过
 
 ## 6. 等后端部署后做（`Jayden23018/blind-run-backend#885`）
 
