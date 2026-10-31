@@ -276,3 +276,20 @@ final class RunnerRunRecordTests: XCTestCase {
         return try Data(contentsOf: XCTUnwrap(url, "测试包里没有 \(name).json"))
     }
 }
+
+extension RunnerRunRecordTests {
+    /// 声音路线还在渲染时焦点移走：这次开始被取消，渲染完也不响（HANDOFF §7 第 9 条，阶段 7 走查发现）。
+    /// 修之前 `focusMoved` 只认 `.playing`，状态停在 `.preparing`，渲染完照样播放 —— 这条会红在第二个断言上。
+    func testRouteStillRenderingIsCancelledWhenFocusMovesAway() async throws {
+        let audio = RunRecordAudioController()
+        audio.activeControlIdentifier = "runnerRunRecordSoundRoute"
+        let sound = try XCTUnwrap(RunRouteSonification(samples: samples(upTo: 5_210), stops: [], totalMetres: 5_210, geometry: nil))
+        audio.toggleRoute(sound)
+        XCTAssertEqual(audio.state, .preparing(.route))
+        audio.focusMoved(to: "runnerRunRecordSplit-1")
+        XCTAssertEqual(audio.state, .idle, "焦点已经离开，渲染中的声音路线应取消")
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        XCTAssertEqual(audio.state, .idle, "渲染完成后不该自己响起来")
+        audio.stop()
+    }
+}

@@ -38,7 +38,9 @@ extension MockAPIClient {
             status: hasTrack ? .ready : .insufficientTrack,
             viewerRole: isBlind ? .blind : .volunteer,
             place: order.startAddress,
-            blindName: order.blindName,
+            // 契约 `RunRecordResponse.blindName` 是脱敏的（`张*`）。订单种子存全名，原样回传等于 Mock 替
+            // 后端放宽了脱敏，「读屏不念星号」的用例也就分不出修没修（#247 验红时红不起来）。
+            blindName: WeChatShareCard.maskedName(order.blindName),
             volunteerName: order.volunteerName,
             runStartedAt: hasTrack ? startedAt : nil,
             runEndedAt: hasTrack ? at(1_297) : nil,
@@ -116,7 +118,7 @@ extension MockAPIClient {
                 orderId: order.orderId,
                 finishedAt: order.createdAt ?? "\(month)-01T08:13:00",
                 place: order.startAddress,
-                partnerName: isBlind ? order.volunteerName : order.blindName,
+                partnerName: isBlind ? order.volunteerName : WeChatShareCard.maskedName(order.blindName),
                 distanceM: 1_040,
                 // 缩略图只给陪跑员。一圈 8 个点绕回起点：只给一个点的话，列表里的路线形状
                 // 在 Mock 下永远是一个圆点，界面阶段验不出折线画没画对。

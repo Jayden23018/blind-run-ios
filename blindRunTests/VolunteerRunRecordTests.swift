@@ -300,11 +300,23 @@ final class VolunteerRunRecordTests: XCTestCase {
         )
     }
 
-    private func record(
+    private func fixture(_ name: String) throws -> Data {
+        let bundle = Bundle(for: Self.self)
+        let url = bundle.url(forResource: name, withExtension: "json")
+            ?? bundle.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")
+        return try Data(contentsOf: XCTUnwrap(url, "测试包里没有 \(name).json"))
+    }
+}
+
+/// 记录构造器放在扩展里：类本身已超过长度上限（SwiftLint 棘轮只许变小），`+Spoken` 那个文件的用例也用它。
+extension VolunteerRunRecordTests {
+    func record(
         status: RunRecordStatus = .ready,
         summary: RunSummary? = RunSummary(distanceM: 3200, movingSec: 1197, elapsedSec: 1297, restSec: 100, avgPaceSecPerKm: 374, steps: 3180, avgCadence: 162, elevationGainM: 12),
         splits: [RunSplit] = [],
         fastest: Int? = nil,
+        paceSamples: [RunPaceSample] = [],
+        stops: [RunStop] = [],
         events: [RunEvent] = [],
         sosTriggered: Bool = false,
         blindName: String? = "陈*",
@@ -314,18 +326,11 @@ final class VolunteerRunRecordTests: XCTestCase {
             orderId: 7, status: status, viewerRole: .volunteer, place: "深圳湾公园",
             blindName: blindName, volunteerName: "林*",
             runStartedAt: "2026-09-20T08:00:00", runEndedAt: "2026-09-20T08:40:00",
-            summary: summary, splits: splits, fastestSplitIndex: fastest, paceSamples: [], stops: [],
+            summary: summary, splits: splits, fastestSplitIndex: fastest, paceSamples: paceSamples, stops: stops,
             events: events, sosTriggered: sosTriggered,
             service: RunService(startedAt: "2026-09-20T08:00:00", completedAt: "2026-09-20T08:45:00", durationMin: 45, volunteerTotalServiceMinutes: 300),
             comparison: nil, messages: messages, track: nil
         )
-    }
-
-    private func fixture(_ name: String) throws -> Data {
-        let bundle = Bundle(for: Self.self)
-        let url = bundle.url(forResource: name, withExtension: "json")
-            ?? bundle.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")
-        return try Data(contentsOf: XCTUnwrap(url, "测试包里没有 \(name).json"))
     }
 }
 

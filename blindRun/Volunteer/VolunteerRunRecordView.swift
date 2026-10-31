@@ -67,6 +67,8 @@ struct VolunteerRunRecordContent {
     /// 发送成功后那句。原型是「X打开这条记录时会听到」—— 跑者页不会自动念，改成这句（负责人 2026-09-25）。
     let sentConfirmation: String
     let spokenSentConfirmation: String
+    /// 发送按钮的读屏提示（原型 data-vo「老陈会在他的记录里听到这句话」，按阶段 6 的确认句改）。
+    let spokenSendHint: String
 
     /// 原型的三个快捷短语，点一下把输入框换成「短语。」。
     static let quickPhrases = ["节奏很稳", "下次试试再快一点", "折返配合得很好"]
@@ -102,7 +104,7 @@ struct VolunteerRunRecordContent {
         primaryStats = [
             summary?.movingSec.map { Stat(label: "运动时间", value: RunRecordText.clock($0), spoken: "运动时间 \(RunRecordText.spokenDuration($0))") },
             summary?.avgPaceSecPerKm.map { Stat(label: "平均配速", value: RunRecordText.pace($0), spoken: "平均配速 \(RunRecordText.spokenPace($0))") },
-            summary?.avgCadence.map { Stat(label: "步频", value: "\($0)步/分", spoken: "步频 每分钟\($0)步") }
+            summary?.avgCadence.map { Stat(label: "步频", value: "\($0)步/分", spoken: "平均步频 每分钟\($0)步") }
         ].compactMap { $0 }
         secondaryStats = [
             summary?.steps.map { Stat(label: "步数", value: $0.formatted(), spoken: "步数 \($0)步") },
@@ -119,16 +121,9 @@ struct VolunteerRunRecordContent {
         timeline = record.events.map { Self.timelineEntry($0) }
         sosLine = record.sosTriggered ? "这一单触发过紧急求助" : "全程没有触发紧急求助"
 
-        let restCount = record.stops.count
-        var description = "路线地图"
-        if let spokenDistance { description += "，全程 \(spokenDistance) 公里" }
-        if let geometry {
-            description += geometry.startEndCoincide ? "，起点和终点在同一处" : "，起点和终点不在同一处"
-        }
-        description += restCount > 0 ? "，途中休息\(restCount)次" : "，途中没有休息"
-        mapDescription = description + "。数字见下方。"
-
+        mapDescription = Self.spokenMapDescription(record: record, spokenDistance: spokenDistance, geometry: geometry)
         let scale = RunPaceScale(samples: record.paceSamples)
+
         let fastestPace = record.splits.map(\.paceSecPerKm).filter { $0 > 0 }.min()
         showsCadenceColumn = record.splits.contains { $0.avgCadence != nil }
         splits = record.splits.map { split in
@@ -158,6 +153,7 @@ struct VolunteerRunRecordContent {
         spokenComposerTitle = partner.map { "给\($0.unmaskedForSpeech)留句话" }
         sentConfirmation = "已发送。\(partner ?? "对方")在这条跑步记录里可以听到这句话。"
         spokenSentConfirmation = "已发送。\(partner?.unmaskedForSpeech ?? "对方")在这条跑步记录里可以听到这句话。"
+        spokenSendHint = "\(partner?.unmaskedForSpeech ?? "对方")在这条跑步记录里可以听到这句话"
 
         messages = (allMessages ?? record.messages).compactMap { message in
             guard let text = message.text, !text.isEmpty else { return nil }
@@ -240,8 +236,8 @@ struct VolunteerRunRecordView: View {
     var body: some View {
         content
             .background(AppColors.background)
-            .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
+            // 屏幕上是「和陈*一起跑」，读屏念「和陈一起跑」，不念「陈星号」（`unmaskedForSpeech` 注释）。
+            .spokenNavigationTitle(navigationTitle.shown, spoken: navigationTitle.spoken)
             // 二级页藏标签栏：悬浮胶囊会盖住最后一行（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
             // 这一页是 push 进来的，返回箭头一直在。
             .toolbar(.hidden, for: .tabBar)
@@ -255,11 +251,11 @@ struct VolunteerRunRecordView: View {
             .onDisappear { retryTask?.cancel() }
     }
 
-    private var navigationTitle: String {
+    private var navigationTitle: (shown: String, spoken: String) {
         if case .loaded(let record) = viewModel.phase {
-            return VolunteerRunRecordContent(record: record).title
+            return VolunteerRunRecordContent(record: record).navigationTitle
         }
-        return "跑后记录"
+        return ("跑后记录", "跑后记录")
     }
 
     @ViewBuilder
@@ -350,7 +346,7 @@ struct VolunteerRunRecordView: View {
             }
             if record.paceSamples.count >= 2, let scale = RunPaceScale(samples: record.paceSamples) {
                 section("配速") {
-                    RunPaceChart(samples: record.paceSamples, average: record.summary?.avgPaceSecPerKm, stops: record.stops, scale: scale)
+                    RunPaceChart(samples: record.paceSamples, average: record.summary?.avgPaceSecPerKm, stops: record.stops, fastestKilometre: record.fastestSplitIndex, scale: scale)
                 }
             }
             if !content.splits.isEmpty {
@@ -503,6 +499,7 @@ struct VolunteerRunRecordView: View {
         .buttonStyle(.plain)
         .disabled(sending)
         .accessibilityLabel(sending ? "正在发送留言" : "发送留言")
+        .accessibilityHint(content.spokenSendHint)
         .accessibilityIdentifier("runRecordMessageSend")
     }
 
@@ -894,6 +891,7 @@ private struct RunPaceChart: View {
     let samples: [RunPaceSample]
     let average: Int?
     let stops: [RunStop]
+    let fastestKilometre: Int?
     let scale: RunPaceScale
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -973,7 +971,7 @@ private struct RunPaceChart: View {
     }
 
     private var descriptor: RunPaceChartDescriptor {
-        RunPaceChartDescriptor(samples: samples, average: average)
+        RunPaceChartDescriptor(samples: samples, average: average, stops: stops, fastestKilometre: fastestKilometre)
     }
 
     private var paceGradient: LinearGradient {
@@ -986,41 +984,6 @@ private struct RunPaceChart: View {
             )
         }
         return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
-    }
-}
-
-struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
-    let samples: [RunPaceSample]
-    let average: Int?
-
-    var summary: String {
-        let paces = samples.map(\.paceSecPerKm)
-        var parts: [String] = []
-        if let average { parts.append("平均\(RunRecordText.spokenPace(average))") }
-        if let fastest = paces.min() { parts.append("最快\(RunRecordText.spokenPace(fastest))") }
-        if let slowest = paces.max() { parts.append("最慢\(RunRecordText.spokenPace(slowest))") }
-        return parts.joined(separator: "，")
-    }
-
-    func makeChartDescriptor() -> AXChartDescriptor {
-        let kilometres = samples.map { Double($0.distanceM) / 1000 }
-        let paces = samples.map { Double($0.paceSecPerKm) }
-        let xAxis = AXNumericDataAxisDescriptor(
-            title: "距离",
-            range: 0...(kilometres.max() ?? 0),
-            gridlinePositions: []
-        ) { "\($0.formatted(.number.precision(.fractionLength(0...2))))公里" }
-        let yAxis = AXNumericDataAxisDescriptor(
-            title: "配速",
-            range: (paces.min() ?? 0)...(paces.max() ?? 0),
-            gridlinePositions: []
-        ) { RunRecordText.spokenPace(Int($0)) }
-        let series = AXDataSeriesDescriptor(
-            name: "配速",
-            isContinuous: true,
-            dataPoints: zip(kilometres, paces).map { AXDataPoint(x: $0, y: $1) }
-        )
-        return AXChartDescriptor(title: "配速图", summary: summary, xAxis: xAxis, yAxis: yAxis, additionalAxes: [], series: [series])
     }
 }
 
@@ -1045,6 +1008,15 @@ struct RunRecordRouteMap: View {
             fitEdgePadding: UIEdgeInsets(top: 40, left: 32, bottom: bottomInset, right: 32),
             isDecorative: true
         )
+        // 颜色表达的信息要有文字冗余（HANDOFF 第 7 节）：路线按配速着色，图例写明两端是快和慢。
+        // 单色路线（没有配速采样）不画图例。读屏从地图描述里听到同一件事，图例不进无障碍树。
+        .overlay(alignment: .topLeading) {
+            if RunPaceScale(samples: record.paceSamples) != nil {
+                RunPaceLegend()
+                    .padding(12)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     private var center: CLLocationCoordinate2D {
