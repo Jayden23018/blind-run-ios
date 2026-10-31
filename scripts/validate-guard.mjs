@@ -2089,6 +2089,42 @@ const cases = [
     swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
     swift: 'let a = URL(string: "https://blindrun.culiu-tech.com:8443")!'
   },
+  // 主机要按 URL 解析后比较。正则截断在 `@` 时，下面第一条的实际主机是 evil.net，却被读成备案域名。
+  {
+    name: '备案域名放在 userinfo 里（实际主机是别处，拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://blindrun.culiu-tech.com@evil.net")!'
+  },
+  {
+    name: '备案域名带账号密码（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://user:pw@blindrun.culiu-tech.com")!'
+  },
+  {
+    name: '备案域名带路径（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://blindrun.culiu-tech.com/api/orders")!'
+  },
+  {
+    name: '文档域名开头的长主机（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://example.com.evil.net")!'
+  },
+  {
+    name: '文档域名带路径（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://www.example.org/x")!'
+  },
   {
     name: '明文地址只出现在注释里（放行）',
     mode: 'post',

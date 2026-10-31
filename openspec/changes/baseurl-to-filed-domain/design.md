@@ -25,7 +25,7 @@ App 里不保留「域名连不上就试旧 IP」的逻辑。备案要求 App �
 
 ### 守卫改成主机全等比较
 
-旧判据是 `u.includes(REAL_HOST)`。换成域名后，`https://blindrun.culiu-tech.com.evil.net` 和 `https://staging-blindrun.culiu-tech.com` 都会被当成真实主机放行。改成拿 URL 的主机部分和 `REAL_HOST` 全等比较，带端口的写法也按「别的主机」拦下。
+旧判据是 `u.includes(REAL_HOST)`。换成域名后，`https://blindrun.culiu-tech.com.evil.net` 和 `https://staging-blindrun.culiu-tech.com` 都会被当成真实主机放行。改成用 `new URL()` 解析后拿 `hostname` 和 `REAL_HOST` 全等比较，带端口或账号的写法也按「别的主机」拦下，解析失败按违规算。不用正则截主机，因为截到 `@` 为止时，`https://blindrun.culiu-tech.com@evil.net` 的实际主机是 `evil.net`，却会被读成备案域名。文档域名 `example.com` 等同样按 `hostname` 全等比较。
 
 ### 守卫单独认旧 IP 的裸字符串
 
