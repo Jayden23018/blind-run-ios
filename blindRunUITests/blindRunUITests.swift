@@ -1350,17 +1350,18 @@ final class blindRunUITests: XCTestCase {
         waitForContactSummary(app, Self.seededContactSummary)
 
         // 只剩一位时删除被本地守卫拦下，不发请求、不弹确认框。
-        // 原因显示在编辑表单里：表单是 sheet，列表页的弹窗在它后面呈现不出来。
+        // 拦截必须自己弹出来：按钮在表单最下面，内联文字在它上方，大字号时已滚出屏幕（#606）。
         openContactEditor(app, named: "张三")
         let deleteOnlyContact = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteOnlyContact, app: app)
         tapWhenHittableOrByCoordinate(deleteOnlyContact, app: app)
-        XCTAssertTrue(
-            app.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].firstMatch.waitForExistence(timeout: 8),
-            "被拦下的删除必须在表单里说清原因"
-        )
+        let blocked = app.alerts["紧急联系人提示"]
+        XCTAssertTrue(blocked.waitForExistence(timeout: 8))
+        XCTAssertTrue(blocked.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].exists)
         XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
+        blocked.buttons["知道了"].tap()
+        XCTAssertTrue(waitForElementToDisappear(blocked, timeout: 8))
         app.buttons["取消"].firstMatch.tap()
         XCTAssertTrue(waitForElementToDisappear(app.navigationBars["编辑紧急联系人"], timeout: 8))
 
