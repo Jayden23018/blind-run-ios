@@ -35,6 +35,24 @@ extension AccessibilityAuditTests {
         )
     }
 
+    /// #603：「删除账户」曾整行藏在红条后面。审核指南 5.1.1(v) 要求账号删除入口能被找到。
+    @MainActor
+    func testDeleteAccountIsVisibleAboveTheTabBarAtTheBottomOfProfile() throws {
+        let app = launchBlindHome()
+        let tabBar = app.tabBars.firstMatch
+        tabBar.buttons["我的"].tap()
+        let delete = app.buttons["删除账户"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "「我的」没有删除账户")
+        app.swipeUp()
+        app.swipeUp()
+        sleep(1)
+        XCTAssertLessThanOrEqual(delete.frame.maxY, tabBar.frame.minY, "「删除账户」\(delete.frame) 被标签栏盖住")
+        let sos = emergencyCallButton(app)
+        if sos.exists {
+            XCTAssertTrue(delete.frame.intersection(sos.frame).isNull, "「删除账户」被紧急呼叫盖住")
+        }
+    }
+
     @MainActor
     func testProfileEmergencyRowDialsLocallyWhenThereIsNoRun() throws {
         let app = launchBlindHome()
