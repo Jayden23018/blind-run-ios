@@ -20,7 +20,9 @@ import path from 'node:path';
 import { findDiscardedHolders, findWeakHelperLeaks } from './weak-helper-leaks.mjs';
 
 const MODE = process.argv[2] === 'pre' ? 'pre' : 'post';
-const REAL_HOST = '47.114.113.171';
+const REAL_HOST = 'blindrun.culiu-tech.com';
+// 2026-10-31 退役的裸 IP（#621）。备案绑定域名，发布包不得再带这个地址，写回一律拦。
+const RETIRED_HOST = '47.114.113.171';
 
 // RFC 2606 保留域名，永远不可能是真实服务端，不必标注
 const DOC_DOMAINS = /^https?:\/\/(www\.)?example\.(com|org|net)/;
@@ -213,15 +215,20 @@ const rules = {
     //
     // WebSocket 一并纳入：scheme 由 baseURL 推导（WebSocketService.connectionURL），
     // 仓库里本来就不该出现 ws/wss 字面量，出现即是新硬编码。
-    pattern: /(?:https?|wss?):\/\/[a-zA-Z0-9.\-_:]+/,
+    //
+    // 2026-10-31 补主机全等（#621）。裸 IP 时代的子串比较换成域名后，长主机和别的子域都能穿过去。
+    // 旧 IP 不带 scheme 也拦：`components.host = "<旧 IP>"` 不会命中 URL 那一半正则。
+    pattern: /(?:https?|wss?):\/\/[a-zA-Z0-9.\-_:]+|47\.114\.113\.171/,
     check: (line) => {
+      if (line.includes(RETIRED_HOST)) return true;
       const urls = line.match(/(?:https?|wss?):\/\/[a-zA-Z0-9.\-_:]+/g) || [];
       return urls.some((u) => {
-        if (!u.includes(REAL_HOST)) return !DOC_DOMAINS.test(u);
-        return /^(?:http|ws):\/\//.test(u); // 主机对了，但走的是明文
+        const [scheme, authority] = u.split('://');
+        if (authority !== REAL_HOST) return !DOC_DOMAINS.test(u);
+        return scheme === 'http' || scheme === 'ws'; // 主机对了，但走的是明文
       });
     },
-    why: `所有真实 HTTP 必须走 https://${REAL_HOST}（WebSocket 对应 wss://），地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。\n主机写对但 scheme 退回明文（http:// / ws://）同样拦：实时位置与 SOS 坐标是这个 App 最不能明文传的两样东西，且 Info.plist 的 ATS 例外已删除，明文请求会直接失败。`,
+    why: `所有真实 HTTP 必须走 https://${REAL_HOST}（WebSocket 对应 wss://），地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。\n主机写对但 scheme 退回明文（http:// / ws://）同样拦：实时位置与 SOS 坐标是这个 App 最不能明文传的两样东西，且 Info.plist 的 ATS 例外已删除，明文请求会直接失败。\n旧 IP ${RETIRED_HOST} 已退役：备案绑定域名，App 备案填的后台域名必须是 App 实际连接的域名，发布包不得再带旧地址。`,
   },
   'token-in-userdefaults': {
     // AGENTS.md 第 8 节逐字：「不要把 access token 写进 UserDefaults」。

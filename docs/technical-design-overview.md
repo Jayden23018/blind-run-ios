@@ -55,8 +55,8 @@
 
 | 项目 | 值 |
 |---|---|
-| HTTP 端点 | `http://47.114.113.171` |
-| WebSocket 端点 | `ws://47.114.113.171` |
+| HTTP 端点 | `https://blindrun.culiu-tech.com` |
+| WebSocket 端点 | `wss://blindrun.culiu-tech.com` |
 | 契约唯一源 | 后端仓库 `docs/api_spec.yaml` |
 
 服务端地址在 App 内**不可配置**，仓库内不允许出现第二个真实服务端地址。这条约束由静态守卫脚本强制。
@@ -596,7 +596,7 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 |---|---|
 | `legacy-status` | 禁用的遗留订单状态词（`submitted`/`matching`/`accepted`/`arrived`/`emergency` 等） |
 | `sos-copy` | 宣称短信已送达 / 家属已通知的文案（ADR-06） |
-| `server-addr` | 除 `47.114.113.171` 外的真实服务端地址 |
+| `server-addr` | 除 `blindrun.culiu-tech.com` 外的真实服务端地址，以及退役的旧 IP |
 | `archived-contract` | 读取已归档的旧契约副本 `docs/_archive-*.bak` |
 | `frozen-files` | `Podfile` 整文件；`project.pbxproj` 的 `DEVELOPMENT_TEAM` 行；任何文件的架构排除键 |
 | `amap-key` | 硬编码的 32 位十六进制高德 key |

@@ -2007,28 +2007,28 @@ const cases = [
     mode: 'post',
     expect: 2,
     swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
-    swift: 'let a = URL(string: "htt' + 'p://47.114.113.171")!'
+    swift: 'let a = URL(string: "htt' + 'p://blindrun.culiu-tech.com")!'
   },
   {
     name: '真实主机退回明文 ws（拦下）',
     mode: 'post',
     expect: 2,
     swiftPath: 'blindRun/Core/WebSocketService.swift',
-    swift: 'let a = URL(string: "w' + 's://47.114.113.171/ws/blind")!'
+    swift: 'let a = URL(string: "w' + 's://blindrun.culiu-tech.com/ws/blind")!'
   },
   {
     name: '真实主机走 https（放行）',
     mode: 'post',
     expect: 0,
     swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
-    swift: 'let a = URL(string: "https://47.114.113.171")!'
+    swift: 'let a = URL(string: "https://blindrun.culiu-tech.com")!'
   },
   {
     name: '真实主机走 wss（放行）',
     mode: 'post',
     expect: 0,
     swiftPath: 'blindRun/Core/WebSocketService.swift',
-    swift: 'let a = URL(string: "wss://47.114.113.171/ws/blind")!'
+    swift: 'let a = URL(string: "wss://blindrun.culiu-tech.com/ws/blind")!'
   },
   {
     // 反向哨兵：证明上面两条放行不是「规则压根没跑」造成的假通过。
@@ -2038,12 +2038,63 @@ const cases = [
     swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
     swift: 'let a = URL(string: "https://localhost:8080")!'
   },
+  // 2026-10-31 域名切换（#621）。裸 IP 时代用子串比较没出过事，换成域名后长主机和别的子域都能穿过去。
+  // 旧 IP 拼成字符串，本文件才不会变成「全库搜旧地址」的噪声。
+  {
+    name: '写回旧 IP（https，拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://47.114' + '.113.171")!'
+  },
+  {
+    name: '写回旧 IP（wss，拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/WebSocketService.swift',
+    swift: 'let a = URL(string: "wss://47.114' + '.113.171/ws/blind")!'
+  },
+  {
+    name: '旧 IP 的裸字符串（没有 scheme 也拦）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/WebSocketService.swift',
+    swift: 'components.host = "47.114' + '.113.171"'
+  },
+  {
+    name: '旧 IP 只出现在注释行（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: '// 2026-10-31 之前这里是 47.114' + '.113.171\nlet a = URL(string: "https://blindrun.culiu-tech.com")!'
+  },
+  {
+    name: '主机以备案域名开头的长主机（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://blindrun.culiu-tech.com.evil.net")!'
+  },
+  {
+    name: '主机以备案域名结尾的别的主机（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://staging-blindrun.culiu-tech.com")!'
+  },
+  {
+    name: '备案域名带端口（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://blindrun.culiu-tech.com:8443")!'
+  },
   {
     name: '明文地址只出现在注释里（放行）',
     mode: 'post',
     expect: 0,
     swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
-    swift: '// 2026-09-08 之前这里是 htt' + 'p://47.114.113.171，切 https 后 ATS 例外已删\nlet a = URL(string: "https://47.114.113.171")!'
+    swift: '// 2026-09-08 之前这里是 htt' + 'p://blindrun.culiu-tech.com，切 https 后 ATS 例外已删\nlet a = URL(string: "https://blindrun.culiu-tech.com")!'
   },
 
   // token-in-userdefaults（2026-09-14）。AGENTS.md 第 8 节逐字禁令，此前零覆盖。
