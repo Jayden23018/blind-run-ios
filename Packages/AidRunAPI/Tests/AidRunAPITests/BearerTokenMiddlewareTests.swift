@@ -18,7 +18,7 @@ final class BearerTokenMiddlewareTests: XCTestCase {
         _ = try await middleware.intercept(
             incoming,
             body: nil,
-            baseURL: URL(string: "http://47.114.113.171")!,
+            baseURL: URL(string: "https://blindrun.culiu-tech.com")!,
             operationID: "getCurrentUser",
             next: { request, _, _ in
                 await box.store(request)

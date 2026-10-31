@@ -75,7 +75,7 @@ final class LegalLinksTests: XCTestCase {
             LegalDocumentKind.privacyPolicy.destination(in: links),
             .remote(URL(string: "https://aidrun.example.com/privacy")!)
         )
-        // http 也接受：后端当前整体走 http://47.114.113.171。
+        // http 也接受：`destination` 放行 http 和 https，法律文书地址由后端下发。
         XCTAssertEqual(
             LegalDocumentKind.userAgreement.destination(in: links),
             .remote(URL(string: "http://aidrun.example.com/terms")!)

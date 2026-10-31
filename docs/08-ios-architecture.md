@@ -59,7 +59,7 @@ Development keeps Mock for deterministic UI/XCTest coverage. Every networked run
 | Environment | Purpose |
 | --- | --- |
 | `mock` | Local fake data for UI and flow debugging |
-| `demoCloud` | Current demo cloud backend at `http://47.114.113.171` |
+| `demoCloud` | External cloud backend at `https://blindrun.culiu-tech.com` |
 
 | Build channel | Scheme / configuration | Allowed environment | Environment UI |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ Implementation guidance:
 - Use one `APIClient` protocol so Mock and real implementations share call sites.
 - In Debug development builds, expose a small environment selector in settings or launch configuration.
 - Unknown persisted environment values are ignored and the build channel default is used.
-- Every build uses the shared Info plist with an ATS exception scoped to `47.114.113.171`.
+- Every build uses the shared Info plist. It has no ATS exception.
 - Do not add a configurable alternative real-server URL without an explicit environment strategy change.
 - Use WebSocket for cloud dispatch, status notifications, and location updates; retain REST polling as the disconnected fallback.
 
