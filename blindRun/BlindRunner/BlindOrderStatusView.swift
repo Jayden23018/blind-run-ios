@@ -2013,8 +2013,17 @@ struct BlindOrderStatusView: View {
     }
 
     private static let safetyRequestPresentDelay: UInt64 = 500_000_000
+    private static let safetyRequestOrderPollInterval: UInt64 = 100_000_000
+    private static let safetyRequestOrderPollLimit = 20
 
-    /// 订单还没加载出来时 `sosMode` 不是云端档，这时弹确认框，确认后会因为没有订单而零反应。
+    /// 订单页刚推上来时订单还在加载。等一下再判，否则网络一慢手势就多出求助中心这一层。
+    private func waitForOrderForSafetyRequest() async {
+        for _ in 0..<Self.safetyRequestOrderPollLimit where viewModel.order == nil {
+            try? await Task.sleep(nanoseconds: Self.safetyRequestOrderPollInterval)
+        }
+    }
+
+    /// 等过之后订单还没到时 `sosMode` 不是云端档，这时弹确认框，确认后会因为没有订单而零反应。
     /// 所以落到求助中心：它按当前模式给出能按的选项，订单加载完自动换成云端档。
     private func present(_ request: BlindOrderSafetyRequest) {
         if request == .confirmEmergency, sosMode == .cloudTrigger {
@@ -2650,6 +2659,7 @@ struct BlindOrderStatusView: View {
             guard let request = safetyRequest.wrappedValue else { return }
             // 推入动画没结束时弹 alert 会被系统丢掉，而这是紧急入口，丢了就是按了没反应。
             try? await Task.sleep(nanoseconds: Self.safetyRequestPresentDelay)
+            await waitForOrderForSafetyRequest()
             guard !Task.isCancelled else { return }
             safetyRequest.wrappedValue = nil
             present(request)

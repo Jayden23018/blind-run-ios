@@ -612,10 +612,13 @@ struct BlindRunnerHomeView: View {
             .onChange(of: viewModel.activeOrder?.status) { status in
                 focusedSection = status == nil ? .newBooking : .activeOrder
             }
-            // 陪跑中按了紧急入口（#605）：订单页不在栈里就推上去，请求由订单页接走。
+            // 陪跑中按了紧急入口（#605）：最前面不是这一单的订单页就推上去，请求由订单页接走。
+            // 比对订单号：可以同时有别的时段的预约，停在那一单的页面上发不出云端求助。
             .onChange(of: viewModel.orderSafetyRequest) { request in
-                guard request != nil, !isShowingOrderStatus, let order = viewModel.activeOrder else { return }
-                path = [.orderStatus(order.orderId)]
+                guard request != nil, let order = viewModel.activeOrder else { return }
+                let orderRoute = BlindRunnerRoute.orderStatus(order.orderId)
+                guard path.last != orderRoute else { return }
+                path = [orderRoute]
             }
             .task {
                 // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
@@ -668,6 +671,8 @@ struct BlindRunnerHomeView: View {
             .onChange(of: isShowingOrderStatus) { isShowing in
                 guard !isShowing else { return }
                 appState.endDeferredSessionExpiry()
+                // 紧急请求没等到弹出就离开了订单页。留着的话下一次按入口值不变、`onChange` 不触发。
+                viewModel.orderSafetyRequest = nil
             }
             // 🗑「取消订单」的确认弹窗已从首页移除。设计稿把首页收成两块，取消属于低频的
             // 破坏性操作，归宿是订单页信息列表的最后一行（`AGENTS.md` §5 的可取消状态不变，

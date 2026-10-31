@@ -30,6 +30,9 @@ struct BlindRunnerTabView: View {
 
     @State private var selection: Tab = .home
     @State private var showCallOptions = false
+    #if DEBUG
+    @Environment(\.scenePhase) private var scenePhase
+    #endif
 
     private enum Tab: Hashable {
         case home
@@ -93,6 +96,7 @@ struct BlindRunnerTabView: View {
         .onReceive(appState.realtimeCoordinator.$runnerRing) { ringController.handle($0) }
         #if DEBUG
         .onChange(of: selection) { simulateSOSGestureForUITestIfNeeded(on: $0) }
+        .onChange(of: scenePhase) { simulateSOSGestureOnResumeForUITestIfNeeded($0) }
         #endif
         // 全屏手势：读屏用户不必先找到按钮。**挂在这一层而不是某一个 tab 上** ——
         // 三个 tab 上都能用，而首页现在已经没有可见的求助入口了，这是它在首页唯一的通道。
@@ -126,6 +130,15 @@ struct BlindRunnerTabView: View {
     private func simulateSOSGestureForUITestIfNeeded(on tab: Tab) {
         let flag = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SOS_GESTURE_ON_PROFILE"]
         guard flag == "1", tab == .profile, !Self.didSimulateSOSGesture else { return }
+        Self.didSimulateSOSGesture = true
+        activateSOS(request: sosMode.orderSafetyRequestForGesture)
+    }
+
+    /// 订单页藏标签栏，切不了 tab。这个开关让用例停在订单页时走手势分流：App 回到前台就触发。
+    /// 判云端档是为了跳过冷启动那一次变化，那时订单还没加载。
+    private func simulateSOSGestureOnResumeForUITestIfNeeded(_ phase: ScenePhase) {
+        let flag = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SOS_GESTURE_ON_RESUME"]
+        guard flag == "1", phase == .active, sosMode == .cloudTrigger, !Self.didSimulateSOSGesture else { return }
         Self.didSimulateSOSGesture = true
         activateSOS(request: sosMode.orderSafetyRequestForGesture)
     }

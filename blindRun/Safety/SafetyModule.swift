@@ -66,9 +66,6 @@ enum EmergencySafetyCopy {
         }
     }
 
-    static let accessibilityLabel = "一键求助，遇到紧急情况时点击"
-    static let accessibilityHint = "需要二次确认，确认后会向后台发送求助并上报当前位置"
-
     /// Appended to every terminal-ish state. The app is not a rescue service and says so.
     static let emergencyCallReminder = "若情况危急请立即拨打120或110。"
 
@@ -476,6 +473,8 @@ enum EmergencySafetyCopy {
     static let hubAccessibilityLabel = "求助与安全，打开求助选项"
     static let hubAccessibilityHint =
         "双击打开求助中心，或上下轻扫选择紧急求助。打开这个菜单不会发送求助。"
+    /// 「我的」那一行的提示。行上没有长按和轻扫动作，不能共用上面那句。
+    static let profileRowHubAccessibilityHint = "打开当前订单的求助选项"
 
     /// 求助中心的副标题。**「跑步仍在记录」不是装饰** —— 盲人从执行屏跳进一层盖满屏幕的
     /// 弹层之后，第一个会冒出来的疑问就是「我的跑步是不是停了」。不回答它，

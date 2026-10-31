@@ -37,8 +37,6 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.failure(nil),
             EmergencySafetyCopy.cooldown(retryAfterSeconds: 42),
             EmergencySafetyCopy.cooldown(retryAfterSeconds: nil),
-            EmergencySafetyCopy.accessibilityLabel,
-            EmergencySafetyCopy.accessibilityHint,
             // 2026-07-31 新增的一批，同样受这条红线约束（送达回执那一条除外，见下一个用例）。
             EmergencySafetyCopy.triggeredByVolunteer,
             EmergencySafetyCopy.contactNotifyFailed,
@@ -224,7 +222,7 @@ final class EmergencySOSTests: XCTestCase {
 
     /// F7：求助发不出去时，屏幕上必须有一个**能按的东西**，而不只是一段说明文字。
     ///
-    /// `BlindHomeSOSBar` 的兜底拨号按钮完全由 `state.isFailure` 驱动，所以这里把每个状态逐个钉住。
+    /// 订单页的兜底拨号按钮完全由 `state.isFailure` 驱动，所以这里把每个状态逐个钉住。
     /// 新增一个失败态却落到非失败那一侧时，兜底按钮会静默消失 —— 屏幕上看不出任何差别，
     /// 只有真正按下求助键的人才会发现，而那时已经晚了。
     func testEveryFailedSOSStateOffersTheLocalCallFallback() {

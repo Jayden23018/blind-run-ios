@@ -34,7 +34,9 @@ extension BlindHomeSOSMode {
     }
 
     var profileRowAccessibilityHint: String {
-        self == .cloudTrigger ? "打开当前订单的求助选项" : EmergencyCallContext.runner(for: self).accessibilityHint
+        self == .cloudTrigger
+            ? EmergencySafetyCopy.profileRowHubAccessibilityHint
+            : EmergencyCallContext.runner(for: self).accessibilityHint
     }
 }
 

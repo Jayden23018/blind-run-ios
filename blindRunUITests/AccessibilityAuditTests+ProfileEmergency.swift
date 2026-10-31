@@ -41,10 +41,13 @@ extension AccessibilityAuditTests {
         let app = launchBlindHome()
         let tabBar = app.tabBars.firstMatch
         tabBar.buttons["我的"].tap()
+        let firstRow = app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "「我的」没有加载出来")
+        // `List` 不渲染屏幕外的行，滚动之后才能断言存在。
+        app.swipeUp()
+        app.swipeUp()
         let delete = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(delete.waitForExistence(timeout: 10), "「我的」没有删除账户")
-        app.swipeUp()
-        app.swipeUp()
         sleep(1)
         XCTAssertLessThanOrEqual(delete.frame.maxY, tabBar.frame.minY, "「删除账户」\(delete.frame) 被标签栏盖住")
         let sos = emergencyCallButton(app)
@@ -86,8 +89,35 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(confirmation.waitForExistence(timeout: 8), "手势之后没有弹出二次确认")
     }
 
+    /// 订单页藏标签栏，这是陪跑中读屏用户最常见的位置。请求要穿过已在栈里的订单页，不走推入那条路。
+    @MainActor
+    func testSOSGestureOnTheOrderPageReachesTheLockedConfirmation() throws {
+        let app = launchToHomeDuringRun(extraEnvironment: ["AIDRUN_UI_TEST_SOS_GESTURE_ON_RESUME": "1"])
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "首页没有订单卡")
+        card.tap()
+        let orderPage = app.navigationBars["陪跑订单"].firstMatch
+        XCTAssertTrue(orderPage.waitForExistence(timeout: 10), "没有进到订单页")
+
+        XCUIDevice.shared.press(.home)
+        app.activate()
+
+        XCTAssertTrue(orderPage.waitForExistence(timeout: 10), "回到前台后不在订单页")
+        let confirmation = app.alerts.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "是否确认进入求助状态")
+        ).firstMatch
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 8), "停在订单页做手势后没有弹出二次确认")
+    }
+
     @MainActor
     private func launchToProfileDuringRun(extraEnvironment: [String: String] = [:]) -> XCUIApplication {
+        let app = launchToHomeDuringRun(extraEnvironment: extraEnvironment)
+        app.tabBars.firstMatch.buttons["我的"].tap()
+        return app
+    }
+
+    @MainActor
+    private func launchToHomeDuringRun(extraEnvironment: [String: String] = [:]) -> XCUIApplication {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS", extraEnvironment: extraEnvironment)
         let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         if !app.tabBars.firstMatch.waitForExistence(timeout: 5), !card.exists {
@@ -96,7 +126,6 @@ extension AccessibilityAuditTests {
         }
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 15), "回不到带标签栏的页面")
-        tabBar.buttons["我的"].tap()
         return app
     }
 }

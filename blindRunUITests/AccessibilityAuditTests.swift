@@ -2733,18 +2733,12 @@ final class AccessibilityAuditTests: XCTestCase {
     private static let readableContentWidth: CGFloat = 700
     static let minimumBlindPrimaryButtonHeight: CGFloat = 64
 
-    /// 求助按钮按 **accessibilityLabel** 找，不按可见文字 —— 两端的可见文字已经不一样了
-    /// （盲人端仍是「一键求助」，志愿者端是圆形盾牌里的「求助」两个字），而读屏念出来的
-    /// 必须是同一句。字面量与 `EmergencySafetyCopy.accessibilityLabel` 对齐；
-    /// UI 测试 target 拿不到 App 的类型，只能抄一份，改文案时两处一起改。
-    private static let emergencyActionLabel = "一键求助，遇到紧急情况时点击"
     /// 与 `VolunteerRunCopy.navButtonLabel` 逐字一致（理由同上：UI 测试拿不到 App 的类型）。
     private static let volunteerRunHelpEntryLabel = "求助与安全"
     /// `EmergencySafetyCopy.confirmationMessage` 的开头。只比开头：志愿者侧末尾追加了撤销说明。
     private static let lockedConfirmationPrefix = "是否确认进入求助状态？确认后，本次服务将标记为异常"
 
-    /// 盲人端陪跑中那块贴底的求助中心。**与上面那条是两个东西**：
-    /// `emergencyActionLabel` 是云端一键求助按钮（志愿者端仍在用），这条是打开求助菜单的入口
+    /// 盲人端陪跑中那块贴底的求助中心。这条是打开求助菜单的入口
     /// —— 按下去什么都还没发出去，所以刻意不叫「一键求助」。
     // ⚠️ 与 `EmergencySafetyCopy.hubAccessibilityLabel` 逐字一致。中文文案漂移
     // `guard.mjs` **抓不到**（实测误报 93%，那条守卫只判 identifier 形状的键），
