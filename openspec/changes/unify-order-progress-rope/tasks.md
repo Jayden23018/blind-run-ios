@@ -1,6 +1,6 @@
 ## 1. 配色
 
-- [x] 1.1 `FlowPalette` 加 `stateMatching` / `stateCalling` / `stateCalled`，进 `FlowDesignSystemTests.heroStates`
+- [x] 1.1 `FlowPalette` 加 `stateMatching` / `stateCalling` / `stateCalled`，进 `FlowDesignSystemTests.heroStates`（`stateCalling` / `stateCalled` 已于 #446 删除，见视觉稿 v2）
 
 ## 2. 进度绳
 
