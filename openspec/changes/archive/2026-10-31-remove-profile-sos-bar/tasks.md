@@ -7,6 +7,6 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Unit tests for the mode routing pass on a device
-- [ ] 2.2 Regression test for the Save button fails on the old code and passes on the new code
-- [ ] 2.3 Screenshots confirm the bar is gone
+- [x] 2.1 Unit tests for the mode routing pass on a device
+- [x] 2.2 Regression test for the Save button fails on the old code and passes on the new code
+- [x] 2.3 Screenshots confirm the bar is gone
