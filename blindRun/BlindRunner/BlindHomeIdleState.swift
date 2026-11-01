@@ -92,6 +92,7 @@ final class BlindHomeIdleModel: ObservableObject {
     /// 取最近一个有记录的月份：本月没跑过而以前跑过时退到上月，否则每月 1 号这一块都会消失。
     /// 加载失败时保留上次的内容，不把老用户当成新用户。
     func refresh(appState: AppState) async {
+        let requestedUserId = appState.userId
         let history = RunRecordHistoryViewModel(role: .runner)
         // 不传 `speechService`：首页不自动念这一句。
         history.configure(with: appState, speechService: nil)
@@ -99,6 +100,12 @@ final class BlindHomeIdleModel: ObservableObject {
         if history.history?.monthSummary.runs == 0, history.hasAnyCompletedOrder == true {
             await history.showPreviousMonth()
         }
+        // 请求途中退出登录时不写回，否则上一个账号的数据会留给下一个账号。
+        guard Self.isStillCurrent(
+            requestedUserId: requestedUserId,
+            currentUserId: appState.userId,
+            isCancelled: Task.isCancelled
+        ) else { return }
         guard let month = history.history?.monthSummary, let hasCompletedOrder = history.hasAnyCompletedOrder else { return }
         // 订单列表只取最近一页，全是取消单时看不到已完成的，所以月度次数也算数。
         let hasRunBefore = hasCompletedOrder || month.runs > 0
@@ -106,6 +113,10 @@ final class BlindHomeIdleModel: ObservableObject {
             BlindHomeRunSummary(monthTitle: history.monthTitle, runs: month.runs, distanceM: month.distanceM, spokenText: $0)
         }
         apply(BlindHomeRunSnapshot(summary: summary, hasRunBefore: hasRunBefore))
+    }
+
+    nonisolated static func isStillCurrent(requestedUserId: Int64?, currentUserId: Int64?, isCancelled: Bool) -> Bool {
+        !isCancelled && requestedUserId == currentUserId
     }
 
     func apply(_ newValue: BlindHomeRunSnapshot) {

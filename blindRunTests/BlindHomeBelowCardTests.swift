@@ -136,6 +136,13 @@ final class BlindHomeBelowCardTests: XCTestCase {
         XCTAssertEqual(BlindHomeIdleModel(defaults: defaults).snapshot, saved)
     }
 
+    func testRunDataFromAnEarlierSessionIsNotWrittenBack() {
+        XCTAssertTrue(BlindHomeIdleModel.isStillCurrent(requestedUserId: 1, currentUserId: 1, isCancelled: false))
+        XCTAssertFalse(BlindHomeIdleModel.isStillCurrent(requestedUserId: 1, currentUserId: nil, isCancelled: false))
+        XCTAssertFalse(BlindHomeIdleModel.isStillCurrent(requestedUserId: 1, currentUserId: 2, isCancelled: false))
+        XCTAssertFalse(BlindHomeIdleModel.isStillCurrent(requestedUserId: 1, currentUserId: 1, isCancelled: true))
+    }
+
     func testClearingPlacesAlsoClearsRunSnapshot() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
         BlindHomeIdleModel(defaults: defaults).apply(BlindHomeRunSnapshot(summary: summary, hasRunBefore: true))
