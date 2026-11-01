@@ -56,7 +56,7 @@ AidRun helps blind and low-vision runners book a sighted volunteer guide, and su
 | `blindRunWidget/` | 灵动岛与锁屏实时活动 |
 | `Packages/AidRunAPI/` | 由后端 OpenAPI 契约生成的客户端代码 |
 | `blindRunTests/`、`blindRunUITests/` | 单元测试和 UI 测试 |
-| `Vendor/AliyunCloudAuth/` | 阿里云实人认证 SDK（闭源） |
+| `Vendor/AliyunCloudAuth/` | 阿里云实人认证 SDK 的 podspec 和来源说明。SDK 本身闭源，`pod install` 时下载 |
 | `openspec/` | 功能变更的提案与任务记录 |
 | `docs/` | 需求、设计、调研和审查记录 |
 
@@ -75,6 +75,8 @@ cp LocalConfig.xcconfig.example LocalConfig.xcconfig
 LANG=en_US.UTF-8 pod install
 open blindRun.xcworkspace
 ```
+
+`pod install` 会从阿里云官方地址下载实人认证 SDK（约 25 MB）。下载失败时安装也会失败，检查网络后重跑。
 
 然后在 `LocalConfig.xcconfig` 里填写 `AMAP_API_KEY`。这个文件已被 git 忽略，不要提交真实 Key。没有配置 Key 时，地图位置显示占位视图。
 
@@ -140,7 +142,7 @@ node scripts/validate-docs.mjs
 
 第三方组件是例外，不受这份许可证覆盖：
 
-- `Vendor/AliyunCloudAuth/` 里的阿里云实人认证 SDK 是闭源商业软件。
+- 阿里云实人认证 SDK 是闭源商业软件，`pod install` 时从阿里云官方地址下载，不存放在本仓库的当前版本里。
 - 高德地图 SDK 是闭源商业软件，由 CocoaPods 下载，不存放在本仓库里。
 - 开源依赖和 `.claude/skills/swiftui-pro/` 使用各自的许可证。
 

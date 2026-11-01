@@ -45,3 +45,7 @@
 
 1. 提工单问阿里云，拿到书面答复后写进 `THIRD_PARTY_NOTICES.md`。
 2. 把二进制移出仓库，在 `pod install` 前按 `SOURCE.md` 的官方地址和 MD5 下载。这样以后不再分发，但 git 历史里的旧文件还在。
+
+## 决定（2026-11-01）
+
+负责人选第 2 条。实际做法是 `AliyunCloudAuth.podspec` 调用 `scripts/fetch-aliyun-cloudauth.sh`，下载后校验 SHA-256，见 #636。没有改写 git 历史，所以旧提交里的二进制仍然公开可取。这部分风险没有消除。
