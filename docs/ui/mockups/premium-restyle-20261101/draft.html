@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>助盲跑 · 静音版视觉方案（待确认）</title>
+<style>
+:root{
+  --page:#F2F3F6;--surface:#FFFFFF;--ink:#151A26;--ink2:#5B6272;--line:#E6E8EE;--stroke:#4B5263;
+  --navy:#1B2657;--blue:#2A5BD7;--amber:#A04B0C;--teal:#0A6B72;--green:#1C7C45;--steel:#3D5A80;
+  --cta:#F6C343;--onCta:#111A2E;--help:#B42318;--tab:rgba(255,255,255,.86);--ax:1;
+}
+.dark{--page:#000;--surface:#1C1C1E;--ink:#FFF;--ink2:#AEAEB2;--line:#38383A;--stroke:#8E8E93;--help:#FF453A;--tab:rgba(44,44,46,.86);--navy:#203570}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#7C7E85}
+body{font-family:-apple-system,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased;padding:24px}
+#grid{display:grid;grid-template-columns:repeat(6,402px);gap:24px;width:2532px}
+.ph{position:relative;width:402px;height:874px;background:var(--page);color:var(--ink);overflow:hidden;border-radius:44px}
+.sb{position:absolute;top:0;left:0;right:0;height:54px;display:flex;justify-content:space-between;align-items:center;padding:14px 34px 0;font-weight:600;font-size:16px;z-index:5}
+.sb i{position:absolute;left:50%;top:12px;width:122px;height:34px;margin-left:-61px;border-radius:17px;background:#000}
+.on-hero{color:#fff}
+.nav{position:absolute;top:58px;left:16px;right:16px;height:48px;display:flex;align-items:center;justify-content:space-between;z-index:4}
+.nav b{font-size:17px;font-weight:600}
+.round{width:44px;height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;background:var(--surface);color:var(--ink)}
+.on-hero .round{background:rgba(255,255,255,.2);color:#fff}
+.round svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.hero{position:relative;color:#fff;padding:112px 24px 26px;border-radius:0 0 32px 32px}
+.eyebrow{font-size:calc(15px*var(--ax));font-weight:600;opacity:.92}
+.num{font-family:ui-rounded,-apple-system;font-weight:700;font-size:calc(72px*var(--ax));line-height:1.04;letter-spacing:-1px;margin-top:8px}
+.num small{font-size:calc(22px*var(--ax));font-weight:600;letter-spacing:0;margin-left:6px}
+.say{font-size:calc(30px*var(--ax));font-weight:700;line-height:1.2;margin-top:10px}
+.sub{font-size:calc(16px*var(--ax));line-height:1.4;margin-top:8px;opacity:.94}
+.rope{display:flex;justify-content:space-between;position:relative;margin:20px 2px 0}
+.rope:before{content:"";position:absolute;left:14px;right:14px;top:13px;height:2px;background:rgba(255,255,255,.55)}
+.rope div{position:relative;display:flex;flex-direction:column;align-items:center;width:44px;font-size:calc(15px*var(--ax));font-weight:600}
+.rope u{text-decoration:none;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:14px;background:transparent}
+.rope u:before{content:"";width:10px;height:10px;border-radius:5px;background:#fff}
+.rope .me u{background:#fff;color:#111;font-size:13px;font-weight:700}.rope .me u:before{display:none}
+.rope .pal u{border:2px solid #fff;color:#fff;font-size:13px;font-weight:700}.rope .pal u:before{display:none}
+.rope span{margin-top:6px}
+.body{padding:22px 20px 0}
+.title{font-size:calc(34px*var(--ax));font-weight:700;line-height:1.15}
+.h2{font-size:calc(20px*var(--ax));font-weight:700;margin:26px 4px 10px}
+.list{background:var(--surface);border-radius:22px;overflow:hidden}
+.row{display:flex;align-items:center;gap:14px;min-height:64px;padding:12px 18px;position:relative;font-size:calc(17px*var(--ax))}
+.row+.row:before{content:"";position:absolute;left:18px;right:0;top:0;height:1px;background:var(--line)}
+.row .k{color:var(--ink2);min-width:64px}.row .v{margin-left:auto;font-weight:500;text-align:right}
+.row .t{font-weight:600}.row .d{font-size:calc(15px*var(--ax));color:var(--ink2);margin-top:2px;line-height:1.3}
+.row .chev{margin-left:auto;color:var(--ink2);width:10px;height:18px;flex:none;font-size:0;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 18'%3E%3Cpath d='M1.5 1.5 8.5 9l-7 7.5' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+.av{flex:none;width:44px;height:44px;border-radius:22px;background:#E6E8EE;color:#151A26;display:flex;align-items:center;justify-content:center;font-weight:700}
+.dark .av{background:#3A3A3C;color:#fff}
+.ic{flex:none;width:30px;height:30px;color:var(--ink)}
+.ic svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.dock{position:absolute;left:20px;right:20px;bottom:30px;display:flex;flex-direction:column;gap:10px}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:64px;border-radius:20px;font-size:calc(19px*var(--ax));font-weight:700}
+.btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.p{background:var(--cta);color:var(--onCta)}
+.s{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--stroke)}
+.h{background:transparent;color:var(--help);box-shadow:inset 0 0 0 1.5px var(--help)}
+.bw{background:var(--ink);color:var(--surface)}
+.tabs{position:absolute;left:20px;right:20px;bottom:24px;height:62px;border-radius:31px;background:var(--tab);backdrop-filter:blur(20px);box-shadow:0 0 0 1px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:space-around;font-size:12px;font-weight:600;color:#5B6272}
+.tabs b{display:flex;flex-direction:column;align-items:center;gap:2px;font-weight:600}
+.tabs svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.tabs .sel{color:var(--ink)}
+.home-card{background:var(--navy);color:#fff;border-radius:28px;padding:20px 22px 2px;margin-top:18px}
+.home-card .open{display:flex;justify-content:space-between;align-items:center;min-height:64px;margin-top:16px;border-top:1px solid rgba(255,255,255,.28);font-size:calc(18px*var(--ax));font-weight:700}
+.stage{position:absolute;left:20px;right:20px;top:112px;bottom:178px;border-radius:32px;background:var(--cta);color:var(--onCta);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+.stage svg{width:76px;height:76px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stage p{font-size:32px;font-weight:700;line-height:1.25;margin-top:22px}
+.stage span{font-size:19px;font-weight:600;margin-top:16px}
+.metric{font-family:ui-rounded,-apple-system;font-size:64px;font-weight:700;line-height:1}
+.metric small{font-size:22px;font-weight:600;margin-left:4px;font-family:-apple-system}
+.tri{display:flex;justify-content:space-between;margin-top:16px}
+.tri div{font-size:15px;color:var(--ink2)}
+.tri b{display:block;font-size:24px;color:var(--ink);font-weight:700;font-family:ui-rounded,-apple-system}
+.slide{position:absolute;left:20px;right:20px;bottom:98px;height:64px;border-radius:32px;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700}
+.slide i{position:absolute;right:6px;top:6px;width:52px;height:52px;border-radius:26px;background:#fff}
+.tag{position:absolute;left:14px;bottom:8px;font-size:12px;color:#fff;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:8px;z-index:9;display:none}
+</style>
+</head>
+<body><div id="grid">
+
+<!-- 1 盲人首页（有订单） -->
+<section class="ph" id="f-blind-home">
+  <div class="sb"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="body" style="padding-top:72px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="title">你好，测试盲人</div>
+      <div class="round" style="width:52px;height:52px;border-radius:26px"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg></div>
+    </div>
+    <div class="home-card">
+      <div class="eyebrow">下一次陪跑，系统派单中</div>
+      <div class="num" style="font-size:56px">今天 14:23</div>
+      <div class="sub">朝阳公园南门</div>
+      <div class="rope"><div class="me"><u>我</u><span>匹配</span></div><div><u></u><span>约好</span></div><div><u></u><span>出发</span></div><div class="pal"><u>陪</u><span>汇合</span></div></div>
+      <div class="btn p" style="margin:18px 0 20px">打开订单</div>
+    </div>
+    <div class="list" style="margin-top:16px">
+      <div class="row" style="min-height:84px"><div class="av" style="width:48px;height:48px;border-radius:24px;background:var(--ink);color:var(--surface);font-size:30px;font-weight:500">+</div><div><div class="t" style="font-size:20px;font-weight:700">预约新的陪跑</div><div class="d">选好时间和地点，系统帮你找陪跑员</div></div><div class="chev">›</div></div>
+    </div>
+  </div>
+  <div class="tabs"><b class="sel"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>首页</b><b><svg viewBox="0 0 24 24"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg>星火</b><b><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>记录</b><b><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-6 15-6 16 0"/></svg>我的</b></div>
+</section>
+
+<!-- 2 语音预约 -->
+<section class="ph" id="f-voice">
+  <div class="sb"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><b>创建预约</b><div style="width:44px"></div></div>
+  <div style="position:absolute;left:24px;right:24px;top:150px;text-align:center"><div class="title" style="font-size:38px;line-height:1.2">什么时候、<br>在哪里跑？</div></div>
+  <div class="dock">
+    <div class="btn p" style="min-height:176px;flex-direction:column;gap:12px;border-radius:28px;font-size:24px"><svg viewBox="0 0 24 24" style="width:60px;height:60px;stroke-width:1.9"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>轻点开始说话</div>
+    <div class="btn s">重复一遍</div><div class="btn s">改用表单</div>
+  </div>
+</section>
+
+<!-- 3 订单·约好 -->
+<section class="ph" id="f-agreed">
+  <div class="sb on-hero"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav on-hero"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><div class="round"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg></div></div>
+  <div class="hero" style="background:var(--navy)">
+    <div class="eyebrow">已约好 · 今天中午</div>
+    <div class="num">12:03<small>开跑</small></div>
+    <div class="sub">预约已确认。计划有变可在出发前致电陪跑员。</div>
+    <div class="rope"><div><u></u><span>匹配</span></div><div class="me"><u>我</u><span>约好</span></div><div><u></u><span>出发</span></div><div class="pal"><u>陈</u><span>汇合</span></div></div>
+  </div>
+  <div class="body" style="padding-top:16px">
+    <div class="list">
+      <div class="row"><div class="av">陈</div><div><div class="t">陈*</div><div class="d">陪跑 32 次</div></div></div>
+      <div class="row"><span class="k">集合地点</span><span class="v">朝阳公园南门</span></div>
+      <div class="row"><span class="k">留言</span><span class="v">出发前留一句话</span><div class="chev" style="margin-left:6px">›</div></div>
+    </div>
+  </div>
+  <div class="dock"><div class="btn p"><svg viewBox="0 0 24 24"><path d="M6 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg>打电话给陈</div><div class="btn h">求助与安全</div></div>
+</section>
+
+<!-- 4 汇合 -->
+<section class="ph" id="f-arrived">
+  <div class="sb on-hero"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav on-hero"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><div class="round"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg></div></div>
+  <div class="hero" style="background:var(--amber)">
+    <div class="eyebrow">今天中午 12:04 开跑</div>
+    <div class="say" style="font-size:40px">陈已到达</div>
+    <div class="sub">见面后，轻点下方开始跑步。距出发地点约 6.4 公里。</div>
+    <div class="rope"><div><u></u><span>匹配</span></div><div><u></u><span>约好</span></div><div><u></u><span>出发</span></div><div class="me"><u>我</u><span>汇合</span></div></div>
+  </div>
+  <div class="body" style="padding-top:16px">
+    <div class="list">
+      <div class="row"><div class="av">陈</div><div><div class="t">陈*</div><div class="d">陪跑 32 次</div></div></div>
+      <div class="row"><span class="k">集合地点</span><span class="v">朝阳公园南门</span></div>
+    </div>
+  </div>
+  <div class="dock"><div class="btn p">开始跑步</div><div class="btn s">打电话给陈</div><div class="btn h">求助与安全</div></div>
+</section>
+
+<!-- 5 跑步中 -->
+<section class="ph" id="f-run" style="--page:#0A6B72">
+  <div class="sb on-hero"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav on-hero"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><b>陪跑中 · 陈</b><div style="width:44px"></div></div>
+  <div style="position:absolute;top:132px;left:0;right:0;text-align:center;color:#fff">
+    <div class="num" style="font-size:132px;letter-spacing:-3px">0.00</div>
+    <div style="font-size:20px;font-weight:600;margin-top:4px">公里</div>
+    <div style="display:inline-block;margin-top:14px;padding:6px 14px;border-radius:16px;background:#FFF4D6;color:#3A2B00;font-size:17px;font-weight:700">定位信号弱</div>
+    <div style="display:flex;justify-content:space-around;margin:30px 40px 0">
+      <div><div class="num" style="font-size:52px">00:00</div><div style="font-size:17px;font-weight:600">时长</div></div>
+      <div><div class="num" style="font-size:52px">--</div><div style="font-size:17px;font-weight:600">配速</div></div>
+    </div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;height:232px;background:#fff;border-radius:32px 32px 0 0"></div>
+  <div class="dock" style="--ink:#151A26"><div class="btn p">播报当前数据</div><div class="btn h" style="--help:#B42318">求助与安全</div></div>
+  
+</section>
+
+<!-- 6 求助与安全 -->
+<section class="ph" id="f-safety">
+  <div class="sb"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="body" style="padding-top:62px">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:44px;font-size:16px;font-weight:600">收起，返回订单</div>
+    <div class="title" style="font-size:28px;margin-top:4px">求助与安全</div>
+    <div class="sub" style="color:var(--ink2);opacity:1">此订单还没开始陪跑。还没有发送求助。请选择你现在要做的事。陪跑还没开始，下方的紧急呼叫只会直接拨号，App 不会代你发送求助。</div>
+    <div class="list" style="margin-top:12px">
+      <div class="row" style="min-height:60px"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z"/></svg></div><div><div class="t">播报我的位置</div><div class="d">读出你现在的位置</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><div><div class="t">问一句</div><div class="d">用说的问，比如还有多久</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-5 15-5 16 0"/></svg></div><div><div class="t">拨打张三</div><div class="d">张三</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg></div><div><div class="t">拨打 120</div><div class="d">摔倒、受伤、身体不适</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/></svg></div><div><div class="t">拨打 110</div><div class="d">报警</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v7h14v-7"/></svg></div><div><div class="t">分享实时位置给家人</div><div class="d">家人能看到你的位置</div></div><div class="chev">›</div></div>
+    </div>
+  </div>
+  <div class="dock"><div class="btn" style="background:#B42318;color:#fff">紧急呼叫</div></div>
+</section>
+
+<!-- 7 角色选择 -->
+<section class="ph" id="f-role">
+  <div class="sb"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="body" style="padding-top:110px">
+    <div class="title">请选择你的角色</div>
+    <div class="sub" style="color:var(--ink2);opacity:1">身份一经选定不可更改。</div>
+    <div class="list" style="margin-top:28px;box-shadow:inset 0 0 0 1.5px var(--stroke)">
+      <div class="row" style="min-height:124px"><div><div class="t" style="font-size:22px;font-weight:700">我是盲人跑者</div><div class="d" style="font-size:16px">预约陪跑员陪我跑步</div></div><div class="chev">›</div></div>
+    </div>
+    <div class="list" style="margin-top:14px;box-shadow:inset 0 0 0 1.5px var(--stroke)">
+      <div class="row" style="min-height:124px"><div><div class="t" style="font-size:22px;font-weight:700">我是志愿者</div><div class="d" style="font-size:16px">陪伴盲人跑者完成跑步</div></div><div class="chev">›</div></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;margin-top:16px;font-size:17px;font-weight:400;min-height:64px;color:var(--ink2)">我有邀请码（可选）</div>
+  </div>
+</section>
+
+<!-- 8 志愿者首页 -->
+<section class="ph" id="f-vol-home">
+  <div class="sb"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="body" style="padding-top:72px">
+    <div style="display:flex;align-items:center;justify-content:space-between"><div class="title">测试志愿者</div><div class="av">测</div></div>
+    <div class="list" style="margin-top:16px"><div class="row"><div><div class="t">尚未完成必修培训</div><div class="d">完成必修课程后才会收到系统派单</div></div><div class="chev">›</div></div></div>
+    <div class="list" style="margin-top:14px;padding:20px 20px 18px">
+      <div style="font-size:15px;font-weight:600;color:var(--ink2)">我的陪伴</div>
+      <div class="metric" style="margin-top:8px">1<small>小时</small></div>
+      <div class="tri"><div><b>5</b>累计公里</div><div><b>2</b>固定搭档</div><div><b>5.0</b>评分</div></div>
+    </div>
+    <div class="list" style="margin-top:14px">
+      <div class="row"><div class="t">连续 3 周</div><div class="chev">›</div></div>
+      <div class="row"><div class="t">距离一星还差 99 小时</div><div class="chev">›</div></div>
+      <div class="row"><div class="t">我的徽章 · 最近陪跑</div><div class="chev">›</div></div>
+    </div>
+  </div>
+  <div class="slide" style="flex-direction:column;font-size:18px;line-height:1.2">接单中<span style="font-size:15px;font-weight:600;margin-right:0">点这里进入接单，向左滑动停止</span><i></i></div>
+  <div class="tabs"><b class="sel"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>首页</b><b><svg viewBox="0 0 24 24"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg>星火</b><b><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>记录</b><b><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-6 15-6 16 0"/></svg>我的</b></div>
+</section>
+
+<!-- 9 志愿者汇合 -->
+<section class="ph" id="f-vol-arrived">
+  <div class="sb on-hero"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav on-hero"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><div class="round" style="width:auto;padding:0 16px;font-size:16px;font-weight:700;background:#fff;color:#B42318">求助</div></div>
+  <div class="hero" style="background:var(--amber)">
+    <div class="eyebrow">已到集合点</div>
+    <div class="say" style="font-size:32px">暂时看不到李明的位置</div>
+    <div class="sub">可以让对方的手机响起来，或者打电话。</div>
+  </div>
+  <div class="body" style="padding-top:16px">
+    <div class="btn s" style="font-size:20px"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg>让李明的手机响起来</div>
+    <div class="list" style="margin-top:12px">
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg></div><div class="t">打电话</div><div class="chev">›</div></div>
+      <div class="row"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></div><div class="t">找不到对方</div><div class="chev">›</div></div>
+    </div>
+  </div>
+  <div class="dock"><div style="text-align:center;font-size:15px;color:var(--ink2)">见面并握好引导绳后再按</div><div class="btn p">开始跑步</div></div>
+</section>
+
+<!-- 10 压力帧：深色 -->
+<section class="ph dark" id="f-dark">
+  <div class="sb on-hero"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav on-hero"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><div class="round"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg></div></div>
+  <div class="hero" style="background:var(--navy)">
+    <div class="eyebrow">已约好 · 今天中午</div>
+    <div class="num">12:03<small>开跑</small></div>
+    <div class="sub">预约已确认。计划有变可在出发前致电陪跑员。</div>
+    <div class="rope"><div><u></u><span>匹配</span></div><div class="me"><u>我</u><span>约好</span></div><div><u></u><span>出发</span></div><div class="pal"><u>陈</u><span>汇合</span></div></div>
+  </div>
+  <div class="body" style="padding-top:16px">
+    <div class="list">
+      <div class="row"><div class="av">陈</div><div><div class="t">陈*</div><div class="d">陪跑 32 次</div></div></div>
+      <div class="row"><span class="k">集合地点</span><span class="v">朝阳公园南门</span></div>
+    </div>
+  </div>
+  <div class="dock"><div class="btn p">打电话给陈</div><div class="btn h">求助与安全</div></div>
+</section>
+
+<!-- 11 压力帧：大字 -->
+<section class="ph" id="f-ax" style="--ax:1.7">
+  <div class="sb on-hero"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav on-hero"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><div class="round"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg></div></div>
+  <div class="hero" style="background:var(--navy)">
+    <div class="eyebrow">已约好 · 今天中午</div>
+    <div class="num" style="font-size:88px">12:03</div>
+    <div class="sub">预约已确认。计划有变可在出发前致电陪跑员。</div>
+  </div>
+  <div class="body" style="padding-top:16px">
+    <div class="list"><div class="row"><div class="av">陈</div><div><div class="t">陈*</div><div class="d">陪跑 32 次</div></div></div></div>
+  </div>
+  <div class="dock"><div class="btn p">打电话给陈</div><div class="btn h">求助与安全</div></div>
+</section>
+
+<!-- 12 备选：黑白版 -->
+<section class="ph" id="f-bw">
+  <div class="sb"><span>9:41</span><i></i><span>5G</span></div>
+  <div class="nav"><div class="round"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div><div class="round"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6"/></svg></div></div>
+  <div class="body" style="padding-top:118px">
+    <div style="font-size:15px;font-weight:700;color:var(--navy)">已约好 · 今天中午</div>
+    <div class="num">12:03<small>开跑</small></div>
+    <div class="sub" style="color:var(--ink2);opacity:1">预约已确认。计划有变可在出发前致电陪跑员。</div>
+    <div class="list" style="margin-top:24px">
+      <div class="row"><div class="av">陈</div><div><div class="t">陈*</div><div class="d">陪跑 32 次</div></div></div>
+      <div class="row"><span class="k">集合地点</span><span class="v">朝阳公园南门</span></div>
+      <div class="row"><span class="k">留言</span><span class="v">出发前留一句话</span></div>
+    </div>
+  </div>
+  <div class="dock"><div class="btn bw">打电话给陈</div><div class="btn h">求助与安全</div></div>
+</section>
+
+</div></body>
+</html>
