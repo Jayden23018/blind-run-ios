@@ -19,19 +19,19 @@ enum PrivacyAuthorizationCopy {
     static let voiceRevoked = "已撤回。语音下单不会再把你说的话发给第三方大模型；下次用语音下单前会重新问你，也可以改用手动填写。"
 
     static let visionTitle = "视力状况和导盲犬"
-    static let visionPurpose = "这两项属于敏感个人信息，只用来让志愿者知道该怎么准备。"
+    static let visionPurpose = "这两项属于敏感个人信息，只用来让陪跑员知道该怎么准备。"
     static let visionNotGranted = "当前：没有同意。想填可以到「个人资料」里点「填写视力状况」。"
     static let visionProfileNotLoaded = "资料还没加载出来，请先打开一次「个人资料」，再回来撤回。"
     static let visionWithdrawalPending = "当前：撤回还没完成，资料里的视力状况和导盲犬还在。"
 
     static let locationTitle = "陪跑时的位置共享"
-    static let locationPurpose = "从志愿者出发来找你到跑步结束，持续获取你的位置，显示给这一单的志愿者；求助时附上当时的位置。"
+    static let locationPurpose = "从陪跑员出发来找你到跑步结束，持续获取你的位置，显示给此订单的陪跑员；求助时附上当时的位置。"
     static let locationNotGranted = "当前：没有同意。下次预约陪跑、或已约好的陪跑出发前会先问你。"
     static let locationRevokeButtonTitle = "撤回位置共享的同意"
     static let locationRevokeLabel = "撤回陪跑时位置共享的同意。撤回后不再获取你的位置，求助也不附位置，下次预约陪跑或已约好的陪跑出发前会重新问你"
     static let locationRevoked = "已撤回。不再获取你的位置，求助也不会附上位置；下次预约陪跑、或已约好的陪跑出发前会重新问你。"
     static let locationBlockedDuringEscort =
-        "正在陪跑，现在撤回会让对方立刻看不到你的位置，所以这一单跑完后再来撤回。现在就要停，可以在系统设置里关闭助盲跑的定位权限。"
+        "正在陪跑，现在撤回会让对方立刻看不到你的位置，所以请在此订单结束后再来撤回。现在就要停，可以在系统设置里关闭助盲跑的定位权限。"
 }
 
 /// 视力那一项此刻怎么显示（#393）。抽成纯函数只为可测：撤回保存失败后要能原地重试，而不是按钮消失、状态说错。
