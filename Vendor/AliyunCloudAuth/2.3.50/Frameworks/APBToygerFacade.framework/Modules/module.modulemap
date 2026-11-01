@@ -1,6 +1,0 @@
-framework module APBToygerFacade {
-  umbrella header "APBToygerFacade.h"
-
-  export *
-  module * { export * }
-}

@@ -1,3 +1,9 @@
+# SDK 二进制不入库（#636），CocoaPods 读这个文件时先补齐。s.prepare_command 对 :path 引入的 pod 不执行，
+# 所以写在这里。下载失败必须让 pod install 当场失败：Frameworks/ 为空时 pod install 仍然退出 0，
+# 生成的配置里没有这个 SDK，`#if canImport(AliyunFaceAuthFacade)` 为假，App 照样编译通过，但没有活体认证。
+fetch_script = File.expand_path('../../../scripts/fetch-aliyun-cloudauth.sh', File.dirname(__FILE__))
+raise "[AliyunCloudAuth] #{fetch_script} 失败，见上方输出" unless system('/bin/bash', fetch_script)
+
 Pod::Spec.new do |s|
   s.name = 'AliyunCloudAuth'
   s.version = '2.3.50'
