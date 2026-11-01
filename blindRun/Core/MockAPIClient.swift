@@ -149,6 +149,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     init() {
         seedDemoData()
+        seedHomeHistoryForUITestIfRequested()
     }
 
     #if DEBUG

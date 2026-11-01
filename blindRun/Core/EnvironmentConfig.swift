@@ -84,6 +84,7 @@ enum AppConstants {
         static let activeRole = "com.aidrun.mvp.activeRole"
         static let apiEnvironment = "com.aidrun.mvp.apiEnvironment"
         static let blindIdentityPromptDismissed = "com.aidrun.mvp.blindIdentityPromptDismissed"
+        static let blindHomeRunSnapshot = "com.aidrun.mvp.blindHomeRunSnapshot"
         /// 首次使用引导是否已经看过。
         ///
         /// **刻意不进 `AppStatePersistenceKeys.all`，登出也不清。** 它记的是「这个人会不会用

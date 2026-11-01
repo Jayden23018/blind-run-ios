@@ -105,6 +105,42 @@ extension MockAPIClient {
         }
     }
 
+    /// UI 用例种首页的跑步记录：`this` = 本月跑过三次，`last` = 只有上月跑过。
+    func seedHomeHistoryForUITestIfRequested() {
+        guard let period = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_HOME_HISTORY"] else { return }
+        let date = period == "last" ? Calendar.current.date(byAdding: .month, value: -1, to: Date())! : Date()
+        let stamp = ISO8601DateFormatter().string(from: date)
+        orders = (1...3).map { index in
+            OrderDetailResponse(
+                orderId: Int64(index),
+                status: .completed,
+                startAddress: "朝阳公园南门",
+                startLatitude: 39.9342,
+                startLongitude: 116.4740,
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
+                plannedStart: stamp,
+                plannedEnd: stamp,
+                blindName: "李明",
+                blindPhone: "13800001001",
+                volunteerPhone: nil,
+                acceptedAt: nil,
+                createdAt: stamp,
+                expectedDurationMinutes: 60,
+                pacePreference: .moderate,
+                routePreference: .parkTrail,
+                routeNotes: nil,
+                hasGuideDogThisRun: false,
+                specialNotes: nil,
+                visionLevel: "TOTAL_BLIND",
+                tetherPreference: "TETHER_ROPE",
+                chatPreference: "PREFER_CHAT"
+            )
+        }
+        nextOrderId = 10
+    }
+
     /// 后端按 `finishedAt` 归月；`OrderDetailResponse` 没有这个字段，Mock 用 `createdAt` 近似。
     func handleGetMyRunRecords(query: [String: String]?) throws -> RunRecordHistoryResponse {
         guard let month = query?["month"],

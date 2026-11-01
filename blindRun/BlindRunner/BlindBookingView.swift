@@ -196,6 +196,8 @@ enum BlindBookingGate: Equatable {
 @MainActor
 final class BlindBookingViewModel: ObservableObject {
     @Published var currentStep: BlindBookingGuidedStep = .startPoint
+    /// 用户设的默认出发地点。语音重说时用它恢复起点。
+    var defaultStartPlace: ResolvedPlace?
     @Published var placeSearchKeyword = ""
     @Published var placeSearchResults: [ResolvedPlace] = []
     @Published var selectedStartPlace: ResolvedPlace?
@@ -365,9 +367,7 @@ final class BlindBookingViewModel: ObservableObject {
         currentStep == BlindBookingGuidedStep.allCases.first
     }
 
-    var isReviewStep: Bool {
-        currentStep == .review
-    }
+    var isReviewStep: Bool { currentStep == .review }
 
     var canAdvanceFromCurrentStep: Bool {
         blockingReasonForCurrentStep == nil
@@ -923,7 +923,8 @@ final class BlindBookingViewModel: ObservableObject {
     /// 「这一轮有没有真的抽到时间」由 `VoiceOrderWizard.didCaptureStartTime` 记着，
     /// 读回只在那个标志为真时才念具体时刻。
     func resetVoiceFilledSlots() {
-        selectedStartPlace = nil
+        // 重说之后回到用户设的默认地点，不能悄悄退回当前定位。
+        selectedStartPlace = defaultStartPlace
         // 跟着起点一起清 —— 留着会让下一轮读回念上一句话里的地名。
         voiceStartAddressShort = nil
         // 终点尤其不能留：屏幕上没有任何终点控件，用户重说一遍之后没有任何**视觉**线索
@@ -1119,10 +1120,17 @@ struct BlindBookingView: View {
     /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
     /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
     let startsWithVoice: Bool
+    /// 用户在首页设的默认出发地点。nil 表示用当前定位。
+    let initialStartPlace: ResolvedPlace?
     let onOrderCreated: (OrderResponse) -> Void
 
-    init(startsWithVoice: Bool = false, onOrderCreated: @escaping (OrderResponse) -> Void) {
+    init(
+        startsWithVoice: Bool = false,
+        initialStartPlace: ResolvedPlace? = nil,
+        onOrderCreated: @escaping (OrderResponse) -> Void
+    ) {
         self.startsWithVoice = startsWithVoice
+        self.initialStartPlace = initialStartPlace
         self.onOrderCreated = onOrderCreated
     }
 
@@ -1207,6 +1215,10 @@ struct BlindBookingView: View {
                 // `EmergencyCoordinator`、`VolunteerOrderFlowViews`）各有各的新鲜度要求，不该被顺带改掉。
                 currentCoordinate: { locationService.latestBackendSample(freshness: 300) }
             )
+            if let initialStartPlace, viewModel.selectedStartPlace == nil {
+                viewModel.defaultStartPlace = initialStartPlace
+                viewModel.selectPlace(initialStartPlace, announce: false)
+            }
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
             } else if startsWithVoice, !voiceWizard.isRunning, !declinedVoiceConsentThisVisit {

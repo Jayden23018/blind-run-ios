@@ -323,7 +323,7 @@ private extension View {
 
 /// 浅蓝预约块。**整块是一个按钮**，同 `BlindHomeOrderCard`。
 ///
-/// 没有待进行订单时它移到订单卡的位置（由调用方的布局决定，这个组件不关心）。
+/// 只在有待进行订单时显示。没有订单时首页用 `BlindHomeProminentBookingCard`。
 struct BlindHomeBookingBlock: View {
     /// `false` 时按下去只解释「订单状态还没确认」，不进下单页 —— 避免创建重复预约。
     /// 这个闸在改版前就有（`BlindRunnerHomeViewModel.canStartNewBooking`），照搬不动。
@@ -367,7 +367,7 @@ struct BlindHomeBookingBlock: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(isEnabled ? "预约新的陪跑" : "预约新的陪跑，订单状态尚未确认")
-        .accessibilityHint(accessibilityHint)
+        .accessibilityHint(Self.bookingHint(isEnabled: isEnabled))
         .modifier(BookingBlockIdentifier(isEnabled: isEnabled))
     }
 
@@ -375,7 +375,7 @@ struct BlindHomeBookingBlock: View {
     ///
     /// 所以 hint 不能照抄副标题：看得见的人按下去会看到麦克风界面，看不见的人只有这一句话
     /// 可以依据。改版前那个 hint 写全了这件事，这里保留 —— 丢掉它是可发现性的实打实回退。
-    private var accessibilityHint: String {
+    static func bookingHint(isEnabled: Bool) -> String {
         guard isEnabled else { return "双击后说明如何先确认当前订单状态" }
         return "选好时间和地点，系统帮你找陪跑员。双击后进入语音下单：说一句想什么时候跑、跑多久，"
             + "听完复述再确认；也可以改用表单填写"
@@ -389,7 +389,7 @@ struct BlindHomeBookingBlock: View {
 /// `accessibilityIdentifier(\s*"字面量"\s*)` —— 三元表达式它一个都抓不到，于是
 /// 「UI 测试引用的 id 在 App 侧存不存在」这道双向校验对这两个 id 直接失效。
 /// 失效的表现是**没有表现**：正面断言照常红，反面断言恒真等于没写，而 CI 跑不了 XCTest。
-private struct BookingBlockIdentifier: ViewModifier {
+struct BookingBlockIdentifier: ViewModifier {
     let isEnabled: Bool
 
     @ViewBuilder

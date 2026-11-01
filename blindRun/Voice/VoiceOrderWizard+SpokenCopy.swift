@@ -33,8 +33,10 @@ extension VoiceOrderWizard {
         "没找到你说的那个地点，出发地先按当前位置来，要改就说「重说」。"
     /// 当前位置也用不了（定位被拒、精确位置关闭、还没定到）时不许说「先按当前位置来」：
     /// 读回紧接着会说「出发地点还没有确定」，两句自相矛盾（#558）。
-    static func unresolvedStartNotice(hasFallback: Bool) -> String {
-        hasFallback ? startAddressUnresolvedNotice : "没找到你说的那个地点。"
+    /// 用户选过地点（含首页设的默认地点）时起点不是当前位置，不能说「按当前位置来」。
+    static func unresolvedStartNotice(hasFallback: Bool, isChosenPlace: Bool = false) -> String {
+        guard hasFallback else { return "没找到你说的那个地点。" }
+        return isChosenPlace ? "没找到你说的那个地点，出发地先按你选的地点来，要改就说「重说」。" : startAddressUnresolvedNotice
     }
 
     /// 整句解析失败时先说的那句话。

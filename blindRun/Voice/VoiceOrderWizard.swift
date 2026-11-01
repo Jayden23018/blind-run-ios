@@ -797,7 +797,7 @@ final class VoiceOrderWizard: ObservableObject {
         // 所以这个 `true` 会**变常见** —— 在此之前它几乎不出现，接不接看不出差别。
         if parsed.resolvedStartPlace == nil, parsed.addressUnresolved == true {
             let hasFallback = bookingViewModel?.resolvedStartPlace != nil // 没有可用起点就不说「按当前位置来」（#558）
-            notice = [notice, Self.unresolvedStartNotice(hasFallback: hasFallback)].compactMap { $0 }.joined()
+            notice = [notice, Self.unresolvedStartNotice(hasFallback: hasFallback, isChosenPlace: bookingViewModel?.selectedStartPlace != nil)].compactMap { $0 }.joined()
         }
         return notice
     }

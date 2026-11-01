@@ -49,7 +49,7 @@ struct BlindRunnerTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            BlindRunnerHomeView(viewModel: homeViewModel)
+            BlindRunnerHomeView(viewModel: homeViewModel, onOpenRecords: { selection = .history })
                 .tabItem {
                     Label("首页", systemImage: "house")
                 }
