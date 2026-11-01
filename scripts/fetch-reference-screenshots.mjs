@@ -41,6 +41,18 @@ const APPS = [
   ['things', 904237743, 'us'],
   ['cash-app', 711923939, 'us'],
   ['airbnb', 401626263, 'us'],
+  // 打车乘客端与司机端，同功能对照见 docs/research/same-function-ui-references-20261101.md。
+  ['didi', 554499054, 'cn'],
+  ['didi-driver', 911699257, 'cn'],
+  ['amap', 461703208, 'cn'],
+  ['caocao', 1034208598, 'cn'],
+  ['caocao-driver', 1458314379, 'cn'],
+  ['t3', 1460554848, 'cn'],
+  ['t3-driver', 1460555288, 'cn'],
+  ['huaxiaozhu', 1496121983, 'cn'],
+  ['huaxiaozhu-driver', 1496545193, 'cn'],
+  ['ruqi', 1462633124, 'cn'],
+  ['ruqi-driver', 1461067674, 'cn'],
 ]
 
 // mzstatic 的缩略图 URL 末段是尺寸，换成 900x0w 拿大图；换不成就退回原图。
