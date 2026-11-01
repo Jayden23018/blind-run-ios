@@ -126,8 +126,8 @@ case "$FIFTH_B" in
   *"缺少阿里云实人认证 SDK"*) ok "点名了阿里云 SDK" ;;
   *) bad "期望点名阿里云 SDK，实际输出：$FIFTH_B" ;;
 esac
-mkdir -p "$SANDBOX/Vendor/AliyunCloudAuth/test"
-: >"$SANDBOX/Vendor/AliyunCloudAuth/test/.fetched-sha256"
+mkdir -p "$SANDBOX/Vendor/AliyunCloudAuth/test/Frameworks/AliyunFaceAuthFacade.framework"
+: >"$SANDBOX/Vendor/AliyunCloudAuth/test/Frameworks/AliyunFaceAuthFacade.framework/AliyunFaceAuthFacade"
 # 名字要短：进程名 macOS 只留 16 字符、Linux 15 字符，超长被截断后 `pgrep -x` 全名匹配不上。
 FAKE_XCODE="fxc$$"
 FAKE_BIN="$SANDBOX/$FAKE_XCODE"

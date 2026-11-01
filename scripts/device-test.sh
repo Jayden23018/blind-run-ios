@@ -197,7 +197,7 @@ fi
 
 # 阿里云实人认证 SDK 不入库（#636）。这次改动没有改 Podfile.lock，CocoaPods 的 Manifest 检查发现不了，
 # 而 git 会在 rebase 时删掉旧 worktree 里的 Frameworks/，之后 xcodebuild 只报 framework not found。
-if ! ls Vendor/AliyunCloudAuth/*/.fetched-sha256 >/dev/null 2>&1; then
+if ! ls Vendor/AliyunCloudAuth/*/Frameworks/AliyunFaceAuthFacade.framework/AliyunFaceAuthFacade >/dev/null 2>&1; then
   die "缺少阿里云实人认证 SDK —— 这个工作区还没下载过（Vendor/AliyunCloudAuth/ 下的二进制不入库）。补齐：
        LANG=en_US.UTF-8 pod install"
 fi

@@ -5,15 +5,16 @@
 # AliyunCloudAuth.podspec 在 CocoaPods 读它时调用本脚本，所以 `pod install` 一步就够，平时不用手动跑。
 #
 # 已经下载完整时什么都不做，也不联网。官方压缩包缓存在 CACHE_DIR，多个 worktree 共用，不重复下载。
-# 自测：scripts/validate-fetch-aliyun-cloudauth.sh。下面的 AIDRUN_CLOUDAUTH_* 只给自测用。
+# 自测：scripts/validate-fetch-aliyun-cloudauth.sh。校验值故意写死，不接受环境变量覆盖。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="2.3.50"
-ARCHIVE_URL="${AIDRUN_CLOUDAUTH_URL:-https://cn-shanghai-aliyun-cloudauth.oss-cn-shanghai.aliyuncs.com/cloudauth_sdk/${VERSION}/iOS-${VERSION}-Aliyun.zip}"
-ARCHIVE_SHA256="${AIDRUN_CLOUDAUTH_SHA256:-a6072c00adf8f533f46ca5de03eb2dd25d8d85e558f0c7d9702b7c731366feca}"
-DEST="${AIDRUN_CLOUDAUTH_DEST:-Vendor/AliyunCloudAuth/${VERSION}}"
-CACHE_DIR="${AIDRUN_CLOUDAUTH_CACHE:-${HOME}/Library/Caches/AidRun}"
+ARCHIVE_URL="https://cn-shanghai-aliyun-cloudauth.oss-cn-shanghai.aliyuncs.com/cloudauth_sdk/${VERSION}/iOS-${VERSION}-Aliyun.zip"
+ARCHIVE_SHA256="a6072c00adf8f533f46ca5de03eb2dd25d8d85e558f0c7d9702b7c731366feca"
+DEST="Vendor/AliyunCloudAuth/${VERSION}"
+CACHE_DIR="${HOME}/Library/Caches/AidRun"
+CURL_RETRIES=5
 STAMP="${DEST}/.fetched-sha256"
 
 # ID_PRO 人脸核验必选的 10 个模块，见 docs/08-ios-architecture.md 第 12 节。
@@ -68,7 +69,7 @@ ensure_archive() {
   mkdir -p "$CACHE_DIR"
   TMP_ZIP="$(mktemp "${CACHE_DIR}/download.XXXXXX")"
   echo "[fetch-aliyun-cloudauth] 下载 ${ARCHIVE_URL}" >&2
-  curl --fail --location --silent --show-error --retry 5 --retry-all-errors \
+  curl --fail --location --silent --show-error --retry "$CURL_RETRIES" --retry-all-errors \
     --connect-timeout 20 --max-time 900 --output "$TMP_ZIP" "$ARCHIVE_URL" \
     || die "下载失败：${ARCHIVE_URL}。检查网络或代理后重跑 pod install。"
   local actual
@@ -85,6 +86,8 @@ fi
 
 ensure_archive
 mkdir -p "$DEST"
+# 被强杀时 EXIT 清理不运行，旧的临时目录要在这里清掉。
+rm -rf "${DEST}"/.fetch.*
 WORK="$(mktemp -d "${DEST}/.fetch.XXXXXX")"
 unzip -q "$ARCHIVE" -d "${WORK}/archive"
 SOURCE_DIR="${WORK}/archive/iOS-${VERSION}-Aliyun"
