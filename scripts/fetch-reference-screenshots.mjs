@@ -53,6 +53,10 @@ const APPS = [
   ['huaxiaozhu-driver', 1496545193, 'cn'],
   ['ruqi', 1462633124, 'cn'],
   ['ruqi-driver', 1461067674, 'cn'],
+  // 盲人首页没有订单时的同功能对照，结论见 docs/research/INDEX.md 2026-11-01 那一行。
+  ['ridesmart-via', 6504522568, 'us'],
+  ['onward-rides', 1461773663, 'us'],
+  ['runkeeper', 300235330, 'us'],
 ]
 
 // mzstatic 的缩略图 URL 末段是尺寸，换成 900x0w 拿大图；换不成就退回原图。
