@@ -12,14 +12,14 @@ This repository's license covers only the project's own code and documents. It d
 
 | 项目 | 内容 |
 |---|---|
-| 位置 | [`Vendor/AliyunCloudAuth/2.3.50/`](Vendor/AliyunCloudAuth/2.3.50/SOURCE.md)，**二进制文件存放在本仓库里** |
+| 位置 | **不存放在本仓库里**。`pod install` 时从阿里云官方地址下载到 [`Vendor/AliyunCloudAuth/2.3.50/`](Vendor/AliyunCloudAuth/2.3.50/SOURCE.md)，并校验 SHA-256 |
 | 版本 | `2.3.50`，只含 ID_PRO 人脸认证所需的子集 |
 | 来源与校验值 | 见 [`SOURCE.md`](Vendor/AliyunCloudAuth/2.3.50/SOURCE.md) |
 | 用途 | 陪跑员注册时的活体认证 |
 | 权利人 | 阿里云。[发布记录页](https://help.aliyun.com/zh/id-verification/financial-grade-id-verification/product-overview/sdk-release-notes)写明的开发者是杭州阿里云智能科技有限公司 |
 | 条款 | [阿里云产品服务协议](https://terms.aliyun.com/legal-agreement/terms/suit_bu1_ali_cloud/suit_bu1_ali_cloud201802281451_77479.html)、[金融级实人认证隐私权政策](https://terms.aliyun.com/legal-agreement/terms/suit_bu1_ali_cloud/suit_bu1_ali_cloud202107281509_18386.html) |
 
-⚠️ **这份 SDK 能否存放在公开仓库，目前没有确认。** 2026-11-01 查阅官方页面，没有查到明确允许公开托管这些二进制的条款。详情见 [调研记录](docs/research/third-party-sdk-licensing-20261101.md)。在阿里云明确答复之前，不要把这个目录当作可以再分发的内容，也不要把它算进本仓库的开源范围。
+⚠️ **本仓库不分发这份 SDK。** 2026-11-01 查阅官方页面，没有查到明确允许公开托管这些二进制的条款，所以改成构建时下载（#636）。下载和使用它要遵守上面的阿里云条款。本仓库早期提交的 git 历史里还留着这些文件，它们不属于开源范围，也不受本仓库许可证覆盖。详情见 [调研记录](docs/research/third-party-sdk-licensing-20261101.md)。
 
 ### 高德地图 iOS SDK
 
