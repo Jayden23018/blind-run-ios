@@ -64,6 +64,8 @@ final class RunRecordHistoryViewModel: ObservableObject {
     /// `/api/orders/mine` 里有没有任何一张已完成的单。nil = 还不知道（没加载完或加载失败）——
     /// 那种情况下**不**给「完成第一次陪跑后…」的首用文案，否则网络一抖老用户就被当成新人。
     @Published private(set) var hasAnyCompletedOrder: Bool?
+    /// 最近一张已完成的单。`myOrders` 按创建时间倒序，第一张就是。
+    @Published private(set) var latestCompletedOrder: OrderDetailResponse?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
@@ -99,6 +101,15 @@ final class RunRecordHistoryViewModel: ObservableObject {
         async let orders: Void = loadUnfinished()
         _ = await (monthly, orders)
         announceLoaded()
+    }
+
+    /// 回到本月加载；本月没跑过而以前跑过时退到上月，否则每月 1 号首页那一块都会消失。
+    func loadLatestMonthWithRuns() async {
+        month = currentMonth
+        await load()
+        if history?.monthSummary.runs == 0, hasAnyCompletedOrder == true {
+            await showPreviousMonth()
+        }
     }
 
     func showPreviousMonth() async {
@@ -147,6 +158,7 @@ final class RunRecordHistoryViewModel: ObservableObject {
         do {
             let orders = try await appState.orders.myOrders().content
             hasAnyCompletedOrder = orders.contains { $0.status == .completed }
+            latestCompletedOrder = orders.first { $0.status == .completed }
             unfinished = Self.unfinishedBookings(from: orders)
         } catch {
             recordFailure(error)

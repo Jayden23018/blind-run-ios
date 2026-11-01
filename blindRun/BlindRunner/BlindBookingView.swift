@@ -1119,10 +1119,17 @@ struct BlindBookingView: View {
     /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
     /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
     let startsWithVoice: Bool
+    /// 从首页地点行进来时已选好的出发地点。
+    let initialStartPlace: ResolvedPlace?
     let onOrderCreated: (OrderResponse) -> Void
 
-    init(startsWithVoice: Bool = false, onOrderCreated: @escaping (OrderResponse) -> Void) {
+    init(
+        startsWithVoice: Bool = false,
+        initialStartPlace: ResolvedPlace? = nil,
+        onOrderCreated: @escaping (OrderResponse) -> Void
+    ) {
         self.startsWithVoice = startsWithVoice
+        self.initialStartPlace = initialStartPlace
         self.onOrderCreated = onOrderCreated
     }
 
@@ -1207,6 +1214,9 @@ struct BlindBookingView: View {
                 // `EmergencyCoordinator`、`VolunteerOrderFlowViews`）各有各的新鲜度要求，不该被顺带改掉。
                 currentCoordinate: { locationService.latestBackendSample(freshness: 300) }
             )
+            if let initialStartPlace, viewModel.selectedStartPlace == nil {
+                viewModel.selectPlace(initialStartPlace, announce: false)
+            }
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
             } else if startsWithVoice, !voiceWizard.isRunning, !declinedVoiceConsentThisVisit {

@@ -9,6 +9,9 @@ private enum BlindRunnerRoute: Hashable {
     /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
     /// 表单没有消失，在预约页里按「改用表单」即可。
     case voiceBooking
+    /// 从首页地点行进入预约，地点已选好（样例阶段走表单，语音向导还不支持带地点进入）。
+    case bookingFromPlace
+    case identityVerification
     case orderStatus(Int64)
     /// 首次使用引导。首次进首页自动推入一次，也可从「我的」进入。
     case help
@@ -522,8 +525,14 @@ struct BlindRunnerHomeView: View {
     /// 本地拨号（`BlindHomeSOSMode.resolve`）。两个 tab 各持一个 view model 会让两处看到
     /// 不同的订单，而其中一处决定的是求助发不发得出去。所有权因此上移一层。
     @ObservedObject var viewModel: BlindRunnerHomeViewModel
+    /// 切到「记录」。标签选择归 `BlindRunnerTabView` 管。
+    var onOpenRecords: () -> Void = {}
 
     @State private var path: [BlindRunnerRoute] = []
+    /// 本月锻炼块的数据，与「记录」「我的」同一个 view model。不传 `speechService`：首页不自动念这一句。
+    @StateObject private var runSummaryModel = RunRecordHistoryViewModel(role: .runner)
+    @StateObject private var favoritePlaces = FavoritePlaceStore()
+    @State private var bookingStartPlace: ResolvedPlace?
 
     /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
     /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
@@ -649,6 +658,11 @@ struct BlindRunnerHomeView: View {
                 }
                 await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
             }
+            // 订单走完回到首页时要刷新本月次数，所以跟着订单号走。切 tab 不重新请求。
+            .task(id: viewModel.activeOrder?.orderId) {
+                runSummaryModel.configure(with: appState, speechService: nil)
+                await runSummaryModel.loadLatestMonthWithRuns()
+            }
             // 引导期间首页只是**欠着**那次播报（见上面的 `.task`），这里还账。
             //
             // 判据是「首页重新成为最前面那一页 **且** 确实欠着」，两个条件缺一不可，
@@ -689,14 +703,75 @@ struct BlindRunnerHomeView: View {
     /// 首页只有三块：问候 → 深蓝订单卡 → 浅蓝预约块。
     ///
     /// **没有待进行订单时深蓝卡整块不渲染，预约块自然上移到它的位置** —— 不是靠 Spacer
-    /// 顶上去，而是它本来就是 `VStack` 里的下一个元素。
+    /// 顶上去，而是它本来就是 `VStack` 里的下一个元素。这时预约块换成深蓝大卡（`isProminent`）。
     ///
     /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
     /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
     /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 里。
     private var contentLayer: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        GeometryReader { proxy in
+            ScrollView {
+                pageContent
+                    .frame(minHeight: proxy.size.height, alignment: .top)
+            }
+            .background(AppColors.Flow.page)
+            // identifier 与改版前逐字相同：UI 测试拿它当「不吃点击的安全落点」敲屏幕
+            // （守卫 `blind-tap-center` 的存在理由）。改名会让那几条用例找不到落点。
+            .accessibilityIdentifier("blindRunnerHomeScrollView")
+        }
+    }
+
+    private var hasNoOrder: Bool { viewModel.activeOrder == nil }
+
+    private var belowCard: BlindHomeBelowCard {
+        let history = runSummaryModel.history?.monthSummary
+        let summary = history.flatMap { summary in
+            runSummaryModel.summaryText(spoken: true).flatMap { spoken in
+                BlindHomeRunSummary(
+                    monthTitle: runSummaryModel.monthTitle,
+                    runs: summary.runs,
+                    distanceM: summary.distanceM,
+                    spokenText: spoken
+                )
+            }
+        }
+        return BlindHomeBelowCard.resolve(
+            // 资料还没回来时不下结论，免得已实名的人先闪一下实名行。
+            isIdentityVerified: appState.blindProfile == nil || appState.isBlindIdentityVerified,
+            runSummary: summary,
+            startPlace: runSummaryModel.latestCompletedOrder?.homeStartPlace ?? favoritePlaces.places.first
+        )
+    }
+
+    @ViewBuilder
+    private func belowCardContent(_ content: BlindHomeBelowCard) -> some View {
+        if content.showsIdentityRow {
+            BlindHomeQuickRow(
+                title: "完成实名认证",
+                hint: "完成后才能预约陪跑",
+                identifier: "blindHomeVerifyIdentityRow"
+            ) {
+                path.append(.identityVerification)
+            }
+        }
+        if let summary = content.runSummary {
+            BlindHomeRunSummaryBlock(summary: summary, action: onOpenRecords)
+        }
+        if let place = content.startPlace {
+            BlindHomeQuickRow(
+                title: "从\(place.title)出发",
+                hint: "进入预约，出发地点已选好",
+                identifier: "blindHomePlaceRow"
+            ) {
+                bookingStartPlace = place
+                path.append(.bookingFromPlace)
+            }
+        }
+    }
+
+    private var pageContent: some View {
+        let content = belowCard
+        return VStack(alignment: .leading, spacing: 16) {
                 greetingRow
                     .padding(.leading, 4)
                     .padding(.top, 18)
@@ -725,7 +800,12 @@ struct BlindRunnerHomeView: View {
                         .accessibilityIdentifier("blindBookingTrackConsentDeclinedNotice")
                 }
 
-                BlindHomeBookingBlock(isEnabled: viewModel.canStartNewBooking) {
+                BlindHomeBookingBlock(
+                    isEnabled: viewModel.canStartNewBooking,
+                    isProminent: hasNoOrder,
+                    fillsAvailableHeight: hasNoOrder,
+                    isLargest: hasNoOrder && content.isEmpty
+                ) {
                     if viewModel.canStartNewBooking {
                         viewModel.clearBookingTrackConsentDeclinedNotice()
                         path.append(.voiceBooking)
@@ -735,17 +815,16 @@ struct BlindRunnerHomeView: View {
                 }
                 .accessibilityFocused($focusedSection, equals: .newBooking)
 
-                Spacer(minLength: 0)
+                if hasNoOrder {
+                    belowCardContent(content)
+                } else {
+                    Spacer(minLength: 0)
+                }
             }
             .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-            .padding(.bottom, 28)
+            .padding(.bottom, hasNoOrder ? 16 : 28)
             // 内容列在 iPad / 横屏上不铺满整屏，见 `BlindLayout.readableContentWidth`。
             .readableContentColumn()
-        }
-        .background(AppColors.Flow.page)
-        // identifier 与改版前逐字相同：UI 测试拿它当「不吃点击的安全落点」敲屏幕
-        // （守卫 `blind-tap-center` 的存在理由）。改名会让那几条用例找不到落点。
-        .accessibilityIdentifier("blindRunnerHomeScrollView")
     }
 
     /// 问候行：「你好，{姓名}」+ 右侧「重复当前状态」图标。
@@ -873,6 +952,22 @@ struct BlindRunnerHomeView: View {
                     }
                 }
             }
+        case .bookingFromPlace:
+            BlindBookingTrackConsentGate(
+                onDecline: {
+                    path.removeAll()
+                    viewModel.noteBookingTrackConsentDeclined()
+                }
+            ) {
+                BlindBookingView(initialStartPlace: bookingStartPlace) { response in
+                    viewModel.handleOrderCreated(response)
+                    if let orderId = response.id {
+                        path = [.orderStatus(orderId)]
+                    }
+                }
+            }
+        case .identityVerification:
+            BlindIdentityVerificationView()
         case .orderStatus(let orderId):
             BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
                 viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil

@@ -53,6 +53,58 @@ final class ScreenTourTests: XCTestCase {
         shoot(app, "B05-home-empty", anchor: "blindRunnerHomeStartBookingButton")
     }
 
+    // 样例用例，不进 main：看首页下方内容的几种状态。
+    @MainActor func testTour_B05b_NewUserTextCard() {
+        let app = launchBlind(env: ["AIDRUN_SAMPLE_HOME_CARD": "text"])
+        shoot(app, "B05b-new-user-text", anchor: "blindRunnerHomeStartBookingButton")
+    }
+
+    @MainActor func testTour_B05c_Unverified() {
+        let app = launchBlind(env: ["AIDRUN_MOCK_BLIND_VERIFY_STATUS": "NOT_VERIFIED"])
+        shoot(app, "B05c-unverified", anchor: "blindHomeVerifyIdentityRow")
+    }
+
+    @MainActor func testTour_B05d_ReturningUser() {
+        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "this"])
+        shoot(app, "B05d-returning", anchor: "blindHomeRunSummary")
+    }
+
+    @MainActor func testTour_B05e_LastMonthOnly() {
+        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "last"])
+        shoot(app, "B05e-last-month", anchor: "blindHomeRunSummary")
+    }
+
+    @MainActor func testTour_B05f_ReturningDark() {
+        XCUIDevice.shared.appearance = .dark
+        addTeardownBlock { await MainActor.run { XCUIDevice.shared.appearance = .light } }
+        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "this"])
+        shoot(app, "B05f-returning-dark", anchor: "blindHomeRunSummary")
+    }
+
+    @MainActor func testTour_B05g_ReturningAX5() {
+        extraLaunchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "this"])
+        shoot(app, "B05g-returning-ax5", anchor: "blindHomeRunSummary", scroll: true)
+    }
+
+    @MainActor func testTour_B05h_SummaryOpensRecords() {
+        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "this"])
+        let summary = app.buttons["blindHomeRunSummary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 20))
+        summary.tap()
+        XCTAssertTrue(app.staticTexts["跑步记录"].waitForExistence(timeout: 10) || app.navigationBars["跑步记录"].exists)
+        attach(app, "B05h-records")
+    }
+
+    @MainActor func testTour_B05i_PlaceRowOpensBooking() {
+        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "this"])
+        let row = app.buttons["blindHomePlaceRow"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        sleep(3)
+        attach(app, "B05i-booking-from-place")
+    }
+
     @MainActor func testTour_B06_BookingForm() {
         let app = launchBlind()
         guard tapIfAppears(app, "blindRunnerHomeStartBookingButton") else {
@@ -271,6 +323,8 @@ final class ScreenTourTests: XCTestCase {
 
     // MARK: - 启动
 
+    private var extraLaunchArguments: [String] = []
+
     @MainActor private func launchBlind(
         emptyOrders: Bool = true,
         seed: String? = nil,
@@ -315,6 +369,7 @@ final class ScreenTourTests: XCTestCase {
         for (key, value) in env where value == "0" { base.removeValue(forKey: key) }
         for (key, value) in env where value != "0" { base[key] = value }
         app.launchEnvironment = base
+        app.launchArguments += extraLaunchArguments
         app.launch()
         dismissSystemAlerts()
         return app

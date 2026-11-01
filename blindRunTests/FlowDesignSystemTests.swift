@@ -58,6 +58,8 @@ final class FlowDesignSystemTests: XCTestCase {
             (AppColors.Flow.navyAvatarTone, Self.textMinimum, "深蓝卡上的头像姓氏"),
             // 对勾是**图形**不是文字，按 1.4.11 的 3:1 卡。
             (AppColors.Flow.successBadgeTone, Self.nonTextMinimum, "已汇合对勾徽标"),
+            // 首页预约大卡的白圆里，蓝色人形是图形，同样按 3:1 卡。
+            (AppColors.Flow.accentTone, Self.nonTextMinimum, "预约大卡白圆里的蓝色人形"),
         ]
         for (surface, threshold, usage) in surfaces {
             assertContrast(white, surface.light, threshold, "亮色", usage)
