@@ -367,9 +367,7 @@ final class BlindBookingViewModel: ObservableObject {
         currentStep == BlindBookingGuidedStep.allCases.first
     }
 
-    var isReviewStep: Bool {
-        currentStep == .review
-    }
+    var isReviewStep: Bool { currentStep == .review }
 
     var canAdvanceFromCurrentStep: Bool {
         blockingReasonForCurrentStep == nil

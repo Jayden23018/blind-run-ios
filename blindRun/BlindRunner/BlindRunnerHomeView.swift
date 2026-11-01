@@ -9,6 +9,7 @@ private enum BlindRunnerRoute: Hashable {
     /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
     /// 表单没有消失，在预约页里按「改用表单」即可。
     case voiceBooking
+    case startPlacePicker
     /// 添加常用地点。搜索和收藏都在预约表单里，这里直接进表单。
     case addFavoritePlace
     case identityVerification
@@ -529,10 +530,10 @@ struct BlindRunnerHomeView: View {
     var onOpenRecords: () -> Void = {}
 
     @State private var path: [BlindRunnerRoute] = []
-    /// 本月锻炼块的数据，与「记录」「我的」同一个 view model。不传 `speechService`：首页不自动念这一句。
-    @StateObject private var runSummaryModel = RunRecordHistoryViewModel(role: .runner)
+    /// 没有订单时预约卡下方的数据。
+    @StateObject private var idleModel = BlindHomeIdleModel()
     @StateObject private var favoritePlaces = FavoritePlaceStore.forHome()
-    @State private var showsStartPlaceSheet = false
+    @State private var favoriteCountBeforeAdding: Int?
 
     /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
     /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
@@ -572,8 +573,8 @@ struct BlindRunnerHomeView: View {
     //
     // 🗑 **280pt 的「开始约跑」巨按钮也随之删除**（`primaryBookingHeight`）。设计稿改成
     // 「深蓝订单卡占最大位置、浅蓝预约块在其下」的两块结构：最大的位置留给**即将开始的那一单**
-    // 而不是留给下单动作 —— 打开 App 第一句该听到的是最重要的信息。无订单时预约块上移到
-    // 订单卡的位置，仍然是这一屏唯一的主操作。
+    // 而不是留给下单动作 —— 打开 App 第一句该听到的是最重要的信息。无订单时换成深蓝预约大卡，
+    // 见 `BlindHomeProminentBookingCard`。
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -658,30 +659,20 @@ struct BlindRunnerHomeView: View {
                 }
                 await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
             }
-            .sheet(isPresented: $showsStartPlaceSheet) {
-                BlindHomeStartPlaceSheet(
-                    places: favoritePlaces.places,
-                    selectedID: favoritePlaces.defaultPlace?.id,
-                    onSelect: { place in
-                        favoritePlaces.setDefaultPlace(place)
-                        speechService.speak("默认出发地点已改为\(place?.title ?? "当前定位")。")
-                        showsStartPlaceSheet = false
-                    },
-                    onAddFavorite: {
-                        showsStartPlaceSheet = false
-                        path.append(.addFavoritePlace)
-                    }
-                )
-                .presentationDetents([.medium, .large])
-            }
-            // 从预约页回来时可能多了新收藏。
+            // 从预约页回来时可能多了新收藏。从「添加常用地点」进去新收藏的，直接设为默认。
             .onChange(of: path.isEmpty) { isEmpty in
-                if isEmpty { favoritePlaces.reload() }
+                guard isEmpty else { return }
+                favoritePlaces.reload()
+                if let favoriteCountBeforeAdding {
+                    favoritePlaces.adoptNewestPlace(ifCountExceeds: favoriteCountBeforeAdding)
+                }
+                favoriteCountBeforeAdding = nil
             }
-            // 订单走完回到首页时要刷新本月次数，所以跟着订单号走。切 tab 不重新请求。
+            // 订单走完回到首页时要刷新本月次数，所以跟着订单号走。`.task` 切回本 tab 也会重跑，
+            // 这里没有播报，重跑只是多拿一次最新数据。有订单时这些数据不显示，不用请求。
             .task(id: viewModel.activeOrder?.orderId) {
-                runSummaryModel.configure(with: appState, speechService: nil)
-                await runSummaryModel.loadLatestMonthWithRuns()
+                guard viewModel.activeOrder == nil else { return }
+                await idleModel.refresh(appState: appState)
             }
             // 引导期间首页只是**欠着**那次播报（见上面的 `.task`），这里还账。
             //
@@ -720,10 +711,10 @@ struct BlindRunnerHomeView: View {
 
     // MARK: - Content
 
-    /// 首页只有三块：问候 → 深蓝订单卡 → 浅蓝预约块。
+    /// 有订单时三块：问候 → 深蓝订单卡 → 浅蓝预约块。
     ///
-    /// **没有待进行订单时深蓝卡整块不渲染，预约块自然上移到它的位置** —— 不是靠 Spacer
-    /// 顶上去，而是它本来就是 `VStack` 里的下一个元素。这时预约块换成深蓝大卡（`isProminent`）。
+    /// **没有待进行订单时**预约换成深蓝大卡，占满下方内容之外的全部高度。
+    /// 外层量一次可用高度，内容至少撑到那么高：装得下时不滚动，大字号装不下时才滚。
     ///
     /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
     /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
@@ -741,61 +732,8 @@ struct BlindRunnerHomeView: View {
         }
     }
 
-    private var hasNoOrder: Bool { viewModel.activeOrder == nil }
-
-    private var belowCard: BlindHomeBelowCard {
-        let history = runSummaryModel.history?.monthSummary
-        let summary = history.flatMap { summary in
-            runSummaryModel.summaryText(spoken: true).flatMap { spoken in
-                BlindHomeRunSummary(
-                    monthTitle: runSummaryModel.monthTitle,
-                    runs: summary.runs,
-                    distanceM: summary.distanceM,
-                    spokenText: spoken
-                )
-            }
-        }
-        return BlindHomeBelowCard.resolve(
-            // 资料还没回来时不下结论，免得已实名的人先闪一下实名行。
-            isIdentityVerified: appState.blindProfile == nil || appState.isBlindIdentityVerified,
-            runSummary: summary,
-            hasRunBefore: runSummaryModel.hasAnyCompletedOrder == true,
-            favoriteCount: favoritePlaces.places.count,
-            defaultPlaceTitle: favoritePlaces.defaultPlace?.title,
-            isLocationDenied: locationService.isDenied
-        )
-    }
-
-    @ViewBuilder
-    private func belowCardContent(_ content: BlindHomeBelowCard) -> some View {
-        if content.showsIdentityRow {
-            BlindHomeQuickRow(
-                title: "完成实名认证",
-                hint: "完成后才能预约陪跑",
-                identifier: "blindHomeVerifyIdentityRow"
-            ) {
-                path.append(.identityVerification)
-            }
-        }
-        if let summary = content.runSummary {
-            BlindHomeRunSummaryBlock(summary: summary, action: onOpenRecords)
-        }
-        if let title = content.startRowTitle {
-            BlindHomeQuickRow(
-                title: title,
-                actionText: "更改",
-                hint: "更改默认出发地点",
-                identifier: "blindHomeStartPlaceRow"
-            ) {
-                favoritePlaces.reload()
-                showsStartPlaceSheet = true
-            }
-        }
-    }
-
     private var pageContent: some View {
-        let content = belowCard
-        return VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
                 greetingRow
                     .padding(.leading, 4)
                     .padding(.top, 18)
@@ -824,31 +762,48 @@ struct BlindRunnerHomeView: View {
                         .accessibilityIdentifier("blindBookingTrackConsentDeclinedNotice")
                 }
 
-                BlindHomeBookingBlock(
-                    isEnabled: viewModel.canStartNewBooking,
-                    isProminent: hasNoOrder,
-                    fillsAvailableHeight: hasNoOrder,
-                    isLargest: hasNoOrder && content.isEmpty
-                ) {
-                    if viewModel.canStartNewBooking {
-                        viewModel.clearBookingTrackConsentDeclinedNotice()
-                        path.append(.voiceBooking)
-                    } else {
-                        viewModel.explainBookingUnavailable()
-                    }
-                }
-                .accessibilityFocused($focusedSection, equals: .newBooking)
+                if viewModel.activeOrder == nil {
+                    let belowCard = idleModel.content(
+                        isIdentityVerified: appState.blindProfile == nil || appState.isBlindIdentityVerified,
+                        favorites: favoritePlaces,
+                        isCurrentLocationUnavailable: locationService.isDenied || locationService.isPreciseLocationOff
+                    )
+                    BlindHomeProminentBookingCard(
+                        isEnabled: viewModel.canStartNewBooking,
+                        isLargest: belowCard.isEmpty,
+                        action: startBooking
+                    )
+                    .accessibilityFocused($focusedSection, equals: .newBooking)
 
-                if hasNoOrder {
-                    belowCardContent(content)
+                    BlindHomeBelowCardView(
+                        content: belowCard,
+                        onVerifyIdentity: { path.append(.identityVerification) },
+                        onOpenRecords: onOpenRecords,
+                        onChangeStartPlace: {
+                            favoritePlaces.reload()
+                            path.append(.startPlacePicker)
+                        }
+                    )
                 } else {
+                    BlindHomeBookingBlock(isEnabled: viewModel.canStartNewBooking, action: startBooking)
+                        .accessibilityFocused($focusedSection, equals: .newBooking)
+
                     Spacer(minLength: 0)
                 }
             }
             .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-            .padding(.bottom, hasNoOrder ? 16 : 28)
+            .padding(.bottom, viewModel.activeOrder == nil ? 16 : 28)
             // 内容列在 iPad / 横屏上不铺满整屏，见 `BlindLayout.readableContentWidth`。
             .readableContentColumn()
+    }
+
+    private func startBooking() {
+        if viewModel.canStartNewBooking {
+            viewModel.clearBookingTrackConsentDeclinedNotice()
+            path.append(.voiceBooking)
+        } else {
+            viewModel.explainBookingUnavailable()
+        }
     }
 
     /// 问候行：「你好，{姓名}」+ 右侧「重复当前状态」图标。
@@ -958,48 +913,6 @@ struct BlindRunnerHomeView: View {
         }
     }
 
-    @ViewBuilder
-    private func destination(for route: BlindRunnerRoute) -> some View {
-        switch route {
-        case .voiceBooking:
-            // #368：向导路由本身过闸 —— 不管从哪里进向导，都先要本机有盲人位置轨迹的单独同意。
-            BlindBookingTrackConsentGate(
-                onDecline: {
-                    path.removeAll()
-                    viewModel.noteBookingTrackConsentDeclined()
-                }
-            ) {
-                BlindBookingView(startsWithVoice: true, initialStartPlace: favoritePlaces.defaultPlace) { response in
-                    viewModel.handleOrderCreated(response)
-                    if let orderId = response.id {
-                        path = [.orderStatus(orderId)]
-                    }
-                }
-            }
-        case .addFavoritePlace:
-            BlindBookingTrackConsentGate(
-                onDecline: {
-                    path.removeAll()
-                    viewModel.noteBookingTrackConsentDeclined()
-                }
-            ) {
-                BlindBookingView { response in
-                    viewModel.handleOrderCreated(response)
-                    if let orderId = response.id {
-                        path = [.orderStatus(orderId)]
-                    }
-                }
-            }
-        case .identityVerification:
-            BlindIdentityVerificationView()
-        case .orderStatus(let orderId):
-            BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
-                viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
-            }
-        case .help:
-            BlindRunnerHelpView(isFirstRun: true)
-        }
-    }
 
     // 🗑 `bookingButtonLabel` / `askQuestionButton` 两者已删除。
     //
@@ -1020,6 +933,62 @@ struct BlindRunnerHomeView: View {
     // ⚠️ `docs/05-page-specs.md` 的「底部常驻条恒为两个版位」一节已随之改口径。
 }
 
+private extension BlindRunnerHomeView {
+    /// #368：向导路由本身过闸 —— 不管从哪里进向导，都先要本机有盲人位置轨迹的单独同意。
+    func booking(startsWithVoice: Bool, startPlace: ResolvedPlace?) -> some View {
+        BlindBookingTrackConsentGate(
+            onDecline: {
+                path.removeAll()
+                viewModel.noteBookingTrackConsentDeclined()
+            }
+        ) {
+            BlindBookingView(startsWithVoice: startsWithVoice, initialStartPlace: startPlace) { response in
+                viewModel.handleOrderCreated(response)
+                if let orderId = response.id {
+                    path = [.orderStatus(orderId)]
+                }
+            }
+        }
+    }
+
+    var startPlacePicker: some View {
+        BlindHomeStartPlacePage(
+            places: favoritePlaces.places,
+            selectedID: favoritePlaces.defaultPlace?.id,
+            onSelect: { place in
+                let didSave = favoritePlaces.setDefaultPlace(place)
+                speechService.speak(didSave ? "默认出发地点已改为\(place?.title ?? "当前定位")。" : "默认出发地点没有保存成功，请再试一次。")
+                path.removeAll()
+            },
+            onAddFavorite: {
+                favoriteCountBeforeAdding = favoritePlaces.places.count
+                speechService.speak("请搜索出发地点，然后收藏它。返回首页后，它会成为默认出发地点。")
+                path = [.addFavoritePlace]
+            }
+        )
+    }
+
+    @ViewBuilder
+    func destination(for route: BlindRunnerRoute) -> some View {
+        switch route {
+        case .voiceBooking:
+            booking(startsWithVoice: true, startPlace: favoritePlaces.defaultPlace)
+        case .addFavoritePlace:
+            booking(startsWithVoice: false, startPlace: nil)
+        case .identityVerification:
+            BlindIdentityVerificationView()
+        case .startPlacePicker:
+            startPlacePicker
+        case .orderStatus(let orderId):
+            BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
+                viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
+            }
+        case .help:
+            BlindRunnerHelpView(isFirstRun: true)
+        }
+    }
+}
+
 // MARK: - Shared Blind Runner Components
 
 // 🗑 `BlindStatusCard` 已删除（改版后零调用点）。
@@ -1031,103 +1000,7 @@ struct BlindRunnerHomeView: View {
 // 它的掩码电话那一行没有丢失语义：号码全程只走 `tel:`，屏幕上与读屏里都不出现全号 ——
 // 这条规则现在钉在 `AGENTS.md` §8 与 `volunteerNameForSpeech` 一带，不再依赖某个视图的注释。
 
-#if DEBUG
-struct DebugTestingPanel: View {
-    @EnvironmentObject private var appState: AppState
-    @State private var showEnvironmentConfirmation = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("测试入口")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-
-            Button {
-                appState.returnToRoleSelectionForTesting()
-            } label: {
-                Text("返回角色选择")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("返回角色选择")
-            .accessibilityHint("回到角色选择页，用于测试不同身份")
-
-            Button {
-                showEnvironmentConfirmation = true
-            } label: {
-                Text("切换测试模式：\(appState.currentEnvironment.displayName)")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("切换测试模式")
-            .accessibilityHint("当前模式 \(appState.currentEnvironment.displayName)，点击后可切换并重新登录")
-        }
-        .padding()
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .confirmationDialog("切换测试模式", isPresented: $showEnvironmentConfirmation) {
-            Button("切换到 \(nextEnvironment.displayName) 并重新登录", role: .destructive) {
-                appState.switchToNextEnvironmentForTesting()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("切换测试模式会清除当前登录状态，并返回登录页。")
-        }
-    }
-
-    private var nextEnvironment: APIEnvironment {
-        let allEnvironments = AppState.debugTestEnvironments
-        guard let currentIndex = allEnvironments.firstIndex(of: appState.currentEnvironment) else {
-            return .mock
-        }
-        return allEnvironments[(currentIndex + 1) % allEnvironments.count]
-    }
-}
-#endif
-
-/// 预约向导前的位置轨迹单独同意（#368）。
-///
-/// 问在预约前而不是同行时：拒绝的代价只是「这次不约了」，不会让已经出发的志愿者白跑。
-/// 有本机记录就直接放行，不再问。同意 → 当场换成向导（系统定位授权框由向导的 `onAppear` 弹，晚于告知）；
-/// 拒绝 → 回首页，首页念并留下后果说明。没有返回按钮：出口只有这两个，读屏的「返回」手势等同拒绝。
-private struct BlindBookingTrackConsentGate<Content: View>: View {
-    @EnvironmentObject private var appState: AppState
-    @EnvironmentObject private var speechService: SpeechService
-
-    let onDecline: () -> Void
-    @ViewBuilder let content: () -> Content
-
-    @State private var agreedThisVisit = false
-
-    private let purpose = PrivacyConsentPurpose.blindLocationTrack
-
-    var body: some View {
-        if agreedThisVisit || appState.hasLocationTrackConsent(purpose) {
-            content()
-        } else {
-            ConsentDisclosureView(
-                purpose: purpose,
-                onAgree: {
-                    speechService.stop()
-                    appState.recordLocationTrackConsent(purpose)
-                    agreedThisVisit = true
-                },
-                onDecline: decline
-            )
-            .navigationBarBackButtonHidden(true)
-            .navigationBarTitleDisplayMode(.inline)
-            .accessibilityAction(.escape, decline)
-            .task {
-                speechService.speak(text: purpose.spokenScript)
-            }
-        }
-    }
-
-    private func decline() {
-        speechService.stop()
-        onDecline()
-    }
-}
 
 #if DEBUG
 #Preview("首页 · 有订单") {

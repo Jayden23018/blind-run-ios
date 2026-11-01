@@ -173,12 +173,6 @@ enum FlowMetrics {
     static let bookingBlockHorizontalPadding: CGFloat = 20
     /// 预约块里的蓝色加号圆。
     static let bookingPlusDiameter: CGFloat = 56
-    /// 没有待进行订单时预约块的大圆。对照 Aira 呼叫卡：圆的直径约占卡宽 40%。
-    static let bookingProminentIconDiameter: CGFloat = 148
-    /// 预约卡长满一屏时的大圆。
-    static let bookingLargestIconDiameter: CGFloat = 188
-    /// 预约卡下方的锻炼块和入口行。比深蓝卡小一档，层级差看得出来。
-    static let homeRowRadius: CGFloat = 16
     /// 深蓝卡上的陪跑员头像。
     static let homeVolunteerAvatarDiameter: CGFloat = 44
     /// 深蓝卡底部「打开订单」条的最小高度。它在**整张卡是一个按钮**的结构里属于装饰
@@ -305,9 +299,6 @@ enum FlowFonts {
     static func homeCardRowDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (14, .regular, .subheadline) }
     /// 首页预约块标题 24 / Semibold。
     static func bookingTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (24, .semibold, .title2) }
-    static func bookingProminentTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (32, .semibold, .title) }
-    static func bookingLargestTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (36, .semibold, .largeTitle) }
-    static func bookingProminentSubtitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (17, .regular, .body) }
 
     // MARK: 邀请卡（`.offer` 一族 CSS 的逐条落点）
 

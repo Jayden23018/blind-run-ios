@@ -101,15 +101,6 @@ final class RunRecordHistoryViewModel: ObservableObject {
         announceLoaded()
     }
 
-    /// 回到本月加载；本月没跑过而以前跑过时退到上月，否则每月 1 号首页那一块都会消失。
-    func loadLatestMonthWithRuns() async {
-        month = currentMonth
-        await load()
-        if history?.monthSummary.runs == 0, hasAnyCompletedOrder == true {
-            await showPreviousMonth()
-        }
-    }
-
     func showPreviousMonth() async {
         await switchTo(month.previous)
     }

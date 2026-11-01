@@ -149,6 +149,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     init() {
         seedDemoData()
+        seedHomeHistoryForUITestIfRequested()
     }
 
     #if DEBUG
@@ -1030,41 +1031,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let futureEnd = Calendar.current.date(byAdding: .hour, value: 3, to: Date())!
         let formatter = ISO8601DateFormatter()
         let activeAcceptedAt = formatter.string(from: Date().addingTimeInterval(-600))
-
-        // 首页样例用：`this` = 本月跑过三次，`last` = 只有上月跑过。
-        if let sample = ProcessInfo.processInfo.environment["AIDRUN_SAMPLE_HOME_HISTORY"] {
-            let created = sample == "last" ? Calendar.current.date(byAdding: .month, value: -1, to: Date())! : Date()
-            orders = (1...3).map { index in
-                OrderDetailResponse(
-                    orderId: Int64(index),
-                    status: .completed,
-                    startAddress: "朝阳公园南门",
-                    startLatitude: 39.9342,
-                    startLongitude: 116.4740,
-                    endAddress: nil,
-                    endLatitude: nil,
-                    endLongitude: nil,
-                    plannedStart: formatter.string(from: created),
-                    plannedEnd: formatter.string(from: created),
-                    blindName: "李明",
-                    blindPhone: "13800001001",
-                    volunteerPhone: nil,
-                    acceptedAt: nil,
-                    createdAt: formatter.string(from: created),
-                    expectedDurationMinutes: 60,
-                    pacePreference: .moderate,
-                    routePreference: .parkTrail,
-                    routeNotes: nil,
-                    hasGuideDogThisRun: false,
-                    specialNotes: nil,
-                    visionLevel: "TOTAL_BLIND",
-                    tetherPreference: "TETHER_ROPE",
-                    chatPreference: "PREFER_CHAT"
-                )
-            }
-            nextOrderId = 10
-            return
-        }
 
         if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] == "1" {
             orders = []

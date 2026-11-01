@@ -52,14 +52,27 @@ final class FavoritePlaceStore: ObservableObject {
     }
 
     /// 设置默认出发地点。传 nil 表示改回当前定位。
-    func setDefaultPlace(_ place: ResolvedPlace?) {
-        defaultPlaceID = place?.id
+    /// - Returns: 真的存下了吗。没存下时不改内存里的值，免得当次显示已改、下次启动又变回去。
+    @discardableResult
+    func setDefaultPlace(_ place: ResolvedPlace?) -> Bool {
         let url = directory.appendingPathComponent(Self.defaultPlaceFileName)
-        guard let id = place?.id else {
-            try? FileManager.default.removeItem(at: url)
-            return
+        do {
+            if let id = place?.id {
+                try Data(id.utf8).write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+            } else if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        } catch {
+            return false
         }
-        try? Data(id.utf8).write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+        defaultPlaceID = place?.id
+        return true
+    }
+
+    /// 收藏比之前多了时，把最新的那条设为默认。新收藏排在最前。
+    func adoptNewestPlace(ifCountExceeds count: Int) {
+        guard places.count > count else { return }
+        setDefaultPlace(places.first)
     }
 
     private static func loadDefaultPlaceID(from directory: URL) -> String? {
@@ -153,12 +166,12 @@ final class FavoritePlaceStore: ObservableObject {
     private var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
 
     #if DEBUG
-    /// 首页样例用：把收藏放进临时目录，不碰手机上真实的常用地点。
+    /// UI 用例把收藏放进临时目录，不碰手机上真实的常用地点。
     static func forHome() -> FavoritePlaceStore {
-        guard ProcessInfo.processInfo.environment["AIDRUN_SAMPLE_HOME_FAVORITE"] == "1" else {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_HOME_FAVORITE"] == "1" else {
             return FavoritePlaceStore()
         }
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sample-home-favorites")
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ui-test-home-favorites")
         try? FileManager.default.removeItem(at: directory)
         let store = FavoritePlaceStore(directory: directory)
         store.add(ResolvedPlace(
@@ -183,6 +196,8 @@ final class FavoritePlaceStore: ObservableObject {
         try? FileManager.default.removeItem(at: directory.appendingPathComponent(fileName))
         try? FileManager.default.removeItem(at: directory.appendingPathComponent(defaultPlaceFileName))
         defaults.removeObject(forKey: legacyDefaultsKey)
+        // 首页的锻炼数据缓存同样不能留给下一个账号。
+        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.blindHomeRunSnapshot)
     }
 
     private static func load(from directory: URL) -> [ResolvedPlace] {

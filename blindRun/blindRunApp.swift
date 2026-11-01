@@ -188,7 +188,7 @@ struct blindRunApp: App {
                     name: "UITestBlind",
                     runningPace: "MODERATE",
                     specialNeeds: nil,
-                    verifyStatus: environment["AIDRUN_MOCK_BLIND_VERIFY_STATUS"] ?? "VERIFIED",
+                    verifyStatus: "VERIFIED",
                     visionLevel: "TOTAL_BLIND",
                     hasGuideDog: false,
                     guideDog: GuideDogStatus.no.rawValue,
@@ -197,9 +197,6 @@ struct blindRunApp: App {
                     defaultPace: .moderate
                 )
             )
-            if environment["AIDRUN_MOCK_BLIND_VERIFY_STATUS"] != nil {
-                appState.dismissBlindIdentityPrompt()
-            }
             appState.updateEmergencyContacts([
                 EmergencyContactResponse(id: 1, name: "UITestContact", phone: "13800001111", relationship: "家人", isPrimary: true)
             ])
