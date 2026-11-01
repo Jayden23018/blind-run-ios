@@ -129,7 +129,7 @@
 | 网络层 | URLSession + async/await | 原生，无额外依赖 |
 | Token 存储 | Keychain | `KeychainTokenStore`，`kSecAttrAccessibleAfterFirstUnlock`；旧 UserDefaults 值一次性迁移后清除 |
 | 实时更新 | WebSocket + 5 秒轮询降级 | 云端契约要求 WebSocket，轮询用于断线兜底 |
-| 外部 API | `http://47.114.113.171` | 唯一真实联调服务，不由本仓库维护 |
+| 外部 API | `https://blindrun.culiu-tech.com` | 唯一真实联调服务，不由本仓库维护 |
 | 认证 | JWT | 无状态，移动端友好 |
 
 ---
@@ -141,7 +141,7 @@
 | 模式 | 说明 | 使用场景 |
 |------|------|----------|
 | Mock | 本地假数据，无后端 | UI 和流程调试，不能用于上线验收 |
-| Demo Cloud | `http://47.114.113.171` | 所有真实网络联调；Demo/Production 包固定使用 |
+| Demo Cloud | `https://blindrun.culiu-tech.com` | 所有真实网络联调；Demo/Production 包固定使用 |
 
 ### 高德地图 Key 管理
 

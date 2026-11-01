@@ -15,8 +15,8 @@
 Acceptance:
 
 - Mock 不需要网络且不会创建网络请求。
-- 所有真实 HTTP 请求固定使用 `http://47.114.113.171`。
-- 所有真实 WebSocket 连接固定使用 `ws://47.114.113.171`。
+- 所有真实 HTTP 请求固定使用 `https://blindrun.culiu-tech.com`。
+- 所有真实 WebSocket 连接固定使用 `wss://blindrun.culiu-tech.com`。
 
 ### PR-IOS-02 Auth and Role
 
@@ -88,7 +88,7 @@ Acceptance:
 Acceptance:
 
 - 仓库内不存在第二个真实服务器地址。
-- URLSession 与 WebSocket 均连接 `47.114.113.171`。
+- URLSession 与 WebSocket 均连接 `blindrun.culiu-tech.com`。
 
 ### PR-CLOUD-02 Production Verification
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const baseURL = 'https://47.114.113.171';
+const baseURL = 'https://blindrun.culiu-tech.com';
 // 联调账号与验证码不设默认值：仓库是公开的，向后端负责人索取后只放在环境变量里。
 // 生成号模式下验证码可以来自 send-code 的响应，这个变量只是兜底。
 const verificationCode = process.env.AIDRUN_E2E_VERIFICATION_CODE;

@@ -118,7 +118,7 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
     }
 
-    /// 容错路径：生产 `47.114.113.171` 尚未部署带 `verifyStatus` 的版本，
+    /// 容错路径：不是每个生产版本的响应都带 `verifyStatus`，
     /// 字段缺失时必须回退到 `GET /api/blind/profile`，不能把状态当成未知就卡住。
     func testSubmitFallsBackToProfileFetchWhenResponseOmitsVerifyStatus() async {
         let client = IdentityVerifyAPIClient(

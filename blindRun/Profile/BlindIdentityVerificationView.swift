@@ -14,7 +14,7 @@ private let idCardNumberPattern = #"^\d{17}[\dXx]$"#
 /// - 请求体 `idCardName`(2–50) + `idCardNumber`(`^\d{17}[\dXx]$`)。
 /// - 成功响应 `data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`（2026-07-30 起）。
 ///   优先读响应体里的 `verifyStatus`，省掉一次 `GET /api/blind/profile` 往返；
-///   **字段缺失时必须回退到 GET**——生产 `47.114.113.171` 还没部署该版本。
+///   **字段缺失时必须回退到 GET**——不是每个生产版本都带这个字段。
 ///   只解 `message` / `verifyStatus` 两个白名单字段，其余内容一律丢弃，
 ///   避免后端把提交的身份证号原样回显后被展示或朗读。
 /// - `verifyStatus` 只有 `NOT_VERIFIED` / `VERIFIED` / `FAILED`，**没有"审核中"**。

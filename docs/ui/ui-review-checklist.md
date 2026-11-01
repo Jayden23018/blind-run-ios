@@ -223,7 +223,7 @@
 ## 14. 环境切换
 
 - [ ] Debug 支持 Mock / Demo Cloud，环境切换入口不干扰主流程
-- [ ] Demo 和 Production 构建隐藏切换入口并固定使用 `https://47.114.113.171`（WebSocket 对应 `wss://`，由 scheme 推导，不单独配）
+- [ ] Demo 和 Production 构建隐藏切换入口并固定使用 `https://blindrun.culiu-tech.com`（WebSocket 对应 `wss://`，由 scheme 推导，不单独配）
 - [ ] Mock 不发起网络请求，真实 API 地址不可配置
 - [ ] `Info.plist` 里**没有** `NSAppTransportSecurity` 例外
 
