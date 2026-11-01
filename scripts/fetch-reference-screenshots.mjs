@@ -25,6 +25,22 @@ const APPS = [
   ['seeing-ai', 999062298, 'us'],
   ['xiaoai-bangbang', 1361445580, 'cn'],
   ['douya-kanjian', 6748354061, 'cn'],
+  // 苹果式简约风的参照，结论见 docs/research/apple-premium-minimal-ui-20261101.md。
+  ['apple-fitness', 1208224953, 'us'],
+  ['apple-health', 1242545199, 'us'],
+  ['apple-sports', 6446788829, 'us'],
+  ['flighty', 1358823008, 'us'],
+  ['uber', 368677368, 'us'],
+  ['uber-driver', 1131342792, 'us'],
+  ['lyft', 529379082, 'us'],
+  ['runna', 1594204443, 'us'],
+  ['gentler-streak', 1576857102, 'us'],
+  ['oko', 1583614988, 'us'],
+  ['tide-guide', 1406371071, 'us'],
+  ['citymapper', 469463298, 'us'],
+  ['things', 904237743, 'us'],
+  ['cash-app', 711923939, 'us'],
+  ['airbnb', 401626263, 'us'],
 ]
 
 // mzstatic 的缩略图 URL 末段是尺寸，换成 900x0w 拿大图；换不成就退回原图。
