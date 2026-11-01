@@ -80,6 +80,12 @@ LocalConfig.xcconfig
 # 要看就自己抓一次：node scripts/fetch-reference-screenshots.mjs
 docs/ui/reference-screenshots/
 
+# 阿里云实人认证 SDK 是闭源二进制，公开仓库不存放（#636）。
+# pod install 时由 scripts/fetch-aliyun-cloudauth.sh 从官方地址下载。
+Vendor/AliyunCloudAuth/*/Frameworks/
+Vendor/AliyunCloudAuth/*/Resources/
+Vendor/AliyunCloudAuth/*/.fetch*
+
 # macOS / 系统文件：Finder 每打开一次目录就写一个，与代码无关。
 .DS_Store
 

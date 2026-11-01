@@ -93,6 +93,9 @@ if [ "$FULL" = "1" ] || touches '^(scripts/|\.claude/|\.github/)'; then
   if [ -f scripts/validate-preflight-watchdog.sh ]; then
     run "validate-preflight-watchdog（真机看门狗自测）" bash scripts/validate-preflight-watchdog.sh
   fi
+  if [ -f scripts/validate-fetch-aliyun-cloudauth.sh ]; then
+    run "validate-fetch-aliyun-cloudauth（阿里云 SDK 下载自测）" bash scripts/validate-fetch-aliyun-cloudauth.sh
+  fi
 else
   echo "[pre-push] 跳过钩子/脚本自测：本次未改 scripts/ .claude/ .github/（CI specs job 会跑）"
   TIERED_OUT=1

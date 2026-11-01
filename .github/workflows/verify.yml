@@ -153,6 +153,10 @@ jobs:
       - name: validate device-test preflight watchdog（日志停滞才计时）
         run: scripts/validate-preflight-watchdog.sh
 
+      # 阿里云 SDK 下载脚本。它坏掉的样子是 App 照样编译通过、只是没有活体认证，所以校验不过绝不放行。
+      - name: validate aliyun cloudauth fetch（校验值不符不放行，不完整就重新解压）
+        run: scripts/validate-fetch-aliyun-cloudauth.sh
+
       # 契约漂移闸的「新字段接没接上」判据。它给的是绿灯，坏掉不报错、只会安静放过缺口 ——
       # 已经这样假绿过两次（按裸字段名全局搜，命中了无关模型上的同名字段）。
       - name: validate drift-fields gate
@@ -308,6 +312,13 @@ jobs:
         # 真实高德 key 绝不进仓库、绝不进 CI（AGENTS.md 第 8 节）。
         # 编译不需要有效 key，占位值足够。
         run: cp LocalConfig.xcconfig.example LocalConfig.xcconfig
+
+      # 阿里云 SDK 官方压缩包（约 25 MB）。下面的 pod install 优先用这份缓存，少连一次官方服务器；
+      # 缓存失效时脚本重新下载，SHA-256 校验不变。
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/AidRun
+          key: aliyun-cloudauth-${{ hashFiles('Vendor/AliyunCloudAuth/*/SOURCE.md') }}
 
       - uses: actions/cache@v4
         with:

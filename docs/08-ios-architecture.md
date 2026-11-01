@@ -227,6 +227,7 @@ Do not implement Android, full admin backend, public real-time track sharing, ap
 
 - 志愿者 Step3 使用阿里云原生 App SDK。客户端提交 `metaInfo` 获取 `certifyId`，再调用原生 SDK；不使用 Safari、自拍 multipart 或身份证照片上传。
 - 当前供应包是阿里云官方 iOS SDK 聚合版本 `2.3.50`，官方 ZIP MD5 为 `ef124c58ac90e33ea3d652363cc424fb`。升级时必须替换整个选定模块集合，禁止混用不同聚合版本的二进制。
+- SDK 二进制不入库（#636）。`AliyunCloudAuth.podspec` 在 `pod install` 时调用 `scripts/fetch-aliyun-cloudauth.sh`，从官方地址下载、校验 SHA-256，再解压到 `Vendor/AliyunCloudAuth/<版本>/`。下载失败时 `pod install` 必须失败：SDK 缺失时 App 仍能编译，只是没有活体认证。
 - ID_PRO 必选模块为 `AliyunFaceAuthFacade`、`ToygerService`、`DTFIdentityManager`、`ToygerNative`、`BioAuthEngine`、`DTFUtility`、`VerifyNativeAbility`、`APBToygerFacade`、`faceguard` 和 `APPSecuritySDK`。
 - CocoaPods 必须把 `ToygerService.bundle`、`APBToygerFacade.bundle`、`APBToygerFacadeSuitable.bundle` 和 `BioAuthEngine.bundle` 复制到 App 顶层资源；其中 `ToygerService.bundle/toyger.face.dat` 不得缺失或为空。
 - 当前流程不使用 OCR、NFC、多因子意愿认证或美颜，因此对应 framework 与 bundle 不进入构建产物，也不为这些能力增加权限。

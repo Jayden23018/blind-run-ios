@@ -118,8 +118,16 @@ esac
 #
 # 造一个名字固定的进程冒充 Xcode（AIDRUN_XCODE_PROCESS_NAME），第 6 条期望被拦、第 7 条带放行开关
 # 期望**不**出现这句 —— 两条对照才证明第 6 条拦的是「Xcode 开着」，而不是工作区里别的缺口。
-# 两条都要先补齐 LocalConfig 与 Pods/，否则会提前死在 0.5 节，测不到 0.6。
+# 两条都要先补齐 LocalConfig、Pods/ 和阿里云 SDK，否则会提前死在 0.5 节，测不到 0.6。
 mkdir -p "$SANDBOX/Pods"
+echo "[validate-device-lock] 5b/9 Pods/ 有了但没下载阿里云 SDK 时再改口"
+FIFTH_B="$(cd "$SANDBOX" && AIDRUN_DEVICE_ID="$FAKE_ID" bash "$SCRIPT_ABS" 2>&1)"
+case "$FIFTH_B" in
+  *"缺少阿里云实人认证 SDK"*) ok "点名了阿里云 SDK" ;;
+  *) bad "期望点名阿里云 SDK，实际输出：$FIFTH_B" ;;
+esac
+mkdir -p "$SANDBOX/Vendor/AliyunCloudAuth/test/Frameworks/AliyunFaceAuthFacade.framework"
+: >"$SANDBOX/Vendor/AliyunCloudAuth/test/Frameworks/AliyunFaceAuthFacade.framework/AliyunFaceAuthFacade"
 # 名字要短：进程名 macOS 只留 16 字符、Linux 15 字符，超长被截断后 `pgrep -x` 全名匹配不上。
 FAKE_XCODE="fxc$$"
 FAKE_BIN="$SANDBOX/$FAKE_XCODE"
