@@ -25,8 +25,16 @@ final class FavoritePlaceStore: ObservableObject {
     private static let legacyDefaultsKey = "aidrun.favorite-start-places.v1"
 
     private static let fileName = "favorite-start-places.v1.json"
+    /// 默认出发地点的 id。id 里含坐标，所以和收藏放在同一个受保护目录，不进 `UserDefaults`。
+    private static let defaultPlaceFileName = "default-start-place.v1.txt"
 
     @Published private(set) var places: [ResolvedPlace] = []
+    @Published private(set) var defaultPlaceID: String?
+
+    /// 默认出发地点。nil 表示用当前定位；收藏被删后也回到当前定位。
+    var defaultPlace: ResolvedPlace? {
+        places.first { $0.id == defaultPlaceID }
+    }
 
     private let directory: URL
 
@@ -34,6 +42,30 @@ final class FavoritePlaceStore: ObservableObject {
     init(directory: URL = FavoritePlaceStore.defaultDirectory) {
         self.directory = directory
         places = Self.load(from: directory)
+        defaultPlaceID = Self.loadDefaultPlaceID(from: directory)
+    }
+
+    /// 重新读盘。首页和预约页各有一个实例，从预约页回来时要看到新收藏的地点。
+    func reload() {
+        places = Self.load(from: directory)
+        defaultPlaceID = Self.loadDefaultPlaceID(from: directory)
+    }
+
+    /// 设置默认出发地点。传 nil 表示改回当前定位。
+    func setDefaultPlace(_ place: ResolvedPlace?) {
+        defaultPlaceID = place?.id
+        let url = directory.appendingPathComponent(Self.defaultPlaceFileName)
+        guard let id = place?.id else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try? Data(id.utf8).write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+    }
+
+    private static func loadDefaultPlaceID(from directory: URL) -> String? {
+        let url = directory.appendingPathComponent(defaultPlaceFileName)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// 这个地点是不是已经收藏过了。判据是坐标不是名字 —— 同一个点用不同关键词搜出来，
@@ -120,6 +152,25 @@ final class FavoritePlaceStore: ObservableObject {
 
     private var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
 
+    #if DEBUG
+    /// 首页样例用：把收藏放进临时目录，不碰手机上真实的常用地点。
+    static func forHome() -> FavoritePlaceStore {
+        guard ProcessInfo.processInfo.environment["AIDRUN_SAMPLE_HOME_FAVORITE"] == "1" else {
+            return FavoritePlaceStore()
+        }
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sample-home-favorites")
+        try? FileManager.default.removeItem(at: directory)
+        let store = FavoritePlaceStore(directory: directory)
+        store.add(ResolvedPlace(
+            id: "sample", title: "家附近操场", addressText: "家附近操场",
+            latitude: 39.9400, longitude: 116.4700, source: .manual
+        ))
+        return store
+    }
+    #else
+    static func forHome() -> FavoritePlaceStore { FavoritePlaceStore() }
+    #endif
+
     /// 会话结束时清空。由 `AppState.performLocalSessionCleanup` 调用。
     ///
     /// 做成 static 而不是实例方法：这个 store 是 `BlindBookingView` 的 `@StateObject`
@@ -130,6 +181,7 @@ final class FavoritePlaceStore: ObservableObject {
         defaults: UserDefaults = .standard
     ) {
         try? FileManager.default.removeItem(at: directory.appendingPathComponent(fileName))
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(defaultPlaceFileName))
         defaults.removeObject(forKey: legacyDefaultsKey)
     }
 

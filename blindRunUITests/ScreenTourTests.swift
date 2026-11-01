@@ -54,11 +54,6 @@ final class ScreenTourTests: XCTestCase {
     }
 
     // 样例用例，不进 main：看首页下方内容的几种状态。
-    @MainActor func testTour_B05b_NewUserTextCard() {
-        let app = launchBlind(env: ["AIDRUN_SAMPLE_HOME_CARD": "text"])
-        shoot(app, "B05b-new-user-text", anchor: "blindRunnerHomeStartBookingButton")
-    }
-
     @MainActor func testTour_B05c_Unverified() {
         let app = launchBlind(env: ["AIDRUN_MOCK_BLIND_VERIFY_STATUS": "NOT_VERIFIED"])
         shoot(app, "B05c-unverified", anchor: "blindHomeVerifyIdentityRow")
@@ -96,13 +91,24 @@ final class ScreenTourTests: XCTestCase {
         attach(app, "B05h-records")
     }
 
-    @MainActor func testTour_B05i_PlaceRowOpensBooking() {
-        let app = launchBlind(emptyOrders: false, env: ["AIDRUN_SAMPLE_HOME_HISTORY": "this"])
-        let row = app.buttons["blindHomePlaceRow"]
+    @MainActor func testTour_B05i_ChangeDefaultStartPlace() {
+        let app = launchBlind(emptyOrders: false, env: [
+            "AIDRUN_SAMPLE_HOME_HISTORY": "this",
+            "AIDRUN_SAMPLE_HOME_FAVORITE": "1",
+        ])
+        let row = app.buttons["blindHomeStartPlaceRow"]
         XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertEqual(row.label, "用当前定位出发")
         row.tap()
-        sleep(3)
-        attach(app, "B05i-booking-from-place")
+        let favorite = app.buttons["家附近操场"]
+        XCTAssertTrue(favorite.waitForExistence(timeout: 10))
+        sleep(1)
+        attach(app, "B05i-start-place-sheet")
+        favorite.tap()
+        XCTAssertTrue(app.buttons["blindHomeStartPlaceRow"].waitForExistence(timeout: 10))
+        sleep(1)
+        XCTAssertEqual(app.buttons["blindHomeStartPlaceRow"].label, "从家附近操场出发")
+        attach(app, "B05j-default-favorite")
     }
 
     @MainActor func testTour_B06_BookingForm() {

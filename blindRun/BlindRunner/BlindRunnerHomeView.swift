@@ -9,8 +9,8 @@ private enum BlindRunnerRoute: Hashable {
     /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
     /// 表单没有消失，在预约页里按「改用表单」即可。
     case voiceBooking
-    /// 从首页地点行进入预约，地点已选好（样例阶段走表单，语音向导还不支持带地点进入）。
-    case bookingFromPlace
+    /// 添加常用地点。搜索和收藏都在预约表单里，这里直接进表单。
+    case addFavoritePlace
     case identityVerification
     case orderStatus(Int64)
     /// 首次使用引导。首次进首页自动推入一次，也可从「我的」进入。
@@ -531,8 +531,8 @@ struct BlindRunnerHomeView: View {
     @State private var path: [BlindRunnerRoute] = []
     /// 本月锻炼块的数据，与「记录」「我的」同一个 view model。不传 `speechService`：首页不自动念这一句。
     @StateObject private var runSummaryModel = RunRecordHistoryViewModel(role: .runner)
-    @StateObject private var favoritePlaces = FavoritePlaceStore()
-    @State private var bookingStartPlace: ResolvedPlace?
+    @StateObject private var favoritePlaces = FavoritePlaceStore.forHome()
+    @State private var showsStartPlaceSheet = false
 
     /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
     /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
@@ -658,6 +658,26 @@ struct BlindRunnerHomeView: View {
                 }
                 await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
             }
+            .sheet(isPresented: $showsStartPlaceSheet) {
+                BlindHomeStartPlaceSheet(
+                    places: favoritePlaces.places,
+                    selectedID: favoritePlaces.defaultPlace?.id,
+                    onSelect: { place in
+                        favoritePlaces.setDefaultPlace(place)
+                        speechService.speak("默认出发地点已改为\(place?.title ?? "当前定位")。")
+                        showsStartPlaceSheet = false
+                    },
+                    onAddFavorite: {
+                        showsStartPlaceSheet = false
+                        path.append(.addFavoritePlace)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
+            // 从预约页回来时可能多了新收藏。
+            .onChange(of: path.isEmpty) { isEmpty in
+                if isEmpty { favoritePlaces.reload() }
+            }
             // 订单走完回到首页时要刷新本月次数，所以跟着订单号走。切 tab 不重新请求。
             .task(id: viewModel.activeOrder?.orderId) {
                 runSummaryModel.configure(with: appState, speechService: nil)
@@ -739,7 +759,10 @@ struct BlindRunnerHomeView: View {
             // 资料还没回来时不下结论，免得已实名的人先闪一下实名行。
             isIdentityVerified: appState.blindProfile == nil || appState.isBlindIdentityVerified,
             runSummary: summary,
-            startPlace: runSummaryModel.latestCompletedOrder?.homeStartPlace ?? favoritePlaces.places.first
+            hasRunBefore: runSummaryModel.hasAnyCompletedOrder == true,
+            favoriteCount: favoritePlaces.places.count,
+            defaultPlaceTitle: favoritePlaces.defaultPlace?.title,
+            isLocationDenied: locationService.isDenied
         )
     }
 
@@ -757,14 +780,15 @@ struct BlindRunnerHomeView: View {
         if let summary = content.runSummary {
             BlindHomeRunSummaryBlock(summary: summary, action: onOpenRecords)
         }
-        if let place = content.startPlace {
+        if let title = content.startRowTitle {
             BlindHomeQuickRow(
-                title: "从\(place.title)出发",
-                hint: "进入预约，出发地点已选好",
-                identifier: "blindHomePlaceRow"
+                title: title,
+                actionText: "更改",
+                hint: "更改默认出发地点",
+                identifier: "blindHomeStartPlaceRow"
             ) {
-                bookingStartPlace = place
-                path.append(.bookingFromPlace)
+                favoritePlaces.reload()
+                showsStartPlaceSheet = true
             }
         }
     }
@@ -945,21 +969,21 @@ struct BlindRunnerHomeView: View {
                     viewModel.noteBookingTrackConsentDeclined()
                 }
             ) {
-                BlindBookingView(startsWithVoice: true) { response in
+                BlindBookingView(startsWithVoice: true, initialStartPlace: favoritePlaces.defaultPlace) { response in
                     viewModel.handleOrderCreated(response)
                     if let orderId = response.id {
                         path = [.orderStatus(orderId)]
                     }
                 }
             }
-        case .bookingFromPlace:
+        case .addFavoritePlace:
             BlindBookingTrackConsentGate(
                 onDecline: {
                     path.removeAll()
                     viewModel.noteBookingTrackConsentDeclined()
                 }
             ) {
-                BlindBookingView(initialStartPlace: bookingStartPlace) { response in
+                BlindBookingView { response in
                     viewModel.handleOrderCreated(response)
                     if let orderId = response.id {
                         path = [.orderStatus(orderId)]

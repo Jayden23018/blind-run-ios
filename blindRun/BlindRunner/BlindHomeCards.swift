@@ -334,7 +334,6 @@ struct BlindHomeBookingBlock: View {
     /// 下方还有内容时卡片占满剩下的高度，圆和字用中档；下方没有内容时用大档。
     var fillsAvailableHeight = false
     var isLargest = false
-    var cardStyle = BlindHomeBookingCardStyle.current
     let action: () -> Void
 
     var body: some View {
@@ -393,14 +392,12 @@ struct BlindHomeBookingBlock: View {
     /// 不用 `Spacer` 把图标和文字分到上下两端，否则中间会空出一块。
     private var prominentContent: some View {
         VStack(spacing: 0) {
-            if cardStyle == .circle {
-                prominentIcon
-                    .accessibilityHidden(true)
-                    .padding(.bottom, 20)
-            }
+            prominentIcon
+                .accessibilityHidden(true)
+                .padding(.bottom, 20)
 
             Text("预约新的陪跑")
-                .flowFont(prominentTitleFont)
+                .flowFont(isLargest ? FlowFonts.bookingLargestTitle() : FlowFonts.bookingProminentTitle())
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -442,11 +439,6 @@ struct BlindHomeBookingBlock: View {
         isLargest ? FlowMetrics.bookingLargestIconDiameter : FlowMetrics.bookingProminentIconDiameter
     }
 
-    private var prominentTitleFont: (CGFloat, Font.Weight, Font.TextStyle) {
-        if cardStyle == .textOnly { return FlowFonts.bookingTextOnlyTitle() }
-        return isLargest ? FlowFonts.bookingLargestTitle() : FlowFonts.bookingProminentTitle()
-    }
-
     /// 视觉副标题只说「选好时间和地点」，而**按下去真正发生的事是开始录音**。
     ///
     /// 所以 hint 不能照抄副标题：看得见的人按下去会看到麦克风界面，看不见的人只有这一句话
@@ -455,16 +447,6 @@ struct BlindHomeBookingBlock: View {
         guard isEnabled else { return "双击后说明如何先确认当前订单状态" }
         return "选好时间和地点，系统帮你找陪跑员。双击后进入语音下单：说一句想什么时候跑、跑多久，"
             + "听完复述再确认；也可以改用表单填写"
-    }
-}
-
-/// 深蓝预约卡的内部构图。样例阶段给负责人比较两版，定下来后删掉这个开关。
-enum BlindHomeBookingCardStyle {
-    case circle
-    case textOnly
-
-    static var current: BlindHomeBookingCardStyle {
-        ProcessInfo.processInfo.environment["AIDRUN_SAMPLE_HOME_CARD"] == "text" ? .textOnly : .circle
     }
 }
 
@@ -488,36 +470,32 @@ struct BlindHomeRunSummary: Equatable {
 ///
 /// 没实名时预约必定失败，下方只放实名入口。跑过的人一定已实名，所以实名行和锻炼块不会同时出现。
 /// 其余情况有什么真实内容就放什么，一项都没有时卡片长满。
+///
+/// 出发地点行给跑过的人或有常用地点的人：新用户没有可换的地点，预约时本来就默认用当前定位。
 struct BlindHomeBelowCard: Equatable {
     var showsIdentityRow = false
     var runSummary: BlindHomeRunSummary?
-    var startPlace: ResolvedPlace?
+    var startRowTitle: String?
 
-    var isEmpty: Bool { !showsIdentityRow && runSummary == nil && startPlace == nil }
+    var isEmpty: Bool { !showsIdentityRow && runSummary == nil && startRowTitle == nil }
 
     static func resolve(
         isIdentityVerified: Bool,
         runSummary: BlindHomeRunSummary?,
-        startPlace: ResolvedPlace?
+        hasRunBefore: Bool,
+        favoriteCount: Int,
+        defaultPlaceTitle: String?,
+        isLocationDenied: Bool
     ) -> BlindHomeBelowCard {
         guard isIdentityVerified else { return BlindHomeBelowCard(showsIdentityRow: true) }
-        return BlindHomeBelowCard(runSummary: runSummary, startPlace: startPlace)
-    }
-}
-
-extension OrderDetailResponse {
-    /// 这一单的出发地点，用于首页「从这里出发」。没有坐标时返回 nil：只有地名不能直接下单。
-    var homeStartPlace: ResolvedPlace? {
-        guard let startAddress, !startAddress.trimmed.isEmpty,
-              let startLatitude, let startLongitude else { return nil }
-        return ResolvedPlace(
-            id: "order-start-\(orderId)",
-            title: startAddress,
-            addressText: startAddress,
-            latitude: startLatitude,
-            longitude: startLongitude,
-            source: .manual
-        )
+        guard hasRunBefore || favoriteCount > 0 else { return BlindHomeBelowCard(runSummary: runSummary) }
+        let title: String
+        if let defaultPlaceTitle {
+            title = "从\(defaultPlaceTitle)出发"
+        } else {
+            title = isLocationDenied ? "选择出发地点" : "用当前定位出发"
+        }
+        return BlindHomeBelowCard(runSummary: runSummary, startRowTitle: title)
     }
 }
 
@@ -525,6 +503,7 @@ extension OrderDetailResponse {
 struct BlindHomeRunSummaryBlock: View {
     let summary: BlindHomeRunSummary
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Button(action: action) {
@@ -540,6 +519,9 @@ struct BlindHomeRunSummaryBlock: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    homeBlockActionText("查看记录")
+                }
                 homeBlockChevron
             }
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
@@ -560,9 +542,11 @@ struct BlindHomeRunSummaryBlock: View {
 /// 预约卡下方的一行入口。全宽，竖直堆叠，不并排。
 struct BlindHomeQuickRow: View {
     let title: String
+    var actionText: String?
     let hint: String
     let identifier: String
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Button(action: action) {
@@ -572,6 +556,9 @@ struct BlindHomeQuickRow: View {
                     .foregroundColor(AppColors.Flow.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
+                if let actionText, !dynamicTypeSize.isAccessibilitySize {
+                    homeBlockActionText(actionText)
+                }
                 homeBlockChevron
             }
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
@@ -586,6 +573,76 @@ struct BlindHomeQuickRow: View {
         .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)
     }
+}
+
+/// 选择默认出发地点。选中后之后的预约默认从这里出发。
+struct BlindHomeStartPlaceSheet: View {
+    let places: [ResolvedPlace]
+    let selectedID: String?
+    let onSelect: (ResolvedPlace?) -> Void
+    let onAddFavorite: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 12) {
+                    choiceRow("当前定位", isSelected: selectedID == nil) { onSelect(nil) }
+                    ForEach(places) { place in
+                        choiceRow(place.title, isSelected: place.id == selectedID) { onSelect(place) }
+                    }
+                    BlindHomeQuickRow(
+                        title: "添加常用地点",
+                        hint: "搜索地点并收藏",
+                        identifier: "blindHomeAddFavoritePlace",
+                        action: onAddFavorite
+                    )
+                }
+                .padding(FlowMetrics.pageHorizontalPadding)
+                .readableContentColumn()
+            }
+            .background(AppColors.Flow.page)
+            .navigationTitle("默认出发地点")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func choiceRow(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text(title)
+                    .flowFont(FlowFonts.homeCardRowTitle())
+                    .foregroundColor(AppColors.Flow.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(AppColors.Flow.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .padding(.horizontal, FlowMetrics.bookingBlockHorizontalPadding)
+            .background(AppColors.Flow.surface)
+            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.homeRowRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private func homeBlockActionText(_ text: String) -> some View {
+    Text(text)
+        .flowFont(FlowFonts.bookingSubtitle())
+        .foregroundColor(AppColors.Flow.accent)
+        .accessibilityHidden(true)
 }
 
 private var homeBlockChevron: some View {

@@ -307,7 +307,6 @@ enum FlowFonts {
     static func bookingTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (24, .semibold, .title2) }
     static func bookingProminentTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (32, .semibold, .title) }
     static func bookingLargestTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (36, .semibold, .largeTitle) }
-    static func bookingTextOnlyTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (46, .bold, .largeTitle) }
     static func bookingProminentSubtitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (17, .regular, .body) }
 
     // MARK: 邀请卡（`.offer` 一族 CSS 的逐条落点）
