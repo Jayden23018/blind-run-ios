@@ -611,9 +611,9 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(faceVerify.waitForExistence(timeout: 8))
         faceVerify.tap()
 
-        let completion = app.descendants(matching: .any)["volunteerRegistrationCompleted"].firstMatch
+        let completion = app.descendants(matching: .any)["volunteerReadinessTitle"].firstMatch
         XCTAssertTrue(completion.waitForExistence(timeout: 12))
-        XCTAssertEqual(completion.label, "注册完成，请返回首页开启可服务状态")
+        XCTAssertTrue(completion.label.hasPrefix("还差"), "结束页要说还差几步，实际：\(completion.label)")
         let returnHome = app.buttons["返回志愿者首页"].firstMatch
         XCTAssertTrue(returnHome.exists)
         XCTAssertFalse(app.staticTexts["培训学习"].exists)
@@ -625,8 +625,10 @@ final class blindRunUITests: XCTestCase {
         //
         // 2026-09-17 滑块改成双向（右开 / 左关）之后状态条也不存在了，两态都是同一条轨道，
         // 只有无障碍表示的按钮名不同：关闭态「向右滑动，我现在有空陪跑」/ 开启态「进入接单」。
-        let slider = app.buttons["向右滑动，我现在有空陪跑"].firstMatch
-        XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
+        //
+        // Mock 默认未完成培训，所以这里是第三态：滑不开，按钮名是「查看接单前进度」（#658）。
+        let slider = app.buttons["查看接单前进度"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 8), "未完成培训时底部应当是通往进度页的入口")
         XCTAssertFalse(
             app.buttons["进入接单"].exists,
             "Legacy completion must not automatically enable availability"
@@ -922,11 +924,11 @@ final class blindRunUITests: XCTestCase {
         )
         XCTAssertTrue(app.staticTexts["最近陪跑"].firstMatch.exists, "First screen should show the recent-run stream")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
-        // 预置「已开启」时轨道还在（双向滑块两态同一条轨道），但无障碍表示换成
-        // 「进入接单」那一枚按钮 —— 已开启之后向右滑做的是导航，不是再开一次。
+        // 预置「已开启」但 Mock 默认未完成培训：开关开着也接不到单，所以按钮不是「进入接单」，
+        // 而是「查看接单前进度」（#658）。真能接单时的形状由审计用例覆盖。
         XCTAssertTrue(
-            app.buttons["进入接单"].firstMatch.waitForExistence(timeout: 5),
-            "已开启时滑块的无障碍按钮应当是「进入接单」"
+            app.buttons["查看接单前进度"].firstMatch.waitForExistence(timeout: 5),
+            "开着但未完成培训时，滑块的无障碍按钮应当是「查看接单前进度」"
         )
         XCTAssertFalse(
             app.buttons["向右滑动，我现在有空陪跑"].firstMatch.exists,

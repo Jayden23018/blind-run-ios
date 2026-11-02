@@ -3120,6 +3120,8 @@ final class AccessibilityAuditTests: XCTestCase {
         if available {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
         }
+        // 未完成培训滑不开开关。这里的用例测的是已经能接单的陪跑员。
+        app.launchEnvironment["AIDRUN_MOCK_VOLUNTEER_TRAINING_COMPLETED"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
         if let seedOrderStatus {

@@ -2403,7 +2403,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(viewModel.isAwaitingRegistrationCompletion)
         XCTAssertEqual(client.statusRefreshCount, 1)
         XCTAssertFalse(client.requestedPaths.contains { $0.contains("/training/") })
-        XCTAssertEqual(speechService.lastSpokenText, "注册完成，请返回首页开启可服务状态")
+        XCTAssertEqual(speechService.lastSpokenText, VolunteerReadinessCopy.completionAnnouncement)
     }
 
     func testVolunteerFaceVerifyApprovedResultAcceptsLegacyTrainingCompletion() async {

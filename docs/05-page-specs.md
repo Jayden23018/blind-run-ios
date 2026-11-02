@@ -665,10 +665,10 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - 身份证二要素核验通过：currentStep = STEP_3_FACE_VERIFY，进入动作活体认证
 - 动作活体认证 init 返回 PENDING 和非空 certifyId：iOS 向原生 SDK 传入 certifyId 和当前 ViewController，用户按 SDK 页面提示完成动作后前端轮询 result；原生流程不要求 certifyUrl
 - 活体认证通过：后端原子设置 currentStep = STEP_4_COMPLETED、canAcceptOrders = true；新注册不得进入 STEP_4_TRAINING
-- 活体 result 已通过但 status 尚未完成：显示“活体已通过，注册状态同步中，无需课程或答题”，每 5 秒轮询并提供手动刷新，不允许重复发起活体认证
-- status 返回 STEP_4_COMPLETED、遗留 STEP_4_TRAINING 或 canAcceptOrders = true：显示并播报“注册完成，请返回首页开启可服务状态”
+- 活体 result 已通过但 status 尚未完成：显示“活体已通过，正在同步注册状态”，每 5 秒轮询并提供手动刷新，不允许重复发起活体认证
+- status 返回 `registrationCompleted = true`、STEP_4_COMPLETED 或遗留 STEP_4_TRAINING：显示「接单前进度」，列出实名、人脸、证书、审核、培训各步状态；播报“实名和人脸认证已完成，请查看接单前还差哪几步”。不写“注册完成”
 - STEP_4_TRAINING 仅用于旧账号或尚未升级后端的兼容；iOS 将其按主注册完成处理并停止轮询，但不会自动开启可服务状态
-- 可选资质证书上传使用 `POST /api/volunteer/verification`（multipart），不属于主注册引导链路，不影响接单资格。约束：单文件 ≤ 5 MB；扩展名白名单 `.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.pdf`，后端同时校验文件魔数，扩展名与内容必须一致。**白名单没有 `.heic`**，相册里的 HEIC 必须由 iOS 先转成 JPEG 再上传，否则一定 400。状态查询 `GET /api/volunteer/verification/status` → `{"status":"NONE|PENDING|APPROVED|REJECTED"}`；状态查询失败时不猜测状态、也不允许盲传
+- 证书上传使用 `POST /api/volunteer/verification`（multipart），在主注册引导之后完成，**审核通过才能接单**。证书标准是一束光助盲跑团颁发的证书。约束：单文件 ≤ 5 MB；扩展名白名单 `.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.pdf`，后端同时校验文件魔数，扩展名与内容必须一致。**白名单没有 `.heic`**，相册里的 HEIC 必须由 iOS 先转成 JPEG 再上传，否则一定 400。状态查询 `GET /api/volunteer/verification/status` → `{"status":"NONE|PENDING|APPROVED|REJECTED"}`；状态查询失败时不猜测状态、也不允许盲传
 - 可服务开关由志愿者首页单独控制，认证不自动开启 isAvailable / wantsDispatch
 - 提交：loading → 成功跳转
 
@@ -690,7 +690,7 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 **无障碍要求**：
 - 昵称输入框：accessibilityLabel = "请输入昵称"
 - 认证按钮：accessibilityLabel = "开始认证"
-- 注册完成结果：accessibilityLabel = "注册完成，请返回首页开启可服务状态"
+- 接单前进度：每一步是一个读屏元素，念出步骤名、状态和说明；有去处的步骤是链接
 - 提交按钮：最小高度 64pt
 
 ---

@@ -319,7 +319,7 @@ struct VolunteerDispatchHubView: View {
                 .fill(AppColors.Flow.acceptingText)
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
-            Text(VolunteerDispatchHubCopy.acceptingPill)
+            Text(viewModel.availabilityStatus.hubPillTitle)
                 .flowFont(FlowFonts.rowValueEmphasized())
         }
         .foregroundColor(AppColors.Flow.acceptingText)
@@ -329,7 +329,7 @@ struct VolunteerDispatchHubView: View {
         .accessibilityElement(children: .combine)
         // 值而不是标签：胶囊说的是「接单开关此刻是开的」，附上 view model 那半句
         // （「正在等待系统派单」/「不在空闲时间内」）才说得完整。
-        .accessibilityLabel("\(VolunteerDispatchHubCopy.acceptingPill)，\(viewModel.statusText)")
+        .accessibilityLabel("\(viewModel.availabilityStatus.hubPillTitle)，\(viewModel.statusText)")
         .accessibilityIdentifier("volunteerDispatchHubAcceptingPill")
     }
 

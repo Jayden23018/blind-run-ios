@@ -287,7 +287,7 @@ final class ScreenTourTests: XCTestCase {
         seed: String? = nil,
         env: [String: String] = [:]
     ) -> XCUIApplication {
-        var base = ["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE": "1"]
+        var base = ["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE": "1", "AIDRUN_MOCK_VOLUNTEER_TRAINING_COMPLETED": "1"]
         if available { base["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1" }
         if let seed {
             base["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"

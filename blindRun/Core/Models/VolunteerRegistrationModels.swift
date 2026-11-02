@@ -130,6 +130,33 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
         resolvedFaceVerifyStatus == "APPROVED"
     }
 
+    /// 活体被判不通过。可以重试，与 `hasDeclinedFaceVerification` 不是一回事。
+    var isFaceVerificationRejected: Bool {
+        resolvedFaceVerifyStatus == "REJECTED"
+    }
+
+    /// 实名二要素被判不通过时要给人看的那句。后端此时把步骤退回 step1。
+    var identityRejectionNotice: String? {
+        guard resolvedIdVerifyStatus == "REJECTED" else { return nil }
+        guard let reason = stepDetails?.idVerifyRejectionReason?.nilIfBlank else {
+            return "身份信息未通过核验，请核对后重新提交。"
+        }
+        return "身份信息未通过核验：\(reason)"
+    }
+
+    /// 活体被判不通过时要给人看的那句。
+    var faceRejectionNotice: String? {
+        guard isFaceVerificationRejected else { return nil }
+        guard let reason = stepDetails?.faceVerifyRejectionReason?.nilIfBlank else {
+            return "活体认证未通过，请重新认证。"
+        }
+        return "活体认证未通过：\(reason)"
+    }
+
+    var resolvedIdVerifyStatus: String? {
+        (idVerifyStatus ?? stepDetails?.idVerifyStatus)?.uppercased()
+    }
+
     private var resolvedFaceVerifyStatus: String? {
         (faceVerifyStatus ?? stepDetails?.faceVerifyStatus)?.uppercased()
     }

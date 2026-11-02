@@ -229,6 +229,17 @@ final class VolunteerHomeViewModel: ObservableObject {
         dispatchSummary?.dispatchStatusText ?? (isAvailable ? "等待系统派单" : "已关闭接单")
     }
 
+    /// 滑块与接单主页胶囊共用的判定。「接单中」只从这里出。
+    var availabilityStatus: VolunteerAvailabilityStatus {
+        .resolve(
+            isAvailable: isAvailable,
+            hasSummary: dispatchSummary != nil,
+            canDispatch: dispatchSummary?.canDispatch,
+            reasons: dispatchSummary?.notAvailableReasons ?? [],
+            explanation: dispatchSummary?.reasonText ?? ""
+        )
+    }
+
     var displayedErrorMessage: String? {
         errorMessage ?? dispatchSummaryErrorMessage
     }
@@ -2117,6 +2128,7 @@ struct VolunteerHomeView: View {
     @ObservedObject var viewModel: VolunteerHomeViewModel
     /// 接单主页（设计交付 v3 的 S3/S4）。滑块向右滑过阈值时置位。
     @State private var showsDispatchHub = false
+    @State private var showsReadinessProgress = false
 
     var body: some View {
         NavigationStack {
@@ -2134,6 +2146,7 @@ struct VolunteerHomeView: View {
                             viewModel.acceptedDispatchOrderId != nil
                                 || viewModel.pendingIntroCallOrder != nil
                                 || showsDispatchHub
+                                || showsReadinessProgress
                         },
                         set: { isPresented in
                             if !isPresented {
@@ -2141,6 +2154,7 @@ struct VolunteerHomeView: View {
                                 viewModel.acceptedDispatchInitialOrder = nil
                                 viewModel.clearIntroCall()
                                 showsDispatchHub = false
+                                showsReadinessProgress = false
                             }
                         }
                     )
@@ -2154,6 +2168,8 @@ struct VolunteerHomeView: View {
                         )
                     } else if showsDispatchHub {
                         VolunteerDispatchHubView(viewModel: viewModel, onReload: loadHome)
+                    } else if showsReadinessProgress {
+                        VolunteerReadinessProgressView()
                     }
                 }
                 // 🚩 **挂在栈内的根视图上，不是挂在 `NavigationStack` 或 `TabView` 上。**
@@ -2185,17 +2201,27 @@ struct VolunteerHomeView: View {
     /// （主页 → 滑动 → 接单主页），理由是开启之后志愿者要看的「下一次陪跑 / 待回复的邀请」
     /// 都不在首页上。已经开启时向右滑只做后一件。
     private var availabilityCTA: some View {
-        VolunteerAvailabilitySlider(
+        let status = viewModel.availabilityStatus
+        return VolunteerAvailabilitySlider(
             isAvailable: viewModel.isAvailable,
-            isEnabled: appState.isVolunteerProfileApproved,
+            isEnabled: status.allowsOpening(isRegistrationComplete: appState.isVolunteerProfileApproved),
             isUpdating: viewModel.isUpdatingAvailability,
+            status: status,
+            notice: status.notice(
+                certificate: .from(
+                    status: .parse(appState.volunteerProfile?.verificationStatus),
+                    statusLoadFailed: false
+                ),
+                isAlternativeIdentityPath: appState.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
+            ),
             statusText: viewModel.statusText,
             onChange: { viewModel.setAvailability($0) },
             // #368：滑开时若要先问位置轨迹同意，同意页盖上来，接单主页等同意之后再推。
             onEnterHub: {
                 guard viewModel.trackConsentRequest == nil else { return }
                 showsDispatchHub = true
-            }
+            },
+            onShowProgress: { showsReadinessProgress = true }
         )
         .padding(.horizontal, 20)
         .padding(.top, 10).padding(.bottom, 8)

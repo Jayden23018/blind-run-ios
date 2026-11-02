@@ -62,7 +62,7 @@ final class FaceVerifyDeclineTests: XCTestCase {
             speech.lastSpokenText, "已为你改用身份证二要素核验加人工审核。",
             "最后一句必须是拒绝的那句。若这里变成通用完成语，说明 applyRegistrationStatus 把它盖掉了"
         )
-        XCTAssertNotEqual(speech.lastSpokenText, "注册完成，请返回首页开启可服务状态")
+        XCTAssertNotEqual(speech.lastSpokenText, VolunteerReadinessCopy.completionAnnouncement)
     }
 
     /// 后端 200 但 `data` 为 null / 不是字符串时**不算失败** —— 端点已经成功了。
@@ -132,7 +132,7 @@ final class FaceVerifyDeclineTests: XCTestCase {
 
         // 🚨 **这一支是全流程唯一会双重播报的地方**，也是最容易被漏掉的：
         // 刷回来的状态恰好是「注册已完成」，`applyRegistrationStatus` 会先播
-        // 「注册完成，请返回首页开启可服务状态」，紧接着被这里的 speakError 从半句切断，
+        // `VolunteerReadinessCopy.completionAnnouncement`，紧接着被这里的 speakError 从半句切断，
         // 而那句残片本身还是错的引导 —— 他刚点的是「不同意人脸认证」。
         //
         // ⚠️ 只断言 `lastSpokenText` **抓不到**这个回归：`speakError` 内部也走 `speak(text:)`，

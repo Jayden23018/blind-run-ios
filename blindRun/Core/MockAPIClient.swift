@@ -150,6 +150,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     init() {
         seedDemoData()
         seedHomeHistoryForUITestIfRequested()
+        // Mock 默认未完成培训，而未完成培训滑不开开关。测开关本身的 UI 用例用它声明前提。
+        if ProcessInfo.processInfo.environment["AIDRUN_MOCK_VOLUNTEER_TRAINING_COMPLETED"] == "1" {
+            completeAllRequiredTrainingForTesting()
+        }
     }
 
     #if DEBUG

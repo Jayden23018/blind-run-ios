@@ -668,7 +668,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
                 if status.hasDeclinedFaceVerification {
                     speechService?.speak(pendingDeclineAnnouncement ?? Self.declineFallbackAnnouncement)
                 } else {
-                    speechService?.speak("注册完成，请返回首页开启可服务状态")
+                    speechService?.speak(VolunteerReadinessCopy.completionAnnouncement)
                 }
             }
             pendingDeclineAnnouncement = nil
@@ -1162,7 +1162,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         if response.isPassed {
             activeCertifyId = nil
             isAwaitingRegistrationCompletion = true
-            faceVerifyMessage = "活体已通过，注册状态同步中，无需课程或答题"
+            faceVerifyMessage = VolunteerReadinessCopy.awaitingCompletion
             currentStep = .faceVerify
             speechService?.speak(faceVerifyMessage ?? "活体认证通过")
             await loadStatus(showLoading: false)
@@ -1244,6 +1244,7 @@ struct VolunteerRegistrationFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
+    @StateObject private var progressViewModel = VolunteerReadinessProgressViewModel()
     /// 身份证号 + 人脸的**单独同意**（PIPL 第 29 条）。与盲人实名页同一套告知组件，
     /// 只是告知内容多一条人脸活体 —— 这一步提交成功后下一屏就是活体认证，不能等到那时才说。
     @State private var showIdentityConsent = false
@@ -1254,7 +1255,10 @@ struct VolunteerRegistrationFlowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            stepIndicator
+            // 结束页下面是五步进度，顶上再画「两步」就对不上了。
+            if !viewModel.isRegistrationCompleted {
+                stepIndicator
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -1397,6 +1401,10 @@ struct VolunteerRegistrationFlowView: View {
 
             formField(title: "急救经验", placeholder: "描述你的急救经验（选填）", text: $viewModel.emergencyExperience)
 
+            if let rejection = viewModel.registrationStatus?.identityRejectionNotice {
+                rejectionNotice(rejection, identifier: "volunteerIdentityRejectionNotice")
+            }
+
             if let validationMessage = viewModel.basicInfoValidationMessage {
                 Text(validationMessage)
                     .font(AppFonts.caption())
@@ -1446,15 +1454,22 @@ struct VolunteerRegistrationFlowView: View {
                     .accessibilityLabel(faceVerifyMessage)
             }
 
+            // 正在进行的这一轮消息优先：重新认证的过程中不再显示上一轮的结果。
+            if viewModel.faceVerifyMessage == nil,
+               !viewModel.isAwaitingRegistrationCompletion,
+               let rejection = viewModel.registrationStatus?.faceRejectionNotice {
+                rejectionNotice(rejection, identifier: "volunteerFaceRejectionNotice")
+            }
+
             if viewModel.isAwaitingRegistrationCompletion {
-                Text("活体已通过，注册状态同步中，无需课程或答题")
+                Text(VolunteerReadinessCopy.awaitingCompletion)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(AppColors.secondaryBackground)
                     .cornerRadius(8)
-                    .accessibilityLabel("活体已通过，注册状态同步中，无需课程或答题")
+                    .accessibilityLabel(VolunteerReadinessCopy.awaitingCompletion)
                     .accessibilityAddTraits(.updatesFrequently)
 
                 ProgressView("正在同步注册状态...")
@@ -1550,35 +1565,25 @@ struct VolunteerRegistrationFlowView: View {
         }
     }
 
+    /// 活体通过的落地屏。**不是「注册完成」**：后面还有证书、审核、培训，这一屏要说清还差什么。
     private var faceVerifiedCompletionStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
-                .foregroundColor(AppColors.success)
-                .accessibilityHidden(true)
-
-            Text("注册完成，请返回首页开启可服务状态")
-                .font(.title3.bold())
-                .foregroundColor(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .accessibilityIdentifier("volunteerRegistrationCompleted")
-
-            Text("注册完成。接单开关默认关闭，可在首页开启。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 16) {
+            VolunteerReadinessProgressContent(viewModel: progressViewModel)
 
             PrimaryButton("返回志愿者首页") {
                 viewModel.prepareReturnToVolunteerHome()
                 dismiss()
             }
             .accessibilityLabel("返回志愿者首页")
-            .accessibilityHint("返回后可手动开启可服务状态")
+            .accessibilityHint("回到首页后，也可以从底部查看这份进度")
         }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("注册完成，请返回首页开启可服务状态")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task { await progressViewModel.configureAndLoad(
+            appState: appState,
+            speechService: speechService,
+            registration: viewModel.registrationStatus,
+            announces: false
+        ) }
     }
 
     /// 走了替代认证路径的落地屏。
@@ -1605,6 +1610,11 @@ struct VolunteerRegistrationFlowView: View {
                 .foregroundColor(AppColors.textPrimary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // 这里不给每步的跳转：去处就是下面那枚「去上传身份材料」。
+            if progressViewModel.hasLoaded {
+                VolunteerReadinessStepList(steps: progressViewModel.progress.steps, showsDestinations: false)
+            }
 
             NavigationLink {
                 // 必须显式传 true：此刻 `applyRegistrationStatus` 还没把完成态发布给 AppState
@@ -1648,9 +1658,25 @@ struct VolunteerRegistrationFlowView: View {
         .frame(maxWidth: .infinity)
         .padding()
         .accessibilityElement(children: .contain)
+        .onAppear { progressViewModel.reloadIfConfigured() }
+        .task { await progressViewModel.configureAndLoad(
+            appState: appState,
+            speechService: speechService,
+            registration: viewModel.registrationStatus,
+            announces: false
+        ) }
     }
 
     // MARK: - Helpers
+
+    private func rejectionNotice(_ text: String, identifier: String) -> some View {
+        Text(text)
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.destructive)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(identifier)
+    }
 
     private func formField(title: String, placeholder: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
