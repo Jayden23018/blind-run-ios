@@ -163,8 +163,8 @@ Rules:
 
 Rules:
 
-- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、基本信息/身份证二要素与动作活体认证已完成、主注册流程 `canAcceptOrders = true` 或 `registrationStep = STEP_4_COMPLETED`、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则；课程、测验和可选资质证书不属于主注册接单门槛。
-- 可选资质证书上传状态 `verificationStatus` 不影响主流程接单资格；可在个人中心作为加分项展示。
+- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、基本信息/身份证二要素与动作活体认证已完成、主注册流程已走完（`registrationCompleted = true`）、证书审核通过（`canAcceptOrders = true`，即 `verified`）、必修培训全部通过、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则。权威判定是 `GET /api/volunteer/dispatch-summary` 的 `canDispatch` 与 `notAvailableReasons`。
+- 证书上传状态 `verificationStatus` 是接单硬门槛，只有 `APPROVED` 能接单。证书标准是一束光助盲跑团颁发的证书。
 - 关闭可服务开关后不再接收新的系统派单。
 - 已接单时关闭开关不影响当前订单。
 

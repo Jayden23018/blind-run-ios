@@ -30,10 +30,15 @@ import UniformTypeIdentifiers
 struct VolunteerVerificationStatusResponse: Codable, Sendable {
     let success: Bool?
     let status: String?
+    /// 证书被拒原因。**后端还没有这个字段**：`reviewCertificate` 只把原因放进 `CERT_REJECTED` 通知，
+    /// 不入库（Jayden23018/blind-run-backend#906）。所以线上目前恒为 nil，界面走 `VolunteerCertificateCopy` 的兜底文案。
+    /// 提前解码是为了后端上线后不用等 App 审核。Mock 不许伪造它。
+    let rejectionReason: String?
 
-    init(success: Bool? = nil, status: String? = nil) {
+    init(success: Bool? = nil, status: String? = nil, rejectionReason: String? = nil) {
         self.success = success
         self.status = status
+        self.rejectionReason = rejectionReason
     }
 }
 
@@ -103,11 +108,12 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
     var guidanceMessage: String {
         switch self {
         case .notSubmitted:
-            return "尚未提交资质证书，当前无法接单。请上传资质证书图片或 PDF，提交后由管理员审核。"
+            return "尚未提交资质证书，当前无法接单。\(VolunteerCertificateCopy.requirement)\(VolunteerCertificateCopy.reviewerNote)"
         case .pending:
-            return "资质证书已提交，正在等待管理员审核。审核期间暂时无法接单。"
+            return "资质证书已提交，团队正在后台审核。审核期间暂时无法接单。"
         case .approved:
-            return "资质证书已通过审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
+            // 不说「现在可以接单了」：必修培训是另一道门，这一页看不到它。
+            return "资质证书已通过审核。完成必修培训后就可以接单，\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
             return "资质证书未通过审核，当前无法接单。请重新上传清晰完整的证书图片或 PDF。"
         case .statusUnavailable:
@@ -126,13 +132,30 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
     /// 也**不得编审核时长**：只说「审核时间较长，但结果等效」，与用户协议 `:194` 逐字一致。
     func guidance(isAlternativeIdentityPath: Bool) -> String {
         guard isAlternativeIdentityPath else { return guidanceMessage }
+        return alternativeGuidance
+    }
+
+    /// 同上，驳回时带上原因。原因只在 `.rejected` 时有意义，其余状态不许带出旧原因。
+    func guidance(isAlternativeIdentityPath: Bool, rejectionReason: String?) -> String {
+        guard self == .rejected else { return guidance(isAlternativeIdentityPath: isAlternativeIdentityPath) }
+        let noun = isAlternativeIdentityPath ? "身份材料" : "资质证书"
+        let detail = VolunteerCertificateCopy.rejectionDetail(
+            reason: rejectionReason,
+            isAlternativeIdentityPath: isAlternativeIdentityPath
+        )
+        // 兜底文案自己带着去处；只有真实原因后面要补一句下一步。
+        let nextStep = rejectionReason?.nilIfBlank == nil ? "" : "。修改后可以重新上传。"
+        return "\(noun)未通过审核，当前无法接单。\(detail)\(nextStep)"
+    }
+
+    private var alternativeGuidance: String {
         switch self {
         case .notSubmitted:
             return "尚未提交身份材料，当前无法接单。请上传能证明本人身份的材料，图片或 PDF 均可，提交后由管理员人工审核。该方式审核时间较长，但结果等效。"
         case .pending:
             return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核期间暂时无法接单。"
         case .approved:
-            return "身份材料已通过人工审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
+            return "身份材料已通过人工审核。完成必修培训后就可以接单，\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
             return "身份材料未通过人工审核，当前无法接单。请重新上传能清晰证明本人身份的材料。"
         case .statusUnavailable:
@@ -292,6 +315,7 @@ struct VolunteerCertificateFile: Equatable, Sendable {
 @MainActor
 final class VolunteerCertificateUploadViewModel: ObservableObject {
     @Published private(set) var status: VolunteerCertificateStatus = .unknown
+    @Published private(set) var rejectionReason: String?
     @Published private(set) var statusLoadFailed = false
     @Published private(set) var isLoadingStatus = false
     @Published private(set) var isUploading = false
@@ -341,7 +365,10 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
     }
 
     var currentGuidance: String {
-        displayState.guidance(isAlternativeIdentityPath: isAlternativeIdentityPath)
+        displayState.guidance(
+            isAlternativeIdentityPath: isAlternativeIdentityPath,
+            rejectionReason: rejectionReason
+        )
     }
 
     /// 进入页面、状态变化、「重复当前状态」共用同一句播报。
@@ -388,6 +415,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
                 statusLoadFailed = true
             } else {
                 status = parsed
+                rejectionReason = response.rejectionReason
                 statusLoadFailed = false
                 appState.updateVolunteerVerificationStatus(parsed.rawValue)
             }
@@ -471,7 +499,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
             await refreshStatus()
             successMessage = statusLoadFailed
                 ? "\(materialNoun)已提交，但审核状态读取失败，请稍后重新获取。"
-                : "\(materialNoun)已提交，等待管理员审核。"
+                : "\(materialNoun)已提交，\(isAlternativeIdentityPath ? "等待管理员人工审核" : "等待团队审核")。"
         } catch let error as APIError {
             isUploading = false
             if appState.handleAuthenticatedAPIError(error) { return }
@@ -564,12 +592,22 @@ struct VolunteerCertificateUploadView: View {
 
             let intro = viewModel.isAlternativeIdentityPath
                 ? "你选择了不做人脸认证。请上传能证明本人身份的材料，管理员人工审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 MB。"
-                : "上传助盲陪跑相关资质或培训证书，管理员审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 MB。"
+                : "\(VolunteerCertificateCopy.requirement)\(VolunteerCertificateCopy.reviewerNote)支持图片或 PDF，单个文件不超过 5 MB。"
             Text(intro)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
                 // 「5 MB」读屏会念成「5 M B」，标签里写「5 兆」。
                 .accessibilityLabel(intro.replacingOccurrences(of: "5 MB", with: "5 兆"))
+
+            // 替代路径传的是身份材料，不是一束光的证书，这句对他没有意义。
+            // 已提交的人也用不上。
+            if !viewModel.isAlternativeIdentityPath, viewModel.displayState.allowsUpload {
+                Text(VolunteerCertificateCopy.noCertificateHelp)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("volunteerCertificateNoCertificateHelp")
+            }
         }
     }
 
@@ -802,7 +840,7 @@ struct VolunteerCertificateUploadEntryLink: View {
     private var resolvedSubtitle: String {
         subtitle ?? (isAlternativeIdentityPath
             ? "人工审核通过后才能接单，审核时间较长但结果等效"
-            : "资质审核通过后才能接单")
+            : "\(VolunteerCertificateCopy.issuerName)颁发的证书，审核通过后才能接单")
     }
 
     var body: some View {
