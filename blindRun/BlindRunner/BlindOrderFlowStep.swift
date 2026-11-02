@@ -492,7 +492,7 @@ struct BlindOrderFlowPresentation: Equatable {
             // 通话磨合态单独说，否则「正在匹配陪跑员」与状态卡念的
             // 「有位志愿者想陪你跑」自相矛盾。
             if order.status == .pendingIntroCall { return "有位陪跑员想陪你跑" }
-            if order.status == .rematching { return "正在重新匹配陪跑员" }
+            if order.status == .rematching { return order.blindRunnerRematchingTitle }
             return "正在匹配陪跑员"
         case .booked:
             // 设计稿这一格是那行大字时间。拿不到时间就退回状态名 ——
@@ -526,7 +526,7 @@ struct BlindOrderFlowPresentation: Equatable {
             description = startRunOpensAt(order: order, now: now).map(BlindRunCopy.metUpLockedSubtitle(opensAt:))
                 ?? BlindRunCopy.metUpSubtitle
         } else {
-            description = order.status.blindRunnerDescription
+            description = order.blindRunnerDescriptionUnlessLeftAlone
         }
         var parts = [description]
         if let waited = order.blindRunnerWaitedText(now: now) {

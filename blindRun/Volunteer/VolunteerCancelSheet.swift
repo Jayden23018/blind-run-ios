@@ -1,5 +1,33 @@
 import SwiftUI
 
+// MARK: - 弹层文案
+
+extension VolunteerOrderFlowCopy {
+    struct CancelSheetCopy: Equatable {
+        let title: String
+        /// 距开跑不足窗口（规则参数，默认 12 小时）时多出来的那一段。`nil` = 不显示。
+        let lateNotice: String?
+        let message: String
+        /// 黄色主按钮**是「保留」**：这一屏的默认动作是不取消。
+        let keep: String
+        /// 灰色文字按钮。**不用红色** —— 红在本 App 里只给紧急求助（设计交付文档 v3 §1.2）。
+        let cancel: String
+    }
+
+    /// 跑步中单独一套（#653）：通用文案只讲「转给别人」，这一刻最要紧的是跑者会被留在路上。
+    /// 也不用「离开始不到 N 小时」：已经开跑了，那句话不成立。
+    /// 「会记一次」不看窗口：契约写明开跑之后才取消也算。
+    static var runningCancelSheet: CancelSheetCopy {
+        CancelSheetCopy(
+            title: "跑步中取消陪跑？",
+            lateNotice: "现在取消会记一次临时取消。",
+            message: "取消后跑者身边就没有人了。请先把跑者带到安全的地方，当面告诉对方你要离开，再取消。此订单将转给其他陪跑员。",
+            keep: "继续陪跑",
+            cancel: "仍然取消"
+        )
+    }
+}
+
 // MARK: - 「取消这次陪跑？」底部弹层
 
 /// 设计交付文档 v3 §5 的取消确认层（草图 `png/04-取消迟到爽约.png` 左一）。

@@ -238,6 +238,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "escort-session")
             return
         }
+        BlindMidRunDepartureRecord.shared.observe(orderID: orderID, status: status)
         if let previous = activeOrderID, previous != orderID {
             realtimeCoordinator.unregisterActiveOrder(previous)
             pendingTrackConsent = nil

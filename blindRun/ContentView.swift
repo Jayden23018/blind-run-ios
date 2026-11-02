@@ -457,7 +457,7 @@ struct ContentView: View {
             // identity gate, the recreated subscription immediately replays the same
             // notification and forms a main-thread render/TTS feedback loop.
             guard notificationAnnouncementGate.accepts(notification.id) else { return }
-            speechService.speak(notification.speechText)
+            speechService.speak(notification.speechText, priority: notification.announcementPriority)
         }
         .onReceive(appState.liveEscortCoordinator.$healthState.removeDuplicates()) { state in
             // removeDuplicates only applies within one subscription. SwiftUI may

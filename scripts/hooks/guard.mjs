@@ -957,6 +957,29 @@ function main() {
       );
     }
 
+    // 7.6 前台通知的播报丢了档位（2026-11-02，#653）
+    //
+    // 安全通知必须走 `.alert`，否则会被轮询念的通用句切断，通话中还会被丢弃。档位在根视图那一行传进去，
+    // 而根视图的 `onReceive` 单测够不着：把这个参数删掉，所有用例照样绿，真机上也只是偶发听不全。
+    const bannerSpeechLine = /\/blindRun\/.*\.swift$/.test(filePath)
+      ? body
+          .split('\n')
+          .find(
+            (l) =>
+              /\bspeak\(.*notification\.speechText/.test(l) &&
+              !l.includes('notification.announcementPriority') &&
+              !l.includes('guard:allow banner-speech-priority')
+          )
+      : undefined;
+    if (bannerSpeechLine) {
+      fail(
+        'banner-speech-priority',
+        `${filePath}\n  ${bannerSpeechLine.trim().slice(0, 160)}\n\n` +
+          `前台通知的播报要带 \`priority: notification.announcementPriority\`：安全通知走警示档，才不会被切断或在通话中丢弃（#653）。\n` +
+          `确需例外，行尾加 \`guard:allow banner-speech-priority\`。`
+      );
+    }
+
     // 8. UI 测试与 App 的 accessibilityIdentifier 对不上（2026-08-22）
     //
     // 2026-08-14 `30b0770` 把盲人首页装饰地图对读屏隐藏，连同

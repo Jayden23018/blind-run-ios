@@ -281,6 +281,7 @@ enum VolunteerOrderFlowCopy {
         let isLate = isWithinLateCancelWindow(
             plannedStart: plannedStart, windowHours: lateCancelWindowHours, now: now
         )
+        if status == .inProgress { return runningCancelSheet }
         return CancelSheetCopy(
             title: "取消这次陪跑？",
             lateNotice: isLate
@@ -299,17 +300,6 @@ enum VolunteerOrderFlowCopy {
         let remaining = plannedStart.timeIntervalSince(now)
         // 已经过了开跑时间也算「不足窗口」—— 与后端口径一致（契约：「开跑之后才取消也算」）。
         return remaining < Double(windowHours) * 3600
-    }
-
-    struct CancelSheetCopy: Equatable {
-        let title: String
-        /// 距开跑不足窗口（规则参数，默认 12 小时）时多出来的那一段。`nil` = 不显示。
-        let lateNotice: String?
-        let message: String
-        /// 黄色主按钮**是「保留」**：这一屏的默认动作是不取消。
-        let keep: String
-        /// 灰色文字按钮。**不用红色** —— 红在本 App 里只给紧急求助（设计交付文档 v3 §1.2）。
-        let cancel: String
     }
 }
 

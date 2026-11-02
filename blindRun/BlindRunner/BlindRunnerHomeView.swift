@@ -146,8 +146,8 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     private func applyRealtimeStatus(_ update: RealtimeOrderStatusUpdate) {
         guard let current = activeOrder, current.orderId == update.orderId else { return }
         let updated = current.replacingStatus(with: update.toStatus)
-        speechService?.speakStatusChange(
-            updated.status,
+        speechService?.speakBlindRunnerStatusChange(
+            updated,
             text: updated.blindRunnerAnnouncement()
         )
         if updated.status.isActiveForBlindRunner {
@@ -374,8 +374,8 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     /// 改按钮标签时自己搜一遍播报文案。
     func speakCurrentStatus(locationDescription: String? = nil) {
         if let activeOrder {
-            speechService?.speakStatusChange(
-                activeOrder.status,
+            speechService?.speakBlindRunnerStatusChange(
+                activeOrder,
                 text: homeAnnouncement(for: activeOrder, locationDescription: locationDescription)
             )
         } else {

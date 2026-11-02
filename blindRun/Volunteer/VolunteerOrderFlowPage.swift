@@ -816,7 +816,7 @@ struct VolunteerRunningPage<Footer: View>: View {
                 FlowTextButton(
                     title: VolunteerServiceActionKind.cancelOrder.title,
                     tone: .neutral,
-                    accessibilityHint: "双击后会先确认一次。此订单将转给其他陪跑员",
+                    accessibilityHint: "双击后会先确认一次。取消前请先把跑者带到安全的地方",
                     action: onCancel
                 )
                 .disabled(isFinishing || !isFinishEnabled)

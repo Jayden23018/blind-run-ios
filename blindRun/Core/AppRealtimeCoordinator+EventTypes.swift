@@ -174,3 +174,21 @@ extension AppRealtimeCoordinator {
         }
     }
 }
+
+// MARK: - 前台通知
+
+struct RealtimeForegroundNotification: Identifiable, Sendable {
+    let id = UUID()
+    let stableEventID: String?
+    let title: String?
+    let displayText: String
+    let speechText: String
+    let priority: RealtimePriority
+    let timestamp: String?
+    let isSafetyEvent: Bool
+
+    /// 安全通知走警示档：轮询念的通用句切不断它，通话中也照播（#653）。其余通知保持默认档。
+    var announcementPriority: AnnouncementPriority {
+        isSafetyEvent ? .alert : .counterpartAction
+    }
+}
