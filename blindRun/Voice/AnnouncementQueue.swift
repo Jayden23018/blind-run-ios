@@ -18,6 +18,10 @@ import UIKit
 /// （求助倒计时每秒盖掉上一秒那句就直接依赖它，见 `BlindOrderStatusViewModel.beginEmergencyCountdown`）。
 /// 同档改成排队会让轮询里反复播的那类调用点堆成一串陈述句，而没有任何用例会红。
 /// 排队只发生在**优先级不同**时 —— 那正是这一轮要新增的行为，也只影响显式传了优先级的那十几处。
+///
+/// 🔴 **唯一例外是 `.alert`：同档排队，先到先播（#653）。** 这一档每句都是不能漏的安全事实
+/// （「现在只有你一个人」），后到的切断先到的，等于让两条都听不全。它没有「每秒盖掉上一秒」那种调用点，
+/// 所以排队没有上面说的代价。
 enum AnnouncementPriority: Int, Comparable, CaseIterable {
     /// 每公里播报。最低档，且是唯一会因为排太久被丢掉的一档。
     case perKilometer
@@ -66,10 +70,12 @@ struct AnnouncementQueue {
     /// 通话中仍然允许播的最低档。`状态清单.md`「通话中只保留警示」。
     static let minimumPriorityDuringCall: AnnouncementPriority = .alert
 
-    /// **每档至多一条。** 同档的新句子替换旧的，不追加。
+    /// **除 `.alert` 外每档至多一条。** 同档的新句子替换旧的，不追加。
     ///
     /// 这是「防叠声」最省事的落法：排队等待期间同一档反复发声（轮询、连续两个里程碑）
     /// 只会让用户听到最新那一条，而不是等队列排干时听一串过期的陈述。
+    ///
+    /// `.alert` 按先后排，只合并逐字相同的句子：替换会让后到的警示把先到的静默吞掉。
     private(set) var pending: [PendingAnnouncement] = []
 
     static func isAllowedDuringCall(_ priority: AnnouncementPriority) -> Bool {
@@ -91,6 +97,12 @@ struct AnnouncementQueue {
         if announcement.priority == .onDemand {
             pending.removeAll { $0.priority == .perKilometer }
         }
+        if announcement.priority == .alert {
+            pending.removeAll { $0.priority == .alert && $0.text == announcement.text }
+            guard let speaking, speaking >= .alert else { return .speakNow }
+            pending.append(announcement)
+            return .enqueued
+        }
         pending.removeAll { $0.priority == announcement.priority }
         guard let speaking, announcement.priority < speaking else {
             return .speakNow
@@ -108,9 +120,10 @@ struct AnnouncementQueue {
         if isCallActive {
             pending.removeAll { !Self.isAllowedDuringCall($0.priority) }
         }
-        guard let best = pending.max(by: { $0.priority < $1.priority }) else { return nil }
-        pending.removeAll { $0.priority == best.priority }
-        return best
+        // 只取走同档最早的一条：`.alert` 可能排着几条，其余各档本来就至多一条。
+        guard let top = pending.map(\.priority).max(),
+              let index = pending.firstIndex(where: { $0.priority == top }) else { return nil }
+        return pending.remove(at: index)
     }
 
     mutating func removeAll() {

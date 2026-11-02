@@ -862,6 +862,31 @@ const cases = [
     }
   },
   {
+    // #653：根视图的 `onReceive` 单测够不着，删掉档位只有这条守卫会报。
+    name: '前台通知播报丢了档位',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/ContentView.swift',
+        old_string: 'a',
+        new_string: 'speechService.speak(notification.speechText)'
+      }
+    }
+  },
+  {
+    name: '前台通知播报带档位（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/ContentView.swift',
+        old_string: 'a',
+        new_string: 'speechService.speak(notification.speechText, priority: notification.announcementPriority)'
+      }
+    }
+  },
+  {
     // 脚本得有默认团队号（device-test.sh 就是），规则只管文档，不管脚本。
     name: '脚本里写团队号（放行）',
     expect: 0,

@@ -767,7 +767,7 @@ extension OrderDetailResponse {
         case .driverArrived:
             return "\(status.blindRunnerAnnouncement)\(distanceSentence)"
         default:
-            return status.blindRunnerAnnouncement
+            return blindRunnerAnnouncementUnlessLeftAlone
         }
     }
 }

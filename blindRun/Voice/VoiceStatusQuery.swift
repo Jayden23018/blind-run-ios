@@ -136,7 +136,7 @@ enum VoiceStatusQuery {
 
         case .status:
             return VoiceStatusAnswer(
-                speech: "\(order.status.displayName)。\(order.status.blindRunnerDescription)",
+                speech: order.blindRunnerStatusAnswer,
                 pendingAction: nil
             )
 

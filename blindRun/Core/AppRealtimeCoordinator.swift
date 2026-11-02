@@ -323,17 +323,6 @@ struct RealtimeDispatchPrompt: Sendable {
     }
 }
 
-struct RealtimeForegroundNotification: Identifiable, Sendable {
-    let id = UUID()
-    let stableEventID: String?
-    let title: String?
-    let displayText: String
-    let speechText: String
-    let priority: RealtimePriority
-    let timestamp: String?
-    let isSafetyEvent: Bool
-}
-
 struct RealtimeSeparationAlert: Sendable {
     let eventID: String
     let orderID: Int64
@@ -972,6 +961,11 @@ final class AppRealtimeCoordinator: ObservableObject {
             return
         }
         guard !message.body.trimmed.isEmpty else { return }
+        // 排在抑制之前：普通 `REMATCHING` 有活跃订单时不播，但它说明这次不算半路退出。
+        // 模板通知不带 `orderId` 时，只有一张活跃订单才认得出是哪一单（同 `routeEscortAlert`）。
+        BlindMidRunDepartureRecord.shared.note(
+            eventType: eventType, orderID: message.orderId ?? (activeOrderIDs.count == 1 ? activeOrderIDs.first : nil)
+        )
         if shouldSuppressLifecycleNotification(eventType: eventType) { return }
         let body = overriddenBody(forEventType: eventType) ?? message.body
         // 覆盖时**两条通道一起换**。只换屏幕上那行、让 `ttsText` 照念后端原文，
@@ -1182,6 +1176,8 @@ final class AppRealtimeCoordinator: ObservableObject {
             // 后端原文「点击继续等待可延长」。
             let eventType = (missed.eventType ?? "").uppercased()
             if eventType == Self.introCallIncomingEventType, routeIntroCallIncoming(sentAt: missed.sentAt) { continue }
+            // 补读不退回「唯一活跃订单」：窗口有 24 小时，不带订单号的旧通知可能属于上一单。
+            BlindMidRunDepartureRecord.shared.note(eventType: eventType, orderID: missed.orderId)
             let override = overriddenBody(forEventType: eventType)
             let speechText = override ?? missed.ttsText?.nilIfBlank ?? missed.body
             enqueue(

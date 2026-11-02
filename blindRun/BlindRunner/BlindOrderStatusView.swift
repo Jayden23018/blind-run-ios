@@ -1273,8 +1273,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 // 不在这里播 —— 里程要等 `/track` 的终值回来，而这一刻紧接着就要自我取消。
                 startCompletionAnnouncement(completion, order: updated)
             } else {
-                speechService?.speakStatusChange(
-                    updated.status,
+                speechService?.speakBlindRunnerStatusChange(
+                    updated,
                     text: statusChangeAnnouncement(from: previousStatus, to: updated)
                 )
             }
