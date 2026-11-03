@@ -89,10 +89,11 @@ private struct PartnerRowCard: View {
 @ViewBuilder
 private func partnerSafetyActions(
     userId: Int64,
+    spokenName: String,
     onBlocked: @escaping @MainActor () async -> Void
 ) -> some View {
     if let target = CounterpartSafetyGate.target(userId: userId, orderId: nil) {
-        CounterpartSafetyActions(target: target, onBlocked: onBlocked)
+        CounterpartSafetyActions(target: target, spokenName: spokenName, onBlocked: onBlocked)
             .id(target.userId)
             .padding(.bottom, 6)
     }
@@ -301,9 +302,11 @@ struct BlindFavoriteVolunteersView: View {
                 .padding(.bottom, 6)
                 .accessibilityIdentifier("blindAddFavoriteButton")
             }
-            partnerSafetyActions(userId: userId) {
+            partnerSafetyActions(userId: userId, spokenName: spokenName) {
                 actionNotice = UserSafetyCopy.blockSucceeded
                 await load()
+                // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。
+                if errorMessage != nil { actionNotice = nil }
             }
         }
     }
@@ -492,7 +495,10 @@ struct VolunteerPartnersView: View {
             .accessibilityIdentifier("volunteerPartnerOptOutButton")
         }
         if let userId = row.userId {
-            partnerSafetyActions(userId: userId) {
+            partnerSafetyActions(
+                userId: userId,
+                spokenName: row.spokenName(fallback: PartnerStreakCopy.unknownBlindName)
+            ) {
                 optOutNotice = UserSafetyCopy.blockSucceeded
                 await load()
             }

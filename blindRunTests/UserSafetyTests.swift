@@ -352,6 +352,65 @@ final class UserSafetyTests: XCTestCase {
         XCTAssertNil(viewModel.notice)
     }
 
+    // MARK: 通话页
+
+    private func introCall(counterpartUserId: Int64?) -> IntroCallView {
+        IntroCallView(
+            counterpartName: "王*", counterpartPhone: nil, counterpartPhoneMasked: nil, myDecision: nil,
+            windowEndsAt: nil, startAddress: nil, plannedStartTime: nil, plannedEndTime: nil,
+            counterpartUserId: counterpartUserId
+        )
+    }
+
+    /// 通话端点拉取失败时 `introCall` 会清空，入口不能跟着消失：填到一半的举报单在这个入口下面。
+    func testBlindIntroCallKeepsTheCounterpartThroughAFailedRefresh() async throws {
+        let orders = FakeOrderService()
+        orders.introCallViewResult = .success(introCall(counterpartUserId: 7))
+        let appState = AppState(safety: FakeSafetyService(), orders: orders)
+        let speech = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speech)
+        viewModel.order = try order(#"{"orderId":42,"status":"PENDING_INTRO_CALL"}"#)
+
+        await viewModel.reloadIntroCall()
+        XCTAssertEqual(viewModel.introCallCounterpartUserId, 7)
+
+        orders.introCallViewResult = .failure(URLError(.timedOut))
+        await viewModel.reloadIntroCall()
+        XCTAssertNil(viewModel.introCall, "前提：这次拉取确实失败了")
+        XCTAssertEqual(viewModel.introCallCounterpartUserId, 7)
+    }
+
+    /// 陪跑员这一轮结束后读不到通话端点，也读不到订单详情，入口全靠这份留着。
+    func testVolunteerIntroCallKeepsTheCounterpartAfterTheRoundEnds() async {
+        let safety = FakeSafetyService()
+        safety.introCallResult = .success(introCall(counterpartUserId: 7))
+        let appState = AppState(safety: safety)
+        let speech = SpeechService()
+        let viewModel = VolunteerIntroCallViewModel()
+        viewModel.configure(orderId: 42, appState: appState, speechService: speech)
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.counterpartUserId, 7)
+
+        safety.introCallResult = .failure(serverError("INTRO_CALL_NOT_ACTIVE"))
+        safety.matchedOrderResult = .failure(serverError("NOT_ORDER_PARTICIPANT"))
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.outcome, .closed, "前提：这一轮确实结束了")
+        XCTAssertNil(viewModel.introCall)
+        XCTAssertEqual(viewModel.counterpartUserId, 7)
+    }
+
+    func testRemainingCountMatchesWhatIsActuallySent() {
+        let viewModel = UserReportViewModel()
+        viewModel.detail = String(repeating: "问", count: 1000) + "\n\n"
+        XCTAssertEqual(viewModel.remainingCharacters, 0, "首尾空白发送前会去掉，不算字数")
+    }
+
+    func testRateLimitIsNotCalledANetworkProblem() {
+        let limited = APIError.rateLimited(RateLimitInfo(message: "操作过于频繁。", retryAfterSeconds: nil))
+        XCTAssertEqual(UserSafetyCopy.failureMessage(for: limited, fallback: "检查网络"), "操作过于频繁。")
+    }
+
     // MARK: 记录详情取对方 id
 
     private struct StubRunRecord: RunRecordServing {

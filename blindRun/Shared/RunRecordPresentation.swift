@@ -140,9 +140,9 @@ final class RunRecordViewModel: ObservableObject {
         await loadCounterpartIfNeeded()
     }
 
-    /// 失败不提示：记录页的内容照常可看，缺的只是入口，下次进页面或点重试会再读一次。
+    /// 失败不提示：记录页的内容照常可看，缺的只是入口。这一页没有单独的重试，下次进页面才会再读。
     private func loadCounterpartIfNeeded() async {
-        guard case .loaded = phase, counterpartTarget == nil, let appState else { return }
+        guard !Task.isCancelled, case .loaded = phase, counterpartTarget == nil, let appState else { return }
         do {
             let order = try await appState.orders.orderDetail(orderId: orderId)
             counterpartTarget = CounterpartSafetyGate.target(userId: order.counterpartUserId, orderId: orderId)

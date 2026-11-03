@@ -96,6 +96,7 @@ extension MockAPIClient {
     /// 未点亮的一对根本不在数组里 —— 所以这里也不放 `currentWeeks == 1` 的条目。
     func handleGetPartnerStreaks(asBlind: Bool) -> [PartnerStreakResponse] {
         guard !orders.filter({ $0.status == .completed }).isEmpty else { return [] }
+        let blocked = Set(blockedUsers.map(\.userId))
         return [
             PartnerStreakResponse(
                 id: 8001,
@@ -113,7 +114,7 @@ extension MockAPIClient {
                 bestWeeks: 2,
                 lastCreditedWeek: "2026-W34"
             )
-        ]
+        ].filter { !blocked.contains($0.partnerUserId) }
     }
 
     /// 盲人侧固定搭档的种子行。哪几行**当前在列表里**由 `blindFavoritedVolunteerIds` 决定，
@@ -173,6 +174,7 @@ extension MockAPIClient {
     func handleGetBlindFavoriteVolunteers() -> [FavoriteVolunteerResponse] {
         // 契约：收藏时间倒序。
         blindFavoritedVolunteerIds
+            .filter { id in !blockedUsers.contains { $0.userId == id } }
             .compactMap { Self.blindFavoriteSeeds[$0] }
             .sorted { ($0.favoritedAt ?? "") > ($1.favoritedAt ?? "") }
     }

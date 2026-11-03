@@ -93,7 +93,7 @@ struct BlindIntroCallView: View {
                     heroCard
                 }
                 if let target = CounterpartSafetyGate.target(
-                    userId: viewModel.introCall?.counterpartUserId,
+                    userId: viewModel.introCallCounterpartUserId,
                     orderId: viewModel.order?.orderId
                 ) {
                     CounterpartSafetyActions(target: target, blockContext: .introCall)

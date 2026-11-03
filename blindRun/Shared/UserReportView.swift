@@ -13,7 +13,8 @@ final class UserReportViewModel: ObservableObject {
     @Published private(set) var submittedMessage: String?
 
     var remainingCharacters: Int {
-        UserReportRequest.maxDetailLength - UserReportRequest.length(of: detail)
+        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return UserReportRequest.maxDetailLength - UserReportRequest.length(of: trimmed)
     }
 
     /// 失败一律留在这一屏，已选的原因和已写的字都不丢。

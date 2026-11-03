@@ -107,6 +107,55 @@ extension AccessibilityAuditTests {
         // 不在这里整页审计：这一页原有元素的审计红灯记在 issue 里，本用例只守新加的两枚按钮。
     }
 
+    /// 陪跑员通话期间读不到订单详情，通话页是他唯一的入口（backend#916）。
+    @MainActor
+    func testBothIntroCallPagesOfferReportAndBlock() throws {
+        let blind = launchBlindHome(emptyOrders: false, seedOrderStatus: "PENDING_INTRO_CALL")
+        let card = blind.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        if card.waitForExistence(timeout: 10) { card.tap() }
+        let entry = blind.buttons["blindOrderStatusIntroCallEntryButton"].firstMatch
+        if entry.waitForExistence(timeout: 10) { entry.tap() }
+        let blindReport = revealButton(blind, "counterpartReportButton")
+        XCTAssertGreaterThanOrEqual(blindReport.frame.height, 63.5)
+        XCTAssertTrue(blind.buttons["counterpartBlockButton"].exists)
+        attachScreenshot(blind, name: "blind-intro-call-safety-actions")
+        blind.terminate()
+
+        let volunteer = launchVolunteerHome(seedOrderStatus: "PENDING_INTRO_CALL")
+        let header = volunteer.descendants(matching: .any)["volunteerIntroCallHeader"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 20), "没到陪跑员通话页")
+        let report = revealButton(volunteer, "counterpartReportButton")
+        XCTAssertGreaterThanOrEqual(report.frame.height, 63.5)
+        XCTAssertTrue(volunteer.buttons["counterpartBlockButton"].exists)
+        attachScreenshot(volunteer, name: "volunteer-intro-call-safety-actions")
+    }
+
+    /// 拉黑后这一行消失，下一行不能接手「已拉黑」的状态：列表按下标当身份，靠 `.id(target.userId)` 隔开。
+    @MainActor
+    func testBlockingAPartnerRemovesTheRowWithoutLeakingStateToTheNext() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20))
+        tabBar.buttons["我的"].tap()
+        revealButton(app, "blindFavoriteVolunteersSettingsEntry", maxDrags: 12).tap()
+
+        let block = revealButton(app, "counterpartBlockButton")
+        XCTAssertTrue(block.label.hasPrefix("不再匹配"), "多人列表要听得出是谁：\(block.label)")
+        XCTAssertNotEqual(block.label, "不再匹配此人", "多人列表要听得出是谁")
+        let firstName = block.label
+        attachScreenshot(app, name: "blind-partner-safety-actions")
+        block.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["不再匹配"].tap()
+
+        let notice = app.descendants(matching: .any)["blindFavoriteActionNotice"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "这一行消失后，结果要留在页面上")
+        let next = app.buttons["counterpartBlockButton"].firstMatch
+        XCTAssertTrue(next.waitForExistence(timeout: 10), "下一行的入口被上一行的状态吃掉了")
+        XCTAssertNotEqual(next.label, firstName, "被拉黑的人还在列表里")
+    }
+
     /// 记录详情：留言旁的举报带着这条留言，页底有两枚入口。
     @MainActor
     func testRunnerRecordDetailOffersMessageReport() throws {
@@ -116,11 +165,12 @@ extension AccessibilityAuditTests {
         let report = revealButton(app, "messageReportButton", maxDrags: 12)
         XCTAssertGreaterThanOrEqual(report.frame.height, 63.5)
         attachScreenshot(app, name: "runner-record-message-report")
-        try audit(app)
         report.tap()
         let quoted = app.descendants(matching: .any)["userReportQuotedMessage"].firstMatch
         XCTAssertTrue(quoted.waitForExistence(timeout: 10), "举报留言要显示原文")
         attachScreenshot(app, name: "runner-report-quoted-message")
+        // 审计打在弹层上：记录页本身的审计在页首，由 `testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit` 守。
+        try audit(app)
         revealButton(app, "userReportClose").tap()
         XCTAssertGreaterThanOrEqual(revealButton(app, "counterpartBlockButton", maxDrags: 12).frame.height, 63.5)
     }

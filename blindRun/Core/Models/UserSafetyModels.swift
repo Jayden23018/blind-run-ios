@@ -155,6 +155,8 @@ enum UserSafetyCopy {
     static let blockTitle = "不再匹配此人"
     static let blockHint = "之后不再和对方匹配，需要再次确认"
     static let blockConfirmTitle = "不再匹配此人？"
+    static func blockConfirmTitle(_ name: String) -> String { "不再匹配\(name)？" }
+    static func blockLabel(_ name: String) -> String { "不再匹配\(name)" }
     static let blockConfirmAction = "不再匹配"
     static let cancel = "取消"
     static let blockFailed = "没有设置成功，请检查网络后再试一次。"
@@ -199,7 +201,9 @@ enum UserSafetyCopy {
     /// 举报和拉黑共用的失败文案选择。`fallback` 是网络类失败那一句。
     static func failureMessage(for error: APIError, fallback: String) -> String {
         if error.errorCode == .resourceNotFound { return targetUnavailable }
-        if case .serverError = error { return error.localizedMessage }
-        return fallback
+        switch error {
+        case .serverError, .rateLimited: return error.localizedMessage
+        default: return fallback
+        }
     }
 }

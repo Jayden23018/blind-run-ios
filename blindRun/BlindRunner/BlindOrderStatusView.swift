@@ -30,6 +30,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 🚨 它里面**没有对方的表态、也没有轮次进度**，而且不许在客户端补算出来
     /// （见 `IntroCallView` 的类型注释）。
     @Published private(set) var introCall: IntroCallView?
+    /// 举报入口用的对方 id。**一次拉取失败不清空**：`introCall` 失败时会清掉，而入口跟着消失的话，
+    /// 填到一半的举报单也没了。与号码不同，这里留着旧值不会打错电话，只会举报刚通过话的那个人。
+    @Published private(set) var introCallCounterpartUserId: Int64?
     /// 处在 `PENDING_INTRO_CALL` 但通话数据**拉不到**。
     ///
     /// 存在的理由是一个真实缺陷：`introCall == nil` 此前同时代表「不在通话态」和
@@ -510,6 +513,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         do {
             let view = try await appState.orders.introCallView(orderId: order.orderId)
             introCall = view
+            if let id = view.counterpartUserId { introCallCounterpartUserId = id }
             introCallUnavailable = false
             // 服务端说了话就以它为准。换了候选人时它是 nil，本地记号跟着作废 ——
             // 见 `submittedIntroCallDecision` 的注释。
@@ -535,6 +539,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 少清一个就会让下一单一进通话态就顶着上一单的错误块或表态。
     private func clearIntroCallState() {
         introCall = nil
+        introCallCounterpartUserId = nil
         introCallUnavailable = false
         submittedIntroCallDecision = nil
         clearIntroCallPlanState()

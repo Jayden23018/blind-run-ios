@@ -44,6 +44,8 @@ struct CounterpartSafetyActions: View {
 
     let target: CounterpartSafetyTarget
     var blockContext: UserSafetyCopy.BlockContext = .standard
+    /// 一页有多个人时传（固定搭档页），读屏和确认框要说清是谁。传不带星号的念法。
+    var spokenName: String?
     /// 固定搭档页要在成功后重拉列表：对方会从列表里消失。
     var onBlocked: (@MainActor () async -> Void)?
 
@@ -56,6 +58,7 @@ struct CounterpartSafetyActions: View {
             FlowActionButton(
                 UserSafetyCopy.reportTitle,
                 style: .ghost,
+                accessibilityLabel: spokenName.map { UserSafetyCopy.reportTitle + $0 },
                 accessibilityHint: UserSafetyCopy.reportHint
             ) {
                 showsReport = true
@@ -67,6 +70,7 @@ struct CounterpartSafetyActions: View {
                     UserSafetyCopy.blockTitle,
                     style: .ghost,
                     isLoading: viewModel.isBlocking,
+                    accessibilityLabel: spokenName.map(UserSafetyCopy.blockLabel),
                     accessibilityHint: UserSafetyCopy.blockHint
                 ) {
                     showsBlockConfirm = true
@@ -91,7 +95,7 @@ struct CounterpartSafetyActions: View {
                 speakError: { speechService.speakError($0) }
             )
         }
-        .alert(UserSafetyCopy.blockConfirmTitle, isPresented: $showsBlockConfirm) {
+        .alert(spokenName.map(UserSafetyCopy.blockConfirmTitle) ?? UserSafetyCopy.blockConfirmTitle, isPresented: $showsBlockConfirm) {
             Button(UserSafetyCopy.blockConfirmAction, role: .destructive) {
                 Task { await block() }
             }
