@@ -501,6 +501,7 @@ struct ContentView: View {
         } message: {
             Text("无法确认服务器端已退出。其他设备上的登录可能仍有效。")
         }
+        .modifier(AppUpdateGateModifier(escort: appState.liveEscortCoordinator))
     }
 
     private func reportWebSocketLocationIfNeeded() {

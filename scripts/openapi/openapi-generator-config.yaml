@@ -38,6 +38,7 @@ filter:
     - /api/blind/profile
     - /api/blind/verify-identity
     - /api/blind/volunteer-location
+    - /api/config/app-version
     - /api/config/features
     - /api/config/rules
     - /api/devices/apns
