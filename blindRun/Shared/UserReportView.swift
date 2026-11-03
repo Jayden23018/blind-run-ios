@@ -76,17 +76,6 @@ struct UserReportView: View {
             }
             .navigationTitle(target.messageId == nil ? UserSafetyCopy.reportTitle : UserSafetyCopy.reportMessageTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: { dismiss() }, label: {
-                        Text(UserSafetyCopy.close)
-                            .font(AppFonts.body())
-                            .frame(minWidth: AppTouchTarget.blindPrimary)
-                            .contentShape(Rectangle().size(width: 64, height: 64))
-                    })
-                    .accessibilityIdentifier("userReportClose")
-                }
-            }
         }
         .accessibilityIdentifier("userReportView")
     }
@@ -117,6 +106,12 @@ struct UserReportView: View {
         ForEach(UserReportReason.allCases, id: \.self) { reason in
             reasonRow(reason)
         }
+
+        // 读屏走输入框自己的标签，这一行只给看屏幕的人：空白方框说不清它是干什么的。
+        Text(UserSafetyCopy.detailPrompt)
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.textSecondary)
+            .accessibilityHidden(true)
 
         TextEditor(text: $viewModel.detail)
             .font(AppFonts.body())
@@ -157,6 +152,10 @@ struct UserReportView: View {
             }
         }
         .accessibilityIdentifier("userReportSubmit")
+
+        // 不放工具栏：系统会把工具栏按钮包成字号固定的玻璃按钮，审计判对比度与字号都不过，也够不到 64pt。
+        FlowActionButton(UserSafetyCopy.close, style: .ghost) { dismiss() }
+            .accessibilityIdentifier("userReportClose")
     }
 
     private func reasonRow(_ reason: UserReportReason) -> some View {
