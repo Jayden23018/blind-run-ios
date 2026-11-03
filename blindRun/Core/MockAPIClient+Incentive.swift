@@ -114,7 +114,7 @@ extension MockAPIClient {
                 bestWeeks: 2,
                 lastCreditedWeek: "2026-W34"
             )
-        ].filter { !blocked.contains($0.partnerUserId) }
+        ].filter { row in row.partnerUserId.map { !blocked.contains($0) } ?? true }
     }
 
     /// 盲人侧固定搭档的种子行。哪几行**当前在列表里**由 `blindFavoritedVolunteerIds` 决定，
