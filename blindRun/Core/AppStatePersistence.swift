@@ -76,6 +76,8 @@ enum AppStatePersistenceKeys {
     /// `reset()` 在登出时跑，漏掉这条的话下一个登录的人会在自己的订单页上看到
     /// 「停止分享」——而那条链接是上一个账号的，他既停不掉也不该知道它存在。
     static let runPlanLiveShareOrderId = "com.aidrun.mvp.runPlanLiveShare.orderId"
+    /// 用户关闭过更新提示的那个版本。**不进 `all`**：这是设备上的事，退出登录不该让提示重弹。
+    static let dismissedAppUpdateVersion = "com.aidrun.mvp.dismissedAppUpdateVersion"
 
     static let all = [
         AppConstants.UserDefaultsKeys.accessToken,

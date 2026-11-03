@@ -36,6 +36,7 @@ enum AuthEndpoint {
     /// 放进 incentive 片会让 auth 之外的两侧都得绕道拿一个跟激励无关的配置。
     case featureFlags
     case ruleParams
+    case appVersionRequirements
     case missedNotifications
     /// 注销账号前的进行中订单预检。挂在这里是因为它只服务账号注销这一条流程。
     case accountDeletionOrderPreflight
@@ -67,6 +68,9 @@ enum AuthEndpoint {
         case .ruleParams:
             // 同 `featureFlags`：需要登录、不限角色（契约 `GET /api/config/rules`）。
             return EndpointRequest(.get, "/api/config/rules")
+        case .appVersionRequirements:
+            // **必须 requiresAuth: false**：强制更新要拦住还没登录的人，token 过期时也要能读。
+            return EndpointRequest(.get, "/api/config/app-version", requiresAuth: false)
         case .missedNotifications:
             return EndpointRequest(.get, "/api/notifications/since")
         case .accountDeletionOrderPreflight:
@@ -102,6 +106,7 @@ protocol AuthServing: Sendable {
     func legalLinks() async throws -> LegalLinksResponse
     func featureFlags() async throws -> FeatureFlagsResponse
     func ruleParams() async throws -> RuleParamsResponse
+    func appVersionRequirements() async throws -> AppVersionResponse
     /// 返回**一页**，不是全部。`hasMore` 与游标推进由调用方负责 ——
     /// 这一层不做循环，否则「补读上限」这个产品判断就落在了 service 里。
     func missedNotifications(after: String) async throws -> MissedNotificationPage
@@ -168,6 +173,10 @@ struct AuthService: AuthServing {
 
     func ruleParams() async throws -> RuleParamsResponse {
         try await transport.send(AuthEndpoint.ruleParams.request)
+    }
+
+    func appVersionRequirements() async throws -> AppVersionResponse {
+        try await transport.send(AuthEndpoint.appVersionRequirements.request)
     }
 
     func missedNotifications(after: String) async throws -> MissedNotificationPage {

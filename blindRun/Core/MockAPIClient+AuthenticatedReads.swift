@@ -45,6 +45,16 @@ extension MockAPIClient {
             guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
             return RuleParamsResponse(lateCancelWindowHours: 12, volunteerOrderAutoOpenLeadMinutes: 120)
 
+        // 版本要求（`GET /api/config/app-version`）。这个文件里唯一免登录的一条。默认全是 null，
+        // 与「后端没配置」相同，其余 UI 用例不受影响。`AppUpdateGateUITests` 用这两个开关演版本过低。
+        case "/api/config/app-version":
+            let environment = ProcessInfo.processInfo.environment
+            return AppVersionResponse(
+                iosMinSupportedVersion: environment["AIDRUN_MOCK_APP_MIN_VERSION"],
+                iosLatestVersion: environment["AIDRUN_MOCK_APP_LATEST_VERSION"],
+                iosUpdateUrl: "https://apps.apple.com/cn/app/aidrun"
+            )
+
         default:
             return nil
         }
