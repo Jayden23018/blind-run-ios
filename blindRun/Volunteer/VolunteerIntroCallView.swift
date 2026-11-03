@@ -49,6 +49,8 @@ enum VolunteerIntroCallOutcome: Equatable {
 @MainActor
 final class VolunteerIntroCallViewModel: ObservableObject {
     @Published private(set) var introCall: IntroCallView?
+    /// 这一轮结束时 `introCall` 会清空、通话端点也读不到了，举报入口靠这份留到离开页面。
+    @Published private(set) var counterpartUserId: Int64?
     @Published private(set) var outcome: VolunteerIntroCallOutcome = .active
     @Published private(set) var isSubmitting = false
     @Published var errorMessage: String?
@@ -105,6 +107,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         guard let orderId, let appState else { return }
         do {
             introCall = try await appState.safety.introCall(orderId: orderId)
+            if let id = introCall?.counterpartUserId { counterpartUserId = id }
             clearLoadFailure()
             announceCountdownIfDue(now: now)
         } catch let error as APIError {
@@ -401,6 +404,12 @@ struct VolunteerIntroCallView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityLabel(errorMessage)
                             .accessibilityIdentifier("volunteerIntroCallError")
+                    }
+                    if let target = CounterpartSafetyGate.target(
+                        userId: viewModel.counterpartUserId,
+                        orderId: route.orderId
+                    ) {
+                        CounterpartSafetyActions(target: target, blockContext: isClosed ? .standard : .introCall)
                     }
                 }
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding)

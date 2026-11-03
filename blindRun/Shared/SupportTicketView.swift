@@ -17,12 +17,12 @@ final class SupportTicketViewModel: ObservableObject {
 
     /// 返回是否提交成功。**失败一律留在这一屏** —— 关掉页面等于把用户刚写的那段字扔了。
     @discardableResult
-    func submit(orderID: Int64?, appState: AppState) async -> Bool {
+    func submit(orderID: Int64?, category: SupportTicketCategory = .orderService, appState: AppState) async -> Bool {
         guard !isSubmitting else { return false }
         // 校验走 `SupportTicketRequest` 的可失败构造，**不在这里重写一遍条件**：
         // 两处各判一次，改一处漏一处的表现是「按钮亮着、点了没反应」。
         guard let request = SupportTicketRequest(
-            category: .orderService,
+            category: category,
             content: content,
             orderId: orderID
         ) else {
@@ -41,7 +41,9 @@ final class SupportTicketViewModel: ObservableObject {
             return true
         } catch let error as APIError {
             if !appState.handleAuthenticatedAPIError(error) {
-                errorMessage = SupportTicketCopy.failed
+                errorMessage = error.errorCode == .supportTicketLimitExceeded
+                    ? error.localizedMessage
+                    : SupportTicketCopy.failed
             }
             return false
         } catch {
@@ -58,10 +60,11 @@ final class SupportTicketViewModel: ObservableObject {
 /// 并把真正紧急时该做的事（拨 120 / 110）直接写出来 —— 契约对这条端点的 description
 /// 逐字要求「客户端文案不得把用户从 SOS 引到这里」。
 ///
-/// **分类固定 `ORDER_SERVICE`**，不给选择题：这一屏唯一的入口是订单页上的「上报问题」，
+/// **分类由入口决定**，不给选择题：订单页是 `ORDER_SERVICE`，「我的」页是 `ACCOUNT`。
 /// 分类是给客服分流用的，多一个选项读屏用户就多听一句。
 struct SupportTicketView: View {
     let orderID: Int64?
+    var category: SupportTicketCategory = .orderService
     /// 显式传进来而不是 `@EnvironmentObject`：这一屏是从 `.sheet` 弹出来的，
     /// 依赖显式传递就不必赌环境有没有传下去。
     let appState: AppState
@@ -126,7 +129,7 @@ struct SupportTicketView: View {
                     PrimaryButton(SupportTicketCopy.submit, isLoading: viewModel.isSubmitting) {
                         Task {
                             isEditorFocused = false
-                            if await viewModel.submit(orderID: orderID, appState: appState) {
+                            if await viewModel.submit(orderID: orderID, category: category, appState: appState) {
                                 speak(SupportTicketCopy.submitted)
                                 dismiss()
                             } else if let message = viewModel.errorMessage {

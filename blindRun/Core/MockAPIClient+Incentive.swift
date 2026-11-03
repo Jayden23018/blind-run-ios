@@ -187,7 +187,7 @@ extension MockAPIClient {
         guard Self.blindFavoriteSeeds[volunteerId] != nil else {
             throw APIError.serverError(ErrorResponse(
                 code: "FAVORITE_VOLUNTEER_NOT_ELIGIBLE",
-                message: "需要先和这位志愿者一起跑完至少一次"
+                message: PartnerStreakCopy.favoriteNotEligible
             ))
         }
         guard blindFavoritedVolunteerIds.count < Self.mockFavoriteVolunteerLimit

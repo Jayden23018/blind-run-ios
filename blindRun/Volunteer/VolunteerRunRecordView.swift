@@ -39,6 +39,8 @@ struct VolunteerRunRecordContent {
     }
 
     struct Message: Hashable {
+        let id: Int64
+        let fromRole: RunRecordRole
         let header: String
         let text: String
         let accessibilityLabel: String
@@ -165,6 +167,8 @@ struct VolunteerRunRecordContent {
             }
             let time = message.createdAt.backendTimestamp.map(Self.dateTimeFormatter.string(from:))
             return Message(
+                id: message.id,
+                fromRole: message.fromRole,
                 header: [from.shown, time].compactMap { $0 }.joined(separator: " · "),
                 text: text,
                 accessibilityLabel: "\(from.spoken)说：\(text)"
@@ -376,10 +380,22 @@ struct VolunteerRunRecordView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(message.accessibilityLabel)
+                        if let target = CounterpartSafetyGate.messageTarget(
+                            messageId: message.id,
+                            fromRole: message.fromRole,
+                            text: message.text,
+                            viewerRole: record.viewerRole,
+                            counterpart: viewModel.counterpartTarget
+                        ) {
+                            MessageReportButton(target: target)
+                        }
                     }
                 }
             }
             composer(content)
+            if let target = viewModel.counterpartTarget {
+                CounterpartSafetyActions(target: target)
+            }
         }
         .padding(20)
         // 滚到底时最后一行（求助那句）别贴着 Home 条。

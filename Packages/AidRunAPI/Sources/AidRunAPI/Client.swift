@@ -1066,6 +1066,9 @@ public struct Client: APIProtocol {
     /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
     /// `expiresAt` 走，客户端读那个字段显示。
     ///
+    /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
+    /// 按当前账号下发，换账号要重新读。
+    ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
     ///
@@ -1897,6 +1900,7 @@ public struct Client: APIProtocol {
     /// 创建订单
     ///
     /// 下单前置校验（按顺序，命中即返回，不继续往下）：
+    /// 0. 暂不接受任何预约时拒绝，422 `ORDER_SERVICE_NOT_OPEN`；起跑点不在开放范围内时拒绝，422 `ORDER_OUTSIDE_OPEN_AREA`（#896）。`message` 说明情况，范围经 `GET /api/config/rules` 的 `launchScope` 下发。没配置时不拦截。这一条在第 6 条之后、第 7 条之前判定
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
@@ -1904,7 +1908,8 @@ public struct Client: APIProtocol {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
     ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
@@ -3803,10 +3808,10 @@ public struct Client: APIProtocol {
     ///
     /// 提交时校验：
     /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
-    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_OUTSIDE_DUTY_HOURS` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
     ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
     /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
-    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    /// - 改了地点：新集合点不在开放范围内 → 422 `ORDER_OUTSIDE_OPEN_AREA`（#896）；与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
     ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
     /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
     /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。

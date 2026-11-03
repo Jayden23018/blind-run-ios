@@ -91,7 +91,7 @@ enum APIError: Error, Sendable {
         case .serverError(let response):
             if let code = response.errorCode {
                 if code.prefersServerMessage, let message = response.message.nilIfBlank {
-                    return message
+                    return [message, code.serverMessageSupplement].compactMap { $0 }.joined(separator: "。")
                 }
                 return code.localizedMessage
             }

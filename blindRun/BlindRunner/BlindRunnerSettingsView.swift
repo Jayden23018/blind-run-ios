@@ -60,6 +60,8 @@ struct BlindRunnerSettingsView: View {
                 .accessibilityHint("查看你的邀请码和已经邀请的人数")
                 .accessibilityIdentifier("blindInviteCodeSettingsEntry")
 
+                AccountSafetySettingsRows()
+
                 // 三项单独同意（语音大模型 / 视力与导盲犬 / 陪跑位置）的撤回放在一处（#393）。
                 NavigationLink(PrivacyAuthorizationCopy.title) {
                     PrivacyAuthorizationView()

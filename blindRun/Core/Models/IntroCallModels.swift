@@ -83,6 +83,10 @@ nonisolated struct IntroCallView: Decodable, Sendable, Equatable {
     /// 说明这一版读不懂，见 `hasUnreadablePlan`。
     var plan: IntroCallPlanView? = nil
 
+    /// 对方的用户 id（backend#916）。**只传给举报和拉黑**，判定走 `CounterpartSafetyGate`。
+    /// 陪跑员通话期间读不到订单详情，这里是他唯一能拿到对方 id 的地方，所以入口放在通话页。
+    @LenientOptionalInt64 var counterpartUserId: Int64? = nil
+
     /// 唯一允许拼 `tel:` 的来源。掩码串永远进不来 —— 它在另一个字段上。
     var dialableCounterpartPhone: String? {
         counterpartPhone?.nilIfBlank

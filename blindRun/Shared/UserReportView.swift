@@ -1,0 +1,245 @@
+import Combine
+import SwiftUI
+
+// MARK: - 举报
+
+@MainActor
+final class UserReportViewModel: ObservableObject {
+    @Published var reason: UserReportReason?
+    @Published var detail = ""
+    @Published private(set) var isSubmitting = false
+    @Published private(set) var errorMessage: String?
+    /// 非 `nil` = 已提交，内容是要显示并朗读的结果句。
+    @Published private(set) var submittedMessage: String?
+
+    var remainingCharacters: Int {
+        UserReportRequest.maxDetailLength - UserReportRequest.length(of: detail)
+    }
+
+    /// 失败一律留在这一屏，已选的原因和已写的字都不丢。
+    @discardableResult
+    func submit(target: CounterpartSafetyTarget, appState: AppState) async -> Bool {
+        guard !isSubmitting else { return false }
+        guard let reason else {
+            errorMessage = UserSafetyCopy.reasonRequired
+            return false
+        }
+        guard let request = UserReportRequest(target: target, reason: reason, detail: detail) else {
+            errorMessage = UserSafetyCopy.detailTooLong(limit: UserReportRequest.maxDetailLength)
+            return false
+        }
+
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            let ticket = try await appState.safety.report(request)
+            submittedMessage = UserSafetyCopy.reportSubmitted(ticketId: ticket.id)
+            return true
+        } catch let error as APIError {
+            if !appState.handleAuthenticatedAPIError(error) {
+                errorMessage = UserSafetyCopy.failureMessage(for: error, fallback: UserSafetyCopy.reportFailed)
+            }
+            return false
+        } catch {
+            errorMessage = UserSafetyCopy.reportFailed
+            return false
+        }
+    }
+}
+
+/// 举报那一屏，两端共用。从 `.sheet` 弹出，所以依赖显式传入，理由同 `SupportTicketView`。
+///
+/// 🚨 **不是紧急求助入口。** 这里不放任何求助按钮，`UserSafetyCopy.reportNotice` 只把时效说清楚。
+struct UserReportView: View {
+    let target: CounterpartSafetyTarget
+    let appState: AppState
+    let speak: (String) -> Void
+    let speakError: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var viewModel = UserReportViewModel()
+    @FocusState private var isEditorFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let message = viewModel.submittedMessage {
+                        submitted(message)
+                    } else {
+                        form
+                    }
+                }
+                .padding(20)
+                .readableContentColumn()
+            }
+            .navigationTitle(target.messageId == nil ? UserSafetyCopy.reportTitle : UserSafetyCopy.reportMessageTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(action: { dismiss() }, label: {
+                        Text(UserSafetyCopy.close)
+                            .font(AppFonts.body())
+                            .frame(minWidth: AppTouchTarget.blindPrimary)
+                            .contentShape(Rectangle().size(width: 64, height: 64))
+                    })
+                    .accessibilityIdentifier("userReportClose")
+                }
+            }
+        }
+        .accessibilityIdentifier("userReportView")
+    }
+
+    @ViewBuilder
+    private var form: some View {
+        Text(UserSafetyCopy.reportNotice)
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if let quoted = target.quotedText {
+            Text(UserSafetyCopy.quoted(quoted))
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppColors.secondaryBackground))
+                .accessibilityIdentifier("userReportQuotedMessage")
+        }
+
+        Text(UserSafetyCopy.reasonPrompt)
+            .font(AppFonts.title())
+            .foregroundColor(AppColors.textPrimary)
+            .accessibilityAddTraits(.isHeader)
+
+        ForEach(UserReportReason.allCases, id: \.self) { reason in
+            reasonRow(reason)
+        }
+
+        TextEditor(text: $viewModel.detail)
+            .font(AppFonts.body())
+            .frame(minHeight: 120)
+            .padding(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(AppColors.Flow.ghostStroke, lineWidth: 1)
+            )
+            .focused($isEditorFocused)
+            .accessibilityLabel(UserSafetyCopy.detailPrompt)
+            .accessibilityIdentifier("userReportDetail")
+
+        if viewModel.remainingCharacters <= 100 {
+            Text(UserSafetyCopy.remaining(max(viewModel.remainingCharacters, 0)))
+                .font(AppFonts.caption())
+                .foregroundColor(viewModel.remainingCharacters < 0 ? AppColors.destructive : AppColors.textSecondary)
+                .accessibilityIdentifier("userReportRemaining")
+        }
+
+        // 失败留在正文里，不只靠一句播报：不开读屏的低视力用户屏幕上也要有东西变。
+        if let errorMessage = viewModel.errorMessage {
+            Text(errorMessage)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("userReportError")
+        }
+
+        PrimaryButton(UserSafetyCopy.submitReport, isLoading: viewModel.isSubmitting) {
+            Task {
+                isEditorFocused = false
+                if await viewModel.submit(target: target, appState: appState) {
+                    if let message = viewModel.submittedMessage { speak(message) }
+                } else if let message = viewModel.errorMessage {
+                    speakError(message)
+                }
+            }
+        }
+        .accessibilityIdentifier("userReportSubmit")
+    }
+
+    private func reasonRow(_ reason: UserReportReason) -> some View {
+        let isSelected = viewModel.reason == reason
+        return Button {
+            viewModel.reason = reason
+        } label: {
+            HStack(spacing: 12) {
+                // 选中靠图标形状和读屏特征表达，不只靠颜色。
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundColor(isSelected ? AppColors.primary : AppColors.textSecondary)
+                    .accessibilityHidden(true)
+                Text(reason.displayName)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppColors.secondaryBackground))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isSelected ? AppColors.primary : AppColors.Flow.ghostStroke, lineWidth: isSelected ? 2 : 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(reason.displayName)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func submitted(_ message: String) -> some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.success)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("userReportSubmitted")
+
+        PrimaryButton(UserSafetyCopy.done) { dismiss() }
+            .accessibilityIdentifier("userReportDone")
+    }
+}
+
+/// 两端「我的」页共用的两行。「上报问题」在这里，账号停用的提示才有地方可指。
+struct AccountSafetySettingsRows: View {
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+    @State private var showsSupportTicket = false
+
+    var body: some View {
+        NavigationLink {
+            BlockedUsersView()
+        } label: {
+            rowTitle(UserSafetyCopy.blockedListTitle)
+        }
+        .accessibilityHint(UserSafetyCopy.blockedListHint)
+        .accessibilityIdentifier("blockedUsersSettingsEntry")
+
+        Button {
+            showsSupportTicket = true
+        } label: {
+            rowTitle(SupportTicketCopy.title)
+        }
+        .foregroundColor(AppColors.textPrimary)
+        .accessibilityHint(SupportTicketCopy.settingsHint)
+        .accessibilityIdentifier("supportTicketSettingsEntry")
+        .sheet(isPresented: $showsSupportTicket) {
+            SupportTicketView(
+                orderID: nil,
+                category: .account,
+                appState: appState,
+                speak: { speechService.speak($0) },
+                speakError: { speechService.speakError($0) }
+            )
+        }
+    }
+
+    private func rowTitle(_ title: String) -> some View {
+        Text(title)
+            .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+            .contentShape(Rectangle())
+    }
+}

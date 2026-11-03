@@ -82,6 +82,22 @@ private struct PartnerRowCard: View {
     }
 }
 
+/// 搭档行下面的举报与不再匹配此人。
+///
+/// `.id` 不能省：列表按下标当身份，拉黑后这一行消失，下一行会接手这个组件的「已拉黑」状态。
+@MainActor
+@ViewBuilder
+private func partnerSafetyActions(
+    userId: Int64,
+    onBlocked: @escaping @MainActor () async -> Void
+) -> some View {
+    if let target = CounterpartSafetyGate.target(userId: userId, orderId: nil) {
+        CounterpartSafetyActions(target: target, onBlocked: onBlocked)
+            .id(target.userId)
+            .padding(.bottom, 6)
+    }
+}
+
 // MARK: - 盲人端「我的固定搭档」
 
 /// 数据源是**两个端点合并**：`GET /api/blind/favorite-volunteers` 与
@@ -285,6 +301,10 @@ struct BlindFavoriteVolunteersView: View {
                 .padding(.bottom, 6)
                 .accessibilityIdentifier("blindAddFavoriteButton")
             }
+            partnerSafetyActions(userId: userId) {
+                actionNotice = UserSafetyCopy.blockSucceeded
+                await load()
+            }
         }
     }
 
@@ -470,6 +490,12 @@ struct VolunteerPartnersView: View {
             ))
             .padding(.bottom, 6)
             .accessibilityIdentifier("volunteerPartnerOptOutButton")
+        }
+        if let userId = row.userId {
+            partnerSafetyActions(userId: userId) {
+                optOutNotice = UserSafetyCopy.blockSucceeded
+                await load()
+            }
         }
     }
 

@@ -46,6 +46,8 @@ struct RunnerRunRecordContent {
         let title: String
         let spokenTitle: String
         let texts: [String]
+        /// 与 `texts` 一一对应的留言本身，举报要用它的 `id`。
+        let notes: [RunRecordMessageResponse]
         /// 「朗读留言」念的：「X的留言：」+ 全部陪跑员留言，按先后。
         let readAloud: String
     }
@@ -143,7 +145,8 @@ struct RunnerRunRecordContent {
 
         routeDescription = geometry.map { Self.routeDescription($0, stops: record.stops.count) }
 
-        let notes = record.messages.filter { $0.fromRole == .volunteer }.compactMap { $0.text?.nonEmpty }
+        let noteMessages = record.messages.filter { $0.fromRole == .volunteer && $0.text?.nonEmpty != nil }
+        let notes = noteMessages.compactMap { $0.text?.nonEmpty }
         if notes.isEmpty {
             messages = nil
         } else {
@@ -152,6 +155,7 @@ struct RunnerRunRecordContent {
                 title: "\(partner ?? "陪跑员")的留言",
                 spokenTitle: spokenTitle,
                 texts: notes,
+                notes: noteMessages,
                 readAloud: spokenTitle + "：" + notes.map { "。！？!?.…".contains($0.last!) ? $0 : $0 + "。" }.joined()
             )
         }
@@ -436,6 +440,9 @@ struct RunnerRunRecordView: View {
                     }
                 }
                 orderLink(record.orderId)
+                if let target = viewModel.counterpartTarget {
+                    CounterpartSafetyActions(target: target)
+                }
             }
             .padding(20)
             .padding(.bottom, 24)
@@ -601,12 +608,21 @@ struct RunnerRunRecordView: View {
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityLabel(messages.spokenTitle)
                 .accessibilityAddTraits(.isHeader)
-            ForEach(Array(messages.texts.enumerated()), id: \.offset) { _, text in
-                Text(text)
+            ForEach(messages.notes, id: \.id) { note in
+                Text(note.text ?? "")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let target = CounterpartSafetyGate.messageTarget(
+                    messageId: note.id,
+                    fromRole: note.fromRole,
+                    text: note.text,
+                    viewerRole: .blind,
+                    counterpart: viewModel.counterpartTarget
+                ) {
+                    MessageReportButton(target: target)
+                }
             }
             Button {
                 audio.activeControlIdentifier = Self.readMessagesID

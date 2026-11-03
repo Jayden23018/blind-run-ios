@@ -35,6 +35,13 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
     var orderTrackResult: Result<OrderTrackResponse, Error> = .failure(NotStubbed(method: "orderTrack"))
     var orderLocationAddressResult: Result<OrderLocationAddressResponse, Error> = .failure(NotStubbed(method: "orderLocationAddress"))
     var submitSupportTicketResult: Result<Void, Error> = .success(())
+    var reportResult: Result<UserReportTicket, Error> = .failure(NotStubbed(method: "report"))
+    var blockUserResult: Result<Void, Error> = .failure(NotStubbed(method: "blockUser"))
+    var unblockUserResult: Result<Void, Error> = .failure(NotStubbed(method: "unblockUser"))
+    var blockedUsersResult: Result<[BlockedUserResponse], Error> = .failure(NotStubbed(method: "blockedUsers"))
+    private(set) var lastReport: UserReportRequest?
+    private(set) var lastBlockedUserId: Int64?
+    private(set) var lastUnblockedUserId: Int64?
 
     /// 每次 `triggerEmergency` 之前多睡这么久。制造「请求在飞、第二次点击进来了」的窗口用。
     var triggerDelayNanoseconds: UInt64 = 0
@@ -133,5 +140,28 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
         record()
         lastSupportTicket = request
         return try submitSupportTicketResult.get()
+    }
+
+    func report(_ request: UserReportRequest) async throws -> UserReportTicket {
+        record()
+        lastReport = request
+        return try reportResult.get()
+    }
+
+    func blockUser(userId: Int64) async throws {
+        record()
+        lastBlockedUserId = userId
+        return try blockUserResult.get()
+    }
+
+    func unblockUser(userId: Int64) async throws {
+        record()
+        lastUnblockedUserId = userId
+        return try unblockUserResult.get()
+    }
+
+    func blockedUsers() async throws -> [BlockedUserResponse] {
+        record()
+        return try blockedUsersResult.get()
     }
 }

@@ -69,6 +69,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 对应后端的 200 + `data: null`。
     var orderReviews: [Int64: OrderReview] = [:]
 
+    /// 我拉黑的人，`GET /api/users/blocked` 的回放源，最近的在前。
+    var blockedUsers: [BlockedUserResponse] = []
+
     /// 跑后留言，`GET /api/orders/{id}/run-record` 的 `messages` 回放源。
     var runRecordMessages: [Int64: [RunRecordMessageResponse]] = [:]
 
@@ -392,6 +395,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/users/\(mockUserId)" && method == .delete {
             return try handleDeleteAccount()
         }
+        // 拉黑的 DELETE 也挂在 /api/users/ 下，同样要放在下面的兜底拒绝之前。
+        if let result = routeUserBlock(method: method, path: path) {
+            return result
+        }
         // 注意：紧急联系人的 DELETE 也挂在 /api/users/ 下，必须先放行再兜底拒绝。
         if path.hasPrefix("/api/users/") && method == .delete && extractEmergencyContactId(from: path) == nil {
             throw APIError.serverError(ErrorResponse(code: "SECURITY_FORBIDDEN", message: "只能删除当前账户。"))
@@ -688,6 +695,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/support/tickets" && method == .post {
             return EmptyResponse()
         }
+        if path == "/api/reports" && method == .post {
+            return Self.mockReportTicket
+        }
 
         // Location
         if path == "/api/blind/location" && method == .post {
@@ -919,7 +929,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             // 换陪跑员时清掉陪跑员上衣颜色 —— 说的是走掉的那位；另两项描述地点和跑者，保留（后端同口径）。
             meetSpotNote: meetupPlan?.meetSpotNote ?? order.meetSpotNote,
             runnerTopColor: meetupPlan?.runnerTopColor ?? order.runnerTopColor,
-            volunteerTopColor: newStatus == .rematching ? nil : (meetupPlan?.volunteerTopColor ?? order.volunteerTopColor)
+            volunteerTopColor: newStatus == .rematching ? nil : (meetupPlan?.volunteerTopColor ?? order.volunteerTopColor),
+            counterpartUserId: hasAcceptedVolunteer ? Self.mockOrderVolunteerId : nil
         )
     }
 
@@ -1103,7 +1114,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 actualDurationSeconds: activeOrderStatus == .completed ? 2360 : nil,
                 actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil,
                 completedTogetherCount: activeOrderStatus == .completed ? 3 : nil,
-                earliestBlindCancelAt: Self.seededBlindCancelAt(for: activeOrderStatus)
+                earliestBlindCancelAt: Self.seededBlindCancelAt(for: activeOrderStatus),
+                counterpartUserId: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerId : nil
             ),
             OrderDetailResponse(
                 orderId: 2,
@@ -1133,7 +1145,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 // 这一单是开发期唯一的已完成订单，也就是「把陈*设为固定搭档」那个入口的落点。
                 volunteerId: Self.mockOrderVolunteerId,
                 volunteerName: Self.mockOrderVolunteerName,
-                volunteerTotalCompleted: Self.mockOrderVolunteerCompletedRuns
+                volunteerTotalCompleted: Self.mockOrderVolunteerCompletedRuns,
+                counterpartUserId: Self.mockOrderVolunteerId
             )
         ]
         // 记录页截图用：给「未完成的预约」那一组一条可拍的数据。**只在显式要求时加** ——
