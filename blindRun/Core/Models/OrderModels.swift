@@ -547,6 +547,12 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// 解码宽容：类型不对时当作缺席，不连累整张订单（`AGENTS.md` 硬约束）。判定在 `BlindArrivalCancelGate`。
     @LenientOptionalString var earliestBlindCancelAt: String? = nil
 
+    /// 这一单的对方的用户 id（backend#916）。**只传给举报和拉黑**，判定走 `CounterpartSafetyGate`，
+    /// 不拼文案、不拨号，也不用它有没有值判断别的事。收藏入口继续用 `volunteerId`，两者口径不同：
+    /// 跑者端陪跑员取消后这里仍有值，而 `volunteerId` 是 `nil`。
+    /// 解码宽容：它只决定一个入口出不出现，类型不对不连累整张订单。
+    @LenientOptionalInt64 var counterpartUserId: Int64? = nil
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -622,7 +628,9 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             runnerTopColor: runnerTopColor,
             volunteerTopColor: volunteerTopColor,
             // 同一条理由：漏掉会让汇合页的取消入口在状态推送与重拉之间那几秒里消失又出现。
-            earliestBlindCancelAt: earliestBlindCancelAt
+            earliestBlindCancelAt: earliestBlindCancelAt,
+            // 同一条理由：漏掉会让举报入口在每次状态推送后静默消失。
+            counterpartUserId: counterpartUserId
         )
     }
 }
@@ -656,6 +664,29 @@ extension KeyedDecodingContainer {
     /// 这个重载让缺键与 `null` 都落到 `nil`。
     nonisolated func decode(_ type: LenientOptionalString.Type, forKey key: Key) throws -> LenientOptionalString {
         try decodeIfPresent(type, forKey: key) ?? LenientOptionalString(wrappedValue: nil)
+    }
+
+    nonisolated func decode(_ type: LenientOptionalInt64.Type, forKey key: Key) throws -> LenientOptionalInt64 {
+        try decodeIfPresent(type, forKey: key) ?? LenientOptionalInt64(wrappedValue: nil)
+    }
+}
+
+/// 可空整数 id 的宽容解码，规则同 `LenientOptionalString`。
+@propertyWrapper
+nonisolated struct LenientOptionalInt64: Codable, Sendable, Equatable {
+    var wrappedValue: Int64?
+
+    init(wrappedValue: Int64?) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        wrappedValue = try? decoder.singleValueContainer().decode(Int64.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
     }
 }
 

@@ -34,6 +34,8 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
     /// 培训是志愿者自己在 App 里做完，完全可以在等审核时把培训学完。
     case trainingIncomplete = "TRAINING_INCOMPLETE"
     case offline = "OFFLINE"
+    /// 账号被平台停用（backend#880）。滑动解决不了，判定见 `VolunteerAvailabilityStatus`。
+    case accountSuspended = "ACCOUNT_SUSPENDED"
 
     /// 后端新增原因时的兜底，避免整份响应解码失败。
     case unknown = "UNKNOWN"
@@ -44,7 +46,8 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
             .dispatchDisabled,
             .notVerified,
             .trainingIncomplete,
-            .offline
+            .offline,
+            .accountSuspended
         ]
     }
 
@@ -63,6 +66,8 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
             return "尚未完成必修培训"
         case .offline:
             return "当前未在线"
+        case .accountSuspended:
+            return "账号已被平台限制，暂时不能接单"
         case .unknown:
             return "暂时无法接单，请稍后重试或更新 App"
         }

@@ -90,6 +90,9 @@ filter:
     - /api/orders/{id}/status-logs
     - /api/orders/{id}/track
     - /api/support/tickets
+    - /api/reports
+    - /api/users/blocked
+    - /api/users/{userId}/block
     - /api/user/role
     - /api/users/me/invite-code
     - /api/users/{id}

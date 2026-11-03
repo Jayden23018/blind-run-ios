@@ -92,6 +92,12 @@ struct BlindIntroCallView: View {
                 } else {
                     heroCard
                 }
+                if let target = CounterpartSafetyGate.target(
+                    userId: viewModel.introCallCounterpartUserId,
+                    orderId: viewModel.order?.orderId
+                ) {
+                    CounterpartSafetyActions(target: target, blockContext: .introCall)
+                }
             }
             .navigationTitle(isReviewingPlan ? IntroCallCopy.blindPlanPageTitle : IntroCallCopy.pageTitle)
             .navigationBarTitleDisplayMode(.inline)

@@ -21,6 +21,10 @@ checklist 作者与模型先后中招两次。同义词错开不是记性问题�
 | 认证（资质） | 资质、证书、审核、verification、注册流程 | `VolunteerCertificateStatus` · `VolunteerRegistrationStatus` · `VolunteerVerificationStatusResponse` | `Volunteer/VolunteerCertificateUploadView.swift` · `Volunteer/VolunteerRegistrationFlowView.swift` |
 | 注销账号 | 删除账户、销户、deleteAccount、closeAccount | `deleteCurrentAccount` · `DeleteAccountResponse` · `AccountDeletionViewModel` | `Core/AppState.swift` |
 | 退出登录 | 登出、logout、signOut | `AppState.logout` · `LogoutResponse` · `confirmLocalOnlySignOut` | `Core/AppState.swift` |
+| 举报 | report、投诉、不良行为 | `UserReportRequest` · `UserReportReason` · `CounterpartSafetyGate` | `Core/Models/UserSafetyModels.swift` · `Shared/UserReportView.swift` |
+| 拉黑 | 不再匹配此人、block、屏蔽 | `CounterpartSafetyActions` · `BlockedUserResponse` · `BlockedUsersView` | `Shared/CounterpartSafetyActions.swift` · `Shared/BlockedUsersView.swift` |
+| 上报问题 | 工单、事后反馈、联系客服、support ticket | `SupportTicketRequest` · `SupportTicketView` | `Shared/SupportTicketView.swift` |
+| 账号停用 | 封号、suspend、`ACCOUNT_SUSPENDED` | `AccountSuspensionCopy` · `VolunteerAvailabilityStatus.blockedBySuspension` | `Core/Models/UserSafetyModels.swift` |
 
 > 「认证」在本仓库有**三个**互不相干的意思（登录 / 实名 / 资质），是最容易搜串的一个词。
 > 三行分开列就是为了这个：搜「认证」命中的很可能不是你要的那一层。

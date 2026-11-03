@@ -32,6 +32,13 @@ enum SafetyEndpoint {
     case supportTicket
     /// 通话磨合期「这一单到底是不是我的」的唯一判据，见 `SafetyServing.matchedOrder`。
     case orderDetail(orderId: Int64)
+    /// 举报。同样不是紧急求助入口，两端都能调。
+    case report
+    /// 拉黑（不再匹配此人）。立即生效、幂等，对方不被告知。
+    case blockUser(userId: Int64)
+    /// 解除拉黑。幂等。
+    case unblockUser(userId: Int64)
+    case blockedUsers
 
     var request: EndpointRequest {
         switch self {
@@ -51,6 +58,14 @@ enum SafetyEndpoint {
             return EndpointRequest(.get, "/api/orders/\(orderId)")
         case .supportTicket:
             return EndpointRequest(.post, "/api/support/tickets")
+        case .report:
+            return EndpointRequest(.post, "/api/reports")
+        case .blockUser(let userId):
+            return EndpointRequest(.post, "/api/users/\(userId)/block")
+        case .unblockUser(let userId):
+            return EndpointRequest(.delete, "/api/users/\(userId)/block")
+        case .blockedUsers:
+            return EndpointRequest(.get, "/api/users/blocked")
         }
     }
 }
@@ -92,6 +107,12 @@ protocol SafetyServing: Sendable {
 
     // 事后工单
     func submitSupportTicket(_ request: SupportTicketRequest) async throws
+
+    // 举报与拉黑（backend#880）
+    func report(_ request: UserReportRequest) async throws -> UserReportTicket
+    func blockUser(userId: Int64) async throws
+    func unblockUser(userId: Int64) async throws
+    func blockedUsers() async throws -> [BlockedUserResponse]
 }
 
 // MARK: - Implementation
@@ -174,5 +195,23 @@ struct SafetyService: SafetyServing {
             SafetyEndpoint.supportTicket.request,
             body: request
         )
+    }
+
+    func report(_ request: UserReportRequest) async throws -> UserReportTicket {
+        try await transport.send(SafetyEndpoint.report.request, body: request)
+    }
+
+    func blockUser(userId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(SafetyEndpoint.blockUser(userId: userId).request)
+    }
+
+    func unblockUser(userId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(SafetyEndpoint.unblockUser(userId: userId).request)
+    }
+
+    /// 逐项宽容：一项形状不对只跳过那一项，不让用户失去解除其余人的入口。
+    func blockedUsers() async throws -> [BlockedUserResponse] {
+        let list: SkippingUndecodable<BlockedUserResponse> = try await transport.send(SafetyEndpoint.blockedUsers.request)
+        return list.wrappedValue
     }
 }

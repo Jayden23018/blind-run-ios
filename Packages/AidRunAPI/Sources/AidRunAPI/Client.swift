@@ -6533,6 +6533,88 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 举报一个人、一单或一条跑后留言。**盲人与陪跑员都能提**。返回的工单 `id` 就是工单号，可在 `GET /api/support/tickets` 里查到，客服回复时用户收到 `SUPPORT_TICKET_REPLIED`。
+    ///
+    /// 🚨 **这不是紧急求助入口**，现在有危险走 `/api/emergency/*`。
+    ///
+    /// 🔒 **被举报的人不知情**：不发通知，任何接口都看不出来。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。\
+    /// 对方不存在、没有交集、订单或留言对不上，一律是同一个 404，客户端不要试图区分。
+    ///
+    /// 同一条举报还没处理完时重复提交，返回原来那张工单（201），不算新的一条。每人 24 小时上限 `app.report.max-per-day`（默认 20），到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/reports`.
+    /// - Remark: Generated from `#/paths//api/reports/post(report)`.
+    public func report(_ input: Operations.report.Input) async throws -> Operations.report.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.report.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/reports",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 201:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.report.Output.Created.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.SupportTicketResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .created(.init(body: body))
+                case 400:
+                    return .badRequest(.init())
+                case 404:
+                    return .notFound(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
     ///
     /// - Remark: HTTP `GET /api/support/tickets`.
@@ -6814,6 +6896,66 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 我拉黑的人，最近的在前。只列我拉黑的，**谁拉黑了我任何接口都不下发**。姓名掩码，没有电话。
+    ///
+    /// - Remark: HTTP `GET /api/users/blocked`.
+    /// - Remark: Generated from `#/paths//api/users/blocked/get(listBlocked)`.
+    public func listBlocked(_ input: Operations.listBlocked.Input) async throws -> Operations.listBlocked.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.listBlocked.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/blocked",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.listBlocked.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            [Components.Schemas.BlockedUserResponse].self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 我的邀请码 + 已邀请/已发奖人数
     ///
     /// 邀请码**稳定不变**（不是一次一码），8 位大写字母数字， **排除易混字符 `0 O 1 I L`** —— 第一版走「注册时手填」，不做深链接， 而邀请人多半是**口头念**给对方听的。
@@ -7004,6 +7146,94 @@ public struct Client: APIProtocol {
                     return .forbidden(.init())
                 case 409:
                     return .conflict(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 拉黑（不再匹配此人）。**立即生效，不等客服；幂等**，重复调用也是 204。盲人与陪跑员都能调。
+    ///
+    /// **双向生效**：两人在派单、邀请、固定搭档上都不再相遇，谁拉黑谁都一样。
+    ///
+    /// 🔒 **对方不被告知**：对方的任何接口响应都不变。在对方看来，手上的邀请是「已被其他志愿者接下」，通话是一轮普通的结束。
+    ///
+    /// 已经成立的单（接单之后）**不受影响**，照常跑完，从下一单起生效，客服后台会有标记。还在通话磨合的这一轮会结束。
+    ///
+    /// 发起方这边：对方从自己的固定搭档和火花列表里消失，对方写的跑后留言自己看不到。解除后恢复。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。对方不存在或没有交集，一律是同一个 404。
+    ///
+    /// - Remark: HTTP `POST /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)`.
+    public func block(_ input: Operations.block.Input) async throws -> Operations.block.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.block.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/block",
+                    parameters: [
+                        input.path.userId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 204:
+                    return .noContent(.init())
+                case 404:
+                    return .notFound(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 解除拉黑。**幂等**：没拉黑过也是 204。之前撤回的邀请不恢复，下一单起可以再被派到一起。
+    ///
+    /// - Remark: HTTP `DELETE /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/delete(unblock)`.
+    public func unblock(_ input: Operations.unblock.Input) async throws -> Operations.unblock.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.unblock.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/block",
+                    parameters: [
+                        input.path.userId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 204:
+                    return .noContent(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,

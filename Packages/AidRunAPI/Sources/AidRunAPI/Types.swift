@@ -1058,6 +1058,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/{id}/track`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/track/get(getOrderTrack)`.
     func getOrderTrack(_ input: Operations.getOrderTrack.Input) async throws -> Operations.getOrderTrack.Output
+    /// 举报一个人、一单或一条跑后留言。**盲人与陪跑员都能提**。返回的工单 `id` 就是工单号，可在 `GET /api/support/tickets` 里查到，客服回复时用户收到 `SUPPORT_TICKET_REPLIED`。
+    ///
+    /// 🚨 **这不是紧急求助入口**，现在有危险走 `/api/emergency/*`。
+    ///
+    /// 🔒 **被举报的人不知情**：不发通知，任何接口都看不出来。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。\
+    /// 对方不存在、没有交集、订单或留言对不上，一律是同一个 404，客户端不要试图区分。
+    ///
+    /// 同一条举报还没处理完时重复提交，返回原来那张工单（201），不算新的一条。每人 24 小时上限 `app.report.max-per-day`（默认 20），到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/reports`.
+    /// - Remark: Generated from `#/paths//api/reports/post(report)`.
+    func report(_ input: Operations.report.Input) async throws -> Operations.report.Output
     /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
     ///
     /// - Remark: HTTP `GET /api/support/tickets`.
@@ -1094,6 +1108,11 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/user/role`.
     /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
     func setRole(_ input: Operations.setRole.Input) async throws -> Operations.setRole.Output
+    /// 我拉黑的人，最近的在前。只列我拉黑的，**谁拉黑了我任何接口都不下发**。姓名掩码，没有电话。
+    ///
+    /// - Remark: HTTP `GET /api/users/blocked`.
+    /// - Remark: Generated from `#/paths//api/users/blocked/get(listBlocked)`.
+    func listBlocked(_ input: Operations.listBlocked.Input) async throws -> Operations.listBlocked.Output
     /// 我的邀请码 + 已邀请/已发奖人数
     ///
     /// 邀请码**稳定不变**（不是一次一码），8 位大写字母数字， **排除易混字符 `0 O 1 I L`** —— 第一版走「注册时手填」，不做深链接， 而邀请人多半是**口头念**给对方听的。
@@ -1117,6 +1136,26 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/users/{id}`.
     /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
     func deleteUser(_ input: Operations.deleteUser.Input) async throws -> Operations.deleteUser.Output
+    /// 拉黑（不再匹配此人）。**立即生效，不等客服；幂等**，重复调用也是 204。盲人与陪跑员都能调。
+    ///
+    /// **双向生效**：两人在派单、邀请、固定搭档上都不再相遇，谁拉黑谁都一样。
+    ///
+    /// 🔒 **对方不被告知**：对方的任何接口响应都不变。在对方看来，手上的邀请是「已被其他志愿者接下」，通话是一轮普通的结束。
+    ///
+    /// 已经成立的单（接单之后）**不受影响**，照常跑完，从下一单起生效，客服后台会有标记。还在通话磨合的这一轮会结束。
+    ///
+    /// 发起方这边：对方从自己的固定搭档和火花列表里消失，对方写的跑后留言自己看不到。解除后恢复。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。对方不存在或没有交集，一律是同一个 404。
+    ///
+    /// - Remark: HTTP `POST /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)`.
+    func block(_ input: Operations.block.Input) async throws -> Operations.block.Output
+    /// 解除拉黑。**幂等**：没拉黑过也是 204。之前撤回的邀请不恢复，下一单起可以再被派到一起。
+    ///
+    /// - Remark: HTTP `DELETE /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/delete(unblock)`.
+    func unblock(_ input: Operations.unblock.Input) async throws -> Operations.unblock.Output
     /// 获取紧急联系人列表
     ///
     /// 归属校验：JWT 用户必须与路径 `userId` 一致（否则 403 `SECURITY_FORBIDDEN`），
@@ -2929,6 +2968,28 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 举报一个人、一单或一条跑后留言。**盲人与陪跑员都能提**。返回的工单 `id` 就是工单号，可在 `GET /api/support/tickets` 里查到，客服回复时用户收到 `SUPPORT_TICKET_REPLIED`。
+    ///
+    /// 🚨 **这不是紧急求助入口**，现在有危险走 `/api/emergency/*`。
+    ///
+    /// 🔒 **被举报的人不知情**：不发通知，任何接口都看不出来。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。\
+    /// 对方不存在、没有交集、订单或留言对不上，一律是同一个 404，客户端不要试图区分。
+    ///
+    /// 同一条举报还没处理完时重复提交，返回原来那张工单（201），不算新的一条。每人 24 小时上限 `app.report.max-per-day`（默认 20），到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/reports`.
+    /// - Remark: Generated from `#/paths//api/reports/post(report)`.
+    public func report(
+        headers: Operations.report.Input.Headers = .init(),
+        body: Operations.report.Input.Body
+    ) async throws -> Operations.report.Output {
+        try await report(Operations.report.Input(
+            headers: headers,
+            body: body
+        ))
+    }
     /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
     ///
     /// - Remark: HTTP `GET /api/support/tickets`.
@@ -2989,6 +3050,13 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// 我拉黑的人，最近的在前。只列我拉黑的，**谁拉黑了我任何接口都不下发**。姓名掩码，没有电话。
+    ///
+    /// - Remark: HTTP `GET /api/users/blocked`.
+    /// - Remark: Generated from `#/paths//api/users/blocked/get(listBlocked)`.
+    public func listBlocked(headers: Operations.listBlocked.Input.Headers = .init()) async throws -> Operations.listBlocked.Output {
+        try await listBlocked(Operations.listBlocked.Input(headers: headers))
+    }
     /// 我的邀请码 + 已邀请/已发奖人数
     ///
     /// 邀请码**稳定不变**（不是一次一码），8 位大写字母数字， **排除易混字符 `0 O 1 I L`** —— 第一版走「注册时手填」，不做深链接， 而邀请人多半是**口头念**给对方听的。
@@ -3029,6 +3097,30 @@ extension APIProtocol {
             path: path,
             headers: headers
         ))
+    }
+    /// 拉黑（不再匹配此人）。**立即生效，不等客服；幂等**，重复调用也是 204。盲人与陪跑员都能调。
+    ///
+    /// **双向生效**：两人在派单、邀请、固定搭档上都不再相遇，谁拉黑谁都一样。
+    ///
+    /// 🔒 **对方不被告知**：对方的任何接口响应都不变。在对方看来，手上的邀请是「已被其他志愿者接下」，通话是一轮普通的结束。
+    ///
+    /// 已经成立的单（接单之后）**不受影响**，照常跑完，从下一单起生效，客服后台会有标记。还在通话磨合的这一轮会结束。
+    ///
+    /// 发起方这边：对方从自己的固定搭档和火花列表里消失，对方写的跑后留言自己看不到。解除后恢复。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。对方不存在或没有交集，一律是同一个 404。
+    ///
+    /// - Remark: HTTP `POST /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)`.
+    public func block(path: Operations.block.Input.Path) async throws -> Operations.block.Output {
+        try await block(Operations.block.Input(path: path))
+    }
+    /// 解除拉黑。**幂等**：没拉黑过也是 204。之前撤回的邀请不恢复，下一单起可以再被派到一起。
+    ///
+    /// - Remark: HTTP `DELETE /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/delete(unblock)`.
+    public func unblock(path: Operations.unblock.Input.Path) async throws -> Operations.unblock.Output {
+        try await unblock(Operations.unblock.Input(path: path))
     }
     /// 获取紧急联系人列表
     ///
@@ -6285,6 +6377,39 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case message
                 case verifyStatus
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BlockedUserResponse`.
+        public struct BlockedUserResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BlockedUserResponse/blockedAt`.
+            public var blockedAt: Swift.String
+            /// 掩码姓名，如 `张*`
+            ///
+            /// - Remark: Generated from `#/components/schemas/BlockedUserResponse/maskedName`.
+            public var maskedName: Swift.String?
+            /// 被拉黑的人（users.id），解除时传回
+            ///
+            /// - Remark: Generated from `#/components/schemas/BlockedUserResponse/userId`.
+            public var userId: Swift.Int64
+            /// Creates a new `BlockedUserResponse`.
+            ///
+            /// - Parameters:
+            ///   - blockedAt:
+            ///   - maskedName: 掩码姓名，如 `张*`
+            ///   - userId: 被拉黑的人（users.id），解除时传回
+            public init(
+                blockedAt: Swift.String,
+                maskedName: Swift.String? = nil,
+                userId: Swift.Int64
+            ) {
+                self.blockedAt = blockedAt
+                self.maskedName = maskedName
+                self.userId = userId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case blockedAt
+                case maskedName
+                case userId
             }
         }
         /// - Remark: Generated from `#/components/schemas/CancelOrderResponse`.
@@ -11854,6 +11979,66 @@ public enum Components {
                 case currentStep
                 case registrationCompleted
                 case stepDetails
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ReportRequest`.
+        public struct ReportRequest: Codable, Hashable, Sendable {
+            /// 用户补充说明，可空，最多 1000 字
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReportRequest/detail`.
+            public var detail: Swift.String?
+            /// 被举报的跑后留言 id（`RunRecordMessageResponse.id`）。可空；给了就必须是对方发的。不传 orderId 时由留言带出；留言原文会存一份快照给客服
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReportRequest/messageId`.
+            public var messageId: Swift.Int64?
+            /// 相关订单。可空；给了就必须是这两个人之间的订单
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReportRequest/orderId`.
+            public var orderId: Swift.Int64?
+            /// 请求向用闭合枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReportRequest/reason`.
+            @frozen public enum reasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case HARASSMENT = "HARASSMENT"
+                case UNSAFE_BEHAVIOR = "UNSAFE_BEHAVIOR"
+                case FALSE_INFO = "FALSE_INFO"
+                case OTHER = "OTHER"
+            }
+            /// 请求向用闭合枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReportRequest/reason`.
+            public var reason: Components.Schemas.ReportRequest.reasonPayload
+            /// 被举报的人（users.id）。必须与自己有过交集，见端点说明
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReportRequest/targetUserId`.
+            public var targetUserId: Swift.Int64
+            /// Creates a new `ReportRequest`.
+            ///
+            /// - Parameters:
+            ///   - detail: 用户补充说明，可空，最多 1000 字
+            ///   - messageId: 被举报的跑后留言 id（`RunRecordMessageResponse.id`）。可空；给了就必须是对方发的。不传 orderId 时由留言带出；留言原文会存一份快照给客服
+            ///   - orderId: 相关订单。可空；给了就必须是这两个人之间的订单
+            ///   - reason: 请求向用闭合枚举
+            ///   - targetUserId: 被举报的人（users.id）。必须与自己有过交集，见端点说明
+            public init(
+                detail: Swift.String? = nil,
+                messageId: Swift.Int64? = nil,
+                orderId: Swift.Int64? = nil,
+                reason: Components.Schemas.ReportRequest.reasonPayload,
+                targetUserId: Swift.Int64
+            ) {
+                self.detail = detail
+                self.messageId = messageId
+                self.orderId = orderId
+                self.reason = reason
+                self.targetUserId = targetUserId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case detail
+                case messageId
+                case orderId
+                case reason
+                case targetUserId
             }
         }
         /// - Remark: Generated from `#/components/schemas/ResolveAddressRequest`.
@@ -30196,6 +30381,206 @@ public enum Operations {
             }
         }
     }
+    /// 举报一个人、一单或一条跑后留言。**盲人与陪跑员都能提**。返回的工单 `id` 就是工单号，可在 `GET /api/support/tickets` 里查到，客服回复时用户收到 `SUPPORT_TICKET_REPLIED`。
+    ///
+    /// 🚨 **这不是紧急求助入口**，现在有危险走 `/api/emergency/*`。
+    ///
+    /// 🔒 **被举报的人不知情**：不发通知，任何接口都看不出来。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。\
+    /// 对方不存在、没有交集、订单或留言对不上，一律是同一个 404，客户端不要试图区分。
+    ///
+    /// 同一条举报还没处理完时重复提交，返回原来那张工单（201），不算新的一条。每人 24 小时上限 `app.report.max-per-day`（默认 20），到顶返 400 + `SUPPORT_TICKET_LIMIT_EXCEEDED`。
+    ///
+    /// - Remark: HTTP `POST /api/reports`.
+    /// - Remark: Generated from `#/paths//api/reports/post(report)`.
+    public enum report {
+        public static let id: Swift.String = "report"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/reports/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.report.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.report.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.report.Input.Headers
+            /// - Remark: Generated from `#/paths/api/reports/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/reports/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ReportRequest)
+            }
+            public var body: Operations.report.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.report.Input.Headers = .init(),
+                body: Operations.report.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/reports/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/reports/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.report.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.report.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Created
+            ///
+            /// - Remark: Generated from `#/paths//api/reports/post(report)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.report.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.report.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// 参数非法，或举报数到顶（errorCode = SUPPORT_TICKET_LIMIT_EXCEEDED）
+            ///
+            /// - Remark: Generated from `#/paths//api/reports/post(report)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.report.Output.BadRequest)
+            /// 参数非法，或举报数到顶（errorCode = SUPPORT_TICKET_LIMIT_EXCEEDED）
+            ///
+            /// - Remark: Generated from `#/paths//api/reports/post(report)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.report.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 对象不存在、没有交集，或订单、留言对不上（不区分，刻意的）
+            ///
+            /// - Remark: Generated from `#/paths//api/reports/post(report)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.report.Output.NotFound)
+            /// 对象不存在、没有交集，或订单、留言对不上（不区分，刻意的）
+            ///
+            /// - Remark: Generated from `#/paths//api/reports/post(report)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.report.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 我的工单，**createdAt 倒序**（最近的在前，同 /api/orders/mine 的口径）
     ///
     /// - Remark: HTTP `GET /api/support/tickets`.
@@ -30730,6 +31115,116 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 我拉黑的人，最近的在前。只列我拉黑的，**谁拉黑了我任何接口都不下发**。姓名掩码，没有电话。
+    ///
+    /// - Remark: HTTP `GET /api/users/blocked`.
+    /// - Remark: Generated from `#/paths//api/users/blocked/get(listBlocked)`.
+    public enum listBlocked {
+        public static let id: Swift.String = "listBlocked"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/users/blocked/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.listBlocked.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.listBlocked.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.listBlocked.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.listBlocked.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/users/blocked/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/users/blocked/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.BlockedUserResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.BlockedUserResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.listBlocked.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.listBlocked.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/users/blocked/get(listBlocked)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.listBlocked.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.listBlocked.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
                             response: self
                         )
                     }
@@ -31313,6 +31808,191 @@ public enum Operations {
                     .json
                 ]
             }
+        }
+    }
+    /// 拉黑（不再匹配此人）。**立即生效，不等客服；幂等**，重复调用也是 204。盲人与陪跑员都能调。
+    ///
+    /// **双向生效**：两人在派单、邀请、固定搭档上都不再相遇，谁拉黑谁都一样。
+    ///
+    /// 🔒 **对方不被告知**：对方的任何接口响应都不变。在对方看来，手上的邀请是「已被其他志愿者接下」，通话是一轮普通的结束。
+    ///
+    /// 已经成立的单（接单之后）**不受影响**，照常跑完，从下一单起生效，客服后台会有标记。还在通话磨合的这一轮会结束。
+    ///
+    /// 发起方这边：对方从自己的固定搭档和火花列表里消失，对方写的跑后留言自己看不到。解除后恢复。
+    ///
+    /// 对象必须与自己有过交集：一起接过单；陪跑员可以对收到过其邀请的盲人；盲人可以对回应过邀请（接单、有意向）的陪跑员，接单又取消的也算。对方不存在或没有交集，一律是同一个 404。
+    ///
+    /// - Remark: HTTP `POST /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)`.
+    public enum block {
+        public static let id: Swift.String = "block"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/users/{userId}/block/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/users/{userId}/block/POST/path/userId`.
+                public var userId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                public init(userId: Swift.Int64) {
+                    self.userId = userId
+                }
+            }
+            public var path: Operations.block.Input.Path
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            public init(path: Operations.block.Input.Path) {
+                self.path = path
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// No Content（含重复拉黑）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.block.Output.NoContent)
+            /// No Content（含重复拉黑）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.block.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 对方不存在，或没有交集（不区分，刻意的）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.block.Output.NotFound)
+            /// 对方不存在，或没有交集（不区分，刻意的）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/{userId}/block/post(block)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.block.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// 解除拉黑。**幂等**：没拉黑过也是 204。之前撤回的邀请不恢复，下一单起可以再被派到一起。
+    ///
+    /// - Remark: HTTP `DELETE /api/users/{userId}/block`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/block/delete(unblock)`.
+    public enum unblock {
+        public static let id: Swift.String = "unblock"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/users/{userId}/block/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/users/{userId}/block/DELETE/path/userId`.
+                public var userId: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                public init(userId: Swift.Int64) {
+                    self.userId = userId
+                }
+            }
+            public var path: Operations.unblock.Input.Path
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            public init(path: Operations.unblock.Input.Path) {
+                self.path = path
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// No Content（含从未拉黑过）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/{userId}/block/delete(unblock)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.unblock.Output.NoContent)
+            /// No Content（含从未拉黑过）
+            ///
+            /// - Remark: Generated from `#/paths//api/users/{userId}/block/delete(unblock)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.unblock.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
         }
     }
     /// 获取紧急联系人列表

@@ -177,6 +177,11 @@ enum ErrorCode: String, Codable, Sendable {
     // 还不足后端配置的分钟数。后端 `message` 带着可取消的时刻，**念它**（`prefersServerMessage`）——
     // 本地文案说不出时刻。正常路径下按钮到点前是置灰的，走到这里多半是两端时钟有偏差。
     case blindCancelTooEarly = "BLIND_CANCEL_TOO_EARLY"
+    // 账号被平台停用后下单或接单（backend#880）。🚨 **不是登录问题**：登录、查看订单、紧急求助都不受影响，
+    // 所以它不走会话过期那条路，也不许引导重新登录。
+    case accountSuspended = "ACCOUNT_SUSPENDED"
+    // 工单或举报数到顶（backend#880）。后端 message 带着具体数量，**念它**。
+    case supportTicketLimitExceeded = "SUPPORT_TICKET_LIMIT_EXCEEDED"
 
     /// 识别出这个码之后，仍优先念后端 `message`（非空时）。
     ///
@@ -184,8 +189,18 @@ enum ErrorCode: String, Codable, Sendable {
     /// 只有契约明写「message 可直接朗读、且含本地算不出的信息」的码才进这里。
     var prefersServerMessage: Bool {
         switch self {
-        case .blindCancelTooEarly: return true
+        case .blindCancelTooEarly, .accountSuspended, .supportTicketLimitExceeded: return true
+        // 契约（#524）：收藏自己拉黑的人时 message 是「你已拉黑对方，请先解除」，本地文案说不出这句。
+        case .favoriteVolunteerNotEligible: return true
         default: return false
+        }
+    }
+
+    /// 念完后端 `message` 之后补的一句。后端那句没有说清的部分在这里，后端原文一个字不动。
+    var serverMessageSupplement: String? {
+        switch self {
+        case .accountSuspended: return AccountSuspensionCopy.supplement
+        default: return nil
         }
     }
 
@@ -367,6 +382,11 @@ enum ErrorCode: String, Codable, Sendable {
         case .blindCancelTooEarly:
             // 只在后端 message 为空时才会被念到（`prefersServerMessage`）。
             return BlindArrivalCancelCopy.tooEarlyFallback
+        case .accountSuspended:
+            // 只在后端 message 为空时才会被念到（`prefersServerMessage`）。
+            return AccountSuspensionCopy.fallback
+        case .supportTicketLimitExceeded:
+            return "你提交的内容已经到上限了，请等客服回复后再提交新的。"
         }
     }
 

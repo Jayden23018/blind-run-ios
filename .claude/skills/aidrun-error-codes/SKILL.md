@@ -46,6 +46,9 @@ description: AidRun 后端错误码语义表与前端映射规则，含 DUPLICAT
 | `APPOINTMENT_TOO_LONG` | 422 | `POST /api/orders` | `plannedEndTime - plannedStartTime` > 300 分钟（N134）。**客户端当前到不了**：表单最大 120 分钟、语音夹在 10–300 |
 | `APPOINTMENT_IN_NIGHT_WINDOW` | 422 | `POST /api/orders` | 🚨 **整段行程**（不是开始时刻）有任一刻落进 `[22:00, 05:00)`（N134）。`21:00–22:30` 拒、`21:00–22:00` 放行、`05:00–06:00` 放行。**两条都命中时后端返回 `APPOINTMENT_TOO_LONG`**，所以那句文案不提时段 |
 | `TOO_MANY_REQUESTS` | 429 | emergency/trigger 等 | 带 `retryAfterSeconds` 与 `Retry-After` 头 |
+| `ACCOUNT_SUSPENDED` | 403 | 下单、接单 | 账号被平台停用。念后端 message 再补 `AccountSuspensionCopy.supplement`；**不是登录问题**，不退登录页 |
+| `SUPPORT_TICKET_LIMIT_EXCEEDED` | 400 | 举报、工单 | 到上限，念后端 message |
+| `RESOURCE_NOT_FOUND` | 404 | 举报、拉黑 | 对象不符合条件，一律 `UserSafetyCopy.targetUnavailable`，不区分原因 |
 | ~~`PROFILE_INCOMPLETE`~~ | — | — | **不存在**，不要映射 |
 | ~~`LOCATION_PERMISSION_REQUIRED`~~ | — | — | **后端没有这个码**，位置权限是纯客户端概念 |
 | ~~`ACTIVE_ORDER_ROLE_SWITCH_BLOCKED`~~ | — | — | 不存在，后端无角色切换端点 |

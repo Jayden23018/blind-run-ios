@@ -2198,7 +2198,10 @@ struct VolunteerInServiceView: View {
                 awaitingBlindConfirmation: viewModel.awaitingBlindConfirmation,
                 gateCaption: gate.caption,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
-                footer: { flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed) }
+                footer: {
+                    flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed)
+                    OrderCounterpartSafetySection(order: order)
+                }
             )
         } else {
             fallbackContent
@@ -2988,6 +2991,8 @@ struct VolunteerSettingsView: View {
                 .accessibilityHint("查看你的邀请码和已经邀请的人数")
                 .accessibilityIdentifier("volunteerInviteCodeSettingsEntry")
 
+                AccountSafetySettingsRows()
+
                 // 陪跑培训（后端迁移 0043）。
                 //
                 // 🚩 这里是**常驻**入口，而不是培训的唯一入口 —— 首页作业区在
@@ -3738,6 +3743,7 @@ struct VolunteerReadOnlyOrderView: View {
                 } else if let error = trackViewModel.errorMessage {
                     Text(error).foregroundColor(AppColors.textSecondary)
                 }
+                OrderCounterpartSafetySection(order: order)
             }
             .padding(20)
             .readableContentColumn()

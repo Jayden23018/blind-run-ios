@@ -60,6 +60,7 @@ struct SupportTicketRequest: Codable, Sendable, Equatable {
 
 enum SupportTicketCopy {
     static let title = "上报问题"
+    static let settingsHint = "写给客服，账号或使用上的问题都可以说"
     static let prompt = "说说发生了什么"
     /// 🔴 时效必须在写字之前就说清楚。工单不是求助，而「上报问题」这四个字
     /// 在一个刚结束陪跑、心里有事的人看来，很容易被当成「有人会马上来处理」。

@@ -82,6 +82,23 @@ private struct PartnerRowCard: View {
     }
 }
 
+/// 搭档行下面的举报与不再匹配此人。
+///
+/// `.id` 不能省：列表按下标当身份，拉黑后这一行消失，下一行会接手这个组件的「已拉黑」状态。
+@MainActor
+@ViewBuilder
+private func partnerSafetyActions(
+    userId: Int64,
+    spokenName: String,
+    onBlocked: @escaping @MainActor () async -> Void
+) -> some View {
+    if let target = CounterpartSafetyGate.target(userId: userId, orderId: nil) {
+        CounterpartSafetyActions(target: target, spokenName: spokenName, onBlocked: onBlocked)
+            .id(target.userId)
+            .padding(.bottom, 6)
+    }
+}
+
 // MARK: - 盲人端「我的固定搭档」
 
 /// 数据源是**两个端点合并**：`GET /api/blind/favorite-volunteers` 与
@@ -154,6 +171,7 @@ struct BlindFavoriteVolunteersView: View {
                     } else {
                         ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                             partnerSection(row)
+                            partnerSafety(row)
                         }
                     }
                 } else if isLoading {
@@ -284,6 +302,22 @@ struct BlindFavoriteVolunteersView: View {
                 .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
                 .padding(.bottom, 6)
                 .accessibilityIdentifier("blindAddFavoriteButton")
+            }
+        }
+    }
+
+    /// 拉黑后这一行会从重拉的列表里消失，结果挂在页面顶部。
+    @ViewBuilder
+    private func partnerSafety(_ row: PartnerRow) -> some View {
+        if let userId = row.userId {
+            partnerSafetyActions(
+                userId: userId,
+                spokenName: row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName)
+            ) {
+                actionNotice = UserSafetyCopy.blockSucceeded
+                await load()
+                // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。
+                if errorMessage != nil { actionNotice = nil }
             }
         }
     }
@@ -470,6 +504,15 @@ struct VolunteerPartnersView: View {
             ))
             .padding(.bottom, 6)
             .accessibilityIdentifier("volunteerPartnerOptOutButton")
+        }
+        if let userId = row.userId {
+            partnerSafetyActions(
+                userId: userId,
+                spokenName: row.spokenName(fallback: PartnerStreakCopy.unknownBlindName)
+            ) {
+                optOutNotice = UserSafetyCopy.blockSucceeded
+                await load()
+            }
         }
     }
 

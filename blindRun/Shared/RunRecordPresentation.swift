@@ -33,6 +33,8 @@ final class RunRecordViewModel: ObservableObject {
     @Published private(set) var sendState: SendState = .idle
     /// 本页发出去的留言。记录重读（GENERATING）后按 `id` 去重合并，不会出现两遍。
     @Published private(set) var sentMessages: [RunRecordMessageResponse] = []
+    /// 举报与拉黑的目标。记录响应不带对方 id，要读一次订单详情；读不到就不显示入口。
+    @Published private(set) var counterpartTarget: CounterpartSafetyTarget?
 
     let orderId: Int64
     private let retryNanoseconds: UInt64
@@ -132,8 +134,22 @@ final class RunRecordViewModel: ObservableObject {
     func loadUntilSettled() async {
         while !Task.isCancelled {
             await loadOnce()
-            guard case .loaded(let record) = phase, record.status == .generating else { return }
+            guard case .loaded(let record) = phase, record.status == .generating else { break }
             try? await Task.sleep(nanoseconds: retryNanoseconds)
+        }
+        await loadCounterpartIfNeeded()
+    }
+
+    /// 失败不提示：记录页的内容照常可看，缺的只是入口。这一页没有单独的重试，下次进页面才会再读。
+    private func loadCounterpartIfNeeded() async {
+        guard !Task.isCancelled, case .loaded = phase, counterpartTarget == nil, let appState else { return }
+        do {
+            let order = try await appState.orders.orderDetail(orderId: orderId)
+            counterpartTarget = CounterpartSafetyGate.target(userId: order.counterpartUserId, orderId: orderId)
+        } catch let error as APIError {
+            appState.handleAuthenticatedAPIError(error)
+        } catch {
+            return
         }
     }
 

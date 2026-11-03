@@ -45,7 +45,8 @@ extension MockAPIClient {
             plannedEndTime: order.plannedEnd,
             startLatitude: order.startLatitude,
             startLongitude: order.startLongitude,
-            plan: introCallPlans[orderId]
+            plan: introCallPlans[orderId],
+            counterpartUserId: Self.mockOrderVolunteerId
         )
     }
 

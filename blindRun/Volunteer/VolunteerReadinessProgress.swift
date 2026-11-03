@@ -57,6 +57,8 @@ enum VolunteerAvailabilityStatus: Equatable {
     case blockedByCertificate
     /// 必修培训没完成。与资质可以同时成立，资质优先（后端引导顺序）。
     case blockedByTraining
+    /// 账号被平台停用。优先于资质和培训：那两步做完也接不了单。
+    case blockedBySuspension
     /// 开着，派单摘要确认可派单。**只有这一态能说「接单中」。**
     case accepting
     /// 开着，但摘要还没到，或还是开启之前的那一份。
@@ -76,6 +78,7 @@ enum VolunteerAvailabilityStatus: Equatable {
         reasons: [VolunteerDispatchNotAvailableReason],
         explanation: String
     ) -> VolunteerAvailabilityStatus {
+        if reasons.contains(.accountSuspended) { return .blockedBySuspension }
         if reasons.contains(.notVerified) { return .blockedByCertificate }
         if reasons.contains(.trainingIncomplete) { return .blockedByTraining }
         guard isAvailable else { return .canOpen }
@@ -87,9 +90,9 @@ enum VolunteerAvailabilityStatus: Equatable {
         return .unavailable(explanation: explanation)
     }
 
-    /// 滑动解决不了的两态，滑块不许滑开。
+    /// 滑动解决不了的三态，滑块不许滑开。
     var blocksOpening: Bool {
-        self == .blockedByCertificate || self == .blockedByTraining
+        self == .blockedByCertificate || self == .blockedByTraining || self == .blockedBySuspension
     }
 
     var isAccepting: Bool { self == .accepting }
@@ -120,11 +123,11 @@ enum VolunteerAvailabilityStatus: Equatable {
                 title: Self.blockedTitle,
                 detail: "\(state)，\(VolunteerReadinessCopy.tapForProgress)"
             )
-        case .blockedByTraining:
-            return VolunteerAvailabilityNotice(
-                title: Self.blockedTitle,
-                detail: "还没完成必修培训，\(VolunteerReadinessCopy.tapForProgress)"
-            )
+        case .blockedByTraining, .blockedBySuspension:
+            let detail = self == .blockedBySuspension
+                ? AccountSuspensionCopy.dispatchNotice
+                : "还没完成必修培训，\(VolunteerReadinessCopy.tapForProgress)"
+            return VolunteerAvailabilityNotice(title: Self.blockedTitle, detail: detail)
         case .confirming:
             return VolunteerAvailabilityNotice(title: VolunteerReadinessCopy.confirmingTitle, detail: nil)
         case .notOnline:
