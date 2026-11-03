@@ -169,7 +169,8 @@ final class UserSafetyTests: XCTestCase {
     // MARK: 错误文案
 
     func testSuspensionReadsTheServerMessageThenAddsWhoCanHelp() {
-        let server = "你的账号已被平台限制，暂时不能下单或接单。遇到危险仍可以使用紧急求助"
+        // 故意与本地兜底文案不同：用后端真实那句时，不念后端 message 的实现也能过这条断言（验红时实测）。
+        let server = "账号受限（来自后端的句子）"
         let message = serverError("ACCOUNT_SUSPENDED", server).localizedMessage
         XCTAssertTrue(message.hasPrefix(server), "后端原文一个字不动")
         XCTAssertTrue(message.contains("上报问题"), "要说清去哪里找客服")
