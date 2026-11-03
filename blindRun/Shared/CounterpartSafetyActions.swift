@@ -124,6 +124,17 @@ struct CounterpartSafetyActions: View {
     }
 }
 
+/// 订单页的入口。判定全在 `CounterpartSafetyGate`。
+struct OrderCounterpartSafetySection: View {
+    let order: OrderDetailResponse
+
+    var body: some View {
+        if let target = CounterpartSafetyGate.orderPageTarget(order) {
+            CounterpartSafetyActions(target: target)
+        }
+    }
+}
+
 /// 留言旁的「举报这条留言」。留言不放「不再匹配此人」：那是对人的动作，页面底部已经有。
 struct MessageReportButton: View {
     @EnvironmentObject private var appState: AppState

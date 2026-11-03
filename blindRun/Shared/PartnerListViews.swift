@@ -171,6 +171,7 @@ struct BlindFavoriteVolunteersView: View {
                     } else {
                         ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                             partnerSection(row)
+                            partnerSafety(row)
                         }
                     }
                 } else if isLoading {
@@ -302,7 +303,17 @@ struct BlindFavoriteVolunteersView: View {
                 .padding(.bottom, 6)
                 .accessibilityIdentifier("blindAddFavoriteButton")
             }
-            partnerSafetyActions(userId: userId, spokenName: spokenName) {
+        }
+    }
+
+    /// 拉黑后这一行会从重拉的列表里消失，结果挂在页面顶部。
+    @ViewBuilder
+    private func partnerSafety(_ row: PartnerRow) -> some View {
+        if let userId = row.userId {
+            partnerSafetyActions(
+                userId: userId,
+                spokenName: row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName)
+            ) {
                 actionNotice = UserSafetyCopy.blockSucceeded
                 await load()
                 // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。

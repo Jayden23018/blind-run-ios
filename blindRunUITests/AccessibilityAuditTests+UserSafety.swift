@@ -15,6 +15,14 @@ extension AccessibilityAuditTests {
         XCTAssertGreaterThanOrEqual(report.frame.height, 63.5, "举报按钮可点高度不足 64pt：\(report.frame)")
         attachScreenshot(app, name: "blind-order-safety-actions")
         report.tap()
+        try submitReportAndCheckTheForm(app)
+        blockFromTheOrderPage(app)
+        try unblockFromSettings(app)
+    }
+
+    @available(iOS 17.0, *)
+    @MainActor
+    private func submitReportAndCheckTheForm(_ app: XCUIApplication) throws {
 
         XCTAssertTrue(app.descendants(matching: .any)["userReportSubmit"].firstMatch.waitForExistence(timeout: 10))
         attachScreenshot(app, name: "blind-report-form")
@@ -36,7 +44,10 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(submitted.label.contains("工单号"), "没有工单号：\(submitted.label)")
         attachScreenshot(app, name: "blind-report-submitted")
         app.buttons["userReportDone"].firstMatch.tap()
+    }
 
+    @MainActor
+    private func blockFromTheOrderPage(_ app: XCUIApplication) {
         let block = revealButton(app, "counterpartBlockButton")
         XCTAssertGreaterThanOrEqual(block.frame.height, 63.5)
         block.tap()
@@ -52,7 +63,11 @@ extension AccessibilityAuditTests {
         let done = app.descendants(matching: .any)["counterpartBlockSucceeded"].firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10), "结果要留在屏幕上")
         XCTAssertFalse(app.buttons["counterpartBlockButton"].exists, "已拉黑后这一页不再显示入口")
+    }
 
+    @available(iOS 17.0, *)
+    @MainActor
+    private func unblockFromSettings(_ app: XCUIApplication) throws {
         // 订单页没有标签栏，退回首页才有。
         app.navigationBars.buttons.firstMatch.tap()
         let tabBar = app.tabBars.firstMatch
@@ -72,6 +87,7 @@ extension AccessibilityAuditTests {
         try audit(app)
 
         unblock.tap()
+        let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "解除也要二次确认")
         alert.buttons["确认解除"].tap()
         let empty = app.descendants(matching: .any)["blockedUsersEmpty"].firstMatch

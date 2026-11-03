@@ -123,13 +123,11 @@ enum VolunteerAvailabilityStatus: Equatable {
                 title: Self.blockedTitle,
                 detail: "\(state)，\(VolunteerReadinessCopy.tapForProgress)"
             )
-        case .blockedByTraining:
-            return VolunteerAvailabilityNotice(
-                title: Self.blockedTitle,
-                detail: "还没完成必修培训，\(VolunteerReadinessCopy.tapForProgress)"
-            )
-        case .blockedBySuspension:
-            return VolunteerAvailabilityNotice(title: Self.blockedTitle, detail: AccountSuspensionCopy.dispatchNotice)
+        case .blockedByTraining, .blockedBySuspension:
+            let detail = self == .blockedBySuspension
+                ? AccountSuspensionCopy.dispatchNotice
+                : "还没完成必修培训，\(VolunteerReadinessCopy.tapForProgress)"
+            return VolunteerAvailabilityNotice(title: Self.blockedTitle, detail: detail)
         case .confirming:
             return VolunteerAvailabilityNotice(title: VolunteerReadinessCopy.confirmingTitle, detail: nil)
         case .notOnline:

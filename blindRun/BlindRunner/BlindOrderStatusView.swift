@@ -2111,8 +2111,7 @@ struct BlindOrderStatusView: View {
                 footer: {
                     VStack(spacing: 16) {
                         flowFooter(order)
-                        // 已完成时排在评价之后：举报入口就在评价旁边。
-                        if order.status != .completed { counterpartSafetySection(order) }
+                        if order.status != .completed { OrderCounterpartSafetySection(order: order) } // 已完成时排在评价之后
                         // 🔴 已完成那一幕**把改版前那一页的三块原样接回来**（项目负责人
                         // 2026-09-17 决策）：轨迹总结 + 大图回放 + 评价表单 + 收藏固定搭档
                         // （`lifecycleSection` → `completionRatingSection`）、本单信息、状态流水。
@@ -2124,7 +2123,7 @@ struct BlindOrderStatusView: View {
                         // 「后端 rating 是 1–5 必填、没有三档枚举」上（待拍板项 D 的决定是推迟）。
                         if order.status == .completed {
                             lifecycleSection(order)
-                            counterpartSafetySection(order)
+                            OrderCounterpartSafetySection(order: order)
                             orderInfoSection(order)
                             statusLogSection
                         }
@@ -2320,7 +2319,7 @@ struct BlindOrderStatusView: View {
                     dispatchAlgorithmNoticeSection(order)
                     peerMapSection(order)
                     lifecycleSection(order)
-                    counterpartSafetySection(order)
+                    OrderCounterpartSafetySection(order: order)
                     orderInfoSection(order)
                     statusLogSection
                     debugMockControls(order)
@@ -2869,14 +2868,6 @@ struct BlindOrderStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
-    }
-
-    /// 举报与不再匹配此人。判定全在 `CounterpartSafetyGate`。
-    @ViewBuilder
-    private func counterpartSafetySection(_ order: OrderDetailResponse) -> some View {
-        if let target = CounterpartSafetyGate.orderPageTarget(order) {
-            CounterpartSafetyActions(target: target)
-        }
     }
 
     /// 「把这一单的志愿者设为固定搭档」。

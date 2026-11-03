@@ -2200,7 +2200,7 @@ struct VolunteerInServiceView: View {
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
                 footer: {
                     flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed)
-                    counterpartSafetySection(order)
+                    OrderCounterpartSafetySection(order: order)
                 }
             )
         } else {
@@ -2345,14 +2345,6 @@ struct VolunteerInServiceView: View {
     private var dialableRunnerPhone: URL? {
         guard let phone = viewModel.order?.blindPhone?.nilIfBlank else { return nil }
         return EmergencyDialer.telURL(for: phone)
-    }
-
-    /// 举报与不再匹配此人。判定全在 `CounterpartSafetyGate`，跑步中页不走这个页脚。
-    @ViewBuilder
-    private func counterpartSafetySection(_ order: OrderDetailResponse) -> some View {
-        if let target = CounterpartSafetyGate.orderPageTarget(order) {
-            CounterpartSafetyActions(target: target)
-        }
     }
 
     /// 两处入口共用同一份装配（已完成页的「上报问题」、汇合页「找不到对方」里的那一枚）。
@@ -3751,9 +3743,7 @@ struct VolunteerReadOnlyOrderView: View {
                 } else if let error = trackViewModel.errorMessage {
                     Text(error).foregroundColor(AppColors.textSecondary)
                 }
-                if let target = CounterpartSafetyGate.orderPageTarget(order) {
-                    CounterpartSafetyActions(target: target)
-                }
+                OrderCounterpartSafetySection(order: order)
             }
             .padding(20)
             .readableContentColumn()
