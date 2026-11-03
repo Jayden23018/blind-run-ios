@@ -14,9 +14,13 @@ import UIKit
 /// 把它**所有直接子控制器**的根视图子元素列表置空。overlay 本身是纯 SwiftUI、不是子控制器，不受影响。
 struct HostedContainersAccessibilityHider: UIViewRepresentable {
     let isHidden: Bool
+    /// 藏着的时候换一个值 = 再写一遍。给遮罩显示期间树会变的调用方用：写的时候还没挂载的容器
+    /// 藏不住（#526 冷启动），别处收起时也可能把同一个容器写回 `nil`（`VolunteerTabView` 的邀请卡）。
+    var revision = 0
 
     final class Coordinator {
         var appliedIsHidden = false
+        var appliedRevision = 0
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -32,8 +36,10 @@ struct HostedContainersAccessibilityHider: UIViewRepresentable {
         // 只在翻转时写。挂在根上时宿主任何一次发布都会触发 update，每次都写 `nil`
         // 会把别处（例如邀请卡）对同一个容器置的 `[]` 冲掉。
         // ponytail: 两处同时要藏同一个容器时后收起的一方会把它放出来；目前两层遮罩互斥，真叠加了再做引用计数。
-        guard context.coordinator.appliedIsHidden != isHidden else { return }
+        let needsReapplying = isHidden && context.coordinator.appliedRevision != revision
+        guard context.coordinator.appliedIsHidden != isHidden || needsReapplying else { return }
         context.coordinator.appliedIsHidden = isHidden
+        context.coordinator.appliedRevision = revision
         let isHidden = isHidden
         // 推到下一拍：本次 update 里 responder 链与子控制器不一定已经就位。
         DispatchQueue.main.async {

@@ -198,6 +198,14 @@ final class AppUpdatePolicyTests: XCTestCase {
         XCTAssertEqual(EmergencySafetyCopy.homeCallTitle, "紧急呼叫")
     }
 
+    /// 这一页只在没有订单时出现。两端的判定在没有订单时都必须落到本地拨号，改了这里要回来看那一页。
+    func testBothEndsResolveToLocalDialWithoutAnOrder() {
+        for role in [UserRole.blind, .volunteer, .unset, nil] as [UserRole?] {
+            XCTAssertEqual(BlindHomeSOSMode.resolve(order: nil, role: role), .localCall)
+        }
+        XCTAssertEqual(VolunteerOrderSOSMode.resolve(status: nil), .localCall)
+    }
+
     func testUpdateGateCallContextFollowsTheRoleOfTheEntry() {
         XCTAssertFalse(EmergencyCallContext.updateRequired(role: .volunteer).appendsNoContactHint, "陪跑员的拨号单不列联系人")
         XCTAssertTrue(EmergencyCallContext.updateRequired(role: .blind).appendsNoContactHint)

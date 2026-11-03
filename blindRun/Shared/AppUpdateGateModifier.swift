@@ -3,6 +3,8 @@ import SwiftUI
 /// 挂在根视图最外层：强制更新页要盖住隐私同意页、登录页和所有路由。
 ///
 /// 背后的界面退出读屏树要两层一起挂（记忆 `hide-uikit-hosted-tree-from-accessibility`）。
+/// 它还得反复写：冷启动时这一页比标签栏容器先出现，只写一次藏不住后来挂上的容器（真机用例
+/// `testAppUpdateGateCoversHomeAndOnlyOffersLocalDial` 红过）。
 /// 判定在 `AppUpdatePolicy`：这一层只负责触发检查和渲染结果。
 struct AppUpdateGateModifier: ViewModifier {
     @EnvironmentObject private var appState: AppState
@@ -10,6 +12,9 @@ struct AppUpdateGateModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @StateObject private var gate = AppUpdateGate()
+    @State private var hiderRevision = 0
+
+    private static let hiderReapplyInterval: UInt64 = 500_000_000
 
     /// 恢复结束、登录、换角色时都要重判：判定读的订单归属取决于这两样。
     private struct RefreshKey: Equatable {
@@ -37,7 +42,7 @@ struct AppUpdateGateModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .accessibilityHidden(requiredTarget != nil)
-            .background(HostedContainersAccessibilityHider(isHidden: requiredTarget != nil))
+            .background(HostedContainersAccessibilityHider(isHidden: requiredTarget != nil, revision: hiderRevision))
             .overlay {
                 if let requiredTarget {
                     AppUpdateRequiredView(target: requiredTarget, currentVersion: gate.currentVersion ?? "")
@@ -49,6 +54,15 @@ struct AppUpdateGateModifier: ViewModifier {
                 Button(AppUpdateCopy.optionalLaterButtonTitle, role: .cancel) {}
             } message: { target in
                 Text(AppUpdateCopy.optionalMessage(targetVersion: target.version))
+            }
+            // ponytail: 定时重写而不是追踪每一处树变化。这一页只在版本过低时出现，且没有列表要滚动，
+            // 半秒一次的代价可以忽略。要省的话改成观察容器的子控制器变化。
+            .task(id: requiredTarget != nil) {
+                guard requiredTarget != nil else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: Self.hiderReapplyInterval)
+                    hiderRevision &+= 1
+                }
             }
             .task(id: RefreshKey(restoration: appState.sessionRestorationState, role: appState.activeRole)) {
                 await gate.refresh(from: appState)

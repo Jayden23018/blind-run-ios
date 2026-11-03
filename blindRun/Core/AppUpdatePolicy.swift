@@ -125,7 +125,7 @@ enum AppUpdateCopy {
     static let requiredTitle = "需要更新才能继续使用"
     static let updateButtonTitle = "去更新"
     static let updateAccessibilityHint = "打开 App Store 的更新页面"
-    static let repeatButtonTitle = "重复说明"
+    static let repeatButtonTitle = "重复当前状态"
     static let repeatAccessibilityHint = "再听一遍为什么需要更新"
     static let openFailed = "打不开更新页面。请打开 App Store，搜索「助盲跑」手动更新。"
     static let optionalTitle = "有新版本"
