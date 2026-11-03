@@ -36,10 +36,6 @@ final class AppUpdateGateTests: XCTestCase {
         AppUpdateGate(currentVersion: currentVersion, persistence: persistence ?? AppStatePersistenceFactory.makeIsolatedTest())
     }
 
-    private static func isRequired(_ presentation: AppUpdatePresentation) -> Bool {
-        presentation.isRequired
-    }
-
     private static func isOptionalPrompt(_ presentation: AppUpdatePresentation) -> Bool {
         if case .optionalPrompt = presentation { return true }
         return false
@@ -48,7 +44,7 @@ final class AppUpdateGateTests: XCTestCase {
     func testBelowMinimumWithNoEscortPrompts() async {
         let gate = makeGate()
         await gate.refresh(from: FakeSource(.success(Self.response(min: "2.0"))))
-        XCTAssertTrue(Self.isRequired(gate.presentation))
+        XCTAssertTrue(gate.presentation.isRequired)
     }
 
     /// 线上后端未部署时这个接口返回 401，走的就是这条。
@@ -69,7 +65,7 @@ final class AppUpdateGateTests: XCTestCase {
         let gate = makeGate()
         let source = FakeSource(.success(Self.response(min: "2.0")))
         await gate.refresh(from: source)
-        XCTAssertTrue(Self.isRequired(gate.presentation))
+        XCTAssertTrue(gate.presentation.isRequired)
 
         source.requirements = .failure(Boom())
         await gate.refresh(from: source)
@@ -85,7 +81,7 @@ final class AppUpdateGateTests: XCTestCase {
 
         source.presence = .none
         await gate.refresh(from: source)
-        XCTAssertTrue(Self.isRequired(gate.presentation))
+        XCTAssertTrue(gate.presentation.isRequired)
     }
 
     /// 系统弹窗按下按钮就收起。回到 App 时版本仍然过低，必须再弹。
@@ -100,7 +96,7 @@ final class AppUpdateGateTests: XCTestCase {
         XCTAssertEqual(gate.presentation, .none)
 
         await gate.refresh(from: source)
-        XCTAssertTrue(Self.isRequired(gate.presentation), "回到 App 必须再弹")
+        XCTAssertTrue(gate.presentation.isRequired, "回到 App 必须再弹")
     }
 
     func testRequiredPromptStopsOnceUpdated() async {
