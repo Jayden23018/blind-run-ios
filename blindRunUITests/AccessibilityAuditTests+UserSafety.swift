@@ -154,6 +154,11 @@ extension AccessibilityAuditTests {
         let next = app.buttons["counterpartBlockButton"].firstMatch
         XCTAssertTrue(next.waitForExistence(timeout: 10), "下一行的入口被上一行的状态吃掉了")
         XCTAssertNotEqual(next.label, firstName, "被拉黑的人还在列表里")
+        // 这一句才分得清：去掉 `.id` 后下一行接手上一行的「已拉黑」状态，别的行仍有按钮，只看按钮查不出来（验红时实测）。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["counterpartBlockSucceeded"].exists,
+            "上一行的结果串到了下一行：这个人其实没有被拉黑"
+        )
     }
 
     /// 记录详情：留言旁的举报带着这条留言，页底有两枚入口。
