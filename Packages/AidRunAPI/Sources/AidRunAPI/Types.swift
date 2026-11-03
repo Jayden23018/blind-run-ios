@@ -138,6 +138,22 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/blind/volunteer-location`.
     /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
     func getVolunteerLocation(_ input: Operations.getVolunteerLocation.Input) async throws -> Operations.getVolunteerLocation.Output
+    /// 读取客户端版本要求
+    ///
+    /// 2026-11-02 新增（#882）。客户端启动时读一次，用来判断要不要提示更新。
+    ///
+    /// 当前版本低于 `xxxMinSupportedVersion`：全屏提示必须更新，只保留本地紧急拨号。
+    /// 当前版本低于 `xxxLatestVersion`：显示可以关闭的提示。
+    ///
+    /// ⚠️ **字段是 null、请求失败、版本号解析不了，一律不拦用户**：这个接口出问题时，不能把人挡在 App 外面。
+    /// null 表示这一项没有配置。
+    ///
+    /// ⚠️ **免登录**：强制更新要拦住还没登录的人，所以不放进需要登录的 `/rules`。
+    /// 带着过期 token 请求同样返回 200。响应不含任何用户信息，所有人读到的内容相同。
+    ///
+    /// - Remark: HTTP `GET /api/config/app-version`.
+    /// - Remark: Generated from `#/paths//api/config/app-version/get(getAppVersion)`.
+    func getAppVersion(_ input: Operations.getAppVersion.Input) async throws -> Operations.getAppVersion.Output
     /// 读取功能开关状态
     ///
     /// 2026-08-24 新增（handoff iOS 那条）。客户端用它决定**空态说什么**。
@@ -167,6 +183,9 @@ public protocol APIProtocol: Sendable {
     ///
     /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
     /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
+    /// 按当前账号下发，换账号要重新读。
     ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
@@ -315,6 +334,7 @@ public protocol APIProtocol: Sendable {
     /// 创建订单
     ///
     /// 下单前置校验（按顺序，命中即返回，不继续往下）：
+    /// 0. 暂不接受任何预约时拒绝，422 `ORDER_SERVICE_NOT_OPEN`；起跑点不在开放范围内时拒绝，422 `ORDER_OUTSIDE_OPEN_AREA`（#896）。`message` 说明情况，范围经 `GET /api/config/rules` 的 `launchScope` 下发。没配置时不拦截。这一条在第 6 条之后、第 7 条之前判定
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
@@ -322,7 +342,8 @@ public protocol APIProtocol: Sendable {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
     ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
@@ -661,10 +682,10 @@ public protocol APIProtocol: Sendable {
     ///
     /// 提交时校验：
     /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
-    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_OUTSIDE_DUTY_HOURS` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
     ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
     /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
-    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    /// - 改了地点：新集合点不在开放范围内 → 422 `ORDER_OUTSIDE_OPEN_AREA`（#896）；与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
     ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
     /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
     /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
@@ -1604,6 +1625,24 @@ extension APIProtocol {
     public func getVolunteerLocation(headers: Operations.getVolunteerLocation.Input.Headers = .init()) async throws -> Operations.getVolunteerLocation.Output {
         try await getVolunteerLocation(Operations.getVolunteerLocation.Input(headers: headers))
     }
+    /// 读取客户端版本要求
+    ///
+    /// 2026-11-02 新增（#882）。客户端启动时读一次，用来判断要不要提示更新。
+    ///
+    /// 当前版本低于 `xxxMinSupportedVersion`：全屏提示必须更新，只保留本地紧急拨号。
+    /// 当前版本低于 `xxxLatestVersion`：显示可以关闭的提示。
+    ///
+    /// ⚠️ **字段是 null、请求失败、版本号解析不了，一律不拦用户**：这个接口出问题时，不能把人挡在 App 外面。
+    /// null 表示这一项没有配置。
+    ///
+    /// ⚠️ **免登录**：强制更新要拦住还没登录的人，所以不放进需要登录的 `/rules`。
+    /// 带着过期 token 请求同样返回 200。响应不含任何用户信息，所有人读到的内容相同。
+    ///
+    /// - Remark: HTTP `GET /api/config/app-version`.
+    /// - Remark: Generated from `#/paths//api/config/app-version/get(getAppVersion)`.
+    public func getAppVersion(headers: Operations.getAppVersion.Input.Headers = .init()) async throws -> Operations.getAppVersion.Output {
+        try await getAppVersion(Operations.getAppVersion.Input(headers: headers))
+    }
     /// 读取功能开关状态
     ///
     /// 2026-08-24 新增（handoff iOS 那条）。客户端用它决定**空态说什么**。
@@ -1635,6 +1674,9 @@ extension APIProtocol {
     ///
     /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
     /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
+    /// 按当前账号下发，换账号要重新读。
     ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
@@ -1847,6 +1889,7 @@ extension APIProtocol {
     /// 创建订单
     ///
     /// 下单前置校验（按顺序，命中即返回，不继续往下）：
+    /// 0. 暂不接受任何预约时拒绝，422 `ORDER_SERVICE_NOT_OPEN`；起跑点不在开放范围内时拒绝，422 `ORDER_OUTSIDE_OPEN_AREA`（#896）。`message` 说明情况，范围经 `GET /api/config/rules` 的 `launchScope` 下发。没配置时不拦截。这一条在第 6 条之后、第 7 条之前判定
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
@@ -1854,7 +1897,8 @@ extension APIProtocol {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
     ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
@@ -2327,10 +2371,10 @@ extension APIProtocol {
     ///
     /// 提交时校验：
     /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
-    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_OUTSIDE_DUTY_HOURS` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
     ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
     /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
-    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    /// - 改了地点：新集合点不在开放范围内 → 422 `ORDER_OUTSIDE_OPEN_AREA`（#896）；与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
     ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
     /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
     /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
@@ -3663,6 +3707,67 @@ public enum Components {
         /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
         /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
         ///
+        /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse`.
+        public struct ApiResponseAppVersionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse/code`.
+            public var code: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse/data`.
+            public var data: Components.Schemas.AppVersionResponse?
+            /// 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            /// （2026-07-31 补：此前本 schema 漏了这个字段，导致 20 个错误响应的契约里查不到
+            /// 前端赖以分支的 errorCode —— 那 20 处已改用 `ApiErrorResponse`，本字段补齐是为剩下的 6 处。）
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse/errorCode`.
+            public var errorCode: Swift.String?
+            /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse/hasMore`.
+            public var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse/message`.
+            public var message: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApiResponseAppVersionResponse/success`.
+            public var success: Swift.Bool
+            /// Creates a new `ApiResponseAppVersionResponse`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - data:
+            ///   - errorCode: 业务错误码，成功响应为 null。取值见 `#/components/schemas/ErrorCode` 的权威总表。
+            ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+            ///   - message:
+            ///   - success:
+            public init(
+                code: Swift.Int32,
+                data: Components.Schemas.AppVersionResponse? = nil,
+                errorCode: Swift.String? = nil,
+                hasMore: Swift.Bool? = nil,
+                message: Swift.String? = nil,
+                success: Swift.Bool
+            ) {
+                self.code = code
+                self.data = data
+                self.errorCode = errorCode
+                self.hasMore = hasMore
+                self.message = message
+                self.success = success
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case data
+                case errorCode
+                case hasMore
+                case message
+                case success
+            }
+        }
+        /// `ApiResponse<T>` 信封的**带 data** 形态。用于成功响应，以及少数「失败但仍要回传 data」的
+        /// 端点（目前只有 `POST /api/blind/verify-identity` 的 400，body 里带 `data.verifyStatus`）。
+        /// 纯错误响应请用 `ApiErrorResponse`。
+        ///
+        /// ⚠️ 后端 `dto/ApiResponse.java` 是 Lombok `@Data`、**没有 `@JsonInclude`**，
+        /// 所以这 5 个字段在 JSON 里**总是出现**，用不到的为 null（错误响应里 `data: null`，
+        /// 成功响应里 `errorCode: null`）。客户端不要把「字段存在」当成「字段有值」。
+        ///
         /// - Remark: Generated from `#/components/schemas/ApiResponseBlindVerifyResult`.
         public struct ApiResponseBlindVerifyResult: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ApiResponseBlindVerifyResult/code`.
@@ -4900,6 +5005,69 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case deviceToken
                 case platform
+            }
+        }
+        /// 客户端版本要求（`GET /api/config/app-version` 的 `data`）。
+        /// ⚠️ 字段是 null、请求失败、版本号解析不了，一律不拦用户。null 表示这一项没有配置。
+        /// 版本号是点分数字，例如 `1.2.0`，逐段按数字比较，不要按字符串比较。
+        ///
+        /// - Remark: Generated from `#/components/schemas/AppVersionResponse`.
+        public struct AppVersionResponse: Codable, Hashable, Sendable {
+            /// 安卓最新版本。当前版本低于它：显示可以关闭的提示
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppVersionResponse/androidLatestVersion`.
+            public var androidLatestVersion: Swift.String?
+            /// 安卓最低支持版本。当前版本低于它：全屏提示必须更新，只保留本地紧急拨号
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppVersionResponse/androidMinSupportedVersion`.
+            public var androidMinSupportedVersion: Swift.String?
+            /// 安卓更新地址
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppVersionResponse/androidUpdateUrl`.
+            public var androidUpdateUrl: Swift.String?
+            /// iOS 最新版本。当前版本低于它：显示可以关闭的提示
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppVersionResponse/iosLatestVersion`.
+            public var iosLatestVersion: Swift.String?
+            /// iOS 最低支持版本。当前版本低于它：全屏提示必须更新，只保留本地紧急拨号
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppVersionResponse/iosMinSupportedVersion`.
+            public var iosMinSupportedVersion: Swift.String?
+            /// iOS 更新地址（App Store）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppVersionResponse/iosUpdateUrl`.
+            public var iosUpdateUrl: Swift.String?
+            /// Creates a new `AppVersionResponse`.
+            ///
+            /// - Parameters:
+            ///   - androidLatestVersion: 安卓最新版本。当前版本低于它：显示可以关闭的提示
+            ///   - androidMinSupportedVersion: 安卓最低支持版本。当前版本低于它：全屏提示必须更新，只保留本地紧急拨号
+            ///   - androidUpdateUrl: 安卓更新地址
+            ///   - iosLatestVersion: iOS 最新版本。当前版本低于它：显示可以关闭的提示
+            ///   - iosMinSupportedVersion: iOS 最低支持版本。当前版本低于它：全屏提示必须更新，只保留本地紧急拨号
+            ///   - iosUpdateUrl: iOS 更新地址（App Store）
+            public init(
+                androidLatestVersion: Swift.String? = nil,
+                androidMinSupportedVersion: Swift.String? = nil,
+                androidUpdateUrl: Swift.String? = nil,
+                iosLatestVersion: Swift.String? = nil,
+                iosMinSupportedVersion: Swift.String? = nil,
+                iosUpdateUrl: Swift.String? = nil
+            ) {
+                self.androidLatestVersion = androidLatestVersion
+                self.androidMinSupportedVersion = androidMinSupportedVersion
+                self.androidUpdateUrl = androidUpdateUrl
+                self.iosLatestVersion = iosLatestVersion
+                self.iosMinSupportedVersion = iosMinSupportedVersion
+                self.iosUpdateUrl = iosUpdateUrl
+            }
+            public enum CodingKeys: String, CodingKey {
+                case androidLatestVersion
+                case androidMinSupportedVersion
+                case androidUpdateUrl
+                case iosLatestVersion
+                case iosMinSupportedVersion
+                case iosUpdateUrl
             }
         }
         /// 附近可接订单摘要（接单前可见面）。刻意不含 specialNotes / routeNotes —— 这份数据会下发给还没接单、可能最终拒单的志愿者。
@@ -6378,6 +6546,7 @@ public enum Components {
                 case NOT_VERIFIED = "NOT_VERIFIED"
                 case TRAINING_INCOMPLETE = "TRAINING_INCOMPLETE"
                 case OFFLINE = "OFFLINE"
+                case ACCOUNT_SUSPENDED = "ACCOUNT_SUSPENDED"
             }
             /// - Remark: Generated from `#/components/schemas/DispatchBlockReason/value1`.
             public var value1: Components.Schemas.DispatchBlockReason.Value1Payload?
@@ -6481,6 +6650,106 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case success
                 case wantsDispatch
+            }
+        }
+        /// 一段可预约的开跑时段。看的是开跑时刻，按分钟比，`start` 和 `end` 两端都含
+        ///
+        /// - Remark: Generated from `#/components/schemas/DutyWindow`.
+        public struct DutyWindow: Codable, Hashable, Sendable {
+            /// 适用的星期，七天都在 = 每天
+            ///
+            /// - Remark: Generated from `#/components/schemas/DutyWindow/daysPayload`.
+            public struct daysPayloadPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/DutyWindow/daysPayload/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case MONDAY = "MONDAY"
+                    case TUESDAY = "TUESDAY"
+                    case WEDNESDAY = "WEDNESDAY"
+                    case THURSDAY = "THURSDAY"
+                    case FRIDAY = "FRIDAY"
+                    case SATURDAY = "SATURDAY"
+                    case SUNDAY = "SUNDAY"
+                }
+                /// - Remark: Generated from `#/components/schemas/DutyWindow/daysPayload/value1`.
+                public var value1: Components.Schemas.DutyWindow.daysPayloadPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/DutyWindow/daysPayload/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `daysPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.DutyWindow.daysPayloadPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 适用的星期，七天都在 = 每天
+            ///
+            /// - Remark: Generated from `#/components/schemas/DutyWindow/days`.
+            public typealias daysPayload = [Components.Schemas.DutyWindow.daysPayloadPayload]
+            /// 适用的星期，七天都在 = 每天
+            ///
+            /// - Remark: Generated from `#/components/schemas/DutyWindow/days`.
+            public var days: Components.Schemas.DutyWindow.daysPayload
+            /// 最晚开跑时刻，HH:mm
+            ///
+            /// - Remark: Generated from `#/components/schemas/DutyWindow/end`.
+            public var end: Swift.String
+            /// 最早开跑时刻，HH:mm
+            ///
+            /// - Remark: Generated from `#/components/schemas/DutyWindow/start`.
+            public var start: Swift.String
+            /// Creates a new `DutyWindow`.
+            ///
+            /// - Parameters:
+            ///   - days: 适用的星期，七天都在 = 每天
+            ///   - end: 最晚开跑时刻，HH:mm
+            ///   - start: 最早开跑时刻，HH:mm
+            public init(
+                days: Components.Schemas.DutyWindow.daysPayload,
+                end: Swift.String,
+                start: Swift.String
+            ) {
+                self.days = days
+                self.end = end
+                self.start = start
+            }
+            public enum CodingKeys: String, CodingKey {
+                case days
+                case end
+                case start
             }
         }
         /// POST 新增：`name` 与 `phone` 必填（由服务端手动校验，缺失返回 400）。
@@ -7852,6 +8121,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/counterpartPhoneMasked`.
             public var counterpartPhoneMasked: Swift.String?
+            /// （2026-11-02 新增，#911）对方的用户 id，**只用来传给举报和拉黑**，不要拿它拼展示文案或拨号。双方都有。陪跑员通话期间读不到订单详情，这里是他唯一能拿到对方 id 的地方，这一轮结束后这个端点也读不到，所以客户端要在通话页放入口。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/counterpartUserId`.
+            public var counterpartUserId: Swift.Int64?
             /// 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision`.
@@ -7942,6 +8215,7 @@ public enum Components {
             ///   - counterpartName: 对方姓名，**双向都掩码**（`张*`）。与电话是两套相反的规则——姓名没有「拨得通」这回事
             ///   - counterpartPhone: 对方能直接拨通的**明文号**——**仅盲人侧有值，志愿者侧恒为 null**。 ⚠️ 与 `OrderDetailResponse.volunteerPhone` 同一条硬不变量：**要么明文可拨，要么 null， 绝不下发掩码串**。客户端拼 `tel:` 时只取数字位，`138****1234` 会被拨成 `1381234` 打成空号。
             ///   - counterpartPhoneMasked: 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
+            ///   - counterpartUserId: （2026-11-02 新增，#911）对方的用户 id，**只用来传给举报和拉黑**，不要拿它拼展示文案或拨号。双方都有。陪跑员通话期间读不到订单详情，这里是他唯一能拿到对方 id 的地方，这一轮结束后这个端点也读不到，所以客户端要在通话页放入口。
             ///   - myDecision: 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
             ///   - plan:
             ///   - plannedEndTime: 计划结束时间。⚠️ **不要往这个 DTO 里加盲人写的自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
@@ -7954,6 +8228,7 @@ public enum Components {
                 counterpartName: Swift.String? = nil,
                 counterpartPhone: Swift.String? = nil,
                 counterpartPhoneMasked: Swift.String? = nil,
+                counterpartUserId: Swift.Int64? = nil,
                 myDecision: Components.Schemas.IntroCallView.myDecisionPayload? = nil,
                 plan: Components.Schemas.IntroCallPlanView? = nil,
                 plannedEndTime: Swift.String? = nil,
@@ -7966,6 +8241,7 @@ public enum Components {
                 self.counterpartName = counterpartName
                 self.counterpartPhone = counterpartPhone
                 self.counterpartPhoneMasked = counterpartPhoneMasked
+                self.counterpartUserId = counterpartUserId
                 self.myDecision = myDecision
                 self.plan = plan
                 self.plannedEndTime = plannedEndTime
@@ -7979,6 +8255,7 @@ public enum Components {
                 case counterpartName
                 case counterpartPhone
                 case counterpartPhoneMasked
+                case counterpartUserId
                 case myDecision
                 case plan
                 case plannedEndTime
@@ -8022,6 +8299,79 @@ public enum Components {
                 case inviteCode
                 case invitedCount
                 case rewardedCount
+            }
+        }
+        /// 开放范围与值守时段（#896）。客户端用它在下单**之前**告知用户，不必等提交失败。
+        /// 🚨 只用来显示和提前提示，能不能下单以 `POST /api/orders` 的返回为准。
+        /// `acceptingOrders` 为 false 时暂不接受任何预约：`openAreas` 是空列表，`areaHint` 说明暂未开放，不要引导用户改地点或时间。
+        /// `areaRestricted` / `dutyHoursRestricted` 为 false 表示这一项没有限制，此时列表为空不代表「什么都不开放」。
+        /// 按当前账号下发，换账号要重新读。
+        ///
+        /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse`.
+        public struct LaunchScopeResponse: Codable, Hashable, Sendable {
+            /// 是否接受预约。false = 暂未开放，任何地点和时段都不能下单
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/acceptingOrders`.
+            public var acceptingOrders: Swift.Bool
+            /// 可以直接显示或播报的一句话，列出全部开放城市；暂未开放时说明暂未开放，不提城市。没有限制时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/areaHint`.
+            public var areaHint: Swift.String?
+            /// 是否限定了开放城市。false = 任何地点都能下单
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/areaRestricted`.
+            public var areaRestricted: Swift.Bool
+            /// 可以直接显示或播报的一句话。没有限制时为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/dutyHoursHint`.
+            public var dutyHoursHint: Swift.String?
+            /// 是否限定了值守时段。false = 任何时段都能预约
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/dutyHoursRestricted`.
+            public var dutyHoursRestricted: Swift.Bool
+            /// 可预约的开跑时段
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/dutyWindows`.
+            public var dutyWindows: [Components.Schemas.DutyWindow]
+            /// 开放范围，可以有多个城市。同一城市可能有多个同名矩形。先看 `acceptingOrders` 和 `areaRestricted`，空列表本身分不清「没有限制」和「暂未开放」
+            ///
+            /// - Remark: Generated from `#/components/schemas/LaunchScopeResponse/openAreas`.
+            public var openAreas: [Components.Schemas.OpenArea]
+            /// Creates a new `LaunchScopeResponse`.
+            ///
+            /// - Parameters:
+            ///   - acceptingOrders: 是否接受预约。false = 暂未开放，任何地点和时段都不能下单
+            ///   - areaHint: 可以直接显示或播报的一句话，列出全部开放城市；暂未开放时说明暂未开放，不提城市。没有限制时为 null
+            ///   - areaRestricted: 是否限定了开放城市。false = 任何地点都能下单
+            ///   - dutyHoursHint: 可以直接显示或播报的一句话。没有限制时为 null
+            ///   - dutyHoursRestricted: 是否限定了值守时段。false = 任何时段都能预约
+            ///   - dutyWindows: 可预约的开跑时段
+            ///   - openAreas: 开放范围，可以有多个城市。同一城市可能有多个同名矩形。先看 `acceptingOrders` 和 `areaRestricted`，空列表本身分不清「没有限制」和「暂未开放」
+            public init(
+                acceptingOrders: Swift.Bool,
+                areaHint: Swift.String? = nil,
+                areaRestricted: Swift.Bool,
+                dutyHoursHint: Swift.String? = nil,
+                dutyHoursRestricted: Swift.Bool,
+                dutyWindows: [Components.Schemas.DutyWindow],
+                openAreas: [Components.Schemas.OpenArea]
+            ) {
+                self.acceptingOrders = acceptingOrders
+                self.areaHint = areaHint
+                self.areaRestricted = areaRestricted
+                self.dutyHoursHint = dutyHoursHint
+                self.dutyHoursRestricted = dutyHoursRestricted
+                self.dutyWindows = dutyWindows
+                self.openAreas = openAreas
+            }
+            public enum CodingKeys: String, CodingKey {
+                case acceptingOrders
+                case areaHint
+                case areaRestricted
+                case dutyHoursHint
+                case dutyHoursRestricted
+                case dutyWindows
+                case openAreas
             }
         }
         /// 两个字段均可能为 null（生产 URL 未配置时）
@@ -8261,6 +8611,59 @@ public enum Components {
                 case ttsText
             }
         }
+        /// 一块开放范围，经纬度矩形，四条边都算在范围内。坐标系 GCJ-02。矩形只是近似，不等于行政边界
+        ///
+        /// - Remark: Generated from `#/components/schemas/OpenArea`.
+        public struct OpenArea: Codable, Hashable, Sendable {
+            /// 东边经度
+            ///
+            /// - Remark: Generated from `#/components/schemas/OpenArea/eastLng`.
+            public var eastLng: Swift.Double
+            /// 城市名
+            ///
+            /// - Remark: Generated from `#/components/schemas/OpenArea/name`.
+            public var name: Swift.String
+            /// 北边纬度
+            ///
+            /// - Remark: Generated from `#/components/schemas/OpenArea/northLat`.
+            public var northLat: Swift.Double
+            /// 南边纬度
+            ///
+            /// - Remark: Generated from `#/components/schemas/OpenArea/southLat`.
+            public var southLat: Swift.Double
+            /// 西边经度
+            ///
+            /// - Remark: Generated from `#/components/schemas/OpenArea/westLng`.
+            public var westLng: Swift.Double
+            /// Creates a new `OpenArea`.
+            ///
+            /// - Parameters:
+            ///   - eastLng: 东边经度
+            ///   - name: 城市名
+            ///   - northLat: 北边纬度
+            ///   - southLat: 南边纬度
+            ///   - westLng: 西边经度
+            public init(
+                eastLng: Swift.Double,
+                name: Swift.String,
+                northLat: Swift.Double,
+                southLat: Swift.Double,
+                westLng: Swift.Double
+            ) {
+                self.eastLng = eastLng
+                self.name = name
+                self.northLat = northLat
+                self.southLat = southLat
+                self.westLng = westLng
+            }
+            public enum CodingKeys: String, CodingKey {
+                case eastLng
+                case name
+                case northLat
+                case southLat
+                case westLng
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/OrderDetailResponse`.
         public struct OrderDetailResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/acceptedAt`.
@@ -8367,6 +8770,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/completedTogetherCount`.
             public var completedTogetherCount: Swift.Int64?
+            /// （2026-11-02 新增，#911）这一单的对方的用户 id，**只用来传给举报 `POST /api/reports` 的 `targetUserId` 和拉黑 `POST /api/users/{userId}/block`**，不要拿它拼展示文案或拨号。 盲人看到：订单上当前的陪跑员；单上没有陪跑员时，这一单**最后接过单或通话过**的陪跑员（接单后取消的人也在，这时 `volunteerId` 是 `null`）。陪跑员看到：盲人。 `null` = 这一单还没有人回应过，或对方已注销，客户端隐藏这两个入口。 非 `null` 时这两个端点不会因对象不符合条件返回 404。值不随任何一方的拉黑操作变化。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/counterpartUserId`.
+            public var counterpartUserId: Swift.Int64?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/createdAt`.
             public var createdAt: Swift.String
             /// 「该出发了」提醒（WS `APP_NOTIFICATION` `eventType = DEPART_REMINDER`，HIGH，APNs time-sensitive） 推给陪跑员的时刻 = `suggestedDepartAt` − 5 分钟。页面可据此说「x:xx 会提醒你出发」。下发条件同 `travelMinutes`
@@ -8952,6 +9359,7 @@ public enum Components {
             ///   - blindSurname: （2026-09-26 新增，陪跑员端订单页 v2）跑者**姓氏**（如 `李`、复姓 `欧阳`），给陪跑员端标题 / 短标签 / 锁屏用。 **只在已接单时下发**（`volunteerId` 非 null 时），未接单、跑者没填姓名或已注销为 `null` —— 客户端改说「跑者」。 全名不下发；后端没有性别字段，**不要拼「先生 / 女士」**
             ///   - chatPreference:
             ///   - completedTogetherCount: 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
+            ///   - counterpartUserId: （2026-11-02 新增，#911）这一单的对方的用户 id，**只用来传给举报 `POST /api/reports` 的 `targetUserId` 和拉黑 `POST /api/users/{userId}/block`**，不要拿它拼展示文案或拨号。 盲人看到：订单上当前的陪跑员；单上没有陪跑员时，这一单**最后接过单或通话过**的陪跑员（接单后取消的人也在，这时 `volunteerId` 是 `null`）。陪跑员看到：盲人。 `null` = 这一单还没有人回应过，或对方已注销，客户端隐藏这两个入口。 非 `null` 时这两个端点不会因对象不符合条件返回 404。值不随任何一方的拉黑操作变化。
             ///   - createdAt:
             ///   - departReminderAt: 「该出发了」提醒（WS `APP_NOTIFICATION` `eventType = DEPART_REMINDER`，HIGH，APNs time-sensitive） 推给陪跑员的时刻 = `suggestedDepartAt` − 5 分钟。页面可据此说「x:xx 会提醒你出发」。下发条件同 `travelMinutes`
             ///   - earliestBlindCancelAt: （2026-10-10 新增，#682）盲人在「已到达」态最早可以取消的时刻 = 「这一次到达集合点」与「计划开跑」中**较晚**的那个 + `app.order.blind-cancel-after-arrival-minutes`（默认 10 分钟）。 早于它调 `POST /api/orders/{id}/cancel` 一律 409 `BLIND_CANCEL_TOO_EARLY`（message 里带同一个时刻，可直接朗读）。 **只对本单盲人、只在 `DRIVER_ARRIVED` 下发**，其余为 `null`；后端把这条出口关掉（配置为 0）时也为 `null`，此时这一态取消仍是 403 `ORDER_IN_PROGRESS`。 取消后订单转 `CANCELLED`（`cancelledBy=BLIND`），不计任何一方的临时取消，陪跑员收到 `ORDER_CANCELLED_BY_BLIND_AFTER_ARRIVAL`。 不要自己拿到达时间加 10 —— 阈值和起点都由后端定
@@ -9012,6 +9420,7 @@ public enum Components {
                 blindSurname: Swift.String? = nil,
                 chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
                 completedTogetherCount: Swift.Int64? = nil,
+                counterpartUserId: Swift.Int64? = nil,
                 createdAt: Swift.String,
                 departReminderAt: Swift.String? = nil,
                 earliestBlindCancelAt: Swift.String? = nil,
@@ -9072,6 +9481,7 @@ public enum Components {
                 self.blindSurname = blindSurname
                 self.chatPreference = chatPreference
                 self.completedTogetherCount = completedTogetherCount
+                self.counterpartUserId = counterpartUserId
                 self.createdAt = createdAt
                 self.departReminderAt = departReminderAt
                 self.earliestBlindCancelAt = earliestBlindCancelAt
@@ -9133,6 +9543,7 @@ public enum Components {
                 case blindSurname
                 case chatPreference
                 case completedTogetherCount
+                case counterpartUserId
                 case createdAt
                 case departReminderAt
                 case earliestBlindCancelAt
@@ -11829,6 +12240,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/lateCancelWindowHours`.
             public var lateCancelWindowHours: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/launchScope`.
+            public var launchScope: Components.Schemas.LaunchScopeResponse
             /// 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
             ///
             /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/volunteerOrderAutoOpenLeadMinutes`.
@@ -11837,16 +12250,20 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - lateCancelWindowHours: 陪跑员「临时取消」的窗口，单位**小时**（`app.order.late-cancel-window-hours`，默认 12）：距开跑不足这么多小时取消，记一次临时取消（只记不罚）。 只用来在取消前提示用户，算不算临时取消以取消接口的返回为准。
+            ///   - launchScope:
             ///   - volunteerOrderAutoOpenLeadMinutes: 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
             public init(
                 lateCancelWindowHours: Swift.Int32? = nil,
+                launchScope: Components.Schemas.LaunchScopeResponse,
                 volunteerOrderAutoOpenLeadMinutes: Swift.Int32? = nil
             ) {
                 self.lateCancelWindowHours = lateCancelWindowHours
+                self.launchScope = launchScope
                 self.volunteerOrderAutoOpenLeadMinutes = volunteerOrderAutoOpenLeadMinutes
             }
             public enum CodingKeys: String, CodingKey {
                 case lateCancelWindowHours
+                case launchScope
                 case volunteerOrderAutoOpenLeadMinutes
             }
         }
@@ -13559,6 +13976,70 @@ public enum Components {
             public var orderId: Swift.Int64?
             /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/repliedAt`.
             public var repliedAt: Swift.String?
+            /// 举报原因（#880）。不是举报时为 null；客服队列里拉黑标记这一项也为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/reportReason`.
+            public struct reportReasonPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/reportReason/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case HARASSMENT = "HARASSMENT"
+                    case UNSAFE_BEHAVIOR = "UNSAFE_BEHAVIOR"
+                    case FALSE_INFO = "FALSE_INFO"
+                    case OTHER = "OTHER"
+                }
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/reportReason/value1`.
+                public var value1: Components.Schemas.SupportTicketResponse.reportReasonPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/reportReason/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `reportReasonPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.SupportTicketResponse.reportReasonPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 举报原因（#880）。不是举报时为 null；客服队列里拉黑标记这一项也为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/reportReason`.
+            public var reportReason: Components.Schemas.SupportTicketResponse.reportReasonPayload?
+            /// 被举报留言的原文快照（#880）。没有指向留言时为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/reportedText`.
+            public var reportedText: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status`.
             public struct statusPayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status/value1`.
@@ -13614,6 +14095,10 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/status`.
             public var status: Components.Schemas.SupportTicketResponse.statusPayload?
+            /// 这条工单针对谁（#880）。普通工单为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/targetUserId`.
+            public var targetUserId: Swift.Int64?
             /// 提交人 users.id。客服侧 `GET /api/cs/tickets` 与用户侧共用本结构， 缺了它客服拿到的是一队「不知道谁提的」工单 —— 同一个人连提三条看不出是同一个人， 「APP 用不了」这类没有 orderId 的工单更是查无此人。 口径同客服侧 EmergencyEventResponse.userId：**给 id 不给号码**， 要联系人走既有的取号端点（那条有审计日志）。用户侧看到的是自己的 id。
             ///
             /// - Remark: Generated from `#/components/schemas/SupportTicketResponse/userId`.
@@ -13628,7 +14113,10 @@ public enum Components {
             ///   - id:
             ///   - orderId:
             ///   - repliedAt:
+            ///   - reportReason: 举报原因（#880）。不是举报时为 null；客服队列里拉黑标记这一项也为 null。
+            ///   - reportedText: 被举报留言的原文快照（#880）。没有指向留言时为 null。
             ///   - status:
+            ///   - targetUserId: 这条工单针对谁（#880）。普通工单为 null。
             ///   - userId: 提交人 users.id。客服侧 `GET /api/cs/tickets` 与用户侧共用本结构， 缺了它客服拿到的是一队「不知道谁提的」工单 —— 同一个人连提三条看不出是同一个人， 「APP 用不了」这类没有 orderId 的工单更是查无此人。 口径同客服侧 EmergencyEventResponse.userId：**给 id 不给号码**， 要联系人走既有的取号端点（那条有审计日志）。用户侧看到的是自己的 id。
             public init(
                 category: Components.Schemas.SupportTicketResponse.categoryPayload? = nil,
@@ -13638,7 +14126,10 @@ public enum Components {
                 id: Swift.Int64? = nil,
                 orderId: Swift.Int64? = nil,
                 repliedAt: Swift.String? = nil,
+                reportReason: Components.Schemas.SupportTicketResponse.reportReasonPayload? = nil,
+                reportedText: Swift.String? = nil,
                 status: Components.Schemas.SupportTicketResponse.statusPayload? = nil,
+                targetUserId: Swift.Int64? = nil,
                 userId: Swift.Int64? = nil
             ) {
                 self.category = category
@@ -13648,7 +14139,10 @@ public enum Components {
                 self.id = id
                 self.orderId = orderId
                 self.repliedAt = repliedAt
+                self.reportReason = reportReason
+                self.reportedText = reportedText
                 self.status = status
+                self.targetUserId = targetUserId
                 self.userId = userId
             }
             public enum CodingKeys: String, CodingKey {
@@ -13659,7 +14153,10 @@ public enum Components {
                 case id
                 case orderId
                 case repliedAt
+                case reportReason
+                case reportedText
                 case status
+                case targetUserId
                 case userId
             }
         }
@@ -17478,6 +17975,127 @@ public enum Operations {
             }
         }
     }
+    /// 读取客户端版本要求
+    ///
+    /// 2026-11-02 新增（#882）。客户端启动时读一次，用来判断要不要提示更新。
+    ///
+    /// 当前版本低于 `xxxMinSupportedVersion`：全屏提示必须更新，只保留本地紧急拨号。
+    /// 当前版本低于 `xxxLatestVersion`：显示可以关闭的提示。
+    ///
+    /// ⚠️ **字段是 null、请求失败、版本号解析不了，一律不拦用户**：这个接口出问题时，不能把人挡在 App 外面。
+    /// null 表示这一项没有配置。
+    ///
+    /// ⚠️ **免登录**：强制更新要拦住还没登录的人，所以不放进需要登录的 `/rules`。
+    /// 带着过期 token 请求同样返回 200。响应不含任何用户信息，所有人读到的内容相同。
+    ///
+    /// - Remark: HTTP `GET /api/config/app-version`.
+    /// - Remark: Generated from `#/paths//api/config/app-version/get(getAppVersion)`.
+    public enum getAppVersion {
+        public static let id: Swift.String = "getAppVersion"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/config/app-version/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getAppVersion.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getAppVersion.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getAppVersion.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.getAppVersion.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/config/app-version/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/config/app-version/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApiResponseAppVersionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiResponseAppVersionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getAppVersion.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getAppVersion.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/config/app-version/get(getAppVersion)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getAppVersion.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getAppVersion.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// 读取功能开关状态
     ///
     /// 2026-08-24 新增（handoff iOS 那条）。客户端用它决定**空态说什么**。
@@ -17612,6 +18230,9 @@ public enum Operations {
     ///
     /// ⚠️ **邀请的回复期限不在这里**：它因单而异（距开跑远近分档），跟着每条邀请自己的
     /// `expiresAt` 走，客户端读那个字段显示。
+    ///
+    /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
+    /// 按当前账号下发，换账号要重新读。
     ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
@@ -19663,6 +20284,7 @@ public enum Operations {
     /// 创建订单
     ///
     /// 下单前置校验（按顺序，命中即返回，不继续往下）：
+    /// 0. 暂不接受任何预约时拒绝，422 `ORDER_SERVICE_NOT_OPEN`；起跑点不在开放范围内时拒绝，422 `ORDER_OUTSIDE_OPEN_AREA`（#896）。`message` 说明情况，范围经 `GET /api/config/rules` 的 `launchScope` 下发。没配置时不拦截。这一条在第 6 条之后、第 7 条之前判定
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
@@ -19670,7 +20292,8 @@ public enum Operations {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
     ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
@@ -19909,8 +20532,11 @@ public enum Operations {
                 }
             }
             /// 预约开始时间距当前时间不足最小提前量（`APPOINTMENT_TOO_SOON`）、
-            /// 计划时长超过 300 分钟（`APPOINTMENT_TOO_LONG`），
-            /// 或行程落进夜间禁跑窗口 `[22:00, 05:00)`（`APPOINTMENT_IN_NIGHT_WINDOW`）
+            /// 计划时长超过 300 分钟（`APPOINTMENT_TOO_LONG`）、
+            /// 行程落进夜间禁跑窗口 `[22:00, 05:00)`（`APPOINTMENT_IN_NIGHT_WINDOW`）、
+            /// 起跑点不在开放范围内（`ORDER_OUTSIDE_OPEN_AREA`），
+            /// 开跑时刻不在值守时段内（`APPOINTMENT_OUTSIDE_DUTY_HOURS`），
+            /// 或暂不接受任何预约（`ORDER_SERVICE_NOT_OPEN`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/post(createOrder)/responses/422`.
             ///
@@ -23407,10 +24033,10 @@ public enum Operations {
     ///
     /// 提交时校验：
     /// - 改了时间：同下单的门槛 —— `APPOINTMENT_TOO_SOON`(422，提前量 = `app.order.min-lead-time-minutes` + **本轮通话窗口剩余分钟**，
-    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
+    ///   保证盲人在窗口最后一刻确认时仍满足最小提前量) / `APPOINTMENT_TOO_FAR` / `APPOINTMENT_OUTSIDE_DUTY_HOURS` / `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW`(422)；
     ///   跑者那边该时段另有一单 → 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`（🚨 **刻意不说原因**，客户端只说「这个时间不行，换一个试试」）
     /// - 陪跑员自己在该时段已答应了别人 → 409 `VOLUNTEER_ALREADY_ENGAGED`（不论改没改时间）
-    /// - 改了地点：新集合点与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
+    /// - 改了地点：新集合点不在开放范围内 → 422 `ORDER_OUTSIDE_OPEN_AREA`（#896）；与原约直线距离 > `app.intro-call.plan-max-relocation-meters`（默认 3000 米）→ 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`；
     ///   地址与两个坐标没有一起传 → 400 `BAD_REQUEST`
     /// - 资质同 `POST /{id}/respond` 的 `ACCEPT`：403 `VOLUNTEER_NOT_VERIFIED` / `TRAINING_NOT_COMPLETED` / `VOLUNTEER_NOT_AVAILABLE`
     /// - 这一轮已提交 `app.intro-call.plan-max-submissions-per-round` 次（默认 10，**被拒的也算**）→ 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。
@@ -23706,7 +24332,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 新时间不满足下单门槛（APPOINTMENT_TOO_SOON / TOO_FAR / TOO_LONG / IN_NIGHT_WINDOW）/ 新集合点离原约太远（INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL）
+            /// 新集合点不在开放范围内（ORDER_OUTSIDE_OPEN_AREA）/ 新时间不满足下单门槛（APPOINTMENT_OUTSIDE_DUTY_HOURS / APPOINTMENT_TOO_SOON / TOO_FAR / TOO_LONG / IN_NIGHT_WINDOW）/ 新集合点离原约太远（INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/plan/put(submitIntroCallPlan)/responses/422`.
             ///

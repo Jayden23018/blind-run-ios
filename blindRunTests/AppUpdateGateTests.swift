@@ -36,9 +36,8 @@ final class AppUpdateGateTests: XCTestCase {
         AppUpdateGate(currentVersion: currentVersion, persistence: persistence ?? AppStatePersistenceFactory.makeIsolatedTest())
     }
 
-    private static func isRequiredGate(_ presentation: AppUpdatePresentation) -> Bool {
-        if case .requiredGate = presentation { return true }
-        return false
+    private static func isRequired(_ presentation: AppUpdatePresentation) -> Bool {
+        presentation.isRequired
     }
 
     private static func isOptionalPrompt(_ presentation: AppUpdatePresentation) -> Bool {
@@ -46,47 +45,69 @@ final class AppUpdateGateTests: XCTestCase {
         return false
     }
 
-    func testBelowMinimumWithNoOrderShowsTheGate() async {
+    func testBelowMinimumWithNoEscortPrompts() async {
         let gate = makeGate()
         await gate.refresh(from: FakeSource(.success(Self.response(min: "2.0"))))
-        XCTAssertTrue(Self.isRequiredGate(gate.presentation))
+        XCTAssertTrue(Self.isRequired(gate.presentation))
     }
 
     /// 线上后端未部署时这个接口返回 401，走的就是这条。
-    func testUnauthorizedResponseNeverBlocks() async {
+    func testUnauthorizedResponseNeverPrompts() async {
         let gate = makeGate()
         await gate.refresh(from: FakeSource(.failure(APIError.unauthorized)))
         XCTAssertEqual(gate.presentation, .none)
     }
 
-    func testRateLimitedOrFailedRequestNeverBlocks() async {
+    func testRateLimitedOrFailedRequestNeverPrompts() async {
         let gate = makeGate()
         await gate.refresh(from: FakeSource(.failure(Boom())))
         XCTAssertEqual(gate.presentation, .none)
     }
 
-    /// 结果不缓存：错配置修好之前断网时，人不能继续被挡在外面。
-    func testALaterFailureLiftsTheGate() async {
+    /// 结果不缓存：错配置修好之前断网时，人不能继续被弹窗挡着。
+    func testALaterFailureClearsThePrompt() async {
         let gate = makeGate()
         let source = FakeSource(.success(Self.response(min: "2.0")))
         await gate.refresh(from: source)
-        XCTAssertTrue(Self.isRequiredGate(gate.presentation))
+        XCTAssertTrue(Self.isRequired(gate.presentation))
 
         source.requirements = .failure(Boom())
         await gate.refresh(from: source)
         XCTAssertEqual(gate.presentation, .none)
     }
 
-    func testAnActiveOrderHoldsTheGateBackUntilItEnds() async {
+    func testNoPromptDuringAnEscortThenPromptsOnceItEnds() async {
         let gate = makeGate()
         let source = FakeSource(.success(Self.response(min: "2.0")))
-        source.presence = .active
+        source.presence = .underway
         await gate.refresh(from: source)
         XCTAssertEqual(gate.presentation, .none)
 
         source.presence = .none
         await gate.refresh(from: source)
-        XCTAssertTrue(Self.isRequiredGate(gate.presentation))
+        XCTAssertTrue(Self.isRequired(gate.presentation))
+    }
+
+    /// 系统弹窗按下按钮就收起。回到 App 时版本仍然过低，必须再弹。
+    func testRequiredPromptComesBackOnReturnWhileStillBelowMinimum() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let source = FakeSource(.success(Self.response(min: "2.0")))
+        let gate = makeGate(persistence: persistence)
+        await gate.refresh(from: source)
+
+        gate.promptDidClose()
+        XCTAssertEqual(gate.presentation, .none)
+
+        await gate.refresh(from: source)
+        XCTAssertTrue(Self.isRequired(gate.presentation), "回到 App 必须再弹")
+    }
+
+    func testRequiredPromptStopsOnceUpdated() async {
+        let source = FakeSource(.success(Self.response(min: "2.0")))
+        let gate = makeGate(currentVersion: "2.0")
+        await gate.refresh(from: source)
+        XCTAssertEqual(gate.presentation, .none)
     }
 
     func testUpToDateDoesNotLookUpOrders() async {
@@ -103,7 +124,7 @@ final class AppUpdateGateTests: XCTestCase {
         await gate.refresh(from: source)
         XCTAssertTrue(Self.isOptionalPrompt(gate.presentation))
 
-        gate.dismissOptionalPrompt()
+        gate.promptDidClose()
         XCTAssertEqual(gate.presentation, .none)
 
         await gate.refresh(from: source)
@@ -120,7 +141,7 @@ final class AppUpdateGateTests: XCTestCase {
         let source = FakeSource(.success(Self.response(latest: "1.2.0")))
         let gate = makeGate(persistence: persistence)
         await gate.refresh(from: source)
-        gate.dismissOptionalPrompt()
+        gate.promptDidClose()
 
         source.requirements = .success(Self.response(latest: "1.3.0"))
         await gate.refresh(from: source)
@@ -130,13 +151,6 @@ final class AppUpdateGateTests: XCTestCase {
     /// 退出登录跑 `reset()`。关闭记录不进 `all`，否则换账号就重弹一次。
     func testClosedPromptSurvivesAccountReset() {
         XCTAssertFalse(AppStatePersistenceKeys.all.contains(AppStatePersistenceKeys.dismissedAppUpdateVersion))
-    }
-
-    func testRequiredGateCannotBeDismissed() async {
-        let gate = makeGate()
-        await gate.refresh(from: FakeSource(.success(Self.response(min: "2.0"))))
-        gate.dismissOptionalPrompt()
-        XCTAssertTrue(Self.isRequiredGate(gate.presentation))
     }
 
     // MARK: 订单判定
@@ -151,29 +165,19 @@ final class AppUpdateGateTests: XCTestCase {
         XCTAssertEqual(presence, .unknown)
     }
 
-    func testRunnerStatusesMapToPresence() {
-        XCTAssertEqual(AppState.orderPresence(runnerStatus: nil), .none)
-        XCTAssertEqual(AppState.orderPresence(runnerStatus: .completed), .none)
-        XCTAssertEqual(AppState.orderPresence(runnerStatus: .cancelled), .none)
-        XCTAssertEqual(AppState.orderPresence(runnerStatus: .noVolunteer), .none)
-        for status: RunOrderStatus in [.pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching, .unknown] {
-            XCTAssertEqual(AppState.orderPresence(runnerStatus: status), .active, "\(status)")
+    /// 只有这三态推迟。这条同时钉住 `isEscortUnderway` 与负责人定的三态是同一个集合。
+    func testOnlyTheThreeEscortStatusesDeferThePrompt() {
+        for status: RunOrderStatus in [.driverEnRoute, .driverArrived, .inProgress] {
+            XCTAssertEqual(AppState.orderPresence(statuses: [status]), .underway, "\(status)")
         }
+        for status: RunOrderStatus in [.pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .rematching, .completed, .cancelled, .noVolunteer] {
+            XCTAssertEqual(AppState.orderPresence(statuses: [status]), .none, "\(status)")
+        }
+        XCTAssertEqual(AppState.orderPresence(statuses: []), .none)
     }
 
-    private func summary(_ fields: String) throws -> VolunteerDispatchSummaryResponse {
-        try JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: Data("{\(fields)}".utf8))
-    }
-
-    func testVolunteerSummaryCountsEveryOrderField() throws {
-        XCTAssertEqual(AppState.orderPresence(volunteerSummary: try summary(#""activeOrders":[],"upcomingOrders":[]"#)), .none)
-        XCTAssertEqual(AppState.orderPresence(volunteerSummary: try summary(#""introCallOrderId":9,"upcomingOrders":[]"#)), .active)
-        XCTAssertEqual(AppState.orderPresence(volunteerSummary: try summary(#""activeOrders":[{"orderId":9,"status":"IN_PROGRESS"}],"upcomingOrders":[]"#)), .active)
-        XCTAssertEqual(AppState.orderPresence(volunteerSummary: try summary(#""upcomingOrders":[{"orderId":9,"status":"IN_PROGRESS"}]"#)), .active)
-    }
-
-    /// 契约：`upcomingOrders` 为 null 表示这一块服务端没取到，当成空列表就会盖住他的预约单。
-    func testVolunteerSummaryWithoutUpcomingBlockIsUnknown() throws {
-        XCTAssertEqual(AppState.orderPresence(volunteerSummary: try summary(#""activeOrders":[]"#)), .unknown)
+    func testStatusUnknownToThisClientIsNotTreatedAsFree() {
+        XCTAssertEqual(AppState.orderPresence(statuses: [.unknown]), .unknown)
+        XCTAssertEqual(AppState.orderPresence(statuses: [.unknown, .inProgress]), .underway)
     }
 }

@@ -126,37 +126,30 @@ final class AppUpdatePolicyTests: XCTestCase {
 
     // MARK: 呈现判定
 
-    func testRequiredShowsTheGateOnlyWhenThereIsKnownToBeNoOrder() {
+    func testRequiredPromptsWhenThereIsKnownToBeNoEscort() {
         XCTAssertEqual(
             AppUpdatePolicy.presentation(verdict: .required(Self.target), orderPresence: .none, dismissedVersion: nil),
-            .requiredGate(Self.target)
+            .requiredPrompt(Self.target)
         )
     }
 
-    func testRequiredNeverCoversAnOrderOrAnUnknownState() {
-        for presence in [AppUpdateOrderPresence.active, .unknown] {
-            XCTAssertEqual(
-                AppUpdatePolicy.presentation(verdict: .required(Self.target), orderPresence: presence, dismissedVersion: nil),
-                .none
-            )
+    func testNoPromptDuringAnEscortOrAnUnknownState() {
+        for presence in [AppUpdateOrderPresence.underway, .unknown] {
+            for verdict in [AppUpdateVerdict.required(Self.target), .optional(Self.target)] {
+                XCTAssertEqual(
+                    AppUpdatePolicy.presentation(verdict: verdict, orderPresence: presence, dismissedVersion: nil),
+                    .none
+                )
+            }
         }
     }
 
-    /// 强制更新不能靠关闭绕过：记录里有这个版本时全屏页照样出现。
-    func testDismissedVersionDoesNotSuppressTheRequiredGate() {
+    /// 必须更新不能靠「稍后」的记录绕过。
+    func testDismissedVersionDoesNotSuppressTheRequiredPrompt() {
         XCTAssertEqual(
             AppUpdatePolicy.presentation(verdict: .required(Self.target), orderPresence: .none, dismissedVersion: "1.2.0"),
-            .requiredGate(Self.target)
+            .requiredPrompt(Self.target)
         )
-    }
-
-    func testOptionalPromptStaysQuietDuringAnOrder() {
-        for presence in [AppUpdateOrderPresence.active, .unknown] {
-            XCTAssertEqual(
-                AppUpdatePolicy.presentation(verdict: .optional(Self.target), orderPresence: presence, dismissedVersion: nil),
-                .none
-            )
-        }
     }
 
     func testOptionalPromptHonoursTheDismissedVersionOnly() {
@@ -180,34 +173,18 @@ final class AppUpdatePolicyTests: XCTestCase {
         XCTAssertNil(response.iosLatestVersion)
     }
 
-    // MARK: 文案红线
+    // MARK: 文案
 
-    func testRequiredReasonSaysTheAppWillNotSendHelp() {
-        let reason = AppUpdateCopy.requiredReason(currentVersion: "1.0", targetVersion: "1.2.0")
-        XCTAssertTrue(reason.contains("App 不会代你发送求助"))
-        XCTAssertTrue(reason.contains("1.0"))
-        XCTAssertTrue(reason.contains("1.2.0"))
-    }
-
-    /// 两端在这一页都只能走本地拨号。标题固定是「紧急呼叫」，第一句说清 App 不会代你发送求助。
-    func testUpdateGateCallContextIsLocalDialForEveryRole() {
-        for role in [UserRole.blind, .volunteer, .unset, nil] as [UserRole?] {
-            let message = EmergencyCallContext.updateRequired(role: role).dialogMessage
-            XCTAssertTrue(message.contains("App 不会代你发送求助"), "\(String(describing: role))")
+    /// 负责人定的（2026-11-03）：说清版本过低和要做什么，不提求助。
+    func testPromptCopyIsShortAndDoesNotMentionHelp() {
+        let required = AppUpdateCopy.requiredMessage(targetVersion: "1.2.0")
+        let optional = AppUpdateCopy.optionalMessage(targetVersion: "1.2.0")
+        XCTAssertTrue(required.contains("版本过低"))
+        XCTAssertTrue(required.contains("1.2.0"))
+        XCTAssertTrue(optional.contains("1.2.0"))
+        for copy in [required, optional, AppUpdateCopy.requiredTitle, AppUpdateCopy.optionalTitle] {
+            XCTAssertFalse(copy.contains("求助"))
+            XCTAssertFalse(copy.contains("紧急"))
         }
-        XCTAssertEqual(EmergencySafetyCopy.homeCallTitle, "紧急呼叫")
-    }
-
-    /// 这一页只在没有订单时出现。两端的判定在没有订单时都必须落到本地拨号，改了这里要回来看那一页。
-    func testBothEndsResolveToLocalDialWithoutAnOrder() {
-        for role in [UserRole.blind, .volunteer, .unset, nil] as [UserRole?] {
-            XCTAssertEqual(BlindHomeSOSMode.resolve(order: nil, role: role), .localCall)
-        }
-        XCTAssertEqual(VolunteerOrderSOSMode.resolve(status: nil), .localCall)
-    }
-
-    func testUpdateGateCallContextFollowsTheRoleOfTheEntry() {
-        XCTAssertFalse(EmergencyCallContext.updateRequired(role: .volunteer).appendsNoContactHint, "陪跑员的拨号单不列联系人")
-        XCTAssertTrue(EmergencyCallContext.updateRequired(role: .blind).appendsNoContactHint)
     }
 }

@@ -5,13 +5,13 @@ extension AppState: AppUpdateSource {
         try await auth.appVersionRequirements()
     }
 
-    /// 本地已知的事实排在前面：跑步中登录过期时查不了订单，而那正是最不能盖住的时刻（#376）。
+    /// 本地已知的事实排在前面：跑步中登录过期时查不了订单，而那正是最不能挡住的时刻（#376）。
     func appUpdateOrderPresence() async -> AppUpdateOrderPresence {
         if isSessionExpiryDeferred
             || liveEscortCoordinator.isSessionEligible
             || emergencyCoordinator.activeEvent != nil
             || emergencyCoordinator.volunteerAlert != nil {
-            return .active
+            return .underway
         }
         // 恢复中还不知道这是谁、有没有在跑。恢复结束时根视图会再检查一次。
         switch sessionRestorationState {
@@ -25,9 +25,12 @@ extension AppState: AppUpdateSource {
         do {
             switch activeRole {
             case .blind:
-                return Self.orderPresence(runnerStatus: try await orders.activeOrder().data?.status)
+                let status = try await orders.activeOrder().data?.status
+                return Self.orderPresence(statuses: status.map { [$0] } ?? [])
             case .volunteer:
-                return Self.orderPresence(volunteerSummary: try await orders.dispatchSummary())
+                // 后端这个列表的白名单正好是同行三态（`VolunteerService.loadActiveOrders`）。
+                guard let activeOrders = try await orders.dispatchSummary().activeOrders else { return .unknown }
+                return Self.orderPresence(statuses: activeOrders.map(\.status))
             case .unset, nil:
                 return .unknown
             }
@@ -37,17 +40,9 @@ extension AppState: AppUpdateSource {
         }
     }
 
-    /// `.unknown` 状态（客户端不认识的新状态）在 `isActiveForBlindRunner` 里判 true：不把它当成已结束。
-    static func orderPresence(runnerStatus: RunOrderStatus?) -> AppUpdateOrderPresence {
-        runnerStatus?.isActiveForBlindRunner == true ? .active : .none
-    }
-
-    /// 三个字段合起来才是陪跑员手上的全部订单，见 `VolunteerDispatchSummaryResponse` 各字段的注释。
-    /// `upcomingOrders` 为 `nil` 表示服务端这一块没取到，不是没有。
-    static func orderPresence(volunteerSummary summary: VolunteerDispatchSummaryResponse) -> AppUpdateOrderPresence {
-        if summary.activeOrders?.isEmpty == false || summary.introCallOrderId != nil || summary.upcomingOrders?.isEmpty == false {
-            return .active
-        }
-        return summary.upcomingOrders == nil ? .unknown : .none
+    /// 判据就是 `isEscortUnderway`。客户端不认识的新状态算查不清：不能断定他没在跑。
+    static func orderPresence(statuses: [RunOrderStatus]) -> AppUpdateOrderPresence {
+        if statuses.contains(where: \.isEscortUnderway) { return .underway }
+        return statuses.contains(.unknown) ? .unknown : .none
     }
 }

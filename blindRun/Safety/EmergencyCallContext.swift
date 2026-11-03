@@ -50,14 +50,6 @@ enum EmergencyCallContext {
         }
     }
 
-    /// 强制更新页（#526）。那一页只在确认没有未走完的订单时出现，所以按「无订单」读两端的判定，只会落到本地拨号。
-    static func updateRequired(role: UserRole?) -> EmergencyCallContext {
-        switch role {
-        case .volunteer: return .volunteerBeforeRun
-        case .blind, .unset, nil: return .runner(for: BlindHomeSOSMode.resolve(order: nil, role: role))
-        }
-    }
-
     var dialogMessage: String {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage

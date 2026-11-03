@@ -48,22 +48,35 @@ enum AppUpdateVerdict: Equatable {
     case required(AppUpdateTarget)
 }
 
-/// 这个用户手上有没有不能被盖住的订单或求助。
+/// 这个用户此刻是不是走在陪跑里。
 enum AppUpdateOrderPresence: Equatable {
     case none
-    case active
-    /// 查不到。与 `.active` 同样不拦：宁可少拦一次，也不能盖住一个正在跑步的人。
+    /// `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`，或有未结束的求助。
+    case underway
+    /// 查不到。与 `.underway` 同样不弹：宁可少弹一次，也不能挡住一个正在跑步的人。
     case unknown
 }
 
-/// 根视图此刻要显示什么。
+/// 根视图此刻要弹什么。
 enum AppUpdatePresentation: Equatable {
     case none
     case optionalPrompt(AppUpdateTarget)
-    case requiredGate(AppUpdateTarget)
+    case requiredPrompt(AppUpdateTarget)
+
+    var target: AppUpdateTarget? {
+        switch self {
+        case .none: return nil
+        case .optionalPrompt(let target), .requiredPrompt(let target): return target
+        }
+    }
+
+    var isRequired: Bool {
+        if case .requiredPrompt = self { return true }
+        return false
+    }
 }
 
-/// 🔴 **所有拿不准的分支都落到「不拦」。** 契约原话：「字段是 null、请求失败、版本号解析不了，一律不拦用户」。
+/// 🔴 **所有拿不准的分支都落到「不弹」。** 契约原话：「字段是 null、请求失败、版本号解析不了，一律不拦用户」。
 /// 这里写错的后果是所有人进不了 App，所以判定是纯函数，由 `AppUpdatePolicyTests` 逐项钉住。
 enum AppUpdatePolicy {
     /// - Parameter requirements: `nil` = 请求失败。线上后端未部署时这个接口返回 401，走的就是这里。
@@ -82,7 +95,7 @@ enum AppUpdatePolicy {
         return .upToDate
     }
 
-    /// - Parameter dismissedVersion: 用户关闭过提示的那个最新版本。只对可关闭的提示生效。
+    /// - Parameter dismissedVersion: 用户点过「稍后」的那个最新版本。只对可关闭的提示生效。
     static func presentation(
         verdict: AppUpdateVerdict,
         orderPresence: AppUpdateOrderPresence,
@@ -93,7 +106,7 @@ enum AppUpdatePolicy {
         case .upToDate:
             return .none
         case .required(let target):
-            return .requiredGate(target)
+            return .requiredPrompt(target)
         case .optional(let target):
             return target.version == dismissedVersion ? .none : .optionalPrompt(target)
         }
@@ -108,7 +121,7 @@ enum AppUpdatePolicy {
         return AppUpdateTarget(version: version, url: url)
     }
 
-    /// 只放行 https（#526 后端评论）。没有能打开的地址时不提示：全屏页上没有更新按钮等于把人锁死。
+    /// 只放行 https（#526 后端评论）。没有能打开的地址时不弹：弹窗上唯一的按钮按下去没有去处。
     private static func updateURL(_ raw: String?) -> URL? {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               let url = URL(string: raw),
@@ -120,24 +133,19 @@ enum AppUpdatePolicy {
     }
 }
 
-/// 强制更新页与可关闭提示的文案。盲人端每句都会被念出来，所以每句都能脱离屏幕听懂。
+/// 更新弹窗的文案。
 enum AppUpdateCopy {
-    static let requiredTitle = "需要更新才能继续使用"
-    static let updateButtonTitle = "去更新"
-    static let updateAccessibilityHint = "打开 App Store 的更新页面"
-    static let repeatButtonTitle = "重复当前状态"
-    static let repeatAccessibilityHint = "再听一遍为什么需要更新"
-    static let openFailed = "打不开更新页面。请打开 App Store，搜索「助盲跑」手动更新。"
+    static let requiredTitle = "版本过低"
     static let optionalTitle = "有新版本"
-    static let optionalLaterButtonTitle = "以后再说"
+    static let updateButtonTitle = "去更新"
+    static let laterButtonTitle = "稍后"
+    static let openFailed = "打不开更新页面。请打开 App Store，搜索「助盲跑」手动更新。"
 
-    /// 「App 不会代你发送求助」写在原因里：这一页的紧急入口只会拨号（`AGENTS.md` §6）。
-    static func requiredReason(currentVersion: String, targetVersion: String) -> String {
-        "你的助盲跑版本是\(currentVersion)，已经不再支持。请更新到\(targetVersion)或更新的版本。"
-            + "紧急情况可以按「紧急呼叫」自己打电话，App 不会代你发送求助。"
+    static func requiredMessage(targetVersion: String) -> String {
+        "当前版本过低，请更新到\(targetVersion)后继续使用。"
     }
 
     static func optionalMessage(targetVersion: String) -> String {
-        "助盲跑\(targetVersion)已经发布。现在的版本还能继续用，可以以后再更新。"
+        "助盲跑\(targetVersion)已发布，建议更新。"
     }
 }

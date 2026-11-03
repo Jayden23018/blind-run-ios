@@ -29,10 +29,13 @@ final class AppUpdateGate: ObservableObject {
         await rerun.run { [weak self] in await self?.evaluate(source) }
     }
 
-    /// 记下这个版本，之后同一版本不再提示。挂在设备上，所以不进 `AppStatePersistenceKeys.all`，换账号不重弹。
-    func dismissOptionalPrompt() {
-        guard case .optionalPrompt(let target) = presentation else { return }
-        persistence.set(target.version, forKey: AppStatePersistenceKeys.dismissedAppUpdateVersion)
+    /// 系统弹窗按下任何按钮都会收起。收起的是「稍后」那一种就记下版本，之后同一版本不再提示。
+    /// 记录挂在设备上，所以不进 `AppStatePersistenceKeys.all`，换账号不重弹。
+    /// 必须更新那一种不记录：回到 App 的下一次 `refresh` 版本仍然过低，就会再弹。
+    func promptDidClose() {
+        if case .optionalPrompt(let target) = presentation {
+            persistence.set(target.version, forKey: AppStatePersistenceKeys.dismissedAppUpdateVersion)
+        }
         presentation = .none
     }
 
