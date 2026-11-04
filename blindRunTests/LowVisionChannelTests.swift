@@ -15,7 +15,7 @@ final class LowVisionChannelTests: XCTestCase {
 
     /// WCAG 1.4.3 正文阈值。大字与 UI 部件是 3:1，但本 App 的语义色同时用在两类文本上，
     /// 按严的那条卡 —— 放宽到 3.0 就等于允许「只有标题读得清」。
-    private static let minimumContrast: Double = 4.5
+    static let minimumContrast: Double = 4.5
 
     /// 每个语义色要在**四种组合**下都达标。
     ///
@@ -335,7 +335,7 @@ final class LowVisionChannelTests: XCTestCase {
     // MARK: - WCAG 相对亮度
 
     /// https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
-    private static func relativeLuminance(_ rgb: UInt32) -> Double {
+    static func relativeLuminance(_ rgb: UInt32) -> Double {
         let channels = [16, 8, 0].map { shift -> Double in
             let raw = Double((rgb >> UInt32(shift)) & 0xFF) / 255
             return raw <= 0.03928 ? raw / 12.92 : pow((raw + 0.055) / 1.055, 2.4)
@@ -377,7 +377,7 @@ final class LowVisionChannelTests: XCTestCase {
         return channel(16) | channel(8) | channel(0)
     }
 
-    private static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {
+    static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {
         let la = relativeLuminance(a)
         let lb = relativeLuminance(b)
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)

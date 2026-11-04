@@ -282,21 +282,17 @@ final class ScreenTourTests: XCTestCase {
         return launch(role: "blind_runner", token: "mock_jwt_token_for_testing", env: base.merging(env) { _, new in new })
     }
 
-    @MainActor private func launchVolunteer(
-        available: Bool = true,
-        seed: String? = nil,
-        env: [String: String] = [:]
-    ) -> XCUIApplication {
+    @MainActor func launchVolunteer(available: Bool = true, seed: String? = nil, env: [String: String] = [:], arguments: [String] = []) -> XCUIApplication {
         var base = ["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE": "1", "AIDRUN_MOCK_VOLUNTEER_TRAINING_COMPLETED": "1"]
         if available { base["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1" }
         if let seed {
             base["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
             base["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seed
         }
-        return launch(role: "volunteer", token: "mock_jwt_token_for_testing", env: base.merging(env) { _, new in new })
+        return launch(role: "volunteer", token: "mock_jwt_token_for_testing", env: base.merging(env) { _, new in new }, arguments: arguments)
     }
 
-    @MainActor private func launch(role: String?, token: String?, env: [String: String] = [:]) -> XCUIApplication {
+    @MainActor private func launch(role: String?, token: String?, env: [String: String] = [:], arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock { await MainActor.run { app.terminate() } }
         var base = [
@@ -315,6 +311,7 @@ final class ScreenTourTests: XCTestCase {
         for (key, value) in env where value == "0" { base.removeValue(forKey: key) }
         for (key, value) in env where value != "0" { base[key] = value }
         app.launchEnvironment = base
+        app.launchArguments += arguments
         app.launch()
         dismissSystemAlerts()
         return app
@@ -359,13 +356,13 @@ final class ScreenTourTests: XCTestCase {
         }
     }
 
-    @MainActor private func shoot(_ app: XCUIApplication, _ name: String, anchor identifier: String, scroll: Bool = false) {
+    @nonobjc @MainActor func shoot(_ app: XCUIApplication, _ name: String, anchor identifier: String, scroll: Bool = false) {
         shoot(app, name, anchor: app.descendants(matching: .any)[identifier].firstMatch, scroll: scroll)
     }
 
     /// 等锚点出现再截。锚点没出现照样截（名字带 `MISSING`）并记一条失败。
     /// `scroll` 为真时再上划两次截一张 `-bottom`：SwiftUI 不渲染屏外的行，首屏图看不到下半页。
-    @MainActor private func shoot(_ app: XCUIApplication, _ name: String, anchor: XCUIElement?, scroll: Bool = false) {
+    @nonobjc @MainActor func shoot(_ app: XCUIApplication, _ name: String, anchor: XCUIElement?, scroll: Bool = false) {
         var label = name
         if let anchor, !anchor.waitForExistence(timeout: 20) {
             label += "-MISSING"

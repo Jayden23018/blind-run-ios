@@ -224,18 +224,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     // MARK: - 三列统计
 
-    /// 里程向下取整：12_999 米是 12 公里（取在「向下取整 / 四舍五入」之间才分得出口径）。
-    /// 🔴 不足 1 公里显示 `--`，念出来不是「破折号」也不是「0 公里」。
-    func testDistanceRoundsDownAndNeverShowsZero() {
-        XCTAssertEqual(VolunteerProfileStats.distance(12_999).value, 12.formatted())
-        for meters: Int64? in [nil, 0, 999, -5_000] {
-            let stat = VolunteerProfileStats.distance(meters)
-            XCTAssertEqual(stat.value, "--", "meters=\(String(describing: meters))")
-            XCTAssertNil(stat.unit)
-            XCTAssertEqual(stat.spoken, VolunteerProfileCopy.distanceSpokenWhenEmpty)
-        }
-    }
-
     /// 🔴 0 位固定搭档不上屏（同 `VolunteerHomeIncentiveSummary.hero` 的判据）。
     func testZeroPartnersShowsAPlaceholderInsteadOfZero() {
         let none = VolunteerProfileStats.partners(0)
@@ -262,22 +250,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         // 有均分但条数为 0 时不拼「· 0 条」——那是两个占位符并排。
         let zeroCount = VolunteerProfileStats.rating(average: 5, total: 0)
         XCTAssertFalse(zeroCount.caption.contains("0"), "不该显示 0 条：\(zeroCount.caption)")
-    }
-
-    func testStatsRowIsAlwaysThreeColumnsInAFixedOrder() {
-        let row = VolunteerProfileStats.row(
-            achievements: Self.achievements(
-                totalCompleted: 24, minutes: 11_160, avgRating: 4.9, totalRatings: 32, distanceMeters: 128_400
-            ),
-            favoritedByCount: 8
-        )
-        XCTAssertEqual(row.count, 3)
-        // 陪伴时长已是主指标，这一行第一格换成累计里程。
-        XCTAssertEqual(row.map(\.value), ["128", "8", "4.9"])
-        XCTAssertEqual(row.map(\.caption).first, VolunteerProfileCopy.distanceCaption)
-        // 固定搭档那格复用既有的完整播报（「有 8 位跑者把你设为固定搭档」）——
-        // 「固定搭档 8 位」说不清是谁选了谁。
-        XCTAssertEqual(row[1].spoken, VolunteerHomeIncentiveCopy.partnersSpoken(8))
     }
 
     // MARK: - 徽章一排
@@ -377,21 +349,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         )
     }
 
-    // MARK: - 最近陪跑的日期格
-
-    func testRecentDateFallsBackToNothingRatherThanToday() {
-        let parts = VolunteerProfileRecentDate.parts(from: "2026-09-13T08:30:00")
-        XCTAssertEqual(parts?.day, "13")
-        XCTAssertEqual(parts?.month, "9月")
-
-        for bad in [nil, "", "   ", "not-a-date"] {
-            XCTAssertNil(
-                VolunteerProfileRecentDate.parts(from: bad),
-                "解析不了的时间戳必须整格不画，不能拿今天顶上：\(String(describing: bad))"
-            )
-        }
-    }
-
     // MARK: - 作业区的两道闸
 
     /// 培训闸只认 `.trainingIncomplete` 这**一个**取值。
@@ -483,8 +440,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     /// 同时挡住激励层的三条红线：不折算金额、不做月度目标、不催促下一单。
     func testFirstScreenCopyNeverClaimsCredentialsOrPushesForMoreRuns() {
         let strings = [
-            VolunteerProfileCopy.roleTitle,
-            VolunteerProfileCopy.roleSubtitle(starLevel: 3),
+            VolunteerProfileCopy.pageTitle,
             VolunteerProfileCopy.impactSectionTitle,
             VolunteerProfileCopy.heroUnit,
             VolunteerProfileCopy.newcomerHeadline,
@@ -495,8 +451,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             // 星级卡标题「距离一星还差 N 小时」刻意不进这张表：门槛是国标定的固定值，
             // 「还差」在这里不是压力句式（同下面那条注释）。它的红线在 `testStarCardTitleSaysHowFarToTheFirstStar`。
             VolunteerProfileCopy.starCardProgress(VolunteerStarLevel.derive(totalServiceMinutes: 180)),
-            VolunteerProfileCopy.distanceCaption,
-            VolunteerProfileCopy.distanceSpokenWhenEmpty,
             VolunteerProfileCopy.partnersSpokenWhenEmpty,
             VolunteerProfileCopy.partnersCaption,
             VolunteerProfileCopy.ratingCaption,
@@ -520,9 +474,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerAvailabilityCopy.closeTitle,
             VolunteerAvailabilityCopy.slideHint,
             VolunteerAvailabilityCopy.closeHint,
-            // 双向滑块（2026-09-17）新增的四条，以及接单主页那一屏。
-            VolunteerAvailabilityCopy.availableActionHint,
-            VolunteerAvailabilityCopy.slideReleaseToCloseTitle,
+            // 接单主页那一屏。首页 v3（#694）新增的文案在 `VolunteerHomeSummaryCardsTests` 里过同一张禁用词表。
             VolunteerAvailabilityCopy.enterHubTitle,
             VolunteerAvailabilityCopy.enterHubHint,
             VolunteerDispatchHubCopy.acceptingPill,
@@ -543,9 +495,8 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         // 「本月 / 本周」：Moving Target —— 自己跟自己比的门槛会漂移（印度 CCPA dark pattern 分类法点名项）。
         // 「还差 / 再跑 / 就能」：压力句式。国标星级那条「还差 N 小时」不在这张表里，
         //   它来自 `VolunteerAchievementsCopy`，门槛由 GB/T 40143—2021 定、不随用户表现漂移。
-        let banned = ["证明", "证书", "已认证", "元", "￥", "本月", "本周", "还差", "再跑", "就能", "敬请期待"]
         for text in strings {
-            for word in banned {
+            for word in Self.bannedCopyWords {
                 XCTAssertFalse(text.contains(word), "首屏文案出现禁用词「\(word)」：\(text)")
             }
         }
@@ -559,6 +510,9 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             XCTAssertFalse(close.contains(word), "关闭侧出现挽留话术「\(word)」：\(close)")
         }
     }
+
+    /// 首页与接单页文案的禁用词。理由逐条写在 `testFirstScreenCopyNeverClaimsCredentialsOrPushesForMoreRuns` 里。
+    static let bannedCopyWords = ["证明", "证书", "已认证", "元", "￥", "本月", "本周", "还差", "再跑", "就能", "敬请期待"]
 
     // MARK: - Fixtures
 

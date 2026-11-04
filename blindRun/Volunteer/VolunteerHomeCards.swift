@@ -60,20 +60,18 @@ struct VolunteerCurrentOrderCard: View {
     }
 }
 
-/// 派单状态卡：派单状态一句 + 覆盖范围。
+/// 派单状态：收不到单时的原因一句 + 覆盖范围 + 「保持 App 开着」。
 ///
-/// 🚩 **internal 而不是 private**：唯一的渲染点在 `VolunteerProfileFirstScreen.dispatchSection`
-/// （另一个文件）。它被刻意摆在首屏**最底部**、接替 2026-09-15 删掉的那行工作台入口 ——
-/// 「等待派单」页出来时搬走它 = 删首屏 `VStack` 里的一行 + 整个 struct 挪过去，不用重构。
-/// 调研 §1 的三档分类里它是第三档「普通信息卡片」，不该占中段。
+/// 🚩 2026-11-04 起它在**接单页最上面的状态卡里**（陪跑员首页 v3，#694），不再在首页底部。
+/// 它自己不再画底色和圆角 —— 外面那张白卡（`VolunteerDispatchHubView.statusCard`）负责。
+/// 「接单中」那半句由状态卡标题说，这里只在**收不到单**时说原因，不重复一遍「可以接单」。
 ///
-/// 🔴 **卡里不再有「去培训」按钮。** 那个入口以前是这张卡的兄弟节点，小得用户找不到
-/// （原话「一个贼小的去培训，一点都不显眼」），已整体升级成首屏作业区里的整卡入口。
+/// 🔴 **卡里不再有「去培训」按钮。** 那个入口小得用户找不到
+/// （原话「一个贼小的去培训，一点都不显眼」），已整体升级成首页作业区里的整卡入口。
 ///
-/// 🔴 **卡里不再有统计**（负责人 2026-10-06）。完成次数、评分在同一屏「我的陪伴」里已有一份；
-/// 接单率与派单 / 接受 / 拒绝 / 超时计数对无偿志愿者读起来像考核，整组删掉，不挪去别处。
-/// 状态句也不重复作业区已经画成整卡的原因（培训、资质）—— 同一屏说两遍「尚未完成必修培训」
-/// 是 2026-10-05 零上下文评审点名的问题。
+/// 🔴 **卡里不再有统计**（负责人 2026-10-06）。接单率与派单 / 接受 / 拒绝 / 超时计数
+/// 对无偿志愿者读起来像考核，整组删掉，不挪去别处。
+/// 状态句也不重复作业区已经画成整卡的原因（培训、资质）。
 struct VolunteerDispatchSummaryCard: View {
     let summary: VolunteerDispatchSummaryResponse
 
@@ -87,37 +85,35 @@ struct VolunteerDispatchSummaryCard: View {
         summary.dispatchStatusText(omitting: Self.reasonsShownInTodoSection)
     }
 
+    /// 收不到单时才有原因句；可派单时状态卡标题「接单中」已经说了。
+    private var reasonText: String? {
+        guard summary.canDispatch != true else { return nil }
+        return statusText
+    }
+
+    private var coverageLine: String {
+        "\(summary.coverageText) · \(VolunteerAvailabilityCopy.keepAppOpenNote)"
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if statusText != nil {
-                Image(systemName: summary.canDispatch == true ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(summary.canDispatch == true ? AppColors.success : AppColors.warning)
-                    .accessibilityHidden(true)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if let statusText {
-                    Text(statusText)
-                        .font(AppFonts.body().weight(.bold))
-                        .foregroundColor(AppColors.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text(summary.coverageText)
-                    .font(statusText == nil ? AppFonts.body() : AppFonts.caption())
-                    .foregroundColor(statusText == nil ? AppColors.textPrimary : AppColors.textSecondary)
+        VStack(alignment: .leading, spacing: 4) {
+            if let reasonText {
+                Text(reasonText)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Spacer(minLength: 0)
+            Text(coverageLine)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "派单状态：" + [statusText, summary.coverageText].compactMap { $0 }.joined(separator: "，")
+            "派单状态：" + [reasonText, summary.coverageText, VolunteerAvailabilityCopy.keepAppOpenNote]
+                .compactMap { $0 }
+                .joined(separator: "，")
         )
         .accessibilityIdentifier("volunteerDispatchSummaryCard")
     }

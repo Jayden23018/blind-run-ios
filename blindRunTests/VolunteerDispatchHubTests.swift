@@ -2,60 +2,29 @@ import CoreGraphics
 import XCTest
 @testable import blindRun
 
-/// 接单主页（设计交付文档 v3 的 S3/S4）与双向滑块的判据。
+/// 接单主页（设计交付文档 v3 的 S3/S4）与首页滑块的判据。
 ///
 /// 这里的每一条守的都是「**坏了也看不出来**」的那一类：
 /// 取错一张单，屏幕上照样是一张正常的深蓝卡；阈值改错，滑块照常能滑；
 /// 时间段格式写错，`PUT` 照样返回 200。
 final class VolunteerDispatchHubTests: XCTestCase {
 
-    // MARK: - 左滑阈值
+    // MARK: - 开启阈值
 
-    /// 向左停止接单取 **35%**，比向右开启的 20% 高。
+    /// 右滑 20% 开启；左滑任何距离都不开启。
     ///
-    /// 🔴 **关键的是中间那个取值 0.25**：它在右滑下成立、在左滑下不成立。
-    /// 随手取「滑 5%」和「滑 90%」的话，把 `deactivationFraction` 改回 0.2
-    /// 这两条**照样通过** —— 那样的用例分辨不出两侧阈值被拉平，
-    /// 而拉平的真实后果是一次边缘返回手势就把接单关掉（左滑正是系统返回手势的方向）。
-    func testStopThresholdSitsHigherThanTheStartThreshold() {
+    /// v3（#694）起没有左滑停止了（停止走接单页的「暂停接单」），所以只剩开启这一侧。
+    /// 取 19% / 21% 两个落在阈值两边的值：把阈值改成 0.1 或 0.3 其中一条会红。
+    func testSlidingRightPastTwentyPercentOpensAndLeftNeverDoes() {
         let trackWidth: CGFloat = 200
-        let quarter: CGFloat = 50 // 25%
-
-        XCTAssertTrue(
-            VolunteerAvailabilitySlide.activates(dragX: quarter, trackWidth: trackWidth),
-            "右滑 25% 应当开启（阈值 20%）"
-        )
-        XCTAssertFalse(
-            VolunteerAvailabilitySlide.deactivates(dragX: -quarter, trackWidth: trackWidth),
-            "左滑 25% 就停止 —— 停止阈值被拉到和开启一样低了，边缘返回手势会误关"
-        )
-        XCTAssertTrue(
-            VolunteerAvailabilitySlide.deactivates(dragX: -71, trackWidth: trackWidth),
-            "左滑 35.5% 还不停止 —— 停止阈值被调得更高了"
-        )
-        XCTAssertGreaterThan(
-            VolunteerAvailabilitySlide.deactivationFraction,
-            VolunteerAvailabilitySlide.activationFraction,
-            "停止那一侧必须比开启更难触发"
-        )
-    }
-
-    /// 方向不能串：右滑不触发停止，左滑不触发开启。
-    func testDirectionsDoNotLeakIntoEachOther() {
-        let trackWidth: CGFloat = 200
-        XCTAssertFalse(
-            VolunteerAvailabilitySlide.deactivates(dragX: 190, trackWidth: trackWidth),
-            "一路向右拖不该被当成停止接单"
-        )
+        XCTAssertFalse(VolunteerAvailabilitySlide.activates(dragX: 38, trackWidth: trackWidth), "右滑 19% 不该开启")
+        XCTAssertTrue(VolunteerAvailabilitySlide.activates(dragX: 42, trackWidth: trackWidth), "右滑 21% 应当开启")
         XCTAssertFalse(
             VolunteerAvailabilitySlide.activates(dragX: -190, trackWidth: trackWidth),
             "一路向左拖不该被当成开启接单"
         )
-        XCTAssertEqual(VolunteerAvailabilitySlide.leftTravel(dragX: 80, trackWidth: 200), 0)
-        XCTAssertEqual(VolunteerAvailabilitySlide.leftTravel(dragX: -9_999, trackWidth: 200), 200)
-        XCTAssertEqual(VolunteerAvailabilitySlide.leftTravel(dragX: .nan, trackWidth: 200), 0)
         for width in [CGFloat(0), -120, .nan, .infinity] {
-            XCTAssertFalse(VolunteerAvailabilitySlide.deactivates(dragX: -999, trackWidth: width))
+            XCTAssertFalse(VolunteerAvailabilitySlide.activates(dragX: 999, trackWidth: width))
         }
     }
 

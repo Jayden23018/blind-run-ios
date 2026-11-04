@@ -95,9 +95,9 @@ enum VolunteerProfileTodoGate {
     }
 }
 
-// MARK: - 三列统计
+// MARK: - 统计格
 
-/// 主指标下面那一行的一格。
+/// 首页半宽卡的取值（`VolunteerHomeHalfCard`）。改版前是主指标下面那一行三格。
 ///
 /// `spoken` 与视觉分开，因为视觉上的占位符号从来不是给耳朵用的：
 /// 没有评价时屏幕上是 `--`，念出来必须是「还没有收到评价」而不是「破折号破折号」
@@ -116,43 +116,6 @@ struct VolunteerProfileStat: Equatable, Identifiable {
 }
 
 enum VolunteerProfileStats {
-    /// 中文跑步产品的统计网格是**数值在上、小标签在下**，与 Strava 的标签在上方向相反
-    /// （悦跑圈路段页，调研 §1.5 C1）。中文语境按中文的来。
-    ///
-    /// 三格固定顺序：累计里程 → 固定搭档 → 评分。前两个是「我付出了多少」，
-    /// 第三个是「别人怎么看」，顺序即优先级，读屏按这个顺序念。
-    /// 陪伴时长已是主指标，这里不再重复。
-    static func row(
-        achievements: VolunteerAchievementsResponse?,
-        favoritedByCount: Int
-    ) -> [VolunteerProfileStat] {
-        [
-            distance(achievements?.totalDistanceMeters),
-            partners(favoritedByCount),
-            rating(average: achievements?.avgRating, total: achievements?.totalRatings)
-        ]
-    }
-
-    /// 后端给的是**米**，向下取整成公里 —— 12_999 米是 12 公里。
-    /// 🔴 不足 1 公里显示 `--` 而不是「0 公里」：2026-08-14 之前的订单没有里程快照、按 0 算。
-    static func distance(_ totalDistanceMeters: Int64?) -> VolunteerProfileStat {
-        let km = max(0, totalDistanceMeters ?? 0) / 1000
-        guard km > 0 else {
-            return VolunteerProfileStat(
-                value: VolunteerProfileCopy.ratingPlaceholder,
-                unit: nil,
-                caption: VolunteerProfileCopy.distanceCaption,
-                spoken: VolunteerProfileCopy.distanceSpokenWhenEmpty
-            )
-        }
-        return VolunteerProfileStat(
-            value: km.formatted(),
-            unit: VolunteerProfileCopy.distanceUnit,
-            caption: VolunteerProfileCopy.distanceCaption,
-            spoken: "\(VolunteerProfileCopy.distanceCaption) \(km) \(VolunteerProfileCopy.distanceUnit)"
-        )
-    }
-
     /// 🔴 0 位时显示 `--` 而不是「0 位」—— 与 `VolunteerHomeIncentiveSummary.hero`
     /// 「0 位搭档不上屏」同一条判据（`VolunteerHomeIncentive.swift:70`）。
     static func partners(_ count: Int) -> VolunteerProfileStat {
@@ -301,22 +264,6 @@ enum VolunteerProfileBadgeRow {
     }
 }
 
-// MARK: - 最近陪跑
-
-/// 「最近陪跑」左侧那个日期格：大号日 + 小号月（`13` / `9月`）。
-enum VolunteerProfileRecentDate {
-    /// 解析失败时返回 `nil`，那一格整块不画 —— 不显示 `--` 也不拿今天顶上。
-    ///
-    /// ponytail: 走 `Calendar` 取两个数字，不新配 `DateFormatter`。
-    /// 多一个格式器就多一处「同一个月在两个地方写法不同」的来源。
-    static func parts(from timestamp: String?) -> (day: String, month: String)? {
-        guard let date = timestamp?.nilIfBlank?.backendTimestamp else { return nil }
-        let components = Calendar.current.dateComponents([.day, .month], from: date)
-        guard let day = components.day, let month = components.month else { return nil }
-        return ("\(day)", "\(month)月")
-    }
-}
-
 // MARK: - 文案
 
 /// 志愿者「我」首屏的文案。
@@ -329,8 +276,8 @@ enum VolunteerProfileRecentDate {
 /// 星级那条「还差 N 小时」是允许的，因为门槛是**国家标准定的外部固定值**、不随用户表现漂移
 /// ——「本月 8/10 次」那种自己跟自己比的目标才是 Moving Target。
 enum VolunteerProfileCopy {
-    // 身份行
-    static let roleTitle = "陪跑志愿者"
+    // 页头（v3：大标题 + 右上角头像，身份行已删）
+    static let pageTitle = "首页"
     static let settingsTitle = "设置"
     /// 🔴 **这句必须把设置里真有的东西列全。** 它是「陪跑培训」的**常驻**入口
     /// （`VolunteerOrderFlowViews.swift` 的设置列表里）唯一的可发现性来源 ——
@@ -339,18 +286,16 @@ enum VolunteerProfileCopy {
     /// 六样却独独漏了培训，读屏用户按 hint 根本不知道能从这儿进去。
     static let settingsHint = "昵称、资质、培训、积分、固定搭档、邀请码和账号"
 
-    static func roleSubtitle(starLevel: Int?) -> String {
-        let current = max(0, starLevel ?? 0)
-        guard current > 0 else { return roleTitle }
-        return "\(roleTitle) · \(VolunteerAchievementsCopy.starTitle(current: current))"
-    }
-
-    // 主指标
+    // 主指标（v3：陪伴时长卡）
     static let impactSectionTitle = "我的陪伴"
+    /// 陪伴时长卡左上角的卡名。
+    static let durationCardTitle = "陪伴时长"
     static let heroUnit = "次陪跑"
 
     /// 主指标是时长时，完成次数退到它下面这一行（三列统计里没有次数，不写就丢了）。
     static func heroRunsDetail(_ count: Int) -> String { "共 \(count) \(heroUnit)" }
+    /// 样例写「共陪跑 N 次」：卡名已经是「陪伴时长」，次数这一行换成动词在前的说法。
+    static func durationCardRunsLine(_ count: Int) -> String { "共陪跑 \(count) 次" }
 
     /// 新人那句话。陈述现状 + 说清下一步在哪，**不催**。
     static let newcomerHeadline = "还没有完成的陪跑"
@@ -398,10 +343,29 @@ enum VolunteerProfileCopy {
         return "\(section)，\(starCardTitle(level))，已累计 \(max(0, level.currentHours ?? 0)) 小时。"
     }
 
-    // 三列统计
-    static let distanceCaption = "累计里程"
-    static let distanceUnit = "公里"
-    static let distanceSpokenWhenEmpty = "累计里程暂无记录"
+    // 置顶 · 编辑（负责人 2026-11-04 看截图后要求，#694）
+    static let pinnedSectionTitle = "置顶"
+    static let pinnedEditTitle = "编辑"
+    static let pinnedEditHint = "选择哪些卡片放在首页，并调整顺序"
+    static let pinnedEditNavigationTitle = "编辑置顶"
+    static let pinnedEditOthersTitle = "其他卡片"
+    static let pinnedEditFooter = "按住右侧把手拖动可以调整顺序。使用读屏时，在卡片上用「上移」「下移」。"
+    static let pinnedEditEmpty = "还没有置顶的卡片，从下面加一张。"
+    static let pinnedHomeEmpty = "点「编辑」选择要放在首页的卡片。"
+    static let pinnedHomeWaitingForFirstRun = "完成第一次陪跑后，连续陪跑和评分会显示在这里。"
+    static let pinnedMoveUp = "上移"
+    static let pinnedMoveDown = "下移"
+    static func pinnedRemoveLabel(_ title: String) -> String { "把\(title)移出置顶" }
+    static func pinnedAddLabel(_ title: String) -> String { "把\(title)加入置顶" }
+
+    // 半宽卡
+    static let streakCardTitle = "连续陪跑"
+    static let streakWeeksUnit = "周"
+    static func streakBestCaption(_ bestWeeks: Int) -> String { "最好 \(bestWeeks) 周" }
+    static let partnersCardCaption = "跑者设你为固定搭档"
+    static let partnersCardEmptyCaption = "还没有"
+    static let ratingCardEmptyCaption = "还没有评价"
+    static let partnersCardHint = "打开固定搭档，查看每位搭档和你们连续一起跑的周数"
     static let partnersSpokenWhenEmpty = "还没有跑者把你设为固定搭档"
     static let hoursUnit = "小时"
     static let minutesUnit = "分钟"
@@ -425,20 +389,23 @@ enum VolunteerProfileCopy {
     static let ratingSpokenWhenEmpty = "还没有收到评价"
 
     // 徽章
-    static let badgesSectionTitle = "我的徽章"
+    static let badgesSectionTitle = "徽章"
     static let badgesLinkTitleWhenEmpty = "查看全部"
     static let badgesLinkHint = "打开服务成就，查看国标星级、全部勋章和累计服务时长"
     static let badgesEmpty = "完成第一次陪跑就会解锁第一枚徽章。"
 
     // 最近陪跑
     static let recentSectionTitle = "最近陪跑"
-    static let recentLinkTitle = "全部"
+    static let recentLinkTitle = "全部记录"
     static let recentLinkHint = "打开陪跑记录，按月查看已完成的陪跑和未完成的预约"
     static let recentEmpty = "完成陪跑后会显示在这里。"
-
-    static func recentRowTitle(blindName: String?) -> String {
-        "与 \(blindName?.nilIfBlank ?? "跑者") 同跑"
-    }
+    /// 最近陪跑卡左上角的卡名（样例「跑后记录」）：点进去就是那一次的跑后记录。
+    static let recentCardTitle = "跑后记录"
+    static let recentCardHint = "打开这一次的跑后记录"
+    /// 跑过但最近两个月没有记录。不说「没有陪跑」——更早的在「全部记录」里。
+    static let recentNoneLately = "这两个月还没有陪跑记录，更早的在「全部记录」里。"
+    static let recentLoadFailure = "最近陪跑暂时没加载出来。"
+    static let recentRetry = "重新加载最近陪跑"
 
     // 作业区
     static let todoSectionTitle = "需要你处理"

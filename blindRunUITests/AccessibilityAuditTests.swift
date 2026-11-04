@@ -756,40 +756,6 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
-    /// #421：志愿者订单详情页（首页「近期服务」点进来）里那处 `requestPermission()` 也要排在同意之后。
-    ///
-    /// 上面几条同意页用例走的都是同行态的根部同意页，不经过这一页。把 `VolunteerOrderDetailView.task`
-    /// 里包着它的 `hasLocationTrackConsent` 判断删掉，那些用例一条都不会红；这条走真实路径：
-    /// 强制同意闸 + 没有同意记录 ⇒ 进详情页 ⇒ 无闸的 `requestPermission()` 会撞上
-    /// `LocationService.trackConsentPreconditionForDebug` 的断言、App 当场崩掉。
-    @MainActor
-    func testVolunteerOrderDetailFromRecentServicesDoesNotRequestLocationBeforeConsent() {
-        let app = launchVolunteerHome(
-            available: false,
-            extraEnvironment: ["AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT": "1"]
-        )
-        // Mock 的第二张种子单是已完成的，必然落在「近期服务」里。按前缀找而不是写死单号。
-        let row = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "volunteerProfileRecentRow."))
-            .firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 25), "首页「近期服务」没有可点的订单行")
-        scrollTo(row, in: app)
-        XCTAssertTrue(row.isHittable, "滚到底了「近期服务」的订单行仍点不到")
-        row.tap()
-
-        XCTAssertTrue(
-            app.navigationBars["订单详情"].waitForExistence(timeout: 20),
-            "点了「近期服务」的订单行没有进订单详情页（App 状态 \(app.state.rawValue)；1 = 没在运行，多半是详情页在没有位置轨迹同意时调了 requestPermission()，撞上了调试断言）"
-        )
-        // 详情页的 `.task` 在出现时就跑；给它一段时间，崩溃（assertionFailure）会让 App 离开前台。
-        Thread.sleep(forTimeInterval: 3)
-        XCTAssertEqual(
-            app.state, .runningForeground,
-            "App 不在前台 —— 多半是订单详情页在没有位置轨迹同意时调了 requestPermission()，撞上了调试断言"
-        )
-        XCTAssertTrue(app.navigationBars["订单详情"].exists, "详情页在等待期间消失了")
-    }
-
     // MARK: - 静态审计抓不到的语义要求
 
     /// `AGENTS.md`：盲人端关键主按钮高度 ≥ 64pt。
@@ -2985,7 +2951,7 @@ final class AccessibilityAuditTests: XCTestCase {
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"]
         XCTAssertTrue(identityRow.waitForExistence(timeout: 25), "首屏整体没出来 —— 这不是影响力区的问题")
         XCTAssertTrue(
-            app.staticTexts["我的陪伴"].waitForExistence(timeout: 20),
+            app.staticTexts["置顶"].waitForExistence(timeout: 20),
             "分区标题都没有 —— 这不是影响力区的问题"
         )
 
@@ -2995,7 +2961,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         // 三态**必有其一**。一个都没有 = 视图压根没渲染，就是那个 `.task` 缺陷复发了。
         let anyState = card.waitForExistence(timeout: 20) || loading.exists || failure.exists
-        XCTAssertTrue(anyState, "「我的陪伴」三种状态一个都没出现 —— .task 没触发，影响力区把自己锁死了")
+        XCTAssertTrue(anyState, "「置顶」里成就那三种状态一个都没出现 —— .task 没触发，影响力区把自己锁死了")
 
         // Mock 环境下数据是齐的，应该落在正式内容那一态。
         XCTAssertTrue(card.exists, "Mock 数据齐全时应该渲染正式内容，实际落到了占位态")
@@ -3036,52 +3002,6 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(slider.isEnabled, "资质已通过的志愿者，这枚按钮必须是可用的")
         // 关闭态下**不许**出现开启态那枚按钮：那会让读屏用户听到一枚此刻没有意义的按钮。
         XCTAssertFalse(app.buttons["进入接单"].exists, "关闭态不该同时暴露开启态的按钮")
-    }
-
-    /// 向右拖过 20% 真的会开启并进入接单主页；向左拖过 35% 真的会停止接单。
-    ///
-    /// 🔴 **双向滑块是 2026-09-17 产品拍板的结果**，它推翻了此前「关闭是普通点按」那一条
-    /// （依据是 Uber 司机下线挽留被 NYT 点名的 dark pattern）。被推翻的只有**手势**：
-    /// 关闭路径上仍然不许有任何挽留或确认弹窗，所以下面那条 `alerts.count == 0` 保留。
-    ///
-    /// 🔴 **这条只能走指针路径**：`XCUIElement.tap()` 注入的是物理触摸，不经过
-    /// accessibility action，所以「停止接单」那个自定义动作在 XCUITest 里调不到
-    /// （记忆 `xcuitest-cannot-invoke-accessibility-actions`）。形状由上一条断，行为由这条断。
-    @MainActor
-    func testSlidingRightOpensAvailabilityAndSlidingLeftStopsIt() {
-        let app = launchVolunteerHome(available: false)
-
-        let slider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
-        XCTAssertTrue(slider.waitForExistence(timeout: 25), "滑动 CTA 没渲染出来")
-
-        // 从滑块位置横着拖到轨道右端。开启阈值是 20%，拖到 95% 有足够余量。
-        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
-            .press(
-                forDuration: 0.1,
-                thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
-            )
-
-        // 开启那一下同时进入接单主页（设计交付 v3 的流程）。返回之后才看得到滑块的开启态。
-        let hubPill = app.descendants(matching: .any)["volunteerDispatchHubAcceptingPill"].firstMatch
-        XCTAssertTrue(hubPill.waitForExistence(timeout: 20), "滑过阈值后没有开启，或者没有进入接单主页")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-
-        let enterHub = app.buttons["进入接单"]
-        XCTAssertTrue(enterHub.waitForExistence(timeout: 15), "回到首页后滑块应当是开启态")
-
-        // 反方向：从右端拖到左端。停止阈值是 35%，拖到 5% 有足够余量。
-        let openSlider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
-        openSlider.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
-            .press(
-                forDuration: 0.1,
-                thenDragTo: openSlider.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
-            )
-
-        XCTAssertTrue(
-            app.buttons["向右滑动，我现在有空陪跑"].waitForExistence(timeout: 15),
-            "向左滑没有停止接单"
-        )
-        XCTAssertEqual(app.alerts.count, 0, "停止接单不得弹任何挽留对话框")
     }
 
     /// 首屏徽章区那个「全部 N 枚 ›」入口。滚到它为止再返回。

@@ -98,6 +98,52 @@ enum AppColors {
         availabilityOnSurfaceTone.dark
     )
 
+    /// 陪跑员首页底部「接单中 · 进入接单」那枚胶囊（首页 v3，负责人 2026-11-04 定稿，#694）。
+    ///
+    /// 浅底深字，不再是饱和绿底白字：v3 把首页底部从一条压在内容上的绿色通栏换成白色底座里的一枚胶囊。
+    /// 亮色取样例原值 `#E3F2E7` / `#155E2C`（6.79:1）。暗色沿用接单页胶囊那一对
+    /// （`Flow.acceptingBackgroundTone` / `Flow.acceptingTextTone` 的暗色档）`#10381F` / `#7BD99E`（7.63:1）。
+    /// 背景色不进 `tones`（理由同 `availabilityOnSurface`）。
+    /// 检查在 `AvailabilityPillContrastTests.testAvailabilityPillTextReadableOnItsSurface`。
+    static let availabilityPillSurfaceTone = Tone(light: 0xE3F2E7, dark: 0x10381F)
+    static let availabilityPillTextTone = Tone(light: 0x155E2C, dark: 0x7BD99E)
+
+    static let availabilityPillSurface = dynamic(
+        availabilityPillSurfaceTone.light,
+        availabilityPillSurfaceTone.dark
+    )
+    static let availabilityPillText = dynamic(
+        availabilityPillTextTone.light,
+        availabilityPillTextTone.dark
+    )
+
+    /// 陪跑员首页 v3 的卡名色与页顶天蓝渐变（负责人 2026-11-04 看真机截图后要求：陪伴时长天青、
+    /// 连续陪跑与评分两种颜色分开、页顶要有天蓝渐变）。**只给首页卡片用**，不当全局语义色。
+    ///
+    /// 卡名色是 15pt semibold 的**字**，压在白卡（亮）/ `#1C1C1E` 卡（暗）上，要 4.5:1：
+    /// 天青 6.25 / 8.11、橙 5.18 / 7.29、琥珀 5.43 / 9.25。亮色取样例 `home-v3.html` 原值。
+    /// 渐变是纯背景（上面压的是 `label` 色大标题，亮暗都在 15:1 以上），不设门槛。
+    /// 检查在 `VolunteerHomeColorContrastTests`。
+    enum VolunteerHome {
+        static let durationTealTone = Tone(light: 0x0A6B72, dark: 0x4FC3CC)
+        static let streakOrangeTone = Tone(light: 0xC2410C, dark: 0xFF8A4C)
+        static let ratingAmberTone = Tone(light: 0x9A5B00, dark: 0xF0B54A)
+        static let skyTopTone = Tone(light: 0xCFE3F7, dark: 0x0F2033)
+        static let skyMidTone = Tone(light: 0xE7EEF6, dark: 0x0A121C)
+
+        static let cardTitleTones: [(name: String, tone: Tone)] = [
+            ("durationTeal", durationTealTone),
+            ("streakOrange", streakOrangeTone),
+            ("ratingAmber", ratingAmberTone)
+        ]
+
+        static let durationTeal = dynamic(durationTealTone.light, durationTealTone.dark)
+        static let streakOrange = dynamic(streakOrangeTone.light, streakOrangeTone.dark)
+        static let ratingAmber = dynamic(ratingAmberTone.light, ratingAmberTone.dark)
+        static let skyTop = dynamic(skyTopTone.light, skyTopTone.dark)
+        static let skyMid = dynamic(skyMidTone.light, skyMidTone.dark)
+    }
+
     /// 语音输入框的麦克风按钮「正在录音」时的底色（`VoiceTextField`），上面是白色麦克风图标。
     ///
     /// **同 `availabilityOnSurface` 的形状**：语义色当背景、白色压在上面，所以不进 `tones`。

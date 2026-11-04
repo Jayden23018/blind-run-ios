@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 志愿者「我的」首屏的作业区（「需要你处理」）。主体与排序在 `VolunteerProfileFirstScreenView.swift`。
+// 志愿者首页的作业区（「需要你处理」）。主体与排序在 `VolunteerProfileFirstScreenView.swift`。
 
 extension VolunteerProfileFirstScreen {
     // MARK: - 作业区
@@ -20,6 +20,7 @@ extension VolunteerProfileFirstScreen {
         if hasTodo {
             VStack(alignment: .leading, spacing: 12) {
                 sectionLabel(VolunteerProfileCopy.todoSectionTitle)
+                    .padding(.horizontal, 4)
 
                 if let activeOrder = viewModel.activeOrder {
                     NavigationLink {
@@ -105,6 +106,7 @@ extension VolunteerProfileFirstScreen {
                     }
                 }
             }
+            .padding(.top, 14)
         }
     }
 
@@ -167,8 +169,9 @@ extension VolunteerProfileFirstScreen {
             // 不加 `guard:allow small-touch-target`：那条规则既排除了 /blindRun/Volunteer/，
             // 判据又是 `< 64`，双重不触发，多余的标注只会稀释它在别处的信号。
             .frame(minHeight: 64)
-            .background(AppColors.secondaryBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
+            // v3（#694）：与首页其余卡片同一套白卡（白卡压浅灰页底）。
+            .background(AppColors.Flow.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.summaryCard, style: .continuous))
         }
         .buttonStyle(.plain)
         // ⛔ **不加** `.accessibilityElement(children: .combine)`。打在 `NavigationLink` 自身上

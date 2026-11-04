@@ -22,19 +22,6 @@ enum VolunteerAvailabilitySlide {
     /// 向右滑过轨道的这个比例即开启。**不要往上调** —— 理由见类型注释。
     static let activationFraction: CGFloat = 0.2
 
-    /// 向左滑过这个比例即停止接单。
-    ///
-    /// 🔴 **刻意比开启高**（0.35 vs 0.20），理由不是「关闭要加摩擦」，而是**方向本身**：
-    /// 向左滑是 iOS 边缘返回手势的方向，两侧阈值取同一个数会让一次边缘误触直接把接单关掉，
-    /// 而志愿者当时正看着首页、屏幕上没有任何确认框拦他。
-    ///
-    /// ⚠️ 2026-09-17 产品拍板改成双向滑块之前，这里的既定做法是「关闭是普通点按，
-    /// 摩擦力只加在答应那一侧」（依据是 Uber 司机下线挽留被 NYT 点名的 dark pattern）。
-    /// 那条不再成立，但它防的东西仍然成立：**关闭路径上不许出现挽留** ——
-    /// 不弹「你今天已经跑了 2 单，再坚持一下？」，不把「保持接单」做成主按钮。
-    /// 抬高左滑阈值是防误触，不是劝退。
-    static let deactivationFraction: CGFloat = 0.35
-
     /// 向右的实际位移，钳在 `0...trackWidth`。
     ///
     /// 非有限值（布局还没算出来时 `GeometryReader` 会给 NaN）一律当 0，
@@ -45,21 +32,10 @@ enum VolunteerAvailabilitySlide {
         return min(max(dragX, 0), trackWidth)
     }
 
-    /// 向左的实际位移（正数），钳在 `0...trackWidth`。与 `travel` 完全镜像。
-    static func leftTravel(dragX: CGFloat, trackWidth: CGFloat) -> CGFloat {
-        travel(dragX: -dragX, trackWidth: trackWidth)
-    }
-
     /// 松手时该不该真的开启。
     static func activates(dragX: CGFloat, trackWidth: CGFloat) -> Bool {
         guard trackWidth > 0 else { return false }
         return travel(dragX: dragX, trackWidth: trackWidth) / trackWidth >= activationFraction
-    }
-
-    /// 松手时该不该真的停止接单。
-    static func deactivates(dragX: CGFloat, trackWidth: CGFloat) -> Bool {
-        guard trackWidth > 0 else { return false }
-        return leftTravel(dragX: dragX, trackWidth: trackWidth) / trackWidth >= deactivationFraction
     }
 
     /// 已滑过的比例，给轨道高亮用（0...1）。
@@ -88,42 +64,38 @@ enum VolunteerAvailabilitySlide {
     }
 }
 
+
 // MARK: - 控件
 
-/// 首屏底部的「可服务」滑动 CTA。
+/// 首页底部白色底座里的那一枚胶囊（陪跑员首页 v3，负责人 2026-11-04 定稿，#694）。
 ///
-/// 🚩 **双向**：向右滑 = 开启接单并进入接单页；向左滑 = 停止接单。
-/// Uber Base 同页的 Caution 逐字写着 "If the action is not critical, a sliding button may be
-/// unnecessary and may add unnecessary complexity to the interface" —— 滑动只有绑在一个
-/// **真有后果**的动作上才立得住，而「从这一刻起开始（或不再）收派单」正是那种动作。
+/// 两种形态：
+/// - **没在接单**：浅灰轨道 + 蓝色圆形滑块。向右滑 = 开启接单并进入接单页。
+///   Uber Base 同页的 Caution 逐字写着 "If the action is not critical, a sliding button may be
+///   unnecessary" —— 滑动只有绑在一个**真有后果**的动作上才立得住，「从这一刻起开始收派单」正是那种动作。
+/// - **在接单**：没有滑块，整枚胶囊是一个入口，点按进入接单页。接单中是浅绿底深绿字「接单中 · 进入接单」。
 ///
-/// 已开启时**点按轨道**进入接单页：那一刻向右已经没有「开启」这件事可做了，
-/// 而再给首页加第二个控件会让这一条底栏在 AX5 下吃掉更多屏幕。
+/// 🔴 **v3 去掉了向左滑动停止接单**（2026-09-17 的双向滑块）。停止走接单页的「暂停接单」，
+/// 那里有一次确认、说清已约好的单不受影响。读屏的「停止接单」自定义动作保留：
+/// 读屏用户少走一页，且它不会被误触。
 struct VolunteerAvailabilitySlider: View {
     /// 滑块与轨道之间的留白。滑块直径 = 轨道高 − 2×这个数。
     private static let knobInset: CGFloat = 5
 
-    /// 没有滑块时文字与胶囊两端的距离。大字号下 12 会贴到圆角上（模拟器 AX3 截图）。
-    private static let knoblessInset: CGFloat = 24
+    /// 文字与胶囊两端的距离。大字号下 12 会贴到圆角上（模拟器 AX3 截图）。
+    private static let textInset: CGFloat = 20
 
     /// 轨道高度的上限。
     ///
-    /// 🔴 **`@ScaledMetric` 必须封顶，否则 AX5 下这条 CTA 会吃掉半屏。**
-    /// `.body` 在 AX5 是 53pt（默认 17pt，约 3.12×，见
-    /// `docs/research/dynamic-type-scale-20260812.md`）⇒ 不封顶算出来是 **200pt**，
-    /// 滑块跟着变成一个 190pt 的圆。iPhone 横屏视口只有约 393pt，
-    /// 首屏的「需要你处理」（带 60 分钟到期的预约确认）会被压到几乎不可见。
-    ///
-    /// 96 = 1.5 × 64：字号跟着放大的诉求仍然满足（轨道里的文字自己是
-    /// `AppFonts.body()`，两行 + `minimumScaleFactor` 兜底），而几何有界。
-    /// 封的是**容器**不是文字 —— 这与「固定磅值不跟 Dynamic Type 走」那条不冲突。
+    /// 🔴 **`@ScaledMetric` 必须封顶，否则 AX5 下这条入口会吃掉半屏。**
+    /// `.body` 在 AX5 约是默认的 3.12 倍（`docs/research/dynamic-type-scale-20260812.md`），
+    /// 不封顶算出来约 180pt，滑块跟着变成一个 170pt 的圆；横屏视口只有约 393pt。
+    /// 封的是**容器**不是文字：轨道里的字仍是 `AppFonts.body()`，两行 + `minimumScaleFactor` 兜底。
     private static let maximumTrackHeight: CGFloat = 96
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// 🔴 不写死 64pt。这一屏底部**唯一**的操作控件，低视力用户把系统字号调到 AX5 时
-    /// 它必须跟着长 —— 本仓库为固定磅值栽过一次（成就页头部原本写死 48pt）。
-    /// 但要封顶，见 `maximumTrackHeight`。
-    @ScaledMetric(relativeTo: .body) private var scaledTrackHeight: CGFloat = 64
+    /// 样例 58pt。跟字号长，但封顶（见 `maximumTrackHeight`）。
+    @ScaledMetric(relativeTo: .body) private var scaledTrackHeight: CGFloat = 58
 
     private var trackHeight: CGFloat {
         min(scaledTrackHeight, Self.maximumTrackHeight)
@@ -137,10 +109,10 @@ struct VolunteerAvailabilitySlider: View {
     let status: VolunteerAvailabilityStatus
     /// `status` 要解释的那句话。nil = 没有要解释的事。
     let notice: VolunteerAvailabilityNotice?
-    /// 已开启时副文案后面那半句（「正在等待系统派单」），来自 `VolunteerHomeViewModel.statusText`。
+    /// 已开启时读屏值后面那半句（「正在等待系统派单」），来自 `VolunteerHomeViewModel.statusText`。
     let statusText: String
     let onChange: (Bool) -> Void
-    /// 进入接单主页。开启那一下与已开启时点按轨道，走的都是它。
+    /// 进入接单主页。开启那一下与已开启时点按胶囊，走的都是它。
     let onEnterHub: () -> Void
     /// 打开接单前进度。被资质或培训挡住时，点按轨道走它。
     let onShowProgress: () -> Void
@@ -148,100 +120,12 @@ struct VolunteerAvailabilitySlider: View {
     @State private var dragX: CGFloat = 0
 
     var body: some View {
-        slideTrack
-    }
-
-    private var slideTrack: some View {
-        GeometryReader { proxy in
-            let knobSize = max(28, trackHeight - Self.knobInset * 2)
-            // 滑块能走的距离 = 轨道宽 − 滑块直径 − 两侧留白。
-            let travelWidth = max(0, proxy.size.width - knobSize - Self.knobInset * 2)
-            let rightTravel = VolunteerAvailabilitySlide.travel(dragX: dragX, trackWidth: travelWidth)
-            let leftTravel = VolunteerAvailabilitySlide.leftTravel(dragX: dragX, trackWidth: travelWidth)
-            // 滑块占的宽度 = 直径 + 两侧留白。只留直径的话，长文案会压到滑块上。
-            let knobClearance = knobSize + Self.knobInset * 2
-            let willOpen = !isAvailable
-                && VolunteerAvailabilitySlide.activates(dragX: dragX, trackWidth: travelWidth)
-            let willClose = isAvailable
-                && VolunteerAvailabilitySlide.deactivates(dragX: dragX, trackWidth: travelWidth)
-            // 未开启时滑块停在最左，只往右走；已开启时停在最右，只往左走。
-            let knobOffset = isAvailable ? travelWidth - leftTravel : rightTravel
-
-            ZStack(alignment: .leading) {
-                // 高对比度主色底。Uber 原文："Distinguish the swipe affordance from the
-                // surrounding UI by using a primary, high-contrast background."
-                //
-                // 🔴 **不是 `AppColors.primary`。** 它的暗色取值 `#0A84FF` 压白字只有 3.65:1，
-                // 而轨道上那行字是 17pt semibold —— 够不上 WCAG large text 的豁免，要 4.5:1。
-                // 仓库里已经有一个为「白字压蓝底」而压暗的版本（`voiceStageSurfaceTone`，
-                // 暗色 `#0B4DA2` 白字 8.08:1），直接复用它，不新造第三个蓝。
-                // 检查在 `LowVisionChannelTests.testVoiceStageSurfaceKeepsWhiteTextReadable`。
-                //
-                // 已开启时换成同样验过对比度的绿（`availabilityOnSurface`）：轨道颜色是
-                // 「我现在到底在不在接单」唯一的全局视觉线索，两态同色等于没有这条线索。
-                Capsule().fill(status.isAccepting ? AppColors.availabilityOnSurface : AppColors.voiceStageSurface)
-
-                // 已滑过的轨道变亮，给连续的进度反馈。**只在拖动时亮**（#515）：已开启的静止态里旋钮在最右，
-                // 这层 16% 白会盖满整条绿轨，白字从 5.07:1 掉到 3.79:1（真机审计「要大字才够」）。
-                Capsule()
-                    .fill(Color.white.opacity(leftTravel > 0 || rightTravel > 0 ? 0.16 : 0))
-                    .frame(width: knobOffset + knobSize + Self.knobInset * 2)
-
-                trackLabel(willOpen: willOpen, willClose: willClose)
-                    .padding(.leading, showsKnob ? (isAvailable ? 12 : knobClearance) : Self.knoblessInset)
-                    .padding(.trailing, showsKnob ? (isAvailable ? knobClearance : 12) : Self.knoblessInset)
-
-                // 关着又滑不开时不画滑块：一个拖不动的把手就是「点了没反应」。
-                if showsKnob {
-                    // 单个箭头。Uber 原文："The component does not support any other icons."
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: knobSize, height: knobSize)
-                        .overlay {
-                            Image(systemName: isAvailable ? "arrow.left" : "arrow.right")
-                                .font(.body.weight(.bold))
-                                .foregroundColor(AppColors.primary)
-                        }
-                        .shadow(color: .black.opacity(0.22), radius: 3, x: 0, y: 2)
-                        .padding(.leading, Self.knobInset)
-                        .offset(x: knobOffset)
-                }
+        Group {
+            if isAvailable || status.blocksOpening {
+                entryPill
+            } else {
+                slideTrack
             }
-            .contentShape(Capsule())
-            // 被资质或培训挡住时点按去看进度。已开启时点按轨道 = 进入接单主页。
-            // 其余未开启时点按不做任何事 —— 开启是有后果的动作，摩擦力（滑动）就是它的确认方式。
-            .onTapGesture {
-                guard !isUpdating else { return }
-                if status.blocksOpening {
-                    onShowProgress()
-                } else if isAvailable, isEnabled {
-                    onEnterHub()
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard acceptsGesture else { return }
-                        dragX = value.translation.width
-                    }
-                    .onEnded { value in
-                        guard acceptsGesture else { return }
-                        let opens = !isAvailable && VolunteerAvailabilitySlide.activates(
-                            dragX: value.translation.width,
-                            trackWidth: travelWidth
-                        )
-                        let closes = isAvailable && VolunteerAvailabilitySlide.deactivates(
-                            dragX: value.translation.width,
-                            trackWidth: travelWidth
-                        )
-                        // 回弹是位移类动效，必须让「减弱动态效果」关掉它（守卫 `motion-not-gated`）。
-                        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
-                            dragX = 0
-                        }
-                        if opens { open() }
-                        if closes { close() }
-                    }
-            )
         }
         .frame(height: trackHeight)
         // 被挡住时轨道是一句要读清楚的话和一个入口，不是禁用态，不能压暗。
@@ -278,6 +162,7 @@ struct VolunteerAvailabilitySlider: View {
                     .accessibilityValue(accessibilityStatus)
                     .accessibilityAction(named: VolunteerAvailabilityCopy.closeTitle) { close() }
             } else {
+                // 读屏双击即开启（#694 必须保留）。
                 Button(VolunteerAvailabilityCopy.slideToOpenTitle) { open() }
                     .disabled(!isEnabled || isUpdating)
                     .accessibilityHint(VolunteerAvailabilityCopy.slideHint)
@@ -286,44 +171,144 @@ struct VolunteerAvailabilitySlider: View {
         .accessibilityIdentifier("volunteerAvailabilitySlider")
     }
 
-    @ViewBuilder
-    private func trackLabel(willOpen: Bool, willClose: Bool) -> some View {
+    // MARK: 没在接单：滑块
+
+    private var slideTrack: some View {
+        GeometryReader { proxy in
+            let knobSize = max(28, trackHeight - Self.knobInset * 2)
+            // 滑块能走的距离 = 轨道宽 − 滑块直径 − 两侧留白。
+            let travelWidth = max(0, proxy.size.width - knobSize - Self.knobInset * 2)
+            let travel = VolunteerAvailabilitySlide.travel(dragX: dragX, trackWidth: travelWidth)
+            let willOpen = VolunteerAvailabilitySlide.activates(dragX: dragX, trackWidth: travelWidth)
+
+            ZStack(alignment: .leading) {
+                // 浅灰轨道压在白色底座上（样例 `#EEF1F6`；取页面底色，暗色是纯黑压 `#1C1C1E` 底座）。
+                Capsule().fill(AppColors.Flow.page)
+
+                // 已滑过的那一段变成浅蓝，给连续的进度反馈。只在拖动时出现。
+                if travel > 0 {
+                    Capsule()
+                        .fill(AppColors.Flow.blueTint)
+                        .frame(width: travel + knobSize + Self.knobInset * 2)
+                }
+
+                trackLabel(
+                    title: willOpen ? VolunteerAvailabilityCopy.slideReleaseToOpenTitle : VolunteerAvailabilityCopy.slideToOpenTitle,
+                    detail: nil,
+                    color: AppColors.textPrimary
+                )
+                .padding(.leading, knobSize + Self.knobInset * 2)
+                .padding(.trailing, Self.textInset)
+
+                // 单个箭头。Uber 原文："The component does not support any other icons."
+                // 🔴 不是 `voiceStageSurface`（暗色 `#0B4DA2` 压纯黑轨道只有 2.60:1，控件边界要 3:1）；
+                // `primary` 暗色 `#0A84FF` 压纯黑 5.76:1，白箭头 3.65:1（图形对象 3:1 够）。
+                Circle()
+                    .fill(AppColors.primary)
+                    .frame(width: knobSize, height: knobSize)
+                    .overlay {
+                        Image(systemName: "arrow.right")
+                            .font(.body.weight(.bold))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.leading, Self.knobInset)
+                    .offset(x: travel)
+            }
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard acceptsGesture else { return }
+                        dragX = value.translation.width
+                    }
+                    .onEnded { value in
+                        guard acceptsGesture else { return }
+                        let opens = VolunteerAvailabilitySlide.activates(
+                            dragX: value.translation.width,
+                            trackWidth: travelWidth
+                        )
+                        // 回弹是位移类动效，必须让「减弱动态效果」关掉它（守卫 `motion-not-gated`）。
+                        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
+                            dragX = 0
+                        }
+                        if opens { open() }
+                    }
+            )
+        }
+    }
+
+    // MARK: 在接单 / 被挡住：整枚胶囊是入口
+
+    /// 接单中：浅绿底深绿字「● 接单中 · 进入接单 ›」（`AppColors.availabilityPill*`，6.79:1 / 7.63:1）。
+    /// 开着却收不到单、或被资质 / 培训挡住时：浅灰底，说清原因，点按去接单页或接单前进度。
+    private var entryPill: some View {
+        let accepting = status.isAccepting
+        let foreground = accepting ? AppColors.availabilityPillText : AppColors.textPrimary
+        return ZStack {
+            Capsule().fill(accepting ? AppColors.availabilityPillSurface : AppColors.Flow.page)
+            HStack(spacing: 8) {
+                if accepting {
+                    // 状态点只是冗余线索：「接单中」三个字已经说了（WCAG 1.4.1）。
+                    Circle()
+                        .fill(foreground)
+                        .frame(width: 10, height: 10)
+                        .accessibilityHidden(true)
+                }
+                // 圆点、字、箭头整组居中（样例），字不撑满整条：撑满会把圆点和箭头推到两端。
+                trackLabel(title: pillTitle, detail: pillDetail, color: foreground, fillsWidth: false)
+                    .layoutPriority(1)
+                if isAvailable, !status.blocksOpening {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.bold))
+                        .foregroundColor(foreground)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, Self.textInset)
+        }
+        .contentShape(Capsule())
+        // 被资质或培训挡住时点按去看进度；开着时点按进入接单页。
+        .onTapGesture {
+            guard !isUpdating else { return }
+            if status.blocksOpening {
+                onShowProgress()
+            } else if isAvailable, isEnabled {
+                onEnterHub()
+            }
+        }
+    }
+
+    private var pillTitle: String {
+        if let notice { return notice.title }
+        return "\(VolunteerAvailabilityCopy.availableStatusTitle) · \(VolunteerAvailabilityCopy.enterHubTitle)"
+    }
+
+    /// 第二行。接单中不需要：「接单中 · 进入接单」已经说完了；锁屏收不到邀请那句在接单页的状态卡上。
+    private var pillDetail: String? {
+        guard let notice else { return nil }
+        guard isAvailable, !status.blocksOpening else { return notice.detail }
+        // 开着却收不到单：原因 + 去处。
+        return [notice.detail, VolunteerAvailabilityCopy.enterHubTitle].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func trackLabel(title: String, detail: String?, color: Color, fillsWidth: Bool = true) -> some View {
         VStack(spacing: 2) {
             if isUpdating {
                 ProgressView()
-                    .tint(.white)
                     .accessibilityHidden(true)
             }
-            Text(primaryTitle(willOpen: willOpen, willClose: willClose))
+            Text(title)
                 .font(AppFonts.body().weight(.semibold))
-            if !willClose, !willOpen, let detail = detailText {
+            if let detail {
                 Text(detail)
                     .font(AppFonts.caption())
             }
         }
-        .foregroundColor(.white)
+        .foregroundColor(color)
         .lineLimit(2)
         .minimumScaleFactor(0.62)
         .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-    }
-
-    private func primaryTitle(willOpen: Bool, willClose: Bool) -> String {
-        if willClose { return VolunteerAvailabilityCopy.slideReleaseToCloseTitle }
-        if willOpen { return VolunteerAvailabilityCopy.slideReleaseToOpenTitle }
-        if let notice { return notice.title }
-        return status.isAccepting
-            ? VolunteerAvailabilityCopy.availableStatusTitle
-            : VolunteerAvailabilityCopy.slideToOpenTitle
-    }
-
-    /// 轨道第二行。开着时**两件事都要说**：为什么收不到单，以及这里还能停止。
-    private var detailText: String? {
-        if status.isAccepting { return VolunteerAvailabilityCopy.availableActionHint }
-        guard isAvailable else { return notice?.detail }
-        return [notice?.detail, VolunteerAvailabilityCopy.slideLeftToCloseHint]
-            .compactMap { $0 }
-            .joined(separator: "。")
+        .frame(maxWidth: fillsWidth ? .infinity : nil)
     }
 
     private var accessibilityStatus: String {
@@ -332,15 +317,6 @@ struct VolunteerAvailabilitySlider: View {
             : notice?.spoken ?? statusText
     }
 
-    /// 关着又滑不开时轨道只是一个入口。开着时滑块要留着：向左滑是退出的路。
-    private var showsKnob: Bool {
-        isAvailable || !status.blocksOpening
-    }
-
-    /// 开启并进入接单主页。
-    ///
-    /// **两件事一起做**是设计交付 v3 的流程（主页滑动 → 接单主页）：开启之后志愿者要看的
-    /// 是「下一次陪跑 / 有没有待回复的邀请」，而那些都不在首页上。
     /// 见 `VolunteerAvailabilitySlide.acceptsGesture` —— 停止接单那侧刻意不看 `isEnabled`。
     private var acceptsGesture: Bool {
         VolunteerAvailabilitySlide.acceptsGesture(
@@ -350,20 +326,19 @@ struct VolunteerAvailabilitySlider: View {
         )
     }
 
+    /// 开启并进入接单主页。
+    ///
+    /// **两件事一起做**是设计交付 v3 的流程（主页滑动 → 接单主页）：开启之后志愿者要看的
+    /// 是「下一次陪跑 / 有没有待回复的邀请」，而那些都不在首页上。
     private func open() {
         guard isEnabled, !isUpdating else { return }
         // ponytail: 复用既有的 `HapticFeedback.play(.success)`，不为这一处新加一种 impact 波形。
-        // 语义也对得上 —— 那条注释写的是「事情按预期推进了」。
         HapticFeedback.play(.success)
         onChange(true)
         onEnterHub()
     }
 
-    /// 🔴 **关闭路径上不许有挽留。**
-    ///
-    /// 关掉开关不影响当前订单（后端行为），所以它不是不可逆动作 —— 给它顺势弹一句
-    /// 「你今天已经跑了 2 单，再坚持一下？」，就是 Uber 那条被 NYT 点名的下线挽留。
-    /// 双向滑块改的是**手势**，不是这条。
+    /// 🔴 **关闭路径上不许有挽留。** 只剩读屏自定义动作这一条路（指针用户走接单页的「暂停接单」）。
     private func close() {
         guard acceptsGesture else { return }
         HapticFeedback.play(.success)
