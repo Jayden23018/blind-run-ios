@@ -674,6 +674,12 @@ struct BlindRunnerHomeView: View {
                 guard viewModel.activeOrder == nil else { return }
                 await idleModel.refresh(appState: appState)
             }
+            // 本机开跑提醒（#660 B-18）：订单换了或状态变了就按全部订单重排一次，取消的单在这里被撤掉。
+            .task(id: "\(viewModel.activeOrder?.orderId ?? 0)-\(viewModel.activeOrder?.status.rawValue ?? "")") {
+                await BlindRunStartReminderSync.refresh(using: appState.orders)
+            }
+            // 低电量提醒（#660 F-16）。「还在找陪跑员」只由订单页念，这里不念，免得两页叠声。
+            .blindRunnerPreRunCues(order: viewModel.activeOrder, announcesMatchingWait: false)
             // 引导期间首页只是**欠着**那次播报（见上面的 `.task`），这里还账。
             //
             // 判据是「首页重新成为最前面那一页 **且** 确实欠着」，两个条件缺一不可，
@@ -718,7 +724,7 @@ struct BlindRunnerHomeView: View {
     ///
     /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
     /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
-    /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 里。
+    /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 顶部的「待进行的预约」里（#660 B-5）。
     private var contentLayer: some View {
         GeometryReader { proxy in
             ScrollView {
@@ -752,6 +758,7 @@ struct BlindRunnerHomeView: View {
                     }
                     .accessibilityFocused($focusedSection, equals: .activeOrder)
                     .padding(.top, 6)
+                    BlindRunCalendarButton(order: order) // #660 B-18，iOS 17+ 且已有人接下才出现
                 }
 
                 if let notice = viewModel.bookingTrackConsentDeclinedNotice {

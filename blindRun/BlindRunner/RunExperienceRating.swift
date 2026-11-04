@@ -26,14 +26,17 @@ enum RunExperienceRating: Int, CaseIterable, Identifiable {
     }
 
     static let sectionTitle = "这次陪跑怎么样"
+
+    /// 没选就按「提交评价」时显示并念的话（#660 B-30）。按钮不置灰：置灰的按钮读屏只念「变暗」，不说为什么。
+    static let missingSelectionMessage = "请先选一项：这次陪跑怎么样。没选不能提交。"
 }
 
-/// 五个按钮。默认字号横排；无障碍字号档竖排整行（五格横排在 AX 档必然截断）。
+/// 五个按钮，**默认一项都不选**（#660 B-30：默认「很顺利」会让直接提交的差评被盖掉）。默认字号横排；无障碍字号档竖排整行（五格横排在 AX 档必然截断）。
 ///
 /// 不用 `ViewThatFits` 二选一 —— 真机审计会把整页文字判成改不了字号
 /// （记忆 `viewthatfits-fails-dynamic-type-audit`），用 `AnyLayout` 按字号档直接切。
 struct RunExperienceRatingPicker: View {
-    @Binding var rating: Int
+    @Binding var rating: Int?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -98,7 +101,7 @@ struct RunExperienceRatingPicker: View {
 #if DEBUG
 #Preview("这次陪跑怎么样") {
     struct Host: View {
-        @State var rating = 5
+        @State var rating: Int?
         var body: some View { RunExperienceRatingPicker(rating: $rating).padding() }
     }
     return Host()
@@ -106,7 +109,7 @@ struct RunExperienceRatingPicker: View {
 
 #Preview("这次陪跑怎么样 · AX5") {
     struct Host: View {
-        @State var rating = 4
+        @State var rating: Int? = 4
         var body: some View { RunExperienceRatingPicker(rating: $rating).padding() }
     }
     return Host().environment(\.dynamicTypeSize, .accessibility5)

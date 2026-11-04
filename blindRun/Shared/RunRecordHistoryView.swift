@@ -4,11 +4,9 @@ import SwiftUI
 // 两端「记录」tab（OpenSpec `add-run-record-history-tab`，DECISIONS D9）。
 //
 // 上半部分是跑后记录的月度列表（`RunRecordServing.monthlyRecords`，`add-post-run-record` 交的数据层）；
-// 已取消 / 暂无志愿者的单仍从 `GET /api/orders/mine` 取，收进底部「未完成的预约」。
+// 订单仍从 `GET /api/orders/mine` 取：没走完的进顶部「待进行的预约」（#660 B-5），已取消 / 暂无志愿者的进底部「未完成的预约」。
 // 两端共用一个结构（HANDOFF 6.1、`design-direction.md` §5.2：两端只在密度 / 层级 / 语气上有差异，
-// 不分叉组件）—— 角色只决定文案、行的密度和点进去落到哪一页。
-//
-// 并发只用 async/await（AGENTS.md 硬约束）。
+// 不分叉组件）—— 角色只决定文案、行的密度和点进去落到哪一页。并发只用 async/await（AGENTS.md 硬约束）。
 
 enum RunRecordHistoryRole {
     case runner
@@ -61,6 +59,7 @@ final class RunRecordHistoryViewModel: ObservableObject {
     /// 当前显示那个月的记录。切月份时先置 nil，界面回到加载态。
     @Published private(set) var history: RunRecordHistoryResponse?
     @Published private(set) var unfinished: [OrderDetailResponse] = []
+    @Published private(set) var upcoming: [OrderDetailResponse] = [] // 只给跑者（见 `RunRecordUpcomingBookings.swift`）
     /// `/api/orders/mine` 里有没有任何一张已完成的单。nil = 还不知道（没加载完或加载失败）——
     /// 那种情况下**不**给「完成第一次陪跑后…」的首用文案，否则网络一抖老用户就被当成新人。
     @Published private(set) var hasAnyCompletedOrder: Bool?
@@ -148,12 +147,13 @@ final class RunRecordHistoryViewModel: ObservableObject {
             let orders = try await appState.orders.myOrders().content
             hasAnyCompletedOrder = orders.contains { $0.status == .completed }
             unfinished = Self.unfinishedBookings(from: orders)
+            upcoming = role == .runner ? Self.upcomingBookings(from: orders) : []
         } catch {
             recordFailure(error)
         }
     }
 
-    /// 已取消 / 暂无志愿者，最近的在前。进行中的由首页管，未知状态不当成「已结束」替用户下结论。
+    /// 已取消 / 暂无志愿者，最近的在前。没走完的在 `upcomingBookings`，未知状态不当成「已结束」替用户下结论。
     static func unfinishedBookings(from orders: [OrderDetailResponse]) -> [OrderDetailResponse] {
         orders
             .filter { $0.status == .cancelled || $0.status == .noVolunteer }
@@ -175,17 +175,17 @@ final class RunRecordHistoryViewModel: ObservableObject {
         speechService?.speakError(message)
     }
 
-    /// 跑者端加载完要出声：加载态那一行被列表换掉时读屏焦点会被系统收走，
-    /// 用户既没听到结果也不知道停在哪（此前 `BlindRunHistoryViewModel` 的同一条理由）。
-    /// 陪跑员端一直是静默的，不在这次顺手加。
+    /// 跑者端加载完要出声：加载态那一行被列表换掉时读屏焦点会被系统收走，用户既没听到结果也不知道停在哪
+    /// （此前 `BlindRunHistoryViewModel` 的同一条理由）。陪跑员端一直是静默的，不在这次顺手加。
     private func announceLoaded() {
         guard role == .runner, errorMessage == nil, history != nil else { return }
         speechService?.speak(loadedAnnouncement)
     }
 
     var loadedAnnouncement: String {
-        if showsFirstRunEmptyState { return emptyStateCopy.title + "。" + emptyStateCopy.message }
-        var text = summaryText(spoken: true) ?? ""
+        let upcomingText = Self.upcomingAnnouncement(count: upcoming.count)
+        if showsFirstRunEmptyState { return upcomingText + emptyStateCopy.title + "。" + emptyStateCopy.message }
+        var text = upcomingText + (summaryText(spoken: true) ?? "")
         if !unfinished.isEmpty { text += "另有 \(unfinished.count) 条未完成的预约。" }
         return text
     }
@@ -332,6 +332,7 @@ struct RunRecordHistoryView: View {
                 }
             }
 
+            RunRecordUpcomingSection(orders: viewModel.upcoming) { unfinishedDestination($0) }
             Section {
                 if let summary = viewModel.summaryText() {
                     Text(summary)
@@ -380,8 +381,7 @@ struct RunRecordHistoryView: View {
                         }
                     }
                 } header: {
-                    // 系统组标题色是 `secondaryLabel`，浅色下只有 3.26:1（`AppColors.textSecondary` 那段注释），
-                    // 真机审计报了 Contrast nearly passed。
+                    // 系统组标题色 `secondaryLabel` 浅色下只有 3.26:1，真机审计报了 Contrast nearly passed。
                     Text("未完成的预约")
                         .foregroundColor(AppColors.textSecondary)
                         .accessibilityAddTraits(.isHeader)
