@@ -73,13 +73,11 @@ extension AccessibilityAuditTests {
         app.buttons["volunteerBadgeDetailClose"].tap()
     }
 
-    /// 截图用：四页（含搭档详情与奖章弹层）在默认字号与 AX5 各截一遍，和稿子对照。
+    /// 截图用：四页（含搭档详情与奖章弹层）在默认字号截一遍，和稿子对照。
+    /// 陪跑员端只测默认字号（负责人 2026-11-05 定）：最大字号（AX5）只在盲人端测。
     @MainActor
     func testVolunteerSecondaryPagesScreenshots() throws {
-        for (suffix, arguments) in [
-            ("default", [String]()),
-            ("ax5", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        ] {
+        for (suffix, arguments) in [("default", [String]())] {
             let app = launchVolunteerHome(extraArguments: arguments)
             openVolunteerPartners(app)
             let row = app.buttons["volunteerPartnerRow.0"].firstMatch
