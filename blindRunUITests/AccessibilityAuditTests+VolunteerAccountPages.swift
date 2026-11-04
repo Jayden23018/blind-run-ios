@@ -90,6 +90,11 @@ extension AccessibilityAuditTests {
 
             let allowsUpload = item.status == "NONE" || item.status == "REJECTED"
             XCTAssertEqual(app.buttons["从相册选择"].exists, allowsUpload, "\(tag)：三种来源只在能上传时出现")
+            // 屏幕上的「5 MB」在合成焦点里读屏听不到，能上传时要另外念出来。
+            XCTAssertEqual(
+                (card.value as? String)?.contains("不超过 5 兆") ?? false, allowsUpload,
+                "\(tag)：文件大小上限要在能上传时念出来：\(String(describing: card.value))"
+            )
             XCTAssertEqual(
                 app.buttons["volunteerCertificateRefreshButton"].exists, item.status == "PENDING",
                 "\(tag)：「重新获取状态」只在审核中 / 状态未知时出现"

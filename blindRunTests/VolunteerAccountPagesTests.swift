@@ -171,18 +171,16 @@ final class VolunteerAccountPagesTests: XCTestCase {
     }
 
     /// 卡上压白字（发证方 90%、证书名 100%、持证人 94%），状态胶囊是白底压卡色。
-    /// 三种卡色两档外观都要过 4.5:1（正文门槛）。
+    /// 卡色两档外观同值，三种都要过 4.5:1（正文门槛）。
     func testCertificateCardColoursKeepWhiteTextReadable() {
         for state in [VolunteerCertificateDisplayState.pending, .approved, .rejected] {
-            guard case .filled(let tone) = state.cardStyle else { return XCTFail("\(state)") }
-            for (appearance, background) in [("light", tone.light), ("dark", tone.dark)] {
-                let eyebrow = Self.blendWhite(opacity: AppColors.Flow.onHeroEyebrowOpacity, over: background)
-                XCTAssertGreaterThanOrEqual(
-                    Self.contrastRatio(eyebrow, background), 4.5,
-                    "\(state) \(appearance)：90% 白字压 #\(String(format: "%06X", background))"
-                )
-                XCTAssertGreaterThanOrEqual(Self.contrastRatio(0xFFFFFF, background), 4.5, "\(state) \(appearance)")
-            }
+            guard case .filled(let background) = state.cardStyle else { return XCTFail("\(state)") }
+            let eyebrow = Self.blendWhite(opacity: AppColors.Flow.onHeroEyebrowOpacity, over: background)
+            XCTAssertGreaterThanOrEqual(
+                Self.contrastRatio(eyebrow, background), 4.5,
+                "\(state)：90% 白字压 #\(String(format: "%06X", background))"
+            )
+            XCTAssertGreaterThanOrEqual(Self.contrastRatio(0xFFFFFF, background), 4.5, "\(state)")
         }
     }
 

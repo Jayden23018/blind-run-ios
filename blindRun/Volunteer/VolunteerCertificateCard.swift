@@ -11,7 +11,8 @@ extension VolunteerCertificateDisplayState {
     /// 卡的画法。未提交和状态未知画虚线空卡，其余三态画实心卡。
     enum CardStyle {
         case placeholder
-        case filled(AppColors.Tone)
+        /// 卡底色。两档外观同值（卡上压白字，暗色模式也不能变浅），所以只存一个值。
+        case filled(UInt32)
 
         var isPlaceholder: Bool {
             if case .placeholder = self { return true }
@@ -26,11 +27,9 @@ extension VolunteerCertificateDisplayState {
     /// 白字对比度由 `VolunteerAccountPagesTests.testCertificateCardColoursKeepWhiteTextReadable` 逐色算。
     var cardStyle: CardStyle {
         switch self {
-        case .pending: return .filled(AppColors.Flow.statePausedTone)
-        case .approved: return .filled(AppColors.Flow.stateDepartedTone)
-        case .rejected:
-            let red = AppColors.Flow.helpTextTone.light
-            return .filled(AppColors.Tone(light: red, dark: red))
+        case .pending: return .filled(AppColors.Flow.statePausedTone.light)
+        case .approved: return .filled(AppColors.Flow.stateDepartedTone.light)
+        case .rejected: return .filled(AppColors.Flow.helpTextTone.light)
         case .notSubmitted, .statusUnavailable: return .placeholder
         }
     }
@@ -73,6 +72,7 @@ enum VolunteerCertificateCardCopy {
     static let alternativeTitle = "身份材料"
     static let alternativeIssuer = "人工审核"
     static let fileRule = "图片或 PDF，不超过 5 MB。"
+    static let spokenFileRule = "图片或 PDF，单个文件不超过 5 兆。"
     /// 替代路径的审核时长只许这样说（与用户协议逐字一致，见 `VolunteerCertificateDisplayState.guidance`）。
     static let alternativeReviewNote = "提交后由管理员人工审核。该方式审核时间较长，但结果等效。"
 
@@ -97,8 +97,8 @@ struct VolunteerCertificateCard: View {
         switch state.cardStyle {
         case .placeholder:
             placeholder
-        case .filled(let tone):
-            filled(tone)
+        case .filled(let rgb):
+            filled(rgb)
         }
     }
 
@@ -122,8 +122,8 @@ struct VolunteerCertificateCard: View {
         )
     }
 
-    private func filled(_ tone: AppColors.Tone) -> some View {
-        let background = Color(uiColor: UIColor(rgb: tone.light))
+    private func filled(_ rgb: UInt32) -> some View {
+        let background = Color(uiColor: UIColor(rgb: rgb))
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 Text(isAlternativeIdentityPath ? VolunteerCertificateCardCopy.alternativeIssuer : VolunteerCertificateCopy.issuerName)
@@ -205,7 +205,8 @@ struct VolunteerCertificateStatusSection: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel("当前审核状态，\(state.displayName)")
-        .accessibilityValue(guidance)
+        // 能上传时把文件规则也念出来：屏幕上那句「5 MB」在 `.ignore` 里，读屏听不到（「MB」会念成「M B」，这里写「兆」）。
+        .accessibilityValue(state.allowsUpload ? "\(guidance) \(VolunteerCertificateCardCopy.spokenFileRule)" : guidance)
         .accessibilityIdentifier("volunteerCertificateStatusCard")
     }
 }

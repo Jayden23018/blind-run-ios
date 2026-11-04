@@ -147,7 +147,8 @@ struct PointMonthlySummary: Equatable {
         transactions: [PointTransactionResponse],
         hasMorePages: Bool,
         now: Date = Date(),
-        calendar: Calendar = .current
+        // 流水时间按北京时间解析（`backendTimestamp`），「本月」也按北京时间切，免得设备在别的时区时月初几小时归错月。
+        calendar: Calendar = .aidRunBackend
     ) -> PointMonthlySummary? {
         guard let monthStart = calendar.dateInterval(of: .month, for: now)?.start else { return nil }
         var dates: [Date] = []

@@ -177,8 +177,10 @@ struct VolunteerPointsView: View {
         }
     }
 
-    /// 分隔线从文字起点开始：16 内距 + 图标宽 + 12 间距。
-    private static let rowDividerInset: CGFloat = 16 + 28 + 12
+    private static let rowIconWidth: CGFloat = 28
+    private static let rowIconSpacing: CGFloat = 12
+    /// 分隔线从文字起点开始：行内距 + 图标宽 + 图标到文字的间距。
+    private static let rowDividerInset = VolunteerAccountMetrics.rowHorizontalPadding + rowIconWidth + rowIconSpacing
 
     /// 一行流水：左图标、中间原因与日期、右边加减分（定稿照健康「所有已记录的数据」）。
     ///
@@ -190,11 +192,11 @@ struct VolunteerPointsView: View {
         let subtitle = [note == nil ? nil : transaction.reasonText, transaction.dayText()]
             .compactMap { $0 }
             .joined(separator: " · ")
-        return AdaptiveHStack(spacing: 12) {
+        return AdaptiveHStack(spacing: Self.rowIconSpacing) {
             Image(systemName: symbolName(for: transaction.kind))
                 .font(.title2)
                 .foregroundColor(color(for: transaction.kind))
-                .frame(width: 28)
+                .frame(width: Self.rowIconWidth)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
