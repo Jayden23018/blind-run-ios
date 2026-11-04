@@ -112,7 +112,12 @@ final class RunRecordViewModel: ObservableObject {
     static func sendFailureReason(_ error: APIError) -> String {
         switch error {
         case .networkError(let underlying):
-            return APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "请检查网络后再发一次。"
+            // 整句自带下一步「再发一次」，嵌进来的原因用 `reasonClause`，不带「稍后再试」「拨打120」（#672）。
+            switch APIError.networkFailureKind(underlying) {
+            case .secureConnection: return APIError.secureConnectionMessage
+            case .offline: return "请检查网络后再发一次。"
+            case .serverUnreachable, .ambiguous: return error.reasonClause + "。请稍后再发一次。"
+            }
         case .serverError(let response):
             switch response.errorCode {
             case .invalidOrderStatus: return "此订单还没完成，暂时不能留言。"

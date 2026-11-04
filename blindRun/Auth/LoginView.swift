@@ -244,7 +244,7 @@ struct LoginView: View {
                         if viewModel.showCodeInput {
                             VStack(alignment: .leading, spacing: 8) {
                                 TextField(
-                                    "请输入6位验证码",
+                                    "6位数字",
                                     text: verificationCodeBinding
                                 )
                                     .keyboardType(.numberPad)

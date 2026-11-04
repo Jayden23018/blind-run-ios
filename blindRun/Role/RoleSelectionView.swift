@@ -131,7 +131,7 @@ final class RoleSelectionViewModel: ObservableObject {
                 errorMessage = response.message
             }
         case .networkError(let underlying):
-            errorMessage = APIError.isSecureConnectionFailure(underlying) ? APIError.secureConnectionMessage : "网络错误，请重试"
+            errorMessage = APIError.networkFailureMessage(underlying) // 断网 / 连不上服务器 / 超时各说各的（#672）
         case .rateLimited(let info):
             errorMessage = APIError.rateLimited(info).localizedMessage
         case .unauthorized:
@@ -313,11 +313,14 @@ struct RoleSelectionView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Button(InviteCodeEntryCopy.disclosureTitle) {
+            // 上屏文字末尾补窄空格：以全角「）」收尾的字会被审计判 Text clipped，而字是完整的（#676，
+            // 与空闲时间页同形）。读屏标签用原串。
+            Button(InviteCodeEntryCopy.disclosureTitle + "\u{202F}") {
                 showsInviteCodeField = true
             }
             .buttonStyle(TextButtonStyle())
             .disabled(viewModel.isLoading)
+            .accessibilityLabel(InviteCodeEntryCopy.disclosureTitle)
             .accessibilityHint("展开后可以填写邀请你的人的邀请码，只能填这一次")
             .accessibilityIdentifier("roleSelectionInviteCodeDisclosure")
         }
@@ -370,9 +373,12 @@ struct RoleSelectionView: View {
             let nextIndex = (currentIndex + 1) % allEnvs.count
             appState.currentEnvironment = allEnvs[nextIndex]
         } label: {
+            // 只在调试构建出现，但同样按盲人端 64pt 画可点区：这一页原来只有 14pt 高（#676，登录页同款已在 #527 修过）。
             Text("API 环境: \(appState.currentEnvironment.displayName)")
                 .font(.caption)
                 .foregroundColor(AppColors.textSecondary)
+                .frame(minHeight: AppTouchTarget.blindPrimary)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("API 环境切换")
         .accessibilityHint("当前环境：\(appState.currentEnvironment.displayName)")

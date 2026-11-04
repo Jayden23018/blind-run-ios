@@ -35,8 +35,9 @@ extension AccessibilityAuditTests {
         app.descendants(matching: .any)[identifier].firstMatch
     }
 
-    /// 角色页、验证码区、实名页、联系人表单、资料页这五处的**原有**控件有审计红灯（#676，2026-11-04 首次整页审计报出）。
-    /// 非严格：修好一处后不会因为「预期的失败没出现」而变红；修完 #676 就把这里换回 `try audit(app)`。
+    /// 实名页、联系人表单、资料页这三处的**原有**控件还有审计红灯（#676，2026-11-04 首次整页审计报出）。
+    /// 角色页与验证码区已修好，改回 `try audit(app)`；剩下三处没修完前不能去掉。
+    /// 非严格：修好一处后不会因为「预期的失败没出现」而变红。
     /// 本轮新加的元素另有显式断言守着，不靠这一遍审计。
     @available(iOS 17.0, *)
     private func auditKnownRedPage(_ app: XCUIApplication) throws {
@@ -74,7 +75,7 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(error.waitForExistence(timeout: 5), "空验证码按登录没有任何提示")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "出错后焦点没回到验证码输入框，键盘没弹出")
         keepOnboardingScreenshot("onboarding-login-empty-code")
-        try auditKnownRedPage(app)
+        try audit(app)
     }
 
     /// B-7 / V-25：点卡片只弹确认；「重新选择」什么都不提交。警示在卡片之前。
@@ -88,7 +89,7 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(notice.exists, "页面上没有「不能更改」的警示")
         XCTAssertLessThan(notice.frame.minY, blindCard.frame.minY, "警示要在角色卡片之前，读屏先听到它")
         keepOnboardingScreenshot("onboarding-role-selection")
-        try auditKnownRedPage(app)
+        try audit(app)
 
         blindCard.tap()
         let alert = app.alerts["确认你是盲人跑者？"]

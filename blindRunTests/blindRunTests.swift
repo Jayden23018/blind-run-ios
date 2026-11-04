@@ -3196,7 +3196,7 @@ final class blindRunTests: XCTestCase {
         }
 
         XCTAssertTrue(didFail)
-        XCTAssertEqual(viewModel.errorMessage, "网络错误，请重试")
+        XCTAssertEqual(viewModel.errorMessage, APIError.serverUnavailableMessage)
         XCTAssertFalse(viewModel.showCodeInput)
         XCTAssertNil(viewModel.countdown)
     }

@@ -139,7 +139,7 @@ struct BlindIdentityVerificationView: View {
         VStack(alignment: .leading, spacing: 16) {
             IdentityInputField(
                 title: "真实姓名",
-                placeholder: "请输入身份证上的姓名",
+                placeholder: "姓名",
                 text: $viewModel.idCardName,
                 errorMessage: viewModel.idCardName.isEmpty || viewModel.isNameValid
                     ? nil
@@ -152,7 +152,7 @@ struct BlindIdentityVerificationView: View {
             VStack(alignment: .leading, spacing: 8) {
                 IdentityInputField(
                     title: "身份证号",
-                    placeholder: "请输入18位身份证号",
+                    placeholder: "18位号码",
                     text: $viewModel.idCardNumber,
                     isSecure: !isRevealingNumber,
                     keyboardType: .numberPad,
