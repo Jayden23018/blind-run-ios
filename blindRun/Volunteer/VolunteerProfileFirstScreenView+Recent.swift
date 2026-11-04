@@ -113,49 +113,48 @@ extension VolunteerProfileFirstScreen {
     /// UI 测试构建没有高德 key 时 `MapViewWrapper` 退成占位图，那**不是生产形态**。
     @ViewBuilder
     private func recentRoute(_ route: [RunLatLng]?) -> some View {
-        if let route, let first = route.first, let last = route.last {
+        if let route, !route.isEmpty {
             let coordinates = route.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
             GeometryReader { proxy in
                 if proxy.size.width > 0 {
-                    recentRouteMap(coordinates, first: first, last: last, size: proxy.size)
+                    Self.recentRouteMap(coordinates, size: proxy.size)
                 }
             }
             .frame(height: Self.routeMapHeight)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-            .accessibilityIdentifier("volunteerProfileRecentRunMap")
         }
     }
 
-    private func recentRouteMap(
-        _ coordinates: [CLLocationCoordinate2D],
-        first: RunLatLng,
-        last: RunLatLng,
-        size: CGSize
-    ) -> some View {
-        MapViewWrapper(
-            centerCoordinate: Self.center(of: coordinates),
+    /// 地图本身。抽成静态函数是为了单测能直接读这些参数（装饰、不跟随定位、主路线、起终点）——
+    /// UI 测试构建默认关地图，截图用例又不断言，参数被改了不会有别的信号。
+    static func recentRouteMap(_ coordinates: [CLLocationCoordinate2D], size: CGSize) -> MapViewWrapper {
+        let mapCenter = center(of: coordinates)
+        let first = coordinates.first ?? mapCenter
+        let last = coordinates.last ?? mapCenter
+        return MapViewWrapper(
+            centerCoordinate: mapCenter,
             showsUserLocation: false,
             annotations: [
                 MapAnnotationItem(
                     id: "recent-route-start",
-                    coordinate: CLLocationCoordinate2D(latitude: first.lat, longitude: first.lng),
+                    coordinate: first,
                     title: "起点", subtitle: nil, kind: .routeStart
                 ),
                 MapAnnotationItem(
                     id: "recent-route-end",
-                    coordinate: CLLocationCoordinate2D(latitude: last.lat, longitude: last.lng),
+                    coordinate: last,
                     title: "终点", subtitle: nil, kind: .routeEnd
                 )
             ],
             polylines: [MapPolylineItem(id: "recent-route", coordinates: coordinates, isPrimary: true)],
-            zoomLevel: Self.fittingZoomLevel(coordinates, in: size, padding: Self.routeMapPadding),
+            zoomLevel: fittingZoomLevel(coordinates, in: size, padding: routeMapPadding),
             tracksUserLocation: false,
             animatesCenterChanges: false,
             fitEdgePadding: UIEdgeInsets(
-                top: Self.routeMapPadding, left: Self.routeMapPadding,
-                bottom: Self.routeMapPadding, right: Self.routeMapPadding
+                top: routeMapPadding, left: routeMapPadding,
+                bottom: routeMapPadding, right: routeMapPadding
             ),
             isDecorative: true
         )

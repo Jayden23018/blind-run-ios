@@ -21,10 +21,10 @@ extension VolunteerProfileFirstScreen {
             .accessibilityIdentifier("volunteerHomePinnedEditLink")
         }
 
-        let segments = visiblePinnedSegments
-        if pinnedStore.pinned.isEmpty {
+        let segments = VolunteerHomePinnedLayout.visibleSegments(pinnedStore.pinned, showsHalfCards: showsHalfCards)
+        if let notice = VolunteerHomePinnedLayout.notice(pinned: pinnedStore.pinned, visible: segments) {
             VolunteerHomeCard {
-                Text(VolunteerProfileCopy.pinnedHomeEmpty)
+                Text(notice == .nothingPinned ? VolunteerProfileCopy.pinnedHomeEmpty : VolunteerProfileCopy.pinnedHomeWaitingForFirstRun)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -39,14 +39,10 @@ extension VolunteerProfileFirstScreen {
         }
     }
 
-    /// 要画的段。新人态（成就已到、0 次）连续陪跑 / 评分不画，先滤掉：
-    /// 否则排在第一位时会留下一段空白间距，「第一张依赖成就的卡」的标识也会挂到一个空视图上。
-    private var visiblePinnedSegments: [VolunteerHomePinnedLayout.Segment] {
-        let segments = VolunteerHomePinnedLayout.segments(pinnedStore.pinned)
-        guard let loaded = loadedAchievements, !Self.headline(loaded.achievements).showsImpactSections else {
-            return segments
-        }
-        return segments.filter { !$0.kinds.contains(.streak) && !$0.kinds.contains(.rating) }
+    /// 成就没到时按「会画」算（那时画的是占位，不是空白）；到了且是新人态才不画半宽卡。
+    private var showsHalfCards: Bool {
+        guard let loaded = loadedAchievements else { return true }
+        return Self.headline(loaded.achievements).showsImpactSections
     }
 
     @ViewBuilder
@@ -60,7 +56,14 @@ extension VolunteerProfileFirstScreen {
             recentSection
         case .single(.badges):
             if loadedAchievements != nil {
-                badgesSection
+                if isFirstDependent {
+                    // 徽章排在最前时，「成就数据画出来了」的标识挂在它身上（理由见 `achievementCards`）。
+                    VStack(alignment: .leading, spacing: 0) { badgesSection }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("volunteerHomeIncentiveCard")
+                } else {
+                    badgesSection
+                }
             } else if isFirstDependent {
                 achievementsPlaceholder.padding(.top, isFirst ? 0 : 12)
             }

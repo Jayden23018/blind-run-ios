@@ -46,6 +46,25 @@ final class VolunteerHomeRecentRouteZoomTests: XCTestCase {
         XCTAssertLessThan(metresPerPoint(atZoom: zoom + 0.5) * usableWidth, 3_000)
     }
 
+    /// 卡片里的地图只是装饰：不显示 / 不跟随定位、对读屏隐藏、蓝色主路线、起终点各一枚，缩放用上面算的级别。
+    /// UI 测试构建默认关地图、截图用例不断言，这些参数被改了没有别的信号。
+    @MainActor
+    func testRecentRouteMapIsADecorativeRouteOnlyMap() {
+        let coordinates = route(northSouthMetres: 600, eastWestMetres: 400)
+        let map = VolunteerProfileFirstScreen.recentRouteMap(coordinates, size: mapSize)
+
+        XCTAssertFalse(map.showsUserLocation)
+        XCTAssertFalse(map.tracksUserLocation)
+        XCTAssertFalse(map.animatesCenterChanges)
+        XCTAssertTrue(map.isDecorative, "不是装饰时 MapViewWrapper 会合成一个读屏元素")
+        XCTAssertEqual(map.polylines.count, 1)
+        XCTAssertEqual(map.polylines.first?.isPrimary, true, "非主路线画成 4pt 灰线")
+        XCTAssertEqual(map.annotations.map(\.kind), [.routeStart, .routeEnd])
+        XCTAssertEqual(map.annotations.first?.coordinate.latitude, coordinates.first?.latitude)
+        XCTAssertEqual(map.annotations.last?.coordinate.latitude, coordinates.last?.latitude)
+        XCTAssertEqual(map.zoomLevel, VolunteerProfileFirstScreen.fittingZoomLevel(coordinates, in: mapSize, padding: padding))
+    }
+
     /// 很短的路线不无限放大，停在 18 级；没有点时同样给 18 级，不崩。
     @MainActor
     func testTinyOrEmptyRouteStopsAtTheMaximumZoom() {

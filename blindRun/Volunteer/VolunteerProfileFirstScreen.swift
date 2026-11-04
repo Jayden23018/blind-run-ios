@@ -352,6 +352,7 @@ enum VolunteerProfileCopy {
     static let pinnedEditFooter = "按住右侧把手拖动可以调整顺序。使用读屏时，在卡片上用「上移」「下移」。"
     static let pinnedEditEmpty = "还没有置顶的卡片，从下面加一张。"
     static let pinnedHomeEmpty = "点「编辑」选择要放在首页的卡片。"
+    static let pinnedHomeWaitingForFirstRun = "完成第一次陪跑后，连续陪跑和评分会显示在这里。"
     static let pinnedMoveUp = "上移"
     static let pinnedMoveDown = "下移"
     static func pinnedRemoveLabel(_ title: String) -> String { "把\(title)移出置顶" }

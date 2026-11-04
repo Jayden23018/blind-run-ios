@@ -16,6 +16,38 @@ final class VolunteerHomePinnedLayoutTests: XCTestCase {
         XCTAssertEqual(Layout.decode("rating, nope,duration,rating,,badges"), [.rating, .duration, .badges])
     }
 
+    /// 非空却一个都认不出（将来改了卡名、旧值全部失效）⇒ 退回默认五张，不让首页置顶整块变空。
+    func testDecodeFallsBackToDefaultWhenNothingIsRecognised() {
+        XCTAssertEqual(Layout.decode("foo,bar"), Layout.defaultOrder)
+        XCTAssertEqual(Layout.decode(","), [], "只有分隔符等同空串：志愿者一张都不要")
+    }
+
+    /// 一张都没置顶 ⇒ 说明「点编辑」；新人态只置顶了连续陪跑 / 评分 ⇒ 另一句说明，不能是一片空白。
+    func testNoticeCoversNothingPinnedAndNewcomerWithOnlyHalfCards() {
+        XCTAssertEqual(Layout.notice(pinned: [], visible: []), .nothingPinned)
+
+        let newcomerOnlyHalfCards = Layout.visibleSegments([.streak, .rating], showsHalfCards: false)
+        XCTAssertEqual(newcomerOnlyHalfCards, [])
+        XCTAssertEqual(Layout.notice(pinned: [.streak, .rating], visible: newcomerOnlyHalfCards), .waitingForFirstRun)
+
+        let regular = Layout.visibleSegments([.streak, .rating], showsHalfCards: true)
+        XCTAssertEqual(regular, [.pair(.streak, .rating)])
+        XCTAssertNil(Layout.notice(pinned: [.streak, .rating], visible: regular))
+    }
+
+    /// 新人态只滤掉连续陪跑 / 评分，其余照常；滤掉之后两边的卡不会因此凑成一对。
+    func testNewcomerHidesOnlyTheHalfCards() {
+        XCTAssertEqual(
+            Layout.visibleSegments([.rating, .duration, .streak, .badges], showsHalfCards: false),
+            [.single(.duration), .single(.badges)]
+        )
+    }
+
+    /// 置顶是这台手机上的显示偏好：登出（`reset()` 只清 `AppStatePersistenceKeys.all`）不能把它清掉。
+    func testPinnedPreferenceSurvivesLogout() {
+        XCTAssertFalse(AppStatePersistenceKeys.all.contains(AppConstants.UserDefaultsKeys.volunteerHomePinnedCards))
+    }
+
     func testEncodeRoundTrips() {
         let kinds: [VolunteerHomeCardKind] = [.badges, .duration, .streak]
         XCTAssertEqual(Layout.decode(Layout.encode(kinds)), kinds)

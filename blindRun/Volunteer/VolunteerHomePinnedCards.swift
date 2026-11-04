@@ -72,14 +72,17 @@ enum VolunteerHomePinnedLayout {
     /// - `nil`（从没编辑过）⇒ 默认五张全部置顶。
     /// - 空串 ⇒ 一张都不置顶（这是志愿者自己选的，不能当成「没存过」又全放回来）。
     /// - 认不出的卡名丢掉、重复的只留第一个：版本降级或手改过的值不让整块消失。
+    /// - 非空却**一个都认不出**（例如将来改了卡名）⇒ 退回默认，同样是为了不让整块消失。
     static func decode(_ raw: String?) -> [VolunteerHomeCardKind] {
         guard let raw else { return defaultOrder }
         var seen = Set<VolunteerHomeCardKind>()
-        return raw.split(separator: ",").compactMap { part in
+        let kinds: [VolunteerHomeCardKind] = raw.split(separator: ",").compactMap { part in
             guard let kind = VolunteerHomeCardKind(rawValue: part.trimmingCharacters(in: .whitespaces)),
                   seen.insert(kind).inserted else { return nil }
             return kind
         }
+        let hasContent = !raw.trimmingCharacters(in: CharacterSet(charactersIn: ", ")).isEmpty
+        return kinds.isEmpty && hasContent ? defaultOrder : kinds
     }
 
     static func encode(_ kinds: [VolunteerHomeCardKind]) -> String {
@@ -102,6 +105,27 @@ enum VolunteerHomePinnedLayout {
             }
         }
         return result
+    }
+
+    /// 首页实际要画的段。新人态（`showsHalfCards == false`：成就已到、0 次）连续陪跑 / 评分不画，先滤掉 ——
+    /// 否则排在第一位时会留下一段空白间距，「第一张依赖成就的卡」的标识也会挂到一个空视图上。
+    static func visibleSegments(_ kinds: [VolunteerHomeCardKind], showsHalfCards: Bool) -> [Segment] {
+        let all = segments(kinds)
+        guard !showsHalfCards else { return all }
+        return all.filter { !$0.kinds.contains(.streak) && !$0.kinds.contains(.rating) }
+    }
+
+    /// 「置顶」下面一张卡都画不出来时那一句说明。
+    enum Notice: Equatable {
+        /// 志愿者自己一张都没置顶。
+        case nothingPinned
+        /// 置顶了，但只有新人态不画的连续陪跑 / 评分。
+        case waitingForFirstRun
+    }
+
+    static func notice(pinned: [VolunteerHomeCardKind], visible: [Segment]) -> Notice? {
+        if pinned.isEmpty { return .nothingPinned }
+        return visible.isEmpty ? .waitingForFirstRun : nil
     }
 
     /// 读屏的「上移 / 下移」。到头了原样返回。
@@ -246,13 +270,15 @@ struct VolunteerHomePinnedEditView: View {
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // 「上移 / 下移」挂在卡名这个读屏焦点上。挂在 `.contain` 的整行容器上时容器本身不是焦点，
+                // 焦点落在减号或卡名上都摸不到这两个动作（2026-11-04 复核指出）。
+                .accessibilityActions {
+                    if isPinned {
+                        Button(VolunteerProfileCopy.pinnedMoveUp) { store.move(kind, by: -1) }
+                        Button(VolunteerProfileCopy.pinnedMoveDown) { store.move(kind, by: 1) }
+                    }
+                }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityActions {
-            if isPinned {
-                Button(VolunteerProfileCopy.pinnedMoveUp) { store.move(kind, by: -1) }
-                Button(VolunteerProfileCopy.pinnedMoveDown) { store.move(kind, by: 1) }
-            }
-        }
     }
 }
