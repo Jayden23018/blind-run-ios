@@ -138,6 +138,9 @@
 - **不封顶 Dynamic Type**。AX4 / AX5 正是低视力用户实际会设的档位（body 在 AX5 是 53pt ≈ 默认的 310%），
   封在 AX3 等于把最后两级从目标用户手里拿走。理由与实测见
   [`dynamic-type-scale-20260812.md`](../research/dynamic-type-scale-20260812.md)。
+- **最大字号（AX5）只在盲人端测**（负责人 2026-11-05 定）。陪跑员视力正常，陪跑员端的审计与截图用例只跑默认字号的亮 / 暗两遍，
+  `appearanceVariants` 不取 `ax5-*`，也不为 AX5 改陪跑员页的布局。审计里的 `.dynamicType`（字能否跟着系统放大）照常开。
+  两端共用的页面（登录、选角色）按盲人端处理。这条只管**测什么**：代码里照样不封顶。
 - **不用 `.font(.caption2)`**，`.caption` 也要谨慎（`swiftui-pro/references/design.md:32`）。
 - 正文列宽上限 `BlindLayout.readableContentWidth = 700`（每行 45–75 字符）—— 放大字号后横扫整行会串行。
 
