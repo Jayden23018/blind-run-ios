@@ -19,6 +19,7 @@ final class BlindRunnerFinishTests: XCTestCase {
 
     func testRunnerFinishCallsTheEndpointAndSaysTheRunnerEndedIt() async {
         let fixture = makeFixture(current: .inProgress)
+        fixture.orders.finishResult = .success(())
         fixture.orders.orderDetailResult = .success(Self.order(status: .completed))
 
         let refusal = await fixture.viewModel.finishBecauseVolunteerUnreachable()
