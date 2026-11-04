@@ -188,7 +188,8 @@ final class ScreenTourTests: XCTestCase {
         // 有约好的单时冷启动会直接进订单页（§4.1 三岔路），先退回首页。
         let home = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
         if !home.waitForExistence(timeout: 15) {
-            let back = app.navigationBars.buttons.element(boundBy: 0)
+            // 订单页的返回键是页面自己画的（标签「返回」），不在系统导航栏里。
+            let back = app.buttons["返回"].firstMatch
             if back.waitForExistence(timeout: 10) { back.tap() }
         }
         shoot(app, "V07-home-v3-scheduled", anchor: "volunteerProfileIdentityRow", scroll: true)

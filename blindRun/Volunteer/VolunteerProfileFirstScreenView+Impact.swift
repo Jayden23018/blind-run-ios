@@ -177,9 +177,17 @@ extension VolunteerProfileFirstScreen {
                 .foregroundColor(AppColors.textSecondary)
                 .multilineTextAlignment(.trailing)
                 .fixedSize(horizontal: false, vertical: true)
-            ProgressView(value: progress.fraction)
-                .tint(AppColors.success)
-                .accessibilityHidden(true)
+            // 样例进度条 8pt 高、圆头；系统 `ProgressView` 只有 4pt。
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(AppColors.success.opacity(0.18))
+                    Capsule()
+                        .fill(AppColors.success)
+                        .frame(width: max(8, proxy.size.width * progress.fraction))
+                }
+            }
+            .frame(height: 8)
+            .accessibilityHidden(true)
         }
         .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil, alignment: .trailing)
     }
@@ -240,7 +248,8 @@ extension VolunteerProfileFirstScreen {
                     showsChevron: card.hasDestination
                 )
                 VStack(alignment: .leading, spacing: 4) {
-                    (Text(card.value).font(AppFonts.title())
+                    // 样例半宽卡数字 30pt，比主数字（34pt）小一档：取 `.title`（28pt）加粗，跟字号走。
+                    (Text(card.value).font(.title.bold())
                         + Text(card.unit.map { " \($0)" } ?? "").font(AppFonts.body().weight(.semibold))
                             .foregroundColor(AppColors.textSecondary))
                         .foregroundColor(AppColors.textPrimary)

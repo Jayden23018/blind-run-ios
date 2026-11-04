@@ -254,7 +254,8 @@ struct VolunteerAvailabilitySlider: View {
                         .frame(width: 10, height: 10)
                         .accessibilityHidden(true)
                 }
-                trackLabel(title: pillTitle, detail: pillDetail, color: foreground)
+                // 圆点、字、箭头整组居中（样例），字不撑满整条：撑满会把圆点和箭头推到两端。
+                trackLabel(title: pillTitle, detail: pillDetail, color: foreground, fillsWidth: false)
                     .layoutPriority(1)
                 if isAvailable, !status.blocksOpening {
                     Image(systemName: "chevron.right")
@@ -290,7 +291,7 @@ struct VolunteerAvailabilitySlider: View {
         return [notice.detail, VolunteerAvailabilityCopy.enterHubTitle].compactMap { $0 }.joined(separator: " · ")
     }
 
-    private func trackLabel(title: String, detail: String?, color: Color) -> some View {
+    private func trackLabel(title: String, detail: String?, color: Color, fillsWidth: Bool = true) -> some View {
         VStack(spacing: 2) {
             if isUpdating {
                 ProgressView()
@@ -307,7 +308,7 @@ struct VolunteerAvailabilitySlider: View {
         .lineLimit(2)
         .minimumScaleFactor(0.62)
         .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: fillsWidth ? .infinity : nil)
     }
 
     private var accessibilityStatus: String {

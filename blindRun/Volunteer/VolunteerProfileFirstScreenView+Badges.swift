@@ -39,6 +39,13 @@ extension VolunteerProfileFirstScreen {
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                } else if dynamicTypeSize.isAccessibilitySize {
+                    // 无障碍字号下一排四格每格不到 80pt，名字被截成一个字（真机 AX5，2026-11-04）。改成一枚一行。
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(cells) { cell in
+                            badgeCell(cell)
+                        }
+                    }
                 } else {
                     HStack(alignment: .top, spacing: 11) {
                         ForEach(cells) { cell in
