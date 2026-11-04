@@ -934,18 +934,18 @@ struct BlindRunnerHomeView: View {
 }
 
 private extension BlindRunnerHomeView {
-    /// #368：向导路由本身过闸 —— 不管从哪里进向导，都先要本机有盲人位置轨迹的单独同意。
+    /// 向导路由本身过闸：最外层先看开放范围（#667，暂不接受预约就只告知），再要位置轨迹的单独同意（#368）。
     func booking(startsWithVoice: Bool, startPlace: ResolvedPlace?) -> some View {
-        BlindBookingTrackConsentGate(
-            onDecline: {
+        BlindBookingLaunchScopeGate(onLeave: { path.removeAll() }) {
+            BlindBookingTrackConsentGate(onDecline: {
                 path.removeAll()
                 viewModel.noteBookingTrackConsentDeclined()
-            }
-        ) {
-            BlindBookingView(startsWithVoice: startsWithVoice, initialStartPlace: startPlace) { response in
-                viewModel.handleOrderCreated(response)
-                if let orderId = response.id {
-                    path = [.orderStatus(orderId)]
+            }) {
+                BlindBookingView(startsWithVoice: startsWithVoice, initialStartPlace: startPlace) { response in
+                    viewModel.handleOrderCreated(response)
+                    if let orderId = response.id {
+                        path = [.orderStatus(orderId)]
+                    }
                 }
             }
         }

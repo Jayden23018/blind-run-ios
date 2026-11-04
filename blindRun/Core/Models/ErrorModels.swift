@@ -25,28 +25,23 @@ enum ErrorCode: String, Codable, Sendable {
     case trainingNotCompleted = "TRAINING_NOT_COMPLETED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
     // 下单时间类的另外两条（后端 `ErrorCode.java:174-190`，N134 随 `OrderCreationService` 一起上线）。
-    // 校验顺序在 `APPOINTMENT_TOO_SOON` 之后：先时长、再夜间窗口。
-    // **两条都命中时后端返回 `APPOINTMENT_TOO_LONG`**（跨多天的超长单必然也跨夜），
+    // 校验顺序在 `APPOINTMENT_TOO_SOON` 之后：先时长、再夜间窗口。**两条都命中时后端返回 `APPOINTMENT_TOO_LONG`**（跨多天的超长单必然也跨夜），
     // 所以那句文案不能提夜间，否则用户改完时段还是过不了。
     //
     // ⚠️ `APPOINTMENT_TOO_LONG` 当前**客户端到不了**：表单选择器最大 120 分钟
     // （`BookingDurationOption.oneTwenty`），语音那条被 `VoiceOrderWizard.acceptedDurationMinutes`
     // 夹在 10–300。映射它的理由和 `introCallRequired` 一样 —— 别把一个有确切含义的 422
     // 念成「未知错误 (422)」。契约一放宽（或哪天加了自定义时长输入）它立刻就是活分支。
-    // `APPOINTMENT_IN_NIGHT_WINDOW` 相反，**现在就到得了**：客户端没有任何夜间校验，
-    // 21:00 出发跑两小时是一次完全正常的操作。
+    // `APPOINTMENT_IN_NIGHT_WINDOW` 相反，**现在就到得了**：客户端没有任何夜间校验，21:00 出发跑两小时是一次完全正常的操作。
     case appointmentTooLong = "APPOINTMENT_TOO_LONG"
     case appointmentInNightWindow = "APPOINTMENT_IN_NIGHT_WINDOW"
     // 跨天预约（后端迁移 `0041`，2026-09-05）。**此前下单只有下限没有上限。**
-    //
     // 客户端已经在选择器上封了 7 天（`AppConstants.Timing.maximumBookingLeadDays`），
     // 所以正常路径下见不到 `APPOINTMENT_TOO_FAR`；映射它是因为那个天数是**后端配置**
-    // （`app.order.max-lead-days`），后端调小的那一天，选择器上的 7 天就是错的，
-    // 而这条 422 是当天唯一还能说清「为什么被拒」的东西。
+    // （`app.order.max-lead-days`），后端调小的那一天，选择器上的 7 天就是错的，而这条 422 是当天唯一还能说清「为什么被拒」的东西。
     case appointmentTooFar = "APPOINTMENT_TOO_FAR"
     // 同批新增：同时最多 3 张未完成预约（`app.order.max-concurrent-scheduled`）。
-    // 🚩 它与 `DUPLICATE_ORDER` 是一对，别混：那条现在只拦**时段冲突**，这条拦**总数**。
-    // 客户端**算不出**它（拿不到「我还有几张未走完的单」的总数），只能等后端拒。
+    // 🚩 它与 `DUPLICATE_ORDER` 是一对，别混：那条现在只拦**时段冲突**，这条拦**总数**。客户端**算不出**它（拿不到「我还有几张未走完的单」的总数），只能等后端拒。
     case tooManyScheduledOrders = "TOO_MANY_SCHEDULED_ORDERS"
     case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
@@ -182,6 +177,10 @@ enum ErrorCode: String, Codable, Sendable {
     case accountSuspended = "ACCOUNT_SUSPENDED"
     // 工单或举报数到顶（backend#880）。后端 message 带着具体数量，**念它**。
     case supportTicketLimitExceeded = "SUPPORT_TICKET_LIMIT_EXCEEDED"
+    // 受控公开的建单闸门（backend#896，iOS #667）：message 说清开放城市 / 值守时段，**念它**。见 `LaunchScopeCopy`。
+    case orderServiceNotOpen = "ORDER_SERVICE_NOT_OPEN"
+    case orderOutsideOpenArea = "ORDER_OUTSIDE_OPEN_AREA"
+    case appointmentOutsideDutyHours = "APPOINTMENT_OUTSIDE_DUTY_HOURS"
 
     /// 识别出这个码之后，仍优先念后端 `message`（非空时）。
     ///
@@ -192,6 +191,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .blindCancelTooEarly, .accountSuspended, .supportTicketLimitExceeded: return true
         // 四个时间类码（#659）：后端 `OrderLifecycleService` 的 message 带最早可操作的时刻，本地文案说不出。
         case .departureTooEarly, .serviceStartTooEarly, .endWaitTooEarly, .blindConfirmationPending: return true
+        case .orderServiceNotOpen, .orderOutsideOpenArea, .appointmentOutsideDutyHours: return true
         // 契约（#524）：收藏自己拉黑的人时 message 是「你已拉黑对方，请先解除」，本地文案说不出这句。
         case .favoriteVolunteerNotEligible: return true
         default: return false
@@ -390,6 +390,7 @@ enum ErrorCode: String, Codable, Sendable {
             return AccountSuspensionCopy.fallback
         case .supportTicketLimitExceeded:
             return "你提交的内容已经到上限了，请等客服回复后再提交新的。"
+        case .orderServiceNotOpen, .orderOutsideOpenArea, .appointmentOutsideDutyHours: return LaunchScopeCopy.rejectionFallback(for: self)
         }
     }
 

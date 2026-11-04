@@ -30,6 +30,8 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     var legalLinksResult: Result<LegalLinksResponse, Error> = .failure(NotStubbed(method: "legalLinks"))
     var featureFlagsResult: Result<FeatureFlagsResponse, Error> = .failure(NotStubbed(method: "featureFlags"))
     var ruleParamsResult: Result<RuleParamsResponse, Error> = .failure(NotStubbed(method: "ruleParams"))
+    /// 请求「在路上」时做点事（例如换账号），再返回罐装值。不做任何判定。
+    var ruleParamsWillReturn: (() -> Void)?
     var appVersionRequirementsResult: Result<AppVersionResponse, Error> = .failure(NotStubbed(method: "appVersionRequirements"))
     var missedNotificationsResult: Result<MissedNotificationPage, Error> = .failure(NotStubbed(method: "missedNotifications"))
     var accountDeletionOrderPreflightResult: Result<PagedOrderResponse, Error> = .failure(NotStubbed(method: "accountDeletionOrderPreflight"))
@@ -93,6 +95,7 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
 
     func ruleParams() async throws -> RuleParamsResponse {
         record()
+        ruleParamsWillReturn?()
         return try ruleParamsResult.get()
     }
 
