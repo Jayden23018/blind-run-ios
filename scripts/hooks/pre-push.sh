@@ -109,6 +109,27 @@ else
   RUN_CLIENT_CHECK=0
 fi
 
+# SwiftLint 棘轮（#678）：CI 的「SwiftLint（只拦新增）」不是 main 的必需检查，红着照样自动合并。
+# #363、#507、#675 三次把 main 带红，「ship 前自己跑」靠人记，每次都漏，所以放进 pre-push。
+# 只在本次改到 .swift 或 lint 配置时跑。本机没装 swiftlint 就明说没跑，不算通过。
+if [ "$FULL" = "1" ] || touches '(\.swift$|^\.swiftlint)'; then
+  if ! command -v swiftlint >/dev/null 2>&1; then
+    echo "[pre-push] ⚠ 跳过 SwiftLint 棘轮：本机没装 swiftlint（brew install swiftlint）。这不算通过。"
+    SKIPPED_GATES=$((SKIPPED_GATES + 1))
+  elif [ ! -f scripts/swiftlint-ratchet.mjs ]; then
+    echo "[pre-push] ⚠ 跳过 SwiftLint 棘轮：本分支没有 scripts/swiftlint-ratchet.mjs。这不算通过。"
+    SKIPPED_GATES=$((SKIPPED_GATES + 1))
+  else
+    # swiftlint 退出码 0 = 无 error 级违规，2 = 有；其余是它自己出错，不能当 lint 结论（同 CI）。
+    run "swiftlint 棘轮（新增或变大的违规）" bash -c '
+      swiftlint lint --quiet --reporter json > "$1/swiftlint.json"
+      rc=$?
+      if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then echo "swiftlint 异常退出：$rc"; exit "$rc"; fi
+      node scripts/swiftlint-ratchet.mjs --json "$1/swiftlint.json" --root "$PWD"
+    ' _ "$PREPUSH_TMP"
+  fi
+fi
+
 # 下面这几道门禁读的后端契约文件（5 份，5 道门禁），
 # **一律取自后端仓库的 origin/main，不是 ../demo 的工作区文件**。
 #
