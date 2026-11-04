@@ -16,5 +16,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Unit tests for the pure logic; device run of the changed test methods
-- [ ] 4.2 B-13: record the VoiceOver device check in the PR handoff
+- [x] 4.1 Unit tests for the pure logic; device run of the changed test methods
+- [x] 4.2 B-13: record the VoiceOver device check in the PR handoff
