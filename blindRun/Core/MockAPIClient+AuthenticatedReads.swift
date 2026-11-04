@@ -91,6 +91,17 @@ extension MockAPIClient {
         }
     }
 
+    /// 建单被开放范围拒绝时后端的 422（#667）。message 照契约的写法：说清发生了什么、为什么、能做什么。
+    static func mockLaunchScopeRejection(_ code: String?) -> APIError? {
+        let messages = [
+            "ORDER_SERVICE_NOT_OPEN": "陪跑服务暂未开放，现在还不能预约，开放后再来下单",
+            "ORDER_OUTSIDE_OPEN_AREA": "这个出发点不在开放范围内。目前只开放深圳市、杭州市，请换一个开放范围内的出发点",
+            "APPOINTMENT_OUTSIDE_DUTY_HOURS": "这个时间没有值守人员，暂不接受预约。可预约的开跑时间是周一到周五 18:00 到 21:00，请换个时间"
+        ]
+        guard let code, let message = messages[code] else { return nil }
+        return .serverError(ErrorResponse(code: code, message: message))
+    }
+
     /// 与 `VolunteerHomeViewModel.seedInvitesForUITestsIfNeeded` 同一个开关、同一批 id、同一个期限算法。
     /// 已过期的不返回（契约口径）；回复过的由协调器的「已了结」记录挡住，不在这里模拟。
     private static func uiTestSeededPendingInvites(now: Date = Date()) -> [WSNewOrder] {
