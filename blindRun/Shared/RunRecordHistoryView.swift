@@ -229,7 +229,7 @@ final class RunRecordHistoryViewModel: ObservableObject {
         case .runner:
             return ("还没有跑步记录", "完成第一次陪跑后，记录会出现在这里。")
         case .volunteer:
-            return ("还没有陪跑记录", "完成第一次陪跑后，记录会出现在这里。开启可服务状态后，系统会自动派单。")
+            return ("还没有陪跑记录", "完成第一次陪跑后，记录会出现在这里。")
         }
     }
 

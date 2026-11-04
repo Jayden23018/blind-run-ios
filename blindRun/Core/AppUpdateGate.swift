@@ -12,6 +12,14 @@ protocol AppUpdateSource: AnyObject {
 @MainActor
 final class AppUpdateGate: ObservableObject {
     @Published private(set) var presentation: AppUpdatePresentation = .none
+    /// 必须更新的弹窗期间，陪跑员的接单开关有没有被自动关掉（#668）。要求消失（已更新、让路给陪跑、请求失败不拦）时复位。
+    @Published private(set) var dispatchPause: DispatchPause = .idle
+
+    enum DispatchPause: Equatable {
+        case idle
+        case paused
+        case failed
+    }
 
     let currentVersion: String?
     private let persistence: AppStatePersistence
@@ -37,6 +45,12 @@ final class AppUpdateGate: ObservableObject {
             persistence.set(target.version, forKey: AppStatePersistenceKeys.dismissedAppUpdateVersion)
         }
         presentation = .none
+        // 关成功的保留：去 App Store 绕一圈回来弹窗再出现，开关仍是关的，那句话仍然是真的。关失败的让下一次弹窗再试一次。
+        if dispatchPause == .failed { dispatchPause = .idle }
+    }
+
+    func recordDispatchPause(_ result: DispatchPause) {
+        dispatchPause = result
     }
 
     /// 只有版本确实过低时才查订单：绝大多数启动不用多打这几个请求。
@@ -51,6 +65,7 @@ final class AppUpdateGate: ObservableObject {
         let verdict = AppUpdatePolicy.verdict(currentVersion: currentVersion, requirements: requirements)
         guard verdict != .upToDate else {
             presentation = .none
+            dispatchPause = .idle
             return
         }
         presentation = AppUpdatePolicy.presentation(
@@ -58,5 +73,6 @@ final class AppUpdateGate: ObservableObject {
             orderPresence: await source.appUpdateOrderPresence(),
             dismissedVersion: persistence.string(forKey: AppStatePersistenceKeys.dismissedAppUpdateVersion)
         )
+        if !presentation.isRequired { dispatchPause = .idle }
     }
 }

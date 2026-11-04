@@ -77,6 +77,11 @@ extension AppRealtimeCoordinator {
     ///   🚨 不是 `ORDER_DEPARTURE_STALLED`（他根本没出发）或 `REMATCHING_MID_RUN`（他主动取消）的同义词，
     ///   别合并分支 —— 原因不同、文案不同。
     ///
+    /// - `EMERGENCY_CONTACT_RECEIPT_TIMEOUT`（后端 #898，本仓库 #663）—— 联系人短信发出约 3 分钟仍无运营商回执。
+    ///   形状与 `EMERGENCY_UNATTENDED` 相同：催办，不是新事实，**不走 `emergencyKind`**，求助状态不动。
+    ///   🚨 **不是投递失败**：之后仍可能来 `EMERGENCY_CONTACT_SMS_DELIVERED`，别把它映射成 `emergencyContactNotifyFailed`。
+    ///   文案照后端原样播（「还没确认{contactName}收到求助短信。情况危急请拨110或120」），App 不替它说「已通知」。
+    ///
     /// ⚠️ `EMERGENCY_UNATTENDED` **刻意不走 `emergencyKind`**：那条链路会落 `latestSafetyEvent`
     /// 并驱动 `EmergencyCoordinator.apply` 改求助状态机，而这条事件本身不改变求助的任何状态
     /// （它是催办，不是新事实）。混进去只会让状态机按一条没有权威来源的事件跳档。
@@ -88,7 +93,8 @@ extension AppRealtimeCoordinator {
              "ORDER_DEPARTURE_STALLED",
              "ORDER_ARRIVAL_STALLED",
              "ORDER_VOLUNTEER_LOST",
-             "EMERGENCY_UNATTENDED":
+             "EMERGENCY_UNATTENDED",
+             "EMERGENCY_CONTACT_RECEIPT_TIMEOUT":
             return true
         default:
             return false

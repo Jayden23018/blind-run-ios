@@ -14,6 +14,8 @@ struct AppUpdateGateModifier: ViewModifier {
     @Environment(\.openURL) private var openURL
     @StateObject private var gate = AppUpdateGate()
     @State private var didFailToOpen = false
+    /// 系统弹窗一旦弹出，正文就不再更新。接单开关关完（成功或失败）之后把它收起再弹一次，让新的那句话真的出现在屏幕上（#668）。
+    @State private var isRepresenting = false
 
     /// 三样都决定要不要弹。陪跑一结束 `isEscortUnderway` 就翻转，弹窗不用等下次回到前台。
     private struct RefreshKey: Equatable {
@@ -30,8 +32,8 @@ struct AppUpdateGateModifier: ViewModifier {
 
     private var isShowingPrompt: Binding<Bool> {
         Binding(
-            get: { presentation != .none },
-            set: { if !$0 { gate.promptDidClose() } }
+            get: { presentation != .none && !isRepresenting },
+            set: { if !$0, !isRepresenting { gate.promptDidClose() } }
         )
     }
 
@@ -49,12 +51,21 @@ struct AppUpdateGateModifier: ViewModifier {
             } message: { target in
                 Text(message(for: target))
             }
+            .environmentObject(gate)
             .task(id: RefreshKey(
                 restoration: appState.sessionRestorationState,
                 role: appState.activeRole,
                 isEscortUnderway: escort.isSessionEligible
             )) {
                 await gate.refresh(from: appState)
+            }
+            .onChange(of: gate.dispatchPause) { pause in
+                guard pause != .idle, presentation.isRequired else { return }
+                isRepresenting = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    isRepresenting = false
+                }
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
@@ -64,7 +75,8 @@ struct AppUpdateGateModifier: ViewModifier {
 
     private func message(for target: AppUpdateTarget) -> String {
         guard presentation.isRequired else { return AppUpdateCopy.optionalMessage(targetVersion: target.version) }
-        return didFailToOpen ? AppUpdateCopy.openFailed : AppUpdateCopy.requiredMessage(targetVersion: target.version)
+        let base = didFailToOpen ? AppUpdateCopy.openFailed : AppUpdateCopy.requiredMessage(targetVersion: target.version)
+        return base + AppUpdateCopy.dispatchPauseNote(gate.dispatchPause)
     }
 
     /// 打不开时 App 不会离开前台，`scenePhase` 不变，所以要自己重查一次，否则弹窗收起后人就绕过去了。

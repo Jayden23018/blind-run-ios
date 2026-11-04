@@ -141,6 +141,19 @@ enum AppUpdateCopy {
     static let laterButtonTitle = "稍后"
     static let openFailed = "打不开更新页面。请打开 App Store，搜索「助盲跑」手动更新。"
 
+    /// 陪跑员开着接单时弹出必须更新：自动关掉开关之后追加的一句（#668）。
+    static let dispatchPaused = "已暂停接单，更新后请重新打开。"
+    static let dispatchPauseFailed = "没能自动暂停接单，更新前可能还会收到邀请。"
+
+    /// 追加在必须更新正文后面的那句。只有真的关掉、或真的没关掉才说话，没试过就不说。
+    static func dispatchPauseNote(_ pause: AppUpdateGate.DispatchPause) -> String {
+        switch pause {
+        case .idle: return ""
+        case .paused: return dispatchPaused
+        case .failed: return dispatchPauseFailed
+        }
+    }
+
     static func requiredMessage(targetVersion: String) -> String {
         "当前版本过低，请更新到\(targetVersion)后继续使用。"
     }

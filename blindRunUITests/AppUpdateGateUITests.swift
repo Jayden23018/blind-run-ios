@@ -86,4 +86,45 @@ extension blindRunUITests {
         XCTAssertTrue(app.tabBars.buttons["首页"].waitForExistence(timeout: 8))
         XCTAssertFalse(alert.waitForExistence(timeout: 4), "同一版本点过「稍后」后不再提示")
     }
+
+    /// #668：陪跑员开着接单开关时弹出「版本过低」，App 先关掉开关，弹窗正文说「已暂停接单」。
+    @MainActor
+    func testRequiredUpdateAlertSaysDispatchWasPausedForAnAvailableVolunteer() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "update-gate-token",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true
+        )
+        relaunch(app, minVersion: "99.0")
+
+        let alert = app.alerts["版本过低"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 15), "版本过低时必须弹窗")
+        let paused = alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "已暂停接单，更新后请重新打开")).firstMatch
+        XCTAssertTrue(paused.waitForExistence(timeout: 15), "开关开着时弹窗要说已暂停接单")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "app-update-required-alert-dispatch-paused"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    /// 对照：开关本来关着，弹窗不许说「已暂停接单」（那是假话）。
+    @MainActor
+    func testRequiredUpdateAlertDoesNotClaimPauseWhenVolunteerWasNotDispatching() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "update-gate-token",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true
+        )
+        relaunch(app, minVersion: "99.0")
+
+        let alert = app.alerts["版本过低"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 15), "版本过低时必须弹窗")
+        XCTAssertFalse(
+            alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "已暂停接单")).firstMatch.waitForExistence(timeout: 4),
+            "开关本来就关着，不能说已暂停"
+        )
+    }
 }
