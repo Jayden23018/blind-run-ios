@@ -144,6 +144,7 @@ struct RegistrationTextFieldRow: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var labelWidth: CGFloat = 76
+    @FocusState private var isEditing: Bool
 
     var body: some View {
         let stacksVertically = dynamicTypeSize.isAccessibilitySize
@@ -182,7 +183,17 @@ struct RegistrationTextFieldRow: View {
             TextField(placeholder, text: $text, axis: .vertical)
                 .lineLimit(1...4)
         } else {
-            TextField(placeholder, text: $text)
+            // 可折行：单行 `TextField` 被真机审计判 `Text clipped`（#699 姓名、身份证号；同 `VoiceTextField`）。
+            // 回车不插换行：去掉换行并收起键盘，等于原来单行框的回车。
+            TextField(placeholder, text: $text, axis: .vertical)
+                .lineLimit(1...3)
+                .focused($isEditing)
+                .onChange(of: text) { newText in
+                    let result = VoiceTextFieldReturn.apply(to: newText, allowsLineBreaks: false, isTyping: isEditing)
+                    guard result.text != newText else { return }
+                    text = result.text
+                    if result.submitted { isEditing = false }
+                }
         }
     }
 }

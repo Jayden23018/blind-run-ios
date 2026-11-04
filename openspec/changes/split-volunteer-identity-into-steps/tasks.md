@@ -16,7 +16,7 @@
 ## 3. 测试与验收
 
 - [x] 3.1 改 `testMockVolunteerLegacyTrainingCompletesWithoutTrainingAndReturnsHomeUnavailable` 按新屏填表
-- [x] 3.2 新增注册各屏无障碍审计（亮 / 暗 / AX5）并截图
-- [ ] 3.3 真机跑覆盖改动的用例与审计，`passed=N failed=0`
+- [x] 3.2 新增注册各屏无障碍审计（亮 / 暗；陪跑员端不测 AX5，负责人 2026-11-05 定）并截图
+- [x] 3.3 真机跑覆盖改动的用例与审计，`passed=N failed=0`（2026-11-05：首轮 23/24，修输入框后复跑审计与两条填表用例 3/3）
 - [ ] 3.4 截图与定稿逐项对比（`aidrun-visual-verdict`），截图存本机 `impl/identity/`
 - [x] 3.5 定稿图进 `docs/ui/mockups/volunteer-identity-20261104/`，`INDEX.md` 表尾加一行

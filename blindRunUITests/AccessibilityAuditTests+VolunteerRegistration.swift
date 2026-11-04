@@ -2,16 +2,17 @@ import XCTest
 
 /// 陪跑员注册第 1 步拆屏（#699）：说明页、第 1 步身份、第 2 步经历、第 3 步刷脸。
 ///
-/// 这几屏此前**没有任何审计用例**（拆屏前那一整屏长表单也没有）。亮 / 暗 × 默认 / 最大字号四遍，每屏截图，
+/// 这几屏此前**没有任何审计用例**（拆屏前那一整屏长表单也没有）。亮 / 暗各一遍，每屏截图，
 /// 截图拿去和定稿 `docs/ui/mockups/volunteer-identity-20261104/identity-final.png` 逐项对比。
+/// 陪跑员端只测默认字号（负责人 2026-11-05 定）：最大字号（AX5）只在盲人端测。
 extension AccessibilityAuditTests {
 
     @MainActor
-    func testVolunteerRegistrationStepsPassAuditInLightDarkAndLargestText() throws {
+    func testVolunteerRegistrationStepsPassAuditInLightAndDark() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .portrait
-        for variant in Self.appearanceVariants {
+        for variant in Self.appearanceVariants where ["light", "dark"].contains(variant.name) {
             let app = launchUnregisteredVolunteerRegistration(
                 extraEnvironment: variant.environment, extraArguments: variant.arguments
             )
