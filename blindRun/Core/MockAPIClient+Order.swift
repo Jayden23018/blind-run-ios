@@ -16,10 +16,6 @@ extension MockAPIClient {
               let request = try? JSONDecoder().decode(CreateOrderRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
         }
-        // `AIDRUN_MOCK_CREATE_ORDER_REJECT=<码>`：演后端用开放范围码拒单（#667，`AccessibilityAuditTests+LaunchScope`）。
-        if let rejection = Self.mockLaunchScopeRejection(ProcessInfo.processInfo.environment["AIDRUN_MOCK_CREATE_ORDER_REJECT"]) {
-            throw rejection
-        }
 
         // 校验顺序与后端 `OrderCreationService.createOrder` 严格一致：
         // 提前量（422 APPOINTMENT_TOO_SOON）→ 实名（403 IDENTITY_NOT_VERIFIED）

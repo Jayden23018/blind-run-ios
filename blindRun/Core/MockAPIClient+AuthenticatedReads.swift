@@ -102,6 +102,11 @@ extension MockAPIClient {
         return .serverError(ErrorResponse(code: code, message: message))
     }
 
+    /// 建单前调：设了 `AIDRUN_MOCK_CREATE_ORDER_REJECT` 就照那个码拒单。
+    static func throwMockLaunchScopeRejectionIfRequested() throws {
+        if let rejection = mockLaunchScopeRejection(ProcessInfo.processInfo.environment["AIDRUN_MOCK_CREATE_ORDER_REJECT"]) { throw rejection }
+    }
+
     /// 与 `VolunteerHomeViewModel.seedInvitesForUITestsIfNeeded` 同一个开关、同一批 id、同一个期限算法。
     /// 已过期的不返回（契约口径）；回复过的由协调器的「已了结」记录挡住，不在这里模拟。
     private static func uiTestSeededPendingInvites(now: Date = Date()) -> [WSNewOrder] {

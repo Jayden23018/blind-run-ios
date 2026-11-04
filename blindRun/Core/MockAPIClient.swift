@@ -522,6 +522,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         // Orders
         if path == "/api/orders" && method == .post {
+            // `AIDRUN_MOCK_CREATE_ORDER_REJECT=<码>`：演后端用开放范围码拒单（#667，`AccessibilityAuditTests+LaunchScope`）。
+            try Self.throwMockLaunchScopeRejectionIfRequested()
             return try handleCreateOrder(body: body)
         }
         if path == "/api/orders/mine" && method == .get {
