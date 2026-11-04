@@ -1718,7 +1718,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.currentStep, .faceVerify)
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "身份核验通过，请开始活体认证")
+        XCTAssertEqual(speechService.lastSpokenText, "身份核验通过，请开始刷脸")
     }
 
     func testVolunteerRegistrationBasicInfoShowsBlockedReasonForInvalidPhone() async {
@@ -2019,7 +2019,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(client.statusRefreshCount, 1)
         XCTAssertEqual(viewModel.currentStep, .faceVerify)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "身份核验通过，请开始活体认证")
+        XCTAssertEqual(speechService.lastSpokenText, "身份核验通过，请开始刷脸")
     }
 
     func testVolunteerFaceVerifyInitPostsMetaInfoAndStartsNativeSDK() async {
