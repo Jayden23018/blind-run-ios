@@ -1300,7 +1300,8 @@ struct VolunteerRegistrationFlowView: View {
                     stepNumber: stepNumber,
                     onBack: viewModel.isOnExperiencePage ? { viewModel.returnToIdentityPage() } : nil,
                     onSkip: viewModel.isOnExperiencePage ? { handleBasicInfoSubmitTapped() } : nil,
-                    isBusy: !viewModel.canSubmitBasicInfo
+                    // 只在提交中锁住；限流倒计时期间仍能回上一步改身份证号，回去不发请求。
+                    isBusy: viewModel.isLoading
                 )
             }
 

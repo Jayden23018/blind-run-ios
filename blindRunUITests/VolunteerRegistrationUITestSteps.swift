@@ -12,17 +12,19 @@ enum VolunteerRegistrationUITestSteps {
         ("volunteerRegistrationField.手机号", "13800000002"),
     ]
 
-    /// 在身份那一屏填三项必填，再用键盘上的「完成」收起键盘（手机号是数字键盘，没有回车）。
+    /// 在身份那一屏填三项必填。每填完一项就用键盘上的「完成」收起键盘（手机号是数字键盘，没有回车）：
+    /// AX5 下三行上下排，下一个框会落在键盘后面，不收起的话 `tap()` 会点到键盘上的键。
     static func fillIdentity(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         for value in identityValues {
             let field = app.textFields[value.identifier].firstMatch
             XCTAssertTrue(field.waitForExistence(timeout: 8), "没找到 \(value.identifier)", file: file, line: line)
+            for _ in 0..<3 where !field.isHittable { app.swipeUp() }
             field.tap()
             field.typeText(value.text)
+            let done = app.buttons["收起键盘"].firstMatch
+            if done.waitForExistence(timeout: 2) { done.tap() }
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
         }
-        let done = app.buttons["收起键盘"].firstMatch
-        if done.waitForExistence(timeout: 2) { done.tap() }
-        _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
     }
 
     /// 说明页点「开始」→ 填身份 →「下一步」→ 经历页「下一步」。停在单独同意层弹出之前。

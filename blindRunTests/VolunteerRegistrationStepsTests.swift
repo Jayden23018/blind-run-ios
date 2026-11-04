@@ -19,11 +19,11 @@ final class VolunteerRegistrationStepsTests: XCTestCase {
         viewModel.name = "测试志愿者"
         // 17 位：差一位也要算「还差身份证号」，不是只看有没有填。
         viewModel.idCardNumber = "11010119900101123"
-        XCTAssertEqual(viewModel.identityPageMissingFields, ["身份证号", "手机号"])
+        XCTAssertEqual(viewModel.identityPageMissingFields, ["正确的 18 位身份证号", "手机号"])
 
         viewModel.idCardNumber = "110101199001011234"
         viewModel.phone = "1380000000"
-        XCTAssertEqual(viewModel.identityPageMissingFields, ["手机号"], "10 位手机号不算填好")
+        XCTAssertEqual(viewModel.identityPageMissingFields, ["正确的 11 位手机号"], "10 位手机号不算填好，且要说清是格式不对")
 
         viewModel.phone = "13800000002"
         XCTAssertEqual(viewModel.identityPageMissingFields, [])

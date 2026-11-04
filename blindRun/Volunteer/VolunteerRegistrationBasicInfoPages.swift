@@ -19,11 +19,16 @@ enum BasicInfoPage: Equatable {
 extension VolunteerRegistrationViewModel {
     /// 身份那一屏还差哪几项，按屏上的顺序。空数组才放「下一步」。
     /// 判据与 `basicInfoValidationMessage` 同一套，只是一次列全，按钮下面写「还差：xx」。
+    /// 填了但格式不对的写「正确的 xx」：框里明明有字，只写「还差手机号」会让人以为没填上。
     var identityPageMissingFields: [String] {
         var missing: [String] = []
         if name.trimmed.isEmpty { missing.append("姓名") }
-        if identityInfoValidationMessage != nil { missing.append("身份证号") }
-        if !AppState.isValidMainlandPhone(phone.trimmed) { missing.append("手机号") }
+        if identityInfoValidationMessage != nil {
+            missing.append(idCardNumber.trimmed.isEmpty ? "身份证号" : "正确的 18 位身份证号")
+        }
+        if !AppState.isValidMainlandPhone(phone.trimmed) {
+            missing.append(phone.trimmed.isEmpty ? "手机号" : "正确的 11 位手机号")
+        }
         return missing
     }
 
@@ -56,7 +61,13 @@ struct VolunteerRegistrationBasicInfoContent: View {
     var body: some View {
         switch viewModel.basicInfoPage {
         case .intro:
-            VolunteerRegistrationIntroContent()
+            VStack(alignment: .leading, spacing: AppSpacing.large) {
+                VolunteerRegistrationIntroContent()
+                // 被拒回来的人一进门就该看到原因，不能等点了「开始」才说。
+                if let rejection = viewModel.registrationStatus?.identityRejectionNotice {
+                    RegistrationRejectionNotice(text: rejection, identifier: "volunteerIntroIdentityRejectionNotice")
+                }
+            }
         case .identity:
             identityPage
         case .experience:
@@ -206,7 +217,8 @@ struct VolunteerRegistrationBasicInfoBottomBar: View {
             viewModel.advanceToExperiencePage()
         }
         .disabled(!missing.isEmpty)
-        .accessibilityHint(missing.isEmpty ? "去填陪跑经历，可以跳过" : missingText)
+        // 「还差」那行字紧跟在按钮后面会被读到，这里不再重复一遍。
+        .accessibilityHint(missing.isEmpty ? "去填陪跑经历，可以跳过" : "按钮下面写着还差哪几项")
         .accessibilityIdentifier("volunteerRegistrationIdentityNextButton")
         if !missing.isEmpty {
             RegistrationBottomHint(text: missingText, identifier: "volunteerRegistrationMissingFields")
@@ -220,7 +232,7 @@ struct VolunteerRegistrationBasicInfoBottomBar: View {
             : "点下一步会先请你同意使用身份证号和人脸信息，再一起提交第 1、2 步填的内容"
         PrimaryButton("下一步", isLoading: viewModel.isLoading, action: onSubmit)
             .disabled(!viewModel.canSubmitBasicInfo)
-            .accessibilityHint(hint)
+            .accessibilityHint("提交第 1、2 步填的内容")
             .accessibilityIdentifier("volunteerRegistrationSubmitButton")
         RegistrationBottomHint(text: hint, identifier: "volunteerRegistrationSubmitHint")
     }

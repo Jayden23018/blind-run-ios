@@ -45,7 +45,7 @@ struct RegistrationStepHeader: View {
                     if let onSkip {
                         Button("跳过", action: onSkip)
                             .buttonStyle(TextButtonStyle(alignment: .trailing))
-                            .accessibilityHint("不再填写经历，直接提交第 1 步的内容")
+                            .accessibilityHint("不再填写经历，直接提交已经填好的内容")
                             .accessibilityIdentifier("volunteerRegistrationSkipButton")
                     }
                 }
