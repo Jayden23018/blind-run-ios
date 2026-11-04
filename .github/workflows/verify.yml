@@ -9,6 +9,8 @@ name: verify
 
 on:
   pull_request:
+    # 默认三种之外加 ready_for_review：草稿不跑编译门禁（见 build job），转正式那一刻要补跑一次。
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   # 每天跑一次，为的是 push 触发天生抓不到的那一类：**你 push 之后后端才改契约**。
@@ -245,6 +247,9 @@ jobs:
     # 用变量而不是改代码：切换不用等一个 PR 先排上同一个队。
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-15' }}
     needs: specs
+    # 草稿 PR 不占 macOS 机器（负责人 2026-11-05 定）：2026-11-04 七个 PR 同时排队，五个是草稿，
+    # 要合并的 #696 排不上。草稿合不进去；转正式触发 ready_for_review，在这里补跑，门槛不降。
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     env:
       HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}   # 理由同 specs job
     steps:
