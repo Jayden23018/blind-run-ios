@@ -227,7 +227,8 @@ extension MockAPIClient {
             throw APIError.networkError(URLError(.notConnectedToInternet))
         }
         guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
-        return CurrentUserResponse(userId: mockUserId, phone: nil, role: mockRole?.rawValue)
+        // 后端返回的是脱敏后的号（`AuthController.getCurrentUser` → `PhoneMaskUtils.mask`），Mock 给同一形状。
+        return CurrentUserResponse(userId: mockUserId, phone: "138****0002", role: mockRole?.rawValue)
     }
 
     func handleLogout() throws -> LogoutResponse {

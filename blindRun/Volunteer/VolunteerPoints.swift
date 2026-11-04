@@ -120,44 +120,64 @@ extension PointTransactionResponse {
     }
 }
 
-// MARK: - 按日期分组
+// MARK: - 本月小结与每行日期
 
-/// 积分明细按天分组展示（抄各家积分明细页的通行做法：同一天的流水收在一个日期小标题下）。
+/// 余额卡下面那行「本月 +30 · 共 2 笔」。后端不给，客户端按已加载的流水算（定稿 2026-11-04：算不出就去掉）。
 ///
-/// 分组只是**视觉分节**，不改变顺序也不合并条目 —— 后端按 `createdAt` 倒序返回，
-/// 这里保持原序，只在「天」变化处插一个标题。读屏因此听到的是
-/// 「8 月 22 日，标题」→ 当天各条，与视觉顺序一致。
-struct PointTransactionDay: Equatable {
-    let title: String
-    let transactions: [PointTransactionResponse]
+/// 🚩 **算不全就不显示，不显示一个偏小的数。** 流水分页、按 `createdAt` 倒序：
+/// - 还有更早的页没加载，而已加载的全在本月 ⇒ 本月可能还有没加载的，不显示；
+///   已加载的里出现了上个月的 ⇒ 本月的一定都在手里了，可以算。
+/// - 有一条时间解析不出 ⇒ 不知道它算不算本月，不显示。
+/// - `delta = 0` 的流水也算一笔：它是真实的一条记录（撞上限没加分）。
+struct PointMonthlySummary: Equatable {
+    let net: Int
+    let count: Int
+
+    var text: String {
+        let signed = net > 0 ? "+\(net)" : "\(net)"
+        return "本月 \(signed) · 共 \(count) 笔"
+    }
+
+    var spokenText: String {
+        let amount = net < 0 ? "扣 \(-net) 分" : "加 \(net) 分"
+        return "本月\(amount)，共 \(count) 笔"
+    }
+
+    static func make(
+        transactions: [PointTransactionResponse],
+        hasMorePages: Bool,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> PointMonthlySummary? {
+        guard let monthStart = calendar.dateInterval(of: .month, for: now)?.start else { return nil }
+        var dates: [Date] = []
+        for transaction in transactions {
+            guard let date = transaction.createdAt?.nilIfBlank?.backendTimestamp else { return nil }
+            dates.append(date)
+        }
+        if hasMorePages, !dates.contains(where: { $0 < monthStart }) { return nil }
+        let thisMonth = zip(transactions, dates).filter { $0.1 >= monthStart }.map(\.0)
+        guard !thisMonth.isEmpty else { return nil }
+        return PointMonthlySummary(net: thisMonth.reduce(0) { $0 + $1.resolvedDelta }, count: thisMonth.count)
+    }
 }
 
-enum PointTransactionGrouping {
-    /// ⚠️ 时间解析不出来时归到「更早」而不是丢弃 —— 丢一条流水就是丢一次解释。
-    static let unknownDayTitle = "更早"
-
-    static func group(_ transactions: [PointTransactionResponse]) -> [PointTransactionDay] {
-        var days: [PointTransactionDay] = []
-        for transaction in transactions {
-            let title = dayTitle(for: transaction)
-            if let last = days.last, last.title == title {
-                days[days.count - 1] = PointTransactionDay(
-                    title: title,
-                    transactions: last.transactions + [transaction]
-                )
-            } else {
-                days.append(PointTransactionDay(title: title, transactions: [transaction]))
-            }
-        }
-        return days
+extension PointTransactionResponse {
+    /// 每行原因下面的日期：今年的写「11月3日」，往年的带年份。时间解析不出返回 nil，那一行就不写日期。
+    func dayText(now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let date = createdAt?.nilIfBlank?.backendTimestamp else { return nil }
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        return (sameYear ? DateFormatter.aidRunPointsMonthDay : DateFormatter.aidRunDisplayDay).string(from: date)
     }
+}
 
-    private static func dayTitle(for transaction: PointTransactionResponse) -> String {
-        guard let date = transaction.createdAt?.nilIfBlank?.backendTimestamp else {
-            return unknownDayTitle
-        }
-        return DateFormatter.aidRunDisplayDay.string(from: date)
-    }
+extension DateFormatter {
+    static let aidRunPointsMonthDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日"
+        return formatter
+    }()
 }
 
 // MARK: - 文案
@@ -184,9 +204,11 @@ enum VolunteerPointsCopy {
     /// 🔴 这一句是把两套数隔开的那道栏杆，不要删、也不要改成「积分可折算时长」。
     static let separateFromServiceHours = "积分和志愿服务时长是两回事。累计服务时长在「服务成就」页查看。"
 
-    static let ledgerSectionTitle = "积分明细"
+    static let ledgerSectionTitle = "最新记录"
 
-    static let empty = "还没有积分记录。完成一次陪跑服务后，这里会显示每一笔的加分和原因。"
+    static let emptyTitle = "还没有积分记录"
+    static let emptyDetail = "完成一次陪跑服务后，这里会显示每一笔的加分和原因。"
+    static let empty = "\(emptyTitle)。\(emptyDetail)"
 
     /// ⚠️ **不是**「功能未开启」。后端 `PointService` 只有数值参数、没有 enabled 开关，
     /// 积分从第一天就在记（SPEC-E §1 决策 1）。带开关的是火花 / 派单优先轮 / 邀请奖励三个。

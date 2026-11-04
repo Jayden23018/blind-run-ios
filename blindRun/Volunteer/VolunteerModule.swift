@@ -223,9 +223,13 @@ final class VolunteerProfileViewModel: ObservableObject {
     }
 }
 
-// MARK: - Volunteer Profile View
+// MARK: - Volunteer Certification Gate View
 
-struct VolunteerProfileView: View {
+/// 未通过审核的陪跑员落地的认证页（根路由 `volunteerProfile`）：昵称、认证入口、认证状态、退出登录。
+///
+/// 2026-11-05 以前它也是「我的」→ 个人资料那一页；#700 把那一页改成只读资料页（`VolunteerProfileView`），
+/// 这里改名分开，行为不变。
+struct VolunteerCertificationGateView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = VolunteerProfileViewModel()
@@ -438,7 +442,7 @@ private struct VolunteerTextField: View {
 
 #if DEBUG
 #Preview {
-    VolunteerProfileView()
+    VolunteerCertificationGateView()
         .environmentObject(AppState())
         .environmentObject(SpeechService())
 }

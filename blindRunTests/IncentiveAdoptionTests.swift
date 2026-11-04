@@ -77,29 +77,8 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertEqual(makeTransaction(reason: nil).reasonText, "其他")
     }
 
-    // MARK: - 按天分组只分节，不改顺序、不丢条目
-
-    func testGroupingKeepsOrderAndKeepsEveryTransaction() {
-        let transactions = [
-            makeTransaction(delta: 10, createdAt: "2026-08-22T20:00:00"),
-            makeTransaction(delta: 0, createdAt: "2026-08-22T09:00:00"),
-            makeTransaction(delta: 10, createdAt: "2026-08-21T09:00:00")
-        ]
-        let days = PointTransactionGrouping.group(transactions)
-
-        XCTAssertEqual(days.count, 2)
-        XCTAssertEqual(days[0].title, "2026年8月22日")
-        XCTAssertEqual(days[0].transactions.count, 2)
-        XCTAssertEqual(days[1].title, "2026年8月21日")
-        XCTAssertEqual(days.reduce(0) { $0 + $1.transactions.count }, transactions.count)
-    }
-
-    func testUnparsableTimestampIsGroupedNotDropped() {
-        let days = PointTransactionGrouping.group([makeTransaction(createdAt: "不是时间")])
-        XCTAssertEqual(days.count, 1)
-        XCTAssertEqual(days[0].title, PointTransactionGrouping.unknownDayTitle)
-        XCTAssertEqual(days[0].transactions.count, 1)
-    }
+    // 按天分组（`PointTransactionGrouping`）2026-11-05 随积分页改版删除（#700）：
+    // 定稿是一张卡一笔一行、每行自带日期。本月小结与每行日期在 `VolunteerAccountPagesTests`。
 
     // MARK: - 3. streakWeeks 的 nil 与 0
 
