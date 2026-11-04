@@ -148,22 +148,34 @@ private struct VolunteerBadgeGrid: View {
         // 默认字号一行 4 枚；调大一档起一行 2 枚（4 枚时第 4 列的名字放不下）；无障碍字号一行 1 枚。
         let maxPerRow = dynamicTypeSize.isAccessibilitySize ? 1 : (dynamicTypeSize >= .xLarge ? 2 : 4)
         let perRow = min(maxPerRow, max(1, items.count))
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: perRow),
-            spacing: 14
-        ) {
-            ForEach(items) { item in
-                Button {
-                    onSelect(item)
-                } label: {
-                    VolunteerBadgeCell(item: item, medalSize: medalSize)
+        let rows = stride(from: 0, to: items.count, by: perRow).map { Array(items[$0..<min($0 + perRow, items.count)]) }
+        // 不用 `LazyVGrid`：审计 `.dynamicType` 放大字号重排后，被挤出屏幕的格子不渲染，
+        // 那一格的字被判「改不了字号」（#697 真机：只点名第 4 枚「陪跑 100 次」「未获得」）。最多 7 枚，不需要懒加载。
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(rows.indices, id: \.self) { rowIndex in
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(rows[rowIndex]) { item in
+                        cell(item)
+                    }
+                    // 末行不满时补空位，列宽与上面几行对齐
+                    ForEach(rows[rowIndex].count..<perRow, id: \.self) { _ in
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.spoken)
-                .accessibilityHint(VolunteerSecondaryPagesCopy.badgeTapHint)
-                .accessibilityIdentifier("volunteerBadge.\(item.id)")
             }
         }
+    }
+
+    private func cell(_ item: VolunteerBadgeItem) -> some View {
+        Button {
+            onSelect(item)
+        } label: {
+            VolunteerBadgeCell(item: item, medalSize: medalSize)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.spoken)
+        .accessibilityHint(VolunteerSecondaryPagesCopy.badgeTapHint)
+        .accessibilityIdentifier("volunteerBadge.\(item.id)")
     }
 }
 
