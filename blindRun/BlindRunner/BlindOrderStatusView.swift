@@ -208,6 +208,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 临时构造一个传进来等于传 nil（守卫规则 `weak-temporary` 拦的就是这个）。
     private weak var placeSearchProvider: (any PlaceSearchProviding)?
     private var pollingTask: Task<Void, Never>?
+    private var pollFailureGate = OrderPollFailureGate() // 轮询失败只播一次（#659）
     private var currentOrderId: Int64?
     private var latestVolunteerCoordinate: CLLocationCoordinate2D?
     private var latestVolunteerWebSocketDate: Date?
@@ -1183,7 +1184,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         return order.status.shouldPoll
     }
 
-    private func loadOrder(orderId: Int64, speakChanges: Bool) async {
+    func loadOrder(orderId: Int64, speakChanges: Bool) async {
         guard let appState else { return }
         var refreshedAuthoritativeOrder = false
         defer {
@@ -1216,6 +1217,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             refreshedAuthoritativeOrder = true
             isLoading = false
+            pollFailureGate.reportSuccess(orderId: orderId, statusWillBeSpoken: speakChanges && order?.status != updated.status && speechService?.lastSpokenStatus != updated.status, to: speechService)
             apply(updated, speakChanges: speakChanges)
             await refreshIntroCallIfNeeded(for: updated, appState: appState)
             await refreshVolunteerLocationFallbackIfNeeded(for: updated, appState: appState)
@@ -1225,15 +1227,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
             await refreshTrackStatsIfNeeded(for: updated, appState: appState)
         } catch let error as APIError {
             isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
+            if appState.handleAuthenticatedAPIError(error) { return }
             errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            pollFailureGate.reportFailure(error.localizedMessage, orderId: orderId, to: speechService)
         } catch {
             isLoading = false
             errorMessage = "获取订单状态失败。"
-            speechService?.speakError("获取订单状态失败。")
+            pollFailureGate.reportFailure("获取订单状态失败。", orderId: orderId, to: speechService)
         }
     }
 

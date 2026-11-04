@@ -116,8 +116,8 @@ final class BlindStartRunTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
     }
 
-    /// 只念文案，不自己算「还差几分钟」—— 后端没下发最早可开始时刻（后端 #307 ②）。
-    func testTooEarlySpeaksTheMappedCopyAndKeepsTheButton() async throws {
+    /// 念后端 message（带最早可开始的时刻，#659），不自己算「还差几分钟」。
+    func testTooEarlySpeaksTheServerTimeAndKeepsTheButton() async throws {
         let service = makeOrderService(reloadStatus: .driverArrived)
         service.startServiceResult = .failure(APIError.serverError(
             ErrorResponse(code: "SERVICE_START_TOO_EARLY", message: "最早 10月6日 09:45 可以操作")
@@ -128,7 +128,7 @@ final class BlindStartRunTests: XCTestCase {
 
         await viewModel.startRun()
 
-        let expected = ErrorCode.serviceStartTooEarly.localizedMessage
+        let expected = "最早 10月6日 09:45 可以操作"
         XCTAssertEqual(viewModel.errorMessage, expected)
         XCTAssertEqual(speech.lastSpokenText, expected)
         XCTAssertEqual(viewModel.order?.status, .driverArrived)
