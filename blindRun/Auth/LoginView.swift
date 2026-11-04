@@ -275,8 +275,7 @@ struct LoginView: View {
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                         }
 
-                        // Loading 状态文字。原条件还要求 `!showCodeInput`，而登录请求只能在验证码区出现后发出，
-                        // 于是这一行从来没显示过（#657 B-8）。
+                        // 原条件多一个 `!showCodeInput`，而登录只能在验证码区出现后发起，这一行从没显示过（#657）。
                         if viewModel.isLoading {
                             HStack(spacing: 8) {
                                 ProgressView()
@@ -371,8 +370,7 @@ struct LoginView: View {
         }
     }
 
-    /// - Parameter movesAccessibilityFocus: 出错之后才把读屏焦点也拉过去。发送成功那一次不拉：
-    ///   读屏焦点一跳就会念输入框标签，把「验证码已发送」那句通告切掉。
+    /// - Parameter movesAccessibilityFocus: 只在出错后拉读屏焦点；发送成功那次拉了会切掉「验证码已发送」。
     private func focusVerificationCode(using scrollProxy: ScrollViewProxy, movesAccessibilityFocus: Bool = false) {
         DispatchQueue.main.async {
             // 动画滚动是位移里最容易引起不适的一种（整屏内容移动）。关掉动画不影响落点，

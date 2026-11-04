@@ -69,9 +69,6 @@ final class LoginViewModel: ObservableObject {
     /// 读屏用户不知道焦点在哪，得自己从头划回输入框。
     @Published private(set) var codeFieldFocusRequest = 0
 
-    /// 发送成功那一句。单测按它断言，别处不要另写一份。
-    static let codeSentAnnouncement = "验证码已发送，请输入 6 位验证码。"
-
     // MARK: - Dependencies
 
     private weak var appState: AppState?
@@ -233,14 +230,6 @@ final class LoginViewModel: ObservableObject {
         Task { await performLogin() }
     }
 
-    /// 按「登录」却发不出请求时要说的那句。`nil` = 正在登录，不用再说。
-    var submitBlockedMessage: String? {
-        guard !isLoading else { return nil }
-        if !isPhoneValid { return "请输入正确的手机号" }
-        if verificationCode.isEmpty { return "请输入验证码。验证码是 6 位数字。" }
-        if !isCodeValid { return "验证码是 6 位数字，现在输入了 \(verificationCode.count) 位。" }
-        return nil
-    }
 
     func resetCountdown() {
         timerCancellable?.cancel()
@@ -371,6 +360,24 @@ final class LoginViewModel: ObservableObject {
             return "\(info.message) 请在\(seconds)秒后重试。"
         }
         return info.message
+    }
+}
+
+// MARK: - 文案与输入清洗
+
+// 放在扩展里不是为了分类：类体已经超过 SwiftLint 的 type_body_length 基线（#657 时 259 行），
+// 新加的成员放这里，类本身不再变长。
+extension LoginViewModel {
+    /// 发送成功那一句。单测按它断言，别处不要另写一份。
+    static let codeSentAnnouncement = "验证码已发送，请输入 6 位验证码。"
+
+    /// 按「登录」却发不出请求时要说的那句。`nil` = 正在登录，不用再说。
+    var submitBlockedMessage: String? {
+        guard !isLoading else { return nil }
+        if !isPhoneValid { return "请输入正确的手机号" }
+        if verificationCode.isEmpty { return "请输入验证码。验证码是 6 位数字。" }
+        if !isCodeValid { return "验证码是 6 位数字，现在输入了 \(verificationCode.count) 位。" }
+        return nil
     }
 
     static func normalizedPhoneNumber(_ value: String) -> String {

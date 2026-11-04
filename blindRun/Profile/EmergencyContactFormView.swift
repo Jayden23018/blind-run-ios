@@ -53,24 +53,6 @@ struct EmergencyContactFormView: View {
 
     private var smsNotice: String { isEditing ? Self.editSmsNotice : Self.addSmsNotice }
 
-    /// 「保存」按钮的提示。编辑态**不发**告知短信，原来这里不分情况一律说「会发短信」，
-    /// 和同页的 `editSmsNotice` 互相矛盾（#657 B-32）。
-    static func saveHint(isEditing: Bool, validationMessage: String?) -> String {
-        if let validationMessage { return validationMessage }
-        return isEditing
-            ? "保存修改。修改手机号不会给新号码发送告知短信"
-            : "保存后会向该号码发送一条告知短信"
-    }
-
-    /// 选中联系人后念的那一句。号码只念末四位：这一句也会进「重复当前状态」，外放时周围的人听得到。
-    static func pickAnnouncement(name: String, phone: String) -> String {
-        let who = name.trimmed.isEmpty ? "这位联系人" : name.trimmed
-        guard AppState.isValidMainlandPhone(phone) else {
-            return "已选择\(who)，但这个号码不是 11 位手机号，请换一个号码，或者手动输入。"
-        }
-        return "已选择\(who)，手机号尾号 \(phone.suffix(4))。请确认后保存。"
-    }
-
     private var validationMessage: String? {
         EmergencyContactsViewModel.validationMessage(
             name: name,
@@ -284,6 +266,28 @@ struct EmergencyContactFormView: View {
             .foregroundColor(color)
             .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
             .contentShape(Rectangle())
+    }
+}
+
+// 静态文案与保存、选择器回填这几个动作放在扩展里：结构体本身已到 SwiftLint 的 type_body_length 上限（250 行）。
+// 同一文件里的扩展照样能访问上面的 `private` 状态。
+extension EmergencyContactFormView {
+    /// 「保存」按钮的提示。编辑态**不发**告知短信，原来这里不分情况一律说「会发短信」，
+    /// 和同页的 `editSmsNotice` 互相矛盾（#657 B-32）。
+    static func saveHint(isEditing: Bool, validationMessage: String?) -> String {
+        if let validationMessage { return validationMessage }
+        return isEditing
+            ? "保存修改。修改手机号不会给新号码发送告知短信"
+            : "保存后会向该号码发送一条告知短信"
+    }
+
+    /// 选中联系人后念的那一句。号码只念末四位：这一句也会进「重复当前状态」，外放时周围的人听得到。
+    static func pickAnnouncement(name: String, phone: String) -> String {
+        let who = name.trimmed.isEmpty ? "这位联系人" : name.trimmed
+        guard AppState.isValidMainlandPhone(phone) else {
+            return "已选择\(who)，但这个号码不是 11 位手机号，请换一个号码，或者手动输入。"
+        }
+        return "已选择\(who)，手机号尾号 \(phone.suffix(4))。请确认后保存。"
     }
 
     /// 动作成功才关页：失败时用户留在这里看到原因。
