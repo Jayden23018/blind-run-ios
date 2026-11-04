@@ -1,0 +1,340 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>陪跑员二级页 · 按健康 App 改 v2</title>
+<style>
+:root{--bg:#F2F2F7;--card:#fff;--sec:#6C6C70;--sep:#E5E5EA;--blue:#0A5CC2;--red:#C4281C;--orange:#C2410C;--green:#1F7A3A;--teal:#0A6B72;--amber:#9A5B00;--gray:#8E8E93}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","SF Pro Text",sans-serif;background:#E9E9EE;color:#1c1c1e;padding:28px 32px 40px;width:2240px}
+h1{font-size:30px;margin-bottom:6px}
+.lead{font-size:16px;color:#3a3a3c;margin-bottom:10px;line-height:1.55;max-width:2100px}
+.row{display:flex;gap:22px;align-items:flex-start;margin-bottom:8px}
+.rowtitle{font-size:22px;font-weight:700;margin:34px 0 12px;display:flex;align-items:center;gap:10px}
+.tag{font-size:13px;font-weight:600;padding:3px 9px;border-radius:7px;color:#fff}
+.t-ref{background:#636366}.t-now{background:#9A5B00}.t-new{background:#1F7A3A}
+.col{width:390px;flex:none}
+.cap{font-size:14px;color:#3a3a3c;margin-top:8px;line-height:1.5}.cap b{color:#000}
+.shot{width:390px;height:844px;object-fit:cover;object-position:top;border-radius:34px;display:block;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.notes{display:flex;gap:22px;margin-top:14px}
+.note{background:#fff;border-radius:16px;padding:16px 18px;font-size:14.5px;line-height:1.6;flex:1}
+.note h3{font-size:16px;margin-bottom:6px}.note li{margin-left:18px}
+/* phone */
+.phone{width:390px;height:844px;background:var(--bg);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 2px 10px rgba(0,0,0,.12);flex:none}
+.status{height:50px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 6px;font-weight:600;font-size:16px}
+.nav{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+.navbtn{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.08);font-size:30px;font-weight:300;padding-bottom:4px;color:#1c1c1e}
+.large{font-size:34px;font-weight:700;padding:2px 20px 4px}
+.sub{font-size:15px;color:var(--sec);padding:0 20px 12px}
+.sechead{display:flex;justify-content:space-between;align-items:baseline;padding:12px 22px 8px}
+.sechead h2{font-size:22px;font-weight:700}.sechead a{font-size:17px;color:var(--blue);text-decoration:none}
+.group{background:var(--card);border-radius:22px;margin:0 16px 10px;overflow:hidden}
+.prow{display:flex;align-items:center;min-height:68px;padding:8px 16px;position:relative}
+.prow+.prow:before{content:"";position:absolute;top:0;left:70px;right:0;border-top:.5px solid var(--sep)}
+.av{width:42px;height:42px;border-radius:21px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;margin-right:12px;flex:none;color:#fff}
+.pn{font-size:17px;font-weight:600}.pd{font-size:15px;color:var(--sec);margin-top:2px}
+.pd .f{color:var(--orange);font-weight:600}
+.chev{color:#C7C7CC;font-size:20px;margin-left:auto;padding-left:8px}
+.act{min-height:56px;display:flex;align-items:center;padding:0 16px;font-size:17px;color:var(--blue);position:relative}
+.act+.act:before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid var(--sep)}
+.act.red{color:var(--red);justify-content:center;font-weight:600}
+.foot{font-size:13.5px;color:var(--sec);padding:0 32px 14px;line-height:1.5}
+.card{background:#fff;border-radius:22px;margin:0 16px 10px;padding:14px 16px 16px}
+.chead{display:flex;align-items:center;justify-content:space-between}
+.ctitle{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:600}
+.cmeta{font-size:15px;color:var(--sec)}
+.big{font-size:38px;font-weight:700;letter-spacing:-.5px;line-height:1;color:#000}
+.unit{font-size:17px;font-weight:400;color:#8E8E93;margin:0 4px 0 3px}
+.cline{font-size:15px;color:var(--sec);margin-top:6px}
+.sentence{font-size:17px;font-weight:600;line-height:1.4;margin-top:8px}
+.half{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 16px 10px}
+.half .card{margin:0}
+.intro{text-align:left}.intro .ir{display:flex;gap:12px;margin-top:14px}
+.intro .ii{width:30px;font-size:22px;flex:none;text-align:center}
+.intro b{font-size:16px}.intro p{font-size:14.5px;color:var(--sec);line-height:1.45}
+.dots{display:flex;gap:7px;margin-top:14px}.dots i{flex:1;height:26px;border-radius:8px;background:#EFEAE4}
+.dots i.on{background:linear-gradient(180deg,#E8692B,#C2410C)}
+.bars{display:flex;align-items:flex-end;gap:12px;height:150px;margin-top:16px;position:relative;border-bottom:1px solid var(--sep)}
+.bars i{flex:1;background:#BFDCDE;border-radius:5px 5px 0 0}.bars i.cur{background:var(--teal)}
+.avgline{position:absolute;left:0;right:0;border-top:2px dashed #8A9A9C}
+.avgline span{position:absolute;left:0;top:-20px;background:#FFF7E6;padding:0 4px;font-size:12px;color:var(--sec)}
+.xl{display:flex;gap:12px;font-size:12px;color:var(--sec);margin-top:4px}.xl span{flex:1;text-align:center}
+.hl-sep{height:.5px;background:#D1D1D6;margin:12px 0 10px}
+.hl-v{margin-top:8px;line-height:1}.hl-v b{font-size:28px;font-weight:600;color:#000;letter-spacing:-.5px}.hl-v u{text-decoration:none;font-size:16px;color:#8E8E93;margin:0 6px 0 4px}
+.hl-bar{height:24px;border-radius:6px;margin:6px 0 14px;font-size:15px;font-weight:600;padding-left:9px;line-height:26px;min-width:120px}
+.cmp{margin-top:12px}.cmp .v{font-size:22px;font-weight:700}.cmp .v small{font-size:14px;color:var(--sec);font-weight:600}
+.cmp .b{height:22px;border-radius:6px;margin:4px 0 8px;color:#fff;font-size:13px;font-weight:600;padding-left:8px;line-height:22px}
+.ring{width:96px;height:96px;border-radius:48px;background:conic-gradient(var(--c) var(--p),#ECEAF2 0);display:flex;align-items:center;justify-content:center;flex:none}
+.ring div{width:74px;height:74px;border-radius:37px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;font-size:24px;line-height:1}
+.ring div small{font-size:12px;color:var(--sec);font-weight:600;margin-top:3px}
+.prog{height:8px;border-radius:4px;background:#ECE7E1;overflow:hidden;margin-top:10px}.prog i{display:block;height:100%;border-radius:4px}
+.medal{width:78px;height:78px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:34px;color:#fff;position:relative}
+.medal.got{background:radial-gradient(circle at 35% 28%,var(--m1),var(--m2) 70%);box-shadow:inset 0 0 0 4px rgba(255,255,255,.55),0 3px 8px rgba(0,0,0,.18)}
+.medal.lock{border:3px solid #C7C7CC;color:#AEAEB2;background:#F7F7F9;filter:grayscale(1);opacity:.6}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 6px;padding:4px 8px 6px}
+.cell{text-align:center}.cell .n{font-size:14px;font-weight:600;margin-top:8px}.cell .d{font-size:12.5px;color:var(--sec);margin-top:2px}
+.cell .mp{height:5px;border-radius:3px;background:#E5E5EA;margin:6px 14px 0;overflow:hidden}.cell .mp i{display:block;height:100%;background:var(--blue)}
+.gtitle{font-size:16px;font-weight:700;padding:12px 16px 8px;display:flex;gap:6px;align-items:center}
+.sheet{position:absolute;left:0;right:0;bottom:0;top:62px;background:#fff;border-radius:30px 30px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,.18);text-align:center;padding:18px 24px}
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.28)}
+.close{position:absolute;right:18px;top:16px;width:34px;height:34px;border-radius:17px;background:#EEEEF0;color:#6C6C70;font-size:18px;line-height:34px}
+.rv{display:flex;align-items:center;min-height:58px;padding:0 16px;position:relative;font-size:16px}
+.rv+.rv:before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid var(--sep)}
+.rv>div:first-child{flex:1;min-width:0}.rv .chev{width:22px;flex:none;text-align:right;margin-left:6px;padding-left:0}
+.pill{font-size:15px;font-weight:600;width:66px;text-align:center;padding:4px 0;border-radius:10px;margin-left:auto;flex:none}
+.callout{position:absolute;background:#1F7A3A;color:#fff;font-size:12.5px;padding:4px 8px;border-radius:8px;line-height:1.35;z-index:5;max-width:200px}
+.decide{background:#FFF7E6;border:2px solid #E0A23A}
+</style></head><body>
+<h1>陪跑员二级页 · 按「健康」App 改（第 3 版，已批准）</h1>
+<p class="lead">范围：固定搭档、服务成就、评分（新页）、徽章四处。参考图全部是 2026-11-04 在你的 iPhone（iOS 27）上用测试脚本自动截的，只选<b>同功能</b>的页面：共享 ↔ 固定搭档，步数详情 ↔ 服务成就 / 评分，奖章 ↔ 徽章。样式沿用首页 v3（浅灰底、白卡圆角 22、彩色卡名）。样例数据是虚构的，每个数字在下面「数据来源」里都对得到后端字段，<b>没有字段的东西一律不画</b>。</p>
+<p class="lead">黄框 = 需要你定的地方（上一轮你已同意按推荐来）。<b>第 3 版</b>：提要卡数字按健康原图量过改小（数字 28 半粗 / 单位 16 常规灰）；卡名图标全部换成 SF Symbols 风格，「累计里程」专门设计成「起点 → 虚线路线 → 终点」，和首页最近陪跑卡的路线缩略图同一语言。<br><b>第 2 版改了 4 处</b>：① 服务成就提要卡照健康重排（分隔线、标签进横条）；② 全稿数字与单位拉开对比（数字 38 粗黑、单位 17 常规灰）；③ 评分页标签等宽对齐；④ 徽章按类别换成不同形状的奖章，并加一栏「提议新增种类」。</p>
+
+<!-- ============ 1 固定搭档 ============ -->
+<div class="rowtitle">① 固定搭档 <span class="tag t-ref">参考</span><span class="tag t-now">现状</span><span class="tag t-new">改后</span></div>
+<div class="row">
+ <div class="col"><div class="shot" style="background:#D8D8DE;display:flex;align-items:center;justify-content:center;text-align:center;color:#3a3a3c;font-size:16px;line-height:1.6;padding:30px">参考图：健康 · 共享<br>（负责人 iPhone iOS 27 截图，含个人健康数据，<b>不入库</b>）</div><div class="cap"><b>健康 · 共享</b>：顶部一张说明卡，三行「图标 + 粗标题 + 一句话」；人在下面的列表里，点进去才看到「停止共享」（苹果帮助页 HT212629）。</div></div>
+ <div class="col"><img class="shot" src="current-partners.png"><div class="cap"><b>现状</b>：每位搭档下面跟一行红字「退出」+ 两个通栏按钮「举报 / 不再匹配此人」。3 位搭档 = 9 个操作铺在列表里；卡片本身点不动。</div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="nav"><div class="navbtn">‹</div></div>
+  <div class="large">固定搭档</div>
+  <div class="card" style="display:flex;align-items:center;gap:14px">
+    <div style="font-size:30px">👥</div>
+    <div><div><span class="big">3</span><span class="unit">位</span></div><div class="cline">跑者把你设为固定搭档</div></div>
+  </div>
+  <div class="sechead"><h2>搭档</h2></div>
+  <div class="group">
+   <div class="prow"><div class="av" style="background:#0A5CC2">李</div><div><div class="pn">李*</div><div class="pd"><span class="f"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-1px"><path d="M12 2.5c.6 3.3 4.1 5.2 4.9 8.9.9 4.3-1.8 9-4.9 9.9-3.4-.6-6.2-3.6-5.6-7.6.3-2 1.4-3.2 2.4-4.1.1 1.7.8 2.8 1.8 3.4-.3-3.7.4-7 1.4-10.5z" fill="#C2410C"/></svg> 连续 3 周</span> · 最好 7 周</div></div><span class="chev">›</span></div>
+   <div class="prow"><div class="av" style="background:#0A6B72">赵</div><div><div class="pn">赵*</div><div class="pd"><span class="f"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-1px"><path d="M12 2.5c.6 3.3 4.1 5.2 4.9 8.9.9 4.3-1.8 9-4.9 9.9-3.4-.6-6.2-3.6-5.6-7.6.3-2 1.4-3.2 2.4-4.1.1 1.7.8 2.8 1.8 3.4-.3-3.7.4-7 1.4-10.5z" fill="#C2410C"/></svg> 连续 2 周</span> · 最好成绩</div></div><span class="chev">›</span></div>
+   <div class="prow"><div class="av" style="background:#636366">王</div><div><div class="pn">王*</div><div class="pd">8月1日设为固定搭档</div></div><span class="chev">›</span></div>
+   <div class="prow" style="opacity:.75"><div class="av" style="background:#AEAEB2">陈</div><div><div class="pn">陈*</div><div class="pd">你已退出</div></div><span class="chev">›</span></div>
+  </div>
+  <div class="foot">退出、举报、不再匹配都在每位搭档的页面里。</div>
+  <div class="sechead"><h2>关于固定搭档</h2></div>
+  <div class="card intro">
+   <div class="ir" style="margin-top:0"><div class="ii">📣</div><div><b>先问你</b><p>派这位跑者的订单时，先问你。</p></div></div>
+   <div class="ir"><div class="ii">🔥</div><div><b>连续陪跑</b><p>你们每周一起跑完一次，就多记一周。</p></div></div>
+  </div>
+ </div><div class="cap"><b>改后 · 列表</b>：一人一行，只放内容（名字、连续周数或设为搭档的日期），右侧小箭头进详情。操作全部挪进详情页 —— 这是苹果「列表行只放内容」的做法（调研索引 10-30 行）。底部「关于」照健康的说明卡写两行。</div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="nav"><div class="navbtn">‹</div></div>
+  <div class="large">李*</div>
+  <div class="sub">2026年7月3日设为固定搭档</div>
+  <div class="card">
+   <div class="chead"><div class="ctitle" style="color:var(--orange)"><svg width="18" height="18" viewBox="0 0 24 24" style="flex:none"><path d="M12 2.5c.6 3.3 4.1 5.2 4.9 8.9.9 4.3-1.8 9-4.9 9.9-3.4-.6-6.2-3.6-5.6-7.6.3-2 1.4-3.2 2.4-4.1.1 1.7.8 2.8 1.8 3.4-.3-3.7.4-7 1.4-10.5z" fill="#C2410C"/></svg> 连续陪跑</div></div>
+   <div style="margin-top:14px"><span class="big">3</span><span class="unit">周</span></div>
+   <div class="cline">最好 7 周 · 还差 4 周追平</div>
+   <div class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
+   <div class="cline" style="font-size:13px">一格一周，满 7 格追平最好成绩</div>
+  </div>
+  <div class="card" style="font-size:15.5px;line-height:1.55;color:#3a3a3c">你们每周至少一起跑完一次，就多记一周。断了从第 1 周重新算，最好成绩会保留。</div>
+  <div class="group" style="margin-top:18px">
+   <div class="act">举报</div>
+   <div class="act">不再匹配此人</div>
+  </div>
+  <div class="group"><div class="act red">退出固定搭档</div></div>
+  <div class="foot">退出后不能撤销：派这位跑者的订单时不再先问你，连续陪跑也停止累积。</div>
+ </div><div class="cap"><b>改后 · 搭档详情（新页）</b>：顶部大字名字 + 设为搭档的日期；火花卡把「3 / 7 周」画成 7 格，比一根细进度条好读。三个操作分两组放在最下面，红色「退出」单独一组，点了仍弹现在那句确认。</div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="nav"><div class="navbtn">‹</div></div>
+  <div class="large">固定搭档</div>
+  <div class="card intro" style="padding:22px 20px">
+   <div style="text-align:center;font-size:42px">👥</div>
+   <div style="text-align:center;font-size:24px;font-weight:700;margin:6px 0 4px">固定搭档</div>
+   <div class="ir"><div class="ii">🏃</div><div><b>跑者来选</b><p>跑者和你一起跑完之后，可以把你设为固定搭档。</p></div></div>
+   <div class="ir"><div class="ii">📣</div><div><b>先问你</b><p>派这位跑者的订单时，先问你。</p></div></div>
+   <div class="ir"><div class="ii">🔥</div><div><b>连续陪跑</b><p>你们每周一起跑完一次，就多记一周。</p></div></div>
+  </div>
+  <div class="foot" style="margin-top:6px">还没有跑者把你设为固定搭档。</div>
+ </div><div class="cap"><b>改后 · 空状态</b>：现在只有一句灰字。照健康「共享」的说明卡，告诉第一次来的人这是什么、怎么来的。没有按钮 —— 陪跑员不能自己加搭档（只有跑者能设）。</div></div>
+</div>
+
+<!-- ============ 2 服务成就 ============ -->
+<div class="rowtitle">② 服务成就 <span class="tag t-ref">参考</span><span class="tag t-new">改后</span></div>
+<div class="row">
+ <div class="col"><div class="shot" style="background:#D8D8DE;display:flex;align-items:center;justify-content:center;text-align:center;color:#3a3a3c;font-size:16px;line-height:1.6;padding:30px">参考图：健康 · 步数详情<br>（负责人 iPhone iOS 27 截图，含个人健康数据，<b>不入库</b>）</div><div class="cap"><b>健康 · 步数详情</b>：一个大数字 + 时间范围 → 柱状图 → 「提要」用一句话说变化。</div></div>
+ <div class="col"><div class="shot" style="background:#D8D8DE;display:flex;align-items:center;justify-content:center;text-align:center;color:#3a3a3c;font-size:16px;line-height:1.6;padding:30px">参考图：健康 · 步数（往下）<br>（负责人 iPhone iOS 27 截图，含个人健康数据，<b>不入库</b>）</div><div class="cap"><b>健康 · 步数（往下）</b>：提要卡「今年…与去年相仿」+ 两根对比条；最后「关于步数」解释这个数怎么来的。</div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="nav"><div class="navbtn">‹</div></div>
+  <div class="large">服务成就</div>
+  <div class="card decide">
+   <div class="chead"><div class="ctitle" style="color:var(--teal)"><svg width="18" height="18" viewBox="0 0 24 24" style="flex:none" fill="none" stroke="#0A6B72" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="#0A6B72" stroke="none"/><path d="M12 7v5.2l3.4 2" stroke="#fff"/></svg> 陪伴时长</div><div class="cmeta">近 6 个月</div></div>
+   <div style="margin-top:12px"><span class="big">12</span><span class="unit">小时</span><span class="big">40</span><span class="unit">分钟</span></div>
+   <div class="cline">累计 · 共陪跑 18 次</div>
+   <div class="bars"><div class="avgline" style="bottom:46px"><span>前 5 个月平均 1 小时 32 分</span></div>
+     <i style="height:24%"></i><i style="height:40%"></i><i style="height:20%"></i><i style="height:36%"></i><i style="height:34%"></i><i class="cur" style="height:66%"></i></div>
+   <div class="xl"><span>6月</span><span>7月</span><span>8月</span><span>9月</span><span>10月</span><span>11月</span></div>
+  </div>
+  <div class="card">
+   <div class="ctitle" style="color:var(--teal)"><svg width="18" height="18" viewBox="0 0 24 24" style="flex:none" fill="none" stroke="#0A6B72" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="#0A6B72" stroke="none"/><path d="M12 7v5.2l3.4 2" stroke="#fff"/></svg> 陪伴时长</div>
+   <div class="sentence" style="margin-top:10px">这个月的陪伴时长比前 5 个月平均多。</div>
+   <div class="hl-sep"></div>
+   <div class="hl-v"><b>3</b><u>小时</u><b>20</b><u>分钟</u></div>
+   <div class="hl-bar" style="width:100%;background:var(--teal);color:#fff">11 月</div>
+   <div class="hl-v"><b>1</b><u>小时</u><b>32</b><u>分钟</u></div>
+   <div class="hl-bar" style="width:46%;background:#E5E5EA;color:#1c1c1e">前 5 个月平均</div>
+  </div>
+ </div><div class="cap"><b>改后 · 上半</b>：头卡从「实心蓝块 + 已完成 N 次」改成健康详情页的样子：累计陪伴时长大字 + 近 6 个月柱状图（本月深青，其余浅青，虚线是平均）。提要卡照健康：卡名 → 一句结论 → <b>细灰分隔线</b> → 大数字小单位 → <b>标签写在横条里</b>（本月深青白字，平均浅灰深字）。<b>黄框：柱状图要连拉 6 个月数据，需要你定。</b></div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="half" style="margin-top:6px">
+   <div class="card"><div class="ctitle" style="color:var(--blue)"><svg width="22" height="22" viewBox="0 0 24 24" style="flex:none" fill="none"><path d="M5 19 C 3 13, 12 15.5, 13.5 11 S 15 6.5, 17.5 6.5" stroke="#0A5CC2" stroke-width="2.4" stroke-linecap="round"/><circle cx="5" cy="19" r="2.7" fill="#fff" stroke="#0A5CC2" stroke-width="2.2"/><path d="M18.5 1.8a3.9 3.9 0 0 1 3.9 3.9c0 2.9-3.9 6.4-3.9 6.4s-3.9-3.5-3.9-6.4a3.9 3.9 0 0 1 3.9-3.9z" fill="#0A5CC2"/><circle cx="18.5" cy="5.7" r="1.4" fill="#fff"/></svg> 累计里程</div><div style="margin-top:14px"><span class="big">36.4</span><span class="unit">公里</span></div></div>
+   <div class="card" style="outline:3px dashed var(--green);outline-offset:-3px"><div class="chead"><div class="ctitle" style="color:var(--amber)"><svg width="18" height="18" viewBox="0 0 24 24" style="flex:none"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" fill="#9A5B00"/></svg> 评分</div><span class="chev" style="font-size:16px">›</span></div><div style="margin-top:14px"><span class="big">4.9</span></div><div class="cline">12 条评价</div></div>
+  </div>
+  <div class="card">
+   <div class="chead"><div class="ctitle" style="color:#3D4FB8"><svg width="18" height="18" viewBox="0 0 24 24" style="flex:none"><path d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2L12 21.5l-2.2-7.3L2.5 12l7.3-2.2z" fill="#3D4FB8"/></svg> 国标星级</div><div class="cmeta">GB/T 40143—2021</div></div>
+   <div style="display:flex;align-items:center;gap:18px;margin-top:12px">
+    <div class="ring" style="--c:#3D4FB8;--p:12%"><div>12<small>/100 小时</small></div></div>
+    <div><div style="font-size:20px;font-weight:700">距离一星还差 88 小时</div><div class="cline">一星 100 · 二星 300 · 三星 600 小时</div></div>
+   </div>
+  </div>
+  <div class="sechead"><h2>徽章</h2><a>全部显示</a></div>
+  <div class="card">
+   <div style="display:flex;gap:12px;align-items:center">
+    <div style="flex:none"><svg viewBox="0 0 100 100" width="56" height="56" style="display:block;margin:0 auto;"><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg></div>
+    <div style="flex:1"><div style="font-size:13px;color:var(--sec)">下一枚</div><div style="font-size:17px;font-weight:600">陪跑 10 次 · 7 / 10</div><div class="prog"><i style="width:70%;background:var(--blue)"></i></div></div>
+   </div>
+   <div style="display:flex;gap:10px;margin-top:16px">
+    <div style="flex:none"><svg viewBox="0 0 100 100" width="58" height="58" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".4" stop-color="#A9A9B2"/><stop offset=".7" stop-color="#EDEDF1"/><stop offset="1" stop-color="#8E8E96"/></linearGradient><radialGradient id="fs2" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#5B9BEF"/><stop offset="1" stop-color="#0A4FA8"/></radialGradient></defs><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="url(#rs2)"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="url(#fs2)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#fff" font-family="-apple-system,SF Pro Rounded,sans-serif">1</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg></div>
+    <div style="flex:none"><svg viewBox="0 0 100 100" width="58" height="58" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBEFC2"/><stop offset=".45" stop-color="#B8892B"/><stop offset=".7" stop-color="#F3D27A"/><stop offset="1" stop-color="#8A6418"/></linearGradient><radialGradient id="fs3" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#2B3A3C"/><stop offset="1" stop-color="#0E1718"/></radialGradient></defs><circle cx="50" cy="50" r="45" fill="url(#rs3)"/><circle cx="50" cy="50" r="37" fill="url(#fs3)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#F3D27A" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#F3D27A" font-family="-apple-system,PingFang SC,sans-serif">小时</text></svg></div>
+    <div style="align-self:center;font-size:15px;color:var(--sec);margin-left:4px">已获得 2 枚 / 共 7 枚</div>
+   </div>
+  </div>
+  <div class="sechead"><h2>关于服务成就</h2></div>
+  <div class="card" style="font-size:15px;line-height:1.55;color:#3a3a3c">陪伴时长从你点「开始服务」算到订单完成，减去暂停的时间。以上数据来自平台记录，供你自己查看；向学校或单位申报星级，需要通过全国志愿服务信息系统办理。</div>
+ </div><div class="cap"><b>改后 · 下半</b>：「累计里程 / 评分」两张半宽卡，<b>评分卡能点，进③评分页</b>。国标星级改成圆环（12 / 100 小时），仍和平台徽章分两块（契约要求）。徽章块顶上放「下一枚」进度，「全部显示」任何时候都能进徽章页（现在解锁 ≤ 4 枚的人永远进不去）。最后是「关于」，沿用现有免责声明。</div></div>
+</div>
+
+<!-- ============ 3 评分 ============ -->
+<div class="rowtitle">③ 评分（新页） <span class="tag t-ref">参考</span><span class="tag t-new">改后</span></div>
+<div class="row">
+ <div class="col"><div class="shot" style="background:#D8D8DE;display:flex;align-items:center;justify-content:center;text-align:center;color:#3a3a3c;font-size:16px;line-height:1.6;padding:30px">参考图：健康 · 睡眠评分<br>（负责人 iPhone iOS 27 截图，含个人健康数据，<b>不入库</b>）</div><div class="cap"><b>健康 · 睡眠评分</b>：一个分数 + 一句话解释它怎么来的；下面是组成这个分数的明细。</div></div>
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="nav"><div class="navbtn">‹</div></div>
+  <div class="large">评分</div>
+  <div class="card">
+   <div class="chead"><div class="ctitle" style="color:var(--amber)"><svg width="18" height="18" viewBox="0 0 24 24" style="flex:none"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" fill="#9A5B00"/></svg> 平均评分</div><div class="cmeta">12 条评价</div></div>
+   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+    <div><span class="big" style="font-size:48px">4.9</span><span class="unit" style="font-size:20px">/ 5</span></div>
+    <div style="font-size:26px;color:#D08A1A;letter-spacing:2px">★★★★★</div>
+   </div>
+   <div class="cline" style="color:#3a3a3c;font-size:15.5px;margin-top:10px">跑者跑完后评价这次陪跑：「很好」记 5 分，「一般」记 4 分。</div>
+  </div>
+  <div class="card">
+   <div style="display:flex;gap:12px;align-items:center">
+    <div style="flex:none"><svg viewBox="0 0 100 100" width="56" height="56" style="display:block;margin:0 auto;"><path d="M50 5 Q72 14 90 12 Q93 52 82 72 Q70 90 50 96 Q30 90 18 72 Q7 52 10 12 Q28 14 50 5 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 5 Q72 14 90 12 Q93 52 82 72 Q70 90 50 96 Q30 90 18 72 Q7 52 10 12 Q28 14 50 5 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="66" text-anchor="middle" font-size="40" fill="#B5B5BA">♥</text></svg></div>
+    <div style="flex:1"><div style="font-size:17px;font-weight:600">好评徽章</div><div class="cline" style="margin-top:2px">未获得 · 评价条数和评分都达到要求后获得</div></div>
+   </div>
+  </div>
+  <div class="sechead"><h2>最近的评价</h2></div>
+  <div class="group decide">
+   <div class="rv"><div><div style="font-weight:600">11月3日</div><div style="font-size:14px;color:var(--sec)">和李* · 奥林匹克森林公园</div></div><span class="pill" style="background:#E3F2E7;color:#155E2C">很好</span><span class="chev">›</span></div>
+   <div class="rv"><div><div style="font-weight:600">10月27日</div><div style="font-size:14px;color:var(--sec)">和王* · 朝阳公园南门</div></div><span class="pill" style="background:#E3F2E7;color:#155E2C">很好</span><span class="chev">›</span></div>
+   <div class="rv"><div><div style="font-weight:600">10月20日</div><div style="font-size:14px;color:var(--sec)">和赵* · 奥林匹克森林公园</div></div><span class="pill" style="background:#FFF1DC;color:#7A4A00">一般</span><span class="chev">›</span></div>
+   <div class="rv"><div><div style="font-weight:600">10月13日</div><div style="font-size:14px;color:var(--sec)">和李* · 奥林匹克森林公园</div></div><span class="pill" style="background:#F2F2F7;color:#8E8E93">无评分</span><span class="chev">›</span></div>
+  </div>
+  <div class="foot">点一行进那次的跑后记录。评语只有跑者本人和客服能看到。</div>
+ </div><div class="cap"><b>改后 · 评分页</b>：大字平均分 + 一句话说分数怎么算（像睡眠评分）；好评徽章是否已获得（只有「下一枚」正好是它时才有进度，否则不写数字）；「最近的评价」按次列出很好 / 一般，点进那次的跑后记录。<b>黄框：要不要逐次显示，需要你定。</b>后端<b>没有</b>评分分布、标签、评语原文给陪跑员，这些都不画。</div></div>
+
+ <div class="col" style="width:520px"><div class="note" style="margin-top:0">
+  <h3>首页「评分」卡怎么变可点</h3>
+  首页 v3 的评分半宽卡现在故意不画箭头（`VolunteerHomeSummaryCards.swift` 里 `hasDestination` 对评分返回 false，注释写「仓库里没有评价列表页」）。这个文件是 PR #696 新加的，正在被另一个会话修改。<br><br>
+  做法：先在本 PR 里做好评分页，并从「服务成就」的评分卡进去；<b>等 #696 合并后</b>，再单开一个小 PR 改那一行，让首页评分卡也进评分页。这样不碰对方正在改的文件。
+ </div></div>
+</div>
+
+<!-- ============ 4 徽章 ============ -->
+<div class="rowtitle">④ 徽章 <span class="tag t-ref">参考</span><span class="tag t-new">改后</span></div>
+<div class="row">
+ <div class="col"><div class="shot" style="background:#D8D8DE;display:flex;align-items:center;justify-content:center;text-align:center;color:#3a3a3c;font-size:16px;line-height:1.6;padding:30px">参考图：健身 · 奖章<br>（负责人 iPhone iOS 27 截图，含个人健康数据，<b>不入库</b>）</div><div class="cap"><b>健身 · 奖章</b>：顶部「加油」卡 = 离你最近的那一枚和进度；下面按类别分块。<br>⚠️ 「健康」App 里没有奖章，苹果把奖章放在「健身」App，所以这一组参考「健身」。</div></div>
+ <div class="col"><div class="shot" style="background:#D8D8DE;display:flex;align-items:center;justify-content:center;text-align:center;color:#3a3a3c;font-size:16px;line-height:1.6;padding:30px">参考图：健身 · 奖章（某一类）<br>（负责人 iPhone iOS 27 截图，含个人健康数据，<b>不入库</b>）</div><div class="cap"><b>健身 · 奖章（某一类）</b>：三列网格；没拿到的画成灰色线框，名字下面写进度和一根细进度条。</div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="nav"><div class="navbtn">‹</div></div>
+  <div class="large">徽章</div>
+  <div class="sub">已获得 2 枚 / 共 7 枚</div>
+  <div class="card" style="display:flex;gap:14px;align-items:center">
+   <svg viewBox="0 0 100 100" width="70" height="70" style="display:block;margin:0 auto;"><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg>
+   <div style="flex:1"><div style="font-size:15px;font-weight:700;color:var(--blue)">加油</div><div style="font-size:18px;font-weight:600">陪跑 10 次</div><div class="cline" style="margin-top:2px">7 / 10 次 · 再陪跑 3 次</div><div class="prog"><i style="width:70%;background:var(--blue)"></i></div></div>
+  </div>
+  <div class="group decide" style="padding-bottom:10px">
+   <div class="gtitle" style="color:var(--blue)">陪跑次数</div>
+   <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+    <div class="cell"><svg viewBox="0 0 100 100" width="72" height="72" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs6" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".4" stop-color="#A9A9B2"/><stop offset=".7" stop-color="#EDEDF1"/><stop offset="1" stop-color="#8E8E96"/></linearGradient><radialGradient id="fs6" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#5B9BEF"/><stop offset="1" stop-color="#0A4FA8"/></radialGradient></defs><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="url(#rs6)"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="url(#fs6)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#fff" font-family="-apple-system,SF Pro Rounded,sans-serif">1</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg><div class="n">首次陪跑</div><div class="d">已获得</div></div>
+    <div class="cell"><svg viewBox="0 0 100 100" width="72" height="72" style="display:block;margin:0 auto;"><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg><div class="n">陪跑 10 次</div><div class="d">7 / 10</div><div class="mp" style="margin:6px 10px 0"><i style="width:70%"></i></div></div>
+    <div class="cell"><svg viewBox="0 0 100 100" width="72" height="72" style="display:block;margin:0 auto;"><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">50</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg><div class="n">陪跑 50 次</div><div class="d">未获得</div></div>
+    <div class="cell"><svg viewBox="0 0 100 100" width="72" height="72" style="display:block;margin:0 auto;"><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="27" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">100</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg><div class="n">陪跑 100 次</div><div class="d">未获得</div></div>
+   </div>
+  </div>
+  <div class="half">
+   <div class="card" style="padding:12px 8px 14px"><div class="gtitle" style="color:var(--teal);padding:0 8px 10px">陪伴时长</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;padding:0">
+     <div class="cell"><svg viewBox="0 0 100 100" width="70" height="70" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs10" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBEFC2"/><stop offset=".45" stop-color="#B8892B"/><stop offset=".7" stop-color="#F3D27A"/><stop offset="1" stop-color="#8A6418"/></linearGradient><radialGradient id="fs10" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#2B3A3C"/><stop offset="1" stop-color="#0E1718"/></radialGradient></defs><circle cx="50" cy="50" r="45" fill="url(#rs10)"/><circle cx="50" cy="50" r="37" fill="url(#fs10)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#F3D27A" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#F3D27A" font-family="-apple-system,PingFang SC,sans-serif">小时</text></svg><div class="n">10 小时</div><div class="d">已获得</div></div>
+     <div class="cell"><svg viewBox="0 0 100 100" width="70" height="70" style="display:block;margin:0 auto;"><circle cx="50" cy="50" r="45" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><circle cx="50" cy="50" r="37" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">50</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">小时</text></svg><div class="n">50 小时</div><div class="d">未获得</div></div>
+    </div></div>
+   <div class="card" style="padding:12px 8px 14px"><div class="gtitle" style="color:var(--amber);padding:0 8px 10px">评价</div>
+    <div class="grid" style="grid-template-columns:1fr;padding:0">
+     <div class="cell"><svg viewBox="0 0 100 100" width="70" height="70" style="display:block;margin:0 auto;"><path d="M50 5 Q72 14 90 12 Q93 52 82 72 Q70 90 50 96 Q30 90 18 72 Q7 52 10 12 Q28 14 50 5 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 5 Q72 14 90 12 Q93 52 82 72 Q70 90 50 96 Q30 90 18 72 Q7 52 10 12 Q28 14 50 5 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="66" text-anchor="middle" font-size="40" fill="#B5B5BA">♥</text></svg><div class="n">好评</div><div class="d">未获得</div></div>
+    </div></div>
+  </div>
+ </div><div class="cap"><b>改后 · 徽章页</b>：现在是一张系统列表、只列已解锁的、点不动。改成健身奖章的样子：顶部「加油」= 下一枚和进度；7 枚全部按类别排成三列，已获得是彩色圆章，没获得是灰色线框；每枚都能点。<b>黄框：没获得的也要画出来，需要客户端写死 7 枚清单，需要你定。</b>照健身「每一类一种形状和材质」：<b>陪跑次数 = 银边蓝面六边形</b>，正中刻次数；<b>陪伴时长 = 金边深色圆章</b>；<b>评价 = 银边琥珀盾形</b>。没获得的只画同形状的灰线框（健身也是这样）。实现用 SwiftUI 自绘形状 + 渐变，不用图片资源，深色模式和放大字号都能跟着变。</div></div>
+
+ <div class="col"><div class="phone">
+  <div class="status"><span>9:41</span><span>5G ▮</span></div>
+  <div class="dim"></div>
+  <div class="sheet">
+   <div class="close">✕</div>
+   <div style="margin-top:34px"><svg viewBox="0 0 100 100" width="190" height="190" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs13" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBEFC2"/><stop offset=".45" stop-color="#B8892B"/><stop offset=".7" stop-color="#F3D27A"/><stop offset="1" stop-color="#8A6418"/></linearGradient><radialGradient id="fs13" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#2B3A3C"/><stop offset="1" stop-color="#0E1718"/></radialGradient></defs><circle cx="50" cy="50" r="45" fill="url(#rs13)"/><circle cx="50" cy="50" r="37" fill="url(#fs13)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#F3D27A" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#F3D27A" font-family="-apple-system,PingFang SC,sans-serif">小时</text></svg></div>
+   <div style="font-size:28px;font-weight:700;margin-top:22px">陪伴 10 小时</div>
+   <div style="font-size:17px;color:var(--green);font-weight:600;margin-top:6px">已获得</div>
+   <div style="font-size:16px;color:#3a3a3c;line-height:1.55;margin-top:14px">累计陪伴满 10 小时。</div>
+   <div style="height:1px;background:var(--sep);margin:24px 0"></div>
+   <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;margin:0 auto;"><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="#F7F7F9" stroke="#C7C7CC" stroke-width="3"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#D8D8DD" stroke-width="1.5"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#B5B5BA" font-family="-apple-system,SF Pro Rounded,sans-serif">10</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#B5B5BA" font-family="-apple-system,PingFang SC,sans-serif">次</text></svg>
+   <div style="font-size:22px;font-weight:700;margin-top:12px">陪跑 10 次</div>
+   <div class="cline">已完成 7 次，共需 10 次</div>
+   <div class="prog" style="margin:12px 40px 0"><i style="width:70%;background:var(--blue)"></i></div>
+  </div>
+ </div><div class="cap"><b>改后 · 点开一枚（弹层）</b>：上面是已获得的样子（金边圆章），下面是未获得的样子（实际一次只弹一枚）。大奖章 + 名字 + 状态 + 一句怎么获得。<b>不写获得日期</b>：后端明说没有解锁时间（「宁可不给也不编」），健身奖章下面那行日期我们画不出来。</div></div>
+</div>
+
+<div class="rowtitle">④+ 提议新增的奖章种类 <span class="tag" style="background:#7E3FB8">要后端加 · 本次不做</span></div>
+<div class="note" style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+ <div style="width:330px;font-size:14.5px;line-height:1.6">你说要像健身那样种类更多。现在 7 枚是<b>后端算、后端下发</b>的（契约：「按累计数据现算」，客户端只认 code 选图），iOS 自己发新奖章会出现两套口径。所以新种类要先在后端加 code。右边按「后端已有的数据就能算」挑了 4 类，每类一种新形状 / 颜色。你点头我就去后端仓库开 issue。<br><br>⚠️ 国标星级不能做成奖章（契约要求与平台勋章分两栏）。</div>
+ <div style="width:150px;text-align:center"><svg viewBox="0 0 100 100" width="96" height="96" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs15" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".4" stop-color="#A9A9B2"/><stop offset=".7" stop-color="#EDEDF1"/><stop offset="1" stop-color="#8E8E96"/></linearGradient><radialGradient id="fs15" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#F08A4B"/><stop offset="1" stop-color="#B8380B"/></radialGradient></defs><circle cx="50" cy="50" r="45" fill="url(#rs15)"/><circle cx="50" cy="50" r="37" fill="url(#fs15)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#fff" font-family="-apple-system,SF Pro Rounded,sans-serif">4</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="-apple-system,PingFang SC,sans-serif">周</text></svg><div style="font-size:15px;font-weight:600;margin-top:8px">连续陪跑 4 周</div><div style="font-size:13px;color:#6C6C70;margin-top:2px">另有 12 周、26 周</div><div style="font-size:12px;color:#8E8E93;margin-top:4px;line-height:1.4">数据：搭档火花的 bestWeeks</div></div>
+ <div style="width:150px;text-align:center"><svg viewBox="0 0 100 100" width="96" height="96" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs16" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".4" stop-color="#A9A9B2"/><stop offset=".7" stop-color="#EDEDF1"/><stop offset="1" stop-color="#8E8E96"/></linearGradient><radialGradient id="fs16" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#4CC38A"/><stop offset="1" stop-color="#137A47"/></radialGradient></defs><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="url(#rs16)"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="url(#fs16)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#fff" font-family="-apple-system,SF Pro Rounded,sans-serif">50</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="-apple-system,PingFang SC,sans-serif">公里</text></svg><div style="font-size:15px;font-weight:600;margin-top:8px">累计 50 公里</div><div style="font-size:13px;color:#6C6C70;margin-top:2px">另有 200、500 公里</div><div style="font-size:12px;color:#8E8E93;margin-top:4px;line-height:1.4">数据：totalDistanceMeters</div></div>
+ <div style="width:150px;text-align:center"><svg viewBox="0 0 100 100" width="96" height="96" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs17" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".4" stop-color="#A9A9B2"/><stop offset=".7" stop-color="#EDEDF1"/><stop offset="1" stop-color="#8E8E96"/></linearGradient><radialGradient id="fs17" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#5FC2C9"/><stop offset="1" stop-color="#0A6B72"/></radialGradient></defs><path d="M50 5 Q72 14 90 12 Q93 52 82 72 Q70 90 50 96 Q30 90 18 72 Q7 52 10 12 Q28 14 50 5 Z" fill="url(#rs17)"/><path d="M50 5 Q72 14 90 12 Q93 52 82 72 Q70 90 50 96 Q30 90 18 72 Q7 52 10 12 Q28 14 50 5 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="url(#fs17)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#fff" font-family="-apple-system,SF Pro Rounded,sans-serif">3</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="-apple-system,PingFang SC,sans-serif">位</text></svg><div style="font-size:15px;font-weight:600;margin-top:8px">3 位固定搭档</div><div style="font-size:13px;color:#6C6C70;margin-top:2px">另有 1 位、5 位</div><div style="font-size:12px;color:#8E8E93;margin-top:4px;line-height:1.4">数据：favorites 条数</div></div>
+ <div style="width:150px;text-align:center"><svg viewBox="0 0 100 100" width="96" height="96" style="display:block;margin:0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.22));"><defs><linearGradient id="rs18" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".4" stop-color="#A9A9B2"/><stop offset=".7" stop-color="#EDEDF1"/><stop offset="1" stop-color="#8E8E96"/></linearGradient><radialGradient id="fs18" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#B07CE8"/><stop offset="1" stop-color="#6A2FB0"/></radialGradient></defs><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" fill="url(#rs18)"/><path d="M50 4 L90 27 Q94 29.5 94 34 L94 66 Q94 70.5 90 73 L50 96 L10 73 Q6 70.5 6 66 L6 34 Q6 29.5 10 27 Z" transform="translate(50 50) scale(.82) translate(-50 -50)" fill="url(#fs18)"/><path d="M22 30 Q50 14 78 30" stroke="rgba(255,255,255,.35)" stroke-width="5" fill="none" stroke-linecap="round"/><text x="50" y="58" text-anchor="middle" font-size="34" font-weight="800" fill="#fff" font-family="-apple-system,SF Pro Rounded,sans-serif">11</text><text x="50" y="76" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="-apple-system,PingFang SC,sans-serif">月</text></svg><div style="font-size:15px;font-weight:600;margin-top:8px">11 月挑战</div><div style="font-size:13px;color:#6C6C70;margin-top:2px">每月陪跑满 4 次</div><div style="font-size:12px;color:#8E8E93;margin-top:4px;line-height:1.4">像健身「每月挑战」，带月份；需后端按月判定</div></div>
+</div>
+<!-- ============ 说明 ============ -->
+<div class="rowtitle">动效、读屏、数据来源、要你定的事</div>
+<div class="notes">
+ <div class="note"><h3>动效（照健康 / 健身，都跟「减弱动态效果」）</h3><ul>
+  <li>页面之间：系统标准推入，和健康一样（今天录屏核过：健康点卡片是标准推入，不是放大式转场）。</li>
+  <li>柱状图、星级圆环、进度条：进页面时从 0 长到数值，约 0.6 秒，只播一次。</li>
+  <li>点徽章：圆章从网格位置放大成弹层，转半圈停下（像健身奖章的立体转动，我们用平面翻转）。</li>
+  <li>打开「减弱动态效果」：全部直接显示最终状态，弹层改淡入。</li>
+  <li>不做数字滚动（读屏会念到中间值）。</li></ul></div>
+ <div class="note"><h3>读屏（VoiceOver）</h3><ul>
+  <li>柱状图：一句总结（「近 6 个月，本月最多，3 小时 20 分钟」）+ Audio Graph，和跑后记录同一做法。</li>
+  <li>圆章一个焦点：「陪跑 10 次，未获得，已完成 7 次，共需 10 次」。</li>
+  <li>搭档行一个焦点：「李，连续 3 周一起跑步，最好 7 周，按钮」（名字去掉星号，沿用现有规则）。</li>
+  <li>AX5 大字号：半宽卡、三列网格改单列，不用竖向 ViewThatFits（记忆里两处审计误报）。</li></ul></div>
+ <div class="note"><h3>数据来源（全部是现有接口，不需要后端改）</h3><ul>
+  <li>搭档：<code>GET /api/volunteer/favorites</code> + <code>/partners/streaks</code>（名字、设为搭档日期、连续 / 最好周数、是否已退出）。</li>
+  <li>成就：<code>GET /api/volunteer/achievements</code>（累计时长、次数、里程、均分、条数、星级、已解锁徽章、下一枚）。</li>
+  <li>柱状图：<code>GET /api/orders/mine/run-records?month=</code> 的 <code>serviceMin</code>，一个月一次。</li>
+  <li>最近的评价：<code>GET /api/volunteer/dispatch-summary</code> 的 <code>recentOrders[].rating</code>（5 = 很好，4 = 一般，空 = 无评分；跑者名后端没写是否掩码，客户端一律再掩一次）。</li>
+  <li>没有的不画：评分分布、评语、徽章获得日期、和某位搭档一起跑了几次。</li></ul></div>
+ <div class="note" style="background:#FFF7E6"><h3>要你定的 4 件事（黄框）</h3><ol style="margin-left:18px">
+  <li><b>成就页柱状图</b>：要连拉 6 个月的跑后记录（6 次请求，第一次进页面慢一点）。做，还是只留累计数字 + 提要句？</li>
+  <li><b>评分页逐次列出</b>「很好 / 一般」+ 日期 + 跑者掩码名：陪跑员能对上是哪位跑者给的「一般」。契约允许（分数两边都可见），但要你点头。不列的话只剩平均分。</li>
+  <li><b>徽章页画出没获得的</b>：后端只给已获得的和「下一枚」，其余 5 枚要客户端写死名字和条件；后端以后加新徽章时要同步改。</li>
+  <li><b>搭档详情加「一起跑过几次」</b>：盲人端接口有这个字段，陪跑员端没有。要的话我去后端仓库开 issue，本次先不画。</li></ol></div>
+</div>
+</body></html>

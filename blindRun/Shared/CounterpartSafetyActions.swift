@@ -48,45 +48,22 @@ struct CounterpartSafetyActions: View {
     var spokenName: String?
     /// 固定搭档页要在成功后重拉列表：对方会从列表里消失。
     var onBlocked: (@MainActor () async -> Void)?
+    /// 外观。确认框、文案、读屏标签两种外观完全相同，只有画法不同。
+    var presentation: Presentation = .buttons
+
+    enum Presentation {
+        /// 两枚整宽描边按钮（订单页、通话页、盲人端固定搭档）。
+        case buttons
+        /// 一张白卡里的两行蓝字（陪跑员搭档详情页，照健康 App「共享」的人页，#697）。
+        case groupedRows
+    }
 
     @StateObject private var viewModel = CounterpartBlockViewModel()
     @State private var showsReport = false
     @State private var showsBlockConfirm = false
 
     var body: some View {
-        VStack(spacing: FlowMetrics.actionButtonSpacing) {
-            FlowActionButton(
-                UserSafetyCopy.reportTitle,
-                style: .ghost,
-                accessibilityLabel: spokenName.map { UserSafetyCopy.reportTitle + $0 },
-                accessibilityHint: UserSafetyCopy.reportHint
-            ) {
-                showsReport = true
-            }
-            .accessibilityIdentifier("counterpartReportButton")
-
-            if !viewModel.didBlock {
-                FlowActionButton(
-                    UserSafetyCopy.blockTitle,
-                    style: .ghost,
-                    isLoading: viewModel.isBlocking,
-                    accessibilityLabel: spokenName.map(UserSafetyCopy.blockLabel),
-                    accessibilityHint: UserSafetyCopy.blockHint
-                ) {
-                    showsBlockConfirm = true
-                }
-                .accessibilityIdentifier("counterpartBlockButton")
-            }
-
-            // 结果留在正文里，读屏另有播报：低视力用户走的是视觉那条通道。
-            if viewModel.didBlock {
-                outcome(UserSafetyCopy.blockSucceeded, color: AppColors.success, identifier: "counterpartBlockSucceeded")
-            }
-            if let errorMessage = viewModel.errorMessage {
-                outcome(errorMessage, color: AppColors.destructive, identifier: "counterpartBlockError")
-            }
-        }
-        .frame(maxWidth: .infinity)
+        actions
         .sheet(isPresented: $showsReport) {
             UserReportView(
                 target: target,
@@ -103,6 +80,109 @@ struct CounterpartSafetyActions: View {
         } message: {
             Text(blockContext.confirmMessage)
         }
+    }
+
+    @MainActor @ViewBuilder
+    private var actions: some View {
+        switch presentation {
+        case .buttons:
+            VStack(spacing: FlowMetrics.actionButtonSpacing) {
+                FlowActionButton(
+                    UserSafetyCopy.reportTitle,
+                    style: .ghost,
+                    accessibilityLabel: spokenName.map { UserSafetyCopy.reportTitle + $0 },
+                    accessibilityHint: UserSafetyCopy.reportHint
+                ) {
+                    showsReport = true
+                }
+                .accessibilityIdentifier("counterpartReportButton")
+
+                if !viewModel.didBlock {
+                    FlowActionButton(
+                        UserSafetyCopy.blockTitle,
+                        style: .ghost,
+                        isLoading: viewModel.isBlocking,
+                        accessibilityLabel: spokenName.map(UserSafetyCopy.blockLabel),
+                        accessibilityHint: UserSafetyCopy.blockHint
+                    ) {
+                        showsBlockConfirm = true
+                    }
+                    .accessibilityIdentifier("counterpartBlockButton")
+                }
+
+                // 结果留在正文里，读屏另有播报：低视力用户走的是视觉那条通道。
+                if viewModel.didBlock {
+                    outcome(UserSafetyCopy.blockSucceeded, color: AppColors.success, identifier: "counterpartBlockSucceeded")
+                }
+                if let errorMessage = viewModel.errorMessage {
+                    outcome(errorMessage, color: AppColors.destructive, identifier: "counterpartBlockError")
+                }
+            }
+            .frame(maxWidth: .infinity)
+        case .groupedRows:
+            groupedRows
+        }
+    }
+
+    /// 白卡里两行蓝字，行间一条细线。结果（已拉黑 / 失败）留在卡片下面，同按钮外观。
+    @MainActor
+    private var groupedRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 0) {
+                rowButton(
+                    UserSafetyCopy.reportTitle,
+                    accessibilityLabel: spokenName.map { UserSafetyCopy.reportTitle + $0 },
+                    hint: UserSafetyCopy.reportHint,
+                    identifier: "counterpartReportButton"
+                ) {
+                    showsReport = true
+                }
+                if !viewModel.didBlock {
+                    Divider().padding(.leading, 16)
+                    rowButton(
+                        UserSafetyCopy.blockTitle,
+                        accessibilityLabel: spokenName.map(UserSafetyCopy.blockLabel),
+                        hint: UserSafetyCopy.blockHint,
+                        identifier: "counterpartBlockButton"
+                    ) {
+                        showsBlockConfirm = true
+                    }
+                    .disabled(viewModel.isBlocking)
+                }
+            }
+            .background(AppColors.Flow.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VolunteerSecondaryMetrics.cardRadius, style: .continuous))
+
+            if viewModel.didBlock {
+                outcome(UserSafetyCopy.blockSucceeded, color: AppColors.success, identifier: "counterpartBlockSucceeded")
+            }
+            if let errorMessage = viewModel.errorMessage {
+                outcome(errorMessage, color: AppColors.destructive, identifier: "counterpartBlockError")
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func rowButton(
+        _ title: String,
+        accessibilityLabel: String?,
+        hint: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.primary)
+                // 只给陪跑员搭档详情页用（明眼人，Apple 44pt 线）；盲人端走上面的按钮外观。
+                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading) // guard:allow small-touch-target
+                .padding(.horizontal, 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel ?? title)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(identifier)
     }
 
     private func block() async {

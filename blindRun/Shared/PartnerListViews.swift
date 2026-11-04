@@ -2,12 +2,14 @@ import SwiftUI
 
 // MARK: - 一行搭档
 
-/// 固定搭档 / 火花的一行，两侧共用。
+/// 固定搭档 / 火花的一行（盲人端）。
 ///
 /// **整张卡片是一个 VoiceOver 焦点**，念一句完整的话 —— 姓名、连续周数、进度、
 /// 一起跑过几次、有没有人退出，分开念会让读屏用户为同一个人划四五次。
 /// 卡片里因此**不放任何按钮**：`children: .ignore` 会让按钮拿不到焦点，
-/// 所以志愿者侧的「退出」是卡片下面的独立一行（见 `VolunteerPartnersView`）。
+/// 所以收藏、举报、不再匹配是卡片下面的独立一行。
+///
+/// 2026-11-04 起只有盲人端用它：陪跑员端改成「一人一行 + 详情页」（`VolunteerPartnersView`，#697）。
 private struct PartnerRowCard: View {
     let row: PartnerRow
     let fallbackName: String
@@ -381,180 +383,6 @@ struct BlindFavoriteVolunteersView: View {
             errorMessage = error.localizedMessage
         } catch {
             errorMessage = PartnerStreakCopy.loadFailure
-        }
-    }
-}
-
-// MARK: - 志愿者端「固定搭档」
-
-/// 数据源同样是两个端点合并：`GET /api/volunteer/favorites`（谁把我设为固定搭档）与
-/// `GET /api/volunteer/partners/streaks`。
-///
-/// 「有几位跑者把你设为固定搭档」取的是**收藏那条**的数组长度，不含只有火花的那些 ——
-/// 那句话说的是收藏关系，不是关系亲疏。
-struct VolunteerPartnersView: View {
-    @EnvironmentObject private var appState: AppState
-
-    @State private var rows: [PartnerRow] = []
-    @State private var favoritedByCount = 0
-    @State private var errorMessage: String?
-    @State private var isLoading = true
-    @State private var hasLoadedOnce = false
-    @State private var pendingOptOut: PartnerRow?
-    @State private var optOutNotice: String?
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if hasLoadedOnce {
-                    IncentiveHeroCard(
-                        value: "\(favoritedByCount)",
-                        caption: "位跑者把你设为固定搭档",
-                        spokenLabel: PartnerStreakCopy.favoritedByCountText(favoritedByCount)
-                    )
-                    .accessibilityIdentifier("volunteerFavoritedByCount")
-
-                    if let optOutNotice {
-                        Text(optOutNotice)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.success)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("volunteerPartnerOptOutNotice")
-                    }
-
-                    if rows.isEmpty {
-                        Text(PartnerStreakCopy.volunteerEmpty(
-                            streakEnabled: appState.featureFlags?.partnerStreakEnabled
-                        ))
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("volunteerPartnersEmpty")
-                    } else {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                            partnerSection(row)
-                        }
-                    }
-                } else if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载固定搭档")
-                } else {
-                    IncentiveFailureSection(
-                        message: errorMessage ?? PartnerStreakCopy.loadFailure,
-                        retryTitle: PartnerStreakCopy.retry,
-                        identifier: "volunteerPartnersRetryButton"
-                    ) {
-                        Task { await load() }
-                    }
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .readableContentColumn()
-        }
-        .background(AppColors.background)
-        .navigationTitle(PartnerStreakCopy.volunteerNavigationTitle)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("volunteerPartnersView")
-        .task {
-            guard !hasLoadedOnce else { return }
-            await load()
-        }
-        // 🔴 二次确认必须把后果写进正文，不能只给「确定 / 取消」——
-        // 退出是单方面的，且本轮后端没有「撤销退出」端点。
-        .alert(
-            PartnerStreakCopy.optOutConfirmTitle,
-            isPresented: Binding(
-                get: { pendingOptOut != nil },
-                set: { if !$0 { pendingOptOut = nil } }
-            )
-        ) {
-            Button(PartnerStreakCopy.optOutConfirmAction, role: .destructive) {
-                if let row = pendingOptOut {
-                    Task { await optOut(row) }
-                }
-            }
-            Button(PartnerStreakCopy.optOutCancel, role: .cancel) { pendingOptOut = nil }
-        } message: {
-            Text(PartnerStreakCopy.optOutConfirmMessage)
-        }
-    }
-
-    @ViewBuilder
-    private func partnerSection(_ row: PartnerRow) -> some View {
-        PartnerRowCard(
-            row: row,
-            fallbackName: PartnerStreakCopy.unknownBlindName,
-            optedOutText: PartnerStreakCopy.selfOptedOutSuffix
-        )
-
-        // 只对「还没退出、且确实是收藏关系」的那些给退出入口：
-        // 只有火花没有收藏关系的一对，本来就不在优先轮里，没有可退的东西。
-        if row.isFavorite, !row.hasOptedOut, row.userId != nil {
-            Button(PartnerStreakCopy.optOutButtonTitle(
-                row.displayName(fallback: PartnerStreakCopy.unknownBlindName)
-            )) {
-                pendingOptOut = row
-            }
-            .buttonStyle(TextButtonStyle(tint: AppColors.destructive))
-            // 标题上屏留星号，念出来那份去掉。
-            .accessibilityLabel(PartnerStreakCopy.optOutButtonTitle(
-                row.spokenName(fallback: PartnerStreakCopy.unknownBlindName)
-            ))
-            .padding(.bottom, 6)
-            .accessibilityIdentifier("volunteerPartnerOptOutButton")
-        }
-        if let userId = row.userId {
-            partnerSafetyActions(
-                userId: userId,
-                spokenName: row.spokenName(fallback: PartnerStreakCopy.unknownBlindName)
-            ) {
-                optOutNotice = UserSafetyCopy.blockSucceeded
-                await load()
-            }
-        }
-    }
-
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
-        // 理由同盲人侧那份：空态说哪一句取决于开关，先取到位再拉列表。
-        await appState.loadFeatureFlagsIfNeeded()
-        do {
-            let favorites = try await appState.incentive.volunteerFavoritedBy()
-            let streaks = try await appState.incentive.volunteerPartnerStreaks()
-            favoritedByCount = favorites.count
-            rows = PartnerRowMerge.volunteerRows(favorites: favorites, streaks: streaks)
-            errorMessage = nil
-            hasLoadedOnce = true
-        } catch let error as APIError {
-            errorMessage = error.localizedMessage
-        } catch {
-            errorMessage = PartnerStreakCopy.loadFailure
-        }
-    }
-
-    /// `DELETE /api/volunteer/favorites/{blindUserId}` → **恒 204**。
-    ///
-    /// ⚠️ 契约点名：**不要根据响应判断「这个人是不是收藏了我」** —— 区分开就成了
-    /// 「拿任意 userId 试一下看响应差异」的探测器。所以这里点完直接重新拉一次列表，
-    /// 不看响应体、也不做本地乐观更新（本地改一份状态就有了第二个真相源）。
-    private func optOut(_ row: PartnerRow) async {
-        pendingOptOut = nil
-        guard let userId = row.userId else { return }
-        // 这条只进 `optOutNotice`（上屏），志愿者端不播报，所以用可见那一份。
-        let name = row.displayName(fallback: PartnerStreakCopy.unknownBlindName)
-        do {
-            try await appState.incentive.volunteerOptOutOfFavorite(blindUserId: userId)
-            optOutNotice = PartnerStreakCopy.optOutSucceeded(name)
-            await load()
-        } catch let error as APIError {
-            optOutNotice = nil
-            errorMessage = error.localizedMessage
-        } catch {
-            optOutNotice = nil
-            errorMessage = PartnerStreakCopy.optOutFailed
         }
     }
 }
