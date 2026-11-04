@@ -63,6 +63,12 @@ final class LoginViewModel: ObservableObject {
     /// 用户是否已尝试获取验证码（控制手机号格式错误显示时机）
     @Published var hasAttemptedSend: Bool = false
 
+    /// 每次要把焦点放回验证码输入框时加 1，视图监听它去设焦点（#657 B-8）。
+    ///
+    /// 焦点状态仍归视图，这里只发「请求」：填错之后键盘已收起、验证码已清空，
+    /// 读屏用户不知道焦点在哪，得自己从头划回输入框。
+    @Published private(set) var codeFieldFocusRequest = 0
+
     // MARK: - Dependencies
 
     private weak var appState: AppState?
@@ -199,6 +205,8 @@ final class LoginViewModel: ObservableObject {
                 isSendingCode = false
                 showCodeInput = true
                 startCountdown()
+                // 不播的话，读屏用户分不清「短信发了」和「按钮没按到」（#657 B-8 ①）。
+                speechService?.speak(Self.codeSentAnnouncement)
             } catch let error as APIError {
                 isSendingCode = false
                 handleSendCodeError(error)
@@ -212,13 +220,16 @@ final class LoginViewModel: ObservableObject {
 
     func submitLogin() {
         guard canSubmit else {
-            if showCodeInput, !isCodeValid, !verificationCode.isEmpty {
-                errorMessage = "请输入6位验证码"
-            }
+            // 原来空验证码时完全不出声、不足 6 位只写屏（#657 B-8 ②③）。
+            guard let message = submitBlockedMessage else { return }
+            errorMessage = message
+            speechService?.speakError(message)
+            if isPhoneValid { codeFieldFocusRequest += 1 }
             return
         }
         Task { await performLogin() }
     }
+
 
     func resetCountdown() {
         timerCancellable?.cancel()
@@ -261,6 +272,8 @@ final class LoginViewModel: ObservableObject {
             if response.errorCode == .invalidVerificationCode {
                 errorMessage = "验证码错误，请重新输入"
                 verificationCode = ""
+                // 清空之后焦点要回到输入框，否则读屏用户找不到从哪重输（#657 B-8 ④）。
+                codeFieldFocusRequest += 1
                 withAnimation { shakeCodeField = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.shakeCodeField = false
@@ -347,6 +360,24 @@ final class LoginViewModel: ObservableObject {
             return "\(info.message) 请在\(seconds)秒后重试。"
         }
         return info.message
+    }
+}
+
+// MARK: - 文案与输入清洗
+
+// 放在扩展里不是为了分类：类体已经超过 SwiftLint 的 type_body_length 基线（#657 时 259 行），
+// 新加的成员放这里，类本身不再变长。
+extension LoginViewModel {
+    /// 发送成功那一句。单测按它断言，别处不要另写一份。
+    static let codeSentAnnouncement = "验证码已发送，请输入 6 位验证码。"
+
+    /// 按「登录」却发不出请求时要说的那句。`nil` = 正在登录，不用再说。
+    var submitBlockedMessage: String? {
+        guard !isLoading else { return nil }
+        if !isPhoneValid { return "请输入正确的手机号" }
+        if verificationCode.isEmpty { return "请输入验证码。验证码是 6 位数字。" }
+        if !isCodeValid { return "验证码是 6 位数字，现在输入了 \(verificationCode.count) 位。" }
+        return nil
     }
 
     static func normalizedPhoneNumber(_ value: String) -> String {

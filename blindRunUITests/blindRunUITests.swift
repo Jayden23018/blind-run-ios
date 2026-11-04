@@ -2308,6 +2308,9 @@ final class blindRunUITests: XCTestCase {
         let blindRoleButton = app.buttons["我是盲人跑者，预约陪跑员陪我跑步"].firstMatch
         if blindRoleButton.waitForExistence(timeout: 8) {
             blindRoleButton.tap()
+            // 点卡片只弹确认，要再按一次才提交（#657 B-7）。
+            let confirm = app.alerts.buttons["确认，我是盲人跑者"].firstMatch
+            if confirm.waitForExistence(timeout: 5) { confirm.tap() }
             dismissSystemAlertsIfPresent(app: app)
         }
     }

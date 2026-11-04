@@ -180,6 +180,8 @@ struct LoginView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @FocusState private var focusedField: FocusField?
+    /// 读屏焦点单独一份：键盘焦点回到输入框时，VoiceOver 的光标不一定跟过去（#657 B-8）。
+    @AccessibilityFocusState private var isCodeFieldAccessibilityFocused: Bool
 
     var body: some View {
         GeometryReader { geometry in
@@ -260,9 +262,11 @@ struct LoginView: View {
                                             )
                                     )
                                     .focused($focusedField, equals: .verificationCode)
+                                    .accessibilityFocused($isCodeFieldAccessibilityFocused)
                                     .shake(viewModel.shakeCodeField)
                                     .accessibilityLabel("验证码输入框，请输入 6 位验证码")
                                     .accessibilityValue(viewModel.verificationCode.isEmpty ? "未输入" : viewModel.verificationCode)
+                                    .accessibilityIdentifier("loginVerificationCodeField")
 
                             }
                             .id(ScrollTarget.verificationCode)
@@ -271,8 +275,8 @@ struct LoginView: View {
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                         }
 
-                        // Loading 状态文字
-                        if viewModel.isLoading && !viewModel.showCodeInput {
+                        // 原条件多一个 `!showCodeInput`，而登录只能在验证码区出现后发起，这一行从没显示过（#657）。
+                        if viewModel.isLoading {
                             HStack(spacing: 8) {
                                 ProgressView()
                                 Text("正在登录...")
@@ -312,6 +316,9 @@ struct LoginView: View {
                 .onChange(of: viewModel.showCodeInput) { showCodeInput in
                     guard showCodeInput, pendingVerificationFocus else { return }
                     focusVerificationCode(using: scrollProxy)
+                }
+                .onChange(of: viewModel.codeFieldFocusRequest) { _ in
+                    focusVerificationCode(using: scrollProxy, movesAccessibilityFocus: true)
                 }
                 .onChange(of: viewModel.errorMessage) { errorMessage in
                     if errorMessage != nil, !viewModel.showCodeInput {
@@ -363,7 +370,8 @@ struct LoginView: View {
         }
     }
 
-    private func focusVerificationCode(using scrollProxy: ScrollViewProxy) {
+    /// - Parameter movesAccessibilityFocus: 只在出错后拉读屏焦点；发送成功那次拉了会切掉「验证码已发送」。
+    private func focusVerificationCode(using scrollProxy: ScrollViewProxy, movesAccessibilityFocus: Bool = false) {
         DispatchQueue.main.async {
             // 动画滚动是位移里最容易引起不适的一种（整屏内容移动）。关掉动画不影响落点，
             // 焦点仍然会移到验证码框上。
@@ -373,6 +381,7 @@ struct LoginView: View {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 focusedField = .verificationCode
+                if movesAccessibilityFocus { isCodeFieldAccessibilityFocused = true }
                 pendingVerificationFocus = false
             }
         }
