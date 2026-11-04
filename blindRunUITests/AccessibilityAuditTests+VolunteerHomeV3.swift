@@ -109,4 +109,65 @@ extension AccessibilityAuditTests {
         )
         XCTAssertFalse(card.isHittable, "点了最近陪跑卡没有离开首页")
     }
+
+    /// 「置顶 · 编辑」：把评分移出置顶 → 返回首页 → 评分卡不在、连续陪跑卡还在（#694，负责人 2026-11-04 要求）。
+    ///
+    /// 点的是行首那枚红色减号（`.borderless` 按钮，指针路径），不是系统的左滑删除。
+    /// 断「评分卡不在」之前先断「连续陪跑卡在」：首页整块没渲染时前者也会假绿。
+    @MainActor
+    func testEditingPinnedCardsRemovesTheRatingCardFromHome() {
+        let app = launchVolunteerHome()
+        let rating = app.descendants(matching: .any)["volunteerHomeHalfCard.rating"].firstMatch
+        XCTAssertTrue(rating.waitForExistence(timeout: 25), "默认置顶里应当有评分卡")
+
+        let edit = app.descendants(matching: .any)["volunteerHomePinnedEditLink"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5), "「置顶」标题右边应当有「编辑」")
+        edit.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerHomePinnedEditView"].firstMatch.waitForExistence(timeout: 10),
+            "点「编辑」没有进编辑置顶页"
+        )
+        let remove = app.buttons["volunteerHomePinnedRemove.rating"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "编辑页里评分那一行没有移出按钮")
+        remove.tap()
+        XCTAssertTrue(
+            app.buttons["volunteerHomePinnedAdd.rating"].firstMatch.waitForExistence(timeout: 5),
+            "移出之后评分应当落到「其他卡片」里，带加入按钮"
+        )
+        attachScreenshot(app, name: "volunteer-home-pinned-edit")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let streak = app.descendants(matching: .any)["volunteerHomeHalfCard.streak"].firstMatch
+        XCTAssertTrue(streak.waitForExistence(timeout: 10), "连续陪跑卡应当还在首页")
+        XCTAssertFalse(rating.exists, "评分已移出置顶，首页不该再有评分卡")
+    }
+
+    /// 编辑置顶页在亮 / 暗 / AX5 下过审计。先移出一张，让「其他卡片」那一组（带加入按钮）也在屏幕上。
+    ///
+    /// ⚠️ `List` 行的审计会误报「改不了字号」（记忆 `list-rows-false-dynamic-type-audit`）：
+    /// 报了先看 AX5 截图里字有没有放大，再判真假。
+    @MainActor
+    func testVolunteerHomePinnedEditPassesAuditInLightDarkAndLargestText() throws {
+        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        for variant in Self.appearanceVariants {
+            let app = launchVolunteerHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
+            let edit = app.descendants(matching: .any)["volunteerHomePinnedEditLink"].firstMatch
+            XCTAssertTrue(edit.waitForExistence(timeout: 25), "\(variant.name)：「置顶」标题右边没有「编辑」")
+            edit.tap()
+            // 移第一行：AX5 下它也一定在屏幕上。加入按钮落在列表最后，`List` 不渲染屏幕外的行，滚到它出现。
+            let remove = app.buttons["volunteerHomePinnedRemove.duration"].firstMatch
+            XCTAssertTrue(remove.waitForExistence(timeout: 10), "\(variant.name)：编辑置顶页没出来")
+            remove.tap()
+            let add = app.buttons["volunteerHomePinnedAdd.duration"].firstMatch
+            for _ in 0..<6 where !add.exists { app.swipeUp() }
+            XCTAssertTrue(add.waitForExistence(timeout: 5), "\(variant.name)：移出后陪伴时长没落到「其他卡片」")
+            waitUntilSettled(add)
+            attachScreenshot(app, name: "volunteer-home-pinned-edit-\(variant.name)")
+            try audit(app)
+            app.terminate()
+        }
+    }
 }
+

@@ -343,6 +343,20 @@ enum VolunteerProfileCopy {
         return "\(section)，\(starCardTitle(level))，已累计 \(max(0, level.currentHours ?? 0)) 小时。"
     }
 
+    // 置顶 · 编辑（负责人 2026-11-04 看截图后要求，#694）
+    static let pinnedSectionTitle = "置顶"
+    static let pinnedEditTitle = "编辑"
+    static let pinnedEditHint = "选择哪些卡片放在首页，并调整顺序"
+    static let pinnedEditNavigationTitle = "编辑置顶"
+    static let pinnedEditOthersTitle = "其他卡片"
+    static let pinnedEditFooter = "按住右侧把手拖动可以调整顺序。使用读屏时，在卡片上用「上移」「下移」。"
+    static let pinnedEditEmpty = "还没有置顶的卡片，从下面加一张。"
+    static let pinnedHomeEmpty = "点「编辑」选择要放在首页的卡片。"
+    static let pinnedMoveUp = "上移"
+    static let pinnedMoveDown = "下移"
+    static func pinnedRemoveLabel(_ title: String) -> String { "把\(title)移出置顶" }
+    static func pinnedAddLabel(_ title: String) -> String { "把\(title)加入置顶" }
+
     // 半宽卡
     static let streakCardTitle = "连续陪跑"
     static let streakWeeksUnit = "周"

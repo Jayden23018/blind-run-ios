@@ -28,6 +28,8 @@ struct VolunteerProfileFirstScreen: View {
     @StateObject var incentive = VolunteerHomeIncentiveViewModel()
     /// 最近陪跑卡的跑后记录。不并进上面那份的理由相同。
     @StateObject var recentRun = VolunteerHomeRecentRunModel()
+    /// 「置顶」放哪几张卡、什么顺序（只存在本机）。编辑页拿同一份。
+    @StateObject var pinnedStore = VolunteerHomePinnedStore()
 
     /// 无障碍字号下半宽卡改上下排、卡内的左右排改上下排。
     /// 🔴 **不用竖向 `ViewThatFits`**：它会让整页文字审计判成「改不了字号」
@@ -53,9 +55,7 @@ struct VolunteerProfileFirstScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 pageHeader
                 todoSection
-                impactSection
-                recentSection
-                badgesSection
+                pinnedSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
@@ -63,9 +63,12 @@ struct VolunteerProfileFirstScreen: View {
             // 内层 `.infinity` 保留左对齐，外层把这条左对齐的列收进可读宽度并居中（iPad）。
             .readableContentColumn()
         }
-        .background(alignment: .top) { VolunteerHomePageTint(tint: AppColors.Flow.blueTint) }
+        .background(alignment: .top) {
+            VolunteerHomePageTint(top: AppColors.VolunteerHome.skyTop, middle: AppColors.VolunteerHome.skyMid)
+        }
         .background(AppColors.Flow.page)
         .accessibilityIdentifier("volunteerProfileFirstScreen")
+        .onAppear { pinnedStore.configure(persistence: appState.persistence) }
         // 手动刷新。这一屏的导航栏是隐藏的（`navigationBarHidden(true)`），没有工具栏按钮可放。
         //
         // 🚩 **不只是重拉摘要，同时强制取一次定位**：非陪跑模式 `distanceFilter` 是 10 米
@@ -242,12 +245,25 @@ struct VolunteerHomeCardHeader: View {
     }
 }
 
-/// 页面顶部那一抹颜色（样例：浅蓝渐变到页面底色，约 300pt）。纯装饰，不承载信息。
+/// 页面顶部那一抹颜色。纯装饰，不承载信息。
+///
+/// 照样例三段：`top` 在最上沿，`middle` 在 150pt，300pt 处回到页面底色
+/// （`linear-gradient(180deg,#CFE3F7 0,#E7EEF6 150px,bg 300px)`）。
+/// 首页传天蓝（`AppColors.VolunteerHome.skyTop / skyMid`），接单页传浅绿。
 struct VolunteerHomePageTint: View {
-    let tint: Color
+    let top: Color
+    var middle: Color?
 
     var body: some View {
-        LinearGradient(colors: [tint, AppColors.Flow.page], startPoint: .top, endPoint: .bottom)
+        LinearGradient(
+            stops: [
+                .init(color: top, location: 0),
+                .init(color: middle ?? top.opacity(0.5), location: 0.5),
+                .init(color: AppColors.Flow.page, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
             .frame(height: 300)
             .ignoresSafeArea(edges: .top)
             .accessibilityHidden(true)

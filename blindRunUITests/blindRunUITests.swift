@@ -888,7 +888,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.firstMatch.exists, "卡片收起后标签栏必须回到无障碍树里")
     }
 
-    /// 志愿者首页：页头 → 作业区 → 我的陪伴 → 最近陪跑 → 徽章。没有地图、没有工作台、**没有派单状态**。
+    /// 志愿者首页：页头 → 作业区 → 置顶（陪伴时长、连续陪跑、评分、最近陪跑、徽章）。没有地图、没有工作台、**没有派单状态**。
     ///
     /// > 2026-09-15 工作台被删（用户原话「好像是没什么用的」），派单状态并到首屏最底部。
     /// > 2026-11-04 陪跑员首页 v3（#694）：派单状态与定位摘要搬进接单页的状态卡，
@@ -918,7 +918,7 @@ final class blindRunUITests: XCTestCase {
             "Mock 默认未完成培训，作业区里必须有那张培训卡"
         )
         XCTAssertTrue(
-            app.staticTexts["我的陪伴"].firstMatch.waitForExistence(timeout: 10),
+            app.staticTexts["置顶"].firstMatch.waitForExistence(timeout: 10),
             "First screen should lead with the impact section"
         )
         XCTAssertTrue(app.staticTexts["最近陪跑"].firstMatch.exists, "First screen should show the recent-run stream")
@@ -1012,10 +1012,10 @@ final class blindRunUITests: XCTestCase {
 
         // 而且它排在影响力区之前 —— 作业区是第一档，读屏顺序播报，排序就是优先级。
         //
-        // ⛔ **不要写成 `if impactBlock.exists { … }`**：「我的陪伴」不在树里时整条顺序断言
+        // ⛔ **不要写成 `if impactBlock.exists { … }`**：「置顶」不在树里时整条顺序断言
         // 会静默跳过、用例照报 passed，而这正是本仓库记过的「验红假绿」形状。
         // 同文件上面那条用例已经证明这个字面量可以无条件等到。
-        let impactBlock = app.staticTexts["我的陪伴"].firstMatch
+        let impactBlock = app.staticTexts["置顶"].firstMatch
         XCTAssertTrue(impactBlock.waitForExistence(timeout: 10), "影响力区应当渲染，否则下面的顺序无从判起")
         XCTAssertLessThan(
             trainingEntry.frame.minY,

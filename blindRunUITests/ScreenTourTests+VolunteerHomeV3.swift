@@ -56,4 +56,21 @@ extension ScreenTourTests {
         if enter.waitForExistence(timeout: 25) { enter.tap() }
         shoot(app, "V20-dispatch-hub", anchor: "volunteerDispatchHubAcceptingPill", scroll: true)
     }
+
+    /// 最近陪跑卡的真实地图（要本机 `LocalConfig.xcconfig` 里有高德 key 的构建才看得到底图）。
+    @MainActor func testTour_V21_HomeV3RecentRunRealMap() {
+        let app = launchVolunteer(env: Self.homeHistory.merging(["AIDRUN_UI_TEST_DISABLE_MAP": "0"]) { _, new in new })
+        let card = app.descendants(matching: .any)["volunteerProfileRecentRunCard"].firstMatch
+        if card.waitForExistence(timeout: 25) {
+            // 卡片露一截就算 hittable，地图仍压在底部入口后面：小步拖，直到整张卡落在底部入口上方。
+            let bar = app.descendants(matching: .any)["volunteerHomeBottomBar"].firstMatch
+            for _ in 0..<6 where bar.exists && card.frame.maxY > bar.frame.minY {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+            }
+            sleep(3) // 等瓦片下完
+        }
+        shoot(app, "V21-home-v3-recent-real-map", anchor: "volunteerProfileRecentRunCard")
+    }
 }
+

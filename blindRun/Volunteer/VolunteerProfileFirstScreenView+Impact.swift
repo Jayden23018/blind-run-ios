@@ -1,27 +1,32 @@
 import SwiftUI
 
-// 志愿者首页的「我的陪伴」：陪伴时长卡 + 连续陪跑 / 评分两张半宽卡。主体与排序在 `VolunteerProfileFirstScreenView.swift`。
+// 志愿者首页的陪伴时长卡与连续陪跑 / 评分两张半宽卡。排序由「置顶」决定，见 `VolunteerProfileFirstScreenView+Pinned.swift`。
 
 extension VolunteerProfileFirstScreen {
-    // MARK: - 我的陪伴
+    // MARK: - 成就数据
 
+    /// 陪伴时长、连续陪跑、评分、徽章都要等成就接口。
+    ///
+    /// 🔴 **判据是 `summary.achievements` 非空，不是 `summary` 非空。**
+    ///
+    /// `summary` 只要三条请求里**成功了任意一条**就会被赋值（收藏 / 成就 / 火花各自独立容错），
+    /// 所以「成就那条失败、收藏那条成功」时 `summary != nil` 而 `achievements == nil`。
+    /// 按 `summary` 判的话：失败 + 重试**永远走不到**，而 `totalCompleted` 为 nil 会被 `resolve`
+    /// 当成 0 ⇒ 屏幕上出现「还没有完成的陪跑」——
+    /// **跑过 200 次的老志愿者和真新人逐字不可区分，且没有任何出错信号。**
+    var loadedAchievements: (summary: VolunteerHomeIncentiveSummary, achievements: VolunteerAchievementsResponse)? {
+        guard let summary = incentive.summary, let achievements = summary.achievements else { return nil }
+        return (summary, achievements)
+    }
+
+    /// 成就还没到时的那一块：失败 + 重试，或加载中。置顶里依赖成就的卡只在第一个位置画一次。
+    ///
     /// 四态**必有其一**（内容 / 加载中 / 失败+重试 / 空），一个都没有就是
     /// 「`.task` 没触发」那个缺陷复发了。identifier 沿用改版前那四个，
     /// 回归用例 `testVolunteerHomeShowsTheIncentiveCard` 断的就是它们。
     @ViewBuilder
-    var impactSection: some View {
-        sectionHeader(VolunteerProfileCopy.impactSectionTitle) { EmptyView() }
-
-        // 🔴 **判据是 `summary.achievements` 非空，不是 `summary` 非空。**
-        //
-        // `summary` 只要三条请求里**成功了任意一条**就会被赋值（收藏 / 成就 / 火花各自独立容错），
-        // 所以「成就那条失败、收藏那条成功」时 `summary != nil` 而 `achievements == nil`。
-        // 按 `summary` 判的话：第一个分支恒中 ⇒ 下面的失败 + 重试**永远走不到**，
-        // 而 `totalCompleted` 为 nil 会被 `resolve` 当成 0 ⇒ 屏幕上出现「还没有完成的陪跑」——
-        // **跑过 200 次的老志愿者和真新人逐字不可区分，且没有任何出错信号。**
-        if let achievements = incentive.summary?.achievements, let summary = incentive.summary {
-            impactContent(summary, achievements: achievements)
-        } else if incentive.loadFailed {
+    var achievementsPlaceholder: some View {
+        if incentive.loadFailed {
             impactPlaceholder(
                 VolunteerHomeIncentiveCopy.loadFailure,
                 identifier: "volunteerHomeIncentiveFailure"
@@ -39,37 +44,33 @@ extension VolunteerProfileFirstScreen {
         }
     }
 
-    /// `achievements` 作为**非可选**参数传进来，不是在这里现拆 —— 拆包失败时
-    /// `resolve(totalCompleted: nil)` 会安静地落进 `.newcomer`，那正是上面那段注释说的缺陷。
-    @ViewBuilder
-    private func impactContent(
-        _ summary: VolunteerHomeIncentiveSummary,
-        achievements: VolunteerAchievementsResponse
-    ) -> some View {
-        let headline = VolunteerProfileHeadline.resolve(
+    /// 陪伴时长卡。`achievements` 作为**非可选**参数传进来，不是在这里现拆 ——
+    /// 拆包失败时 `resolve(totalCompleted: nil)` 会安静地落进 `.newcomer`，那正是上面那段注释说的缺陷。
+    func durationCard(achievements: VolunteerAchievementsResponse) -> some View {
+        durationCard(Self.headline(achievements), level: achievements.resolvedStarLevel)
+    }
+
+    static func headline(_ achievements: VolunteerAchievementsResponse) -> VolunteerProfileHeadline {
+        VolunteerProfileHeadline.resolve(
             totalCompleted: achievements.totalCompleted,
             totalServiceMinutes: achievements.totalServiceMinutes
         )
+    }
 
-        VStack(alignment: .leading, spacing: 12) {
-            durationCard(headline, level: achievements.resolvedStarLevel)
-
-            // 新人态两张半宽卡都不画：此刻全是 `--`，「一屏只强调一个主指标」的反面
-            // 不是「强调多个」，是「把一排空值摆出来」。
-            if headline.showsImpactSections {
-                halfCards(
-                    left: .left(
-                        streak: summary.streak,
-                        streakPartnerName: summary.streakPartnerName,
-                        favoritedByCount: summary.favoritedByCount
-                    ),
-                    right: .rating(average: achievements.avgRating, total: achievements.totalRatings)
-                )
-            }
+    /// 连续陪跑（没有火花时退到固定搭档）或评分那张半宽卡的取值。
+    func halfCardModel(
+        _ kind: VolunteerHomeCardKind,
+        summary: VolunteerHomeIncentiveSummary,
+        achievements: VolunteerAchievementsResponse
+    ) -> VolunteerHomeHalfCard {
+        if kind == .rating {
+            return .rating(average: achievements.avgRating, total: achievements.totalRatings)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("volunteerHomeIncentiveCard")
+        return .left(
+            streak: summary.streak,
+            streakPartnerName: summary.streakPartnerName,
+            favoritedByCount: summary.favoritedByCount
+        )
     }
 
     // MARK: 陪伴时长卡
@@ -80,7 +81,7 @@ extension VolunteerProfileFirstScreen {
     /// 写法同 `trainingEntry`：`NavigationLink` 上不套 `.combine`，标签 / identifier 挂在链接本身。
     ///
     /// 🔴 不画样例 v1 那组柱图：后端没有按周的历史，画出来就是编数据。
-    private func durationCard(_ headline: VolunteerProfileHeadline, level: VolunteerStarLevelDto) -> some View {
+    func durationCard(_ headline: VolunteerProfileHeadline, level: VolunteerStarLevelDto) -> some View {
         NavigationLink {
             VolunteerServiceRecognitionView()
         } label: {
@@ -89,7 +90,7 @@ extension VolunteerProfileFirstScreen {
                     VolunteerHomeCardHeader(
                         title: VolunteerProfileCopy.durationCardTitle,
                         symbol: "clock",
-                        tint: AppColors.success,
+                        tint: AppColors.VolunteerHome.durationTeal,
                         showsChevron: true
                     )
                     durationBody(headline, level: level)
@@ -180,9 +181,9 @@ extension VolunteerProfileFirstScreen {
             // 样例进度条 8pt 高、圆头；系统 `ProgressView` 只有 4pt。
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(AppColors.success.opacity(0.18))
+                    Capsule().fill(AppColors.VolunteerHome.durationTeal.opacity(0.18))
                     Capsule()
-                        .fill(AppColors.success)
+                        .fill(AppColors.VolunteerHome.durationTeal)
                         .frame(width: max(8, proxy.size.width * progress.fraction))
                 }
             }
@@ -201,7 +202,7 @@ extension VolunteerProfileFirstScreen {
     // MARK: 半宽卡
 
     @ViewBuilder
-    private func halfCards(left: VolunteerHomeHalfCard, right: VolunteerHomeHalfCard) -> some View {
+    func halfCards(left: VolunteerHomeHalfCard, right: VolunteerHomeHalfCard) -> some View {
         if dynamicTypeSize.isAccessibilitySize {
             VStack(spacing: 12) {
                 halfCard(left)
@@ -218,7 +219,7 @@ extension VolunteerProfileFirstScreen {
     }
 
     @ViewBuilder
-    private func halfCard(_ card: VolunteerHomeHalfCard) -> some View {
+    func halfCard(_ card: VolunteerHomeHalfCard) -> some View {
         if card.hasDestination {
             // 连续陪跑与固定搭档都去固定搭档页（每位搭档的火花周数在那里）。
             NavigationLink {
@@ -244,7 +245,8 @@ extension VolunteerProfileFirstScreen {
                 VolunteerHomeCardHeader(
                     title: card.title,
                     symbol: card.symbol,
-                    tint: AppColors.warning,
+                    // 连续陪跑 / 固定搭档橙、评分琥珀：两张并排时颜色分开（负责人 2026-11-04 看截图要求）。
+                    tint: card.kind == .rating ? AppColors.VolunteerHome.ratingAmber : AppColors.VolunteerHome.streakOrange,
                     showsChevron: card.hasDestination
                 )
                 VStack(alignment: .leading, spacing: 4) {

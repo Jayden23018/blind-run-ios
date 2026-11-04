@@ -254,7 +254,7 @@ struct VolunteerDispatchHubView: View {
             .padding(.top, 4)
             .padding(.bottom, 28)
         }
-        .background(alignment: .top) { VolunteerHomePageTint(tint: AppColors.Flow.acceptingBackground) }
+        .background(alignment: .top) { VolunteerHomePageTint(top: AppColors.Flow.acceptingBackground) }
         .background(AppColors.Flow.page)
         .navigationTitle(VolunteerDispatchHubCopy.title)
         // 样例：大标题「接单」，与首页「首页」同一个形状。

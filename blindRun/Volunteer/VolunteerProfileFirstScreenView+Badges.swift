@@ -9,7 +9,7 @@ extension VolunteerProfileFirstScreen {
     /// （Strava Overview 的 Trophies 行 + `View more`，调研 §1.2 S8）。
     @ViewBuilder
     var badgesSection: some View {
-        // 🔴 同 `impactSection`：读不到成就数据时**整块不画**，不要拿 `?? []` 顶上。
+        // 🔴 同 `loadedAchievements`：读不到成就数据时**整块不画**，不要拿 `?? []` 顶上。
         // 空数组会渲染成「完成第一次陪跑就会解锁第一枚徽章。」—— 对一个已经解锁 7 枚的人
         // 那是一句假话，而失败信号已经由上面的影响力区给过了，这里再画一遍只会互相矛盾。
         if let achievements = incentive.summary?.achievements {

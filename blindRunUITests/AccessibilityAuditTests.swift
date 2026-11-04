@@ -2951,7 +2951,7 @@ final class AccessibilityAuditTests: XCTestCase {
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"]
         XCTAssertTrue(identityRow.waitForExistence(timeout: 25), "首屏整体没出来 —— 这不是影响力区的问题")
         XCTAssertTrue(
-            app.staticTexts["我的陪伴"].waitForExistence(timeout: 20),
+            app.staticTexts["置顶"].waitForExistence(timeout: 20),
             "分区标题都没有 —— 这不是影响力区的问题"
         )
 
@@ -2961,7 +2961,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         // 三态**必有其一**。一个都没有 = 视图压根没渲染，就是那个 `.task` 缺陷复发了。
         let anyState = card.waitForExistence(timeout: 20) || loading.exists || failure.exists
-        XCTAssertTrue(anyState, "「我的陪伴」三种状态一个都没出现 —— .task 没触发，影响力区把自己锁死了")
+        XCTAssertTrue(anyState, "「置顶」里成就那三种状态一个都没出现 —— .task 没触发，影响力区把自己锁死了")
 
         // Mock 环境下数据是齐的，应该落在正式内容那一态。
         XCTAssertTrue(card.exists, "Mock 数据齐全时应该渲染正式内容，实际落到了占位态")
