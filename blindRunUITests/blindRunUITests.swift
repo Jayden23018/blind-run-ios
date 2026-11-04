@@ -574,28 +574,11 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 12), "Volunteer profile should expose the registration entry")
         entry.tap()
 
-        XCTAssertTrue(app.descendants(matching: .any)["volunteerRegistrationStep.1"].firstMatch.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.descendants(matching: .any)["volunteerRegistrationStep.2"].firstMatch.exists)
+        // #699 拆屏：说明页 → 身份 → 经历（选填）→ 同意层 → 刷脸。逐屏断言在 `VolunteerRegistrationUITestSteps`。
         XCTAssertFalse(app.staticTexts["培训学习"].exists)
         XCTAssertFalse(app.buttons["加载测验"].exists)
         XCTAssertFalse(app.buttons["提交测验"].exists)
-
-        let nameField = app.textFields.element(boundBy: 0)
-        let phoneField = app.textFields.element(boundBy: 1)
-        let idCardField = app.textFields.element(boundBy: 2)
-        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-        nameField.tap()
-        nameField.typeText("测试志愿者")
-        phoneField.tap()
-        phoneField.typeText("13800000002")
-        dismissKeyboardIfPresent(app: app)
-        idCardField.tap()
-        idCardField.typeText("110101199001011234")
-        dismissKeyboardIfPresent(app: app)
-
-        let submit = app.buttons["提交身份信息"].firstMatch
-        XCTAssertTrue(waitForElementToBeEnabled(submit, timeout: 5))
-        submit.tap()
+        VolunteerRegistrationUITestSteps.submitIdentityAndExperience(app)
 
         // 身份证号与人脸要单独同意才发得出去（`c46da3c`，闸门在
         // `VolunteerRegistrationFlowView.handleBasicInfoSubmitTapped`）。UI 用例一律 `RESET_STATE`，
@@ -607,7 +590,7 @@ final class blindRunUITests: XCTestCase {
         )
         identityConsentAgree.tap()
 
-        let faceVerify = app.buttons["开始活体认证"].firstMatch
+        let faceVerify = app.buttons["volunteerFaceVerifyStartButton"].firstMatch
         XCTAssertTrue(faceVerify.waitForExistence(timeout: 8))
         faceVerify.tap()
 

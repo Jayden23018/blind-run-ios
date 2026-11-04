@@ -457,6 +457,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var runningExperience = ""
     @Published var hasGuidedBefore = false
     @Published var emergencyExperience = ""
+    @Published private(set) var basicInfoPage: BasicInfoPage = .intro
+    /// 说明页上点了「不想刷脸？改为上传身份材料」。拒绝人脸的接口要求二要素先通过，
+    /// 所以那一刻还调不了：先记下，身份提交通过后由 `syncStatusAfterBasicInfoSuccess` 代他调。
+    @Published private(set) var prefersAlternativeIdentityPath = false
 
     // Step 3
     @Published var activeCertifyId: String?
@@ -539,36 +543,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         self.cloudAuthVerifier = cloudAuthVerifier ?? DefaultCloudAuthVerifier()
     }
 
-    var canSubmitBasicInfo: Bool {
-        basicInfoValidationMessage == nil && !isLoading && !isRegistrationRateLimited
-    }
-
-    var isRegistrationRateLimited: Bool {
-        (registrationRetryAfterSeconds ?? 0) > 0
-    }
-
-    var registrationRateLimitMessage: String? {
-        guard let seconds = registrationRetryAfterSeconds, seconds > 0 else { return nil }
-        return "注册操作过于频繁，请在\(seconds)秒后重试。"
-    }
-
-    var basicInfoValidationMessage: String? {
-        if name.trimmed.isEmpty {
-            return "请填写姓名"
-        }
-        if !AppState.isValidMainlandPhone(phone.trimmed) {
-            return "请输入 11 位中国大陆手机号"
-        }
-        return identityInfoValidationMessage
-    }
-
-    var identityInfoValidationMessage: String? {
-        if idCardNumber.trimmed.range(of: Self.idCardNumberRegex, options: .regularExpression) == nil {
-            return "请输入18位有效身份证号码"
-        }
-        return nil
-    }
-
     var canStartFaceVerify: Bool {
         currentStep == .faceVerify &&
             !isFaceVerifyBusy &&
@@ -588,7 +562,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var faceVerifyButtonTitle: String {
-        activeCertifyId == nil ? "开始活体认证" : "重新开始活体认证"
+        activeCertifyId == nil ? "开始刷脸" : "重新开始刷脸"
     }
 
     var shouldPollRegistrationStatus: Bool {
@@ -639,6 +613,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     func applyRegistrationStatus(_ status: VolunteerRegistrationStatus) {
         let wasCompleted = isRegistrationCompleted
         let wasAwaitingCompletion = isAwaitingRegistrationCompletion
+        let previousStep = currentStep
         registrationStatus = status
         // 完成态**不能**立刻发布给 AppState：`isVolunteerProfileApproved` 一翻真，
         // ContentView 的 `rootRoutingKey` 就变，根路由会重跑 hydrate 并切到 .volunteerHome，
@@ -659,6 +634,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         currentStep = isAwaitingRegistrationCompletion ? .faceVerify : resolvedRegistrationStep(from: status)
         if currentStep != .faceVerify {
             canReturnToBasicInfoForIdentityEdit = false
+        }
+        // 后端把人从刷脸退回第 1 步（拒绝人脸时二要素不是 APPROVED）：要改的是身份那一屏，不是说明页。
+        if previousStep == .faceVerify, currentStep == .basicInfo {
+            basicInfoPage = .identity
         }
         if isRegistrationCompleted {
             faceVerifyMessage = nil
@@ -804,8 +783,14 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         case .basicInfo:
             speechService?.speak("身份信息已提交，请等待状态同步")
         case .faceVerify:
-            faceVerifyMessage = "身份核验通过，请开始活体认证"
-            speechService?.speak("身份核验通过，请开始活体认证")
+            // 说明页上选了「改为上传身份材料」：拒绝人脸的接口要求二要素先通过，现在才调得了。
+            // 不先播「请开始刷脸」—— `declineFaceVerify` 自己会播一句，两句连播后一句会切断前一句。
+            if prefersAlternativeIdentityPath {
+                await declineFaceVerify()
+                return
+            }
+            faceVerifyMessage = "身份核验通过，请开始刷脸"
+            speechService?.speak("身份核验通过，请开始刷脸")
         }
     }
 
@@ -1085,6 +1070,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     func returnToBasicInfoForIdentityEdit() {
         currentStep = .basicInfo
+        basicInfoPage = .identity
         activeCertifyId = nil
         faceVerifyMessage = nil
         errorMessage = nil
@@ -1099,7 +1085,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     /// 从替代路径回到人脸路径。后端明确允许（`DECLINED` 之后再调 `/init` 照常放行、不锁死）。
     ///
     /// **只把界面带回活体页，不自动发起认证** —— 一个叫「改用人脸认证」的按钮直接拉起
-    /// 阿里云活体 SDK 是突袭，对读屏用户尤其如此。让他到那一页读完说明再自己按「开始活体认证」。
+    /// 阿里云活体 SDK 是突袭，对读屏用户尤其如此。让他到那一页读完说明再自己按「开始刷脸」。
     ///
     /// 这个入口是**静态可达**的，不做弹窗、不做提示角标：GB/T 41819-2022 把「频繁提示以获取
     /// 人脸同意」列为反面做法（举例 48 小时内超过 1 次）。允许回头 ≠ 应当劝返。
@@ -1114,7 +1100,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         activeCertifyId = nil
         faceVerifyMessage = nil
         errorMessage = nil
-        speechService?.speak("已回到人脸认证页面，你可以按开始活体认证。")
+        speechService?.speak("已回到人脸认证页面，你可以按开始刷脸。")
     }
 
     func pollFaceVerifyResultUntilFinished(maxAttempts: Int = maxFaceResultPollingAttempts) async {
@@ -1236,13 +1222,66 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 }
 
+// MARK: - Basic Info Validation & Pages
+//
+// 与类本体同一文件的 extension：`private(set)` 的写入照常可见，只是不再撑长类体（SwiftLint 棘轮）。
+extension VolunteerRegistrationViewModel {
+    var canSubmitBasicInfo: Bool {
+        basicInfoValidationMessage == nil && !isLoading && !isRegistrationRateLimited
+    }
+
+    var isRegistrationRateLimited: Bool {
+        (registrationRetryAfterSeconds ?? 0) > 0
+    }
+
+    var registrationRateLimitMessage: String? {
+        guard let seconds = registrationRetryAfterSeconds, seconds > 0 else { return nil }
+        return "注册操作过于频繁，请在\(seconds)秒后重试。"
+    }
+
+    var basicInfoValidationMessage: String? {
+        if name.trimmed.isEmpty {
+            return "请填写姓名"
+        }
+        if !AppState.isValidMainlandPhone(phone.trimmed) {
+            return "请输入 11 位中国大陆手机号"
+        }
+        return identityInfoValidationMessage
+    }
+
+    var identityInfoValidationMessage: String? {
+        if idCardNumber.trimmed.range(of: Self.idCardNumberRegex, options: .regularExpression) == nil {
+            return "请输入18位有效身份证号码"
+        }
+        return nil
+    }
+
+    // MARK: - Basic Info Pages
+
+    func startIdentityEntry(prefersAlternativePath: Bool) {
+        prefersAlternativeIdentityPath = prefersAlternativePath
+        errorMessage = nil
+        basicInfoPage = .identity
+    }
+
+    func advanceToExperiencePage() {
+        guard identityPageMissingFields.isEmpty else { return }
+        errorMessage = nil
+        basicInfoPage = .experience
+    }
+
+    func returnToIdentityPage() {
+        errorMessage = nil
+        basicInfoPage = .identity
+    }
+}
+
 // MARK: - Registration Flow View
 
 struct VolunteerRegistrationFlowView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
     @StateObject private var progressViewModel = VolunteerReadinessProgressViewModel()
     /// 身份证号 + 人脸的**单独同意**（PIPL 第 29 条）。与盲人实名页同一套告知组件，
@@ -1255,9 +1294,14 @@ struct VolunteerRegistrationFlowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 结束页下面是五步进度，顶上再画「两步」就对不上了。
-            if !viewModel.isRegistrationCompleted {
-                stepIndicator
+            // 结束页下面是五步进度，顶上再画「三步」就对不上了；说明页还没开始走步骤，也不画。
+            if let stepNumber = viewModel.visibleStepNumber {
+                RegistrationStepHeader(
+                    stepNumber: stepNumber,
+                    onBack: viewModel.isOnExperiencePage ? { viewModel.returnToIdentityPage() } : nil,
+                    onSkip: viewModel.isOnExperiencePage ? { handleBasicInfoSubmitTapped() } : nil,
+                    isBusy: !viewModel.canSubmitBasicInfo
+                )
             }
 
             ScrollView {
@@ -1267,7 +1311,10 @@ struct VolunteerRegistrationFlowView: View {
                     } else {
                         switch viewModel.currentStep {
                         case .basicInfo:
-                            basicInfoStep
+                            VolunteerRegistrationBasicInfoContent(
+                                viewModel: viewModel,
+                                consentDeclinedNotice: consentDeclinedNotice
+                            )
                         case .faceVerify:
                             faceVerifyStep
                         }
@@ -1277,6 +1324,7 @@ struct VolunteerRegistrationFlowView: View {
                         Text(errorMessage)
                             .font(AppFonts.body())
                             .foregroundColor(AppColors.destructive)
+                            .fixedSize(horizontal: false, vertical: true)
                             .accessibilityLabel(errorMessage)
                     }
                     if let message = viewModel.registrationRateLimitMessage {
@@ -1287,13 +1335,38 @@ struct VolunteerRegistrationFlowView: View {
                             .accessibilityAddTraits(.updatesFrequently)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 24)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
+            }
+
+            if !viewModel.isRegistrationCompleted, viewModel.currentStep == .basicInfo {
+                VolunteerRegistrationBasicInfoBottomBar(
+                    viewModel: viewModel,
+                    hasConsentedToIdentity: hasConsentedToIdentity,
+                    onSubmit: handleBasicInfoSubmitTapped
+                )
             }
         }
-        .background(AppColors.background)
-        .navigationTitle("志愿者注册")
+        .background(viewModel.isRegistrationCompleted ? AppColors.background : Color.registrationPageBackground)
+        .navigationTitle(navigationTitleText)
         .navigationBarTitleDisplayMode(.inline)
+        // 经历那一屏的系统返回会直接离开注册、丢掉第 1 步刚填的内容；那一屏只给页内「上一步」。
+        .navigationBarBackButtonHidden(viewModel.isOnExperiencePage)
+        .toolbar {
+            // 手机号是数字键盘、没有回车键；不给这一枚，键盘收不起来，底部「下一步」一直被压着。
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+                    )
+                }
+                .accessibilityLabel("收起键盘")
+            }
+        }
+        .onChange(of: pageKey) { _ in
+            UIAccessibility.post(notification: .screenChanged, argument: nil)
+        }
         .task {
             viewModel.configure(appState: appState, speechService: speechService)
             await viewModel.loadStatus()
@@ -1343,104 +1416,30 @@ struct VolunteerRegistrationFlowView: View {
         Task { await viewModel.submitBasicInfo() }
     }
 
-    // MARK: - Step Indicator
+    // MARK: - Step 1（界面上拆成说明页 + 第 1、2 步，见 `VolunteerRegistrationBasicInfoPages.swift`）
 
-    private var stepIndicator: some View {
-        HStack(spacing: 4) {
-            ForEach(RegistrationStep.allCases, id: \.rawValue) { step in
-                VStack(spacing: 4) {
-                    // 已完成 / 未完成此前只有填充色不同，圈里那个白色序号在两种状态下都一样。
-                    // 与盲人端预约向导共用同一条「实心 / 空心」规则（见 `StepProgressDot`），
-                    // 不在这里再写一遍 —— 两处各写各的，漏改一处的表现是「某些页面的进度条
-                    // 对色觉障碍用户还是一排相同的圈」，而那种漏没人会发现。
-                    StepProgressDot(
-                        isReached: step.displayIndex <= viewModel.currentStep.displayIndex,
-                        differentiateWithoutColor: differentiateWithoutColor,
-                        diameter: 28,
-                        stepNumber: step.displayIndex
-                    )
-                    Text(step.title)
-                        .font(.caption2)
-                        .foregroundColor(step == viewModel.currentStep ? AppColors.primary : AppColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("volunteerRegistrationStep.\(step.displayIndex)")
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("步骤\(step.displayIndex) \(step.title)")
-                .accessibilityValue(step == viewModel.currentStep ? "当前步骤" : step.displayIndex < viewModel.currentStep.displayIndex ? "已完成" : "未完成")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(AppColors.secondaryBackground)
+    private var navigationTitleText: String {
+        guard let stepNumber = viewModel.visibleStepNumber else { return "志愿者注册" }
+        return "第 \(stepNumber) 步，共 \(RegistrationScreenMetrics.totalSteps) 步"
     }
 
-    // MARK: - Step 1
+    /// 换屏的标志。换屏时让读屏从页首重新读，不然焦点停在上一屏已经消失的按钮上。
+    private var pageKey: String {
+        "\(viewModel.isRegistrationCompleted)-\(viewModel.currentStep.rawValue)-\(String(describing: viewModel.basicInfoPage))"
+    }
 
-    private var basicInfoStep: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("基本信息与身份核验")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-
-            Text("请填写基本信息和身份证信息，姓名需与身份证一致。提交后系统会进行身份证二要素核验，通过后进入活体认证。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-
-            formField(title: "姓名", placeholder: "请输入真实姓名", text: $viewModel.name)
-            formField(title: "手机号", placeholder: "请输入手机号", text: $viewModel.phone)
-                .keyboardType(.phonePad)
-            formField(title: "身份证号码", placeholder: "请输入18位身份证号码", text: $viewModel.idCardNumber)
-                .keyboardType(.asciiCapable)
-            formField(title: "跑步经验", placeholder: "描述你的跑步经验（选填）", text: $viewModel.runningExperience)
-
-            Toggle("是否有陪跑经验", isOn: $viewModel.hasGuidedBefore)
-                .font(AppFonts.body())
-                .accessibilityLabel("是否有陪跑经验")
-
-            formField(title: "急救经验", placeholder: "描述你的急救经验（选填）", text: $viewModel.emergencyExperience)
-
-            if let rejection = viewModel.registrationStatus?.identityRejectionNotice {
-                rejectionNotice(rejection, identifier: "volunteerIdentityRejectionNotice")
-            }
-
-            if let validationMessage = viewModel.basicInfoValidationMessage {
-                Text(validationMessage)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel("无法提交身份信息：\(validationMessage)")
-            }
-
-            if let consentDeclinedNotice {
-                Text(consentDeclinedNotice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel(consentDeclinedNotice)
-                    .accessibilityIdentifier("volunteerIdentityConsentDeclinedNotice")
-            }
-
-            PrimaryButton("提交身份信息", isLoading: viewModel.isLoading) {
-                handleBasicInfoSubmitTapped()
-            }
-            .disabled(!viewModel.canSubmitBasicInfo)
-            .opacity(viewModel.canSubmitBasicInfo ? 1 : 0.45)
-            .accessibilityLabel("提交身份信息")
-            .accessibilityHint(viewModel.basicInfoValidationMessage ?? "提交基本信息和身份证二要素核验")
-        }
+    /// 同意层在提交前弹（`handleBasicInfoSubmitTapped`）。已经同意过的人不再说「会先请你同意」。
+    private var hasConsentedToIdentity: Bool {
+        consentStore.hasConsented(to: .volunteerIdentity, scope: consentScope)
     }
 
     // MARK: - Step 3
 
+    /// 按钮不像前两屏那样钉在底部：下面紧跟着「不同意人脸认证」那枚整行按钮，
+    /// 监管要求它与刷脸按钮同屏、同尺寸（见 `declineFaceVerifySection`），两枚要挨在一起。
     private var faceVerifyStep: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("活体认证")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-
-            Text("点击开始后将打开阿里云原生活体认证页面。请按页面提示完成动作，完成后系统会自动查询认证结果。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
+            VolunteerFaceVerifyTipsContent()
 
             if let faceVerifyMessage = viewModel.faceVerifyMessage,
                !viewModel.isAwaitingRegistrationCompletion {
@@ -1449,7 +1448,7 @@ struct VolunteerRegistrationFlowView: View {
                     .foregroundColor(AppColors.textPrimary)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppColors.secondaryBackground)
+                    .background(Color.registrationCardBackground)
                     .cornerRadius(8)
                     .accessibilityLabel(faceVerifyMessage)
             }
@@ -1458,7 +1457,7 @@ struct VolunteerRegistrationFlowView: View {
             if viewModel.faceVerifyMessage == nil,
                !viewModel.isAwaitingRegistrationCompletion,
                let rejection = viewModel.registrationStatus?.faceRejectionNotice {
-                rejectionNotice(rejection, identifier: "volunteerFaceRejectionNotice")
+                RegistrationRejectionNotice(text: rejection, identifier: "volunteerFaceRejectionNotice")
             }
 
             if viewModel.isAwaitingRegistrationCompletion {
@@ -1467,7 +1466,7 @@ struct VolunteerRegistrationFlowView: View {
                     .foregroundColor(AppColors.textPrimary)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppColors.secondaryBackground)
+                    .background(Color.registrationCardBackground)
                     .cornerRadius(8)
                     .accessibilityLabel(VolunteerReadinessCopy.awaitingCompletion)
                     .accessibilityAddTraits(.updatesFrequently)
@@ -1486,9 +1485,16 @@ struct VolunteerRegistrationFlowView: View {
                     Task { await viewModel.startFaceVerify() }
                 }
                 .disabled(!viewModel.canStartFaceVerify)
-                .opacity(viewModel.canStartFaceVerify ? 1 : 0.45)
                 .accessibilityLabel(viewModel.faceVerifyButtonTitle)
-                .accessibilityHint("发起认证并打开阿里云原生活体认证页面")
+                .accessibilityHint("打开刷脸页面，按提示做完动作后会自动查结果")
+                .accessibilityIdentifier("volunteerFaceVerifyStartButton")
+
+                // 定稿这里写「刷脸前会先请你同意」，但同意层其实在第 2 步提交前就弹过了，照实写。
+                RegistrationBottomHint(
+                    text: "点开始后会打开刷脸页面，按提示做完动作后会自动查结果",
+                    identifier: "volunteerFaceVerifyStartHint"
+                )
+                .accessibilityHidden(true)
 
                 if viewModel.canReturnToBasicInfoForIdentityEdit {
                     Button("返回修改身份信息") {
@@ -1665,33 +1671,6 @@ struct VolunteerRegistrationFlowView: View {
             registration: viewModel.registrationStatus,
             announces: false
         ) }
-    }
-
-    // MARK: - Helpers
-
-    private func rejectionNotice(_ text: String, identifier: String) -> some View {
-        Text(text)
-            .font(AppFonts.body())
-            .foregroundColor(AppColors.destructive)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier(identifier)
-    }
-
-    private func formField(title: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-            TextField(placeholder, text: text)
-                .font(AppFonts.body())
-                .padding()
-                .background(AppColors.secondaryBackground)
-                .cornerRadius(8)
-                .accessibilityLabel(title)
-                .accessibilityHint(placeholder)
-                .accessibilityIdentifier("volunteerRegistrationField.\(title)")
-        }
     }
 }
 

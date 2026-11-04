@@ -36,6 +36,7 @@ Claude Design 官方自认「没有版本历史」（[support.claude.com 原文]
 | 陪跑员 接单前进度页 + 首页滑块的不可派单态 | —（没有设计包，按 #658 定） | Current | 取代注册结束页「注册完成」与滑块禁用态 | 负责人 2026-11-02 口径（证书标准、团队后台审核）；OpenSpec `clarify-volunteer-readiness`。**绿色轨道只留给真的在接单** | `VolunteerReadinessProgressView.swift` `VolunteerAvailabilitySlider.swift` `VolunteerRegistrationFlowView.swift` | 只在模拟器临时壳里截过图（真实组件，非完整 App）。真机、VoiceOver 朗读顺序未验证 |
 | 举报、不再匹配此人、已拉黑的人（两端） | —（没有设计包，按 #524 定） | Current | 不取代任何页面，只在现有页面加入口 | #524 评论与 OpenSpec `add-user-report-and-block` | `UserReportView.swift` `CounterpartSafetyActions.swift` `BlockedUsersView.swift` | 跑步中页不放入口（§6 最克制）；未逐屏对照 |
 | 两端静音版视觉方案（首页 / 语音预约 / 订单页 / 跑步中 / 求助中心 / 角色选择） | `premium-restyle-20261101/`（`draft.html` + `draft.png`） | Superseded | 不取代任何现行设计：负责人 2026-11-01 否决。理由原话：「每一个都不如原来的那个排版好」「很多跟我这个实现都不是一个功能，就没必要去参考」「还不如我原来的版本」。现行界面不变。 | 现行各行的决定源不变 | 不实现 | 只留作否决记录，不得照此实现 |
+| 陪跑员注册实名 + 陪跑经历（说明页 → 身份 → 经历 → 刷脸） | `volunteer-identity-20261104/`（`identity-final.png`） | Current | 取代注册第 1 步「基本信息与身份核验」一整屏长表单与顶部两圈步骤指示 | 负责人 2026-11-04，原话见 PR 描述；OpenSpec `split-volunteer-identity-into-steps` | `VolunteerRegistrationFlowView.swift` `VolunteerRegistrationIdentityPages.swift` | 接口不变，经历在第 2 步「下一步」时与身份一起提交；刷脸页按钮不钉底（下面紧跟拒绝人脸整行按钮，监管要求同屏）；刷脸页无「上一步」（已提交，后端不收第二次）；按钮下说明照实写（同意层在第 2 步提交前弹） |
 
 ## 冲突裁决记录
 
