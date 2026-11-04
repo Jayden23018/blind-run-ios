@@ -92,6 +92,9 @@ enum AppConstants {
         /// 是实打实的打扰，而漏掉引导的代价有兜底：「设置 → 使用帮助」一直在。
         /// 测试不受影响：单测与 UI 测试都跑在独立 suite 上，`reset()` 整域清除。
         static let blindFirstRunHelpSeen = "com.aidrun.mvp.blindFirstRunHelpSeen"
+        /// 陪跑员使用帮助是否已经自动打开并看完（按了「知道了」）。理由同上：按设备记，登出不清，
+        /// 不进 `AppStatePersistenceKeys.all`。漏掉的兜底是「我的」页「使用帮助」。
+        static let volunteerFirstRunHelpSeen = "com.aidrun.mvp.volunteerFirstRunHelpSeen"
     }
 
     enum Defaults {

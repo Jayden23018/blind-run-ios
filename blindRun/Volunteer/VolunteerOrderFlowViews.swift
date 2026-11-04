@@ -2038,6 +2038,7 @@ struct VolunteerInServiceView: View {
         .onChange(of: viewModel.didCancelOrder) { cancelled in
             if cancelled, activeSheet == nil { dismiss() }
         }
+        .volunteerFirstRunHelp(status: viewModel.order?.status, isBlocked: activeSheet != nil)
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
             await trackViewModel.load(orderID: orderId, appState: appState)
@@ -3037,6 +3038,8 @@ struct VolunteerSettingsView: View {
                     .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
                 }
                 #endif
+
+                VolunteerHelpSettingsLink() // #656：第一次打开订单页会自动弹一次，这里是随时回看的入口
 
                 NavigationLink("关于") {
                     AboutAidRunView()

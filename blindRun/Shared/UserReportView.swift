@@ -203,7 +203,7 @@ struct UserReportView: View {
     }
 }
 
-/// 两端「我的」页共用的两行。「上报问题」在这里，账号停用的提示才有地方可指。
+/// 两端「我的」页共用的几行。「联系客服」在这里，账号停用的提示才有地方可指。
 struct AccountSafetySettingsRows: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
@@ -235,6 +235,15 @@ struct AccountSafetySettingsRows: View {
                 speakError: { speechService.speakError($0) }
             )
         }
+
+        // 提交之后唯一能看到回复的地方（`SUPPORT_TICKET_REPLIED` 推送错过了就只剩这里）。
+        NavigationLink {
+            MySupportTicketsView()
+        } label: {
+            rowTitle(SupportTicketCopy.myTicketsTitle)
+        }
+        .accessibilityHint(SupportTicketCopy.myTicketsHint)
+        .accessibilityIdentifier("mySupportTicketsSettingsEntry")
     }
 
     private func rowTitle(_ title: String) -> some View {

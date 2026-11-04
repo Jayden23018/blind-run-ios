@@ -138,17 +138,17 @@ struct SupportTicketView: View {
                         }
                     }
                     .accessibilityIdentifier("supportTicketSubmit")
+
+                    // 不放工具栏：系统会把工具栏文字按钮包成字号固定的玻璃按钮，审计判对比度与字号都不过，
+                    // 也够不到 64pt（记忆 sheet-toolbar-text-button-fails-audit，举报页 #524 同样处理）。
+                    FlowActionButton(UserSafetyCopy.close, style: .ghost) { dismiss() }
+                        .accessibilityIdentifier("supportTicketClose")
                 }
                 .padding(20)
                 .readableContentColumn()
             }
             .navigationTitle(SupportTicketCopy.title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-            }
         }
     }
 }

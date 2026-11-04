@@ -173,7 +173,7 @@ final class UserSafetyTests: XCTestCase {
         let server = "账号受限（来自后端的句子）"
         let message = serverError("ACCOUNT_SUSPENDED", server).localizedMessage
         XCTAssertTrue(message.hasPrefix(server), "后端原文一个字不动")
-        XCTAssertTrue(message.contains("上报问题"), "要说清去哪里找客服")
+        XCTAssertTrue(message.contains("「\(SupportTicketCopy.title)」"), "要说清去哪里找客服，且名字与「我的」页入口一致")
         XCTAssertTrue(message.contains("不是这次操作出了错"), "要说清为什么")
     }
 
