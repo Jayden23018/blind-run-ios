@@ -200,8 +200,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 每公里播报的判定。逻辑（含「首个样本只定基线」那条）在 `KilometerMilestoneTracker`。
     private var kilometerMilestones = KilometerMilestoneTracker()
 
-    private weak var appState: AppState?
-    private var speechService: SpeechService?
+    private(set) weak var appState: AppState? // `private(set)`：跑者结束陪跑在 `BlindRunnerFinish.swift`
+    private(set) var speechService: SpeechService?
     private weak var locationService: LocationService?
     /// 「播报我的位置」用。`weak` 与上面两个同理 —— ⚠️ 传进来的必须是被别处持有的实例
     /// （`AMapGeocodingService` 由 `blindRunApp` 的 `@StateObject` 持有），
@@ -1390,13 +1390,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // 走 `speak` 而**不是** `announce`：VoiceOver 关着时 announcement 是 no-op，
             // 而低视力用户同样需要听到这一句。
             //
-            // 阶段 1 留下的账②已结：排进「对方操作」档之后，此刻若正在播求助或警示，
-            // 这一句会**排队等它说完**而不是把它切断（`AnnouncementQueue.submit`）；
+            // 阶段 1 留下的账②已结：排进「对方操作」档，正在播求助或警示时**排队等它说完**（`AnnouncementQueue.submit`）；
             // 正在播的若是每公里或按需那两档，它照旧抢过来 —— 起跑这一刻比复述里程要紧。
-            self.speechService?.speak(
-                BlindRunCopy.runStartedAnnouncement, priority: .counterpartAction
-            )
+            self.speechService?.speak(BlindRunCopy.runStartedAnnouncement, priority: .counterpartAction)
             HapticFeedback.play(.success)
+            // #682：系统紧急 SOS 提醒排在「开始跑步」之后（低一档才排队，同档会切断它）。冷启动进跑步中不走这里。
+            self.speechService?.speak(BlindRunnerFinishCopy.systemSOSReminder, priority: .onDemand)
         }
     }
 
@@ -1713,7 +1712,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // 「触觉必须伴随一句话」那条不变量要的是**同生同灭**，这里两行紧挨着；
             // 而走 funnel 的版本在上面那种情况下是**话没播、震也不震**（整条返回 false）。
             self.speechService?.speak(
-                Self.completionAnnouncementText(kind, order: order, stats: self.trackStats),
+                Self.completionText(kind, order: order, stats: self.trackStats), // 跑者自己结束的单另说一句
                 priority: .counterpartAction
             )
             HapticFeedback.play(.strong)
@@ -2533,10 +2532,8 @@ struct BlindOrderStatusView: View {
         // 直接进倒计时。轻点那条先过二次确认，确认之后**也进同一个倒计时** ——
         // 发出求助只有一个出口，「两条路的行为哪里不一样」这个问题就不存在。
         //
-        // 🔴 `mode` 不能写死 `.cloudTrigger`。这一层 2026-09-16 起也从四步骨架的底部
-        // 打开，而那四态（匹配 / 约好 / 出发 / 汇合）一个都不是 `IN_PROGRESS` ——
-        // 云端求助在那里根本不可调，照走云端的后果是**屏幕零变化、一个字也不播**
-        // （详见 `EmergencySafetyCopy.hubLocalCallNotice`）。
+        // 🔴 `mode` 不能写死 `.cloudTrigger`。这一层 2026-09-16 起也从四步骨架的底部打开，而那四态
+        // 一个都不是 `IN_PROGRESS` —— 照走云端的后果是**屏幕零变化、一个字也不播**（见 `hubLocalCallNotice`）。
         .blindActiveRunSafetyHubSheet(
             isPresented: $showSafetyHub,
             mode: sosMode,
@@ -2560,7 +2557,9 @@ struct BlindOrderStatusView: View {
             onToggleLiveShare: toggleLiveShare,
             onLocalCall: { showEmergencyCallOptions = true },
             onTriggerEmergency: { showEmergencyConfirmation = true },
-            onTriggerEmergencyImmediately: startEmergencyCountdown
+            onTriggerEmergencyImmediately: startEmergencyCountdown,
+            // 只在 `.cloudTrigger`（跑步中、登录有效）出现，判据在 `SafetyHubRunSection`。
+            onEndRunWithoutVolunteer: { Task { await viewModel.finishBecauseVolunteerUnreachable() } }
         )
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
             startEmergencyCountdown()

@@ -29,6 +29,7 @@ struct SafetyHubPresentation: ViewModifier {
     let onLocalCall: () -> Void
     let onTriggerEmergency: () -> Void
     let onTriggerEmergencyImmediately: () -> Void
+    var onEndRunWithoutVolunteer: (() -> Void)?
 
     @State private var pendingAction: (() -> Void)?
 
@@ -50,7 +51,8 @@ struct SafetyHubPresentation: ViewModifier {
                 onLocalCall: { dismiss(then: onLocalCall) },
                 onTriggerEmergency: { dismiss(then: onTriggerEmergency) },
                 onTriggerEmergencyImmediately: { dismiss(then: onTriggerEmergencyImmediately) },
-                onDismiss: { dismiss(then: nil) }
+                onDismiss: { dismiss(then: nil) },
+                onEndRunWithoutVolunteer: onEndRunWithoutVolunteer.map { action in { dismiss(then: action) } }
             )
         }
     }
@@ -109,6 +111,8 @@ struct BlindSafetyHubView: View {
     /// 长按 3 秒 / 自定义无障碍动作：**跳过二次确认**，直接进倒计时。
     let onTriggerEmergencyImmediately: () -> Void
     let onDismiss: () -> Void
+    /// 「陪跑员联系不上，结束本次陪跑」确认之后（#660 B-4）。`nil` = 调用方不提供这个出口。
+    var onEndRunWithoutVolunteer: (() -> Void)?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AccessibilityFocusState private var emergencyFocused: Bool
@@ -148,18 +152,15 @@ struct BlindSafetyHubView: View {
         // 弹层打开后焦点落在求助上、且被限制在弹层内。`.isModal` 让 VoiceOver 不再往下面的
         // 订单页滑 —— 那一屏此刻在视觉上已经被盖住，能滑到就是「念得到但看不见」。
         .accessibilityAddTraits(.isModal)
-        // 🔴 `children: .contain` 不能省。`accessibilityIdentifier` 加在容器上会**向下覆盖**
-        // 每个子元素的标识符 —— 本仓库 2026-08-12 在 `OrderRouteReplayView` 上真机实测过：
-        // 那一页的按钮和三个统计格全部变成了容器的 id，按子元素 id 的查询永远落空。
-        // `guard.mjs` 的 `stale-ui-test-identifier` 查的是「App 侧有没有这个字面量」，
-        // 字面量确实在，**那条守卫挡不住这一层**。
+        // 🔴 `children: .contain` 不能省。`accessibilityIdentifier` 加在容器上会**向下覆盖**每个子元素的标识符
+        // （2026-08-12 `OrderRouteReplayView` 真机实测，按子元素 id 的查询永远落空）。
+        // `guard.mjs` 的 `stale-ui-test-identifier` 只查字面量在不在，**挡不住这一层**。
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindSafetyHub")
         .onAppear { emergencyFocused = true }
     }
 
-    /// 底部红胶囊高度 + 上下留白。上层内容按这个数让位，不靠 `Spacer()` ——
-    /// `Spacer()` 在 AX 档下会被内容压成 0，然后两块就叠在一起了。
+    /// 底部红胶囊高度 + 上下留白。上层内容按这个数让位，不靠 `Spacer()`（AX 档下会被压成 0，两块叠在一起）。
     private static let emergencyButtonReservedHeight: CGFloat = 132
 
     // MARK: 顶部
@@ -255,9 +256,8 @@ struct BlindSafetyHubView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(tiles, id: \.self) { option in
-                    // 🚩 identifier **逐条写成字面量**，不走一个返回 String 的 helper ——
-                    // `guard.mjs` 的 `stale-ui-test-identifier` 只认
-                    // `accessibilityIdentifier("字面量")`，算出来的它看不见，于是 UI 测试
+                    // 🚩 identifier **逐条写成字面量**，不走一个返回 String 的 helper —— `guard.mjs` 的
+                    // `stale-ui-test-identifier` 只认 `accessibilityIdentifier("字面量")`，算出来的它看不见，于是 UI 测试
                     // 引用这些 id 时会被判成「App 侧不存在」。而那条守卫正是本仓库
                     // 唯一挡得住 identifier 漂移的东西（CI 跑不了 XCTest）。
                     // 穷举 switch 顺带保证新增一项时编译器逼你给它一个 id。
@@ -287,6 +287,7 @@ struct BlindSafetyHubView: View {
             }
             .padding(.horizontal, 20)
             .readableContentColumn()
+            SafetyHubRunSection(mode: mode, onEndRun: onEndRunWithoutVolunteer) // 排在方格之后：拨号几格的位置不动
         }
     }
 
@@ -334,9 +335,8 @@ struct BlindSafetyHubView: View {
         .accessibilityHint(subtitle)
     }
 
-    /// 拨号一律经 `EmergencyDialer`：它拦掩码串、并只取数字位（掩码串 `138****1234` 若不拦会拼成
-/// `tel://1381234` —— 不是空号，是个可能真打给别人的七位号码，
-    /// 而空号在界面上看不出任何异常。`guard.mjs` 的 `raw-open-url` 会拦住绕开它的写法。
+    /// 拨号一律经 `EmergencyDialer`：它拦掩码串（`138****1234` 不拦会拼成 `tel://1381234`，一个可能真打给别人的
+    /// 七位号码）、并只取数字位。`guard.mjs` 的 `raw-open-url` 会拦住绕开它的写法。
     private func perform(_ option: BlindActiveRunSafetyHubOption) {
         switch option {
         case .contactVolunteer:

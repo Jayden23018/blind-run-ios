@@ -307,9 +307,9 @@ struct BlindOrderFlowPresentation: Equatable {
         case announceStats
         /// ④ 的主按钮：返回首页。
         ///
-        /// **不叫 `.finishOrder`，因为它不结束订单** —— 结束权只在陪跑员手上
-        /// （后端 `finishOrder` 走 `loadForVolunteer`，盲人 token 必然 403）。
-        /// 这一枚按下去只是离开这一页，订单早已是 `COMPLETED`。
+        /// **不叫 `.finishOrder`，因为它不结束订单** —— 这一枚按下去只是离开这一页，订单早已是 `COMPLETED`。
+        /// 跑者能结束订单的唯一入口是求助中心的「陪跑员联系不上，结束本次陪跑」（后端 #346，
+        /// 陪跑员掉线 5 分钟后放行），见 `BlindRunnerFinish.swift`。
         case done
 
         var title: String {
