@@ -185,25 +185,39 @@ struct VolunteerBadgeMedal: View {
         isEarned ? VolunteerMedalPalette.ink(category) : AppColors.Flow.decorMutedInk
     }
 
-    @ViewBuilder
+    /// 刻字画进 `Canvas`，是图的一部分而不是文字元素：奖章刻字的颜色是材质（灰线框上的浅灰、
+    /// 金章上的金字），不是要人读的正文；作为 `Text` 时真机审计逐个报对比度与「改不了字号」。
+    /// 名字和状态由外面那一格的文字与读屏标签说。
     private var engravingView: some View {
-        if let engraving {
-            VStack(spacing: 0) {
-                Text(engraving)
-                    .font(.system(size: size * (engraving.count <= 2 ? 0.34 : 0.27), weight: .heavy, design: .rounded))
+        Canvas { context, canvasSize in
+            let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2 + size * 0.02)
+            if let engraving {
+                let big = context.resolve(
+                    Text(engraving)
+                        .font(.system(size: size * (engraving.count <= 2 ? 0.34 : 0.27), weight: .heavy, design: .rounded))
+                        .foregroundColor(ink)
+                )
                 if let engravingUnit {
-                    Text(engravingUnit)
-                        .font(.system(size: size * 0.12, weight: .bold))
+                    let unit = context.resolve(
+                        Text(engravingUnit)
+                            .font(.system(size: size * 0.12, weight: .bold))
+                            .foregroundColor(ink)
+                    )
+                    context.draw(big, at: CGPoint(x: center.x, y: center.y - size * 0.06), anchor: .center)
+                    context.draw(unit, at: CGPoint(x: center.x, y: center.y + size * 0.17), anchor: .center)
+                } else {
+                    context.draw(big, at: center, anchor: .center)
                 }
+            } else if let glyph {
+                var symbol = context.resolve(Image(systemName: glyph))
+                symbol.shading = .color(ink)
+                let side = size * 0.36
+                context.draw(
+                    symbol,
+                    in: CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+                )
             }
-            .foregroundColor(ink)
-            .minimumScaleFactor(0.5)
-            .lineLimit(1)
-            .offset(y: size * 0.02)
-        } else if let glyph {
-            Image(systemName: glyph)
-                .font(.system(size: size * 0.36, weight: .semibold))
-                .foregroundColor(ink)
         }
+        .frame(width: size, height: size)
     }
 }

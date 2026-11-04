@@ -30,6 +30,8 @@ struct VolunteerBadgeCatalogEntry: Equatable {
     /// 网格与弹层上的短名字。照批准的稿子写（「陪跑 10 次」），不用后端的长名字
     /// （「陪跑达人 · 10 次」）：一排四枚的格子放不下，且已获得与未获得要用同一套叫法。
     let name: String
+    /// 网格格子下面的名字。半宽卡里放不下「陪伴 10 小时」，稿子写「10 小时」；类别标题已经说了是陪伴时长。
+    var gridName: String?
     let category: VolunteerBadgeCategory
     /// 奖章正中的大字（「10」）。为 nil 时画 `glyph`。
     let engraving: String?
@@ -74,12 +76,12 @@ enum VolunteerBadgeCatalog {
             condition: "累计完成 100 次陪跑服务。"
         ),
         VolunteerBadgeCatalogEntry(
-            code: "HOURS_10", name: "陪伴 10 小时", category: .hours,
+            code: "HOURS_10", name: "陪伴 10 小时", gridName: "10 小时", category: .hours,
             engraving: "10", engravingUnit: "小时", glyph: nil,
             condition: "累计陪伴满 10 小时。"
         ),
         VolunteerBadgeCatalogEntry(
-            code: "HOURS_50", name: "陪伴 50 小时", category: .hours,
+            code: "HOURS_50", name: "陪伴 50 小时", gridName: "50 小时", category: .hours,
             engraving: "50", engravingUnit: "小时", glyph: nil,
             condition: "累计陪伴满 50 小时。"
         ),
@@ -123,6 +125,8 @@ enum VolunteerBadgeState: Equatable {
 struct VolunteerBadgeItem: Identifiable, Equatable {
     let id: String
     let name: String
+    /// 网格上的短名字；读屏和弹层仍用 `name`。
+    var gridName: String
     let category: VolunteerBadgeCategory
     let engraving: String?
     let engravingUnit: String?
@@ -179,6 +183,7 @@ enum VolunteerBadgeBoard {
             return VolunteerBadgeItem(
                 id: entry.code,
                 name: entry.name,
+                gridName: entry.gridName ?? entry.name,
                 category: entry.category,
                 engraving: entry.engraving,
                 engravingUnit: entry.engravingUnit,
@@ -191,10 +196,13 @@ enum VolunteerBadgeBoard {
         // 🔴 未知 code 不许丢：服务端说你拿到了，这一页就要有它（AGENTS.md「枚举遇未知值不许整条崩」）。
         let unknown = unlocked
             .filter { VolunteerBadgeCatalog.entry(for: $0.code) == nil }
-            .map { badge in
+            .enumerated()
+            .map { index, badge in
                 VolunteerBadgeItem(
-                    id: "other.\(badge.id)",
+                    // 带上下标：两条同名的未知徽章也不会撞 id。
+                    id: "other.\(index).\(badge.id)",
                     name: badge.displayName,
+                    gridName: badge.displayName,
                     category: .other,
                     engraving: nil,
                     engravingUnit: nil,
@@ -235,7 +243,10 @@ enum VolunteerBadgeBoard {
         }
         let shown = unit.display(current)
         let goal = unit.display(target)
-        var detail = "已完成 \(shown) \(unit.suffix)，共需 \(goal) \(unit.suffix)"
+        // 🔴 评价那枚是双条件，「共需 10 条」会被读成「够 10 条就能拿到」，所以只说已有多少。
+        var detail = unit == .ratings
+            ? "已有 \(shown) / \(goal) \(unit.suffix)"
+            : "已完成 \(shown) \(unit.suffix)，共需 \(goal) \(unit.suffix)"
         if next.isBlockedByRating {
             detail += "，\(VolunteerNextBadgeDto.ratingShortNote)"
         }

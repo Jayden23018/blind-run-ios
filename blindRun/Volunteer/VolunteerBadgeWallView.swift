@@ -145,7 +145,9 @@ private struct VolunteerBadgeGrid: View {
     @ScaledMetric(relativeTo: .body) private var medalSize: CGFloat = 56
 
     var body: some View {
-        let perRow = dynamicTypeSize.isAccessibilitySize ? 1 : min(4, max(1, items.count))
+        // 默认字号一行 4 枚；调大一档起一行 2 枚（4 枚时第 4 列的名字放不下）；无障碍字号一行 1 枚。
+        let maxPerRow = dynamicTypeSize.isAccessibilitySize ? 1 : (dynamicTypeSize >= .xLarge ? 2 : 4)
+        let perRow = min(maxPerRow, max(1, items.count))
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: perRow),
             spacing: 14
@@ -172,7 +174,7 @@ private struct VolunteerBadgeCell: View {
     var body: some View {
         VStack(spacing: 6) {
             VolunteerBadgeMedal(item: item, size: medalSize)
-            Text(item.name)
+            Text(item.gridName)
                 .font(.footnote.weight(.semibold))
                 .foregroundColor(AppColors.textPrimary)
                 .multilineTextAlignment(.center)
@@ -205,45 +207,43 @@ private struct VolunteerBadgeDetailSheet: View {
     @ScaledMetric(relativeTo: .largeTitle) private var medalSize: CGFloat = 150
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 14) {
-                    VolunteerBadgeMedal(item: item, size: medalSize)
-                        .scaleEffect(hasAppeared ? 1 : 0.6)
-                        .rotation3DEffect(.degrees(hasAppeared ? 0 : 180), axis: (x: 0, y: 1, z: 0))
-                        .padding(.top, 12)
-                    Text(item.name)
-                        .font(AppFonts.largeTitle())
-                        .foregroundColor(AppColors.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-                    Text(item.state.isEarned ? VolunteerSecondaryPagesCopy.badgeDetailEarnedText : VolunteerSecondaryPagesCopy.badgeDetailLockedText)
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(item.state.isEarned ? AppColors.success : AppColors.textSecondary)
-                    Text(item.detailLine)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if case .inProgress(let fraction, _, _) = item.state {
-                        VolunteerSecondaryProgressBar(fraction: fraction, tint: VolunteerSecondaryTint.blue)
-                            .frame(maxWidth: 260)
-                            .padding(.top, 4)
-                    }
+        ScrollView {
+            VStack(spacing: 14) {
+                VolunteerBadgeMedal(item: item, size: medalSize)
+                    .scaleEffect(hasAppeared ? 1 : 0.6)
+                    .rotation3DEffect(.degrees(hasAppeared ? 0 : 180), axis: (x: 0, y: 1, z: 0))
+                    .padding(.top, 12)
+                Text(item.name)
+                    .font(AppFonts.largeTitle())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(item.state.isEarned ? VolunteerSecondaryPagesCopy.badgeDetailEarnedText : VolunteerSecondaryPagesCopy.badgeDetailLockedText)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(item.state.isEarned ? AppColors.success : AppColors.textSecondary)
+                Text(item.detailLine)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                if case .inProgress(let fraction, _, _) = item.state {
+                    VolunteerSecondaryProgressBar(fraction: fraction, tint: VolunteerSecondaryTint.blue)
+                        .frame(maxWidth: 260)
+                        .padding(.top, 4)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-                .frame(maxWidth: .infinity)
+                // 关闭放页内：iOS 27 把工具栏文字按钮包成玻璃胶囊，审计报对比度与改不了字号
+                // （记忆 sheet-toolbar-text-button-fails-audit）。
+                FlowActionButton(VolunteerSecondaryPagesCopy.badgeDetailClose, style: .ghost, action: close)
+                    .accessibilityIdentifier("volunteerBadgeDetailClose")
+                    .padding(.top, 12)
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(VolunteerSecondaryPagesCopy.badgeDetailClose, action: close)
-                        .accessibilityIdentifier("volunteerBadgeDetailClose")
-                }
-            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity)
         }
-        .presentationDetents([.medium, .large])
+        .background(AppColors.Flow.surface.ignoresSafeArea())
+        .presentationDetents([.large])
         .accessibilityIdentifier("volunteerBadgeDetailSheet")
         .onAppear {
             withAnimation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.75)) {

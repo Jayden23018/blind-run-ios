@@ -117,7 +117,7 @@ final class VolunteerSecondaryPagesTests: XCTestCase {
         XCTAssertEqual(VolunteerSecondaryPagesCopy.highRatedStatus(runsNext), "未获得 · 评价条数和评分都达到要求后获得。")
 
         let ratedNext = Self.achievements(badges: [], next: VolunteerNextBadgeDto(code: "HIGH_RATED", name: nil, current: 7, target: 10))
-        XCTAssertEqual(VolunteerSecondaryPagesCopy.highRatedStatus(ratedNext), "未获得 · 已完成 7 条评价，共需 10 条评价")
+        XCTAssertEqual(VolunteerSecondaryPagesCopy.highRatedStatus(ratedNext), "未获得 · 已有 7 / 10 条评价")
     }
 
     func testRatingLevelsFollowTheContract() {

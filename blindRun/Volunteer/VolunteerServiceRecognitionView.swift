@@ -51,6 +51,11 @@ struct VolunteerServiceRecognitionView: View {
         .accessibilityIdentifier("volunteerServiceRecognitionView")
         .task {
             viewModel.configure(appState: appState)
+            // 月度只拉一次：从评分页、徽章页返回时 `.task` 会再跑，不再多发 6 个请求。
+            guard trend.months == nil else {
+                await viewModel.load()
+                return
+            }
             // 两路互不依赖：成就是主体，月度是附加（拉不到只是不画图）。
             async let main: Void = viewModel.load()
             async let months: Void = trend.load(service: appState.runRecord)
@@ -206,11 +211,17 @@ private struct VolunteerBadgeSummaryCard: View {
     let achievements: VolunteerAchievementsResponse
     @ScaledMetric(relativeTo: .body) private var medalSize: CGFloat = 44
 
-    private var items: [VolunteerBadgeItem] { VolunteerBadgeBoard.items(achievements) }
-    private var earned: [VolunteerBadgeItem] { items.filter { $0.state.isEarned } }
-    private var nextItem: VolunteerBadgeItem? {
-        guard let code = achievements.nextBadge?.code else { return nil }
-        return items.first { $0.id == code }
+    private let items: [VolunteerBadgeItem]
+    private let earned: [VolunteerBadgeItem]
+    private let nextItem: VolunteerBadgeItem?
+
+    /// 徽章墙只算一次，body 里反复读的是存下来的结果。
+    init(achievements: VolunteerAchievementsResponse) {
+        self.achievements = achievements
+        let items = VolunteerBadgeBoard.items(achievements)
+        self.items = items
+        earned = items.filter { $0.state.isEarned }
+        nextItem = achievements.nextBadge?.code.flatMap { code in items.first { $0.id == code } }
     }
 
     var body: some View {

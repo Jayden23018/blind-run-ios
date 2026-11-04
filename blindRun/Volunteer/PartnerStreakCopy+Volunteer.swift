@@ -87,6 +87,18 @@ extension PartnerStreakCopy {
     static let detailOptedOutFootnote = "你已退出这位跑者的固定搭档。"
 }
 
+/// 列表里的一行带上稳定身份：有 userId 用 userId，已注销（nil）才退回下标。
+struct KeyedPartnerRow: Identifiable {
+    let index: Int
+    let row: PartnerRow
+
+    var id: String { row.userId.map { "user.\($0)" } ?? "offset.\(index)" }
+
+    static func make(_ rows: [PartnerRow]) -> [KeyedPartnerRow] {
+        rows.enumerated().map { KeyedPartnerRow(index: $0.offset, row: $0.element) }
+    }
+}
+
 /// 搭档详情页火花卡的格子：画 `bestWeeks` 格、点亮 `currentWeeks` 格。
 ///
 /// ponytail: 格子数等于最好周数，不封顶。连续 52 周以上的一对会画出几行格子，真出现了再改成「满一年折一行」。

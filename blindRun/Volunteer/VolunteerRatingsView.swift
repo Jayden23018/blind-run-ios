@@ -125,6 +125,7 @@ struct VolunteerRatingsView: View {
 private struct VolunteerRatingAverageCard: View {
     let average: Double?
     let total: Int?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VolunteerSecondaryCard {
@@ -135,15 +136,17 @@ private struct VolunteerRatingAverageCard: View {
                     tint: VolunteerSecondaryTint.rating,
                     meta: average == nil ? nil : VolunteerSecondaryPagesCopy.ratingCaption(average: average, total: total)
                 )
-                HStack(alignment: .firstTextBaseline) {
-                    VolunteerValueText(
-                        parts: [(VolunteerSecondaryPagesCopy.ratingValue(average), VolunteerSecondaryPagesCopy.ratingScale)],
-                        numberSize: 44,
-                        unitSize: 20
-                    )
-                    Spacer(minLength: 8)
-                    if let average {
-                        stars(average)
+                // 大字号下分数和五颗星上下排：并排时星星宽度不变，会把分数挤没（AX5 实测）。
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        score
+                        if let average { stars(average) }
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline) {
+                        score
+                        Spacer(minLength: 8)
+                        if let average { stars(average) }
                     }
                 }
                 Text(average == nil ? "还没有收到评价。\(VolunteerSecondaryPagesCopy.ratingRule)" : VolunteerSecondaryPagesCopy.ratingRule)
@@ -155,6 +158,14 @@ private struct VolunteerRatingAverageCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(VolunteerSecondaryPagesCopy.ratingsSpoken(average: average, total: total))
         .accessibilityIdentifier("volunteerRatingsAverage")
+    }
+
+    private var score: some View {
+        VolunteerValueText(
+            parts: [(VolunteerSecondaryPagesCopy.ratingValue(average), VolunteerSecondaryPagesCopy.ratingScale)],
+            size: .hero
+        )
+        .layoutPriority(1)
     }
 
     /// 五颗星，按平均分四舍五入点亮。纯视觉，分数由上面的数字和读屏那句说。

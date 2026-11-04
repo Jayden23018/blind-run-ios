@@ -83,13 +83,14 @@ struct VolunteerPartnerAvatar: View {
 /// 数据只有列表传进来的这一行，不另拉接口；退出与拉黑也交回列表去做（列表是唯一的数据源）。
 struct VolunteerPartnerDetailView: View {
     let row: PartnerRow
-    /// 返回是否成功。成功后这一页关掉，结果显示在列表顶部。
-    let optOut: @MainActor @Sendable () async -> Bool
+    /// 成功返回 nil：这一页关掉，结果显示在列表顶部。失败返回原因，显示在退出按钮下面。
+    let optOut: @MainActor @Sendable () async -> String?
     let onBlocked: @MainActor @Sendable () async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var showsOptOutConfirm = false
     @State private var isOptingOut = false
+    @State private var optOutError: String?
 
     private var displayName: String { row.displayName(fallback: PartnerStreakCopy.unknownBlindName) }
     private var spokenName: String { row.spokenName(fallback: PartnerStreakCopy.unknownBlindName) }
@@ -119,6 +120,8 @@ struct VolunteerPartnerDetailView: View {
                         onBlocked: { await onBlocked() },
                         presentation: .groupedRows
                     )
+                    // 换了人就换一份状态，「已不再匹配」不许串到下一位身上。
+                    .id(target.userId)
                     .padding(.top, 8)
                 }
 
@@ -133,6 +136,8 @@ struct VolunteerPartnerDetailView: View {
         // 名字画在内容里而不是导航栏：导航栏标题会被读屏原样念成「李星号」。
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // 二级页不挂标签栏（稿子没有；服务成就页同一条，末行曾被标签栏盖住半行）。
+        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerPartnerDetailView")
         // 🔴 二次确认必须把后果写进正文，不能只给「确定 / 取消」——
@@ -184,6 +189,14 @@ struct VolunteerPartnerDetailView: View {
             .accessibilityIdentifier("volunteerPartnerOptOutButton")
             .padding(.top, 8)
 
+            if let optOutError {
+                Text(optOutError)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("volunteerPartnerOptOutError")
+            }
             VolunteerSecondaryFootnote(text: PartnerStreakCopy.detailOptOutFootnote)
         } else if row.hasOptedOut {
             VolunteerSecondaryFootnote(text: PartnerStreakCopy.detailOptedOutFootnote)
@@ -198,7 +211,11 @@ struct VolunteerPartnerDetailView: View {
     private func confirmOptOut() async {
         isOptingOut = true
         defer { isOptingOut = false }
-        if await optOut() {
+        if let error = await optOut() {
+            optOutError = error
+            UIAccessibility.post(notification: .announcement, argument: error)
+        } else {
+            optOutError = nil
             dismiss()
         }
     }

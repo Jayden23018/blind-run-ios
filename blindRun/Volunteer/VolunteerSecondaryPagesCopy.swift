@@ -19,8 +19,9 @@ enum VolunteerSecondaryPagesCopy {
         return completed > 0 ? "\(head)，共陪跑 \(completed) 次" : "\(head)，还没有完成的陪跑"
     }
 
-    static func averageLineLabel(_ minutes: Int64) -> String {
-        "前 \(VolunteerServiceTrend.previousMonthCount) 个月平均 \(VolunteerServiceTrend.duration(minutes))"
+    /// 柱状图下面那行：「虚线：前 5 个月平均 1 小时 32 分钟」。
+    static func averageLegend(_ minutes: Int64) -> String {
+        "虚线：前 \(VolunteerServiceTrend.previousMonthCount) 个月平均 \(VolunteerServiceTrend.duration(minutes))"
     }
 
     static var previousAverageLabel: String {

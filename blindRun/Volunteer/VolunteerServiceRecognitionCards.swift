@@ -31,8 +31,7 @@ struct VolunteerServiceDurationCard: View {
                     )
                     VolunteerValueText(
                         parts: VolunteerServiceTrend.durationParts(minutes),
-                        numberSize: 34,
-                        unitSize: 17
+                        size: .hero
                     )
                     Text(VolunteerSecondaryPagesCopy.durationCaption(completed: achievements.completedCount))
                         .font(.subheadline)
@@ -83,13 +82,21 @@ private struct VolunteerServiceBarChart: View {
 
                 HStack(spacing: 10) {
                     ForEach(months) { month in
+                        // 不限一行、不缩字：大字号下「11月」折成两行，也不截断（审计 Text clipped）。
                         Text(month.label)
                             .font(.caption)
                             .foregroundColor(AppColors.textSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity)
                     }
+                }
+                if let average, average > 0 {
+                    Text(VolunteerSecondaryPagesCopy.averageLegend(average))
+                        .font(.caption)
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -111,25 +118,16 @@ private struct VolunteerServiceBarChart: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 虚线 + 线上那行小字「前 5 个月平均 1 小时 32 分钟」。
+    /// 虚线：前 5 个月平均。说明文字不压在图上，放在月份下面（大字号下压在图上会盖住柱子）。
     private func averageLine(_ average: Int64) -> some View {
         let fraction = Double(average) / Double(peak)
         return GeometryReader { proxy in
-            let y = proxy.size.height - proxy.size.height * 0.82 * fraction
-            VStack(alignment: .leading, spacing: 2) {
-                Text(VolunteerSecondaryPagesCopy.averageLineLabel(average))
-                    .font(.caption)
-                    .foregroundColor(AppColors.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Path { path in
-                    path.move(to: .zero)
-                    path.addLine(to: CGPoint(x: proxy.size.width, y: 0))
-                }
-                .stroke(AppColors.textSecondary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                .frame(height: 1)
+            Path { path in
+                let y = proxy.size.height - proxy.size.height * 0.82 * fraction
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: proxy.size.width, y: y))
             }
-            .offset(y: max(0, y - 18))
+            .stroke(AppColors.textSecondary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         }
     }
 }
