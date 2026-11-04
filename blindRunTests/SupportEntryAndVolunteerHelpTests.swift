@@ -49,6 +49,30 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
         XCTAssertFalse(ticket.hasReply)
     }
 
+    /// 状态说已回复而回复是空白：一行里不能既写「已回复」又写「暂时没有回复」。
+    func testRepliedStatusWithoutReplyTextReadsAsNoReply() {
+        let ticket = SupportTicketSummary(id: 4, content: "x", status: .replied, csReply: nil)
+        XCTAssertEqual(SupportTicketCopy.displayStatus(ticket), "已收到")
+        let label = SupportTicketCopy.rowAccessibilityLabel(ticket, time: nil)
+        XCTAssertFalse(label.contains("已回复"), label)
+        XCTAssertTrue(label.contains(SupportTicketCopy.noReplyYet))
+    }
+
+    /// 下拉刷新失败不能把已显示的工单换成失败页。
+    func testRefreshFailureKeepsTheTicketsAlreadyShown() async {
+        let safety = FakeSafetyService()
+        let ticket = SupportTicketSummary(id: 1, content: "x", status: .replied, csReply: "回复")
+        safety.myTicketsResult = .success([ticket])
+        let appState = AppState(safety: safety)
+        let viewModel = MySupportTicketsViewModel()
+        await viewModel.load(appState: appState)
+
+        safety.myTicketsResult = .failure(APIError.unknown(statusCode: 500))
+        await viewModel.load(appState: appState)
+
+        XCTAssertEqual(viewModel.phase, .loaded([ticket]))
+    }
+
     func testMissingContentArrayIsAnEmptyList() throws {
         XCTAssertEqual(try decodePage("{}").content, [])
     }
@@ -176,6 +200,7 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
         for name in [
             VolunteerOrderFlowCopy.confirmDeparture,
             VolunteerOrderFlowCopy.enRoute,
+            VolunteerOrderFlowCopy.alreadyDeparted,
             VolunteerOrderFlowCopy.arrived,
             VolunteerOrderFlowCopy.startRun,
             VolunteerFinishLongPress.title
@@ -194,6 +219,7 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
         XCTAssertTrue(help.contains("不会立刻有人联系你"))
         XCTAssertTrue(help.contains("「\(SupportTicketCopy.title)」"))
         XCTAssertTrue(help.contains("「\(VolunteerRunCopy.navButtonLabel)」"), "求助入口的名字要和跑步页上的一致")
+        XCTAssertFalse(help.contains("紧急联系人"), "陪跑员的本地拨号弹窗只列 120 和 110，没有联系人这一项：\(help)")
         for banned in ["已通知", "已发出", "已送达", "回拨", "会有人来", "马上有人"] {
             XCTAssertFalse(helpText.contains(banned), "帮助页出现「\(banned)」：App 不得宣称有人已被通知或会回拨")
         }

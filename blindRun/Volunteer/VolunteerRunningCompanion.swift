@@ -40,8 +40,7 @@ enum VolunteerRunCopy {
     static let ringRowSubtitle = "走散时用 · 请对方原地停下，你循着铃声找过去"
     static let ringingRowTitle = "正在响铃…"
     static let supportRowTitle = "联系客服"
-    /// 「不是紧急求助」打头：它和紧急按钮并排，工单不是即时通道（同 `SupportTicketCopy.notice` 的顾虑）。
-    /// 🔴 不承诺回复时限，不写「尽快」「联系你」（负责人 2026-11-04 定；后端 #899 还没定谁来看工单）。
+    /// 「不是紧急求助」打头：它和紧急按钮并排，工单不是即时通道（同 `SupportTicketCopy.notice`）。🔴 不承诺回复时限（负责人 2026-11-04）。
     static let supportRowSubtitle = "不是紧急求助 · 不是即时通道，会有工作人员查看"
     static let supportSubmittedTitle = "已提交"
     static let supportSubmitted = "会有工作人员查看，不是即时通道"

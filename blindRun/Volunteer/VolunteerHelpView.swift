@@ -28,7 +28,7 @@ enum VolunteerFirstRunHelp {
             body: """
             订单页每一步只会出现当前该按的那个主按钮。\
             提前几天约好的单，开跑前要先按「\(VolunteerOrderFlowCopy.confirmDeparture)」，没有确认的单会转给别的陪跑员。\
-            出门时按「\(VolunteerOrderFlowCopy.enRoute)」，到了集合点按「\(VolunteerOrderFlowCopy.arrived)」。\
+            出门时按「\(VolunteerOrderFlowCopy.enRoute)」（时间还没到时按钮叫「\(VolunteerOrderFlowCopy.alreadyDeparted)」，作用一样），到了集合点按「\(VolunteerOrderFlowCopy.arrived)」。\
             见到跑者、握好引导绳之后，再按「\(VolunteerOrderFlowCopy.startRun)」。\
             跑完后长按「\(VolunteerFinishLongPress.title)」结束。
             """
@@ -51,7 +51,7 @@ enum VolunteerFirstRunHelp {
             body: """
             现在有危险，直接拨打 120 或 110。\
             跑步进行中，订单页右上角的「\(VolunteerRunCopy.navButtonLabel)」里有紧急求助：长按 3 秒会直接发出，轻点会先让你确认一次。\
-            只有跑步进行中，求助才会发到云端。其他时候，订单页的求助按钮只让你选择拨打 120、110 或紧急联系人，App 不会代你发送求助。\
+            只有跑步进行中，求助才会发到云端。其他时候，订单页的求助按钮只让你选择拨打 120 或 110，App 不会代你发送求助。\
             「\(SupportTicketCopy.title)」在「我的」页，用来反馈订单和账号的问题。它不是求助入口，也不是即时通道，不会立刻有人联系你。
             """
         )
@@ -133,6 +133,52 @@ struct VolunteerHelpView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .accessibilityIdentifier("volunteerHelpScrollView")
+    }
+}
+
+// MARK: - 挂载
+
+/// 设置页的入口行。单独成一个视图：`VolunteerOrderFlowViews.swift` 已经超出 SwiftLint 基线，不再往里加行。
+struct VolunteerHelpSettingsLink: View {
+    var body: some View {
+        NavigationLink("使用帮助") {
+            VolunteerHelpView(isFirstRun: false)
+        }
+        .accessibilityLabel("使用帮助")
+        .accessibilityHint("一单怎么走完，遇到事找哪里")
+        .accessibilityIdentifier("volunteerSettingsHelpLink")
+    }
+}
+
+/// 订单页第一次出现（出发之前的两态）时自动弹一次使用帮助。判定在 `VolunteerFirstRunHelpPolicy`。
+///
+/// `isBlocked`：别的弹层正开着时不抢，等下一次状态变化再判。
+/// 标志只在帮助页按下「知道了」时写；下拉关闭不写，下次还会给他。
+private struct VolunteerFirstRunHelpModifier: ViewModifier {
+    @EnvironmentObject private var appState: AppState
+    let status: RunOrderStatus?
+    let isBlocked: Bool
+    @State private var showsHelp = false
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: status) {
+                guard !isBlocked,
+                      VolunteerFirstRunHelpPolicy.shouldAutoOpen(
+                          status: status,
+                          alreadySeen: appState.didSeeVolunteerFirstRunHelp
+                      ) else { return }
+                showsHelp = true
+            }
+            .sheet(isPresented: $showsHelp) {
+                NavigationStack { VolunteerHelpView(isFirstRun: true) }
+            }
+    }
+}
+
+extension View {
+    func volunteerFirstRunHelp(status: RunOrderStatus?, isBlocked: Bool) -> some View {
+        modifier(VolunteerFirstRunHelpModifier(status: status, isBlocked: isBlocked))
     }
 }
 

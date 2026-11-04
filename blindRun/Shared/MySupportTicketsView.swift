@@ -19,12 +19,18 @@ final class MySupportTicketsViewModel: ObservableObject {
         do {
             phase = .loaded(try await appState.safety.myTickets())
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) { phase = .failed }
+            if !appState.handleAuthenticatedAPIError(error) { markFailedUnlessAlreadyShowing() }
         } catch is CancellationError {
             return
         } catch {
-            phase = .failed
+            markFailedUnlessAlreadyShowing()
         }
+    }
+
+    /// 下拉刷新失败时保留已经显示的列表：用户正在看的客服回复不该因为一次刷新失败消失。
+    private func markFailedUnlessAlreadyShowing() {
+        if case .loaded = phase { return }
+        phase = .failed
     }
 
     func retry(appState: AppState) async {
@@ -92,7 +98,7 @@ struct MySupportTicketsView: View {
         let time = ticket.createdAt?.nilIfBlank?.displayDateTime
         return VStack(alignment: .leading, spacing: 8) {
             // 状态是标签不是装饰：已回复用主色，其余用次要色，但**不靠颜色传达** —— 文字本身就写着。
-            Text(SupportTicketCopy.statusLabel(ticket.status))
+            Text(SupportTicketCopy.displayStatus(ticket))
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(ticket.hasReply ? AppColors.primary : AppColors.textPrimary)
             if let time {

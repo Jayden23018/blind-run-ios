@@ -173,6 +173,13 @@ enum SupportTicketCopy {
     static let replyLabel = "客服回复"
     static let yourWordsLabel = "你写的"
 
+    /// 一行上显示的状态。**以有没有回复文字为准**：状态说 `REPLIED` 而回复是空白时，
+    /// 不能一行里既写「已回复」又写「暂时没有回复」。
+    static func displayStatus(_ ticket: SupportTicketSummary) -> String {
+        if ticket.status == .replied, !ticket.hasReply { return statusLabel(.open) }
+        return statusLabel(ticket.status)
+    }
+
     static func statusLabel(_ status: SupportTicketStatus) -> String {
         switch status {
         case .open: return "已收到"
@@ -184,7 +191,7 @@ enum SupportTicketCopy {
 
     /// 一行读屏文案：状态、时间、你写的、客服回复，一次读完。
     static func rowAccessibilityLabel(_ ticket: SupportTicketSummary, time: String?) -> String {
-        var parts = [statusLabel(ticket.status)]
+        var parts = [displayStatus(ticket)]
         if let time { parts.append(time) }
         if !ticket.content.isEmpty { parts.append("\(yourWordsLabel)：\(ticket.content)") }
         parts.append(ticket.csReply.map { "\(replyLabel)：\($0)" } ?? noReplyYet)

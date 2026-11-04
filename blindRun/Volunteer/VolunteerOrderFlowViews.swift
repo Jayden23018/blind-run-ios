@@ -33,8 +33,6 @@ private enum VolunteerSheet: Identifiable {
     case cancelOrder
     /// 跑步中右上角「求助」打开的面板（DECISIONS-v2 V5）。
     case runHelp
-    /// 第一次打开订单页时自动弹出的使用帮助（#656，审计 V-36）。
-    case firstRunHelp
 
     var id: String {
         switch self {
@@ -48,8 +46,6 @@ private enum VolunteerSheet: Identifiable {
             return "cancelOrder"
         case .runHelp:
             return "runHelp"
-        case .firstRunHelp:
-            return "firstRunHelp"
         }
     }
 }
@@ -2042,16 +2038,7 @@ struct VolunteerInServiceView: View {
         .onChange(of: viewModel.didCancelOrder) { cancelled in
             if cancelled, activeSheet == nil { dismiss() }
         }
-        // 第一次进订单页（出发之前的两态）自动弹一次使用帮助。判定在 `VolunteerFirstRunHelpPolicy`；
-        // 别的弹层正开着时不抢，等下一次状态变化再判。标志只在帮助页按下「知道了」时写。
-        .task(id: viewModel.order?.status) {
-            guard activeSheet == nil,
-                  VolunteerFirstRunHelpPolicy.shouldAutoOpen(
-                      status: viewModel.order?.status,
-                      alreadySeen: appState.didSeeVolunteerFirstRunHelp
-                  ) else { return }
-            activeSheet = .firstRunHelp
-        }
+        .volunteerFirstRunHelp(status: viewModel.order?.status, isBlocked: activeSheet != nil)
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
             await trackViewModel.load(orderID: orderId, appState: appState)
@@ -2077,8 +2064,6 @@ struct VolunteerInServiceView: View {
                 .presentationDetents([.medium, .large])
             case .supportTicket:
                 supportTicketSheet
-            case .firstRunHelp:
-                NavigationStack { VolunteerHelpView(isFirstRun: true) }
             case .cancelOrder:
                 VolunteerCancelSheet(
                     copy: cancelSheetCopy,
@@ -3054,13 +3039,7 @@ struct VolunteerSettingsView: View {
                 }
                 #endif
 
-                // 陪跑员版使用帮助（#656）。第一次打开订单页会自动弹一次，这里是随时回看的入口。
-                NavigationLink("使用帮助") {
-                    VolunteerHelpView(isFirstRun: false)
-                }
-                .accessibilityLabel("使用帮助")
-                .accessibilityHint("一单怎么走完，遇到事找哪里")
-                .accessibilityIdentifier("volunteerSettingsHelpLink")
+                VolunteerHelpSettingsLink() // #656：第一次打开订单页会自动弹一次，这里是随时回看的入口
 
                 NavigationLink("关于") {
                     AboutAidRunView()
