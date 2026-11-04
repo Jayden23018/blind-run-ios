@@ -20,10 +20,24 @@ final class IntroCallToMeetupSafeguardTests: XCTestCase {
         VolunteerIntroCallUnreachableGate.resetForTesting()
         defer { VolunteerIntroCallUnreachableGate.resetForTesting() }
         let first = Date(timeIntervalSince1970: 2_000_000)
-        XCTAssertEqual(VolunteerIntroCallUnreachableGate.noteSeen(orderId: 7, now: first), first)
-        XCTAssertEqual(VolunteerIntroCallUnreachableGate.noteSeen(orderId: 7, now: first.addingTimeInterval(240)), first)
+        let round = VolunteerIntroCallUnreachableGate.Round(orderId: 7, windowEndsAt: "2026-11-09T07:20:00")
+        XCTAssertEqual(VolunteerIntroCallUnreachableGate.noteSeen(round, now: first), first)
+        XCTAssertEqual(VolunteerIntroCallUnreachableGate.noteSeen(round, now: first.addingTimeInterval(240)), first)
         let other = first.addingTimeInterval(60)
-        XCTAssertEqual(VolunteerIntroCallUnreachableGate.noteSeen(orderId: 8, now: other), other, "别的订单各算各的")
+        let otherOrder = VolunteerIntroCallUnreachableGate.Round(orderId: 8, windowEndsAt: "2026-11-09T07:20:00")
+        XCTAssertEqual(VolunteerIntroCallUnreachableGate.noteSeen(otherOrder, now: other), other, "别的订单各算各的")
+    }
+
+    /// 同一单在同一次启动里又派给他（报过「未接到来电」的一对不进硬过滤）：新一轮重新计时。
+    func testANewRoundOfTheSameOrderStartsANewDelay() {
+        VolunteerIntroCallUnreachableGate.resetForTesting()
+        defer { VolunteerIntroCallUnreachableGate.resetForTesting() }
+        let first = Date(timeIntervalSince1970: 3_000_000)
+        let later = first.addingTimeInterval(30 * 60)
+        VolunteerIntroCallUnreachableGate.noteSeen(.init(orderId: 7, windowEndsAt: "2026-11-09T07:20:00"), now: first)
+        let next = VolunteerIntroCallUnreachableGate.noteSeen(.init(orderId: 7, windowEndsAt: "2026-11-09T07:50:00"), now: later)
+        XCTAssertEqual(next, later)
+        XCTAssertFalse(VolunteerIntroCallUnreachableGate.isAvailable(firstSeenAt: next, now: later), "新一轮一进页就能按")
     }
 
     // MARK: - 确认文案中性（B-14 / V-9，AGENTS §5 无声拒绝）
@@ -77,6 +91,16 @@ final class IntroCallToMeetupSafeguardTests: XCTestCase {
         let armPage = try XCTUnwrap(BlindOrderFlowPresentation.make(order: arm, distanceText: nil, canKeepWaiting: false))
         XCTAssertTrue(ropePage.subtitle.contains(GuideRopeReminder.blindLine), "实际：\(ropePage.subtitle)")
         XCTAssertFalse(armPage.subtitle.contains("引导绳"), "选了搀扶还在提醒带绳：\(armPage.subtitle)")
+    }
+
+    /// 盲人端要**听得到**：进入约好时的状态播报（订单页、首页、语音状态查询共用）末尾接带绳提醒。
+    func testBlindAgreedAnnouncementSpeaksTheRopeReminder() {
+        for status in [RunOrderStatus.scheduledConfirmed, .pendingAccept] {
+            let rope = OrderDetailResponse.preview(status: status, tetherPreference: "TETHER_ROPE")
+            let verbal = OrderDetailResponse.preview(status: status, tetherPreference: "VERBAL_ONLY")
+            XCTAssertTrue(rope.blindRunnerAnnouncement().hasSuffix(GuideRopeReminder.blindLine), rope.blindRunnerAnnouncement())
+            XCTAssertFalse(verbal.blindRunnerAnnouncement().contains("引导绳"), verbal.blindRunnerAnnouncement())
+        }
     }
 
     func testStartRunCaptionFollowsTheGuidanceMethod() {
@@ -185,6 +209,27 @@ final class IntroCallToMeetupSafeguardTests: XCTestCase {
         let anonymous = VolunteerOnceNotice(kind: .phoneShare, persistence: persistence, userID: nil)
         anonymous.markDone()
         XCTAssertFalse(anonymous.isDone, "拿不到 userId 时按没说过处理")
+    }
+
+    /// 锁屏通知上的「接受」没法弹说明：没说明过时只打开邀请卡，不发送 respond。
+    func testFirstLockScreenAcceptOnlyOpensTheCard() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let orders = FakeOrderService()
+        orders.respondResult = .success(())
+        let (viewModel, appState) = InviteLockScreenFixture.makeVolunteerHome(orders: orders, persistence: persistence)
+        let coordinator = appState.realtimeCoordinator
+        let target = InviteLockScreenFixture.dispatch(orderId: 22, inviteId: 221)
+        coordinator.reconcilePendingInvites([target], requestedAt: Date())
+        await InviteLockScreenFixture.waitUntil { viewModel.invites.count == 1 }
+
+        coordinator.requestLockScreenInviteAction(InviteLockScreenFixture.lockScreen(.accept, for: target), userID: appState.userId)
+        await InviteLockScreenFixture.waitUntil { viewModel.isInviteSheetPresented }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertTrue(viewModel.isInviteSheetPresented, "没有打开邀请卡")
+        XCTAssertEqual(viewModel.currentInviteID, 22)
+        XCTAssertNil(orders.lastRespondAction, "还没说明手机号去向就替他回复了")
     }
 
     func testPhoneShareCopySaysTheNumberGoesToTheRunner() {

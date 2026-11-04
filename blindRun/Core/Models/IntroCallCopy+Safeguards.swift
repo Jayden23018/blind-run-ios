@@ -17,6 +17,7 @@ extension IntroCallCopy {
 
     // MARK: 陪跑员侧 · 「不合适」「未接到来电」的确认
 
+    static let volunteerDeclineAccessibilityHint = "结束这次通话确认，系统会把此订单派给下一位"
     static let volunteerDeclineConfirmTitle = "确认不合适？"
     static let volunteerDeclineConfirmMessage = "确认后，这次沟通结束，系统会把此订单派给下一位陪跑员。"
     static let volunteerDeclineConfirmButton = "确认不合适"
@@ -44,17 +45,25 @@ extension IntroCallCopy {
     static let volunteerSubmitReminderSpeech = "聊完记得回到这一页提交结果。"
 }
 
-/// 「未接到来电」什么时候出现。按订单记**本次启动里第一次看到通话页的时刻**：
+/// 「未接到来电」什么时候出现。按**这一轮**记本次启动里第一次看到通话页的时刻：
 /// 退出再进来不重新计时（否则进出一次就要再等 5 分钟）；杀掉 App 后重新计时 —— 宁可多等，不提前给。
+///
+/// 「这一轮」= 订单号 + 窗口截止时刻。只按订单号记不够：报过「未接到来电」的这一对不进候选池硬过滤，
+/// 同一单可能在同一次启动里再派给他，新一轮不能沿用上一轮的计时。
 @MainActor
 enum VolunteerIntroCallUnreachableGate {
-    private static var firstSeenAt: [Int64: Date] = [:]
+    struct Round: Hashable {
+        let orderId: Int64
+        let windowEndsAt: String?
+    }
+
+    private static var firstSeenAt: [Round: Date] = [:]
 
     /// 记下第一次看到的时刻，返回它。已有记录时不覆盖。
     @discardableResult
-    static func noteSeen(orderId: Int64, now: Date = Date()) -> Date {
-        if let seen = firstSeenAt[orderId] { return seen }
-        firstSeenAt[orderId] = now
+    static func noteSeen(_ round: Round, now: Date = Date()) -> Date {
+        if let seen = firstSeenAt[round] { return seen }
+        firstSeenAt[round] = now
         return now
     }
 

@@ -246,7 +246,11 @@ struct VolunteerTabView: View {
             // 免得哪天有人在里面加一个带背景色的容器就把整个标签栏点不动了。
             .allowsHitTesting(viewModel.isInviteSheetPresented)
         }
-        .volunteerPhoneShareDisclosure(pending: $pendingPhoneShare, onProceed: respond)
+        // 说明框开着时邀请可能已经过期或被撤回：那就不发，卡片自己会显示结局。
+        .volunteerPhoneShareDisclosure(pending: $pendingPhoneShare) { request in
+            guard viewModel.invites.contains(where: { $0.id == request.orderId && $0.isAwaitingReply }) else { return }
+            respond(request)
+        }
         // #368：接单开关 / 自动恢复待命前的位置轨迹同意。挂在容器上而不是首页 tab 上：
         // 自动恢复那条路发生时他可能在任何一个 tab。全屏而不是对话框，理由见 `ConsentDisclosureView`。
         .fullScreenCover(isPresented: Binding(

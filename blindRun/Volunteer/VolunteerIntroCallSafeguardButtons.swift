@@ -12,7 +12,7 @@ struct VolunteerIntroCallDeclineButton: View {
     let look: Look
     @State private var confirms = false
 
-    private static let hint = "结束这次通话确认，系统会把此订单派给下一位"
+    private static let hint = IntroCallCopy.volunteerDeclineAccessibilityHint
 
     var body: some View {
         Group {
@@ -48,13 +48,17 @@ struct VolunteerIntroCallUnreachableButton: View {
     @ObservedObject var viewModel: VolunteerIntroCallViewModel
     let orderId: Int64
     @State private var confirms = false
+    @State private var firstSeen: Date?
     /// 15 秒一拍足够：门槛是分钟级，晚出现十几秒没有代价。
     private static let tick: TimeInterval = 15
 
+    private var round: VolunteerIntroCallUnreachableGate.Round {
+        .init(orderId: orderId, windowEndsAt: viewModel.introCall?.windowEndsAt)
+    }
+
     var body: some View {
-        let firstSeen = VolunteerIntroCallUnreachableGate.noteSeen(orderId: orderId)
         TimelineView(.periodic(from: Date(), by: Self.tick)) { context in
-            if VolunteerIntroCallUnreachableGate.isAvailable(firstSeenAt: firstSeen, now: context.date) {
+            if let firstSeen, VolunteerIntroCallUnreachableGate.isAvailable(firstSeenAt: firstSeen, now: context.date) {
                 FlowTextButton(
                     title: IntroCallCopy.volunteerUnreachableButtonTitle,
                     accessibilityHint: IntroCallCopy.volunteerUnreachableAccessibilityHint
@@ -71,6 +75,8 @@ struct VolunteerIntroCallUnreachableButton: View {
                     .accessibilityIdentifier("volunteerIntroCallUnreachablePending")
             }
         }
+        .onAppear { firstSeen = VolunteerIntroCallUnreachableGate.noteSeen(round) }
+        .onChange(of: round) { firstSeen = VolunteerIntroCallUnreachableGate.noteSeen($0) }
         .alert(IntroCallCopy.volunteerUnreachableConfirmTitle, isPresented: $confirms) {
             Button(IntroCallCopy.declineConfirmCancelButton, role: .cancel) {}
             Button(IntroCallCopy.volunteerUnreachableConfirmButton) {

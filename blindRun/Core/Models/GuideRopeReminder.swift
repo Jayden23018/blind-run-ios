@@ -51,6 +51,7 @@ extension OrderDetailResponse {
         guard let rope = GuideRopeReminder.line(for: self, isVolunteer: false) else {
             return blindRunnerDescriptionUnlessLeftAlone
         }
-        return blindRunnerDescriptionUnlessLeftAlone + rope
+        // 换行与副标题其余部分一致（`BlindOrderFlowPresentation.subtitle` 用 "\n" 分行，头卡按行拆）。
+        return blindRunnerDescriptionUnlessLeftAlone + "\n" + rope
     }
 }

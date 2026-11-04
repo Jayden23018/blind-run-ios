@@ -102,7 +102,7 @@ extension VolunteerOnceNotice {
 /// 首单标签的数据来源。挂在订单页页脚里，自己不画任何东西。
 ///
 /// 订单页的 view model 平时只在完成时拉派单摘要；这里在跑步前补拉一次，拿 `totalCompleted` 判首单。
-/// 拉失败就不显示标签（`isFirstRun` 对 `nil` 返回 false），不重试 —— 少一个标签没有代价。
+/// 拉失败就不显示标签（`isFirstRun` 对 `nil` 返回 false），记一条诊断，不重试 —— 少一个标签没有代价。
 struct VolunteerFirstRunLoader: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject var viewModel: VolunteerInServiceViewModel
@@ -114,7 +114,11 @@ struct VolunteerFirstRunLoader: View {
             .accessibilityHidden(true)
             .task {
                 guard viewModel.dispatchSummary == nil, VolunteerFirstRunCopy.isBeforeRun(phase) else { return }
-                viewModel.dispatchSummary = try? await appState.orders.dispatchSummary()
+                do {
+                    viewModel.dispatchSummary = try await appState.orders.dispatchSummary()
+                } catch {
+                    ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-first-run-summary")
+                }
             }
     }
 }
