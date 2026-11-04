@@ -84,23 +84,26 @@ final class LowBatteryCueLedger {
 }
 
 extension View {
-    /// - Parameter announcesMatchingWait: 只有订单页传 `true`。首页压在订单页底下时也活着，
-    ///   两处都念「还在找」会叠声。
-    func blindRunnerPreRunCues(order: OrderDetailResponse?, announcesMatchingWait: Bool) -> some View {
-        modifier(BlindPreRunCuesModifier(order: order, announcesMatchingWait: announcesMatchingWait))
+    /// - Parameters:
+    ///   - announcesMatchingWait: 只有订单页传 `true`。首页压在订单页底下时也活着，两处都念「还在找」会叠声。
+    ///   - isFrontmost: 这一页是不是用户眼前那一页。上面压着别的页（语音下单、求助中心）时不出声：
+    ///     语音下单正在听写时插一句，会被当成用户说的话。
+    func blindRunnerPreRunCues(order: OrderDetailResponse?, announcesMatchingWait: Bool, isFrontmost: Bool) -> some View {
+        modifier(BlindPreRunCuesModifier(order: order, announcesMatchingWait: announcesMatchingWait, isFrontmost: isFrontmost))
     }
 }
 
 private struct BlindPreRunCuesModifier: ViewModifier {
     let order: OrderDetailResponse?
     let announcesMatchingWait: Bool
+    let isFrontmost: Bool
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.scenePhase) private var scenePhase
 
     /// 多久看一次电量。电量是慢变量，一分钟足够；也顺带覆盖「时间走进出发前 2 小时」。
     private static let batteryCheckInterval: TimeInterval = 60
 
-    private var isActive: Bool { scenePhase == .active }
+    private var isActive: Bool { scenePhase == .active && isFrontmost }
 
     func body(content: Content) -> some View {
         content
@@ -127,7 +130,9 @@ private struct BlindPreRunCuesModifier: ViewModifier {
         UIDevice.current.isBatteryMonitoringEnabled = true
         while !Task.isCancelled {
             let device = UIDevice.current
+            // 通话中这一档会被播报队列直接丢掉（只放行警示档），先别记账，挂断后下一轮再念。
             if let text = LowBatteryCue.warning(level: device.batteryLevel, state: device.batteryState, order: order),
+               !speechService.isCallActive(),
                LowBatteryCueLedger.shared.claim(orderId: order.orderId) {
                 speechService.speak(text, priority: LowBatteryCue.priority)
                 return

@@ -2641,7 +2641,7 @@ struct BlindOrderStatusView: View {
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
         }
-        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true) // 等待匹配与低电量（#660）
+        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true, isFrontmost: !(showSafetyHub || showEmergencyCountdown || showRunnerMessage || introCallPresentation.isShowing)) // #660
         .modifier(OrderSafetyRequestPresenter(
             request: safetyRequest,
             isOrderLoaded: { viewModel.order != nil },

@@ -215,6 +215,7 @@ final class BlindPreRunReminderTests: XCTestCase {
         XCTAssertEqual(first.fireDate, expectedFire)
         XCTAssertFalse(first.body.contains("朝阳公园"), "锁屏谁都看得见，正文不写出发地点")
         XCTAssertEqual(first.identifier, "blindRunStartReminder-1")
+        XCTAssertTrue(first.body.hasPrefix("1 小时后"), "正文的提前量与触发时刻同源：\(first.body)")
     }
 
     func testReminderSyncReplacesTheSetAndLeavesItAloneWhenTheListFails() async {
@@ -225,11 +226,13 @@ final class BlindPreRunReminderTests: XCTestCase {
             BlindPreRunGapsTests.order(id: 1, status: .scheduledConfirmed, start: start),
         ]))
 
-        await BlindRunStartReminderSync.refresh(using: orders, scheduler: scheduler)
+        let synced = await BlindRunStartReminderSync.refresh(using: orders, scheduler: scheduler)
+        XCTAssertTrue(synced)
         XCTAssertEqual(scheduler.replacements.map { $0.map(\.orderId) }, [[1]])
 
         orders.myOrdersResult = .failure(URLError(.notConnectedToInternet))
-        await BlindRunStartReminderSync.refresh(using: orders, scheduler: scheduler)
+        let failed = await BlindRunStartReminderSync.refresh(using: orders, scheduler: scheduler)
+        XCTAssertFalse(failed, "失败要让调用方知道，首页才不会把这次记成已同步")
         XCTAssertEqual(scheduler.replacements.count, 1, "拉失败不动：撤掉的话网络一抖就把提醒全删了")
     }
 

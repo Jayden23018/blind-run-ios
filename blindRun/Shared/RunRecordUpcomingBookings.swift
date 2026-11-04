@@ -26,7 +26,8 @@ extension RunRecordHistoryViewModel {
 
     /// 加载完念的那一句的开头。放在月度汇总前面：要处理的事比已经跑完的事急。
     static func upcomingAnnouncement(count: Int) -> String {
-        count == 0 ? "" : "有 \(count) 张待进行的预约，在列表最上面。"
+        // 不说「在最上面」：读屏焦点加载完落在第一条跑步记录上，待进行的那段在它上面，要往左划。
+        count == 0 ? "" : "有 \(count) 张待进行的预约，在跑步记录上面。"
     }
 }
 
