@@ -325,6 +325,13 @@ struct VolunteerAvailabilityScheduleView: View {
                     .accessibilityAddTraits(.isHeader)
                     .padding(.horizontal, 16)
 
+                // 空闲时间不等于锁屏也能被派到（#654）。
+                Text(VolunteerAvailabilityCopy.keepAppOpenNote + "。")
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(viewModel.slots) { slot in
                         slotRow(slot)

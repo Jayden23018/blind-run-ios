@@ -142,7 +142,7 @@ enum VolunteerDispatchHubCopy {
     static let title = "接单"
     static let acceptingPill = "接单中"
     static let emptyTitle = "暂时没有约好的陪跑"
-    static let emptySubtitle = "你的空闲时间里有合适的陪跑，会邀请你"
+    static let emptySubtitle = "空闲时间里有合适的陪跑会邀请你。\(VolunteerAvailabilityCopy.keepAppOpenNote)。"
     static let scheduleRowLabel = "空闲时间"
     static let scheduleRowEmptyValue = "还没设置"
     static let pauseTitle = "暂停接单"
