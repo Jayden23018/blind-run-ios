@@ -84,16 +84,7 @@ enum EmergencySafetyCopy {
         "紧急求助将在 \(max(secondsRemaining, 0)) 秒后发出，现在取消还来得及。"
     }
 
-    /// 进倒计时那一刻念一次的「即将发生什么」。
-    ///
-    /// 🔴 **三条都是进行时或将来时，一条完成时都没有。** 这不是文风选择：
-    /// 短信是在触发事务提交之后异步发的、失败也从不回告盲人（`AGENTS.md` §6），
-    /// 所以 App 永远不能说「已经通知了谁」。这里说的是**我们会去做什么**，不是做成了什么。
-    static let countdownPendingEffects = [
-        "通知你的陪跑员",
-        "转给客服并回拨你",
-        "把你的实时位置一起发出",
-    ]
+    // 倒计时那一块「先自己拨 120 + 即将发生什么」在 `EmergencySafetyCopy+Countdown.swift`（#659）。
 
     static let countdownCancelTitle = "取消"
     static let countdownCancelAccessibilityHint = "立刻停止倒计时，不会发出任何求助"

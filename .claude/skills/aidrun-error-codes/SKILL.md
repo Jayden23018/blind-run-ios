@@ -75,6 +75,6 @@ AIDRUN_BACKEND_ERROR_CODES=/tmp/ec.java node scripts/validate-error-codes.mjs
 
 ## 前端映射规则
 
-- 一码多义时走 `ErrorCode.prefersServerMessage` 白名单，不要在客户端硬编码文案覆盖服务端。
+- 一码多义、或后端 message 带本地算不出的信息（时刻、数量）时，走 `ErrorCode.prefersServerMessage` 白名单念后端原文，不要用本地文案盖掉。加之前先读后端 `origin/main` 的抛出点，确认 message 能直接朗读（#659 加了四个时间类码）。
 - **枚举解码遇未知值不得让整条 payload 崩掉。** 曾经一个不认识的订单状态会让整页数据（地址、坐标、电话、计划时间）一起丢。回归用例在 `blindRunTests/OrderEnumLeniencyDecodingTests.swift`。
 - 错误文案会被 TTS 念给盲人听，**语义错误的代价是用户按错误信息做出错误行动**，不只是显示难看。

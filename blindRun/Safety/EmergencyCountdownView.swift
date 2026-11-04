@@ -239,6 +239,11 @@ struct EmergencyCountdownView: View {
     private var pendingEffects: some View {
         if coordinator.state.isCountingDown {
             VStack(alignment: .leading, spacing: 10) {
+                // 第一句先让人自己拨 120（#659）：这一块里唯一不是「我们会做」的一句，所以不带箭头。
+                Text(EmergencySafetyCopy.countdownSelfDialFirst)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
                 ForEach(EmergencySafetyCopy.countdownPendingEffects, id: \.self) { effect in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Image(systemName: "arrow.right")
@@ -258,7 +263,7 @@ struct EmergencyCountdownView: View {
                     .strokeBorder(AppColors.textPrimary.opacity(0.85), lineWidth: 1.5)
             )
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("接下来会：" + EmergencySafetyCopy.countdownPendingEffects.joined(separator: "，"))
+            .accessibilityLabel(EmergencySafetyCopy.countdownPendingEffectsAccessibilityLabel)
         }
     }
 

@@ -156,9 +156,10 @@ final class BlindArrivalCancelTests: XCTestCase {
     }
 
     /// 其余已识别的码仍是本地文案优先 —— 别把「念 message」扩成全局默认。
+    /// （`END_WAIT_TOO_EARLY` 从 #659 起也念后端 message，见 `TimeGateServerMessageTests`。）
     func testOtherKnownCodesStillUseLocalCopy() {
-        let error = APIError.serverError(ErrorResponse(code: "END_WAIT_TOO_EARLY", message: "后端原文"))
-        XCTAssertEqual(error.localizedMessage, ErrorCode.endWaitTooEarly.localizedMessage)
+        let error = APIError.serverError(ErrorResponse(code: "ORDER_STATUS_NOT_ALLOWED", message: "后端原文"))
+        XCTAssertEqual(error.localizedMessage, ErrorCode.invalidOrderStatus.localizedMessage)
     }
 
     /// 通用那句是写给陪跑员「结束服务」的；跑者取消这一路要说跑者能做的事。

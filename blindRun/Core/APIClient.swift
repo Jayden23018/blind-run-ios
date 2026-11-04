@@ -109,13 +109,13 @@ enum APIError: Error, Sendable {
             // 两句话看起来差不多，但排查时指向的方向完全相反。
             return "本地登录信息缺失，请退出后重新登录。"
         case .networkError(let underlying):
-            return Self.isSecureConnectionFailure(underlying) ? Self.secureConnectionMessage : "网络连接失败，请检查网络设置。"
+            return Self.networkFailureMessage(underlying) // 各类各说，见 `APIError+ServerUnavailable.swift`
         case .decodingError:
             return "服务暂时不可用，请稍后重试。"
         case .invalidURL:
             return "请求地址无效。"
         case .unknown(let statusCode):
-            return "未知错误 (\(statusCode))，请稍后重试。"
+            return Self.isServerSideStatus(statusCode) ? Self.serverUnavailableMessage : "未知错误 (\(statusCode))，请稍后重试。"
         }
     }
 

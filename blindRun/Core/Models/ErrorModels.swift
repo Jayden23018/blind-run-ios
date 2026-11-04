@@ -150,8 +150,8 @@ enum ErrorCode: String, Codable, Sendable {
     // 让他去核对是在浪费他的时间，重试才有意义。此前这两种情况返的是同一个结果，
     // 而服务故障那次还会把他永久写成 `verifyStatus=FAILED`（只有管理员能改回来）。
     case idVerifyUnavailable = "ID_VERIFY_UNAVAILABLE"
-    // 陪跑员订单页 v2（后端 #418 / #362）。两条都是「时间还没到」，阈值由后端配置，
-    // 所以文案**不写具体分钟数** —— 页面上的按钮到点会自己亮 / 自己换，文案只要把人引回按钮。
+    // 陪跑员订单页 v2（后端 #418 / #362）。两条都是「时间还没到」，阈值由后端配置。
+    // 后端 message 带着最早可操作的时刻（`M月d日 HH:mm`，可直接朗读），**念它**（`prefersServerMessage`，#659）。
     // `DEPARTURE_TOO_EARLY`：早于开跑前 `app.order.en-route-earliest-minutes` 调 `en-route`。
     case departureTooEarly = "DEPARTURE_TOO_EARLY"
     // `END_WAIT_TOO_EARLY`：到达后还没等满 `app.order.arrival-wait-timeout-minutes`。
@@ -190,6 +190,8 @@ enum ErrorCode: String, Codable, Sendable {
     var prefersServerMessage: Bool {
         switch self {
         case .blindCancelTooEarly, .accountSuspended, .supportTicketLimitExceeded: return true
+        // 四个时间类码（#659）：后端 `OrderLifecycleService` 的 message 带最早可操作的时刻，本地文案说不出。
+        case .departureTooEarly, .serviceStartTooEarly, .endWaitTooEarly, .blindConfirmationPending: return true
         // 契约（#524）：收藏自己拉黑的人时 message 是「你已拉黑对方，请先解除」，本地文案说不出这句。
         case .favoriteVolunteerNotEligible: return true
         default: return false
@@ -200,6 +202,8 @@ enum ErrorCode: String, Codable, Sendable {
     var serverMessageSupplement: String? {
         switch self {
         case .accountSuspended: return AccountSuspensionCopy.supplement
+        // 后端那句只说「对方」。两人此刻站在一起，说出跑者那一端的按钮名，陪跑员可以直接告诉对方。
+        case .blindConfirmationPending: return "可以请跑者在手机上按「开始跑步」。"
         default: return nil
         }
     }
@@ -358,13 +362,12 @@ enum ErrorCode: String, Codable, Sendable {
             return "该时间段你已接受其他预约，请选择其他时间段。"
         case .idVerifyUnavailable:
             return "身份认证服务暂时不可用，请稍后重试。"
-        case .departureTooEarly:
+        case .departureTooEarly: // 这四条只在后端 message 为空时才会被念到（`prefersServerMessage`）
             return "现在出发还太早。到时间后「我出发了」会亮起来。"
         case .endWaitTooEarly:
             return "还没等满时限。到时间后按钮会换成「结束等待」。"
         case .serviceStartTooEarly:
             // 不说「到点按钮会亮」：后端没有结构化的最早可操作时刻字段，按钮不会自己变。
-            // （后端 409 的 `message` 里带了具体时刻，但 `APIError.localizedMessage` 识别出错误码后用本地文案，那句被覆盖了。）
             return "还没到可以开始跑步的时间，请稍后再按。"
         case .blindConfirmationPending:
             // 说出跑者那一端的按钮名：两人此刻站在一起，陪跑员可以直接告诉对方按哪个。

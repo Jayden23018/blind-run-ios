@@ -17,8 +17,9 @@ final class SecureConnectionErrorCopyTests: XCTestCase {
         .clientCertificateRejected, .clientCertificateRequired
     ]
 
+    /// 只放「手机真没网」的码。超时、连不上服务器从 #659 起另有文案（`ServerUnavailableErrorCopyTests`）。
     private static let ordinaryNetworkCodes: [URLError.Code] = [
-        .notConnectedToInternet, .timedOut, .networkConnectionLost, .cannotConnectToHost
+        .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff
     ]
 
     func testCertificateAndTLSErrorsSayItIsNotTheUsersNetwork() {
