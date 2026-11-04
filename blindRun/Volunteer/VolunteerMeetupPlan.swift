@@ -218,8 +218,12 @@ struct VolunteerMeetupPlanSubmitError: Equatable {
             return Self(slot: .time, message: IntroCallMeetupCopy.planStartTooSoon)
         case .appointmentTooFar:
             return Self(slot: .time, message: VolunteerMeetupPlanCopy.tooFarAhead)
-        case .appointmentTooLong, .introCallPlanTimeUnavailable, .volunteerAlreadyEngaged:
+        // 值守时段外（#667）念后端原话，里面有可预约的时段。
+        case .appointmentTooLong, .introCallPlanTimeUnavailable, .volunteerAlreadyEngaged, .appointmentOutsideDutyHours:
             return Self(slot: .time, message: IntroCallMeetupCopy.planSubmitErrorMessage(for: error))
+        // 新集合点不在开放范围内（#667）：同样念后端原话，落在集合地点那一块。
+        case .orderOutsideOpenArea:
+            return Self(slot: .place, message: IntroCallMeetupCopy.planSubmitErrorMessage(for: error))
         case .introCallPlanTooFarFromOriginal:
             let message = distanceFromOriginal.map(VolunteerMeetupPlanCopy.tooFarFromOriginal(meters:))
                 ?? IntroCallMeetupCopy.planTooFarFromOriginal

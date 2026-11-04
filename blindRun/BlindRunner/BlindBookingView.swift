@@ -260,7 +260,7 @@ final class BlindBookingViewModel: ObservableObject {
     @Published private(set) var auxiliaryMapPlace: ResolvedPlace?
 
     private(set) weak var appState: AppState?
-    private weak var locationService: LocationService?
+    private(set) weak var locationService: LocationService?
     private weak var placeSearchProvider: (any PlaceSearchProviding)?
     private(set) var speechService: SpeechService?
     private static let auxiliaryMapMarkerRefreshDistanceMeters: CLLocationDistance = 30
@@ -1044,47 +1044,7 @@ final class BlindBookingViewModel: ObservableObject {
             specialNotes: specialNotes.nilIfBlank
         )
     }
-
-    func submit() async -> OrderResponse? {
-        guard let appState, locationService != nil else { return nil }
-        // 出发地点缺失要在 makeCreateOrderRequest 之后单独报，所以这里跳过 .startPoint。
-        if let gate = firstMissingGate, gate != .startPoint {
-            return fail(message(for: gate))
-        }
-
-        isSubmitting = true
-        errorMessage = nil
-
-        guard let request = makeCreateOrderRequest() else {
-            isSubmitting = false
-            return fail("请选择出发地点。")
-        }
-
-        do {
-            let response = try await appState.orders.createOrder(request)
-            isSubmitting = false
-            speechService?.resetLastStatus()
-            speechService?.speak("订单提交成功，系统正在为你派单。")
-            return response
-        } catch let error as APIError {
-            isSubmitting = false
-            if appState.handleAuthenticatedAPIError(error) {
-                return nil
-            }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
-            return nil
-        } catch {
-            isSubmitting = false
-            return fail("提交失败，请重试。")
-        }
-    }
-
-    private func fail(_ message: String) -> OrderResponse? {
-        errorMessage = message
-        speechService?.speakError(message)
-        return nil
-    }
+    // 提交（`submit()`）在 `BlindBookingViewModel+Submit.swift`。
 }
 
 // MARK: - Blind Booking View
@@ -1829,12 +1789,17 @@ struct BlindBookingView: View {
     private var currentStepContent: some View {
         switch viewModel.currentStep {
         case .startPoint:
+            LaunchScopeStepNotice(text: viewModel.launchScopeAreaNotice, identifier: "blindBookingLaunchAreaNotice")
             locationSection
         case .appointmentTime:
+            LaunchScopeStepNotice(text: viewModel.launchScopeDutyHoursNotice, identifier: "blindBookingLaunchDutyHoursNotice")
             appointmentSection
         case .runningNeeds:
             optionalSection
         case .review:
+            // 提交前最后一站：语音下单、零输入下单都停在这一步，两句都再说一次（#667）。
+            LaunchScopeStepNotice(text: viewModel.launchScopeAreaNotice, identifier: "blindBookingLaunchAreaNotice")
+            LaunchScopeStepNotice(text: viewModel.launchScopeDutyHoursNotice, identifier: "blindBookingLaunchDutyHoursNotice")
             reviewSection
         }
     }

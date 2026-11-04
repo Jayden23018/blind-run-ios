@@ -40,10 +40,15 @@ extension MockAPIClient {
 
         // 规则参数（`GET /api/config/rules`）。需登录、不限角色。返回契约里的默认值
         // （`RuleParamsResponse` 的 `example`），与客户端的回退值相同 —— Mock 里两条路走出来的行为一样，
-        // 拿不到时那条由 `RuleParamsAndLateCancelTests` 覆盖。
+        // 拿不到时那条由 `RuleParamsAndLateCancelTests` 覆盖。`launchScope` 默认无限制；
+        // `AIDRUN_MOCK_LAUNCH_SCOPE=closed / restricted` 演「暂不接受预约」「只开放部分城市和时段」（#667）。
         case "/api/config/rules":
             guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
-            return RuleParamsResponse(lateCancelWindowHours: 12, volunteerOrderAutoOpenLeadMinutes: 120)
+            return RuleParamsResponse(
+                lateCancelWindowHours: 12,
+                volunteerOrderAutoOpenLeadMinutes: 120,
+                launchScope: Self.mockLaunchScope(ProcessInfo.processInfo.environment["AIDRUN_MOCK_LAUNCH_SCOPE"])
+            )
 
         // 版本要求（`GET /api/config/app-version`）。这个文件里唯一免登录的一条。默认全是 null，
         // 与「后端没配置」相同，其余 UI 用例不受影响。`AppUpdateGateUITests` 用这两个开关演版本过低。
@@ -64,6 +69,43 @@ extension MockAPIClient {
     /// 那样同一张种子每次都拿到一个新的 120 秒窗口，过期或回复过之后下一次对账又以新邀请复活 ——
     /// 而真实后端只返回「还没过期、还在等回复」的邀请。
     private static let uiTestSeedEpoch = Date()
+
+    /// `GET /api/config/rules` 的 `launchScope`（#667）。默认无限制，与「后端没配置」相同，其余 UI 用例不受影响。
+    /// `restricted` 只开放深圳、杭州的工作日晚上：Mock 的演示坐标在北京，出发地点那一步会显示「不在开放范围内」。
+    static func mockLaunchScope(_ mode: String?) -> LaunchScopeResponse {
+        switch mode {
+        case "closed":
+            return .closed(notice: "陪跑服务暂未开放，现在还不能预约，开放后再来下单。")
+        case "restricted":
+            return LaunchScopeResponse(
+                acceptingOrders: true, areaRestricted: true, dutyHoursRestricted: true,
+                areaHint: "目前只开放深圳市、杭州市。", dutyHoursHint: "可预约的开跑时间是周一到周五 18:00 到 21:00。",
+                openAreas: [
+                    .init(name: "深圳市", southLat: 22.4, northLat: 22.9, westLng: 113.7, eastLng: 114.6),
+                    .init(name: "杭州市", southLat: 29.9, northLat: 30.6, westLng: 119.8, eastLng: 120.5)
+                ],
+                dutyWindows: [.init(days: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"], start: "18:00", end: "21:00")]
+            )
+        default:
+            return LaunchScopeResponse(acceptingOrders: true, areaRestricted: false, dutyHoursRestricted: false)
+        }
+    }
+
+    /// 建单被开放范围拒绝时后端的 422（#667）。message 照契约的写法：说清发生了什么、为什么、能做什么。
+    static func mockLaunchScopeRejection(_ code: String?) -> APIError? {
+        let messages = [
+            "ORDER_SERVICE_NOT_OPEN": "陪跑服务暂未开放，现在还不能预约，开放后再来下单",
+            "ORDER_OUTSIDE_OPEN_AREA": "这个出发点不在开放范围内。目前只开放深圳市、杭州市，请换一个开放范围内的出发点",
+            "APPOINTMENT_OUTSIDE_DUTY_HOURS": "这个时间没有值守人员，暂不接受预约。可预约的开跑时间是周一到周五 18:00 到 21:00，请换个时间"
+        ]
+        guard let code, let message = messages[code] else { return nil }
+        return .serverError(ErrorResponse(code: code, message: message))
+    }
+
+    /// 建单前调：设了 `AIDRUN_MOCK_CREATE_ORDER_REJECT` 就照那个码拒单。
+    static func throwMockLaunchScopeRejectionIfRequested() throws {
+        if let rejection = mockLaunchScopeRejection(ProcessInfo.processInfo.environment["AIDRUN_MOCK_CREATE_ORDER_REJECT"]) { throw rejection }
+    }
 
     /// 与 `VolunteerHomeViewModel.seedInvitesForUITestsIfNeeded` 同一个开关、同一批 id、同一个期限算法。
     /// 已过期的不返回（契约口径）；回复过的由协调器的「已了结」记录挡住，不在这里模拟。

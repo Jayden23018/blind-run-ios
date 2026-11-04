@@ -280,16 +280,15 @@ final class AppState: ObservableObject {
 
     // MARK: - Rule Params
 
-    /// `GET /api/config/rules` 的原始结果。`nil` = 尚未加载 / 加载失败。
-    @Published private(set) var ruleParamsResponse: RuleParamsResponse?
+    /// `GET /api/config/rules` 的原始结果。`nil` = 尚未加载 / 加载失败。**按账号**，只由 `AppState+RuleParams.swift` 写。
+    @Published var ruleParamsResponse: RuleParamsResponse?
 
     /// 客户端实际用的规则参数。拿不到或不合法时是默认值（见 `RuleParams`），所以**永远有值**：
-    /// 这两个数只决定「多不多说一句提醒」「要不要自动打开订单页」，没有它们时退回旧行为即可，
-    /// 不需要像 `featureFlags` 那样区分「不知道」。
+    /// 这两个数只决定「多不多说一句提醒」「要不要自动打开订单页」，没有它们时退回旧行为即可。
     var ruleParams: RuleParams { RuleParams(response: ruleParamsResponse) }
 
     /// 与 `didLoadFeatureFlags` 同一个写法：只在成功后置位，失败下次再试。
-    private var didLoadRuleParams = false
+    var didLoadRuleParams = false
 
     /// 待回复邀请对账的并发闸（`restorePendingInvites`，见 `AppState+PendingInvites.swift`）。
     let pendingInvitesRestoreGate = CoalescedRerun()
@@ -888,19 +887,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 拉一次规则参数（`GET /api/config/rules`，需登录、不限角色）。
-    ///
-    /// 失败静默、下一次调用时重试；失败期间 `ruleParams` 是默认值，行为与接这个端点之前相同。
-    func loadRuleParamsIfNeeded() async {
-        guard !didLoadRuleParams, accessToken != nil else { return }
-        do {
-            ruleParamsResponse = try await auth.ruleParams()
-            didLoadRuleParams = true
-        } catch {
-            ClientFlowDiagnostics.record(event: "failed", operation: "rule-params")
-        }
-    }
-
     // MARK: - Session Management
 
     /// 启动时恢复会话（Token 从 Keychain 读取，兼容旧版本 UserDefaults 存量）
@@ -1069,6 +1055,7 @@ final class AppState: ObservableObject {
         volunteerProfile = nil
         volunteerRegistrationStatus = nil
         emergencyContacts = []
+        resetRuleParams()
         didDismissBlindIdentityPrompt = false
         sessionExpirationMessage = nil
         logoutState = .idle
