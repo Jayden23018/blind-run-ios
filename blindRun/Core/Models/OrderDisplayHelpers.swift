@@ -740,7 +740,7 @@ extension OrderDetailResponse {
     /// 用户听不到这个约定，就无从判断那条告警是不是意外。
     ///
     /// 只在 `IN_PROGRESS` 加。派单期、汇合期念它没有用：那时还没开始跑，
-    /// 而每多一句都是读屏用户在主路径上多等的时间。
+    /// 而每多一句都是读屏用户在主路径上多等的时间。约好那两态末尾接带绳提醒（#660 V-8，`GuideRopeReminder`）。
     func blindRunnerAnnouncement(distanceText: String? = nil) -> String {
         let distanceSentence = distanceText.map { "陪跑员\($0)。" } ?? ""
         switch status {
@@ -752,13 +752,13 @@ extension OrderDetailResponse {
         // 落到 default 的话，跨天单的播报从头到尾不会出现预约时间 ——
         // 而他要在接下来几天里靠这句话安排自己的日程。
         case .scheduledConfirmed:
-            guard let plannedStartForAnnouncement else { return status.blindRunnerAnnouncement }
-            return "预约已确认，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。计划有变可在出发前致电陪跑员。"
+            guard let plannedStartForAnnouncement else { return "\(status.blindRunnerAnnouncement)\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")" }
+            return "预约已确认，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。计划有变可在出发前致电陪跑员。\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
-                return "陪跑员已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)陪跑员出发后会继续通知你。"
+                return "陪跑员已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)陪跑员出发后会继续通知你。\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")"
             }
-            return "陪跑员已接单。请前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)陪跑员出发后会继续通知你。"
+            return "陪跑员已接单。请前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)陪跑员出发后会继续通知你。\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")"
         case .driverEnRoute:
             if let distanceText {
                 return "陪跑员已出发，正在前往出发地点，\(distanceText)。"

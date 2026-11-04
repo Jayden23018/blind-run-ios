@@ -22,6 +22,10 @@ extension AppState {
     func applyUITestFirstRunHelpDefaults(environment: [String: String]) {
         if environment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] != "1" { markBlindFirstRunHelpSeen() }
         if environment["AIDRUN_UI_TEST_FORCE_VOLUNTEER_FIRST_RUN_HELP"] != "1" { markVolunteerFirstRunHelpSeen() }
+        // 第一次接单时的手机号说明（#660 V-17）。专门测它的用例设 `AIDRUN_UI_TEST_FORCE_PHONE_SHARE_DISCLOSURE=1`。
+        if environment["AIDRUN_UI_TEST_FORCE_PHONE_SHARE_DISCLOSURE"] != "1" {
+            persistence.set(true, forKey: VolunteerOnceNotice.uiTestSkipKey)
+        }
     }
     #endif
 }

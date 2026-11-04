@@ -158,7 +158,9 @@ final class VolunteerIntroCallViewModel: ObservableObject {
               lastIncomingSentAt.map({ abs(sentAt.timeIntervalSince($0)) >= 1 }) ?? true else { return }
         lastIncomingSentAt = sentAt
         incomingCallUntil = until
-        speechService?.speak(IntroCallCopy.volunteerIncomingCallAnnouncement(counterpartName: introCall?.counterpartName))
+        speechService?.speak(
+            IntroCallCopy.volunteerIncomingCallAnnouncement(counterpartName: introCall?.counterpartName) + IntroCallCopy.volunteerSubmitReminderSpeech
+        )
     }
 
     /// 服务端明说「这一轮结束了」的回答。契约 `GET /api/orders/{id}/intro-call` 只列了两种：
@@ -550,10 +552,11 @@ struct VolunteerIntroCallView: View {
     private func lines(incoming: Bool) -> [String] {
         if isClosed { return [IntroCallCopy.volunteerRoundClosedSubtitle] }
         let masked = viewModel.introCall?.counterpartPhoneMasked?.nilIfBlank
-        if incoming, let masked { return [IntroCallCopy.volunteerIncomingCallNumberLine(masked: masked)] }
+        // V1 末尾那句「聊完记得提交」（#660 V-19）：App 不知道电话打完了没有，「合适」只能靠提交表单表达。
+        if incoming, let masked { return [IntroCallCopy.volunteerIncomingCallNumberLine(masked: masked), IntroCallCopy.volunteerSubmitReminder] }
         if isAwaitingConfirmation { return [IntroCallCopy.volunteerAwaitingConfirmationSubtitle] }
-        guard let masked else { return [] }
-        return [IntroCallCopy.volunteerIncomingNumberLine(masked: masked)]
+        guard let masked else { return viewModel.introCall == nil ? [] : [IntroCallCopy.volunteerSubmitReminder] }
+        return [IntroCallCopy.volunteerIncomingNumberLine(masked: masked), IntroCallCopy.volunteerSubmitReminder]
     }
 
     /// 出发地与时间**优先取派单载荷，取不到回落 `IntroCallView`**（两个来源同源，契约逐字）。
@@ -675,18 +678,12 @@ struct VolunteerIntroCallView: View {
     /// V1：「不合适」与「未接到来电」。
     ///
     /// 🚩 **两个端点，不能合并**（`reportUnreachable` 的注释：统计口径相反）。
+    /// 两个都先确认，「未接到来电」进页满几分钟才出现（#660 V-9，见 `VolunteerIntroCallSafeguardButtons.swift`）。
     @ViewBuilder
     private var awaitingCallButtons: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
-            declineButton(style: .ghost)
-            FlowTextButton(
-                title: IntroCallCopy.volunteerUnreachableButtonTitle,
-                accessibilityHint: IntroCallCopy.volunteerUnreachableAccessibilityHint
-            ) {
-                Task { await viewModel.reportUnreachable() }
-            }
-            .disabled(viewModel.isSubmitting)
-            .accessibilityIdentifier("volunteerIntroCallUnreachableButton")
+            VolunteerIntroCallDeclineButton(viewModel: viewModel, look: .button)
+            VolunteerIntroCallUnreachableButton(viewModel: viewModel, orderId: route.orderId)
         }
     }
 
@@ -705,26 +702,7 @@ struct VolunteerIntroCallView: View {
             }
             .accessibilityIdentifier("volunteerIntroCallEditPlanButton")
 
-            FlowTextButton(
-                title: IntroCallCopy.volunteerDeclineButtonTitle,
-                accessibilityHint: "结束这次通话确认，系统会把此订单派给下一位"
-            ) {
-                Task { await viewModel.submit(.decline) }
-            }
-            .disabled(viewModel.isSubmitting)
-            .accessibilityIdentifier("volunteerIntroCallDeclineButton")
+            VolunteerIntroCallDeclineButton(viewModel: viewModel, look: .text)
         }
-    }
-
-    private func declineButton(style: FlowActionButton.Style) -> some View {
-        FlowActionButton(
-            IntroCallCopy.volunteerDeclineButtonTitle,
-            style: style,
-            isEnabled: !viewModel.isSubmitting,
-            accessibilityHint: "结束这次通话确认，系统会把此订单派给下一位"
-        ) {
-            Task { await viewModel.submit(.decline) }
-        }
-        .accessibilityIdentifier("volunteerIntroCallDeclineButton")
     }
 }

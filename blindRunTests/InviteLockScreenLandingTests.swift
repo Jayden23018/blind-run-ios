@@ -14,6 +14,8 @@ final class InviteLockScreenLandingTests: XCTestCase {
         let orders = FakeOrderService()
         orders.respondResult = .success(())
         let (viewModel, appState) = InviteLockScreenFixture.makeVolunteerHome(orders: orders)
+        // 手机号去向已经说明过（#660 V-17）；没说明过的那条路见 `IntroCallToMeetupSafeguardTests`。
+        VolunteerOnceNotice(.phoneShare, appState: appState).markDone()
         let coordinator = appState.realtimeCoordinator
         let target = InviteLockScreenFixture.dispatch(orderId: 22, inviteId: 221)
         coordinator.reconcilePendingInvites([InviteLockScreenFixture.dispatch(orderId: 21, inviteId: 211), target], requestedAt: Date())

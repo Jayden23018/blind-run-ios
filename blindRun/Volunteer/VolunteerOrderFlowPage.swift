@@ -489,7 +489,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     private var bottomActions: some View {
         VStack(spacing: 8) {
             if let action = presentation.primaryAction {
-                let actionCaption = gateCaption ?? action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation)
+                let actionCaption = gateCaption ?? action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation, tetherPreference: order?.tetherPreference)
                 if let caption = actionCaption {
                     Text(caption)
                         .flowFont(FlowV2Fonts.subhead())
