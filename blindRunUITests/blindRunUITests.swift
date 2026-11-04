@@ -893,12 +893,12 @@ final class blindRunUITests: XCTestCase {
             app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch.exists,
             "没有在途订单时不该渲染当前订单卡"
         )
-        // ⚠️ 上面那条**不等于**「作业区不渲染」——原文的断言消息是这么写的，而它已经不成立：
-        // Mock 的 `trainingProgress` 默认为空 ⇒ 派单摘要恒带 `TRAINING_INCOMPLETE`
-        // ⇒ `hasTodo` 恒为真 ⇒ 作业区一定在。这才是本轮改动的版式回归钉：
-        XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerHomeTrainingEntry"].firstMatch.exists,
-            "Mock 默认未完成培训，作业区里必须有那张培训卡"
+        // Mock 的 `trainingProgress` 默认为空 ⇒ 派单摘要恒带 `TRAINING_INCOMPLETE`。
+        // #706 起这**不再**让作业区出现：培训由底部胶囊「暂不能接单」说，首页顶部不再挂「需要你处理」
+        // （原来的培训卡在作业区里面，整块不在就等于它也不在）。
+        XCTAssertFalse(
+            app.staticTexts["需要你处理"].firstMatch.exists,
+            "没有订单、预约、定位异常或加载错误时，没学完培训也不该出现「需要你处理」（#706）"
         )
         XCTAssertTrue(
             app.staticTexts["置顶"].firstMatch.waitForExistence(timeout: 10),
@@ -944,24 +944,21 @@ final class blindRunUITests: XCTestCase {
     }
 
     /// 培训页导航栏标题，单一来源 `VolunteerTrainingCopy.navigationTitle`。
+    ///
+    /// XCUITest 是黑盒进不了 app 的类型，只能抄一份 —— 抄错的方向是安全的（会红不会绿）。
     private static let volunteerTrainingTitle = "陪跑培训"
-    /// 培训卡的标题，单一来源 `VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText`。
-    ///
-    /// XCUITest 是黑盒进不了 app 的类型，这两个只能抄一份 —— 抄错的方向是安全的（会红不会绿）。
-    private static let volunteerTrainingIncompleteReason = "尚未完成必修培训"
 
-    /// ③ 必修培训入口：**在首屏、整卡可点、一下直达培训页**。
+    /// 没学完培训时，培训从**底部胶囊 → 接单前进度页 → 培训一步**可达（#706）。
     ///
-    /// 用户原话：「必须在派单工作台点进去再点击一个贼小的去培训，一点都不显眼」。
-    /// 三条断言逐条对应那句话的三个毛病：不在首屏 / 不显眼 / 不直达。
+    /// 首页作业区的整卡培训入口已删（负责人 2026-11-05：「下面的按钮暂不能接单就已经显示了
+    /// 他需要做的东西了」）。这条守的是删掉之后培训仍然够得着，且只多一页。
     ///
     /// Mock 默认「一门课都没学」（`MockAPIClient.trainingProgress` 初始为空），
-    /// 所以派单摘要默认就带 `TRAINING_INCOMPLETE`，这张卡默认可见 —— 不用额外预置。
-    ///
-    /// 点的是真 `NavigationLink`（指针路径），不是 `accessibilityRepresentation`，
-    /// 所以不踩「XCUITest 的 tap() 够不着 accessibility action」那条坑。
+    /// 所以派单摘要默认就带 `TRAINING_INCOMPLETE` —— 不用额外预置。
+    /// 胶囊点的是 `accessibilityRepresentation` 里那枚按钮的坐标，指针路径同样走 `onShowProgress`
+    /// （同 `testBlockedSliderSaysWhyAndOpensReadinessProgress`）；进度页那一步是真 `NavigationLink`。
     @MainActor
-    func testVolunteerTrainingEntryIsOnTheFirstScreenAndOpensTraining() throws {
+    func testVolunteerTrainingIsReachableFromTheBlockedSliderThroughReadinessProgress() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -973,46 +970,34 @@ final class blindRunUITests: XCTestCase {
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
         XCTAssertTrue(identityRow.waitForExistence(timeout: 15), "Volunteer first screen should render")
 
-        let trainingEntry = app.descendants(matching: .any)["volunteerHomeTrainingEntry"].firstMatch
-        // ① 在首屏：不 tap 任何东西就能滚到它。滚动本身不改变「它属于这一屏」这个事实。
+        let progressEntry = app.buttons["查看接单前进度"].firstMatch
         XCTAssertTrue(
-            scrollElementIntoView(trainingEntry, app: app),
-            "必修培训入口必须直接在首屏上，不能藏在二级页里\n\(app.debugDescription)"
+            progressEntry.waitForExistence(timeout: 10),
+            "没学完培训时底部胶囊应当通往接单前进度页\n\(app.debugDescription)"
         )
-        // ② 显眼：整卡可点的一大块，不是一枚小链接。64pt 是这条意见的量化形式。
-        XCTAssertGreaterThanOrEqual(
-            trainingEntry.frame.height,
-            64,
-            "培训入口必须是一整张卡而不是一行小链接（height=\(trainingEntry.frame.height)）"
-        )
-        // ②之二 原因本身就是入口：卡上写的是「为什么接不到单」，不是一枚「去培训」小链接。
-        // 少了这一条，上面那个 64pt 断言就只是在复读实现里的常量 —— 把标题换成「去培训」
-        // 它照样绿，而「原因本身就是入口」正是用户那句话里最实质的一半。
+        let spokenReason = progressEntry.value as? String ?? ""
         XCTAssertTrue(
-            trainingEntry.label.contains(Self.volunteerTrainingIncompleteReason),
-            "培训入口的可读名必须就是原因本身（label=\(trainingEntry.label)）"
+            spokenReason.contains("必修培训"),
+            "胶囊要说出接不了单的原因（value=\(spokenReason)）"
         )
+        attachScreenshot(named: "volunteer-home-without-training-todo", app: app)
 
-        // 而且它排在影响力区之前 —— 作业区是第一档，读屏顺序播报，排序就是优先级。
-        //
-        // ⛔ **不要写成 `if impactBlock.exists { … }`**：「置顶」不在树里时整条顺序断言
-        // 会静默跳过、用例照报 passed，而这正是本仓库记过的「验红假绿」形状。
-        // 同文件上面那条用例已经证明这个字面量可以无条件等到。
-        let impactBlock = app.staticTexts["置顶"].firstMatch
-        XCTAssertTrue(impactBlock.waitForExistence(timeout: 10), "影响力区应当渲染，否则下面的顺序无从判起")
-        XCTAssertLessThan(
-            trainingEntry.frame.minY,
-            impactBlock.frame.minY,
-            "「需要你处理」里的培训入口必须排在影响力区之前"
+        progressEntry.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerReadinessTitle"].firstMatch.waitForExistence(timeout: 15),
+            "点胶囊应当进入接单前进度页\n\(app.debugDescription)"
         )
+        let trainingStep = app.descendants(matching: .any)["volunteerReadinessStep.training"].firstMatch
+        XCTAssertTrue(
+            scrollElementIntoView(trainingStep, app: app),
+            "进度页要列出培训这一步\n\(app.debugDescription)"
+        )
+        attachScreenshot(named: "volunteer-readiness-progress-training-step", app: app)
 
-        attachScreenshot(named: "volunteer-training-entry-on-first-screen", app: app)
-
-        // ③ 直达：点一下就是培训页，中间没有别的页。
-        trainingEntry.tap()
+        trainingStep.tap()
         XCTAssertTrue(
             app.navigationBars[Self.volunteerTrainingTitle].waitForExistence(timeout: 8),
-            "培训入口应当一步打开「\(Self.volunteerTrainingTitle)」\n\(app.debugDescription)"
+            "培训一步应当一下打开「\(Self.volunteerTrainingTitle)」\n\(app.debugDescription)"
         )
     }
 
