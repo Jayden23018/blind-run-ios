@@ -435,6 +435,15 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         return "\(order.blindRunnerAnnouncement())\(timeText)出发地点：\(order.startAddressForAnnouncement)。\(locationText)"
     }
 
+    /// 本机开跑提醒（#660 B-18）：活跃订单换了或状态变了，就按全部订单重排一次（取消的单在这里被撤掉）。
+    /// 键没变不重拉：切回首页 tab 也会重跑 `.task`，每次都拉 50 条订单不值得。拉失败不记键，下次再试。
+    private var lastReminderSyncKey: String?
+    func syncRunStartRemindersIfNeeded() async {
+        let key = "\(activeOrder?.orderId ?? 0)-\(activeOrder?.status.rawValue ?? "")"
+        guard key != lastReminderSyncKey, let appState else { return }
+        if await BlindRunStartReminderSync.refresh(using: appState.orders) { lastReminderSyncKey = key }
+    }
+
     func cancelActiveOrder() async {
         guard let activeOrder, let appState else { return }
         if let message = Self.cancelBlockMessage(for: activeOrder, now: Date()) {
@@ -674,12 +683,11 @@ struct BlindRunnerHomeView: View {
                 guard viewModel.activeOrder == nil else { return }
                 await idleModel.refresh(appState: appState)
             }
-            // 本机开跑提醒（#660 B-18）：订单换了或状态变了就按全部订单重排一次，取消的单在这里被撤掉。
             .task(id: "\(viewModel.activeOrder?.orderId ?? 0)-\(viewModel.activeOrder?.status.rawValue ?? "")") {
-                await BlindRunStartReminderSync.refresh(using: appState.orders)
+                await viewModel.syncRunStartRemindersIfNeeded() // 本机开跑提醒（#660 B-18）
             }
             // 低电量提醒（#660 F-16）。「还在找陪跑员」只由订单页念，这里不念，免得两页叠声。
-            .blindRunnerPreRunCues(order: viewModel.activeOrder, announcesMatchingWait: false)
+            .blindRunnerPreRunCues(order: viewModel.activeOrder, announcesMatchingWait: false, isFrontmost: path.isEmpty)
             // 引导期间首页只是**欠着**那次播报（见上面的 `.task`），这里还账。
             //
             // 判据是「首页重新成为最前面那一页 **且** 确实欠着」，两个条件缺一不可，

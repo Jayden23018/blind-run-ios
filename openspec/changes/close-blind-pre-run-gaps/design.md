@@ -26,6 +26,10 @@ backend half), Magic Tap handler on the order page (B-13/B-21 belong together), 
   out of process and needs no access. On iOS 16 it needs full access and two Info.plist keys. We hide the button
   on iOS 16 instead of adding a permission prompt.
 - **F-16 tier.** `.onDemand`: below status changes, above per-kilometre lines. Dedupe per order id in memory.
+  The ledger is not claimed during a phone call, because the queue drops this tier during calls.
+- **Only the frontmost page speaks.** Both cues stop while another page or sheet covers their page
+  (voice booking over home, safety hub over the order page). A line spoken during voice booking would be
+  picked up as the user's speech.
 - **B-30.** `reviewRating` becomes optional. The submit button stays enabled so a VoiceOver user who presses it
   hears why; a disabled button says nothing.
 

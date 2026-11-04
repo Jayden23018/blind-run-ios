@@ -57,7 +57,7 @@ struct BlindRunStartReminder: Equatable {
             return BlindRunStartReminder(
                 orderId: order.orderId,
                 fireDate: fireDate,
-                body: "1 小时后有一次陪跑，\(time) 开始。打开助盲跑可以查看出发地点和陪跑员。"
+                body: "\(Int(leadTime / 3600)) 小时后有一次陪跑，\(time) 开始。打开助盲跑可以查看出发地点和陪跑员。"
             )
         }
     }
@@ -107,15 +107,17 @@ final class BlindRunStartReminderCenter: BlindRunStartReminderScheduling {
 }
 
 enum BlindRunStartReminderSync {
-    /// 拉一次 `GET /api/orders/mine`，按结果重排。首页的活跃订单一变就调（`BlindRunnerHomeView`）。
+    /// 拉一次 `GET /api/orders/mine`，按结果重排。首页的活跃订单一变就调（`BlindRunnerHomeViewModel.syncRunStartRemindersIfNeeded`）。
     ///
-    /// 拉失败就什么都不动：撤掉的话，网络一抖就把用户已有的提醒全删了。
+    /// 拉失败就什么都不动：撤掉的话，网络一抖就把用户已有的提醒全删了。返回这次有没有真的重排。
+    @discardableResult
     static func refresh(
         using orders: any OrderServing,
         scheduler: any BlindRunStartReminderScheduling = BlindRunStartReminderCenter.shared,
         now: Date = Date()
-    ) async {
-        guard let list = try? await orders.myOrders().content else { return }
+    ) async -> Bool {
+        guard let list = try? await orders.myOrders().content else { return false }
         await scheduler.replaceAll(with: BlindRunStartReminder.reminders(from: list, now: now))
+        return true
     }
 }
