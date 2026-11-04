@@ -126,8 +126,6 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     @Published var isRespondingToDispatch = false
-    /// 接单被后端 403 `VOLUNTEER_NOT_VERIFIED` 拒绝后，错误区要长出「去上传资质证书」入口。
-    @Published var needsCertificateUpload = false
     @Published var acceptedDispatchOrderId: Int64?
     @Published var acceptedDispatchInitialOrder: OrderDetailResponse?
     /// 要进的那一单通话磨合。**两种到达方式共用这一个导航源。**
@@ -249,15 +247,6 @@ final class VolunteerHomeViewModel: ObservableObject {
             return AppColors.success
         }
         return isAvailable ? AppColors.warning : AppColors.textSecondary
-    }
-
-    /// 只给首屏「需要你处理」用，所以不含「请先开启可服务状态」（理由见 guard 的参数注释）。
-    var acceptBlockMessage: String? {
-        VolunteerOrderActionGuard.acceptBlockMessage(
-            profile: appState?.volunteerProfile,
-            registrationStatus: appState?.volunteerRegistrationStatus,
-            requiresDispatchOptIn: false
-        )
     }
 
     static func activeVolunteerOrder(from orders: [OrderDetailResponse]) -> OrderDetailResponse? {
@@ -791,7 +780,6 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
         errorMessage = nil
         dispatchSummaryErrorMessage = nil
-        needsCertificateUpload = false
 
         let workTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
@@ -1966,7 +1954,6 @@ extension VolunteerHomeViewModel {
         default:
             break
         }
-        needsCertificateUpload = error.errorCode == .volunteerNotApproved
         errorMessage = error.localizedMessage
         speechService?.speakError(error.localizedMessage)
     }

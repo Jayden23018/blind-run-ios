@@ -78,7 +78,7 @@ extension VolunteerProfileFirstScreen {
     /// 主数字 + 「共陪跑 N 次」+ 右侧到下一星级的进度（改版前的星级卡并进来了）。
     ///
     /// 🚩 **整张卡可点，去服务成就页**（国标星级、全部勋章、累计时长都在那里）。
-    /// 写法同 `trainingEntry`：`NavigationLink` 上不套 `.combine`，标签 / identifier 挂在链接本身。
+    /// `NavigationLink` 上不套 `.combine`，标签 / identifier 挂在链接本身（套了有丢 link 特性的风险）。
     ///
     /// 🔴 不画样例 v1 那组柱图：后端没有按周的历史，画出来就是编数据。
     func durationCard(_ headline: VolunteerProfileHeadline, level: VolunteerStarLevelDto) -> some View {
