@@ -139,30 +139,37 @@ final class VolunteerTrainingCourseViewModel: ObservableObject {
 
 // MARK: - 课程详情视图
 
+/// 一门课的正文页。答题弹整页（`VolunteerTrainingQuizView`），不再接在正文下面。
+///
+/// 2026-11-04 负责人定稿（`docs/ui/mockups/volunteer-training-20261104/`）：顶部「必修 · 约 N 分钟」小胶囊 +
+/// 大标题 + 简介，正文放白卡，底部固定一颗通栏胶囊「开始答题」（负责人选 A 版）。
 struct VolunteerTrainingCourseView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: VolunteerTrainingCourseViewModel
-    /// 通过之后通知列表页刷新（门槛横幅与状态都要跟着变）。
+    /// 列表页带进来的「除这门以外还没学完的必修课」，只用于全对结果页那句「还差哪门」。
+    private let remainingRequiredTitles: [String]
+    /// 通过之后通知列表页刷新（进度卡与状态都要跟着变）。
     private let onCompletionChanged: () -> Void
+    /// 全对页按「完成」后，答题页收起时顺带退回列表。
+    @State private var leavesAfterQuiz = false
 
-    init(courseId: Int64, onCompletionChanged: @escaping () -> Void) {
+    init(
+        courseId: Int64,
+        remainingRequiredTitles: [String] = [],
+        onCompletionChanged: @escaping () -> Void
+    ) {
         _viewModel = StateObject(wrappedValue: VolunteerTrainingCourseViewModel(courseId: courseId))
+        self.remainingRequiredTitles = remainingRequiredTitles
         self.onCompletionChanged = onCompletionChanged
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 if let detail = viewModel.detail {
+                    header(detail)
                     contentSection(detail)
-                    if viewModel.isQuizVisible {
-                        quizSection
-                    } else if !viewModel.questions.isEmpty {
-                        PrimaryButton(VolunteerTrainingCopy.startQuiz) {
-                            viewModel.isQuizVisible = true
-                        }
-                        .accessibilityIdentifier("volunteerTrainingStartQuizButton")
-                    }
                 } else if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -177,12 +184,43 @@ struct VolunteerTrainingCourseView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(TrainingSurface.page.ignoresSafeArea())
+        // 固定在底部：正文读到哪里都点得到。挂在这一页的 ScrollView 上，不挂 NavigationStack 外层。
+        .safeAreaInset(edge: .bottom) {
+            if viewModel.detail != nil && !viewModel.questions.isEmpty {
+                TrainingBottomBar {
+                    Button(VolunteerTrainingCopy.startQuiz) {
+                        viewModel.isQuizVisible = true
+                    }
+                    .buttonStyle(TrainingCapsuleButtonStyle())
+                    .accessibilityHint("打开课后答题")
+                    .accessibilityIdentifier("volunteerTrainingStartQuizButton")
+                }
+            }
+        }
         .navigationTitle(viewModel.detail?.displayTitle ?? VolunteerTrainingCopy.navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
+        .fullScreenCover(isPresented: $viewModel.isQuizVisible, onDismiss: {
+            guard leavesAfterQuiz else { return }
+            leavesAfterQuiz = false
+            dismiss()
+        }) {
+            VolunteerTrainingQuizView(
+                viewModel: viewModel,
+                remainingRequiredTitles: remainingRequiredTitles,
+                onPassed: { onCompletionChanged() },
+                onFinish: {
+                    leavesAfterQuiz = true
+                    viewModel.isQuizVisible = false
+                }
+            )
+        }
         .task {
             viewModel.configure(appState: appState)
             if viewModel.detail == nil { await viewModel.load() }
@@ -191,29 +229,69 @@ struct VolunteerTrainingCourseView: View {
             // 学习时长在离开时结清。⚠️ 这里刻意不用 scenePhase ——
             // 进后台不代表离开这门课，回来还在同一页（记忆 `permission-alert-makes-scenephase-inactive`
             // 的同类教训：把生命周期事件当成「用户走了」会算错）。
+            guard Self.settlesStudyTimeOnDisappear(quizIsPresented: viewModel.isQuizVisible) else { return }
             Task { await viewModel.reportStudyTimeOnExit() }
         }
     }
 
+    /// 这一页消失时要不要结清学习时长。
+    ///
+    /// 弹出整页答题时这一页也会收到 onDisappear，那不是离开：答题也算在这门课上的时长，
+    /// 留到真正退回列表（或交卷，`submit()` 自己结清一次）时再报。这里报了的话，
+    /// `enteredAt` 被清空，之后的答题时间要等交卷才重新开始计，交卷前退出就整段丢了（#698 复核 A1）。
+    static func settlesStudyTimeOnDisappear(quizIsPresented: Bool) -> Bool {
+        !quizIsPresented
+    }
+
     // MARK: 正文
 
-    private func contentSection(_ detail: TrainingCourseDetail) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if detail.isRequired {
-                Text("必修")
-                    .font(AppFonts.caption().weight(.semibold))
-                    .foregroundColor(AppColors.primary)
+    private func header(_ detail: TrainingCourseDetail) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let meta = [
+                detail.isRequired ? VolunteerTrainingCopy.requiredSection : VolunteerTrainingCopy.electiveSection,
+                detail.estimatedMinutes.flatMap { $0 > 0 ? "约 \($0) 分钟" : nil }
+            ].compactMap { $0 }.joined(separator: " · ")
+            Text(meta)
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(AppColors.textSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color(uiColor: .systemGray5)))
+            Text(detail.displayTitle)
+                .font(.title.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            if let summary = detail.summary?.nilIfBlank {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func contentSection(_ detail: TrainingCourseDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             // Markdown 原生渲染：`LocalizedStringKey` 会解析 **粗体** / ## 标题 之外的
             // 基础语法。⚠️ 不用 WebView —— 那里 Dynamic Type 与 VoiceOver 都不按系统设置走。
             ForEach(Array(markdownBlocks(detail.content).enumerated()), id: \.offset) { _, block in
                 Text(block.attributed)
-                    .font(block.isHeading ? AppFonts.title() : AppFonts.body())
+                    .font(block.isHeading ? .headline : AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
+                    .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, block.isHeading ? 4 : 0)
+                    .accessibilityAddTraits(block.isHeading ? .isHeader : [])
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(TrainingSurface.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerTrainingCourseContent")
     }
 
@@ -238,152 +316,5 @@ struct VolunteerTrainingCourseView: View {
                 )) ?? AttributedString(body)
                 return (attributed, isHeading)
             }
-    }
-
-    // MARK: 答题
-
-    @ViewBuilder
-    private var quizSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Divider()
-
-            Text(VolunteerTrainingCopy.quizIntro)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if viewModel.hasUnanswerableQuestion {
-                // 🚩 选项加载不出来时明确说出来并挡住提交 —— 见 view model 的 unanswerableQuestionIds
-                Text(VolunteerTrainingCopy.brokenQuestion)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.destructive)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("volunteerTrainingBrokenQuestionNotice")
-            }
-
-            ForEach(Array(viewModel.questions.enumerated()), id: \.element.id) { index, question in
-                questionBlock(index: index, question: question)
-            }
-
-            if let result = viewModel.lastResult {
-                resultBlock(result)
-            } else {
-                submitButton
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("volunteerTrainingQuizError")
-            }
-        }
-    }
-
-    private func questionBlock(index: Int, question: TrainingQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("第 \(index + 1) 题　\(question.displayStem)")
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ForEach(question.visibleOptions) { option in
-                let isSelected = viewModel.selections[question.id] == option.id
-                Button {
-                    viewModel.selections[question.id] = option.id
-                } label: {
-                    HStack(alignment: .top, spacing: 10) {
-                        // 选中状态同时用图形和「已选择」文字表达，不只靠颜色
-                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                            .foregroundColor(isSelected ? AppColors.primary : AppColors.textSecondary)
-                            .accessibilityHidden(true)
-                        Text(option.displayText)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.vertical, 6)
-                }
-                .accessibilityLabel(option.displayText)
-                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-                .accessibilityIdentifier("volunteerTrainingOption_\(question.id)_\(option.id)")
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // ⚠️ 用 .contain 而不是 .combine：里面的选项是要能被逐个点到的按钮，
-        // .combine 会把它们吃成一个不可操作的整体（记忆
-        // `accessibility-identifier-overwrites-children` 的同类陷阱）
-        .accessibilityElement(children: .contain)
-    }
-
-    private var submitButton: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            PrimaryButton(
-                VolunteerTrainingCopy.submitQuiz,
-                isLoading: viewModel.isSubmitting
-            ) {
-                Task {
-                    if let result = await viewModel.submit(), result.isPassed {
-                        onCompletionChanged()
-                    }
-                }
-            }
-            .disabled(!viewModel.canSubmit)
-            .accessibilityIdentifier("volunteerTrainingSubmitButton")
-
-            // 🚩 按钮禁用时必须说明原因。只把按钮变灰的话，用户不知道少答了题 ——
-            //    这正是「失败只多一行字」那类缺陷的反面：原因和控件在同一处。
-            if !viewModel.isEveryQuestionAnswered && !viewModel.hasUnanswerableQuestion {
-                Text(VolunteerTrainingCopy.unansweredWarning)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityIdentifier("volunteerTrainingUnansweredHint")
-            }
-        }
-    }
-
-    private func resultBlock(_ result: TrainingQuizResult) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(result.summaryText)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(result.isPassed ? AppColors.success : AppColors.destructive)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("volunteerTrainingQuizResult")
-
-            // 🚩 逐题解释必须给。可无限重考 + 全对才过的组合下，
-            //    只说「答错了」会让用户唯一的策略变成改选项猜到过。
-            ForEach(result.visibleWrongQuestions) { wrong in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(wrong.stem?.nilIfBlank ?? "这道题答错了")
-                        .font(AppFonts.caption().weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                    // explanation 可能为 nil（题目没填）—— 那就整段不显示，不显示 "nil"
-                    if let explanation = wrong.explanation?.nilIfBlank {
-                        Text(explanation)
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if !result.isPassed {
-                PrimaryButton(VolunteerTrainingCopy.retryQuiz) {
-                    viewModel.prepareRetry()
-                }
-                .accessibilityIdentifier("volunteerTrainingRetryQuizButton")
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .accessibilityElement(children: .contain)
     }
 }

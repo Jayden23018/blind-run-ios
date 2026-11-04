@@ -19,7 +19,6 @@ enum VolunteerTrainingCopy {
     /// 🚩 **必须说清因果**：「没学完 → 接不到单」。只说「请完成培训」的话，
     /// 志愿者不会知道这是他收不到派单的原因，而那个状态在别处没有任何解释。
     static let blockedBanner = "必修培训还没完成，暂时无法接单。"
-    static let blockedBannerHint = "完成下面标记为「必修」的课程后，就可以开始接单了。"
 
     static let allDoneBanner = "必修培训已全部完成。"
     static func certificateLine(_ no: String) -> String { "培训合格证编号 \(no)" }
@@ -33,14 +32,37 @@ enum VolunteerTrainingCopy {
     static let review = "复习"
     static let startQuiz = "开始答题"
     static let submitQuiz = "提交答案"
-    static let retryQuiz = "再答一次"
-    static let backToCourse = "回到课程内容"
+    static let finishQuiz = "完成"
+    /// 结果页唯一的按钮。2026-11-04 负责人定稿：结果页不再放「回到课程正文」（原话「很突兀，看着很丑」），
+    /// 想回正文点左上 ✕。
+    static func retryQuiz(wrongCount: Int) -> String { "重答这 \(wrongCount) 题" }
+    static let retryAll = "重新作答"
+
+    // 列表页（2026-11-04 定稿 `docs/ui/mockups/volunteer-training-20261104/`）
+    static let requiredSection = "必修"
+    static let electiveSection = "选修"
+    /// 选修组下的灰字。后半句是合规口径：积分 ≠ 志愿服务时长（中央网信办 2026-06-19 通知）。
+    static let electiveFooter = "选修课不影响接单。积分和志愿服务时长是两回事。"
+    static func requiredProgress(done: Int, total: Int) -> String { "\(done) / \(total) 门" }
+    /// 进度卡的说明。🚩 同 `blockedBanner`：要说清「没学完 → 接不到单」。
+    /// 写法同结果页（`VolunteerTrainingQuizView`）。不用「」括课名：被压窄的「」，落在行尾，
+    /// 真机审计判 `Text clipped`，而字是完整的（#698，默认字号与 AX5 都报；同类见 `BookingRecapRow`）。
+    static func remainingRequired(_ titles: [String]) -> String {
+        "还差 \(titles.count) 门必修：\(titles.joined(separator: "、"))。学完才能接单。"
+    }
+    static let pillCompleted = "已完成"
+    static let pillToLearn = "去学习"
+    static func pillReward(_ points: Int) -> String { "+\(points) 积分" }
+    static func courseMeta(minutes: Int?, questions: Int?) -> String {
+        var parts: [String] = []
+        if let minutes, minutes > 0 { parts.append("约 \(minutes) 分钟") }
+        if let questions, questions > 0 { parts.append("\(questions) 道题") }
+        return parts.joined(separator: " · ")
+    }
 
     /// 答题前的提示。**如实说明及格线与可重考**，不要含糊 ——
     /// 用户知道「错一题就要重来但可以无限重来」之后，行为和心态都不一样。
     static let quizIntro = "下面每道题都只有一个正确答案。全部答对才算通过，答错可以修改后再次提交，次数不限。"
-
-    static let unansweredWarning = "还有题目没有作答，请全部选择后再提交。"
 
     /// 题目缺选项时的说明。
     /// 🚩 这条必须存在：静默渲染一道没有选项的题，用户点不下去也不知道为什么，
@@ -87,13 +109,16 @@ final class VolunteerTrainingViewModel: ObservableObject {
     }
 }
 
-// MARK: - 培训首页（排法 C：任务清单）
+// MARK: - 培训首页（2026-11-04 定稿：进度卡 + 必修 / 选修两组）
 
 /// 志愿者培训首页。
 ///
-/// **排法 C**：一屏看完全部进度，「为什么不能接单」摆在最上面。
-/// 选它的理由是本仓库的前科 —— 失败/阻断说明如果排在列表末尾，
-/// 在最长列表 + 最大字号下根本不在第一屏，等于没有反馈
+/// **2026-11-04 负责人定稿**（照健康 App 同功能页的版式，`docs/ui/mockups/volunteer-training-20261104/`）：
+/// 顶部一张进度卡（圆环 +「1 / 2 门」+ 还差哪门），下面「必修」「选修」两组，
+/// 每行右侧的状态胶囊说下一步该做什么。
+///
+/// 进度卡仍然**永远在第一屏**、说清「没学完 → 接不到单」—— 排法 C 留下的理由没变：
+/// 失败/阻断说明排在列表末尾时，最长列表 + 最大字号下根本不在第一屏
 /// （记忆 `claimed-fallback-may-not-exist-in-release`）。
 ///
 /// 触达高度：志愿者端**不受 64pt 线约束**（`guard.mjs` 的 `small-touch-target`
@@ -102,13 +127,14 @@ final class VolunteerTrainingViewModel: ObservableObject {
 struct VolunteerTrainingView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = VolunteerTrainingViewModel()
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 20) {
                 if viewModel.hasLoadedOnce {
-                    gateBanner
-                    courseList
+                    progressCard
+                    courseGroups
                 } else if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -123,119 +149,187 @@ struct VolunteerTrainingView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(TrainingSurface.page.ignoresSafeArea())
         .navigationTitle(VolunteerTrainingCopy.navigationTitle)
+        .navigationBarTitleDisplayMode(.large)
+        // 二级页藏标签栏：悬浮胶囊会盖掉最后一行（记忆 `tab-bar-clips-the-last-line-of-secondary-pages`），
+        // 加 padding 救不回来。返回箭头一直在，不缺出口。
+        .toolbar(.hidden, for: .tabBar)
         .task {
             viewModel.configure(appState: appState)
-            // 只在首次进入时拉；从课程详情返回时由 onAppear 那条刷新（见 courseRow）
+            // 只在首次进入时拉；从课程详情返回时由 courseRow 的回调刷新
             if !viewModel.hasLoadedOnce { await viewModel.load() }
         }
     }
 
-    /// 门槛横幅 —— 永远在第一屏，见类注释。
+    // MARK: 进度卡
+
+    private var requiredCourses: [TrainingCourseSummary] { viewModel.courses.filter(\.isRequired) }
+    private var electiveCourses: [TrainingCourseSummary] { viewModel.courses.filter { !$0.isRequired } }
+
+    /// 门槛卡 —— 永远在第一屏，见类注释。
+    ///
+    /// 🚩 「学完没有」**读后端的 `requiredCompleted`**，不拿下面数出来的门数判（`TrainingCourseListResponse` 的注释）。
+    /// 门数只用来画圆环和「1 / 2 门」这一行。
     @ViewBuilder
-    private var gateBanner: some View {
-        if viewModel.requiredCompleted {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(VolunteerTrainingCopy.allDoneBanner, systemImage: "checkmark.seal")
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.success)
-                if let certificateNo = viewModel.certificateNo {
-                    Text(VolunteerTrainingCopy.certificateLine(certificateNo))
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        // 证书编号要能被逐字念清 —— 它会被口头转述、被抄下来
-                        .accessibilityLabel(
-                            "培训合格证编号，\(certificateNo.map { String($0) }.joined(separator: "、"))"
-                        )
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppColors.secondaryBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("volunteerTrainingDoneBanner")
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                // 图标只是装饰，对读屏隐藏；语义全在文字里（不靠颜色/图标传达状态）
-                Label {
-                    Text(VolunteerTrainingCopy.blockedBanner)
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                } icon: {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(AppColors.warning)
-                        .accessibilityHidden(true)
-                }
-                Text(VolunteerTrainingCopy.blockedBannerHint)
-                    .font(AppFonts.caption())
+    private var progressCard: some View {
+        let total = requiredCourses.count
+        let done = requiredCourses.filter(\.isCompleted).count
+        let isDone = viewModel.requiredCompleted
+        HStack(alignment: .center, spacing: 16) {
+            TrainingProgressRing(fraction: isDone ? 1 : (total > 0 ? Double(done) / Double(total) : 0))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(VolunteerTrainingCopy.requiredSection)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(AppColors.textSecondary)
+                if total > 0 {
+                    Text(VolunteerTrainingCopy.requiredProgress(done: done, total: total))
+                        .font(.title.bold())
+                        .foregroundColor(AppColors.textPrimary)
+                }
+                Text(progressLine(isDone: isDone))
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if isDone, let certificateNo = viewModel.certificateNo {
+                    Text(VolunteerTrainingCopy.certificateLine(certificateNo))
+                        .font(.footnote)
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppColors.secondaryBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("volunteerTrainingBlockedBanner")
         }
+        .padding(16)
+        .background(TrainingSurface.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // 整张卡读成一句：门数 + 原因（+ 证书编号逐字念）。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(progressAccessibilityLabel(isDone: isDone, done: done, total: total))
+        .accessibilityIdentifier(isDone ? "volunteerTrainingDoneBanner" : "volunteerTrainingBlockedBanner")
     }
 
+    private func progressLine(isDone: Bool) -> String {
+        if isDone { return VolunteerTrainingCopy.allDoneBanner }
+        let pending = viewModel.response?.pendingRequiredCourses.map(\.displayTitle) ?? []
+        // 后端说没学完、而列表里的必修都已完成（课程刚上下线的那一刻）：退回通用说法，不编课名
+        return pending.isEmpty ? VolunteerTrainingCopy.blockedBanner : VolunteerTrainingCopy.remainingRequired(pending)
+    }
+
+    private func progressAccessibilityLabel(isDone: Bool, done: Int, total: Int) -> String {
+        var parts = ["必修培训"]
+        if total > 0 { parts.append("已完成 \(done) 门，共 \(total) 门") }
+        parts.append(progressLine(isDone: isDone))
+        if isDone, let certificateNo = viewModel.certificateNo {
+            // 证书编号要能被逐字念清 —— 它会被口头转述、被抄下来
+            parts.append("培训合格证编号，\(certificateNo.map { String($0) }.joined(separator: "、"))")
+        }
+        return parts.joined(separator: "，")
+    }
+
+    // MARK: 课程分组
+
     @ViewBuilder
-    private var courseList: some View {
+    private var courseGroups: some View {
         if viewModel.courses.isEmpty {
             Text(VolunteerTrainingCopy.emptyCourses)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
                 .accessibilityIdentifier("volunteerTrainingEmpty")
         } else {
+            if !requiredCourses.isEmpty {
+                courseGroup(title: VolunteerTrainingCopy.requiredSection, courses: requiredCourses, footer: nil)
+            }
+            if !electiveCourses.isEmpty {
+                courseGroup(
+                    title: VolunteerTrainingCopy.electiveSection,
+                    courses: electiveCourses,
+                    footer: VolunteerTrainingCopy.electiveFooter
+                )
+            }
+        }
+    }
+
+    private func courseGroup(title: String, courses: [TrainingCourseSummary], footer: String?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(AppColors.textSecondary)
+                .padding(.horizontal, 16)
+                .accessibilityAddTraits(.isHeader)
             VStack(spacing: 0) {
-                ForEach(viewModel.courses) { course in
+                ForEach(courses) { course in
                     courseRow(course)
-                    if course.id != viewModel.courses.last?.id {
-                        Divider()
+                    if course.id != courses.last?.id {
+                        Divider().padding(.leading, 60)
                     }
                 }
             }
-            .background(AppColors.secondaryBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(TrainingSurface.card)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            if let footer {
+                Text(footer)
+                    .font(.footnote)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+            }
         }
     }
 
     private func courseRow(_ course: TrainingCourseSummary) -> some View {
         NavigationLink {
-            VolunteerTrainingCourseView(courseId: course.id) {
-                // 从详情返回后刷新：可能刚刚通过了一门课，门槛横幅与状态都要跟着变
+            VolunteerTrainingCourseView(
+                courseId: course.id,
+                remainingRequiredTitles: (viewModel.response?.pendingRequiredCourses ?? [])
+                    .filter { $0.id != course.id }
+                    .map(\.displayTitle)
+            ) {
+                // 从详情返回后刷新：可能刚刚通过了一门课，进度卡与状态胶囊都要跟着变
                 Task { await viewModel.load() }
             }
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: course.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundColor(course.isCompleted ? AppColors.success : AppColors.textSecondary)
+            HStack(spacing: 12) {
+                TrainingCourseIcon(course: course)
                     .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 3) {
+                // 辅助功能字号下胶囊换到标题下面：并排时标题列会被挤成一两个字一行
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                    : AnyLayout(HStackLayout(spacing: 12))
+                layout {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(course.displayTitle)
-                        .font(AppFonts.body().weight(.semibold))
+                        .font(AppFonts.body())
                         .foregroundColor(AppColors.textPrimary)
-                    Text(course.metaLine)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                    // 状态用文字给，不只靠上面那个图标的颜色
-                    Text(statusLine(course))
-                        .font(AppFonts.caption())
-                        .foregroundColor(course.isCompleted ? AppColors.success : AppColors.primary)
+                        .multilineTextAlignment(.leading)
+                    let meta = VolunteerTrainingCopy.courseMeta(minutes: course.estimatedMinutes, questions: course.questionCount)
+                    if !meta.isEmpty {
+                        Text(meta)
+                            .font(.footnote)
+                            .foregroundColor(AppColors.textSecondary)
+                    }
                 }
-                Spacer(minLength: 0)
+                // 唯一的弹性子视图：标题列吃掉剩余宽度，胶囊和箭头贴右（记忆 `flexible-spacer-steals-half-the-row`）
+                .frame(maxWidth: .infinity, alignment: .leading)
+                TrainingStatusPill(status: pillStatus(course))
+                }
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityHidden(true)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(minHeight: 60)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         // 整行合成一个可点元素，label 把「标题 + 必修/选修 + 状态」一次念全
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(course.displayTitle)，\(course.isRequired ? "必修" : "选修")，\(statusLine(course))")
@@ -243,16 +337,24 @@ struct VolunteerTrainingView: View {
         .accessibilityIdentifier("volunteerTrainingCourseRow_\(course.id)")
     }
 
-    /// 一行说清「学到哪了」。
+    private func pillStatus(_ course: TrainingCourseSummary) -> TrainingStatusPill.Status {
+        if course.isCompleted { return .completed }
+        if !course.isRequired && course.rewardPointsValue > 0 { return .reward(course.rewardPointsValue) }
+        return .toLearn
+    }
+
+    /// 读屏念的「学到哪了」。界面上只给胶囊；学习时长与答题次数只进读屏（定稿行里放不下第三行）。
     ///
-    /// 学习时长只在 > 0 时出现 —— 「已学 0 分钟」比不显示更糟。
+    /// 学习时长只在 > 0 时出现 —— 「已学 0 分钟」比不说更糟。
     private func statusLine(_ course: TrainingCourseSummary) -> String {
-        var parts: [String] = [course.progressState.displayText]
+        var parts: [String] = [pillStatus(course).text]
+        let meta = VolunteerTrainingCopy.courseMeta(minutes: course.estimatedMinutes, questions: course.questionCount)
+        if !meta.isEmpty { parts.append(meta) }
         let minutes = (course.studiedSeconds ?? 0) / 60
         if minutes > 0 { parts.append("已学 \(minutes) 分钟") }
         if course.attemptCountValue > 0 && !course.isCompleted {
             parts.append("已答 \(course.attemptCountValue) 次")
         }
-        return parts.joined(separator: " · ")
+        return parts.joined(separator: "，")
     }
 }
