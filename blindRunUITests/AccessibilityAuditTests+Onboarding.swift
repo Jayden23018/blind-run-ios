@@ -38,6 +38,7 @@ extension AccessibilityAuditTests {
     /// 角色页、验证码区、实名页、联系人表单这四处的**原有**控件有审计红灯（#676，2026-11-04 首次整页审计报出）。
     /// 非严格：修好一处后不会因为「预期的失败没出现」而变红；修完 #676 就把这里换回 `try audit(app)`。
     /// 本轮新加的元素另有显式断言守着，不靠这一遍审计。
+    @available(iOS 17.0, *)
     private func auditKnownRedPage(_ app: XCUIApplication) throws {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
