@@ -45,8 +45,10 @@ enum VolunteerTrainingCopy {
     static let electiveFooter = "选修课不影响接单。积分和志愿服务时长是两回事。"
     static func requiredProgress(done: Int, total: Int) -> String { "\(done) / \(total) 门" }
     /// 进度卡的说明。🚩 同 `blockedBanner`：要说清「没学完 → 接不到单」。
+    /// 写法同结果页（`VolunteerTrainingQuizView`）。不用「」括课名：被压窄的「」，落在行尾，
+    /// 真机审计判 `Text clipped`，而字是完整的（#698，默认字号与 AX5 都报；同类见 `BookingRecapRow`）。
     static func remainingRequired(_ titles: [String]) -> String {
-        "还差\(titles.map { "「\($0)」" }.joined())，学完才能接单。"
+        "还差 \(titles.count) 门必修：\(titles.joined(separator: "、"))。学完才能接单。"
     }
     static let pillCompleted = "已完成"
     static let pillToLearn = "去学习"

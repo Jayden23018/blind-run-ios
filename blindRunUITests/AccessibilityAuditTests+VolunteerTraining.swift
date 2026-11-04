@@ -140,14 +140,15 @@ extension AccessibilityAuditTests {
         attachScreenshot(app, name: "training-list-after-light")
     }
 
-    /// 深色与最大字号（AX5）各走一遍四屏：截图供定稿对比，每屏过审计。
+    /// 深色走一遍四屏：截图供定稿对比，每屏过审计。
+    /// 陪跑员端只测默认字号（负责人 2026-11-05 定）：最大字号（AX5）只在盲人端测。
     @MainActor
-    func testVolunteerTrainingScreensPassAuditInDarkAndLargestText() throws {
+    func testVolunteerTrainingScreensPassAuditInDark() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .portrait
-        let variants = Self.appearanceVariants.filter { ["dark", "ax5-light"].contains($0.name) }
-        XCTAssertEqual(variants.count, 2, "appearanceVariants 里找不到 dark / ax5-light")
+        let variants = Self.appearanceVariants.filter { $0.name == "dark" }
+        XCTAssertEqual(variants.count, 1, "appearanceVariants 里找不到 dark")
         for variant in variants {
             let app = openVolunteerTraining(environment: variant.environment, arguments: variant.arguments)
             attachScreenshot(app, name: "training-list-\(variant.name)")
@@ -193,8 +194,10 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(tabBar.waitForExistence(timeout: 25), "陪跑员标签栏没出来")
         tabBar.buttons["我的"].tap()
         let entry = app.buttons["volunteerTrainingSettingsEntry"].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 10), "「我的」页没有陪跑培训入口")
+        // 入口在「我的」页首屏以下，SwiftUI 不渲染屏外的行：先滚再断言（commit 4cee939）
+        _ = entry.waitForExistence(timeout: 3)
         reveal(entry, in: app)
+        XCTAssertTrue(entry.exists, "「我的」页没有陪跑培训入口")
         entry.tap()
         let banner = app.descendants(matching: .any)["volunteerTrainingBlockedBanner"].firstMatch
         XCTAssertTrue(banner.waitForExistence(timeout: 15), "培训列表的进度卡没出来\n\(app.debugDescription)")
