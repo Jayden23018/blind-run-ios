@@ -22,7 +22,16 @@ extension AccessibilityAuditTests {
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .portrait
         let app = openVolunteerTraining(environment: ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], arguments: [])
+        let basicsRow = try checkListAndCourseThenOpenQuiz(app)
+        let submit = app.buttons["volunteerTrainingSubmitButton"].firstMatch
+        try answerOneWrongAndCheckTheResult(app, submit: submit)
+        try retryOnlyTheWrongOneAndFinish(app, submit: submit, basicsRow: basicsRow)
+    }
 
+    /// 列表 → 正文 → 打开答题页，每屏截图 + 审计。返回列表里「陪跑基础」那一行，最后回列表时还要看它。
+    @available(iOS 17.0, *)
+    @MainActor
+    private func checkListAndCourseThenOpenQuiz(_ app: XCUIApplication) throws -> XCUIElement {
         // 列表：进度卡说清还差哪门、为什么接不到单
         let banner = app.descendants(matching: .any)["volunteerTrainingBlockedBanner"].firstMatch
         XCTAssertTrue(banner.label.contains("已完成 0 门，共 2 门"), "进度卡要读出门数（label=\(banner.label)）")
@@ -44,7 +53,13 @@ extension AccessibilityAuditTests {
 
         // 答题：一页全部题；没答完时提交不可用，并写出差哪几题
         start.tap()
-        let submit = app.buttons["volunteerTrainingSubmitButton"].firstMatch
+        return basicsRow
+    }
+
+    /// 第 1 题答对、第 2 题答错，交卷后看结果页：一句结论 + 错题卡 + 唯一的「重答这 1 题」。
+    @available(iOS 17.0, *)
+    @MainActor
+    private func answerOneWrongAndCheckTheResult(_ app: XCUIApplication, submit: XCUIElement) throws {
         XCTAssertTrue(submit.waitForExistence(timeout: 10), "答题页没出来")
         XCTAssertFalse(submit.isEnabled, "一题没答时「提交答案」应不可用")
         XCTAssertEqual(unansweredHint(app), "还差第 1、2 题")
@@ -83,8 +98,14 @@ extension AccessibilityAuditTests {
         attachScreenshot(app, name: "training-result-wrong-light")
         try audit(app)
 
-        // 重答：答对的第 1 题保留，只清掉第 2 题
         retry.tap()
+    }
+
+    /// 重答：答对的第 1 题保留，只清掉第 2 题；答对后「完成」回到列表，进度跟着变。
+    @available(iOS 17.0, *)
+    @MainActor
+    private func retryOnlyTheWrongOneAndFinish(_ app: XCUIApplication, submit: XCUIElement, basicsRow: XCUIElement) throws {
+        let result = app.staticTexts["volunteerTrainingQuizResult"].firstMatch
         XCTAssertTrue(submit.waitForExistence(timeout: 10))
         XCTAssertEqual(unansweredHint(app), "还差第 2 题", "重答只该清掉答错的那题")
         let keptOption = option(app, question: TrainingFixture.ropeQuestion, option: "B")
