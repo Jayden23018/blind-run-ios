@@ -316,21 +316,7 @@ struct VolunteerAvailabilityScheduleView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                // 系统组标题与页脚色是 `secondaryLabel`，压在分组底色上亮色只有 3.29:1，
-                // 真机审计报「字再大一点才够」（#466）。`textSecondary` 亮 5.96:1 / 暗 9.5:1。
-                Text("这些时间里有合适的陪跑，会邀请你")
-                    .font(.subheadline)
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.horizontal, 16)
-
-                // 空闲时间不等于锁屏也能被派到（#654）。
-                Text(VolunteerAvailabilityCopy.keepAppOpenNote + "。")
-                    .font(.subheadline)
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
+                VolunteerAvailabilityScheduleHeader()
 
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(viewModel.slots) { slot in
