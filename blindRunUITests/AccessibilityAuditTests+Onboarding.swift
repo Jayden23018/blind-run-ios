@@ -35,7 +35,7 @@ extension AccessibilityAuditTests {
         app.descendants(matching: .any)[identifier].firstMatch
     }
 
-    /// 角色页、验证码区、实名页、联系人表单这四处的**原有**控件有审计红灯（#676，2026-11-04 首次整页审计报出）。
+    /// 角色页、验证码区、实名页、联系人表单、资料页这五处的**原有**控件有审计红灯（#676，2026-11-04 首次整页审计报出）。
     /// 非严格：修好一处后不会因为「预期的失败没出现」而变红；修完 #676 就把这里换回 `try audit(app)`。
     /// 本轮新加的元素另有显式断言守着，不靠这一遍审计。
     @available(iOS 17.0, *)
@@ -126,12 +126,13 @@ extension AccessibilityAuditTests {
         let saved = anyElement(app, "blindProfileSavedNotice")
         XCTAssertTrue(saved.waitForExistence(timeout: 10), "保存成功后屏幕上没有任何反馈")
         XCTAssertEqual(saved.label, "资料已保存。")
+        // 提示在保存按钮正上方、整个露出来：表单很长，放在表单末尾的话明眼陪同者看不到。
+        XCTAssertTrue(saved.isHittable, "「资料已保存。」被挡住了")
+        XCTAssertLessThanOrEqual(saved.frame.maxY, save.frame.minY + 0.5, "提示没在保存按钮上方")
         keepOnboardingScreenshot("onboarding-profile-saved")
-        // 滚到底再审：停在顶部时「牵引绳」那一行的下沿正好压在变高了的底部栏上，
-        // 对比度按整行取样会取到栏里的字（元素截图为证），不是用户看得到的问题。
-        for _ in 0..<4 { app.swipeUp() }
-        XCTAssertTrue(saved.exists, "滚动后「资料已保存。」不见了")
-        try audit(app)
+        // 资料页整页审计有原有红灯（#676）：停在顶部时「牵引绳」那一行的下沿压在底部栏上、对比度取样取到栏里的字；
+        // 滚到底时「给陪跑员的引导偏好」报 Text clipped、滚到导航栏下的「默认配速偏好」报对比度。
+        try auditKnownRedPage(app)
     }
 
     /// B-10：新增联系人页有「从通讯录选择」，姓名框键盘上方有「下一项」。
