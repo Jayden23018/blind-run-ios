@@ -1032,12 +1032,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
-        // Mock 只允许后端真实存在的四个取值，未知覆盖值一律忽略。
-        if let override = ProcessInfo.processInfo.environment["AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS"],
-           case let parsed = VolunteerCertificateStatus.parse(override),
-           parsed != .unknown {
-            volunteerVerificationStatus = parsed
-        }
+        applyUITestVerificationStatusOverride()
         if volunteerProfile != nil {
             applyVolunteerVerificationStatusToProfile()
         }
