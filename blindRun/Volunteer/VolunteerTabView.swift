@@ -34,6 +34,8 @@ struct VolunteerTabView: View {
     @StateObject private var viewModel = VolunteerHomeViewModel()
 
     @State private var selection: Tab = .home
+    /// 第一次按接单时先说明手机号去向（#660 V-17），等他按「知道了，继续」再发。
+    @State private var pendingPhoneShare: VolunteerPhoneShareRequest?
 
     private enum Tab: Hashable {
         case home
@@ -231,12 +233,12 @@ struct VolunteerTabView: View {
                 // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
                 // 而漂移的表现是「界面说能直接接、后端回 409」。
                 onRespond: { orderId, action in
-                    viewModel.respondToDispatch(
-                        action: action,
-                        currentLocation: locationService.currentLocation,
-                        locationAuthorized: locationService.isAuthorized,
-                        orderId: orderId
-                    )
+                    let request = VolunteerPhoneShareRequest(orderId: orderId, action: action)
+                    if VolunteerOnceNotice(.phoneShare, appState: appState).isDone {
+                        respond(request)
+                    } else {
+                        pendingPhoneShare = request
+                    }
                 },
                 onDecline: { viewModel.declineInvite(orderID: $0) }
             )
@@ -244,6 +246,7 @@ struct VolunteerTabView: View {
             // 免得哪天有人在里面加一个带背景色的容器就把整个标签栏点不动了。
             .allowsHitTesting(viewModel.isInviteSheetPresented)
         }
+        .volunteerPhoneShareDisclosure(pending: $pendingPhoneShare, onProceed: respond)
         // #368：接单开关 / 自动恢复待命前的位置轨迹同意。挂在容器上而不是首页 tab 上：
         // 自动恢复那条路发生时他可能在任何一个 tab。全屏而不是对话框，理由见 `ConsentDisclosureView`。
         .fullScreenCover(isPresented: Binding(
@@ -252,6 +255,15 @@ struct VolunteerTabView: View {
         )) {
             trackConsentScreen
         }
+    }
+
+    private func respond(_ request: VolunteerPhoneShareRequest) {
+        viewModel.respondToDispatch(
+            action: request.action,
+            currentLocation: locationService.currentLocation,
+            locationAuthorized: locationService.isAuthorized,
+            orderId: request.orderId
+        )
     }
 
     private var trackConsentScreen: some View {

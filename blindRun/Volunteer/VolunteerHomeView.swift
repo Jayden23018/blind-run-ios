@@ -2016,6 +2016,8 @@ extension VolunteerHomeViewModel {
             switch request.action {
             case .accept:
                 isInviteSheetPresented = true
+                // 第一次接单要先说明手机号去向（#660 V-17）：只把邀请卡打开，让他在卡上再按一次、看到说明。
+                guard let appState, VolunteerOnceNotice(.phoneShare, appState: appState).isDone else { return }
                 respondToDispatch(
                     action: invite.order.dispatchRespondAction,
                     currentLocation: currentLocationProvider(),

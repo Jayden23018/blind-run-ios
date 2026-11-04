@@ -160,15 +160,15 @@ enum BlindRunCopy {
     /// ① 汇合的主按钮（设计稿状态清单 §1）。与陪跑员端 `VolunteerOrderFlowCopy.startRun` 同一个词：
     /// 两人站在一起时会互相说「你按开始跑步」，两端叫法不同就对不上。
     static let startRunButtonTitle = "开始跑步"
-    /// ① 汇合的副标题（设计稿逐字）。「轻点下方」只在订单页成立，所以它不进
+    /// ① 汇合的副标题。设计稿原句前加了「先核对对方姓氏」（#660 B-15）。「轻点下方」只在订单页成立，所以它不进
     /// `RunOrderStatus.blindRunnerDescription` —— 那一句首页与语音状态查询也在用。
-    static let metUpSubtitle = "见面后，轻点下方开始跑步"
+    static let metUpSubtitle = "按开始前，先核对对方姓氏。见面后，轻点下方开始跑步"
     /// 按下去不能撤回（倒计时那三秒按钮不可点），所以提示要先说清会发生什么。
     static let startRunHint = "按下后倒数三秒开始，陪跑员那边会同时开始"
     /// 按下「开始跑步」那一刻播的一句。成功之前可能要等网络，这一句让人知道按到了。
     static let startingAnnouncement = "正在开始跑步。"
     /// 还没到 `earliestServiceStartAt` 时的副标题与读屏提示。
-    static func metUpLockedSubtitle(opensAt: String) -> String { "见面后，\(opensAt) 起可以开始跑步" }
+    static func metUpLockedSubtitle(opensAt: String) -> String { "按开始前，先核对对方姓氏。见面后，\(opensAt) 起可以开始跑步" }
     static func startRunLockedHint(opensAt: String) -> String { "\(opensAt) 起可以按" }
     static let startRunFailed = "跑步开始失败，请再按一次。"
 
@@ -526,7 +526,7 @@ struct BlindOrderFlowPresentation: Equatable {
             description = startRunOpensAt(order: order, now: now).map(BlindRunCopy.metUpLockedSubtitle(opensAt:))
                 ?? BlindRunCopy.metUpSubtitle
         } else {
-            description = order.blindRunnerDescriptionUnlessLeftAlone
+            description = order.blindRunnerFlowDescription  // 约好时多一句带绳提醒（#660 V-8）
         }
         var parts = [description]
         if let waited = order.blindRunnerWaitedText(now: now) {

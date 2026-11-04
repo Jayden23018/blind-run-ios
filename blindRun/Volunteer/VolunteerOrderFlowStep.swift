@@ -325,7 +325,7 @@ extension RunOrderStatus {
         case .scheduledConfirmed: return "已经约好。出发前请确认你还会去。"
         case .pendingAccept: return "已接单，到时间请出发去约定地点。"
         case .driverEnRoute: return "你已出发，正在前往约定地点。"
-        case .driverArrived: return "你已到达约定地点。见到跑者、握好引导绳后再开始跑步。"
+        case .driverArrived: return VolunteerMeetupIdentityCopy.arrivedAnnouncement
         case .inProgress: return "陪跑已开始，请注意安全。"
         case .completed: return "陪跑完成，谢谢你。"
         // 中性：跑者取消、结束等待、系统取消都会落这一态。跑者取消时订单页另念带「不算你的取消」的整句。

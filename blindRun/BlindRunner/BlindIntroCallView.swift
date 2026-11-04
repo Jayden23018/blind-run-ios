@@ -491,18 +491,9 @@ struct BlindIntroCallView: View {
         }
     }
 
-    /// 不用红色：「更换陪跑员」是平权的退出，不是拒绝谁（`IntroCallCopy.declineButtonTitle` 的注释）；
-    /// 红色在本 App 里专指求助与阻断，用在这里等于替用户说了一句「不行」。
+    /// 按下先确认（#660 B-14），样式与理由见 `BlindIntroCallDeclineButton`。
     private var declineButton: some View {
-        FlowActionButton(
-            IntroCallCopy.declineButtonTitle,
-            style: .ghost,
-            isEnabled: !viewModel.isPerformingAction,
-            accessibilityHint: IntroCallCopy.declineAccessibilityHint
-        ) {
-            Task { await viewModel.declineIntroCall() }
-        }
-        .accessibilityIdentifier("blindIntroCallDeclineButton")
+        BlindIntroCallDeclineButton(viewModel: viewModel)
     }
 
     // MARK: - 动作

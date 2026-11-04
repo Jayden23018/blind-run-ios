@@ -761,7 +761,7 @@ struct VolunteerOrderDetailView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("确认接单后将显示盲人联系方式。")
+            Text("确认接单后将显示盲人联系方式，你的手机号也会提供给跑者。")
         }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
             Button("确认取消", role: .destructive) {
@@ -2182,7 +2182,8 @@ struct VolunteerInServiceView: View {
             let gate = VolunteerActionGate.resolve(action: presentation.primaryAction, order: order, now: now)
             VolunteerOrderFlowPage(
                 presentation: presentation,
-                hero: .make(order: order, phase: phase, now: now, direction: direction?.sector.text, distanceText: distance),
+                // 约好时的带绳一行、汇合时的开口一行、首单标签（#660，`VolunteerOrderPrepNotices.swift`）。
+                hero: VolunteerOrderHero.make(order: order, phase: phase, now: now, direction: direction?.sector.text, distanceText: distance).withPrepNotices(order: order, phase: phase, totalCompleted: viewModel.dispatchSummary?.totalCompleted),
                 order: order,
                 phase: phase,
                 meet: meet,
@@ -2202,6 +2203,7 @@ struct VolunteerInServiceView: View {
                 footer: {
                     flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed)
                     OrderCounterpartSafetySection(order: order)
+                    VolunteerFirstRunLoader(viewModel: viewModel, phase: phase)
                 }
             )
         } else {

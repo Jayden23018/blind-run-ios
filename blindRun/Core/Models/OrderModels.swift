@@ -257,8 +257,8 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// 曾经也会被陪跑员端念到，所以措辞写成了对两个人都为真；#333 起陪跑员端改用
     /// `RunOrderStatus.volunteerAnnouncement`，这一句只对盲人说了（措辞暂未收窄）。
     /// 不写「你或志愿者都可以开始」，那半句在同意闸下不成立。
-    /// 不写「轻点下方」：首页与语音状态查询也用这一句，那里没有那枚按钮。
-    static let blindRunnerArrivedCopy = "陪跑员已到达约定地点。见面后，在订单页按「开始跑步」出发。"
+    /// 不写「轻点下方」：首页与语音状态查询也用这一句，那里没有那枚按钮。「先核对对方姓氏」见 #660 B-15。
+    static let blindRunnerArrivedCopy = "陪跑员已到达约定地点。按开始前，先核对对方姓氏。见面后，在订单页按「开始跑步」出发。"
 
     var startServiceBlockedMessage: String {
         switch self {

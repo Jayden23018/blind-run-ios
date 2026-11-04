@@ -29,7 +29,7 @@ enum VolunteerFirstRunHelp {
             订单页每一步只会出现当前该按的那个主按钮。\
             提前几天约好的单，开跑前要先按「\(VolunteerOrderFlowCopy.confirmDeparture)」，没有确认的单会转给别的陪跑员。\
             出门时按「\(VolunteerOrderFlowCopy.enRoute)」（时间还没到时按钮叫「\(VolunteerOrderFlowCopy.alreadyDeparted)」，作用一样），到了集合点按「\(VolunteerOrderFlowCopy.arrived)」。\
-            见到跑者、握好引导绳之后，再按「\(VolunteerOrderFlowCopy.startRun)」。\
+            见到跑者、按跑者习惯的方式准备好之后（引导绳、扶手臂或只用语言），再按「\(VolunteerOrderFlowCopy.startRun)」。\
             跑完后长按「\(VolunteerFinishLongPress.title)」结束。
             """
         ),
@@ -42,12 +42,21 @@ enum VolunteerFirstRunHelp {
             等满时限后会出现「\(VolunteerOrderFlowCopy.endWaiting)」，\(VolunteerOrderFlowCopy.endWaitingCaption)。
             """
         ),
+        // 首单前的要点（#660 V-35）。并进这一页而不是另弹一层：这一页本来就在第一次打开订单页时自动弹，
+        // 同一刻再弹一个提示框会和它抢。
+        VolunteerHelpTopic(
+            id: "firstRun",
+            title: "第三，第一次带跑记住这几件事",
+            body: """
+            \(VolunteerFirstRunCopy.tips.joined())
+            """
+        ),
         // 🔴 红线（AGENTS.md §6）：云端求助只在跑步进行中；其余一律本地拨号，要说清 App 不会代发。
         // 客服工单要说清不是求助入口、不是即时通道；不写「回拨」「已通知」「会有人来」。
         // 求助入口搬位置时这一条必须同轮改，教错位置的代价是陪跑员在最坏的时刻按空。
         VolunteerHelpTopic(
             id: "help",
-            title: "第三，出事找哪里",
+            title: "第四，出事找哪里",
             body: """
             现在有危险，直接拨打 120 或 110。\
             跑步进行中，订单页右上角的「\(VolunteerRunCopy.navButtonLabel)」里有紧急求助：长按 3 秒会直接发出，轻点会先让你确认一次。\

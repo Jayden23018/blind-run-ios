@@ -1365,7 +1365,8 @@ final class AccessibilityAuditTests: XCTestCase {
         let fill = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
         XCTAssertTrue(fill.waitForExistence(timeout: 10))
         XCTAssertEqual(fill.label, "填写见面安排")
-        XCTAssertTrue(app.buttons["volunteerIntroCallUnreachableButton"].exists, "「未接到来电」要和「不合适」分开")
+        // 「未接到来电」进页满 5 分钟才出现（#660 V-9），之前原位置是一行说明。
+        XCTAssertTrue(app.descendants(matching: .any)["volunteerIntroCallUnreachablePending"].firstMatch.exists)
         fill.tap()
 
         let submit = app.buttons["volunteerMeetupPlanSubmitButton"].firstMatch
@@ -1383,6 +1384,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(header.label.contains("确认"), "V3 标题不对：\(header.label)")
         XCTAssertFalse(app.buttons["volunteerOrderFlowPrimaryButton"].exists, "V3 此刻没有该陪跑员做的主动作，不放黄色主按钮")
         XCTAssertFalse(app.buttons["volunteerIntroCallUnreachableButton"].exists, "提交过安排单 = 电话打通了，不再给「未接到来电」")
+        XCTAssertFalse(app.descendants(matching: .any)["volunteerIntroCallUnreachablePending"].firstMatch.exists)
         XCTAssertTrue(app.buttons["volunteerIntroCallDeclineButton"].exists)
 
         // 修改前先提示需跑者重新确认。
