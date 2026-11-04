@@ -320,7 +320,8 @@ final class VolunteerMeetupPlanTests: XCTestCase {
         let sentAt = now.addingTimeInterval(-30)
         h.viewModel.noteIncomingCall(sentAt: sentAt, now: now)
         h.viewModel.noteIncomingCall(sentAt: sentAt, now: now.addingTimeInterval(5))
-        XCTAssertEqual(h.speech.spokenHistoryForTesting, ["跑者王正在来电，请留意接听。"])
+        // 来电那句后面接「聊完记得提交」（#660 V-19）。
+        XCTAssertEqual(h.speech.spokenHistoryForTesting, ["跑者王正在来电，请留意接听。聊完记得回到这一页提交结果。"])
         XCTAssertTrue(h.viewModel.isShowingIncomingCall(now: now))
         XCTAssertTrue(h.viewModel.isShowingIncomingCall(now: sentAt.addingTimeInterval(119)))
         XCTAssertFalse(h.viewModel.isShowingIncomingCall(now: sentAt.addingTimeInterval(121)))
