@@ -29,7 +29,7 @@ struct SafetyHubPresentation: ViewModifier {
     let onLocalCall: () -> Void
     let onTriggerEmergency: () -> Void
     let onTriggerEmergencyImmediately: () -> Void
-    var onEndRunWithoutVolunteer: (() -> Void)?
+    var onEndRunWithoutVolunteer: (@MainActor () async -> String?)?
 
     @State private var pendingAction: (() -> Void)?
 
@@ -52,7 +52,8 @@ struct SafetyHubPresentation: ViewModifier {
                 onTriggerEmergency: { dismiss(then: onTriggerEmergency) },
                 onTriggerEmergencyImmediately: { dismiss(then: onTriggerEmergencyImmediately) },
                 onDismiss: { dismiss(then: nil) },
-                onEndRunWithoutVolunteer: onEndRunWithoutVolunteer.map { action in { dismiss(then: action) } }
+                // 结束成功才关弹层；没结束成时那句话留在弹层里（见 `SafetyHubRunSection.endRun`）。
+                onEndRunWithoutVolunteer: onEndRunWithoutVolunteer.map { action in { @MainActor in let refusal = await action(); if refusal == nil { dismiss(then: nil) }; return refusal } }
             )
         }
     }
@@ -111,8 +112,8 @@ struct BlindSafetyHubView: View {
     /// 长按 3 秒 / 自定义无障碍动作：**跳过二次确认**，直接进倒计时。
     let onTriggerEmergencyImmediately: () -> Void
     let onDismiss: () -> Void
-    /// 「陪跑员联系不上，结束本次陪跑」确认之后（#660 B-4）。`nil` = 调用方不提供这个出口。
-    var onEndRunWithoutVolunteer: (() -> Void)?
+    /// 「陪跑员联系不上，结束本次陪跑」确认之后（#660 B-4）。`nil` = 不提供这个出口。返回值见 `SafetyHubRunSection.onEndRun`。
+    var onEndRunWithoutVolunteer: (@MainActor () async -> String?)?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AccessibilityFocusState private var emergencyFocused: Bool
@@ -238,8 +239,7 @@ struct BlindSafetyHubView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// 定位出问题时那一句。**复用 `locationUnavailable` 的分岔**（权限被关 vs 拿不到 GPS），
-    /// 而不是另写一句 —— 两处说的是同一件事，分开写就会慢慢漂成两种说法。
+    /// 定位出问题时那一句。**复用 `locationUnavailable` 的分岔**（权限被关 vs 拿不到 GPS），不另写 —— 分开写会漂成两种说法。
     /// 这里只取「未发出：」之后那半句：求助还没按过，说「求助未发出」是假的。
     private var locationNotice: String? {
         guard let locationError else { return nil }

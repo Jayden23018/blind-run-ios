@@ -6,10 +6,13 @@ import SwiftUI
 /// 单独成文件是因为 `SafetyHubView.swift` 在 SwiftLint 棘轮的冻结名单里，只许变短。
 struct SafetyHubRunSection: View {
     let mode: BlindHomeSOSMode
-    /// `nil` = 调用方不提供结束出口。
-    let onEndRun: (() -> Void)?
+    /// `nil` = 调用方不提供结束出口。返回 `nil` = 已结束（调用方随即关弹层）；
+    /// 返回一句话 = 没结束成，这句留在按钮下面（409 时是后端带时刻的原话）。
+    let onEndRun: (@MainActor () async -> String?)?
 
     @State private var showsEndRunConfirmation = false
+    @State private var isEnding = false
+    @State private var refusal: String?
 
     /// 指引在跑步中就有（含登录过期那一档）：两台手机在一起，走散告警不会响，只能靠跑者自己按。
     static func showsGuide(mode: BlindHomeSOSMode) -> Bool { mode != .localCall }
@@ -24,7 +27,10 @@ struct SafetyHubRunSection: View {
         if showsGuide {
             VStack(alignment: .leading, spacing: 12) {
                 guide
-                if showsEndRun { endRunButton }
+                if showsEndRun {
+                    endRunButton
+                    refusalText
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -75,12 +81,38 @@ struct SafetyHubRunSection: View {
         .accessibilityLabel(BlindRunnerFinishCopy.endRunTitle)
         .accessibilityHint(BlindRunnerFinishCopy.endRunHint)
         .accessibilityIdentifier("blindSafetyHubEndRunWithoutVolunteer")
-        // 确认框挂在弹层里面，确认后由调用方先关弹层再执行（同「一键求助」，见 `SafetyHubPresentation`）。
+        // 请求在途时不可再按。`.disabled()` 让读屏念出「不可用」，静默 guard 做不到。
+        .disabled(isEnding)
+        // 确认后**不先关弹层**，就在这一层里发请求：409 的原话要留在屏幕上，而订单页每 5 秒轮询一次、
+        // 每次都清空 `errorMessage`，放在那里几秒就没了。成功才由调用方关弹层，
+        // 那时确认框早已收起，不会和弹层的关闭撞在同一次转场里。
         .alert(BlindRunnerFinishCopy.confirmTitle, isPresented: $showsEndRunConfirmation) {
-            Button(BlindRunnerFinishCopy.confirmButtonTitle, role: .destructive) { onEndRun?() }
+            Button(BlindRunnerFinishCopy.confirmButtonTitle, role: .destructive) { endRun() }
             Button(BlindRunnerFinishCopy.cancelButtonTitle, role: .cancel) {}
         } message: {
             Text(BlindRunnerFinishCopy.confirmMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var refusalText: some View {
+        if let refusal {
+            Text(refusal)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("blindSafetyHubEndRunRefusal")
+        }
+    }
+
+    private func endRun() {
+        guard let onEndRun, !isEnding else { return }
+        isEnding = true
+        refusal = nil
+        Task {
+            refusal = await onEndRun()
+            isEnding = false
         }
     }
 }
