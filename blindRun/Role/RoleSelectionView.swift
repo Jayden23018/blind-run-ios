@@ -44,9 +44,9 @@ final class RoleSelectionViewModel: ObservableObject {
         pendingRole = role
     }
 
-    /// 确认弹窗里按「确认」。
-    func confirmPendingRole(inviteCode: String = "") {
-        guard let role = pendingRole else { return }
+    /// 确认弹窗里按「确认」。角色由弹窗的 `presenting:` 传进来，**不读 `pendingRole`**：
+    /// 弹窗关闭时绑定会把 `pendingRole` 清掉，与按钮动作谁先谁后不归我们定。
+    func confirmRole(_ role: UserRole, inviteCode: String = "") {
         pendingRole = nil
         selectRole(role, inviteCode: inviteCode)
     }
@@ -267,7 +267,7 @@ struct RoleSelectionView: View {
             Button(RoleSelectionViewModel.confirmButtonTitle(for: role)) {
                 // 邀请码与角色**在同一个请求里**提交 —— 设角色只能成功一次，
                 // 没有「先设角色、再补邀请码」这条路。
-                viewModel.confirmPendingRole(inviteCode: inviteCode)
+                viewModel.confirmRole(role, inviteCode: inviteCode)
             }
             Button("重新选择", role: .cancel) {
                 viewModel.cancelPendingRole()

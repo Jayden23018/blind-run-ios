@@ -5,9 +5,9 @@ import SwiftUI
 
 @MainActor
 final class BlindRunnerProfileViewModel: ObservableObject {
-    @Published var name = ""
-    @Published var defaultPace: PacePreference = .noPreference
-    @Published var specialNeeds = ""
+    @Published var name = "" { didSet { savedNotice = nil } }
+    @Published var defaultPace: PacePreference = .noPreference { didSet { savedNotice = nil } }
+    @Published var specialNeeds = "" { didSet { savedNotice = nil } }
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -25,13 +25,13 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     // 在产品上真正成立的支点。依据见 `docs/research/vision-level-collection-ui-20260910.md` §4.2。
 
     /// 引导方式。**不需要同意**，`nil` = 用户还没选。
-    @Published var tetherPreference: TetherPreference?
+    @Published var tetherPreference: TetherPreference? { didSet { savedNotice = nil } }
     /// 视力状况。`nil` = 没选或没同意。
-    @Published var visionLevel: VisionLevel?
+    @Published var visionLevel: VisionLevel? { didSet { savedNotice = nil } }
     /// 是否常带导盲犬，三选一（#472）。默认「不说」—— 与后端新建档默认值相同。
-    @Published var guideDog: GuideDogStatus = .notSpecified
+    @Published var guideDog: GuideDogStatus = .notSpecified { didSet { savedNotice = nil } }
     /// 写给陪跑员的引导偏好。自由文本 ⇒ 陪跑员**接单后**才看得到（`AGENTS.md` §8），页面上要写明。
-    @Published var guidePreferenceText = ""
+    @Published var guidePreferenceText = "" { didSet { savedNotice = nil } }
 
     /// 是否已就「视力状况 + 导盲犬」取得单独同意。
     ///
@@ -56,6 +56,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
     /// 普通保存成功后那一句（同时上屏和朗读）。原来成功分支一声不响，
     /// 读屏用户分不清「存上了」和「没按到」，只能反复按（#657 B-6）。
+    /// 任何一项再被改动就撤掉（各字段的 `didSet`），免得屏幕说「已保存」而眼前的内容其实没存。
     @Published private(set) var savedNotice: String?
     static let savedNoticeText = "资料已保存。"
     /// 撤回没存上时，失败文案里让用户「再点一次」的那个按钮名。nil = 本页的「保存」/「完成」；

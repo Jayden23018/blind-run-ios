@@ -315,9 +315,11 @@ struct EmergencyContactFormView: View {
     }
 
     /// 校验没过时把焦点放到出问题的那一格，免得读屏用户从头找。
-    private func fieldFor(validationMessage: String) -> Field {
-        if validationMessage.contains("姓名") { return .name }
-        if validationMessage.contains("手机号") { return .phone }
+    /// 按校验规则本身判，不按提示文案判：顺序与 `EmergencyContactsViewModel.validationMessage` 相同。
+    private var firstInvalidField: Field {
+        let trimmedName = name.trimmed
+        if trimmedName.isEmpty || trimmedName.count > EmergencyContactRules.maxNameLength { return .name }
+        if !AppState.isValidMainlandPhone(phone.trimmed) { return .phone }
         return .relationship
     }
 
@@ -325,7 +327,7 @@ struct EmergencyContactFormView: View {
         if let validationMessage {
             localErrorMessage = validationMessage
             speechService.speakError(validationMessage)
-            focusedField = fieldFor(validationMessage: validationMessage)
+            focusedField = firstInvalidField
             return
         }
         localErrorMessage = nil

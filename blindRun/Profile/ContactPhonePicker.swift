@@ -23,7 +23,9 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
 
     func updateUIViewController(_ host: UIViewController, context: Context) {
         context.coordinator.parent = self
-        guard isPresented, host.presentedViewController == nil else { return }
+        // `isPresenting` 挡住同一次弹出被排两遍：present 是异步派发的，这期间视图可能再更新几次。
+        guard isPresented, host.presentedViewController == nil, !context.coordinator.isPresenting else { return }
+        context.coordinator.isPresenting = true
         let picker = CNContactPickerViewController()
         picker.delegate = context.coordinator
         picker.displayedPropertyKeys = [CNContactPhoneNumbersKey]
@@ -32,7 +34,11 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
         picker.predicateForSelectionOfContact = NSPredicate(format: "phoneNumbers.@count == 1")
         picker.predicateForSelectionOfProperty = NSPredicate(format: "key == 'phoneNumbers'")
         DispatchQueue.main.async {
-            host.present(picker, animated: true)
+            host.present(picker, animated: true) {
+                // 下滑关掉选择器不一定走 `contactPickerDidCancel`。不复位的话 `isPresented` 卡在 true，
+                // 下次再按「从通讯录选择」就没反应。
+                picker.presentationController?.delegate = context.coordinator
+            }
         }
     }
 
@@ -40,14 +46,21 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
         Coordinator(parent: self)
     }
 
-    final class Coordinator: NSObject, CNContactPickerDelegate {
+    final class Coordinator: NSObject, CNContactPickerDelegate, UIAdaptivePresentationControllerDelegate {
         var parent: ContactPhonePicker
+        var isPresenting = false
 
         init(parent: ContactPhonePicker) {
             self.parent = parent
         }
 
         func contactPickerDidCancel(_ picker: CNContactPickerViewController) {
+            isPresenting = false
+            parent.isPresented = false
+        }
+
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            isPresenting = false
             parent.isPresented = false
         }
 
@@ -62,6 +75,7 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
         }
 
         private func finish(contact: CNContact, rawPhone: String) {
+            isPresenting = false
             parent.isPresented = false
             let name = CNContactFormatter.string(from: contact, style: .fullName) ?? ""
             parent.onPick(ContactPhonePick(name: name, rawPhone: rawPhone))

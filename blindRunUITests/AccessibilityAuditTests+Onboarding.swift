@@ -86,6 +86,12 @@ extension AccessibilityAuditTests {
         alert.buttons["重新选择"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
         XCTAssertTrue(blindCard.waitForExistence(timeout: 5), "按「重新选择」后离开了角色页，说明已经提交")
+
+        // 确认这条路要真的提交：弹窗关闭时绑定会清 pendingRole，确认按钮不能依赖它。
+        blindCard.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["确认，我是盲人跑者"].tap()
+        XCTAssertTrue(blindCard.waitForNonExistence(timeout: 10), "按了确认还停在角色页，角色没有提交")
     }
 
     /// B-6：保存成功要在保存按钮上方上屏一句。
@@ -174,5 +180,21 @@ extension AccessibilityAuditTests {
         keepOnboardingScreenshot("onboarding-identity-x")
         app.buttons["收起键盘"].firstMatch.tap()
         try audit(app)
+
+        // 首次提交先弹全屏同意页。同意页盖上来会触发底下页面的 onDisappear，
+        // 不能借此把刚填的内容清掉，否则同意之后发出去的是空表单。
+        let name = app.textFields["真实姓名，必填"].firstMatch
+        name.tap()
+        name.typeText("张三")
+        if app.buttons["收起键盘"].firstMatch.exists { app.buttons["收起键盘"].firstMatch.tap() }
+        let submit = app.buttons["提交实名信息"].firstMatch
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
+        submit.tap()
+        let agree = app.buttons.matching(NSPredicate(format: "identifier ENDSWITH %@", "AgreeButton")).firstMatch
+        XCTAssertTrue(agree.waitForExistence(timeout: 10), "首次提交没有弹出单独同意页")
+        agree.tap()
+        let wiped = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "请输入 2 到 50 个字的真实姓名")).firstMatch
+        XCTAssertFalse(wiped.waitForExistence(timeout: 5), "同意之后报「请输入姓名」：输入在同意页盖上来时被清空了")
+        keepOnboardingScreenshot("onboarding-identity-after-consent")
     }
 }

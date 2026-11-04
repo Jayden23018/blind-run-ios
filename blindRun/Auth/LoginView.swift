@@ -319,7 +319,7 @@ struct LoginView: View {
                     focusVerificationCode(using: scrollProxy)
                 }
                 .onChange(of: viewModel.codeFieldFocusRequest) { _ in
-                    focusVerificationCode(using: scrollProxy)
+                    focusVerificationCode(using: scrollProxy, movesAccessibilityFocus: true)
                 }
                 .onChange(of: viewModel.errorMessage) { errorMessage in
                     if errorMessage != nil, !viewModel.showCodeInput {
@@ -371,7 +371,9 @@ struct LoginView: View {
         }
     }
 
-    private func focusVerificationCode(using scrollProxy: ScrollViewProxy) {
+    /// - Parameter movesAccessibilityFocus: 出错之后才把读屏焦点也拉过去。发送成功那一次不拉：
+    ///   读屏焦点一跳就会念输入框标签，把「验证码已发送」那句通告切掉。
+    private func focusVerificationCode(using scrollProxy: ScrollViewProxy, movesAccessibilityFocus: Bool = false) {
         DispatchQueue.main.async {
             // 动画滚动是位移里最容易引起不适的一种（整屏内容移动）。关掉动画不影响落点，
             // 焦点仍然会移到验证码框上。
@@ -381,7 +383,7 @@ struct LoginView: View {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 focusedField = .verificationCode
-                isCodeFieldAccessibilityFocused = true
+                if movesAccessibilityFocus { isCodeFieldAccessibilityFocused = true }
                 pendingVerificationFocus = false
             }
         }

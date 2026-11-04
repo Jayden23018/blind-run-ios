@@ -28,8 +28,12 @@ private let idCardNumberPattern = #"^\d{17}[\dXx]$"#
 @MainActor
 final class BlindIdentityVerificationViewModel: ObservableObject {
 
-    @Published var idCardName = ""
-    @Published var idCardNumber = ""
+    @Published var idCardName = "" {
+        didSet { if !idCardName.isEmpty { clearedOnBackgroundNotice = nil } }
+    }
+    @Published var idCardNumber = "" {
+        didSet { if !idCardNumber.isEmpty { clearedOnBackgroundNotice = nil } }
+    }
     @Published private(set) var status: BlindVerifyStatus = .unknown
     @Published private(set) var isSubmitting = false
     @Published private(set) var errorMessage: String?
@@ -345,6 +349,9 @@ struct BlindIdentityVerificationView: View {
             if newValue.isEmpty { isRevealingNumber = false }
         }
         .onDisappear {
+            // 全屏同意页盖上来也会触发这里。那时用户还在提交途中，清空的话同意之后发出去的是空表单，
+            // 要把 18 位重打一遍（#657 B-11）。真正离开页面时同意页已经关了，照常清空。
+            guard !showIdentityConsent else { return }
             isRevealingNumber = false
             viewModel.handleDisappear()
         }

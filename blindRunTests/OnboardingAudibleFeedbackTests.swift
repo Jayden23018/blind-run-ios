@@ -93,7 +93,9 @@ final class OnboardingAudibleFeedbackTests: XCTestCase {
         let (viewModel, appState) = makeRoleViewModel(transport: transport)
 
         viewModel.requestRole(.volunteer)
-        viewModel.confirmPendingRole()
+        // 模拟弹窗先关（绑定把 pendingRole 清掉）、再执行按钮动作：确认仍要以传进来的角色提交。
+        viewModel.cancelPendingRole()
+        viewModel.confirmRole(.volunteer)
         await waitUntil { !transport.requests.isEmpty && !viewModel.isLoading }
 
         XCTAssertNil(viewModel.pendingRole)
@@ -108,7 +110,6 @@ final class OnboardingAudibleFeedbackTests: XCTestCase {
 
         viewModel.requestRole(.blind)
         viewModel.cancelPendingRole()
-        viewModel.confirmPendingRole()
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertNil(viewModel.pendingRole)
