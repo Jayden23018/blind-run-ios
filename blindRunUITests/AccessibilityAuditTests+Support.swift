@@ -30,7 +30,7 @@ extension AccessibilityAuditTests {
         )
         attachScreenshot(app, name: "blind-support-ticket-page")
         try audit(app)
-        app.buttons["关闭"].firstMatch.tap()
+        app.buttons["supportTicketClose"].firstMatch.tap()
 
         revealSupportRow(app, "mySupportTicketsSettingsEntry").tap()
         let row = app.descendants(matching: .any)["mySupportTicketRow"].firstMatch
