@@ -998,7 +998,7 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     /// 后端正文指向一个**客户端已经没有的控件**时的替代正文；`nil` = 照播后端原文。
     ///
-    /// 目前只有一条：`ORDER_CANCELLATION_WARNING` 的模板正文逐字带着「点击继续等待可延长」，
+    /// 盲人端 `ORDER_OVERDUE` 见 `BlindRunnerFinishCopy.overdueOverride`。下面说的是另一条：`ORDER_CANCELLATION_WARNING` 的模板正文逐字带着「点击继续等待可延长」，
     /// 而同一个 eventType 覆盖 `PENDING_MATCH` 与 `REMATCHING` 两态，前者那个按钮已删
     /// （`RunOrderStatus.offersBlindRunnerKeepWaitingControl`）。
     ///
@@ -1027,7 +1027,7 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// `testSuppressionFollowsEventTypeNotBodyText` 钉住的旧实现：后端改一个字，
     /// iOS 的播报行为就静默变一次。
     private func overriddenBody(forEventType eventType: String) -> String? {
-        guard eventType == "ORDER_CANCELLATION_WARNING" else { return nil }
+        guard eventType == "ORDER_CANCELLATION_WARNING" else { return BlindRunnerFinishCopy.overdueOverride(eventType: eventType, role: attachedRole) }
         // 只看这条预警可能指向的那两态，别把 `DRIVER_EN_ROUTE` 这类无关订单算进来 ——
         // 它们既不是候选，也永远没有那个按钮，算进来等于恒定覆盖。
         let candidates = activeOrderStatuses.values.filter(\.offersKeepWaiting)
