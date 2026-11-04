@@ -33,7 +33,8 @@ extension AccessibilityAuditTests {
         let occludingBarTop: OccludingBar? = {
             // 盲人通话页（#434）同一条底栏组件：B3 的安排单在「求助与安全」后面滚动。
             // 陪跑员首页底部的接单滑块（滑块后面压着徽章与「最近陪跑」，#515）。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "blindBookingBottomBar"] {
+            // 陪跑培训正文 / 答题 / 结果页的通栏胶囊栏（#698）。
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "blindBookingBottomBar", "volunteerTrainingBottomBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
                 // 栏自己的子元素（按钮、滑块）是看得见的，照常审计；只有压在栏后面的页面内容才算被遮挡。
                 if bar.exists { return OccludingBar(top: bar.frame.minY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame)) }
