@@ -152,7 +152,7 @@ extension EmergencyCoordinator {
                     locationAccuracyMeters: locationAccuracyMeters
                 )
             }
-            return await reconcile(after: .failed(error.localizedMessage), locationAccuracyMeters: locationAccuracyMeters)
+            return await reconcile(after: .failed(error.reasonClause), locationAccuracyMeters: locationAccuracyMeters)
         } catch {
             return await reconcile(after: .failed("网络异常"), locationAccuracyMeters: locationAccuracyMeters)
         }

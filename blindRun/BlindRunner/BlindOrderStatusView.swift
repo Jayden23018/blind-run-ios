@@ -1217,7 +1217,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             refreshedAuthoritativeOrder = true
             isLoading = false
-            pollFailureGate.reportSuccess(orderId: orderId, statusWillBeSpoken: speakChanges && order?.status != updated.status, to: speechService)
+            pollFailureGate.reportSuccess(orderId: orderId, statusWillBeSpoken: speakChanges && order?.status != updated.status && speechService?.lastSpokenStatus != updated.status, to: speechService)
             apply(updated, speakChanges: speakChanges)
             await refreshIntroCallIfNeeded(for: updated, appState: appState)
             await refreshVolunteerLocationFallbackIfNeeded(for: updated, appState: appState)

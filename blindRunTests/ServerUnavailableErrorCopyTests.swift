@@ -41,7 +41,7 @@ final class ServerUnavailableErrorCopyTests: XCTestCase {
         }
     }
 
-    /// 对照组：真没网时仍叫用户检查网络；4xx 与 599 以外的状态码不被误判成服务端故障。
+    /// 对照组：真没网时仍叫用户检查网络；500–599 以外的状态码不被误判成服务端故障。
     func testOfflineAndClientStatusesKeepTheirOldCopy() {
         XCTAssertEqual(APIError.networkError(URLError(.notConnectedToInternet)).localizedMessage, APIError.offlineMessage)
         XCTAssertEqual(APIError.networkError(CancellationError()).localizedMessage, APIError.offlineMessage)
@@ -52,5 +52,24 @@ final class ServerUnavailableErrorCopyTests: XCTestCase {
                 "\(status)"
             )
         }
+    }
+
+    /// 求助失败的整句自带下一步（重试、拨 110）。嵌进去的原因不能再带「稍后再试」——
+    /// 求助场景叫人「稍后」是错的指引。验红：把 `reasonClause` 改回 `localizedMessage`，这条必须失败。
+    func testEmergencyFailureSentenceDoesNotTellTheUserToWait() {
+        let errors: [APIError] = [
+            .networkError(URLError(.cannotConnectToHost)), .networkError(URLError(.timedOut)), .unknown(statusCode: 503)
+        ]
+        for error in errors {
+            for sentence in [
+                EmergencySafetyCopy.failure(error.reasonClause),
+                EmergencySafetyCopy.withdrawFailed(error.reasonClause),
+                EmergencySafetyCopy.cancelOwnerFailed(error.reasonClause)
+            ] {
+                XCTAssertFalse(sentence.contains("稍后"), sentence)
+                XCTAssertFalse(sentence.contains("。。"), sentence)
+            }
+        }
+        XCTAssertTrue(EmergencySafetyCopy.failure(APIError.unknown(statusCode: 503).reasonClause).contains("不是你的手机"))
     }
 }

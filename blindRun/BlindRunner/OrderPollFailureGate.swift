@@ -15,7 +15,11 @@ struct OrderPollFailureGate {
     private(set) var failingOrderId: Int64?
 
     /// 一轮失败。只有这一段失败的第一轮才念（并震动）。
+    ///
+    /// 轮询任务被取消（换单、页面重进时 `startPolling` 先 `cancel()` 旧任务）不算失败：
+    /// 记成失败的话，下一轮成功会念一句不存在的「连接恢复了」。
     mutating func reportFailure(_ message: String, orderId: Int64, to speech: SpeechService?) {
+        guard !Task.isCancelled else { return }
         defer { failingOrderId = orderId }
         guard failingOrderId != orderId else { return }
         speech?.speakError(message)
@@ -25,6 +29,7 @@ struct OrderPollFailureGate {
     ///
     /// `statusWillBeSpoken`：这一轮状态变了、`apply` 马上要念新状态。那句本身就说明连上了，
     /// 这里再念一句只会被它切断（记忆 `later-speak-silently-cuts-the-earlier-one`），所以不念。
+    /// 调用方要把 `lastSpokenStatus` 去重算进去：状态句被去重掉时，这里必须照念恢复。
     mutating func reportSuccess(orderId: Int64, statusWillBeSpoken: Bool, to speech: SpeechService?) {
         defer { failingOrderId = nil }
         guard failingOrderId == orderId, !statusWillBeSpoken else { return }

@@ -46,6 +46,26 @@ extension APIError {
         }
     }
 
+    /// 嵌进「求助未发出：<原因>。请重试，或直接拨打110。」这类整句里的原因短语。
+    /// 整句自带下一步，`localizedMessage` 里的「请稍后再试」「拨打120」会和它打架 ——
+    /// 求助场景尤其不能叫人「稍后」。断网与证书错误仍用原文，与改动前一致。
+    var reasonClause: String {
+        switch self {
+        case .networkError(let underlying):
+            switch Self.networkFailureKind(underlying) {
+            case .secureConnection, .offline: return localizedMessage
+            case .serverUnreachable: return Self.serverUnavailableReason
+            case .ambiguous: return "暂时连不上服务器，可能是信号弱，也可能是服务出了问题"
+            }
+        case .unknown(let statusCode) where Self.isServerSideStatus(statusCode):
+            return Self.serverUnavailableReason
+        default:
+            return localizedMessage
+        }
+    }
+
+    private static let serverUnavailableReason = "服务暂时出了问题，不是你的手机"
+
     /// 网关和服务器报的 5xx。没有后端错误体时才会走到 `.unknown`（有错误体的走 `.serverError`）。
     /// 网关 502 / 503 / 504 就是这样到的，原来念「未知错误 (502)」—— 状态码对用户没有用。
     static func isServerSideStatus(_ statusCode: Int) -> Bool {

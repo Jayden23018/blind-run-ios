@@ -143,7 +143,7 @@ extension EmergencyCoordinator {
                 activeEvent = nil
                 return finish(.idle)
             }
-            return finish(.withdrawFailed(error.localizedMessage))
+            return finish(.withdrawFailed(error.reasonClause))
         } catch {
             return finish(.withdrawFailed(nil))
         }

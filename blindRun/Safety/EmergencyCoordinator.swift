@@ -256,7 +256,7 @@ final class EmergencyCoordinator: ObservableObject {
                 activeEvent = nil
                 return finish(.idle)
             }
-            return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(error.localizedMessage)))
+            return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(error.reasonClause)))
         } catch {
             return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(nil)))
         }
