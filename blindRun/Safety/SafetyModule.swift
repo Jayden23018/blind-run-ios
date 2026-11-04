@@ -979,7 +979,8 @@ extension View {
         onToggleLiveShare: @escaping () -> Void = {},
         onLocalCall: @escaping () -> Void,
         onTriggerEmergency: @escaping () -> Void,
-        onTriggerEmergencyImmediately: @escaping () -> Void
+        onTriggerEmergencyImmediately: @escaping () -> Void,
+        onEndRunWithoutVolunteer: (@MainActor () async -> String?)? = nil
     ) -> some View {
         modifier(
             SafetyHubPresentation(
@@ -995,7 +996,8 @@ extension View {
                 onToggleLiveShare: onToggleLiveShare,
                 onLocalCall: onLocalCall,
                 onTriggerEmergency: onTriggerEmergency,
-                onTriggerEmergencyImmediately: onTriggerEmergencyImmediately
+                onTriggerEmergencyImmediately: onTriggerEmergencyImmediately,
+                onEndRunWithoutVolunteer: onEndRunWithoutVolunteer
             )
         )
     }
