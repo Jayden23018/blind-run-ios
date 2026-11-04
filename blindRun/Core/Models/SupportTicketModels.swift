@@ -56,19 +56,138 @@ struct SupportTicketRequest: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - 我的工单（`GET /api/support/tickets`，契约 operationId `listMine`）
+
+/// 工单状态。**响应向枚举**：后端往里加值时解成 `.unknown`，不许让整页列表读不出来
+/// （`AGENTS.md`「枚举解码遇未知值不许整条崩」）。
+nonisolated enum SupportTicketStatus: String, Sendable, Equatable {
+    case open = "OPEN"
+    case replied = "REPLIED"
+    case closed = "CLOSED"
+    case unknown = "UNKNOWN"
+
+    init(rawValueOrUnknown raw: String?) {
+        self = raw.flatMap(SupportTicketStatus.init(rawValue:)) ?? .unknown
+    }
+}
+
+/// 列表里的一条。只取这一页要显示的字段；`category`、`orderId`、举报相关字段都不解码。
+///
+/// 每个字段都宽容：一项形状不对只丢这一项（外层 `SkippingUndecodable`），
+/// 一个字段形状不对不连累整条 —— 用户最想看的是「客服回了什么」，不是整页报错。
+nonisolated struct SupportTicketSummary: Decodable, Sendable, Equatable, Identifiable {
+    let id: Int64
+    let content: String
+    let status: SupportTicketStatus
+    /// 未回复时为 null（契约）。空白串按没有回复处理。
+    let csReply: String?
+    let createdAt: String?
+    let repliedAt: String?
+
+    init(
+        id: Int64,
+        content: String,
+        status: SupportTicketStatus,
+        csReply: String? = nil,
+        createdAt: String? = nil,
+        repliedAt: String? = nil
+    ) {
+        self.id = id
+        self.content = content
+        self.status = status
+        self.csReply = csReply
+        self.createdAt = createdAt
+        self.repliedAt = repliedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, content, status, csReply, createdAt, repliedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // `id` 是唯一不能缺的：没有它这一行既没法去重也没法区分，宁可整条跳过。
+        id = try container.decode(Int64.self, forKey: .id)
+        content = (try? container.decodeIfPresent(String.self, forKey: .content)) ?? ""
+        status = SupportTicketStatus(
+            rawValueOrUnknown: try? container.decodeIfPresent(String.self, forKey: .status)
+        )
+        csReply = (try? container.decodeIfPresent(String.self, forKey: .csReply))?.nilIfBlank
+        createdAt = try? container.decodeIfPresent(String.self, forKey: .createdAt)
+        repliedAt = try? container.decodeIfPresent(String.self, forKey: .repliedAt)
+    }
+
+    /// 有客服回复文字才算「已回复」。状态说 `REPLIED` 而回复为空，或反过来，都以文字为准 ——
+    /// 用户看到的是那一段字，状态只是标签。
+    var hasReply: Bool { csReply != nil }
+}
+
+/// `PageSupportTicketResponse`，只取 `content`。
+nonisolated struct SupportTicketPage: Decodable, Sendable, Equatable {
+    let content: [SupportTicketSummary]
+
+    init(content: [SupportTicketSummary]) {
+        self.content = content
+    }
+
+    private enum CodingKeys: String, CodingKey { case content }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        content = (try container.decodeIfPresent(SkippingUndecodable<SupportTicketSummary>.self, forKey: .content))?
+            .wrappedValue ?? []
+    }
+}
+
 // MARK: - 文案
 
 enum SupportTicketCopy {
-    static let title = "上报问题"
-    static let settingsHint = "写给客服，账号或使用上的问题都可以说"
+    /// 「我的」页的入口名、工单页标题、其他文案里指向它的名字，**都是这一个常量**。
+    /// 2026-11-04 之前它叫「上报问题」，而 App 里别处都写「联系客服」，用户找不到名字对得上的入口（#656）。
+    static let title = "联系客服"
+    static let settingsHint = "写给客服，账号或使用上的问题都可以说。不是即时通道"
     static let prompt = "说说发生了什么"
-    /// 🔴 时效必须在写字之前就说清楚。工单不是求助，而「上报问题」这四个字
+    /// 🔴 时效必须在写字之前就说清楚。工单不是求助，而「联系客服」这四个字
     /// 在一个刚结束陪跑、心里有事的人看来，很容易被当成「有人会马上来处理」。
-    static let notice = "这是事后反馈，不会立刻有人联系你。如果现在有危险，请直接拨打 120 或 110。"
+    ///
+    /// 🔴 **不承诺任何回复时限**（负责人 2026-11-04 定）：不写具体时间，不写「尽快」「马上」「回拨」。
+    /// 后端 blind-run-backend#899 还没定谁来看工单，写了就是空头承诺。
+    static let notice = "提交后会有工作人员查看，这里不是即时通道，不会立刻有人联系你。如果现在有危险，请直接拨打 120 或 110。"
     static let submit = "提交"
     static let submitted = "已收到你的反馈"
     static let emptyContent = "写一句发生了什么再提交"
     static func tooLong(limit: Int) -> String { "最多 \(limit) 个字，请精简一下" }
     static let failed = "提交失败，检查网络后再试一次"
     static func remaining(_ count: Int) -> String { "还能写 \(count) 个字" }
+
+    // MARK: 我的工单
+
+    static let myTicketsTitle = "我的工单"
+    static let myTicketsHint = "查看你提交过的反馈，以及客服的回复"
+    static let myTicketsLoading = "正在读取你的工单"
+    static let myTicketsEmpty = "你还没有提交过工单。"
+    static let myTicketsFailed = "没有读到你的工单，检查网络后再试一次"
+    static let retry = "重试"
+    /// 没回复时不写「会回复你」「请等待」：不承诺。
+    static let noReplyYet = "暂时没有回复"
+    static let replyLabel = "客服回复"
+    static let yourWordsLabel = "你写的"
+
+    static func statusLabel(_ status: SupportTicketStatus) -> String {
+        switch status {
+        case .open: return "已收到"
+        case .replied: return "已回复"
+        case .closed: return "已关闭"
+        case .unknown: return "状态未知"
+        }
+    }
+
+    /// 一行读屏文案：状态、时间、你写的、客服回复，一次读完。
+    static func rowAccessibilityLabel(_ ticket: SupportTicketSummary, time: String?) -> String {
+        var parts = [statusLabel(ticket.status)]
+        if let time { parts.append(time) }
+        if !ticket.content.isEmpty { parts.append("\(yourWordsLabel)：\(ticket.content)") }
+        parts.append(ticket.csReply.map { "\(replyLabel)：\($0)" } ?? noReplyYet)
+        return parts.joined(separator: "。")
+    }
 }

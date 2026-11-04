@@ -182,6 +182,11 @@ struct blindRunApp: App {
         if environment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] != "1" {
             appState.markBlindFirstRunHelpSeen()
         }
+        // 陪跑员帮助同理：默认跳过，否则每条陪跑员订单页用例都会被弹层挡住。
+        // 专门测它的用例设 `AIDRUN_UI_TEST_FORCE_VOLUNTEER_FIRST_RUN_HELP=1`。
+        if environment["AIDRUN_UI_TEST_FORCE_VOLUNTEER_FIRST_RUN_HELP"] != "1" {
+            appState.markVolunteerFirstRunHelpSeen()
+        }
         if environment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] == "1" {
             appState.updateBlindProfile(
                 BlindProfileResponse(

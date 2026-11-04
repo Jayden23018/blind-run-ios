@@ -122,10 +122,10 @@ enum CounterpartSafetyGate {
 /// 账号停用的提示。四件事都要说到：发生了什么、为什么、能做什么、谁能帮。
 enum AccountSuspensionCopy {
     /// 后端 message 已经说了「不能下单或接单」和「仍可紧急求助」，这里补另外两件。
-    static let supplement = "这是平台对账号的限制，不是这次操作出了错。想了解原因或有异议，可以在「我的」页的「上报问题」里联系客服。"
+    static let supplement = "这是平台对账号的限制，不是这次操作出了错。想了解原因或有异议，可以在「我的」页的「联系客服」里留言。"
     static let fallback = "你的账号已被平台限制，暂时不能下单或接单。遇到危险仍可以使用紧急求助。\(supplement)"
     /// 陪跑员首页滑块下面那一句。
-    static let dispatchNotice = "账号已被平台限制。想了解原因，可以在「我的」页的「上报问题」里联系客服"
+    static let dispatchNotice = "账号已被平台限制。想了解原因，可以在「我的」页的「联系客服」里留言"
 }
 
 enum UserSafetyCopy {
@@ -196,7 +196,7 @@ enum UserSafetyCopy {
     static let unblockFailed = "没有解除成功，请检查网络后再试一次。"
 
     /// 对象不符合条件的 404。契约要求一句通用文案，不区分对方不存在、没有交集、订单或留言对不上。
-    static let targetUnavailable = "现在无法完成这个操作。如果需要帮助，可以在「我的」页的「上报问题」里联系客服。"
+    static let targetUnavailable = "现在无法完成这个操作。如果需要帮助，可以在「我的」页的「联系客服」里留言。"
 
     /// 举报和拉黑共用的失败文案选择。`fallback` 是网络类失败那一句。
     static func failureMessage(for error: APIError, fallback: String) -> String {

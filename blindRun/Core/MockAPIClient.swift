@@ -695,6 +695,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/support/tickets" && method == .post {
             return EmptyResponse()
         }
+        if path == "/api/support/tickets" && method == .get {
+            return Self.mockSupportTickets
+        }
         if path == "/api/reports" && method == .post {
             return Self.mockReportTicket
         }

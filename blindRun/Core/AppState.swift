@@ -218,6 +218,9 @@ final class AppState: ObservableObject {
     /// 与上面那条按账号记的实名标记刻意不同。
     @Published private(set) var didSeeBlindFirstRunHelp = false
 
+    /// 陪跑员使用帮助是否已经看过。按设备记，登出不清，理由同上一条。
+    @Published private(set) var didSeeVolunteerFirstRunHelp = false
+
     /// 首次启动的隐私告知是否已同意（`PrivacyConsentPurpose.appLaunch`）。
     /// 按**设备**记：同意发生在登录之前，那时还没有账号。登出不清 —— 告知的是这个 App 会收集什么，
     /// 与谁登录无关。告知内容改版时靠 key 里的版本号失效，不靠登出。
@@ -426,6 +429,13 @@ final class AppState: ObservableObject {
         guard !didSeeBlindFirstRunHelp else { return }
         didSeeBlindFirstRunHelp = true
         persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen)
+    }
+
+    /// 陪跑员帮助看完（按了「知道了」）。**只有这一个写入点**，理由同 `markBlindFirstRunHelpSeen`。
+    func markVolunteerFirstRunHelpSeen() {
+        guard !didSeeVolunteerFirstRunHelp else { return }
+        didSeeVolunteerFirstRunHelp = true
+        persistence.set(true, forKey: AppConstants.UserDefaultsKeys.volunteerFirstRunHelpSeen)
     }
 
     /// 首次启动告知的同意。**只有这一个写入点**：唯一的触发者是用户按下「同意并开始使用」。
@@ -710,6 +720,8 @@ final class AppState: ObservableObject {
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
         self.didSeeBlindFirstRunHelp =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen) as? Bool ?? false
+        self.didSeeVolunteerFirstRunHelp =
+            persistence.object(forKey: AppConstants.UserDefaultsKeys.volunteerFirstRunHelpSeen) as? Bool ?? false
         self.didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
 
         // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
@@ -1221,6 +1233,7 @@ final class AppState: ObservableObject {
         // 就把值读进内存了。漏掉这一行的表现是**跨用例串味** —— 前一条用例按过「知道了」，
         // 后一条就再也等不到引导页，报「引导页没起来」，看着像功能坏了。
         didSeeBlindFirstRunHelp = false
+        didSeeVolunteerFirstRunHelp = false
         // 同意门走同一个解析器，于是「默认跳过、显式要求时才真弹」的规则只有一处。
         didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
         // Keychain 不随 App 沙盒一起清除：只清 UserDefaults 的话，重置后 Token 仍会残留，

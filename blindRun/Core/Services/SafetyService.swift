@@ -30,6 +30,8 @@ enum SafetyEndpoint {
     /// 「现在有危险」走 `/api/emergency/*`，两条路的时效差着一个数量级。
     /// 所以任何引导文案都不许把人从求助引到这里。
     case supportTicket
+    /// 我的工单（`listMine`，createdAt 倒序）。与提交是同一条路径、不同方法。
+    case myTickets
     /// 通话磨合期「这一单到底是不是我的」的唯一判据，见 `SafetyServing.matchedOrder`。
     case orderDetail(orderId: Int64)
     /// 举报。同样不是紧急求助入口，两端都能调。
@@ -58,6 +60,8 @@ enum SafetyEndpoint {
             return EndpointRequest(.get, "/api/orders/\(orderId)")
         case .supportTicket:
             return EndpointRequest(.post, "/api/support/tickets")
+        case .myTickets:
+            return EndpointRequest(.get, "/api/support/tickets")
         case .report:
             return EndpointRequest(.post, "/api/reports")
         case .blockUser(let userId):
@@ -107,6 +111,8 @@ protocol SafetyServing: Sendable {
 
     // 事后工单
     func submitSupportTicket(_ request: SupportTicketRequest) async throws
+    /// 我自己提交过的工单，最近的在前。一项解码失败只跳过那一项。
+    func myTickets() async throws -> [SupportTicketSummary]
 
     // 举报与拉黑（backend#880）
     func report(_ request: UserReportRequest) async throws -> UserReportTicket
@@ -188,14 +194,26 @@ struct SafetyService: SafetyServing {
         try await transport.send(SafetyEndpoint.orderLocationAddress(orderId: orderId).request)
     }
 
-    /// 后端回 201 + 工单对象，客户端**一个字段都用不上**（没有工单列表页，也不做进度查询）
-    /// ⇒ 丢给 `EmptyResponse`。要的只有「提交成没成」这一个事实。
+    /// 后端回 201 + 工单对象，提交这一步**一个字段都用不上** ⇒ 丢给 `EmptyResponse`。
+    /// 要的只有「提交成没成」这一个事实；之后要看进度走 `myTickets`。
     func submitSupportTicket(_ request: SupportTicketRequest) async throws {
         let _: EmptyResponse = try await transport.send(
             SafetyEndpoint.supportTicket.request,
             body: request
         )
     }
+
+    /// 只取第一页。`size` 取契约上限 100 的一半：一个人 24 小时最多提 5 条未关闭的，
+    /// 50 条已经是很多个月的量，翻页是等到真有人翻不完再做的事。
+    func myTickets() async throws -> [SupportTicketSummary] {
+        let page: SupportTicketPage = try await transport.send(
+            SafetyEndpoint.myTickets.request,
+            query: ["page": "0", "size": "\(Self.myTicketsPageSize)"]
+        )
+        return page.content
+    }
+
+    static let myTicketsPageSize = 50
 
     func report(_ request: UserReportRequest) async throws -> UserReportTicket {
         try await transport.send(SafetyEndpoint.report.request, body: request)

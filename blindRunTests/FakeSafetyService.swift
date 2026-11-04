@@ -35,6 +35,7 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
     var orderTrackResult: Result<OrderTrackResponse, Error> = .failure(NotStubbed(method: "orderTrack"))
     var orderLocationAddressResult: Result<OrderLocationAddressResponse, Error> = .failure(NotStubbed(method: "orderLocationAddress"))
     var submitSupportTicketResult: Result<Void, Error> = .success(())
+    var myTicketsResult: Result<[SupportTicketSummary], Error> = .failure(NotStubbed(method: "myTickets"))
     var reportResult: Result<UserReportTicket, Error> = .failure(NotStubbed(method: "report"))
     var blockUserResult: Result<Void, Error> = .failure(NotStubbed(method: "blockUser"))
     var unblockUserResult: Result<Void, Error> = .failure(NotStubbed(method: "unblockUser"))
@@ -140,6 +141,11 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
         record()
         lastSupportTicket = request
         return try submitSupportTicketResult.get()
+    }
+
+    func myTickets() async throws -> [SupportTicketSummary] {
+        record()
+        return try myTicketsResult.get()
     }
 
     func report(_ request: UserReportRequest) async throws -> UserReportTicket {

@@ -56,7 +56,8 @@ struct VolunteerCannotFindRunnerSheet<Ticket: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Button(SupportTicketCopy.title) { showsTicket = true }
+                // 订单页上挂着订单号的那一枚仍叫「上报问题」（同下面的 noPhoneNotice）；「联系客服」是「我的」页那个不带订单的入口。
+                Button(VolunteerOrderFlowCopy.reportIssue) { showsTicket = true }
                     .font(AppFonts.body())
                     .frame(maxWidth: .infinity, minHeight: 64)
                     .contentShape(Rectangle())
