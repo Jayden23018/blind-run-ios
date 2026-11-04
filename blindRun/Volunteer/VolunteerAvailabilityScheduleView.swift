@@ -426,7 +426,8 @@ struct VolunteerAvailabilityScheduleView: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
                 : AnyLayout(HStackLayout())
             layout {
-                Text(VolunteerAvailabilityScheduleEditing.displayText(slot.dayText))
+                // 日期不以全角「）」收尾，见 `rowDayText`（#673）。
+                Text(VolunteerAvailabilityScheduleEditing.rowDayText(slot.dayText))
                     .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !dynamicTypeSize.isAccessibilitySize { Spacer() }

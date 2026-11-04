@@ -10,7 +10,11 @@ import XCTest
 
 extension AccessibilityAuditTests {
     @available(iOS 17.0, *)
-    func audit(_ app: XCUIApplication) throws {
+    func audit(
+        _ app: XCUIApplication,
+        /// 只放行某一页上有书面依据的设计例外（要在调用处写明依据）。不是白名单：只作用于这一次调用，只作用于第二遍的六项。
+        allowing designException: ((XCUIAccessibilityAuditIssue) -> Bool)? = nil
+    ) throws {
         // iOS 侧七个审计类型**全部**启用。少一项就少一类缺陷，而少了哪一项从测试结果上
         // 完全看不出来 —— 用例照样报绿，绿的是剩下那几项。守卫 `a11y-audit-types`
         // 会拦住任何缺项（`scripts/hooks/guard.mjs`）。
@@ -60,7 +64,7 @@ extension AccessibilityAuditTests {
         // 记下来，最后逐个滚到整个露出再单审一次 —— 仍报才算失败，滚不出来直接 XCTFail。
         // **不放过任何一条**：真的对比度不足，整个露出来时照样报。
         let screen = app.frame
-        var cutByScreenEdge: [(element: XCUIElement, label: String)] = []
+        var cutByScreenEdge: [(element: XCUIElement, label: String, underBanner: Bool)] = []
         try app.performAccessibilityAudit(
             for: [
                 .contrast // guard:allow a11y-audit-types —— 对比度单独一遍（#480），其余六项在下一遍，两遍合起来是全集
@@ -70,14 +74,10 @@ extension AccessibilityAuditTests {
             if self.isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame) {
                 return true
             }
-            if let element = issue.element {
-                let frame = element.frame
-                if !frame.isEmpty, !Self.isShownAsFullyAsPossible(frame, on: screen) {
-                    let label = element.label
-                    print("[AUDIT-partial] \(label) frame=\(frame) 没有整个落在屏内（\(screen)），整个露出后再审")
-                    cutByScreenEdge.append((element, label))
-                    return true
-                }
+            if let element = issue.element,
+               let cut = Self.partiallyHiddenElement(element, screen: screen, mockBannerFrame: mockBannerFrame) {
+                cutByScreenEdge.append(cut)
+                return true
             }
             return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
         }
@@ -87,12 +87,14 @@ extension AccessibilityAuditTests {
                 .sufficientElementDescription, .textClipped, .trait
             ]
         ) { issue in
-            self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
+            if let designException, designException(issue) { return true }
+            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
         }
         for cut in cutByScreenEdge {
             try recheckContrastFullyOnScreen(
                 cut.element, label: cut.label, in: app,
-                occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame
+                occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame,
+                belowBanner: cut.underBanner
             )
         }
     }
@@ -103,7 +105,7 @@ extension AccessibilityAuditTests {
     @available(iOS 17.0, *)
     private func recheckContrastFullyOnScreen(
         _ element: XCUIElement, label: String, in app: XCUIApplication,
-        occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?
+        occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?, belowBanner: Bool
     ) throws {
         let screen = app.frame
         // 回调给的元素绑定的是那一个无障碍元素；`List` 复用行之后它会消失，这时按文案找回来。
@@ -113,9 +115,10 @@ extension AccessibilityAuditTests {
             element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
         }
         // 页面可见的部分到底栏上沿为止：露在屏内却压在栏后面，取到的是栏的颜色（#515，最大字号下元素高 408pt）。
+        let top = belowBanner ? max(screen.minY, mockBannerFrame?.maxY ?? screen.minY) : screen.minY
         let visibleArea = CGRect(
-            x: screen.minX, y: screen.minY, width: screen.width,
-            height: (occludingBarTop?.top ?? screen.maxY) - screen.minY
+            x: screen.minX, y: top, width: screen.width,
+            height: (occludingBarTop?.top ?? screen.maxY) - top
         )
         var swipes = 0
         while element.exists, swipes < Self.maxSwipesToRevealCutElement {
@@ -123,7 +126,7 @@ extension AccessibilityAuditTests {
             if Self.isShownAsFullyAsPossible(frame, on: visibleArea) { break }
             // 差多少拖多少、按住再拖（不带惯性）：整页 `swipeUp` 一次跨度比高个子元素的余量大，
             // 会在「从底下露出」与「甩出顶部」之间来回振荡（#515，AX5 下 408pt 高的培训卡说明）。
-            let shift = frame.maxY > visibleArea.maxY ? -(frame.maxY - visibleArea.maxY + 24) : (-frame.minY + 24)
+            let shift = frame.maxY > visibleArea.maxY ? -(frame.maxY - visibleArea.maxY + 24) : (visibleArea.minY - frame.minY + 24)
             let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: shift < 0 ? 0.7 : 0.3))
             from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: shift)))
             swipes += 1
@@ -146,6 +149,26 @@ extension AccessibilityAuditTests {
                   other.label == target.label, other.frame == target.frame else { return true }
             return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
         }
+    }
+
+    /// 被屏幕边缘切掉一截、或被 Mock 横幅压住一截的元素：`.contrast` 只拿露出来的那几个像素算，不能当场下结论（#480、#673）。
+    /// 返回 nil = 不是这两种，照常判。
+    private static func partiallyHiddenElement(
+        _ element: XCUIElement, screen: CGRect, mockBannerFrame: CGRect?
+    ) -> (element: XCUIElement, label: String, underBanner: Bool)? {
+        let frame = element.frame
+        guard !frame.isEmpty else { return nil }
+        let label = element.label
+        if !isShownAsFullyAsPossible(frame, on: screen) {
+            print("[AUDIT-partial] \(label) frame=\(frame) 没有整个落在屏内（\(screen)），整个露出后再审")
+            return (element, label, false)
+        }
+        // 最大字号下横幅长到 130pt，滚动中的行常被它压住一截。滚到整个落在横幅下沿以下再审，不放过（横幅只在 DEBUG + Mock）。
+        if let banner = mockBannerFrame, element.identifier != "mockEnvironmentBanner", frame.intersects(banner) {
+            print("[AUDIT-partial] \(label) frame=\(frame) 被 Mock 横幅（\(banner)）压住一截，滚到横幅下沿以下再审")
+            return (element, label, true)
+        }
+        return nil
     }
 
     /// 复审时最多滑几次去把被切掉的元素整个露出来（#480）。
