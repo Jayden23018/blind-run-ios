@@ -2100,6 +2100,9 @@ enum VolunteerHomeRadius {
     /// 卡片**内部**的元素：小格子、整行按钮、内嵌地图。
     /// 比外层小是为了套着好看，不是另一套体系。
     static let tile: CGFloat = 12
+
+    /// 首页 v3 与接单页的白色摘要卡（样例 `.card{border-radius:22px}`，#694）。
+    static let summaryCard: CGFloat = 22
 }
 
 // MARK: - Volunteer Home View
@@ -2178,14 +2181,11 @@ struct VolunteerHomeView: View {
                 // 挂高一层的话 push 出去的接单主页 / 订单页底部也会长出一个滑块，
                 // 与那一页自己的「暂停接单」直接打架；而设计交付 v3 §4.2 总表里
                 // S3/S4 的主按钮一栏写的就是「无」。
+                //
+                // `safeAreaInset` 本身就让滚动内容停在底座上方 —— v3 验收「底座不能压住内容」靠的是它，
+                // 不是靠底座半透明。
                 .safeAreaInset(edge: .bottom) {
-                    VStack(spacing: 0) {
-                        trackConsentDeclinedNotice
-                            .padding(.horizontal, 20)
-                            .padding(.top, 10)
-                            .background(.regularMaterial)
-                        availabilityCTA
-                    }
+                    availabilityCTA
                 }
                 .onChange(of: viewModel.entersDispatchHubAfterTrackConsent) { enters in
                     guard enters else { return }
@@ -2201,33 +2201,72 @@ struct VolunteerHomeView: View {
     ///
     /// 🚩 **向右滑同时做两件事：开启接单 + 进入接单主页。** 设计交付 v3 的流程就是这一条
     /// （主页 → 滑动 → 接单主页），理由是开启之后志愿者要看的「下一次陪跑 / 待回复的邀请」
-    /// 都不在首页上。已经开启时向右滑只做后一件。
+    /// 都不在首页上。已经开启时点按胶囊只做后一件。
     private var availabilityCTA: some View {
         let status = viewModel.availabilityStatus
-        return VolunteerAvailabilitySlider(
-            isAvailable: viewModel.isAvailable,
-            isEnabled: status.allowsOpening(isRegistrationComplete: appState.isVolunteerProfileApproved),
-            isUpdating: viewModel.isUpdatingAvailability,
-            status: status,
-            notice: status.notice(
-                certificate: .from(
-                    status: .parse(appState.volunteerProfile?.verificationStatus),
-                    statusLoadFailed: false
+        let isEnabled = status.allowsOpening(isRegistrationComplete: appState.isVolunteerProfileApproved)
+        // v3（#694）：白色底座里一枚胶囊，替换改版前那条饱和绿色通栏。取值照样例
+        // （底座圆角 24、内边距 8、左右各留 16）。
+        return VStack(alignment: .leading, spacing: 8) {
+            trackConsentDeclinedNotice
+            VolunteerAvailabilitySlider(
+                isAvailable: viewModel.isAvailable,
+                isEnabled: isEnabled,
+                isUpdating: viewModel.isUpdatingAvailability,
+                status: status,
+                notice: status.notice(
+                    certificate: .from(
+                        status: .parse(appState.volunteerProfile?.verificationStatus),
+                        statusLoadFailed: false
+                    ),
+                    isAlternativeIdentityPath: appState.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
                 ),
-                isAlternativeIdentityPath: appState.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
-            ),
-            statusText: viewModel.statusText,
-            onChange: { viewModel.setAvailability($0) },
-            // #368：滑开时若要先问位置轨迹同意，同意页盖上来，接单主页等同意之后再推。
-            onEnterHub: {
-                guard viewModel.trackConsentRequest == nil else { return }
-                showsDispatchHub = true
-            },
-            onShowProgress: { showsReadinessProgress = true }
-        )
-        .padding(.horizontal, 20)
-        .padding(.top, 10).padding(.bottom, 8)
-        .background(.regularMaterial)
+                statusText: viewModel.statusText,
+                onChange: { viewModel.setAvailability($0) },
+                // #368：滑开时若要先问位置轨迹同意，同意页盖上来，接单主页等同意之后再推。
+                onEnterHub: {
+                    guard viewModel.trackConsentRequest == nil else { return }
+                    showsDispatchHub = true
+                },
+                onShowProgress: { showsReadinessProgress = true }
+            )
+            // 🔴 **开着却进不了接单页时，停止接单必须还有一条看得见的路。**
+            // v3 去掉了向左滑停止，常规的停止入口是接单页的「暂停接单」；可接单期间资质被撤销 / 培训被重置
+            // （胶囊点进去是接单前进度）或注册状态没同步时，接单页够不着 ——
+            // 「停止接单」任何时候都必须能做（`VolunteerAvailabilitySlide.acceptsGesture`）。
+            if viewModel.isAvailable, status.blocksOpening || !isEnabled {
+                Button(VolunteerAvailabilityCopy.closeTitle) { viewModel.setAvailability(false) }
+                    .buttonStyle(TextButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    .disabled(viewModel.isUpdatingAvailability)
+                    .accessibilityHint(VolunteerAvailabilityCopy.closeHint)
+                    .accessibilityIdentifier("volunteerHomeStopAvailabilityButton")
+            }
+        }
+        .padding(8)
+        // 🔴 阴影只挂在底座的形状上。挂在整个 VStack 上的话，胶囊里的字也会带一圈暗影，
+        // 真机审计把「接单中 · 进入接单」判成对比度不足（2026-11-04）。
+        .background {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(AppColors.Flow.surface)
+                .shadow(color: .black.opacity(0.09), radius: 5, x: 0, y: 2)
+        }
+        .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+        // 底座后面那条渐隐：内容滚到底座下面时淡出，不是一刀切（样例 `linear-gradient(… 0, bg 26px)`）。
+        .background {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [AppColors.Flow.page.opacity(0), AppColors.Flow.page],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 26)
+                AppColors.Flow.page
+            }
+            .accessibilityHidden(true)
+        }
         .accessibilityElement(children: .contain).accessibilityIdentifier("volunteerHomeBottomBar") // 审计按它判内容滚到栏后，栏里的滑块照常审
     }
 
@@ -2240,6 +2279,8 @@ struct VolunteerHomeView: View {
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
                 .accessibilityIdentifier("volunteerTrackConsentDeclinedNotice")
         }
     }

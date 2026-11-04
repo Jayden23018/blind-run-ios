@@ -146,6 +146,12 @@ enum VolunteerDispatchHubCopy {
     static let scheduleRowLabel = "空闲时间"
     static let scheduleRowEmptyValue = "还没设置"
     static let pauseTitle = "暂停接单"
+    static let nextSectionTitle = "下一次陪跑"
+    static let laterRowLabel = "之后的陪跑"
+    static func laterRowValue(_ count: Int) -> String { "\(count) 次" }
+    static let statusPendingTitle = "派单状态待同步"
+    static let statusLoadingMessage = "正在同步派单状态。"
+    static let reloadTitle = "重新加载派单状态"
 
     /// 逐字取自设计交付文档 v3 §4.3。
     static let pauseConfirmMessage = "暂停后不会收到新邀请，已约好的陪跑不受影响。"
@@ -167,9 +173,13 @@ enum VolunteerDispatchHubCopy {
 
 /// 滑动开始接单之后落到的那一屏（设计交付文档 v3 的 S3 / S4）。
 ///
-/// 🚩 **它和首页的分工**：首页回答「我做过什么」（统计、勋章、最近一次），
-/// 这一屏回答「我接下来要做什么」。两屏都能看到「接单中」——首页靠底部滑块的两态，
-/// 这里靠标题右边那枚胶囊。
+/// 🚩 **它和首页的分工**（陪跑员首页 v3，负责人 2026-11-04 定稿，#694）：
+/// 首页回答「我做过什么」（陪伴时长、评分、最近陪跑、徽章），这一屏回答「我接下来要做什么」。
+/// 派单状态、覆盖范围、定位摘要**只在这一屏**（2026-11-04 从首页底部搬来）。
+/// 两屏都能看到「接单中」——首页靠底部胶囊，这里靠最上面的状态卡。
+///
+/// 样式与首页同一套白卡（`VolunteerHomeCard`）：状态卡 → 下一次陪跑 → 待回复邀请 →
+/// 空闲时间 / 之后的陪跑 → 暂停接单。
 ///
 /// **没有黄色主按钮**：没有单是常态，不催促（设计交付 v3 §4.3）。
 struct VolunteerDispatchHubView: View {
@@ -177,6 +187,12 @@ struct VolunteerDispatchHubView: View {
     /// 这一屏再起一个会让两屏显示不同的「下一次陪跑」。
     @ObservedObject var viewModel: VolunteerHomeViewModel
     let onReload: @MainActor () async -> Void
+
+    /// 状态卡末尾那行定位摘要，以及「重新加载派单状态」时强制取一次点。
+    @EnvironmentObject private var locationService: LocationService
+    #if DEBUG
+    @EnvironmentObject private var appState: AppState
+    #endif
 
     @Environment(\.dismiss) private var dismiss
     @State private var route: Route?
@@ -206,7 +222,11 @@ struct VolunteerDispatchHubView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                statusCard
+
+                sectionTitle(VolunteerDispatchHubCopy.nextSectionTitle)
+
                 if let next = content.next {
                     BlindHomeOrderCard(order: next, role: .volunteer) {
                         route = .order(id: next.orderId, initial: next)
@@ -222,34 +242,22 @@ struct VolunteerDispatchHubView: View {
                 adjustAvailabilityCard
 
                 entryRows
+
+                pauseCard
+
+                #if DEBUG
+                debugSection
+                #endif
             }
             .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-            .padding(.top, 12)
+            .padding(.top, 4)
             .padding(.bottom, 28)
         }
+        .background(alignment: .top) { VolunteerHomePageTint(tint: AppColors.Flow.acceptingBackground) }
         .background(AppColors.Flow.page)
         .navigationTitle(VolunteerDispatchHubCopy.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // 🔴 **iOS 26 会自己给每个 toolbar item 套一层 liquid glass 胶囊底。**
-            // 这枚胶囊自己已经画了绿底圆角（见 `acceptingPill`），于是真机上是**两层框**
-            // —— 绿胶囊外面再箍一圈玻璃。工程用 iOS 26 SDK 编译，所以这件事与部署目标
-            // （iOS 16）无关：只要 SDK 是 26，跑在 26 上的设备就会这样。
-            //
-            // `sharedBackgroundVisibility` 是 iOS 26 才有的 `ToolbarContent` 方法
-            // （`iPhoneOS26.2.sdk/.../SwiftUI.swiftinterface:5810-5817`），
-            // 所以要分两支写。iOS 16–25 上系统本来就不画那层底，原样即可。
-            if #available(iOS 26.0, *) {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    acceptingPill
-                }
-                .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    acceptingPill
-                }
-            }
-        }
+        // 样例：大标题「接单」，与首页「首页」同一个形状。
+        .navigationBarTitleDisplayMode(.large)
         // 🔴 挂在**恒渲染**的 `ScrollView` 上，不是挂在「有约才显示」的那张卡上。
         // `.task` 附在条件为假时不存在的子树上就永远不会跑，而表现是「一直空着」——
         // 记忆 `task-on-empty-view-never-fires`，本仓库 2026-09-14 已经栽过一次。
@@ -311,32 +319,105 @@ struct VolunteerDispatchHubView: View {
         }
     }
 
-    // MARK: 顶部胶囊
+    // MARK: 状态卡
 
-    private var acceptingPill: some View {
-        HStack(spacing: 6) {
+    /// 最上面那张：此刻在不在接单、派单状态与覆盖范围、定位摘要。
+    ///
+    /// 🚩 改版前首页底部的派单状态框（`dispatchSection`）整块搬到这里（#694）——
+    /// 首页不再出现任何接单状态文字。identifier 沿用：`volunteerDispatchHubAcceptingPill`
+    /// （十几条用例拿它判「进了接单页」）、`volunteerDispatchSummaryCard`、`volunteerHomeRefreshButton`。
+    private var statusCard: some View {
+        VolunteerHomeCard {
+            VStack(alignment: .leading, spacing: 8) {
+                statusHeadline
+
+                if let summary = viewModel.dispatchSummary {
+                    VolunteerDispatchSummaryCard(summary: summary)
+                } else {
+                    Text(viewModel.isLoading
+                        ? VolunteerDispatchHubCopy.statusLoadingMessage
+                        : VolunteerDispatchHubCopy.statusPendingTitle)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !viewModel.isLoading {
+                        // 🔴 **文案不许写成「下拉可以重新加载」**：下拉是手势，对读屏用户和手部不便的人
+                        // 不是一条可执行的指令。
+                        Button(VolunteerDispatchHubCopy.reloadTitle) {
+                            locationService.requestOneTimeLocation()
+                            Task { await onReload() }
+                        }
+                        .buttonStyle(OutlineSecondaryButtonStyle())
+                        .accessibilityHint("重新获取当前位置并加载派单状态")
+                        .accessibilityIdentifier("volunteerHomeRefreshButton")
+                    }
+                }
+
+                Text(locationSummaryText)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var statusHeadline: some View {
+        let accepting = viewModel.availabilityStatus.isAccepting
+        let color = accepting ? AppColors.Flow.acceptingText : AppColors.textPrimary
+        return HStack(spacing: 8) {
             Circle()
-                .fill(AppColors.Flow.acceptingText)
-                .frame(width: 8, height: 8)
+                .fill(color)
+                .frame(width: 12, height: 12)
                 .accessibilityHidden(true)
             Text(viewModel.availabilityStatus.hubPillTitle)
-                .flowFont(FlowFonts.rowValueEmphasized())
+                .font(AppFonts.title())
+                .foregroundColor(color)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundColor(AppColors.Flow.acceptingText)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(AppColors.Flow.acceptingBackground, in: Capsule())
         .accessibilityElement(children: .combine)
-        // 值而不是标签：胶囊说的是「接单开关此刻是开的」，附上 view model 那半句
-        // （「正在等待系统派单」/「不在空闲时间内」）才说得完整。
+        // 附上 view model 那半句（「正在等待系统派单」/「不在空闲时间内」）才说得完整。
         .accessibilityLabel("\(viewModel.availabilityStatus.hubPillTitle)，\(viewModel.statusText)")
+        .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("volunteerDispatchHubAcceptingPill")
+    }
+
+    private var locationSummaryText: String {
+        if locationService.isAuthorized {
+            return locationService.readableCurrentLocationSummary
+        }
+        return "需要开启定位权限才能接收系统派单"
+    }
+
+    #if DEBUG
+    @ViewBuilder
+    private var debugSection: some View {
+        if let diagnostic = appState.realtimeCoordinator.dispatchDiagnostic {
+            Text("派单诊断：\(diagnostic.debugSummary)")
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .textSelection(.enabled)
+                .accessibilityLabel("派单诊断，\(diagnostic.debugSummary)")
+                .accessibilityIdentifier("volunteerDispatchDiagnostic")
+        }
+        DebugTestingPanel()
+            .environmentObject(appState)
+    }
+    #endif
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(AppFonts.title())
+            .foregroundColor(AppColors.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .padding(.horizontal, 4)
+            .padding(.top, 10)
     }
 
     // MARK: 空状态
 
     private var emptyState: some View {
-        FlowCard(cornerRadius: FlowMetrics.homeCardRadius) {
+        VolunteerHomeCard(padding: EdgeInsets()) {
             VStack(spacing: 10) {
                 Image(systemName: "bell")
                     .font(.system(size: 30, weight: .regular))
@@ -444,11 +525,12 @@ struct VolunteerDispatchHubView: View {
         }
     }
 
-    /// 这一屏上三张形状相同的浅蓝卡（新邀请 / 通话磨合 / 调整空闲时间）共用的壳。
+    /// 这一屏上三张形状相同的卡（新邀请 / 通话磨合 / 调整空闲时间）共用的壳。
     ///
     /// 抽出来是因为它们**必须长得一样** —— 三者都是「这里有件事等着你」，
     /// 而三份各自维护的副本会在下一次改圆角或改间距时分叉。
-    /// 图标各不相同：靠形状区分，不靠颜色（三张卡底色相同）。
+    /// 图标各不相同：靠形状区分，不靠颜色（三张卡底色相同）。圆底用 `primarySolidSurface`：
+    /// 白图标压它亮暗都过 4.5:1（`primary` 暗色 `#0A84FF` 只有 3.65:1）。
     private func hubCard(
         systemImage: String,
         title: String,
@@ -458,36 +540,34 @@ struct VolunteerDispatchHubView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: FlowMetrics.bookingPlusDiameter, height: FlowMetrics.bookingPlusDiameter)
-                    .background(AppColors.Flow.accent, in: Circle())
-                    .accessibilityHidden(true)
+            // v3（#694）：与首页同一套白卡，不再是浅蓝底。
+            VolunteerHomeCard {
+                HStack(spacing: 12) {
+                    Image(systemName: systemImage)
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 32, height: 32)
+                        .background(AppColors.primarySolidSurface, in: Circle())
+                        .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .flowFont(FlowFonts.homeCardRowTitle())
-                        .foregroundColor(AppColors.Flow.bookingTitle)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(subtitle)
-                        .flowFont(FlowFonts.bookingSubtitle())
-                        .foregroundColor(AppColors.Flow.bookingSubtitle)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(AppFonts.body().weight(.semibold))
+                            .foregroundColor(AppColors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundColor(AppColors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(AppColors.textSecondary)
+                        .accessibilityHidden(true)
                 }
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(AppColors.Flow.bookingTitle)
-                    .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, FlowMetrics.bookingBlockHorizontalPadding)
-            .padding(.vertical, 18)
-            .background(AppColors.Flow.bookingBackground)
-            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.homeCardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
@@ -499,10 +579,15 @@ struct VolunteerDispatchHubView: View {
 
     // MARK: 入口行
 
+    /// 空闲时间 + 之后的陪跑。样例里空闲时间一直在（改版前只在没有约好的单时出现）——
+    /// 有约时也常要改「哪些时间有空」，入口不该跟着有没有单消失。
     private var entryRows: some View {
-        FlowCard {
+        VolunteerHomeCard(padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)) {
             VStack(spacing: 0) {
+                scheduleRow
+
                 if content.laterCount > 0 {
+                    FlowSeparator()
                     laterRow
                     if showsLaterOrders {
                         ForEach(laterOrders, id: \.orderId) { order in
@@ -510,30 +595,39 @@ struct VolunteerDispatchHubView: View {
                             laterOrderRow(order)
                         }
                     }
-                    FlowSeparator()
                 }
-
-                if content.next == nil {
-                    scheduleRow
-                    FlowSeparator()
-                }
-
-                pauseRow
             }
         }
     }
 
+    /// 暂停接单单独一张卡、红字居中（样例）。点下去先确认一次，不是直接停。
+    private var pauseCard: some View {
+        Button {
+            showsPauseConfirm = true
+        } label: {
+            VolunteerHomeCard(padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)) {
+                Text(VolunteerDispatchHubCopy.pauseTitle)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                    .frame(maxWidth: .infinity, minHeight: FlowMetrics.infoRowTappableMinHeight)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(VolunteerDispatchHubCopy.pauseTitle)
+        .accessibilityHint("双击后会先确认一次")
+        .accessibilityIdentifier("volunteerDispatchHubPauseRow")
+    }
+
     private var laterRow: some View {
         FlowInfoRow(
-            label: nil,
+            label: VolunteerDispatchHubCopy.laterRowLabel,
             kind: .navigable(action: { showsLaterOrders.toggle() }),
             accessibilityLabel: VolunteerDispatchHubCopy.laterRowTitle(content.laterCount),
             accessibilityHint: showsLaterOrders ? "双击收起" : "双击展开，逐条查看"
         ) {
-            Text(VolunteerDispatchHubCopy.laterRowTitle(content.laterCount))
+            Text(VolunteerDispatchHubCopy.laterRowValue(content.laterCount))
                 .flowFont(FlowFonts.rowValue(), monospacedDigit: true)
-                .foregroundColor(AppColors.Flow.primaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundColor(AppColors.Flow.secondaryText)
         }
         .accessibilityIdentifier("volunteerDispatchHubLaterRow")
     }
@@ -584,20 +678,5 @@ struct VolunteerDispatchHubView: View {
                 .multilineTextAlignment(.trailing)
         }
         .accessibilityIdentifier("volunteerDispatchHubScheduleRow")
-    }
-
-    private var pauseRow: some View {
-        FlowInfoRow(
-            label: nil,
-            kind: .navigable(action: { showsPauseConfirm = true }),
-            accessibilityLabel: VolunteerDispatchHubCopy.pauseTitle,
-            accessibilityHint: "双击后会先确认一次"
-        ) {
-            Text(VolunteerDispatchHubCopy.pauseTitle)
-                .flowFont(FlowFonts.rowValue())
-                .foregroundColor(AppColors.Flow.primaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityIdentifier("volunteerDispatchHubPauseRow")
     }
 }

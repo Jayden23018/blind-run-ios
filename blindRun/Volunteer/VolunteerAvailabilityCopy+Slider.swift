@@ -16,16 +16,6 @@ extension VolunteerAvailabilityCopy {
     /// 已开启时轨道上的主文案。
     static let availableStatusTitle = "接单中"
 
-    /// 已开启时的副文案。**两件事都要说出来**：轨道此刻既是进入接单页的入口，也是关闭开关的地方。
-    /// 只说一半的后果是另一半对不看提示的人等于不存在。
-    static let availableActionHint = "点这里进入接单，向左滑动停止"
-
-    /// 开着却收不到单时，第二行后面那半句。
-    static let slideLeftToCloseHint = "向左滑动停止"
-
-    /// 向左拖过阈值之后。
-    static let slideReleaseToCloseTitle = "松手即停止接单"
-
     /// 待命时只在 App 开着时上报位置，后台定位只在出发到跑步结束这段打开（`LocationService.setEscortLocationMode`）。
     /// 后端位置 30 秒过期就退出候选池，所以锁屏后收不到新邀请（审计 V-1，#654）。
     /// 负责人 2026-11-04 定：上线前不改机制，界面如实说。机制改了，这句和用到它的地方一起删。

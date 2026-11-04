@@ -98,6 +98,25 @@ enum AppColors {
         availabilityOnSurfaceTone.dark
     )
 
+    /// 陪跑员首页底部「接单中 · 进入接单」那枚胶囊（首页 v3，负责人 2026-11-04 定稿，#694）。
+    ///
+    /// 浅底深字，不再是饱和绿底白字：v3 把首页底部从一条压在内容上的绿色通栏换成白色底座里的一枚胶囊。
+    /// 亮色取样例原值 `#E3F2E7` / `#155E2C`（6.79:1）。暗色沿用接单页胶囊那一对
+    /// （`Flow.acceptingBackgroundTone` / `Flow.acceptingTextTone` 的暗色档）`#10381F` / `#7BD99E`（7.63:1）。
+    /// 背景色不进 `tones`（理由同 `availabilityOnSurface`）。
+    /// 检查在 `LowVisionChannelTests.testAvailabilityPillTextReadableOnItsSurface`。
+    static let availabilityPillSurfaceTone = Tone(light: 0xE3F2E7, dark: 0x10381F)
+    static let availabilityPillTextTone = Tone(light: 0x155E2C, dark: 0x7BD99E)
+
+    static let availabilityPillSurface = dynamic(
+        availabilityPillSurfaceTone.light,
+        availabilityPillSurfaceTone.dark
+    )
+    static let availabilityPillText = dynamic(
+        availabilityPillTextTone.light,
+        availabilityPillTextTone.dark
+    )
+
     /// 语音输入框的麦克风按钮「正在录音」时的底色（`VoiceTextField`），上面是白色麦克风图标。
     ///
     /// **同 `availabilityOnSurface` 的形状**：语义色当背景、白色压在上面，所以不进 `tones`。

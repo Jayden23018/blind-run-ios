@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 志愿者「我的」首屏的徽章行。主体与排序在 `VolunteerProfileFirstScreenView.swift`。
+// 志愿者首页的徽章卡。主体与排序在 `VolunteerProfileFirstScreenView.swift`。
 
 extension VolunteerProfileFirstScreen {
     // MARK: - 徽章
@@ -19,25 +19,24 @@ extension VolunteerProfileFirstScreen {
                 next: achievements.nextBadge
             )
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    sectionLabel(VolunteerProfileCopy.badgesSectionTitle)
-                    Spacer(minLength: 8)
-                    // 🚩 这个链接必须在任何 `.combine` 的**外面**才点得到
-                    // （同作业区那张培训卡为什么不套 `.combine` 的那条判据）。
-                    NavigationLink {
-                        VolunteerServiceRecognitionView()
-                    } label: {
-                        linkLabel(VolunteerProfileBadgeRow.allLinkTitle(unlockedCount: unlocked.count))
-                    }
-                    .accessibilityLabel(VolunteerHomeIncentiveCopy.achievementsLinkTitle)
-                    .accessibilityHint(VolunteerProfileCopy.badgesLinkHint)
-                    .accessibilityIdentifier("volunteerHomeIncentiveAchievementsLink")
+            sectionHeader(VolunteerProfileCopy.badgesSectionTitle) {
+                // 🚩 这个链接必须在任何 `.combine` 的**外面**才点得到
+                // （同作业区那张培训卡为什么不套 `.combine` 的那条判据）。
+                NavigationLink {
+                    VolunteerServiceRecognitionView()
+                } label: {
+                    linkLabel(VolunteerProfileBadgeRow.allLinkTitle(unlockedCount: unlocked.count))
                 }
+                .accessibilityLabel(VolunteerHomeIncentiveCopy.achievementsLinkTitle)
+                .accessibilityHint(VolunteerProfileCopy.badgesLinkHint)
+                .accessibilityIdentifier("volunteerHomeIncentiveAchievementsLink")
+            }
 
+            // 卡里不画箭头：卡本身不可点（每枚徽章各自是一个读屏元素），去处是标题右边的「全部 N 枚」。
+            VolunteerHomeCard(padding: EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)) {
                 if cells.isEmpty {
                     Text(VolunteerProfileCopy.badgesEmpty)
-                        .font(AppFonts.caption())
+                        .font(AppFonts.body())
                         .foregroundColor(AppColors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {

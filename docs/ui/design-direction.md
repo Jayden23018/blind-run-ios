@@ -85,6 +85,16 @@
 > `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 按「玻璃叠在白底上」的最坏情况钉住。
 > 这一条**不外推**：别的页面想要深色或新颜色，仍按下面「新增强调色的门槛」走。
 
+> **例外：陪跑员首页底部「接单中」胶囊的浅绿底深绿字（项目负责人 2026-11-04 定稿，#694）。**
+>
+> 陪跑员首页 v3 把底部入口从饱和绿色通栏（`availabilityOnSurface` 白字）换成白色底座里的一枚胶囊，
+> 接单中是浅绿底深绿字。取值照样例 `docs/ui/mockups/volunteer-home-v3-20261104/home-v3.html`：
+> 亮色 `#E3F2E7` / `#155E2C`（6.79:1），暗色沿用接单页胶囊那一对 `#10381F` / `#7BD99E`（7.63:1）。
+> 放在 `AppColors.availabilityPillSurface` / `availabilityPillText`，**只给这枚胶囊用**，不进 `tones`、不当全局语义色。
+> 对比度由 `LowVisionChannelTests.testAvailabilityPillTextReadableOnItsSurface` 亮暗各算一次。
+> 理由：「我现在在不在接单」是首页底部唯一的常驻状态，绿色是它已经用了两个月的线索；
+> 浅底深字让它不再压住内容，又不丢这条线索。首页其余卡片的图标色仍只用 5 个语义色。
+
 > **例外：陪跑员订单页 v2 的状态色（V13）** —— 规则与已落地的色见下方偏离表「§2 / §5 不新增强调色」那一行，这里不留第二份。
 >
 > **例外：盲人订单页头卡也用同一套状态色（项目负责人 2026-10-07 拍板，推翻 10-06「盲人端头卡用浅色」）。**

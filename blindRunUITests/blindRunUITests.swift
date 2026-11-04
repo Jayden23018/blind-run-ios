@@ -888,14 +888,13 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.firstMatch.exists, "卡片收起后标签栏必须回到无障碍树里")
     }
 
-    /// 志愿者端**只有一屏**：身份 → 作业区 → 影响力 → 徽章 → 最近陪跑 → 派单状态。
-    /// 没有地图，也没有任何二级的「工作台」。
+    /// 志愿者首页：页头 → 作业区 → 我的陪伴 → 最近陪跑 → 徽章。没有地图、没有工作台、**没有派单状态**。
     ///
-    /// > 2026-09-14 改版前这一条断的是「地图铺满 + 底部面板」那套，改版后改成「首屏 + 工作台」两段。
-    /// > 2026-09-15 工作台被删（用户原话「好像是没什么用的」），于是又并回一段：
-    /// > 派单统计现在就在首屏最底部，地图整个不存在了。
+    /// > 2026-09-15 工作台被删（用户原话「好像是没什么用的」），派单状态并到首屏最底部。
+    /// > 2026-11-04 陪跑员首页 v3（#694）：派单状态与定位摘要搬进接单页的状态卡，
+    /// > 首页不再出现任何接单状态文字。接单页那一侧由 `AccessibilityAuditTests` 的滑块用例断。
     @MainActor
-    func testMockVolunteerFirstScreenKeepsDispatchStatsWithoutAMapOrWorkbench() throws {
+    func testMockVolunteerFirstScreenHasNoDispatchStatusMapOrWorkbench() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -944,13 +943,16 @@ final class blindRunUITests: XCTestCase {
         // 「回到当前位置」随地图一起删了 —— 它是 identifier 守卫管不到的中文文案，只能在这儿断。
         XCTAssertFalse(app.buttons["回到当前位置"].firstMatch.exists, "地图删除后「回到当前位置」不该还在")
 
-        // 派单状态卡在首屏最底部，只剩状态与覆盖范围（2026-10-06 起）。
-        // 接单率 / 派单·接受·拒绝·超时整组删掉：对无偿志愿者读起来像考核，负责人拍板不挪去别处。
-        let dispatchCard = app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch
+        // 滚到底（徽章是最后一块）再断「没有派单状态」：屏幕外的元素在 ScrollView 里照样存在，
+        // 所以不滚也断得出；滚到底是为了让截图看得到底部。
+        let badgesHeader = app.staticTexts["徽章"].firstMatch
         var drags = 0
-        while !dispatchCard.isHittable && drags < 16 { app.swipeUp(velocity: .slow); drags += 1 }
-        XCTAssertTrue(dispatchCard.exists, "派单状态卡必须留在首屏（drags=\(drags)）\n\(app.debugDescription)")
-        XCTAssertTrue(dispatchCard.label.contains("公里"), "派单状态卡要说覆盖范围：\(dispatchCard.label)")
+        while !badgesHeader.isHittable && drags < 16 { app.swipeUp(velocity: .slow); drags += 1 }
+        XCTAssertTrue(badgesHeader.exists, "首页最后一块应当是徽章（drags=\(drags)）\n\(app.debugDescription)")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch.exists,
+            "派单状态已搬进接单页，首页不该再有（#694）"
+        )
         XCTAssertFalse(app.staticTexts["接单率"].firstMatch.exists, "接单率已删除，不该再出现")
 
         XCTAssertFalse(
@@ -1032,41 +1034,6 @@ final class blindRunUITests: XCTestCase {
             app.navigationBars[Self.volunteerTrainingTitle].waitForExistence(timeout: 8),
             "培训入口应当一步打开「\(Self.volunteerTrainingTitle)」\n\(app.debugDescription)"
         )
-    }
-
-    /// 派单状态卡在 AX5 下仍然渲染、字确实放大了 —— 这是本仓库第一条 Dynamic Type 用例，
-    /// 见记忆 `low-vision-visual-channel-unaudited`：字号上限一直没人系统性看过。
-    ///
-    /// 2026-10-06 起卡里没有三格统计了（负责人拍板删掉），用例改断整张卡：覆盖范围那一行
-    /// 在 Mock（培训未完成）下升为正文字号，AX5 下卡高必然远超默认字号的约 50pt。
-    @MainActor
-    func testVolunteerDispatchSummaryCardSurvivesAX5() throws {
-        let app = launchApp(
-            apiEnvironment: "mock",
-            accessToken: "mock_jwt_token_for_testing",
-            activeRole: "volunteer",
-            preseedVolunteerProfile: true,
-            preseedVolunteerAvailable: true,
-            contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
-        )
-        // 派单状态卡自 2026-09-15 起就在首屏最底部（工作台那一跳已随二级页一起删掉）。
-        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
-        XCTAssertTrue(identityRow.waitForExistence(timeout: 15), "AX5 下首屏也要先渲染出来")
-
-        // 慢速滚：AX5 下滚动视口很浅而默认速度一次跨度远大于它。
-        // 上限 24：卡住在**整张首屏的最底部**（身份 → 作业区 → 影响力 →
-        // 徽章 → 最近陪跑 → 派单状态），AX5 下这条路很长。
-        let dispatchCard = app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch
-        var drags = 0
-        while !dispatchCard.isHittable && drags < 24 {
-            app.swipeUp(velocity: .slow)
-            drags += 1
-        }
-        XCTAssertTrue(dispatchCard.exists, "Dispatch summary card must still render at AX5 (drags=\(drags))\n\(app.debugDescription)")
-        // 上一版传的是 `...AccessibilityExtraExtraExtraLarge`（不是真的常量名），被静默忽略，
-        // 截图与默认字号一模一样却看着像验过了。钉一条断言，别再靠肉眼分辨。
-        XCTAssertGreaterThan(dispatchCard.frame.height, 80, "AX5 launch argument did not take effect (height=\(dispatchCard.frame.height))")
-        attachScreenshot(named: "volunteer-dispatch-summary-ax5", app: app)
     }
 
     @MainActor

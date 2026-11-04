@@ -224,18 +224,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     // MARK: - 三列统计
 
-    /// 里程向下取整：12_999 米是 12 公里（取在「向下取整 / 四舍五入」之间才分得出口径）。
-    /// 🔴 不足 1 公里显示 `--`，念出来不是「破折号」也不是「0 公里」。
-    func testDistanceRoundsDownAndNeverShowsZero() {
-        XCTAssertEqual(VolunteerProfileStats.distance(12_999).value, 12.formatted())
-        for meters: Int64? in [nil, 0, 999, -5_000] {
-            let stat = VolunteerProfileStats.distance(meters)
-            XCTAssertEqual(stat.value, "--", "meters=\(String(describing: meters))")
-            XCTAssertNil(stat.unit)
-            XCTAssertEqual(stat.spoken, VolunteerProfileCopy.distanceSpokenWhenEmpty)
-        }
-    }
-
     /// 🔴 0 位固定搭档不上屏（同 `VolunteerHomeIncentiveSummary.hero` 的判据）。
     func testZeroPartnersShowsAPlaceholderInsteadOfZero() {
         let none = VolunteerProfileStats.partners(0)
@@ -262,22 +250,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         // 有均分但条数为 0 时不拼「· 0 条」——那是两个占位符并排。
         let zeroCount = VolunteerProfileStats.rating(average: 5, total: 0)
         XCTAssertFalse(zeroCount.caption.contains("0"), "不该显示 0 条：\(zeroCount.caption)")
-    }
-
-    func testStatsRowIsAlwaysThreeColumnsInAFixedOrder() {
-        let row = VolunteerProfileStats.row(
-            achievements: Self.achievements(
-                totalCompleted: 24, minutes: 11_160, avgRating: 4.9, totalRatings: 32, distanceMeters: 128_400
-            ),
-            favoritedByCount: 8
-        )
-        XCTAssertEqual(row.count, 3)
-        // 陪伴时长已是主指标，这一行第一格换成累计里程。
-        XCTAssertEqual(row.map(\.value), ["128", "8", "4.9"])
-        XCTAssertEqual(row.map(\.caption).first, VolunteerProfileCopy.distanceCaption)
-        // 固定搭档那格复用既有的完整播报（「有 8 位跑者把你设为固定搭档」）——
-        // 「固定搭档 8 位」说不清是谁选了谁。
-        XCTAssertEqual(row[1].spoken, VolunteerHomeIncentiveCopy.partnersSpoken(8))
     }
 
     // MARK: - 徽章一排
@@ -377,21 +349,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         )
     }
 
-    // MARK: - 最近陪跑的日期格
-
-    func testRecentDateFallsBackToNothingRatherThanToday() {
-        let parts = VolunteerProfileRecentDate.parts(from: "2026-09-13T08:30:00")
-        XCTAssertEqual(parts?.day, "13")
-        XCTAssertEqual(parts?.month, "9月")
-
-        for bad in [nil, "", "   ", "not-a-date"] {
-            XCTAssertNil(
-                VolunteerProfileRecentDate.parts(from: bad),
-                "解析不了的时间戳必须整格不画，不能拿今天顶上：\(String(describing: bad))"
-            )
-        }
-    }
-
     // MARK: - 作业区的两道闸
 
     /// 培训闸只认 `.trainingIncomplete` 这**一个**取值。
@@ -483,9 +440,10 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     /// 同时挡住激励层的三条红线：不折算金额、不做月度目标、不催促下一单。
     func testFirstScreenCopyNeverClaimsCredentialsOrPushesForMoreRuns() {
         let strings = [
-            VolunteerProfileCopy.roleTitle,
-            VolunteerProfileCopy.roleSubtitle(starLevel: 3),
+            VolunteerProfileCopy.pageTitle,
             VolunteerProfileCopy.impactSectionTitle,
+            VolunteerProfileCopy.durationCardTitle,
+            VolunteerProfileCopy.durationCardRunsLine(24),
             VolunteerProfileCopy.heroUnit,
             VolunteerProfileCopy.newcomerHeadline,
             VolunteerProfileCopy.newcomerDetail,
@@ -495,8 +453,12 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             // 星级卡标题「距离一星还差 N 小时」刻意不进这张表：门槛是国标定的固定值，
             // 「还差」在这里不是压力句式（同下面那条注释）。它的红线在 `testStarCardTitleSaysHowFarToTheFirstStar`。
             VolunteerProfileCopy.starCardProgress(VolunteerStarLevel.derive(totalServiceMinutes: 180)),
-            VolunteerProfileCopy.distanceCaption,
-            VolunteerProfileCopy.distanceSpokenWhenEmpty,
+            VolunteerProfileCopy.streakCardTitle,
+            VolunteerProfileCopy.streakBestCaption(7),
+            VolunteerProfileCopy.partnersCardCaption,
+            VolunteerProfileCopy.partnersCardEmptyCaption,
+            VolunteerProfileCopy.partnersCardHint,
+            VolunteerProfileCopy.ratingCardEmptyCaption,
             VolunteerProfileCopy.partnersSpokenWhenEmpty,
             VolunteerProfileCopy.partnersCaption,
             VolunteerProfileCopy.ratingCaption,
@@ -507,6 +469,12 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerProfileCopy.recentSectionTitle,
             VolunteerProfileCopy.recentEmpty,
             VolunteerProfileCopy.recentLinkHint,
+            VolunteerProfileCopy.recentLinkTitle,
+            VolunteerProfileCopy.recentCardTitle,
+            VolunteerProfileCopy.recentCardHint,
+            VolunteerProfileCopy.recentNoneLately,
+            VolunteerProfileCopy.recentLoadFailure,
+            VolunteerProfileCopy.recentRetry,
             VolunteerProfileCopy.todoSectionTitle,
             // 必修培训入口：标题不是自己的字符串，复用派单原因的 displayText（单一来源）。
             VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText,
@@ -520,9 +488,8 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerAvailabilityCopy.closeTitle,
             VolunteerAvailabilityCopy.slideHint,
             VolunteerAvailabilityCopy.closeHint,
-            // 双向滑块（2026-09-17）新增的四条，以及接单主页那一屏。
-            VolunteerAvailabilityCopy.availableActionHint,
-            VolunteerAvailabilityCopy.slideReleaseToCloseTitle,
+            // 接单主页那一屏（v3 起含从首页搬来的派单状态）。
+            VolunteerAvailabilityCopy.keepAppOpenNote,
             VolunteerAvailabilityCopy.enterHubTitle,
             VolunteerAvailabilityCopy.enterHubHint,
             VolunteerDispatchHubCopy.acceptingPill,
@@ -535,7 +502,12 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerDispatchHubCopy.pauseConfirmPrimary,
             VolunteerDispatchHubCopy.introCallCardTitle,
             VolunteerDispatchHubCopy.introCallCardSubtitle,
-            VolunteerDispatchHubCopy.laterRowTitle(2)
+            VolunteerDispatchHubCopy.laterRowTitle(2),
+            VolunteerDispatchHubCopy.nextSectionTitle,
+            VolunteerDispatchHubCopy.laterRowLabel,
+            VolunteerDispatchHubCopy.statusPendingTitle,
+            VolunteerDispatchHubCopy.statusLoadingMessage,
+            VolunteerDispatchHubCopy.reloadTitle
         ]
 
         // 「证明 / 证书」：民政部令第 67 号。

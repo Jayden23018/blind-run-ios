@@ -108,6 +108,33 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 陪跑员首页 v3 底部「接单中 · 进入接单」胶囊：深绿字压浅绿底（#694）。
+    ///
+    /// 字是 17pt semibold，够不上 large text 豁免，要 4.5:1。亮暗两套各算一次。
+    func testAvailabilityPillTextReadableOnItsSurface() {
+        let surface = AppColors.availabilityPillSurfaceTone
+        let text = AppColors.availabilityPillTextTone
+
+        let lightRatio = Self.contrastRatio(text.light, surface.light)
+        XCTAssertGreaterThanOrEqual(
+            lightRatio, Self.minimumContrast,
+            "亮色模式下接单中胶囊只有 \(String(format: "%.2f", lightRatio)):1"
+        )
+
+        let darkRatio = Self.contrastRatio(text.dark, surface.dark)
+        XCTAssertGreaterThanOrEqual(
+            darkRatio, Self.minimumContrast,
+            "暗色模式下接单中胶囊只有 \(String(format: "%.2f", darkRatio)):1"
+        )
+
+        // 验红：亮色那一对放到暗色外观里（字不换）只有约 1.4:1，必须算不过 ——
+        // 防止有人只给暗色档换底色、忘了换字色，也防止公式恒真。
+        XCTAssertLessThan(
+            Self.contrastRatio(text.light, surface.dark), Self.minimumContrast,
+            "浅色档的深绿字压暗色档的底，这条必须不达标"
+        )
+    }
+
     /// 语音输入框的麦克风按钮「正在录音」时的底色，白色麦克风图标压在上面（#562）。
     ///
     /// 图标是图形对象，阈值 3:1（WCAG 1.4.11），不是正文的 4.5:1。
