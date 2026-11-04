@@ -336,7 +336,7 @@ final class VoiceOrderWizard: ObservableObject {
             parts.append("我听到你说：\(lastUtterance)。")
         }
         parts.append("这次的预约是：")
-        parts.append(bookingViewModel.startPointSummary)
+        parts.append(bookingViewModel.startPointSummary + bookingViewModel.consumeStartPointPrivacySpeech()) // #660 F-14
         // 紧跟起点。终点为 nil 时是空串，一个字都不会念。
         parts.append(bookingViewModel.endPointSummary)
         // 时间这一项**只在真的抽到时才念具体时刻**。
