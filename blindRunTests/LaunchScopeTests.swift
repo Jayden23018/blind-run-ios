@@ -71,6 +71,16 @@ final class LaunchScopeTests: XCTestCase {
         XCTAssertEqual(scope.admitsStart(beijing("2026-11-07T19:00:00")), false, "星期六不在时段里")
     }
 
+    /// 跨午夜的时段契约没定义：不判「在不在」，只念后端那句。
+    func testOvernightWindowIsNotJudged() {
+        let scope = LaunchScopeResponse(
+            acceptingOrders: true, areaRestricted: false, dutyHoursRestricted: true, dutyHoursHint: "可预约的开跑时间是每天 20:00 到 01:00",
+            dutyWindows: [.init(days: ["FRIDAY"], start: "20:00", end: "01:00")]
+        )
+        XCTAssertNil(scope.admitsStart(beijing("2026-11-06T23:00:00")))
+        XCTAssertEqual(scope.dutyHoursNotice(start: beijing("2026-11-06T23:00:00")), "可预约的开跑时间是每天 20:00 到 01:00")
+    }
+
     func testUnrestrictedScopeSaysNothingEvenWithEmptyLists() {
         let scope = LaunchScopeResponse(acceptingOrders: true, areaRestricted: false, dutyHoursRestricted: false)
         XCTAssertNil(scope.areaNotice(latitude: 1, longitude: 1))
@@ -124,6 +134,15 @@ final class LaunchScopeTests: XCTestCase {
         auth.ruleParamsWillReturn = { appState.accessToken = "token-b" }
         await appState.loadRuleParamsIfNeeded()
         XCTAssertNil(appState.ruleParamsResponse)
+    }
+
+    /// 同一次登录里续期换 token：结果要留下。比 token 值的话，token 过期那次进入下单页读到的「暂未开放」会被丢掉。
+    func testRuleParamsSurviveATokenRenewalInTheSameLogin() async {
+        let (appState, auth) = makeAuthAppState()
+        auth.ruleParamsResult = .success(rules(restricted()))
+        auth.ruleParamsWillReturn = { appState.applyRenewedAccessToken("token-a-renewed") }
+        await appState.loadRuleParamsIfNeeded()
+        XCTAssertNotNil(appState.ruleParamsResponse?.launchScope)
     }
 
     func testForcedReloadReadsAgainEvenAfterASuccess() async {

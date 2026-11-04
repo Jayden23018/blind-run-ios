@@ -51,15 +51,18 @@ enum LaunchScopeCopy {
     static let backHome = "返回首页"
 
     // 三个建单拒绝码的兜底句：只在后端 `message` 为空时用（`ErrorCode.prefersServerMessage`）。取自后端 `ErrorCode.java` 的默认文案。
-    static let serviceNotOpenFallback = closedFallback
     static let outsideOpenAreaFallback = "这个出发点不在开放范围内，请换一个开放范围内的出发点。"
     static let outsideDutyHoursFallback = "这个时间没有值守人员，暂不接受预约，请换个时间。"
 
+    /// 只给 `ErrorCode.localizedMessage` 那三个码用。
     static func rejectionFallback(for code: ErrorCode) -> String {
         switch code {
         case .orderOutsideOpenArea: return outsideOpenAreaFallback
         case .appointmentOutsideDutyHours: return outsideDutyHoursFallback
-        default: return serviceNotOpenFallback
+        case .orderServiceNotOpen: return closedFallback
+        default:
+            assertionFailure("rejectionFallback 只收三个开放范围码，收到 \(code.rawValue)")
+            return closedFallback
         }
     }
 

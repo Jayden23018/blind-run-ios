@@ -111,7 +111,8 @@ struct LaunchScopeResponse: Codable, Sendable, Equatable {
         let minuteOfDay = hour * 60 + minute
         var admits = false
         for window in dutyWindows {
-            guard let start = Self.minuteOfDay(window.start), let end = Self.minuteOfDay(window.end) else { return nil }
+            // 跨午夜的时段（start > end）契约没说怎么判，不猜：整体当作读不出来，只念后端那句。
+            guard let start = Self.minuteOfDay(window.start), let end = Self.minuteOfDay(window.end), start <= end else { return nil }
             if window.days.contains(day), start <= minuteOfDay, minuteOfDay <= end { admits = true }
         }
         return admits

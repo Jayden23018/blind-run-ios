@@ -8,12 +8,14 @@ extension AppState {
     /// - Parameter force: 不管拉没拉过都重读。下单入口每次进入都这样读 `launchScope`（#667）：
     ///   开放范围随运营调整，按账号下发，不能拿一份旧的去告诉用户「哪里能约」。
     ///
-    /// 请求回来时账号已经换了（登出、换号登录）就丢弃 —— 上一个账号的开放范围不能留给下一个账号。
+    /// 请求回来时已经不是同一次登录（登出、换号登录）就丢弃 —— 上一个账号的开放范围不能留给下一个账号。
+    /// 判据是 `sessionGeneration` 不是 token 值：续期换 token 时它不变，否则 token 过期那一次读到的结果会被白白丢掉。
     func loadRuleParamsIfNeeded(force: Bool = false) async {
-        guard force || !didLoadRuleParams, let token = accessToken else { return }
+        guard force || !didLoadRuleParams, accessToken != nil else { return }
+        let session = sessionGeneration
         do {
             let response = try await auth.ruleParams()
-            guard accessToken == token else { return }
+            guard sessionGeneration == session, accessToken != nil else { return }
             ruleParamsResponse = response
             didLoadRuleParams = true
         } catch {
