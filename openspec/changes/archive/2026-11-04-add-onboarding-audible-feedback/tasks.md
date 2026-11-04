@@ -38,5 +38,5 @@
 
 ## 7. 验证
 
-- [ ] 7.1 真机跑覆盖改动的单测与 UI 用例，新用例验红
-- [ ] 7.2 改过的页面跑 AccessibilityAuditTests 并截图
+- [x] 7.1 真机跑覆盖改动的单测与 UI 用例，新用例验红
+- [x] 7.2 改过的页面跑 AccessibilityAuditTests 并截图
