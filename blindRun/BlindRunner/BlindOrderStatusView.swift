@@ -10,7 +10,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var isSubmittingReview = false
-    @Published var reviewRating = 5
+    @Published var reviewRating: Int?
     @Published var reviewComment = ""
     @Published var didSubmitReview = false
     /// 本单已有的评价。**离开页面再回来时唯一的真相来源** —— `didSubmitReview` 是进程内的一次性标记，
@@ -1022,9 +1022,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     func submitReview() async {
         guard let order, let appState, order.status == .completed else { return }
-        guard (1...5).contains(reviewRating) else {
-            errorMessage = "请选择 1 到 5 星评分。"
-            speechService?.speakError("请选择 1 到 5 星评分。")
+        guard let rating = reviewRating, (1...5).contains(rating) else { // 默认不选（#660 B-30）
+            errorMessage = RunExperienceRating.missingSelectionMessage
+            speechService?.speakError(RunExperienceRating.missingSelectionMessage)
             return
         }
 
@@ -1032,7 +1032,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         errorMessage = nil
         do {
             let request = CreateReviewRequest(
-                rating: reviewRating,
+                rating: rating,
                 comment: reviewComment.nilIfBlank
             )
             try await appState.orders.submitReview(request, orderId: order.orderId)
@@ -2641,6 +2641,7 @@ struct BlindOrderStatusView: View {
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
         }
+        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true) // 等待匹配与低电量（#660）
         .modifier(OrderSafetyRequestPresenter(
             request: safetyRequest,
             isOrderLoaded: { viewModel.order != nil },
@@ -2833,8 +2834,7 @@ struct BlindOrderStatusView: View {
                     .foregroundColor(AppColors.textSecondary)
                     .accessibilityLabel("感谢反馈，可以返回首页")
             } else {
-                // 2026-10-07：五档文字 + 跑步小人，评「这次陪跑」不评人。提交的仍是 1–5。
-                RunExperienceRatingPicker(rating: $viewModel.reviewRating)
+                RunExperienceRatingPicker(rating: $viewModel.reviewRating) // 默认不选，见 `RunExperienceRating.swift`
 
                 TextEditor(text: $viewModel.reviewComment)
                     .frame(minHeight: 96)

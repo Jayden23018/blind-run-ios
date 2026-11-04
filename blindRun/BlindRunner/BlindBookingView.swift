@@ -205,6 +205,7 @@ final class BlindBookingViewModel: ObservableObject {
     /// `currentResolvedPlace` 那次解析所用定位样本的精度，只在差于 50 米时有值（#373）。
     @Published private(set) var currentLocationAccuracyMeters: Double?
     private var hasAnnouncedWeakStartPointAccuracy = false
+    var hasSpokenStartPointPrivacyNotice = false // 见 `BlindBookingViewModel+StartPointPrivacy.swift`
     /// 本次预约的终点。**只有语音会写它** —— 表单向导没有终点输入，产品上终点是纯可选槽位，
     /// 而在表单里再加一段 POI 搜索 + 候选列表，对看不见屏幕的人是又一段同样长的交互。
     ///
@@ -1790,6 +1791,7 @@ struct BlindBookingView: View {
         switch viewModel.currentStep {
         case .startPoint:
             LaunchScopeStepNotice(text: viewModel.launchScopeAreaNotice, identifier: "blindBookingLaunchAreaNotice")
+            LaunchScopeStepNotice(text: viewModel.startPointPrivacyNotice, identifier: "blindBookingStartPointPrivacyNotice")
             locationSection
         case .appointmentTime:
             LaunchScopeStepNotice(text: viewModel.launchScopeDutyHoursNotice, identifier: "blindBookingLaunchDutyHoursNotice")
@@ -1800,6 +1802,7 @@ struct BlindBookingView: View {
             // 提交前最后一站：语音下单、零输入下单都停在这一步，两句都再说一次（#667）。
             LaunchScopeStepNotice(text: viewModel.launchScopeAreaNotice, identifier: "blindBookingLaunchAreaNotice")
             LaunchScopeStepNotice(text: viewModel.launchScopeDutyHoursNotice, identifier: "blindBookingLaunchDutyHoursNotice")
+            LaunchScopeStepNotice(text: viewModel.startPointPrivacyNotice, identifier: "blindBookingStartPointPrivacyNotice")
             reviewSection
         }
     }
