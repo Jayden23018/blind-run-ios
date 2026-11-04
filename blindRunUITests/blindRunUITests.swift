@@ -946,13 +946,10 @@ final class blindRunUITests: XCTestCase {
         // 滚到底（徽章是最后一块）再断「没有派单状态」：屏幕外的元素在 ScrollView 里照样存在，
         // 所以不滚也断得出；滚到底是为了让截图看得到底部。
         let badgesHeader = app.staticTexts["徽章"].firstMatch
-        var drags = 0
-        while !badgesHeader.isHittable && drags < 16 { app.swipeUp(velocity: .slow); drags += 1 }
-        XCTAssertTrue(badgesHeader.exists, "首页最后一块应当是徽章（drags=\(drags)）\n\(app.debugDescription)")
-        XCTAssertFalse(
-            app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch.exists,
-            "派单状态已搬进接单页，首页不该再有（#694）"
-        )
+        for _ in 0..<16 where !badgesHeader.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(badgesHeader.exists, "首页最后一块应当是徽章\n\(app.debugDescription)")
+        let dispatchCard = app.descendants(matching: .any)["volunteerDispatchSummaryCard"].firstMatch
+        XCTAssertFalse(dispatchCard.exists, "派单状态已搬进接单页，首页不该再有（#694）")
         XCTAssertFalse(app.staticTexts["接单率"].firstMatch.exists, "接单率已删除，不该再出现")
 
         XCTAssertFalse(

@@ -138,4 +138,38 @@ final class VolunteerHomeSummaryCardsTests: XCTestCase {
         XCTAssertNil(VolunteerHomeRecentRunContent.pick(current: [], previous: []))
         XCTAssertNil(VolunteerHomeRecentRunContent.pick(current: [], previous: nil))
     }
+
+    // MARK: - 文案红线
+
+    /// 首页 v3 新增的文案过同一张禁用词表（民政部令第 67 号、不折算金额、不做月度目标、不催促），
+    /// 理由见 `VolunteerProfileFirstScreenTests.testFirstScreenCopyNeverClaimsCredentialsOrPushesForMoreRuns`。
+    func testHomeV3CopyNeverClaimsCredentialsOrPushesForMoreRuns() {
+        let strings = [
+            VolunteerProfileCopy.durationCardTitle,
+            VolunteerProfileCopy.durationCardRunsLine(24),
+            VolunteerProfileCopy.streakCardTitle,
+            VolunteerProfileCopy.streakBestCaption(7),
+            VolunteerProfileCopy.partnersCardCaption,
+            VolunteerProfileCopy.partnersCardEmptyCaption,
+            VolunteerProfileCopy.partnersCardHint,
+            VolunteerProfileCopy.ratingCardEmptyCaption,
+            VolunteerProfileCopy.recentLinkTitle,
+            VolunteerProfileCopy.recentCardTitle,
+            VolunteerProfileCopy.recentCardHint,
+            VolunteerProfileCopy.recentNoneLately,
+            VolunteerProfileCopy.recentLoadFailure,
+            VolunteerProfileCopy.recentRetry,
+            VolunteerAvailabilityCopy.keepAppOpenNote,
+            VolunteerDispatchHubCopy.nextSectionTitle,
+            VolunteerDispatchHubCopy.laterRowLabel,
+            VolunteerDispatchHubCopy.statusPendingTitle,
+            VolunteerDispatchHubCopy.statusLoadingMessage,
+            VolunteerDispatchHubCopy.reloadTitle
+        ]
+        for text in strings {
+            for word in VolunteerProfileFirstScreenTests.bannedCopyWords {
+                XCTAssertFalse(text.contains(word), "首页 v3 文案出现禁用词「\(word)」：\(text)")
+            }
+        }
+    }
 }

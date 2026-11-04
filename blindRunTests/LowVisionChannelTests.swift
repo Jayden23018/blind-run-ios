@@ -15,7 +15,7 @@ final class LowVisionChannelTests: XCTestCase {
 
     /// WCAG 1.4.3 正文阈值。大字与 UI 部件是 3:1，但本 App 的语义色同时用在两类文本上，
     /// 按严的那条卡 —— 放宽到 3.0 就等于允许「只有标题读得清」。
-    private static let minimumContrast: Double = 4.5
+    static let minimumContrast: Double = 4.5
 
     /// 每个语义色要在**四种组合**下都达标。
     ///
@@ -105,33 +105,6 @@ final class LowVisionChannelTests: XCTestCase {
         XCTAssertLessThan(
             Self.contrastRatio(white, 0x30D158), Self.minimumContrast,
             "success 的暗色值当大面积底色时白字不达标，这条用例存在的理由就是挡住复用它"
-        )
-    }
-
-    /// 陪跑员首页 v3 底部「接单中 · 进入接单」胶囊：深绿字压浅绿底（#694）。
-    ///
-    /// 字是 17pt semibold，够不上 large text 豁免，要 4.5:1。亮暗两套各算一次。
-    func testAvailabilityPillTextReadableOnItsSurface() {
-        let surface = AppColors.availabilityPillSurfaceTone
-        let text = AppColors.availabilityPillTextTone
-
-        let lightRatio = Self.contrastRatio(text.light, surface.light)
-        XCTAssertGreaterThanOrEqual(
-            lightRatio, Self.minimumContrast,
-            "亮色模式下接单中胶囊只有 \(String(format: "%.2f", lightRatio)):1"
-        )
-
-        let darkRatio = Self.contrastRatio(text.dark, surface.dark)
-        XCTAssertGreaterThanOrEqual(
-            darkRatio, Self.minimumContrast,
-            "暗色模式下接单中胶囊只有 \(String(format: "%.2f", darkRatio)):1"
-        )
-
-        // 验红：亮色那一对放到暗色外观里（字不换）只有约 1.4:1，必须算不过 ——
-        // 防止有人只给暗色档换底色、忘了换字色，也防止公式恒真。
-        XCTAssertLessThan(
-            Self.contrastRatio(text.light, surface.dark), Self.minimumContrast,
-            "浅色档的深绿字压暗色档的底，这条必须不达标"
         )
     }
 
@@ -362,7 +335,7 @@ final class LowVisionChannelTests: XCTestCase {
     // MARK: - WCAG 相对亮度
 
     /// https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
-    private static func relativeLuminance(_ rgb: UInt32) -> Double {
+    static func relativeLuminance(_ rgb: UInt32) -> Double {
         let channels = [16, 8, 0].map { shift -> Double in
             let raw = Double((rgb >> UInt32(shift)) & 0xFF) / 255
             return raw <= 0.03928 ? raw / 12.92 : pow((raw + 0.055) / 1.055, 2.4)
@@ -404,7 +377,7 @@ final class LowVisionChannelTests: XCTestCase {
         return channel(16) | channel(8) | channel(0)
     }
 
-    private static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {
+    static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {
         let la = relativeLuminance(a)
         let lb = relativeLuminance(b)
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)

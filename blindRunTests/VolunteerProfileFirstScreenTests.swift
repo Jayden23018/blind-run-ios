@@ -442,8 +442,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         let strings = [
             VolunteerProfileCopy.pageTitle,
             VolunteerProfileCopy.impactSectionTitle,
-            VolunteerProfileCopy.durationCardTitle,
-            VolunteerProfileCopy.durationCardRunsLine(24),
             VolunteerProfileCopy.heroUnit,
             VolunteerProfileCopy.newcomerHeadline,
             VolunteerProfileCopy.newcomerDetail,
@@ -453,12 +451,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             // 星级卡标题「距离一星还差 N 小时」刻意不进这张表：门槛是国标定的固定值，
             // 「还差」在这里不是压力句式（同下面那条注释）。它的红线在 `testStarCardTitleSaysHowFarToTheFirstStar`。
             VolunteerProfileCopy.starCardProgress(VolunteerStarLevel.derive(totalServiceMinutes: 180)),
-            VolunteerProfileCopy.streakCardTitle,
-            VolunteerProfileCopy.streakBestCaption(7),
-            VolunteerProfileCopy.partnersCardCaption,
-            VolunteerProfileCopy.partnersCardEmptyCaption,
-            VolunteerProfileCopy.partnersCardHint,
-            VolunteerProfileCopy.ratingCardEmptyCaption,
             VolunteerProfileCopy.partnersSpokenWhenEmpty,
             VolunteerProfileCopy.partnersCaption,
             VolunteerProfileCopy.ratingCaption,
@@ -469,12 +461,6 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerProfileCopy.recentSectionTitle,
             VolunteerProfileCopy.recentEmpty,
             VolunteerProfileCopy.recentLinkHint,
-            VolunteerProfileCopy.recentLinkTitle,
-            VolunteerProfileCopy.recentCardTitle,
-            VolunteerProfileCopy.recentCardHint,
-            VolunteerProfileCopy.recentNoneLately,
-            VolunteerProfileCopy.recentLoadFailure,
-            VolunteerProfileCopy.recentRetry,
             VolunteerProfileCopy.todoSectionTitle,
             // 必修培训入口：标题不是自己的字符串，复用派单原因的 displayText（单一来源）。
             VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText,
@@ -488,8 +474,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerAvailabilityCopy.closeTitle,
             VolunteerAvailabilityCopy.slideHint,
             VolunteerAvailabilityCopy.closeHint,
-            // 接单主页那一屏（v3 起含从首页搬来的派单状态）。
-            VolunteerAvailabilityCopy.keepAppOpenNote,
+            // 接单主页那一屏。首页 v3（#694）新增的文案在 `VolunteerHomeSummaryCardsTests` 里过同一张禁用词表。
             VolunteerAvailabilityCopy.enterHubTitle,
             VolunteerAvailabilityCopy.enterHubHint,
             VolunteerDispatchHubCopy.acceptingPill,
@@ -502,12 +487,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerDispatchHubCopy.pauseConfirmPrimary,
             VolunteerDispatchHubCopy.introCallCardTitle,
             VolunteerDispatchHubCopy.introCallCardSubtitle,
-            VolunteerDispatchHubCopy.laterRowTitle(2),
-            VolunteerDispatchHubCopy.nextSectionTitle,
-            VolunteerDispatchHubCopy.laterRowLabel,
-            VolunteerDispatchHubCopy.statusPendingTitle,
-            VolunteerDispatchHubCopy.statusLoadingMessage,
-            VolunteerDispatchHubCopy.reloadTitle
+            VolunteerDispatchHubCopy.laterRowTitle(2)
         ]
 
         // 「证明 / 证书」：民政部令第 67 号。
@@ -515,9 +495,8 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         // 「本月 / 本周」：Moving Target —— 自己跟自己比的门槛会漂移（印度 CCPA dark pattern 分类法点名项）。
         // 「还差 / 再跑 / 就能」：压力句式。国标星级那条「还差 N 小时」不在这张表里，
         //   它来自 `VolunteerAchievementsCopy`，门槛由 GB/T 40143—2021 定、不随用户表现漂移。
-        let banned = ["证明", "证书", "已认证", "元", "￥", "本月", "本周", "还差", "再跑", "就能", "敬请期待"]
         for text in strings {
-            for word in banned {
+            for word in Self.bannedCopyWords {
                 XCTAssertFalse(text.contains(word), "首屏文案出现禁用词「\(word)」：\(text)")
             }
         }
@@ -531,6 +510,9 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             XCTAssertFalse(close.contains(word), "关闭侧出现挽留话术「\(word)」：\(close)")
         }
     }
+
+    /// 首页与接单页文案的禁用词。理由逐条写在 `testFirstScreenCopyNeverClaimsCredentialsOrPushesForMoreRuns` 里。
+    static let bannedCopyWords = ["证明", "证书", "已认证", "元", "￥", "本月", "本周", "还差", "再跑", "就能", "敬请期待"]
 
     // MARK: - Fixtures
 
