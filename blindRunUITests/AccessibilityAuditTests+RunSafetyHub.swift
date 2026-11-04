@@ -4,7 +4,7 @@ import XCTest
 extension AccessibilityAuditTests {
     /// 跑步中：方格下面有「陪跑员身体不适或倒地怎么办」与「陪跑员联系不上，结束本次陪跑」。
     /// 结束要先过确认框；「先不结束」什么都不发生，「结束陪跑」后弹层关闭、订单页进入已完成。
-    /// Mock 的 `/finish` 不判陪跑员是否在线，所以这里走的是成功那一支；409 那一支在单测里。
+    /// Mock 的 `/finish` 不判陪跑员是否在线，所以这里走的是成功那一支；409 那一支（原话留在弹层里）在单测里。
     @MainActor
     func testRunSafetyHubOffersVolunteerUnwellGuideAndConfirmedEndRun() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
@@ -31,6 +31,7 @@ extension AccessibilityAuditTests {
         XCTAssertGreaterThanOrEqual(endRun.frame.height, Self.minimumBlindPrimaryButtonHeight, "盲人端按钮不得低于 64pt")
         XCTAssertLessThanOrEqual(endRun.frame.maxY, sos.frame.minY, "结束出口压在了红胶囊上")
         attachScreenshot(app, name: "blind-run-safety-hub-end-run")
+        if #available(iOS 17.0, *) { try audit(app) }
 
         endRun.tap()
         let alert = app.alerts["结束本次陪跑？"].firstMatch

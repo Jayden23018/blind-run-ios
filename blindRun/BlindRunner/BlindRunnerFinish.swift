@@ -24,6 +24,8 @@ enum BlindRunnerFinishCopy {
     /// `ORDER_HAS_ACTIVE_EMERGENCY` 的跑者口径。通用文案是写给陪跑员的（「需要跑者本人撤销」）。
     static let activeEmergency = "这一单还有没结束的求助，现在还不能结束。如果求助是误触，可以先撤销求助；否则请等客服处理完。"
     static let failedFallback = "结束失败，请稍后再试。"
+    /// 弹层打开期间订单已经不在跑步中（例如陪跑员刚好结束了）。
+    static let notRunning = "本次陪跑已经不在进行中，不用再结束。"
 
     /// 跑者自己结束时的完成句。**不说「某某结束了本次陪跑」**：那句会让人以为陪跑员又联系上了。
     static func runnerFinishedAnnouncement(distanceText: String?) -> String {
@@ -71,8 +73,11 @@ enum BlindRunnerFinishRecord {
 
 extension BlindOrderStatusViewModel {
     /// 求助中心「陪跑员联系不上，结束本次陪跑」确认之后。
-    func finishBecauseVolunteerUnreachable() async {
-        guard let order, let appState, order.status == .inProgress, !isPerformingAction else { return }
+    /// 返回 `nil` = 已结束（或登录已过期、交给全局处理）；返回一句话 = 没结束成，求助中心把它留在按钮下面。
+    @discardableResult
+    func finishBecauseVolunteerUnreachable() async -> String? {
+        guard let order, let appState, !isPerformingAction else { return BlindRunnerFinishCopy.failedFallback }
+        guard order.status == .inProgress else { return BlindRunnerFinishCopy.notRunning }
         isPerformingAction = true
         errorMessage = nil
         speechService?.speak(BlindRunnerFinishCopy.finishingAnnouncement)
@@ -81,13 +86,17 @@ extension BlindOrderStatusViewModel {
             try await appState.orders.finish(orderId: order.orderId)
             isPerformingAction = false
             await loadOrder(orderId: order.orderId, speakChanges: true)
+            return nil
         } catch {
-            BlindRunnerFinishRecord.unmark(order.orderId)
+            // 只有后端明确拒绝时才撤销记录。网络断在半路时请求可能已经生效，
+            // 撤销的话下一轮轮询看到已完成，会说成「陪跑员结束了本次陪跑」—— 像是他又联系上了。
+            if case APIError.serverError = error { BlindRunnerFinishRecord.unmark(order.orderId) }
             isPerformingAction = false
-            if let apiError = error as? APIError, appState.handleAuthenticatedAPIError(apiError) { return }
+            if let apiError = error as? APIError, appState.handleAuthenticatedAPIError(apiError) { return nil }
             let message = Self.runnerFinishFailureMessage(for: error)
             speechService?.speakError(message)
             errorMessage = message
+            return message
         }
     }
 

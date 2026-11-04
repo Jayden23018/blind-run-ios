@@ -980,7 +980,7 @@ extension View {
         onLocalCall: @escaping () -> Void,
         onTriggerEmergency: @escaping () -> Void,
         onTriggerEmergencyImmediately: @escaping () -> Void,
-        onEndRunWithoutVolunteer: (() -> Void)? = nil
+        onEndRunWithoutVolunteer: (@MainActor () async -> String?)? = nil
     ) -> some View {
         modifier(
             SafetyHubPresentation(

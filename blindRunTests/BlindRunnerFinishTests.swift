@@ -21,8 +21,10 @@ final class BlindRunnerFinishTests: XCTestCase {
         let fixture = makeFixture(current: .inProgress)
         fixture.orders.orderDetailResult = .success(Self.order(status: .completed))
 
-        await fixture.viewModel.finishBecauseVolunteerUnreachable()
+        let refusal = await fixture.viewModel.finishBecauseVolunteerUnreachable()
         await Self.waitUntil { fixture.speech.spokenHistoryForTesting.count >= 2 }
+
+        XCTAssertNil(refusal, "成功时返回 nil，求助中心据此关弹层")
 
         XCTAssertEqual(fixture.orders.callCount("finish(orderId:)"), 1)
         XCTAssertEqual(fixture.orders.lastOrderId, Self.orderId)
@@ -42,8 +44,9 @@ final class BlindRunnerFinishTests: XCTestCase {
             ErrorResponse(code: "VOLUNTEER_STILL_ONLINE", message: serverMessage)
         ))
 
-        await fixture.viewModel.finishBecauseVolunteerUnreachable()
+        let refusal = await fixture.viewModel.finishBecauseVolunteerUnreachable()
 
+        XCTAssertEqual(refusal, serverMessage, "求助中心靠这个返回值把原话留在按钮下面")
         XCTAssertEqual(fixture.viewModel.errorMessage, serverMessage)
         XCTAssertEqual(fixture.speech.spokenHistoryForTesting.last, serverMessage)
         XCTAssertEqual(fixture.viewModel.order?.status, .inProgress)
@@ -52,6 +55,17 @@ final class BlindRunnerFinishTests: XCTestCase {
             BlindRunnerFinishRecord.finishedByRunner.contains(Self.orderId),
             "失败要撤销记录，否则之后陪跑员结束时会被说成跑者结束"
         )
+    }
+
+    /// 网络断在半路：请求可能已经生效，记录不撤销，免得之后说成「陪跑员结束了本次陪跑」。
+    func testNetworkFailureKeepsTheRunnerEndedRecord() async {
+        let fixture = makeFixture(current: .inProgress)
+        fixture.orders.finishResult = .failure(APIError.networkError(URLError(.timedOut)))
+
+        let refusal = await fixture.viewModel.finishBecauseVolunteerUnreachable()
+
+        XCTAssertNotNil(refusal)
+        XCTAssertTrue(BlindRunnerFinishRecord.finishedByRunner.contains(Self.orderId))
     }
 
     func testVolunteerStillOnlineWithBlankMessageFallsBackToLocalSentence() {
@@ -72,8 +86,9 @@ final class BlindRunnerFinishTests: XCTestCase {
 
     func testFinishIsNotSentOutsideTheRun() async {
         let fixture = makeFixture(current: .driverArrived)
-        await fixture.viewModel.finishBecauseVolunteerUnreachable()
+        let refusal = await fixture.viewModel.finishBecauseVolunteerUnreachable()
         XCTAssertEqual(fixture.orders.callCount("finish(orderId:)"), 0)
+        XCTAssertEqual(refusal, BlindRunnerFinishCopy.notRunning)
     }
 
     // MARK: - 完成句
@@ -106,6 +121,21 @@ final class BlindRunnerFinishTests: XCTestCase {
             SafetyHubRunSection.showsEndRun(mode: .localCallSessionExpired, hasAction: true),
             "登录过期时 finish 必然 401"
         )
+    }
+
+    /// 走「视图里存的闭包」这条路：未标隔离的 async 闭包属性只在经闭包调用时真机崩
+    /// （记忆 `unannotated-async-closure-property-crashes-on-device`），直调 view model 抓不到。
+    func testEndRunThroughTheSectionClosureDeliversTheServerRefusal() async throws {
+        let fixture = makeFixture(current: .inProgress)
+        fixture.orders.finishResult = .failure(APIError.serverError(
+            ErrorResponse(code: "VOLUNTEER_STILL_ONLINE", message: "10:20 之后可以由您结束")
+        ))
+        let section = SafetyHubRunSection(mode: .cloudTrigger) { await fixture.viewModel.finishBecauseVolunteerUnreachable() }
+
+        let refusal = try await XCTUnwrap(section.onEndRun)()
+
+        XCTAssertEqual(refusal, "10:20 之后可以由您结束")
+        XCTAssertEqual(fixture.orders.callCount("finish(orderId:)"), 1)
     }
 
     func testVolunteerUnwellGuideAppearsWheneverTheRunIsOn() {

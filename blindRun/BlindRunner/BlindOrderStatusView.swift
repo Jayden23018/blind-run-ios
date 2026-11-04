@@ -2559,7 +2559,7 @@ struct BlindOrderStatusView: View {
             onTriggerEmergency: { showEmergencyConfirmation = true },
             onTriggerEmergencyImmediately: startEmergencyCountdown,
             // 只在 `.cloudTrigger`（跑步中、登录有效）出现，判据在 `SafetyHubRunSection`。
-            onEndRunWithoutVolunteer: { Task { await viewModel.finishBecauseVolunteerUnreachable() } }
+            onEndRunWithoutVolunteer: { await viewModel.finishBecauseVolunteerUnreachable() }
         )
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
             startEmergencyCountdown()
