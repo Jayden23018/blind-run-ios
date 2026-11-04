@@ -523,6 +523,10 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     action: { onRowAction(dismissRow.action ?? .releaseOrder) }
                 )
                 .accessibilityIdentifier("volunteerOrderFlowRow-\(dismissRow.id)")
+                // 主按钮的投影向下伸约 20pt，压进这一行的框里；审计在亮色下取到掺了黄色的底，报 Contrast failed
+                // （#669；字色 5.51:1 本身达标）。用页面底色的不透明底盖住这一行，晕染在它上沿收掉。
+                .padding(.top, 6)
+                .background(AppColors.Flow.page)
             }
         }
         .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.35), value: presentation.primaryAction)

@@ -270,7 +270,7 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "\(variant.name)：底部标签栏不在")
             tabBar.buttons["我的"].tap()
             let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
-            XCTAssertTrue(entry.waitForExistence(timeout: 15), "\(variant.name)：设置页没有空闲时间入口")
+            XCTAssertTrue(waitForScrolledEntry(entry, in: app), "\(variant.name)：设置页没有空闲时间入口")
             for _ in 0..<6 where !entry.isHittable { app.swipeUp() }
             entry.tap()
 

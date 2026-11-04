@@ -30,6 +30,8 @@ struct VolunteerTabView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
+    /// 由 `AppUpdateGateModifier` 注入：必须更新的弹窗期间要关掉接单开关（#668）。
+    @EnvironmentObject private var updateGate: AppUpdateGate
 
     @StateObject private var viewModel = VolunteerHomeViewModel()
 
@@ -44,6 +46,21 @@ struct VolunteerTabView: View {
 
     init() {
         FlowTabBarAppearance.apply()
+    }
+
+    /// id 里不放 `dispatchPause`：自己写状态会取消自己正在发的请求。
+    private struct RequiredUpdatePauseTrigger: Equatable {
+        let isRequired: Bool
+        let isAvailable: Bool
+    }
+
+    /// 只试一次：关成功（`.paused`）或失败（`.failed`）之后 `dispatchPause` 不再是 `.idle`，不会因为开关翻动再来。
+    private func pauseDispatchIfUpdateRequired() async {
+        guard updateGate.presentation.isRequired, updateGate.dispatchPause == .idle,
+              let result = await viewModel.pauseDispatchForRequiredUpdate(appState: appState) else { return }
+        updateGate.recordDispatchPause(result)
+        let note = AppUpdateCopy.dispatchPauseNote(result)
+        if result == .failed { speechService.speakError(note) } else { speechService.speak(text: note) }
     }
 
     var body: some View {
@@ -121,6 +138,12 @@ struct VolunteerTabView: View {
         }
         .onDisappear {
             viewModel.setSceneActive(false)
+        }
+        .task(id: RequiredUpdatePauseTrigger(
+            isRequired: updateGate.presentation.isRequired,
+            isAvailable: viewModel.isAvailable
+        )) {
+            await pauseDispatchIfUpdateRequired()
         }
         .task(id: scenePhase) {
             viewModel.configure(
