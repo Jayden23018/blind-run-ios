@@ -200,7 +200,7 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.refreshDispatchSummary()
         XCTAssertTrue(viewModel.dispatchSummary?.canDispatch ?? false)
-        XCTAssertEqual(viewModel.statusText, "已上线，等待系统派单")
+        XCTAssertEqual(viewModel.statusText, VolunteerDispatchSummaryResponse.onlineWaitingText)
         XCTAssertEqual(client.callCount("dispatchSummary()"), 2)
     }
 

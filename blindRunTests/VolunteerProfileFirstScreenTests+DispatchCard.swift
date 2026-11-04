@@ -23,7 +23,7 @@ extension VolunteerProfileFirstScreenTests {
         )
         XCTAssertEqual(
             Self.summary(reasons: []).dispatchStatusText(omitting: omit),
-            "已上线，等待系统派单"
+            VolunteerDispatchSummaryResponse.onlineWaitingText
         )
         XCTAssertEqual(
             Self.summary(reasons: [.notVerified, .unknown]).dispatchStatusText(omitting: omit),

@@ -358,7 +358,10 @@ final class PrivacyConsentTests: XCTestCase {
             // 改这两行指纹时，去安卓仓库把同一段文案一起改（这里只拦得住 iOS 一侧单独变动）。
             // 2026-10-31 的称呼改动由 Jayden23018/blind-run-android#416 同步。
             .blindLocationTrack: (1, 605_998_375),
-            .volunteerLocationTrack: (1, 486_962_058)
+            // 2026-11-04 指纹变了而版本号不动（#654）：第 1 条删掉不实的「锁屏后仍在定位」，写明只在 App 开着时
+            // 为派单定位。处理行为没变，实际收集比原文说的少，属「同一行为换个说法」。
+            // 这一行**刻意与安卓不再逐字一致**，安卓侧见 Jayden23018/blind-run-android#417。
+            .volunteerLocationTrack: (1, 690_217_867)
         ]
 
         for purpose in PrivacyConsentPurpose.allCases {

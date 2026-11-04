@@ -122,7 +122,7 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
     var reasonText: String {
         let reasons = notAvailableReasons ?? []
         guard !reasons.isEmpty else {
-            return canDispatch == true ? "已上线，等待系统派单" : "服务端未返回不可接单原因"
+            return canDispatch == true ? Self.onlineWaitingText : "服务端未返回不可接单原因"
         }
         // 全是未识别取值时不能拼出空串；混合时只展示能解释清楚的那些。
         let recognized = reasons.filter { $0 != .unknown }
@@ -133,8 +133,11 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
     }
 
     var dispatchStatusText: String {
-        canDispatch == true ? "已上线，等待系统派单" : reasonText
+        canDispatch == true ? Self.onlineWaitingText : reasonText
     }
+
+    /// 可派单时首页派单卡和滑块读屏念的那句。后半句见 `VolunteerAvailabilityCopy.keepAppOpenNote`（#654）。
+    static let onlineWaitingText = "已上线，等待系统派单。\(VolunteerAvailabilityCopy.keepAppOpenNote)"
 
     /// 首屏派单状态卡那一句。`shownElsewhere` 里的原因同一屏已经画成整卡入口
     /// （培训、资质，判据 `VolunteerProfileTodoGate`），卡里不再说第二遍。
