@@ -60,9 +60,10 @@ extension AccessibilityAuditTests {
         try XCTExpectFailure("#688：求助中心原有方格的字号审计红灯", options: options) {
             try audit(app)
         }
-        let newLabels: Set<String> = [
-            app.descendants(matching: .any)["blindSafetyHubVolunteerUnwellGuide"].firstMatch.label,
-            app.buttons["blindSafetyHubEndRunWithoutVolunteer"].firstMatch.label,
+        // 按位置认，不按文字认：指引里写着「拨打120」，按文字会把原有那一格也认成新元素。
+        let newFrames = [
+            app.descendants(matching: .any)["blindSafetyHubVolunteerUnwellGuide"].firstMatch.frame,
+            app.buttons["blindSafetyHubEndRunWithoutVolunteer"].firstMatch.frame,
         ]
         try app.performAccessibilityAudit(
             for: [
@@ -70,9 +71,10 @@ extension AccessibilityAuditTests {
                 .sufficientElementDescription, .textClipped, .trait,
             ]
         ) { issue in
-            guard let label = issue.element?.label else { return true }
-            let isNew = newLabels.contains { !$0.isEmpty && (label == $0 || $0.contains(label)) }
-            if isNew { print("[AUDIT-new] \(issue.auditType) label=\(label) \(issue.compactDescription)") }
+            guard let element = issue.element else { return true }
+            let frame = element.frame
+            let isNew = newFrames.contains { !$0.isEmpty && $0.insetBy(dx: -1, dy: -1).contains(frame) }
+            if isNew { print("[AUDIT-new] \(issue.auditType) label=\(element.label) \(issue.compactDescription)") }
             return !isNew
         }
     }
