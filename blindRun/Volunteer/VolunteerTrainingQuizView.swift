@@ -47,18 +47,24 @@ struct VolunteerTrainingQuizView: View {
         }
         .onChange(of: viewModel.lastResult != nil) { hasResult in
             // 交卷后把读屏焦点挪到结果标题上：页面整个换了内容，不挪的话焦点留在已经消失的按钮上
-            guard hasResult else { return }
+            // 回到答题时先复位：标志一直停在 true 的话，下一次答错再赋 true 不会触发焦点移动
+            guard hasResult else { focusesResultHeading = false; return }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 focusesResultHeading = true
             }
+        }
+        .onChange(of: viewModel.errorMessage) { message in
+            // 交卷失败的红字在底栏里，读屏焦点不一定在那儿：念一遍，不然只是「按了没反应」
+            guard let message else { return }
+            UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
 
     private var closeButton: some View {
         Button { dismiss() } label: { Image(systemName: "xmark") }
             .accessibilityLabel("关闭答题")
-            .accessibilityHint("回到课程正文，已选的答案会保留")
+            .accessibilityHint(viewModel.lastResult == nil ? "回到课程正文，已选的答案会保留" : "回到课程正文")
             .accessibilityIdentifier("volunteerTrainingQuizCloseButton")
     }
 
@@ -90,14 +96,6 @@ struct VolunteerTrainingQuizView: View {
                     ForEach(Array(viewModel.questions.enumerated()), id: \.element.id) { index, question in
                         questionCard(index: index, question: question)
                             .id(question.id)
-                    }
-
-                    if let errorMessage = viewModel.errorMessage {
-                        Text(errorMessage)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.destructive)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("volunteerTrainingQuizError")
                     }
                 }
                 .padding(.horizontal, 16)
@@ -163,10 +161,22 @@ struct VolunteerTrainingQuizView: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+        // 标题属性：读屏用「标题」转子能逐题跳，不用一个个选项划过去
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("volunteerTrainingQuestionHeader_\(number)")
     }
 
     private var submitBar: some View {
         TrainingBottomBar {
+            // 交卷失败的原因挨着按钮放：放在题目列表末尾的话，人在上面改答案时根本看不见
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("volunteerTrainingQuizError")
+            }
             Button {
                 Task {
                     if let result = await viewModel.submit(), result.isPassed {
@@ -253,7 +263,7 @@ extension VolunteerTrainingQuizView {
                         .accessibilityHint("回到培训课程列表")
                         .accessibilityIdentifier("volunteerTrainingFinishButton")
                 } else {
-                    Button(VolunteerTrainingCopy.retryQuiz(wrongCount: max(wrongCount, 1))) {
+                    Button(wrongCount > 0 ? VolunteerTrainingCopy.retryQuiz(wrongCount: wrongCount) : VolunteerTrainingCopy.retryAll) {
                         viewModel.prepareRetry()
                     }
                     .buttonStyle(TrainingCapsuleButtonStyle())
@@ -267,12 +277,16 @@ extension VolunteerTrainingQuizView {
     private func resultHeadline(_ result: TrainingQuizResult) -> String {
         let total = result.totalCount ?? viewModel.questions.count
         if result.isPassed { return "\(total) 题全对" }
-        return "答对 \(result.correctCount ?? 0) 题，共 \(total) 题"
+        // 后端缺 correctCount 时按错题数推，别读成「答对 0 题」
+        let correct = result.correctCount ?? max(0, total - result.visibleWrongQuestions.count)
+        return "答对 \(correct) 题，共 \(total) 题"
     }
 
     private func resultDetail(_ result: TrainingQuizResult) -> String {
         guard result.isPassed else {
-            let wrongCount = max(result.visibleWrongQuestions.count, 1)
+            let wrongCount = result.visibleWrongQuestions.count
+            // 没全对却没给错题（不该发生）：不编题数，prepareRetry 此时什么都不清
+            guard wrongCount > 0 else { return "全部答对才算学完。请检查答案后重新提交。" }
             return "全部答对才算学完。答对的会保留，只需重答 \(wrongCount) 题。"
         }
         var line = "「\(courseTitle)」已学完。"
@@ -324,6 +338,8 @@ extension VolunteerTrainingQuizView {
                     .padding(.horizontal, 16)
                     .padding(.top, picked == nil ? 12 : 0)
                     .padding(.bottom, 14)
+                    // 不加前缀的话，读屏听起来像题干的延续
+                    .accessibilityLabel("解析：\(explanation)")
             }
         }
         .background(TrainingSurface.card)

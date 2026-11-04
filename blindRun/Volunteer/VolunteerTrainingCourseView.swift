@@ -229,12 +229,18 @@ struct VolunteerTrainingCourseView: View {
             // 学习时长在离开时结清。⚠️ 这里刻意不用 scenePhase ——
             // 进后台不代表离开这门课，回来还在同一页（记忆 `permission-alert-makes-scenephase-inactive`
             // 的同类教训：把生命周期事件当成「用户走了」会算错）。
-            //
-            // 弹出整页答题时这一页也会收到 onDisappear，那不是离开：答题也算在这门课上的时长，
-            // 留到真正退回列表（或交卷）时一并结清。
-            guard !viewModel.isQuizVisible else { return }
+            guard Self.settlesStudyTimeOnDisappear(quizIsPresented: viewModel.isQuizVisible) else { return }
             Task { await viewModel.reportStudyTimeOnExit() }
         }
+    }
+
+    /// 这一页消失时要不要结清学习时长。
+    ///
+    /// 弹出整页答题时这一页也会收到 onDisappear，那不是离开：答题也算在这门课上的时长，
+    /// 留到真正退回列表（或交卷，`submit()` 自己结清一次）时再报。这里报了的话，
+    /// `enteredAt` 被清空，之后的答题时间要等交卷才重新开始计，交卷前退出就整段丢了（#698 复核 A1）。
+    static func settlesStudyTimeOnDisappear(quizIsPresented: Bool) -> Bool {
+        !quizIsPresented
     }
 
     // MARK: 正文

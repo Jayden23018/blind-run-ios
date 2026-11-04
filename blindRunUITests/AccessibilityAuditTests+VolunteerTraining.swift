@@ -128,10 +128,11 @@ extension AccessibilityAuditTests {
 
         // 「完成」回到列表，进度跟着变
         finish.tap()
-        XCTAssertTrue(basicsRow.waitForExistence(timeout: 10), "「完成」后应回到课程列表")
-        let refreshed = NSPredicate(format: "label CONTAINS %@", "已完成")
-        expectation(for: refreshed, evaluatedWith: basicsRow)
+        // 先等整页答题收起：列表行一直留在树里，只等它出现的话这一步等于没验
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: result)
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "已完成"), evaluatedWith: basicsRow)
         waitForExpectations(timeout: 10)
+        XCTAssertTrue(basicsRow.isHittable, "「完成」后应回到课程列表")
         XCTAssertTrue(
             app.descendants(matching: .any)["volunteerTrainingBlockedBanner"].firstMatch.label.contains("已完成 1 门，共 2 门"),
             "回到列表后进度卡应变成 1 / 2 门"
@@ -163,7 +164,7 @@ extension AccessibilityAuditTests {
             let submit = app.buttons["volunteerTrainingSubmitButton"].firstMatch
             XCTAssertTrue(submit.waitForExistence(timeout: 10), "\(variant.name)：答题页没出来")
             chooseOption(app, question: TrainingFixture.ropeQuestion, option: "B")
-            reveal(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "第 1 题")).firstMatch, in: app)
+            reveal(app.descendants(matching: .any)["volunteerTrainingQuestionHeader_1"].firstMatch, in: app)
             attachScreenshot(app, name: "training-quiz-\(variant.name)")
             try audit(app)
 
@@ -240,6 +241,8 @@ extension AccessibilityAuditTests {
                 break
             }
         }
+        // 拖满次数还没露出来就当场红：否则后面的截图和审计照样跑，审的是另一屏
+        XCTAssertTrue(element.exists && element.isHittable, "\(element.identifier) 滚了 \(maxDrags) 次还没露出来")
     }
 
     private func drag(_ app: XCUIApplication, up: Bool) {

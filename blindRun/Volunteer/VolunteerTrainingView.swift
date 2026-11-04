@@ -19,7 +19,6 @@ enum VolunteerTrainingCopy {
     /// 🚩 **必须说清因果**：「没学完 → 接不到单」。只说「请完成培训」的话，
     /// 志愿者不会知道这是他收不到派单的原因，而那个状态在别处没有任何解释。
     static let blockedBanner = "必修培训还没完成，暂时无法接单。"
-    static let blockedBannerHint = "完成下面标记为「必修」的课程后，就可以开始接单了。"
 
     static let allDoneBanner = "必修培训已全部完成。"
     static func certificateLine(_ no: String) -> String { "培训合格证编号 \(no)" }
@@ -37,6 +36,7 @@ enum VolunteerTrainingCopy {
     /// 结果页唯一的按钮。2026-11-04 负责人定稿：结果页不再放「回到课程正文」（原话「很突兀，看着很丑」），
     /// 想回正文点左上 ✕。
     static func retryQuiz(wrongCount: Int) -> String { "重答这 \(wrongCount) 题" }
+    static let retryAll = "重新作答"
 
     // 列表页（2026-11-04 定稿 `docs/ui/mockups/volunteer-training-20261104/`）
     static let requiredSection = "必修"
@@ -61,8 +61,6 @@ enum VolunteerTrainingCopy {
     /// 答题前的提示。**如实说明及格线与可重考**，不要含糊 ——
     /// 用户知道「错一题就要重来但可以无限重来」之后，行为和心态都不一样。
     static let quizIntro = "下面每道题都只有一个正确答案。全部答对才算通过，答错可以修改后再次提交，次数不限。"
-
-    static let unansweredWarning = "还有题目没有作答，请全部选择后再提交。"
 
     /// 题目缺选项时的说明。
     /// 🚩 这条必须存在：静默渲染一道没有选项的题，用户点不下去也不知道为什么，
