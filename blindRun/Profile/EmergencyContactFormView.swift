@@ -6,6 +6,12 @@ import SwiftUI
 /// 后端返回明文手机号，编辑时直接明文回填——不要再用「掩码值等于未修改」那套推断。
 /// 主联系人开关不在这里：改主联系人只走 set-primary 端点。
 struct EmergencyContactFormView: View {
+    private enum Field: Hashable {
+        case name
+        case phone
+        case relationship
+    }
+
     @ObservedObject var viewModel: EmergencyContactsViewModel
     let contact: EmergencyContactResponse?
     let onFinish: () -> Void
@@ -22,6 +28,11 @@ struct EmergencyContactFormView: View {
     /// 这两个动作的按钮在表单最下面，错误文字在它上方，大字号时已滚出屏幕，`Form` 不渲染屏幕外的行。
     /// 所以失败要自己弹出来。
     @State private var showActionFailure = false
+    @State private var showContactPicker = false
+    /// 选择器选完之后那一句，同时上屏和朗读（#657 B-10）。
+    @State private var pickNotice: String?
+    /// 输入框之间的焦点。数字键盘没有回车键，原来填完号码只能自己摸去下一格（#657 B-10）。
+    @FocusState private var focusedField: Field?
 
     /// 新增联系人有**外部副作用**：后端 `EmergencyContactService.addContact` 保存后会给这个第三方号码
     /// 发一条告知短信。盲人在按下「保存」之前有权知道这件事。
@@ -42,6 +53,24 @@ struct EmergencyContactFormView: View {
 
     private var smsNotice: String { isEditing ? Self.editSmsNotice : Self.addSmsNotice }
 
+    /// 「保存」按钮的提示。编辑态**不发**告知短信，原来这里不分情况一律说「会发短信」，
+    /// 和同页的 `editSmsNotice` 互相矛盾（#657 B-32）。
+    static func saveHint(isEditing: Bool, validationMessage: String?) -> String {
+        if let validationMessage { return validationMessage }
+        return isEditing
+            ? "保存修改。修改手机号不会给新号码发送告知短信"
+            : "保存后会向该号码发送一条告知短信"
+    }
+
+    /// 选中联系人后念的那一句。号码只念末四位：这一句也会进「重复当前状态」，外放时周围的人听得到。
+    static func pickAnnouncement(name: String, phone: String) -> String {
+        let who = name.trimmed.isEmpty ? "这位联系人" : name.trimmed
+        guard AppState.isValidMainlandPhone(phone) else {
+            return "已选择\(who)，但这个号码不是 11 位手机号，请换一个号码，或者手动输入。"
+        }
+        return "已选择\(who)，手机号尾号 \(phone.suffix(4))。请确认后保存。"
+    }
+
     private var validationMessage: String? {
         EmergencyContactsViewModel.validationMessage(
             name: name,
@@ -53,12 +82,44 @@ struct EmergencyContactFormView: View {
     var body: some View {
         Form {
             Section {
+                // 排在输入框前面：手打 11 位是这张表最容易出错的一步，能选就别打（#657 B-10）。
+                Button {
+                    focusedField = nil
+                    showContactPicker = true
+                } label: {
+                    contactActionLabel("从通讯录选择", color: AppColors.primary)
+                }
+                .disabled(viewModel.isMutating)
+                .accessibilityLabel("从通讯录选择")
+                .accessibilityHint("打开系统通讯录选一位联系人，自动填入姓名和手机号。助盲跑只拿到你选的这一位")
+                .accessibilityIdentifier("emergencyContactPickFromContacts")
+                .background(
+                    ContactPhonePicker(isPresented: $showContactPicker) { pick in
+                        applyPick(pick)
+                    }
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+                )
+
+                if let pickNotice {
+                    Text(pickNotice)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(pickNotice)
+                        .accessibilityIdentifier("emergencyContactPickNotice")
+                }
+
                 TextField("联系人姓名", text: $name)
+                    .focused($focusedField, equals: .name)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .phone }
                     .accessibilityLabel("联系人姓名，必填")
                     .accessibilityHint("请输入紧急联系人姓名")
 
                 TextField("11 位手机号", text: $phone)
                     .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .phone)
                     .accessibilityLabel("联系人手机号，必填，11 位")
                     .accessibilityHint("请输入紧急联系人手机号，只能输入数字")
                     .onChange(of: phone) { newValue in
@@ -67,6 +128,9 @@ struct EmergencyContactFormView: View {
                     }
 
                 TextField("关系，选填", text: $relationship)
+                    .focused($focusedField, equals: .relationship)
+                    .submitLabel(.done)
+                    .onSubmit { focusedField = nil }
                     .accessibilityLabel("与联系人的关系，选填")
                     .accessibilityHint("例如家人、朋友、同事")
             } footer: {
@@ -117,7 +181,19 @@ struct EmergencyContactFormView: View {
                 Button("保存") { save() }
                     .disabled(viewModel.isMutating)
                     .accessibilityLabel("保存")
-                    .accessibilityHint(validationMessage ?? "保存后会向该号码发送一条告知短信")
+                    .accessibilityHint(Self.saveHint(isEditing: isEditing, validationMessage: validationMessage))
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                if focusedField == .name || focusedField == .phone {
+                    Button("下一项") {
+                        focusedField = focusedField == .name ? .phone : .relationship
+                    }
+                    .accessibilityHint("跳到下一个输入框")
+                } else {
+                    Button("完成") { focusedField = nil }
+                        .accessibilityLabel("收起键盘")
+                }
             }
         }
         .onAppear {
@@ -130,7 +206,7 @@ struct EmergencyContactFormView: View {
                 makePrimary = viewModel.contacts.isEmpty
             }
             speechService.speak(
-                "\(isEditing ? "编辑紧急联系人" : "新增紧急联系人")。姓名和手机号必填，关系选填。\(smsNotice)"
+                "\(isEditing ? "编辑紧急联系人" : "新增紧急联系人")。可以从通讯录选择，也可以手动输入。姓名和手机号必填，关系选填。\(smsNotice)"
             )
         }
         .alert("确认删除联系人", isPresented: $showDeleteConfirmation) {
@@ -222,10 +298,34 @@ struct EmergencyContactFormView: View {
         }
     }
 
+    private func applyPick(_ pick: ContactPhonePick) {
+        let pickedPhone = pick.normalizedPhone
+        if !pick.name.trimmed.isEmpty { name = pick.name.trimmed }
+        // 不是手机号也照填（截到 11 位），让用户听得到、看得到，再自己改；校验仍由保存时那一道兜底。
+        phone = EmergencyContactsViewModel.normalizedPhoneInput(pickedPhone)
+        let message = Self.pickAnnouncement(name: pick.name, phone: pickedPhone)
+        pickNotice = message
+        localErrorMessage = nil
+        if AppState.isValidMainlandPhone(pickedPhone) {
+            speechService.speak(message)
+        } else {
+            speechService.speakError(message)
+            focusedField = .phone
+        }
+    }
+
+    /// 校验没过时把焦点放到出问题的那一格，免得读屏用户从头找。
+    private func fieldFor(validationMessage: String) -> Field {
+        if validationMessage.contains("姓名") { return .name }
+        if validationMessage.contains("手机号") { return .phone }
+        return .relationship
+    }
+
     private func save() {
         if let validationMessage {
             localErrorMessage = validationMessage
             speechService.speakError(validationMessage)
+            focusedField = fieldFor(validationMessage: validationMessage)
             return
         }
         localErrorMessage = nil

@@ -15,13 +15,13 @@ struct BlindHelpTopic: Identifiable, Equatable {
 /// 第 2 条讲的是求助，把降级拨号说成「求助已发出」直接违反 `AGENTS.md` §6
 /// （「App 永远不得宣称短信已发出、已送达」）。数据层能被单测逐条钉住，View 不能。
 ///
-/// **只讲这个 App 特有的三件事，不教 VoiceOver。** 能自己把 App 装上的人已经会用读屏了，
+/// **只讲这个 App 特有的三件事，外加一条系统 SOS（#657 B-12），不教 VoiceOver。** 能自己把 App 装上的人已经会用读屏了，
 /// 教一遍基础手势是在浪费他们的时间；而 Magic Tap 触发求助是我们自己绑的手势，
 /// 不教就没有任何人猜得到 —— 这条才是引导存在的理由。
 enum BlindFirstRunHelp {
     static let heading = "使用帮助"
 
-    static let intro = "欢迎使用助盲跑。下面说明三件事，随时可以在设置里再听一遍。"
+    static let intro = "欢迎使用助盲跑。下面说明四件事，随时可以在设置里再听一遍。"
 
     /// - Parameter leadMinutes: 下单最短提前量。**必须取自 `AppConstants`**，
     ///   写死 30 会在产品松绑提前量的那天变成一句骗人的话。
@@ -71,11 +71,27 @@ enum BlindFirstRunHelp {
                 每个页面都有「重复当前状态」按钮，双击它就会把当前的情况重新念一遍。\
                 首页那个在「你好」这一行的右边。错过播报的时候用它。
                 """
+            ),
+            // 手机在臂包里、手不方便碰屏幕时，唯一不用解锁、不用找按钮的求助路径是 iPhone 自带的紧急 SOS。
+            // 锁屏卡片按设计不放求助按钮，就是把这条路交给系统 —— 但原来 App 里没有一处教过（#657 B-12）。
+            //
+            // 🔴 按法只写苹果支持文档写明的两种（support.apple.com/104992，2026-11-04 核实）：
+            // 同时按住侧边按钮和任一音量按钮；「按五次」要先在设置里打开。
+            // 🔴 必须说清这是系统的、不经过助盲跑 —— 与第二条同一条红线：App 不会代你发送求助。
+            BlindHelpTopic(
+                id: "systemSOS",
+                title: "第四，手不方便时怎么求助",
+                body: """
+                手机放在臂包里、不方便操作屏幕的时候，可以用 iPhone 自带的紧急 SOS：\
+                同时按住侧边按钮和任意一个音量按钮不放，倒计时结束后手机会直接拨打急救电话。\
+                也可以在系统「设置」的「紧急 SOS」里打开「按五次」，之后连按侧边按钮五次就能拨打。\
+                这是 iPhone 系统的功能，不经过助盲跑，App 不会代你发送求助。
+                """
             )
         ]
     }
 
-    /// 播报脚本。标题也念 —— 听的人没有视觉分段，靠「第一、第二、第三」才知道走到哪了。
+    /// 播报脚本。标题也念 —— 听的人没有视觉分段，靠「第一、第二……」才知道走到哪了。
     static func spokenScript(
         leadMinutes: Int = AppConstants.Timing.minimumBookingLeadMinutes
     ) -> String {
@@ -196,7 +212,7 @@ struct BlindRunnerHelpView: View {
             }
                 .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityLabel(isSpeaking ? "停止播报" : "再听一遍")
-                .accessibilityHint(isSpeaking ? "立刻停止当前播报" : "从头重新播报这三条说明")
+                .accessibilityHint(isSpeaking ? "立刻停止当前播报" : "从头重新播报这几条说明")
                 .accessibilityIdentifier("blindRunnerHelpRepeatButton")
 
             if isFirstRun {

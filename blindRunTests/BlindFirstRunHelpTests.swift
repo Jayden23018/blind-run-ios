@@ -81,7 +81,7 @@ final class BlindFirstRunHelpTests: XCTestCase {
         XCTAssertFalse(withCustom.contains("30 分钟"), "文案里还留着写死的 30：\(withCustom)")
     }
 
-    /// 播报脚本必须把三条都念出来。漏一条的表现是「引导听起来很完整，但少了一件事」，
+    /// 播报脚本必须把每一条都念出来。漏一条的表现是「引导听起来很完整，但少了一件事」，
     /// 人工过一遍很难发现少的是哪条。
     func testSpokenScriptContainsEveryTopic() {
         let script = BlindFirstRunHelp.spokenScript()
@@ -93,12 +93,33 @@ final class BlindFirstRunHelpTests: XCTestCase {
         }
     }
 
-    func testTopicsAreExactlyTheThreeAppSpecificOnes() {
+    /// 第四条是系统 SOS（#657 B-12）：三条 App 自己的，加一条 App 管不到、但最危险时唯一免触的路径。
+    func testTopicsAreTheThreeAppSpecificOnesPlusSystemSOS() {
         XCTAssertEqual(
             BlindFirstRunHelp.topics().map(\.id),
-            ["booking", "sos", "repeat"],
+            ["booking", "sos", "repeat", "systemSOS"],
             "引导条目变了。加条目前先想清楚：听完要多久？盲人在路上听不完就退出，等于没有引导"
         )
+    }
+
+    /// 开场白报的条数要和实际条数一致：听的人靠它判断「还剩几条」。
+    func testIntroCountsTheTopicsCorrectly() {
+        let count = BlindFirstRunHelp.topics().count
+        let chineseNumerals = ["", "一", "二", "三", "四", "五", "六"]
+        XCTAssertTrue(
+            BlindFirstRunHelp.intro.contains("\(chineseNumerals[count])件事"),
+            "开场白说的条数与实际 \(count) 条对不上：\(BlindFirstRunHelp.intro)"
+        )
+    }
+
+    /// 系统 SOS 这一条：按法要写对，还要说清它不经过 App（`AGENTS.md` §6 同一条红线）。
+    func testSystemSOSTopicTeachesTheButtonsAndSaysTheAppSendsNothing() {
+        let body = topic(id: "systemSOS").body
+
+        XCTAssertTrue(body.contains("侧边按钮"), body)
+        XCTAssertTrue(body.contains("音量按钮"), body)
+        XCTAssertTrue(body.contains("按五次"), "没说「按五次」要先在设置里打开：\(body)")
+        XCTAssertTrue(body.contains("App 不会代你发送求助"), "没说清这条路不经过 App：\(body)")
     }
 
     // MARK: - 「看过」标志

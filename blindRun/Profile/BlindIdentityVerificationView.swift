@@ -23,7 +23,8 @@ private let idCardNumberPattern = #"^\d{17}[\dXx]$"#
 ///
 /// 隐私约束（OpenSpec `blind-identity-and-contact-management`）：
 /// 身份证号只在本 ViewModel 内存中短暂存在，不写入 `AppState`、`UserDefaults`、Keychain 或任何日志；
-/// 提交完成、页面消失、App 进后台三个时机都会清空。
+/// 提交拿到结论、页面消失、App 进后台三个时机都会清空。
+/// 例外（#657 B-11）：请求没拿到结论（断网、连不上）时**保留**内存里的输入，免得 18 位盲打一次全部重来。
 @MainActor
 final class BlindIdentityVerificationViewModel: ObservableObject {
 
@@ -33,6 +34,12 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
     @Published private(set) var isSubmitting = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var successMessage: String?
+    /// 进后台时把已填内容清掉了，回前台要说一声（#657 B-11）。原来回来只看到空框，没有任何提示。
+    @Published private(set) var clearedOnBackgroundNotice: String?
+    private var didClearOnBackground = false
+
+    static let clearedOnBackgroundMessage = "刚才离开了本页面，为保护隐私，已清空姓名和身份证号，请重新输入。"
+    static let keptAfterNetworkFailureSuffix = "你填的姓名和身份证号还在，可以直接再提交一次。"
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -45,9 +52,56 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
         NotificationCenter.default
             .publisher(for: UIApplication.didEnterBackgroundNotification)
             .sink { [weak self] _ in
-                Task { @MainActor in self?.clearSensitiveFields() }
+                Task { @MainActor in self?.handleEnterBackground() }
             }
             .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.handleReturnToForeground() }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleEnterBackground() {
+        if !idCardName.isEmpty || !idCardNumber.isEmpty {
+            didClearOnBackground = true
+        }
+        clearSensitiveFields()
+    }
+
+    private func handleReturnToForeground() {
+        guard didClearOnBackground else { return }
+        didClearOnBackground = false
+        clearedOnBackgroundNotice = Self.clearedOnBackgroundMessage
+        speechService?.speak(Self.clearedOnBackgroundMessage)
+    }
+
+    // MARK: - 末位 X 与逐位复核
+
+    /// 数字键盘打不出 X，由键盘上方的按钮补（#657 B-11）。X 只能是第 18 位。
+    /// - Returns: 没有追加时要播报的原因；`nil` = 已追加。
+    @discardableResult
+    func appendTrailingX() -> String? {
+        guard idCardNumber.count == 17 else {
+            let message = "字母 X 只能是第 18 位，现在输入了 \(idCardNumber.count) 位。"
+            speechService?.speakError(message)
+            return message
+        }
+        idCardNumber += "X"
+        speechService?.speak("已输入 X，共 18 位。")
+        return nil
+    }
+
+    /// 逐位拼读用的文本：按「6 位地区码、8 位生日、其余」分三段，段内每个字符之间留空格，
+    /// 读屏才会一个字一个字地念，而不是念成「一千一百零一……」。
+    nonisolated static func spelledOutIdCard(_ value: String) -> String {
+        let characters = Array(value)
+        let groups = [characters.prefix(6), characters.dropFirst(6).prefix(8), characters.dropFirst(14)]
+        return groups
+            .filter { !$0.isEmpty }
+            .map { $0.map(String.init).joined(separator: " ") }
+            .joined(separator: "，")
     }
 
     // MARK: - Configuration
@@ -157,6 +211,7 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
     func submit() {
         // 重复提交保护：提交中直接忽略，不排队第二个请求。
         guard !isSubmitting else { return }
+        clearedOnBackgroundNotice = nil
         guard canSubmit else {
             let message = validationMessage ?? BlindIdentityVerificationFailure.genericMessage
             errorMessage = message
@@ -192,15 +247,20 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
             isSubmitting = false
             applySubmittedStatusCopy()
         } catch let error as APIError {
-            clearSensitiveFields()
             isSubmitting = false
-            if appState.handleAuthenticatedAPIError(error) { return }
-            // 固定文案，绝不回显后端 message（后端可能把身份证号带回来）。
-            errorMessage = BlindIdentityVerificationFailure.message(for: error) + "请重新输入姓名和身份证号后重试。"
+            if case .networkError = error {
+                // 请求没到服务端，填的内容没有任何问题 —— 清空等于让用户把 18 位再盲打一遍（#657 B-11）。
+                errorMessage = BlindIdentityVerificationFailure.message(for: error) + Self.keptAfterNetworkFailureSuffix
+            } else {
+                clearSensitiveFields()
+                if appState.handleAuthenticatedAPIError(error) { return }
+                // 固定文案，绝不回显后端 message（后端可能把身份证号带回来）。
+                errorMessage = BlindIdentityVerificationFailure.message(for: error) + "请重新输入姓名和身份证号后重试。"
+            }
         } catch {
-            clearSensitiveFields()
+            // 不是 `APIError` 的错误同样没拿到结论，按断网处理。
             isSubmitting = false
-            errorMessage = BlindIdentityVerificationFailure.genericMessage + "请重新输入姓名和身份证号后重试。"
+            errorMessage = BlindIdentityVerificationFailure.genericMessage + Self.keptAfterNetworkFailureSuffix
         }
 
         speechService?.speak(statusAnnouncement)
@@ -243,6 +303,7 @@ struct BlindIdentityVerificationView: View {
     /// 身份证号的**单独同意**（PIPL 第 29 条）。首次提交前全屏告知，同意后才发请求。
     @State private var showIdentityConsent = false
     @State private var consentDeclinedNotice: String?
+    @FocusState private var isIdCardFieldFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -262,6 +323,19 @@ struct BlindIdentityVerificationView: View {
         .navigationTitle("实名认证")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { bottomBar }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                // 只在身份证号框聚焦时出现：姓名框用的是带回车键的普通键盘。
+                if isIdCardFieldFocused {
+                    Button("输入 X") { viewModel.appendTrailingX() }
+                        .accessibilityLabel("输入字母 X")
+                        .accessibilityHint("身份证号最后一位是 X 时用，只能输在第 18 位")
+                    Spacer()
+                    Button("完成") { isIdCardFieldFocused = false }
+                        .accessibilityLabel("收起键盘")
+                }
+            }
+        }
         .task {
             viewModel.configure(with: appState, speechService: speechService)
             await viewModel.refreshStatus()
@@ -368,13 +442,15 @@ struct BlindIdentityVerificationView: View {
                     placeholder: "请输入18位身份证号",
                     text: $viewModel.idCardNumber,
                     isSecure: !isRevealingNumber,
+                    keyboardType: .numberPad,
                     errorMessage: viewModel.idCardNumber.isEmpty || viewModel.isIdCardNumberValid
                         ? nil
                         : "请输入 18 位身份证号，最后一位可以是字母 X",
                     accessibilityLabel: "身份证号，必填，18位",
                     accessibilityValue: idCardAccessibilityValue,
-                    accessibilityHint: "输入内容默认隐藏，只用于实名认证，不会保存在本机"
+                    accessibilityHint: "数字键盘。最后一位是 X 时，用键盘上方的「输入 X」。输入内容默认隐藏，只用于实名认证，不会保存在本机"
                 )
+                .focused($isIdCardFieldFocused)
                 .onChange(of: viewModel.idCardNumber) { newValue in
                     viewModel.sanitizeIdCardInput(newValue)
                 }
@@ -389,12 +465,50 @@ struct BlindIdentityVerificationView: View {
                         ? "再次点击后重新隐藏身份证号"
                         : "点击后在屏幕上临时显示身份证号，再次点击即可隐藏"
                 )
+
+                // 读屏用户核对 18 位的唯一办法：字段本身只念位数和末四位（#657 B-11）。
+                if !viewModel.idCardNumber.isEmpty {
+                    Button("逐位朗读身份证号") {
+                        readIdCardDigitByDigit()
+                    }
+                    .buttonStyle(TextButtonStyle())
+                    .accessibilityHint("用读屏把完整号码一位一位念出来，周围的人可能听到，建议戴耳机")
+                    .accessibilityIdentifier("blindIdentityReadDigits")
+                }
             }
         }
     }
 
+    /// 读屏开着：直接发一条读屏通告，**不经过 `SpeechService`** —— 那里播过的话会留在
+    /// 「重复当前状态」的缓存里，换个页面一按就把身份证号外放出来。
+    /// 读屏没开：不念号码，改成临时在屏幕上显示。
+    private func readIdCardDigitByDigit() {
+        guard UIAccessibility.isVoiceOverRunning else {
+            isRevealingNumber = true
+            speechService.speak("已在屏幕上临时显示身份证号。")
+            return
+        }
+        let spelled = BlindIdentityVerificationViewModel.spelledOutIdCard(viewModel.idCardNumber)
+        let announcement = NSAttributedString(
+            string: spelled,
+            attributes: [
+                .accessibilitySpeechSpellOut: true,
+                .accessibilitySpeechQueueAnnouncement: true
+            ]
+        )
+        UIAccessibility.post(notification: .announcement, argument: announcement)
+    }
+
     @ViewBuilder
     private var messageSection: some View {
+        if let notice = viewModel.clearedOnBackgroundNotice {
+            Text(notice)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(notice)
+                .accessibilityIdentifier("blindIdentityClearedOnBackgroundNotice")
+        }
         if let consentDeclinedNotice {
             Text(consentDeclinedNotice)
                 .font(AppFonts.body())
@@ -466,6 +580,7 @@ private struct IdentityInputField: View {
     let placeholder: String
     @Binding var text: String
     var isSecure: Bool = false
+    var keyboardType: UIKeyboardType = .default
     let errorMessage: String?
     let accessibilityLabel: String
     let accessibilityValue: String
@@ -490,6 +605,7 @@ private struct IdentityInputField: View {
                     TextField(placeholder, text: $text)
                 }
             }
+            .keyboardType(keyboardType)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .font(AppFonts.body())

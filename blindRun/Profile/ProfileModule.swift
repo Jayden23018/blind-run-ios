@@ -53,6 +53,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
     /// 撤回成功后那一句（同时上屏和朗读）。
     @Published private(set) var visionConsentWithdrawnNotice: String?
+
+    /// 普通保存成功后那一句（同时上屏和朗读）。原来成功分支一声不响，
+    /// 读屏用户分不清「存上了」和「没按到」，只能反复按（#657 B-6）。
+    @Published private(set) var savedNotice: String?
+    static let savedNoticeText = "资料已保存。"
     /// 撤回没存上时，失败文案里让用户「再点一次」的那个按钮名。nil = 本页的「保存」/「完成」；
     /// 「隐私与授权」页没有保存按钮，设成它自己的撤回按钮名（#393）。
     var withdrawalRetryButtonTitle: String?
@@ -230,6 +235,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     private func saveProfile(appState: AppState) async {
         isLoading = true
         errorMessage = nil
+        savedNotice = nil
         // 请求发出那一刻是不是在撤回 —— 结果回来时据它决定删不删同意记录。
         let withdrawing = isVisionConsentWithdrawalPending
 
@@ -245,6 +251,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
                 isVisionConsentWithdrawalPending = false
                 visionConsentWithdrawnNotice = VisionConsentWithdrawalCopy.succeeded
                 speechService?.speak(VisionConsentWithdrawalCopy.succeeded)
+            } else {
+                // 撤回那次已经有自己的成功句，再说一句会把它从半句切断（后到的 speak 打断先到的）。
+                savedNotice = Self.savedNoticeText
+                speechService?.speak(Self.savedNoticeText)
             }
         } catch let error as APIError {
             isLoading = false
@@ -642,6 +652,15 @@ struct BlindRunnerProfileView: View {
 
     private var submitButton: some View {
         VStack(spacing: 8) {
+            // 放在按钮正上方而不是表单末尾：表单很长，末尾那行在屏幕外，明眼陪同者看不到。
+            if let notice = viewModel.savedNotice {
+                Text(notice)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(notice)
+                    .accessibilityIdentifier("blindProfileSavedNotice")
+            }
             PrimaryButton(
                 viewModel.isEditing ? "保存" : "完成",
                 isLoading: viewModel.isLoading
