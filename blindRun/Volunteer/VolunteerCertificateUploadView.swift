@@ -533,23 +533,30 @@ struct VolunteerCertificateUploadView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                statusCard
+            VStack(alignment: .leading, spacing: 16) {
+                VolunteerCertificateStatusSection(
+                    state: viewModel.displayState,
+                    isAlternativeIdentityPath: viewModel.isAlternativeIdentityPath,
+                    guidance: viewModel.currentGuidance,
+                    holderName: appState.volunteerProfile?.name
+                )
                 if viewModel.displayState.allowsUpload {
                     pickerSection
                     selectedFileSection
                 }
                 messageSection
+                VolunteerCertificateStatusActions(viewModel: viewModel)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 40)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
+            .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(AppColors.Flow.page)
         .navigationTitle(viewModel.materialNoun)
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) { bottomBar }
+        // 二级页藏标签栏：悬浮的栏会盖住最后一行（记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
+        .toolbar(.hidden, for: .tabBar)
         .task {
             viewModel.configure(
                 with: appState,
@@ -583,119 +590,97 @@ struct VolunteerCertificateUploadView: View {
 
     // MARK: - Sections
 
-    /// 标题与说明按认证路径分。走替代路径的人手上**没有**资质证书 ——
-    /// 照着「上传资质证书」找，他会以为自己走错了页面。
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText(viewModel.isAlternativeIdentityPath ? "身份材料" : "资质证书", style: .title)
-                .accessibilityAddTraits(.isHeader)
+    private var pickerSection: some View {
+        // 读屏用户听到的每一处都要指同一样东西，否则「拍照」到底拍什么是靠猜的。
+        let noun = viewModel.materialNoun
+        let hasCamera = VolunteerCertificateCameraPicker.isAvailable
+        return VStack(alignment: .leading, spacing: 8) {
+            VolunteerAccountGroup {
+                if hasCamera {
+                    Button {
+                        showsCamera = true
+                    } label: {
+                        VolunteerAccountActionRowLabel(title: "拍照", systemImage: "camera.fill", tint: AppColors.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("拍照")
+                    .accessibilityHint("打开相机拍摄\(noun)照片")
+                    VolunteerAccountRowDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
+                }
 
-            let intro = viewModel.isAlternativeIdentityPath
-                ? "你选择了不做人脸认证。请上传能证明本人身份的材料，管理员人工审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 MB。"
-                : "\(VolunteerCertificateCopy.requirement)\(VolunteerCertificateCopy.reviewerNote)支持图片或 PDF，单个文件不超过 5 MB。"
-            Text(intro)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                // 「5 MB」读屏会念成「5 M B」，标签里写「5 兆」。
-                .accessibilityLabel(intro.replacingOccurrences(of: "5 MB", with: "5 兆"))
+                PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
+                    VolunteerAccountActionRowLabel(title: "从相册选择", systemImage: "photo.fill", tint: AppColors.success)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("从相册选择")
+                .accessibilityHint("从相册中选择一张\(noun)照片")
+                VolunteerAccountRowDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
+
+                Button {
+                    showsFileImporter = true
+                } label: {
+                    VolunteerAccountActionRowLabel(
+                        title: "从文件选择",
+                        systemImage: "doc.fill",
+                        tint: AppColors.Flow.statePaused
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("从文件选择")
+                .accessibilityHint("从文件中选择\(noun)图片或 PDF")
+            }
 
             // 替代路径传的是身份材料，不是一束光的证书，这句对他没有意义。
-            // 已提交的人也用不上。
-            if !viewModel.isAlternativeIdentityPath, viewModel.displayState.allowsUpload {
-                Text(VolunteerCertificateCopy.noCertificateHelp)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if !viewModel.isAlternativeIdentityPath {
+                VolunteerAccountFootnote(text: VolunteerCertificateCopy.noCertificateHelp)
                     .accessibilityIdentifier("volunteerCertificateNoCertificateHelp")
             }
         }
     }
 
-    private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText(viewModel.displayState.displayName, style: .status)
-            Text(viewModel.currentGuidance)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("当前审核状态，\(viewModel.displayState.displayName)")
-        .accessibilityValue(viewModel.currentGuidance)
-        .accessibilityIdentifier("volunteerCertificateStatusCard")
-    }
-
-    private var pickerSection: some View {
-        // 读屏用户听到的每一处都要指同一样东西，否则「拍照上传」到底拍什么是靠猜的。
-        let noun = viewModel.materialNoun
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("选择\(noun)文件")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            if VolunteerCertificateCameraPicker.isAvailable {
-                pickerButton(
-                    title: "拍照上传",
-                    systemImage: "camera",
-                    accessibilityHint: "打开相机拍摄\(noun)照片"
-                ) {
-                    showsCamera = true
-                }
-            }
-
-            PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
-                pickerButtonLabel(title: "从相册选择", systemImage: "photo.on.rectangle")
-            }
-            .accessibilityLabel("从相册选择")
-            .accessibilityHint("从相册中选择一张\(noun)照片")
-
-            pickerButton(
-                title: "选择文件",
-                systemImage: "doc",
-                accessibilityHint: "从文件中选择\(noun)图片或 PDF"
-            ) {
-                showsFileImporter = true
-            }
-        }
-    }
-
+    /// 选好文件后才出现「待上传文件」与提交按钮（定稿不画空着的提交按钮）。
     @ViewBuilder
     private var selectedFileSection: some View {
         if let file = viewModel.selectedFile {
-            HStack(spacing: 12) {
-                Image(systemName: "doc.badge.plus")
-                    .font(.title3)
-                    .foregroundColor(AppColors.primary)
-                    .accessibilityHidden(true)
+            VolunteerAccountGroup {
+                HStack(spacing: VolunteerAccountMetrics.iconSpacing) {
+                    VolunteerAccountIconSquare(systemImage: "doc.badge.plus", tint: AppColors.primary)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("待上传文件")
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                    Text(file.summaryText)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("待上传文件")
+                            .font(.footnote)
+                            .foregroundColor(AppColors.textSecondary)
+                        Text(file.summaryText)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button("移除") {
+                        viewModel.clearSelection()
+                    }
+                    .font(AppFonts.body())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("移除已选文件")
+                    .accessibilityHint("移除后可以重新选择\(viewModel.materialNoun)")
                 }
-
-                Spacer(minLength: 0)
-
-                Button("移除") {
-                    viewModel.clearSelection()
-                }
-                .font(AppFonts.body())
-                .frame(minHeight: 44)
-                .accessibilityLabel("移除已选文件")
-                .accessibilityHint("移除后可以重新选择\(viewModel.materialNoun)")
+                .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+                .padding(.vertical, 8)
+                .frame(minHeight: VolunteerAccountMetrics.rowMinHeight)
             }
-            .padding()
-            .background(AppColors.secondaryBackground)
-            .cornerRadius(8)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("volunteerCertificateSelectedFile")
+
+            PrimaryButton(viewModel.uploadButtonTitle, isLoading: viewModel.isUploading) {
+                viewModel.upload()
+            }
+            .disabled(!viewModel.canUpload)
+            .opacity(viewModel.canUpload ? 1 : 0.45)
+            .accessibilityLabel(viewModel.uploadButtonTitle)
+            .accessibilityHint(viewModel.canUpload ? "点击后上传所选\(viewModel.materialNoun)" : "正在处理，请稍候")
+            .accessibilityIdentifier("volunteerCertificateUploadButton")
         }
     }
 
@@ -715,76 +700,20 @@ struct VolunteerCertificateUploadView: View {
             Text(successMessage)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(successMessage)
         }
         if let errorMessage = viewModel.errorMessage {
             Text(errorMessage)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(errorMessage)
                 .accessibilityIdentifier("volunteerCertificateErrorMessage")
         }
     }
 
-    private var bottomBar: some View {
-        VStack(spacing: 12) {
-            if viewModel.displayState.allowsUpload {
-                PrimaryButton(viewModel.uploadButtonTitle, isLoading: viewModel.isUploading) {
-                    viewModel.upload()
-                }
-                .disabled(!viewModel.canUpload)
-                .opacity(viewModel.canUpload ? 1 : 0.45)
-                .accessibilityLabel(viewModel.uploadButtonTitle)
-                .accessibilityHint(viewModel.canUpload ? "点击后上传所选\(viewModel.materialNoun)" : "请先选择\(viewModel.materialNoun)文件")
-                .accessibilityIdentifier("volunteerCertificateUploadButton")
-            }
-
-            if viewModel.displayState == .statusUnavailable {
-                PrimaryButton("重新获取状态", isLoading: viewModel.isLoadingStatus) {
-                    Task { await viewModel.refreshStatus(announce: true) }
-                }
-                .accessibilityLabel("重新获取状态")
-                .accessibilityHint("重新读取审核状态")
-            }
-
-            PrimaryButton("重复当前状态") {
-                viewModel.announceCurrentStatus()
-            }
-            .accessibilityLabel("重复当前状态")
-            .accessibilityHint("点击后重新播报当前审核状态")
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
-    }
-
     // MARK: - Picker Helpers
-
-    private func pickerButton(
-        title: String,
-        systemImage: String,
-        accessibilityHint: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            pickerButtonLabel(title: title, systemImage: systemImage)
-        }
-        .accessibilityLabel(title)
-        .accessibilityHint(accessibilityHint)
-    }
-
-    private func pickerButtonLabel(title: String, systemImage: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: systemImage)
-            Text(title)
-                .font(AppFonts.primaryButton())
-        }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 64)
-        .background(AppColors.secondaryBackground)
-        .foregroundColor(AppColors.textPrimary)
-        .cornerRadius(8)
-    }
 
     private func loadPhoto(_ item: PhotosPickerItem) async {
         defer { photoItem = nil }
@@ -812,116 +741,6 @@ struct VolunteerCertificateUploadView: View {
             viewModel.selectFile(data: data)
         case .failure:
             viewModel.selectionFailed(message: "读取所选文件失败，请重新选择。")
-        }
-    }
-}
-
-// MARK: - Certificate Entry Link
-
-/// 复用的入口行：设置页与首页「尚未通过资质认证」提示共用同一个跳转。
-///
-/// 标题**默认按认证路径推**，不由调用方硬传 —— 三个调用点里漏改一个，
-/// 拒绝了人脸的志愿者就会看到「上传资质证书」，而他手上没有资质证书，
-/// 点进去的页面又写着「身份材料」，两处对不上。想覆盖仍可显式传 `title`。
-struct VolunteerCertificateUploadEntryLink: View {
-    @EnvironmentObject private var appState: AppState
-
-    var title: String?
-    var subtitle: String?
-
-    private var isAlternativeIdentityPath: Bool {
-        appState.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
-    }
-
-    private var resolvedTitle: String {
-        title ?? (isAlternativeIdentityPath ? "上传身份材料" : "上传资质证书")
-    }
-
-    private var resolvedSubtitle: String {
-        subtitle ?? (isAlternativeIdentityPath
-            ? "人工审核通过后才能接单，审核时间较长但结果等效"
-            : "\(VolunteerCertificateCopy.issuerName)颁发的证书，审核通过后才能接单")
-    }
-
-    var body: some View {
-        NavigationLink {
-            VolunteerCertificateUploadView()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "doc.badge.arrow.up")
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(resolvedTitle)
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                    Text(resolvedSubtitle)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityHidden(true)
-            }
-            .padding()
-            .frame(minHeight: 64)
-            .background(AppColors.secondaryBackground)
-            .cornerRadius(8)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(resolvedTitle)
-        .accessibilityHint(resolvedSubtitle)
-        .accessibilityIdentifier("volunteerCertificateUploadEntry")
-    }
-}
-
-// MARK: - Camera Picker
-
-/// 相机拍照。使用系统原生 `UIImagePickerController`，不引入新依赖。
-struct VolunteerCertificateCameraPicker: UIViewControllerRepresentable {
-    static var isAvailable: Bool {
-        UIImagePickerController.isSourceTypeAvailable(.camera)
-    }
-
-    let onCapture: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onCapture: onCapture, onFinish: { dismiss() })
-    }
-
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        private let onCapture: (UIImage) -> Void
-        private let onFinish: () -> Void
-
-        init(onCapture: @escaping (UIImage) -> Void, onFinish: @escaping () -> Void) {
-            self.onCapture = onCapture
-            self.onFinish = onFinish
-        }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            if let image = info[.originalImage] as? UIImage {
-                onCapture(image)
-            }
-            onFinish()
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            onFinish()
         }
     }
 }

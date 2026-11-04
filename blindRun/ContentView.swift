@@ -329,7 +329,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("rootRoute.blindHome")
             case .volunteerProfile:
                 NavigationStack {
-                    VolunteerProfileView()
+                    VolunteerCertificationGateView()
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.volunteerProfile")

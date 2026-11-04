@@ -10,6 +10,9 @@ import SwiftUI
 /// 放同一屏最容易混，所以在**信息架构层**就隔开 —— 比靠文案自律可靠。
 /// 两屏之间用一句话互相指路（`separateFromServiceHours`）。
 ///
+/// 版式是负责人 2026-11-04 批准的定稿（#700，`docs/ui/mockups/volunteer-account-pages-20261104/`）：
+/// 余额卡 →「最新记录」一张卡 → 页脚合规文案。
+///
 /// 并发只用 async/await：`.task` + 一个 `Task`，没有 `AnyCancellable`（AGENTS.md 硬约束）。
 struct VolunteerPointsView: View {
     @EnvironmentObject private var appState: AppState
@@ -29,15 +32,9 @@ struct VolunteerPointsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if hasLoadedOnce {
-                    IncentiveHeroCard(
-                        value: "\(balance)",
-                        caption: VolunteerPointsCopy.balanceCaption,
-                        spokenLabel: VolunteerPointsCopy.balanceAccessibilityLabel(balance)
-                    )
-                    .accessibilityIdentifier("volunteerPointsBalance")
-
-                    complianceCard
+                    balanceCard
                     ledgerSection
+                    complianceFooter
                 } else if isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -52,12 +49,17 @@ struct VolunteerPointsView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
             .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(AppColors.Flow.page)
         .navigationTitle(VolunteerPointsCopy.navigationTitle)
+        .navigationBarTitleDisplayMode(.large)
+        // 二级页藏标签栏：悬浮的栏会盖住页脚最后一行（记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
+        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerPointsView")
         .task {
@@ -66,82 +68,145 @@ struct VolunteerPointsView: View {
         }
     }
 
-    /// 两条合规文案。刻意放在余额**正下方**而不是页脚 —— 页脚的东西读屏用户要划到最后才听到，
-    /// 而「这些分不能换钱」正是看到余额那一刻就该知道的事。
-    private var complianceCard: some View {
-        IncentiveCard {
+    /// 余额卡（定稿照 Apple Cash：大数字在上）。
+    ///
+    /// 大数字用 `.largeTitle`（34pt）而不是稿子的 52pt：没有默认档等于 52 的系统文字样式，
+    /// 指定磅值的字真机审计判「改不了字号」（记忆 `scaledmetric-system-size-fails-dynamic-type-audit`）。
+    private var balanceCard: some View {
+        let summary = PointMonthlySummary.make(transactions: transactions, hasMorePages: hasMore)
+        var spoken = VolunteerPointsCopy.balanceAccessibilityLabel(balance)
+        if let summary { spoken += "。\(summary.spokenText)" }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .accessibilityHidden(true)
+                Text(VolunteerPointsCopy.balanceCaption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundColor(AppColors.Flow.replyUrgentText)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(balance)")
+                    .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                    .foregroundColor(AppColors.textPrimary)
+                Text("分")
+                    .font(.headline)
+                    .foregroundColor(AppColors.textSecondary)
+            }
+
+            if let summary {
+                Text(summary.text)
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.Flow.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+        .accessibilityIdentifier("volunteerPointsBalance")
+    }
+
+    /// 两条合规文案，原文放页脚（定稿：规则不占首屏，但这一页一定看得到）。
+    ///
+    /// 🔴 文案一个字不改（中央网信办 2026-06-19 通知）。读屏顺序上它在最后 ——
+    /// 但余额卡上没有任何「能换钱」的暗示，所以先听到余额不会误导。
+    private var complianceFooter: some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(VolunteerPointsCopy.disclaimer)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(VolunteerPointsCopy.separateFromServiceHours)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .font(.footnote)
+        .foregroundColor(AppColors.textSecondary)
+        .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("volunteerPointsDisclaimer")
     }
 
+    @ViewBuilder
     private var ledgerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(VolunteerPointsCopy.ledgerSectionTitle)
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            if transactions.isEmpty {
-                Text(VolunteerPointsCopy.empty)
-                    .font(AppFonts.body())
+        if transactions.isEmpty {
+            VStack(spacing: 6) {
+                Text(VolunteerPointsCopy.emptyTitle)
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
+                Text(VolunteerPointsCopy.emptyDetail)
+                    .font(.subheadline)
                     .foregroundColor(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("volunteerPointsEmpty")
-            } else {
-                // 按天分节。分组只改视觉分节，不改顺序也不合并条目。
-                ForEach(Array(PointTransactionGrouping.group(transactions).enumerated()), id: \.offset) { _, day in
-                    IncentiveCard(title: day.title) {
-                        ForEach(Array(day.transactions.enumerated()), id: \.offset) { index, transaction in
-                            if index > 0 {
-                                Divider()
-                            }
-                            row(transaction)
-                        }
-                    }
-                }
+            }
+            .padding(.vertical, 22)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .background(AppColors.Flow.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("volunteerPointsEmpty")
+        } else {
+            VolunteerAccountSectionTitle(title: VolunteerPointsCopy.ledgerSectionTitle)
 
-                if hasMore {
-                    Button(isLoadingMore ? "正在加载…" : "查看更早的记录") {
-                        Task { await load(reset: false) }
+            // 后端按时间倒序，原样一行一条，不合并、不过滤。
+            VolunteerAccountGroup {
+                ForEach(Array(transactions.enumerated()), id: \.offset) { index, transaction in
+                    if index > 0 {
+                        VolunteerAccountRowDivider(leadingInset: Self.rowDividerInset)
                     }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.primary)
-                    .buttonShapeOutlineIfNeeded(color: AppColors.primary)
-                    .disabled(isLoadingMore)
-                    .accessibilityIdentifier("volunteerPointsLoadMoreButton")
+                    row(transaction)
                 }
+            }
+
+            if hasMore {
+                Button(isLoadingMore ? "正在加载…" : "查看更早的记录") {
+                    Task { await load(reset: false) }
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.primary)
+                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .disabled(isLoadingMore)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier("volunteerPointsLoadMoreButton")
             }
         }
     }
 
-    /// 一行流水。
+    private static let rowIconWidth: CGFloat = 28
+    private static let rowIconSpacing: CGFloat = 12
+    /// 分隔线从文字起点开始：行内距 + 图标宽 + 图标到文字的间距。
+    private static let rowDividerInset = VolunteerAccountMetrics.rowHorizontalPadding + rowIconWidth + rowIconSpacing
+
+    /// 一行流水：左图标、中间原因与日期、右边加减分（定稿照健康「所有已记录的数据」）。
     ///
     /// 🔴 `delta == 0` 的行**不过滤、不弱化**：它是「我这单怎么没加分」的唯一答案。
     /// 视觉上靠图标 + 语义色区分（颜色不是唯一指示，WCAG 1.4.1），
-    /// 而 `note` 用主文本色渲染 —— 它是这一行真正要读的内容，不是脚注。
+    /// 有 `note` 时它是这一行的标题 —— 它是这一行真正要读的内容，不是脚注。
     private func row(_ transaction: PointTransactionResponse) -> some View {
-        AdaptiveHStack(spacing: 12) {
+        let note = transaction.note?.nilIfBlank
+        let subtitle = [note == nil ? nil : transaction.reasonText, transaction.dayText()]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        return AdaptiveHStack(spacing: Self.rowIconSpacing) {
             Image(systemName: symbolName(for: transaction.kind))
-                .font(.body.weight(.semibold))
+                .font(.title2)
                 .foregroundColor(color(for: transaction.kind))
+                .frame(width: Self.rowIconWidth)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(transaction.note?.nilIfBlank ?? transaction.reasonText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(note ?? transaction.reasonText)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                if transaction.note?.nilIfBlank != nil {
-                    Text(transaction.reasonText)
-                        .font(AppFonts.caption())
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.footnote)
                         .foregroundColor(AppColors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -153,16 +218,18 @@ struct VolunteerPointsView: View {
                 .foregroundColor(color(for: transaction.kind))
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: VolunteerAccountMetrics.rowMinHeight, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(transaction.accessibilityLabel)
     }
 
     private func symbolName(for kind: PointTransactionResponse.Kind) -> String {
         switch kind {
-        case .credited: return "plus.circle"
-        case .noChange: return "exclamationmark.circle"
-        case .deducted: return "minus.circle"
+        case .credited: return "plus.circle.fill"
+        case .noChange: return "exclamationmark.circle.fill"
+        case .deducted: return "minus.circle.fill"
         }
     }
 
