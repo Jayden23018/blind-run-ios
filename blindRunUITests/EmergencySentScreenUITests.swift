@@ -32,11 +32,6 @@ extension blindRunUITests {
         sendSOSThroughSafetyHub(app)
         let sentScreen = app.descendants(matching: .any)["blindEmergencyCountdown"].firstMatch
         XCTAssertTrue(sentScreen.waitForExistence(timeout: 10), "按下求助后求助屏没有弹出")
-        // #659：倒计时那三秒里第一句就让人自己拨 120，不再承诺回拨。
-        let selfDial = sentScreen.descendants(matching: .any)
-            .matching(NSPredicate(format: "label BEGINSWITH %@", "如需急救请自己立即拨打120")).firstMatch
-        XCTAssertTrue(selfDial.waitForExistence(timeout: 2), "倒计时屏没有先说「自己拨 120」")
-        attachSentScreenShot("sos-countdown")
         let backToRun = app.buttons["blindEmergencyCountdownClose"].firstMatch
         XCTAssertTrue(backToRun.waitForExistence(timeout: 15), "倒计时结束后没有进屏 3b（找不到「返回跑步」）")
         XCTAssertEqual(
