@@ -104,10 +104,9 @@ extension MockAPIClient {
         }
         let idCardNumberRegex = #"^\d{17}[\dXx]$"#
         guard !request.name.trimmed.isEmpty,
-              AppState.isValidMainlandPhone(request.phone),
               !request.idCardName.trimmed.isEmpty,
               request.idCardNumber.trimmed.range(of: idCardNumberRegex, options: .regularExpression) != nil else {
-            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请填写姓名、手机号和有效身份证信息"))
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请填写姓名和有效身份证信息"))
         }
         if let volunteerRegistrationStepCode,
            volunteerRegistrationStepCode != "STEP_1_BASIC_INFO" {

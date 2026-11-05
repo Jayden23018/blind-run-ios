@@ -36,7 +36,8 @@ enum VolunteerReadinessCopy {
     static let progressButtonHint = "打开接单前进度，查看还差哪几步"
     static let tapForProgress = "点这里看进度"
     /// 注册流程走到底时念的那一句。不说「注册完成」：后面还有证书、审核、培训。
-    static let completionAnnouncement = "实名和人脸认证已完成，请查看接单前还差哪几步"
+    /// 念完就自动进首页（#768），所以指向首页上的入口。
+    static let completionAnnouncement = "实名和人脸认证已完成，接单前还差哪几步，可以在首页点查看接单前进度"
     static let awaitingCompletion = "活体已通过，正在同步注册状态"
     static let everyStepDoneTitle = "接单前的步骤都完成了"
     static let unknownTitle = "暂时无法确认全部进度"

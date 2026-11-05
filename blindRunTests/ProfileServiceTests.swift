@@ -96,7 +96,6 @@ final class ProfileServiceTests: XCTestCase {
         try await service.submitVolunteerBasicInfo(
             BasicInfoRequest(
                 name: "小明",
-                phone: "13800138000",
                 idCardName: "小明",
                 idCardNumber: "11010119900307721X",
                 runningExperience: nil,

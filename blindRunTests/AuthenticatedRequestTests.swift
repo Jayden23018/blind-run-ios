@@ -131,7 +131,6 @@ final class AuthenticatedRequestTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel(apiClient: client)
         viewModel.configure(appState: appState, speechService: SpeechService())
         viewModel.name = "测试志愿者"
-        viewModel.phone = "13800138000"
         viewModel.idCardNumber = "110101199001011234"
 
         await viewModel.submitBasicInfo()
