@@ -13,7 +13,7 @@ enum BlindSettingsCopy {
     static let tabTitle = "我的"
     /// 从引导页 push 进来时仍叫「设置」，那条路的用户是来改设置的。
     static let onboardingTitle = "设置"
-    static let accountCardSubtitle = "个人资料、实名与账户"
+    static let accountCardSubtitle = "个人资料与账户"
     static let categoriesTitle = "类别"
     static let unnamed = "未填写"
 }
@@ -133,7 +133,7 @@ struct BlindRunnerSettingsView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(displayName)，\(BlindSettingsCopy.accountCardSubtitle)")
-        .accessibilityHint("打开账户页：个人资料、实名认证、隐私、退出登录和删除账户")
+        .accessibilityHint("打开账户页：个人资料、隐私、退出登录和删除账户")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("blindAccountCardEntry")
     }

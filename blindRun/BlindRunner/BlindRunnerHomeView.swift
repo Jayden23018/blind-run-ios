@@ -12,7 +12,6 @@ private enum BlindRunnerRoute: Hashable {
     case startPlacePicker
     /// 添加常用地点。搜索和收藏都在预约表单里，这里直接进表单。
     case addFavoritePlace
-    case identityVerification
     case orderStatus(Int64)
     /// 首次使用引导。首次进首页自动推入一次，也可从「我的」进入。
     case help
@@ -779,7 +778,6 @@ struct BlindRunnerHomeView: View {
 
                 if viewModel.activeOrder == nil {
                     let belowCard = idleModel.content(
-                        isIdentityVerified: appState.blindProfile == nil || appState.isBlindIdentityVerified,
                         favorites: favoritePlaces,
                         isCurrentLocationUnavailable: locationService.isDenied || locationService.isPreciseLocationOff
                     )
@@ -792,7 +790,6 @@ struct BlindRunnerHomeView: View {
 
                     BlindHomeBelowCardView(
                         content: belowCard,
-                        onVerifyIdentity: { path.append(.identityVerification) },
                         onOpenRecords: onOpenRecords,
                         onChangeStartPlace: {
                             favoritePlaces.reload()
@@ -990,8 +987,6 @@ private extension BlindRunnerHomeView {
             booking(startsWithVoice: true, startPlace: favoritePlaces.defaultPlace)
         case .addFavoritePlace:
             booking(startsWithVoice: false, startPlace: nil)
-        case .identityVerification:
-            BlindIdentityVerificationView()
         case .startPlacePicker:
             startPlacePicker
         case .orderStatus(let orderId):

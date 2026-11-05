@@ -5,15 +5,10 @@ extension MockAPIClient {
     // MARK: - Seed Data
 
     func seedDemoData() {
-        blindVerifyStatus = Self.environmentVerifyStatus(
-            key: "AIDRUN_MOCK_BLIND_VERIFY_STATUS",
-            default: BlindVerifyStatus.verified.rawValue
-        )
         blindProfile = BlindProfileResponse(
             name: "测试盲人",
             runningPace: "MODERATE",
             specialNeeds: nil,
-            verifyStatus: blindVerifyStatus,
             visionLevel: "TOTAL_BLIND",
             hasGuideDog: false,
             guideDog: GuideDogStatus.no.rawValue,

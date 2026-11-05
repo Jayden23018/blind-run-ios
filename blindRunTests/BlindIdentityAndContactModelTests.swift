@@ -2,48 +2,8 @@ import XCTest
 @testable import blindRun
 
 /// 第 2 组（Models And Mock Contract）的最小可运行检查：
-/// 实名三态解码容错、AppState 完成度拆分、Mock 紧急联系人 CRUD 与主联系人不变量。
-final class BlindIdentityStatusTests: XCTestCase {
-
-    func testVerifyStatusParsesThreeBackendValues() {
-        XCTAssertEqual(BlindVerifyStatus.parse("NOT_VERIFIED"), .notVerified)
-        XCTAssertEqual(BlindVerifyStatus.parse("VERIFIED"), .verified)
-        XCTAssertEqual(BlindVerifyStatus.parse("FAILED"), .failed)
-    }
-
-    func testVerifyStatusFallsBackToUnknownInsteadOfFailingDecode() throws {
-        // 后端没有 PENDING 态；出现未知值时不能让整包资料解析失败。
-        XCTAssertEqual(BlindVerifyStatus.parse("PENDING"), .unknown)
-        XCTAssertEqual(BlindVerifyStatus.parse(nil), .unknown)
-        XCTAssertEqual(BlindVerifyStatus.parse(""), .unknown)
-
-        let json = Data(#"{"verifyStatus":"PENDING","name":"张三"}"#.utf8)
-        let profile = try JSONDecoder().decode(BlindProfileResponse.self, from: json)
-        XCTAssertEqual(profile.identityStatus, .unknown)
-        XCTAssertEqual(profile.name, "张三")
-    }
-
-    func testOnlyVerifiedCountsAsVerifiedAndOthersPrompt() {
-        XCTAssertTrue(BlindVerifyStatus.verified.isVerified)
-        XCTAssertFalse(BlindVerifyStatus.verified.shouldPromptVerification)
-        for status in [BlindVerifyStatus.notVerified, .failed, .unknown] {
-            XCTAssertFalse(status.isVerified)
-            XCTAssertTrue(status.shouldPromptVerification)
-        }
-    }
-
-    func testVerificationFailureMessageNeverEchoesBackendMessage() {
-        let leaking = APIError.serverError(ErrorResponse(
-            code: "SOME_UNMAPPED_CODE",
-            message: "身份证号 110101199003072316 无效"
-        ))
-        let message = BlindIdentityVerificationFailure.message(for: leaking)
-        XCTAssertEqual(message, BlindIdentityVerificationFailure.genericMessage)
-        XCTAssertFalse(message.contains("110101199003072316"))
-
-        let mapped = APIError.serverError(ErrorResponse(code: "ID_INFO_INVALID", message: "x"))
-        XCTAssertTrue(BlindIdentityVerificationFailure.message(for: mapped).contains("核验未通过"))
-    }
+/// Mock 紧急联系人 CRUD 与主联系人不变量。视障跑者实名 2026-11-05 取消（#767），实名相关用例已删。
+final class EmergencyContactModelTests: XCTestCase {
 
     func testContactPhoneMaskingIsDisplayOnly() {
         XCTAssertEqual(EmergencyContactResponse.maskPhone("13900139001"), "139****9001")
@@ -299,47 +259,18 @@ final class MockEmergencyContactContractTests: XCTestCase {
     }
 }
 
-final class MockBlindIdentityVerificationTests: XCTestCase {
+final class MockBlindBookingPrerequisiteTests: XCTestCase {
 
-    func testVerifyIdentitySubmissionReturnsStatusAndMatchesProfile() async throws {
-        let client = MockAPIClient()
-        let submitted: BlindVerifySubmitResponse = try await client.post(
-            "/api/blind/verify-identity",
-            body: BlindVerifyRequest(idCardName: "张三", idCardNumber: "11010119900307231X")
-        )
-        // 后端 200 分支的 data 直接带 verifyStatus（+ 固定 message），Mock 必须造一样的形状。
-        XCTAssertEqual(submitted.resolvedStatus, .verified)
-        XCTAssertEqual(submitted.message, "身份认证通过")
-
-        // 回退路径读到的权威状态必须与响应体一致，两条路不能给出不同答案。
-        let profile: BlindProfileResponse = try await client.get("/api/blind/profile")
-        XCTAssertEqual(profile.identityStatus, .verified)
-    }
-
-    /// Mock 的下单前置校验必须与后端 `OrderCreationService` 同码同序：
-    /// 先 403 `IDENTITY_NOT_VERIFIED`，再 403 `EMERGENCY_CONTACT_REQUIRED`。
+    /// Mock 的下单前置校验必须与后端 `OrderCreationService` 同码：403 `EMERGENCY_CONTACT_REQUIRED`。
     func testMockOrderCreationRejectsMissingContactsWithDedicatedCode() async throws {
-        // 已实名但没有紧急联系人：只剩联系人这一档会拒。
         let client = MockAPIClient()
-        client.overrideBookingPrerequisitesForTesting(verifyStatus: .verified, emergencyContacts: [])
+        client.overrideBookingPrerequisitesForTesting(emergencyContacts: [])
         do {
             let _: OrderResponse = try await client.post("/api/orders", body: Self.makeOrderRequest())
             XCTFail("缺紧急联系人必须被拒")
         } catch let error as APIError {
             XCTAssertEqual(error.errorCode, .emergencyContactRequired)
             XCTAssertNotEqual(error.errorCode, .orderPermissionDenied, "不得再复用兜底通用码")
-        }
-    }
-
-    /// 两档都缺时必须先报实名——顺序错了会让盲人先去补一个后端根本不会先拒的项。
-    func testMockOrderCreationChecksIdentityBeforeEmergencyContacts() async throws {
-        let client = MockAPIClient()
-        client.overrideBookingPrerequisitesForTesting(verifyStatus: .notVerified, emergencyContacts: [])
-        do {
-            let _: OrderResponse = try await client.post("/api/orders", body: Self.makeOrderRequest())
-            XCTFail("未实名必须被拒")
-        } catch let error as APIError {
-            XCTAssertEqual(error.errorCode, .identityNotVerified)
         }
     }
 
@@ -362,39 +293,6 @@ final class MockBlindIdentityVerificationTests: XCTestCase {
             hasGuideDogThisRun: nil,
             specialNotes: nil
         )
-    }
-
-    func testVerifyIdentityRejectsMalformedIdCardNumber() async throws {
-        let client = MockAPIClient()
-        do {
-            let _: EmptyResponse = try await client.post(
-                "/api/blind/verify-identity",
-                body: BlindVerifyRequest(idCardName: "张三", idCardNumber: "12345")
-            )
-            XCTFail("身份证号格式错误应被拒绝")
-        } catch let error as APIError {
-            XCTAssertEqual(error.errorCode, .idInfoInvalid)
-            XCTAssertEqual(BlindIdentityVerificationFailure.message(for: error), "身份信息核验未通过，请核对姓名和身份证号后重试。")
-        }
-    }
-
-    func testProfileUpdateDoesNotOverwriteVerifyStatus() async throws {
-        let client = MockAPIClient()
-        let updated: BlindProfileResponse = try await client.put(
-            "/api/blind/profile",
-            body: BlindProfileUpdateRequest(
-                name: "新名字",
-                runningPace: nil,
-                specialNeeds: nil,
-                visionLevel: nil,
-                guideDog: nil,
-                tetherPreference: nil,
-                chatPreference: nil,
-                defaultPace: nil
-            )
-        )
-        XCTAssertEqual(updated.name, "新名字")
-        XCTAssertEqual(updated.identityStatus, .verified)
     }
 
     /// Mock 读档案要把引导偏好原样带回（#473）。漏了它，UI 用例里「写过引导偏好 → 重新拉档案 → 再保存」

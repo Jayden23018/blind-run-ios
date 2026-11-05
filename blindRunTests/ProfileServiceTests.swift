@@ -5,15 +5,15 @@ import XCTest
 ///
 /// 路径字面量本身由 `scripts/validate-spec-coverage.mjs` 对着后端契约撞，
 /// 但那个脚本看不出 `updateBlindProfile()` 被写成了 `GET /api/blind/profile` ——
-/// 17 条端点里大量共享路径或前缀（`/api/blind/profile` 一条路径两个方法、
+/// 16 条端点里大量共享路径或前缀（`/api/blind/profile` 一条路径两个方法、
 /// 紧急联系人四条只差尾巴、注册流程三条只差最后一段），复制粘贴改漏一处不会有任何编译错误。
 ///
 /// 失败传播不在这里测：本片的错误处理全在各自的 ViewModel 用例里（`EmergencyContactsViewModelTests`
-/// / `BlindIdentityVerificationViewModelTests` / `blindRunTests` 的注册流程组），
+/// / `blindRunTests` 的注册流程组），
 /// 它们打桩的是 `APIClientProtocol`，`ProfileService` 迁移后照样架在那些桩上。
 final class ProfileServiceTests: XCTestCase {
 
-    /// 一次跑完 `ProfileServing` 的全部 18 个方法，逐条比对实际发出的 `方法 + 路径`。
+    /// 一次跑完 `ProfileServing` 的全部 17 个方法，逐条比对实际发出的 `方法 + 路径`。
     ///
     /// 用一条 trace 而不是 18 个用例：端点映射错的形态永远是「打到了别人那条」，
     /// 整条序列一起比才看得出串了；拆成 18 个用例只会让每次加端点都要抄一遍样板。
@@ -36,11 +36,6 @@ final class ProfileServiceTests: XCTestCase {
                 chatPreference: nil,
                 defaultPace: nil
             )
-        )
-
-        transport.enqueue(BlindVerifySubmitResponse())
-        _ = try await service.verifyBlindIdentity(
-            BlindVerifyRequest(idCardName: "小明", idCardNumber: "11010119900307721X")
         )
 
         let contactRequest = EmergencyContactRequest(
@@ -119,7 +114,6 @@ final class ProfileServiceTests: XCTestCase {
         XCTAssertEqual(transport.trace, [
             "GET /api/blind/profile",
             "PUT /api/blind/profile",
-            "POST /api/blind/verify-identity",
             "GET /api/users/42/emergency-contacts",
             "POST /api/users/42/emergency-contacts",
             "PUT /api/users/42/emergency-contacts/7",

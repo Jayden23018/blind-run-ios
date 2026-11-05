@@ -45,7 +45,6 @@ extension VoiceOrderWizard {
         do {
             parsed = try await parseOrderResponse(transcript, current: sentSnapshot)
         } catch {
-            if Self.isIdentityRejection(error) { return stopForIdentityRejection() }
             // **不再回「没听懂」** —— 这里失败的是网络，不是听力，说成没听懂会让用户去改说法，
             // 而改说法一点用都没有。本地那几个词仍然直通，所以「确认」这条出路没有被网络挡住，
             // 提示里必须把它说出来。

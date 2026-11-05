@@ -28,7 +28,7 @@ final class PrivacyCopyTermsTests: XCTestCase {
 
     /// 下面这些文本只讲订单和服务。身份场景的「志愿者」（实名、资质、角色定义）在 `appLaunch`、内置政策和用户协议里，不查。
     func testServiceTextsCallTheEscortRunnerNotVolunteer() {
-        let purposes: [PrivacyConsentPurpose] = [.blindIdentity, .blindVisionProfile, .blindLocationTrack, .volunteerLocationTrack]
+        let purposes: [PrivacyConsentPurpose] = [.blindVisionProfile, .blindLocationTrack, .volunteerLocationTrack]
         let serviceTexts = purposes.flatMap { $0.disclosures + [$0.declinedFeedback, $0.escortDeclinedFeedback ?? ""] }
         for text in serviceTexts + authorizationCopy {
             XCTAssertFalse(text.contains("志愿者"), text)

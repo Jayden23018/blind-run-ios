@@ -132,14 +132,9 @@ final class AppState: ObservableObject {
     /// 紧急联系人列表
     @Published var emergencyContacts: [EmergencyContactResponse] = []
 
-    /// 实名引导页「稍后再说」的标记。按账号记：`performLocalSessionCleanup` 会清掉它。
-    /// 只影响引导流是否还停在实名提示页，**不影响下单门槛**（`isBlindBookingReady` 仍看实名状态）。
-    /// 走 `persistence` 而不是 `@AppStorage`，否则单元/UI 测试会写进 App 的标准域。
-    @Published var didDismissBlindIdentityPrompt = false
-
     /// 首次使用引导是否已经看过。**按设备记，登出不清**（理由见
-    /// `AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen`）——
-    /// 与上面那条按账号记的实名标记刻意不同。
+    /// `AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen`）。
+    /// 走 `persistence` 而不是 `@AppStorage`，否则单元/UI 测试会写进 App 的标准域。
     @Published var didSeeBlindFirstRunHelp = false
 
     /// 首次启动的隐私告知是否已同意（`PrivacyConsentPurpose.appLaunch`）。
@@ -315,8 +310,6 @@ final class AppState: ObservableObject {
             now: renewalClock
         )
         self.currentEnvironment = AppState.initialEnvironment(persistence: persistence)
-        self.didDismissBlindIdentityPrompt =
-            persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
         self.didSeeBlindFirstRunHelp =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen) as? Bool ?? false
         self.didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)

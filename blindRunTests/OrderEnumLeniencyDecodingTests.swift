@@ -219,7 +219,7 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
 
         XCTAssertEqual(profile.name, "王五")
         XCTAssertEqual(profile.defaultPace, .unknown)
-        XCTAssertEqual(profile.identityStatus, .verified, "实名门槛不能被一个配速取值带崩")
+        XCTAssertEqual(profile.verifyStatus, "VERIFIED", "其余字段不能被一个配速取值带崩")
     }
 
     /// `.unknown` **绝不能被原样发回后端** —— 这三个枚举是双向的，

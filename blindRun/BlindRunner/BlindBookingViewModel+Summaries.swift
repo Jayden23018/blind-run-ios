@@ -64,7 +64,7 @@ extension BlindBookingViewModel {
             return nil
         case .review:
             // 审阅步的按钮禁用状态走 `canSubmit`，它查的是全部六道门槛。这里必须用同一个源，
-            // 否则缺资料 / 实名 / 紧急联系人时按钮是灰的、`primaryActionHint` 却回落到
+            // 否则缺资料 / 紧急联系人时按钮是灰的、`primaryActionHint` 却回落到
             // 「提交后系统将为你派单」—— 一个按不动的按钮配一句承诺，对看不见屏幕的人
             // 就是「点了没反应」，而真正的原因一个字都没播。
             //

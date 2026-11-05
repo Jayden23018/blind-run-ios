@@ -57,9 +57,6 @@ final class OnboardingNetworkFailureCopyTests: XCTestCase {
             await waitUntil { roleVM.errorMessage != nil && !roleVM.isLoading }
             XCTAssertEqual(roleVM.errorMessage, item.message, "选角色 \(label)")
             XCTAssertTrue(roleSpeech.spokenHistoryForTesting.contains(item.message), "选角色没有念出来 \(label)")
-
-            // 实名认证：整句后面还会接「你填的姓名和身份证号还在……」，开头必须是同一句分类文案。
-            XCTAssertEqual(BlindIdentityVerificationFailure.message(for: error), item.message, "实名 \(label)")
         }
     }
 

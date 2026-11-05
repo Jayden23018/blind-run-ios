@@ -135,11 +135,9 @@ struct BookingReviewItem: Identifiable, Equatable {
 
 /// `POST /api/orders` 的硬门槛，枚举顺序即「第一个可操作的缺失项」的播报顺序。
 ///
-/// 服务端门槛的唯一真源是 `OrderCreationService.createOrder`：
-/// `verifyStatus != VERIFIED` → 403 `IDENTITY_NOT_VERIFIED`，
-/// 随后才是无紧急联系人 → 403 `EMERGENCY_CONTACT_REQUIRED`（2026-07-30 起，见 `handoff.md`）。
-/// **实名必须排在紧急联系人之前**，否则本地播报的「下一步」会和服务端实际拒绝的原因对不上。
-/// `basicProfile` 是客户端自有的前置项（后端不校验 `BlindProfile.name`），保持在最前不影响上述同序。
+/// 服务端门槛的唯一真源是 `OrderCreationService.createOrder`：无紧急联系人 → 403 `EMERGENCY_CONTACT_REQUIRED`。
+/// 2026-11-05 起不再校验实名（#767，后端 blind-run-backend#924）。
+/// `basicProfile` 是客户端自有的前置项（后端不校验 `BlindProfile.name`），保持在最前。
 ///
 /// ⚠️ **定位权限被拒不在这里，这是刻意的。** 2026-08-18 之前它是第四道门槛，拒绝定位后
 /// 整个出发地点区块被权限提示顶掉（搜索框、常用地点、语音输入全不渲染），`canSubmit` 恒 false ——
@@ -153,20 +151,17 @@ struct BookingReviewItem: Identifiable, Equatable {
 /// 志愿者侧的「无定位不接单」没有动：那一侧的实时位置是服务本体，不是可替代的输入。
 enum BlindBookingGate: Equatable {
     case basicProfile
-    case identityVerification
     case emergencyContacts
     case startPoint
     case appointmentTime
 
     static func firstMissing(
         isBasicProfileComplete: Bool,
-        isIdentityVerified: Bool,
         hasValidEmergencyContacts: Bool,
         hasStartPoint: Bool,
         isAppointmentTimeValid: Bool
     ) -> BlindBookingGate? {
         if !isBasicProfileComplete { return .basicProfile }
-        if !isIdentityVerified { return .identityVerification }
         if !hasValidEmergencyContacts { return .emergencyContacts }
         if !hasStartPoint { return .startPoint }
         if !isAppointmentTimeValid { return .appointmentTime }
@@ -178,8 +173,6 @@ enum BlindBookingGate: Equatable {
         switch self {
         case .basicProfile:
             return "请先完善个人资料，至少填写昵称。"
-        case .identityVerification:
-            return "请先完成实名认证才能下单。返回上一页，打开右上角设置，选择实名认证，填写姓名和身份证号后提交。"
         case .emergencyContacts:
             return "请先设置紧急联系人：至少 1 位，并指定其中 1 位为主联系人。"
         case .startPoint:

@@ -121,8 +121,8 @@ final class ContentRootRouter: ObservableObject {
                 ) else { return }
                 appState.updateBlindProfile(profile)
                 appState.updateEmergencyContacts(contacts)
-                // 引导流：硬门槛（昵称 + 恰好 1 位主紧急联系人）未过，或实名软提示还没被跳过，
-                // 都停在 .blindProfile（由 BlindRunnerOnboardingView 决定展示哪一步）。
+                // 引导流：硬门槛（昵称 + 恰好 1 位主紧急联系人）未过时
+                // 停在 .blindProfile（由 BlindRunnerOnboardingView 决定展示哪一步）。
                 route = appState.blindOnboardingStep == nil ? .blindHome : .blindProfile
             } catch {
                 handleHydrationFailure(
@@ -258,7 +258,7 @@ struct ContentView: View {
         case .authenticated: restoration = "authenticated"
         }
         // 会话代号而不是 token 值：续期换 token 时这把键不能变，否则跑步途中会重跑一遍根路由（#391）。
-        return "\(restoration)-\(appState.isLoggedIn ? appState.sessionGeneration : 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.didDismissBlindIdentityPrompt)-\(appState.isVolunteerProfileApproved)"
+        return "\(restoration)-\(appState.isLoggedIn ? appState.sessionGeneration : 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.isVolunteerProfileApproved)"
     }
 
     /// 同意隐私告知之后的正文。抽成独立属性只是为了给 `body` 里的同意门腾出 if/else 的位置，
@@ -306,12 +306,9 @@ struct ContentView: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.roleSelection")
             case .blindProfile:
-                // 兜底取 .identityPrompt：这条路由只在 step != nil 时进入，
+                // 兜底取 .emergencyContacts：这条路由只在 step != nil 时进入，
                 // step 变 nil 的那一瞬间 rootRoutingKey 已经变了，下一帧就会重新路由到 .blindHome。
-                BlindRunnerOnboardingView(
-                    step: appState.blindOnboardingStep ?? .identityPrompt,
-                    onSkipIdentityPrompt: { appState.dismissBlindIdentityPrompt() }
-                )
+                BlindRunnerOnboardingView(step: appState.blindOnboardingStep ?? .emergencyContacts)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.blindProfile")
             case .blindHome:

@@ -1,7 +1,7 @@
 import XCTest
 
 extension XCUIApplication {
-    /// 「我的」→ 头像卡 → 账户页。#711 起盲人端的个人资料、实名认证、隐私与授权、已拉黑的人、退出登录、删除账户都在这一页。
+    /// 「我的」→ 头像卡 → 账户页。#711 起盲人端的个人资料、隐私与授权、已拉黑的人、退出登录、删除账户都在这一页。
     /// 调用前要已经在盲人端「我的」上。
     func openBlindAccountPage(file: StaticString = #filePath, line: UInt = #line) {
         let card = buttons["blindAccountCardEntry"].firstMatch
@@ -71,7 +71,7 @@ extension AccessibilityAuditTests {
     private func checkBlindSettingsTop(_ app: XCUIApplication, variant: String, largestText: Bool) throws {
         let card = app.buttons["blindAccountCardEntry"].firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 10), "\(variant)：没有头像卡")
-        XCTAssertTrue(card.label.hasSuffix("个人资料、实名与账户"), card.label)
+        XCTAssertTrue(card.label.hasSuffix("个人资料与账户"), card.label)
         XCTAssertGreaterThanOrEqual(card.frame.height, 63.5, "头像卡可点高度不足 64pt：\(card.frame)")
         XCTAssertFalse(
             app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch.exists,
@@ -133,16 +133,14 @@ extension AccessibilityAuditTests {
         try audit(app, contentScrolledUnderNavigationBar: true)
     }
 
-    /// 账户页：个人资料、实名认证、隐私与授权、已拉黑的人、退出登录、删除账户；标签栏藏起来。
+    /// 账户页：个人资料、隐私与授权、已拉黑的人、退出登录、删除账户；标签栏藏起来。没有实名认证（#767）。
     @available(iOS 17.0, *)
     @MainActor
     private func checkBlindAccountPage(_ app: XCUIApplication, variant: String) throws {
         app.openBlindAccountPage()
-        let identity = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "实名认证，当前状态")).firstMatch
         let delete = app.buttons["删除账户"].firstMatch
         let accountEntries = [
             app.buttons["个人资料"].firstMatch,
-            identity,
             app.buttons["blindPrivacyAuthorizationSettingsEntry"].firstMatch,
             app.buttons["blockedUsersSettingsEntry"].firstMatch,
             app.buttons["退出登录"].firstMatch,

@@ -47,19 +47,6 @@ extension VoiceOrderWizard {
         speak(message)
     }
 
-    /// 解析被后端以未实名拒掉（#852）：与 `start()` 开麦前被实名门槛拦下**念同一句、停在同一处**。
-    /// 不走 `fallBack`：那句「用屏幕上的输入框继续预约」对没实名的人是一条走不通的路。
-    func stopForIdentityRejection() {
-        isRunning = false
-        endedMessage = nil
-        endedAfterFailure = false
-        speechInputService?.stopRecognition()
-        let message = BlindBookingGate.identityVerification.message
-        fallbackMessage = message
-        speak(message)
-        Task { [weak viewModel = bookingViewModel] in await viewModel?.refreshIdentityAfterServerRejection() }
-    }
-
     enum SessionEnding { case cancelled, notUnderstood }
 
     /// 结束语音会话、**停在语音面板**（后端 #502）。与 `fallBack` 的分界是「再说一次有没有可能成」：

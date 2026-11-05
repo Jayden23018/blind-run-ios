@@ -147,9 +147,8 @@ final class FavoritePlaceStore: ObservableObject {
     /// **不是 `UserDefaults`。**
     ///
     /// 存的是 `title` + `addressText` + 5 位小数的经纬度（约 1 米）。一个视障用户的常去地点集合
-    /// 直接就是「这个人什么时候会在哪」，泄露价值不比身份证号低 —— 而同一个仓库里，身份证号写着
-    /// 「只在内存中短暂存在，不写入 `UserDefaults`、Keychain 或任何日志」
-    /// （`BlindIdentityVerificationView.swift:25`），证书文件写着「不落 UserDefaults/Keychain」
+    /// 直接就是「这个人什么时候会在哪」，泄露价值不比身份证号低 —— 而同一个仓库里，身份证号
+    /// 只在内存中短暂存在、不写入 `UserDefaults`、Keychain 或任何日志，证书文件写着「不落 UserDefaults/Keychain」
     /// （`VolunteerCertificateUploadView.swift:22`）。`UserDefaults` 是 App 容器里的明文 plist，
     /// 没有 data protection class，且**进 iTunes / iCloud 备份**。
     ///

@@ -39,26 +39,22 @@ struct BlindHomeRunSummary: Equatable, Codable {
 
 /// 预约卡下方放什么。
 ///
-/// 没实名时预约必定失败，下方只放实名入口。跑过的人一定已实名，所以实名行和锻炼块不会同时出现。
-/// 其余情况有什么真实内容就放什么，一项都没有时卡片长满。
+/// 有什么真实内容就放什么，一项都没有时卡片长满。
 ///
 /// 出发地点行给跑过的人或有常用地点的人：新用户没有可换的地点，预约时本来就默认用当前定位。
 struct BlindHomeBelowCard: Equatable {
-    var showsIdentityRow = false
     var runSummary: BlindHomeRunSummary?
     var startRowTitle: String?
 
-    var isEmpty: Bool { !showsIdentityRow && runSummary == nil && startRowTitle == nil }
+    var isEmpty: Bool { runSummary == nil && startRowTitle == nil }
 
     static func resolve(
-        isIdentityVerified: Bool,
         runSummary: BlindHomeRunSummary?,
         hasRunBefore: Bool,
         favoriteCount: Int,
         defaultPlaceTitle: String?,
         isCurrentLocationUnavailable: Bool
     ) -> BlindHomeBelowCard {
-        guard isIdentityVerified else { return BlindHomeBelowCard(showsIdentityRow: true) }
         guard hasRunBefore || favoriteCount > 0 else { return BlindHomeBelowCard(runSummary: runSummary) }
         let title: String
         if let defaultPlaceTitle {
@@ -125,12 +121,10 @@ final class BlindHomeIdleModel: ObservableObject {
     }
 
     func content(
-        isIdentityVerified: Bool,
         favorites: FavoritePlaceStore,
         isCurrentLocationUnavailable: Bool
     ) -> BlindHomeBelowCard {
         BlindHomeBelowCard.resolve(
-            isIdentityVerified: isIdentityVerified,
             runSummary: snapshot.summary,
             hasRunBefore: snapshot.hasRunBefore,
             favoriteCount: favorites.places.count,
@@ -226,19 +220,10 @@ struct BlindHomeProminentBookingCard: View {
 
 struct BlindHomeBelowCardView: View {
     let content: BlindHomeBelowCard
-    let onVerifyIdentity: () -> Void
     let onOpenRecords: () -> Void
     let onChangeStartPlace: () -> Void
 
     var body: some View {
-        if content.showsIdentityRow {
-            BlindHomeQuickRow(
-                title: "完成实名认证",
-                hint: "完成后才能预约陪跑",
-                identifier: "blindHomeVerifyIdentityRow",
-                action: onVerifyIdentity
-            )
-        }
         if let summary = content.runSummary {
             BlindHomeRunSummaryBlock(summary: summary, action: onOpenRecords)
         }

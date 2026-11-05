@@ -17,15 +17,6 @@ When the blind runner has no active order, the booking entry SHALL be one deep-b
 - **WHEN** the text size is the largest accessibility size
 - **THEN** the page scrolls and every row below the card stays reachable
 
-### Requirement: Unverified runner gets an identity entry
-
-When the runner has not passed identity verification, the area below the card SHALL show only an identity verification entry, because booking cannot succeed.
-
-#### Scenario: Unverified runner
-
-- **WHEN** an unverified runner opens the home screen
-- **THEN** the identity entry appears, and activating it opens the identity verification page
-
 ### Requirement: Run summary block opens the records
 
 A runner with runs in the current month SHALL see that month's run count and distance below the card. Activating the block SHALL open the records tab. When the current month has no runs and earlier runs exist, the block SHALL show the previous month. A runner with no runs SHALL NOT see the block or any empty message. The home screen MUST NOT read the block aloud automatically.

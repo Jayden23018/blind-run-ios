@@ -70,8 +70,8 @@ enum ErrorCode: String, Codable, Sendable {
     case orderPermissionDenied = "ORDER_PERMISSION_DENIED"
     case smsSendLimitExceeded = "SMS_SEND_LIMIT_EXCEEDED"
     // 盲人下单前置门槛，后端 `ErrorCode.java`「盲人下单前置条件类（403）」小节（2026-07-30 新增）。
-    // `OrderCreationService.createOrder` 的判定顺序是**先实名、后紧急联系人**，客户端门槛必须同序。
-    case identityNotVerified = "IDENTITY_NOT_VERIFIED"
+    // 2026-11-05 起实名不再是门槛（#767），只剩紧急联系人这一档会拒。
+    case identityNotVerified = "IDENTITY_NOT_VERIFIED" // 后端 backend#924 后不再返回；留着与 ErrorCode.java 对撞
     // 取代此前复用的通用 `ORDER_PERMISSION_DENIED`：后者与「非订单参与者」等场景共用一个码，
     // 客户端无法程序化区分，只能猜 message。
     case emergencyContactRequired = "EMERGENCY_CONTACT_REQUIRED"
@@ -138,8 +138,8 @@ enum ErrorCode: String, Codable, Sendable {
     // 跨天预约上线后接了后天的单照样能接今天的，照旧文案会让他去找一张根本不冲突的单。
     case volunteerAlreadyEngaged = "VOLUNTEER_ALREADY_ENGAGED"
     // 二要素核验（阿里云 CloudAuth Id2Meta）**服务本身**没跑通：网络/超时/鉴权/配额/返回体残缺。
-    // 后端 `AliyunIdVerifyService.verifyIdCard`，两个端点共用
-    // （`POST /api/blind/verify-identity` 与 `POST /api/volunteer/registration/step1`）。
+    // 后端 `AliyunIdVerifyService.verifyIdCard`。iOS 只在志愿者 `POST /api/volunteer/registration/step1` 会遇到
+    // （视障跑者实名 2026-11-05 取消，#767）。
     //
     // 🚨 **必须与 `ID_INFO_INVALID`(400) 分开，且绝不引导去核对证件** —— 用户的证件没有任何问题，
     // 让他去核对是在浪费他的时间，重试才有意义。此前这两种情况返的是同一个结果，
@@ -318,7 +318,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .smsSendLimitExceeded:
             return "短信发送已达上限，请稍后重试。"
         case .identityNotVerified:
-            return "还没有完成实名认证，暂时不能下单。请打开设置里的实名认证，填写姓名和身份证号后再预约。"
+            return "暂时不能下单，请稍后重试。" // 视障跑者 2026-11-05 取消实名（#767），不再指向已删的实名页
         case .emergencyContactRequired:
             return "还没有设置紧急联系人，暂时不能下单。请先添加至少 1 位紧急联系人，并把其中 1 位设为主联系人。"
         case .notOrderParticipant:

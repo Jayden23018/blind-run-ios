@@ -31,7 +31,6 @@ extension VoiceOrderWizard {
         do {
             parsed = try await parseOrderResponse(transcript)
         } catch {
-            if Self.isIdentityRejection(error) { return stopForIdentityRejection() }
             parseFailed = true
             parseIsUnavailable = Self.isEndpointMissing(error)
         }

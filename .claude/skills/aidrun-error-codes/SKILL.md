@@ -29,7 +29,7 @@ description: AidRun 后端错误码语义表与前端映射规则，含 DUPLICAT
 | 码 | HTTP | 端点 | 语义 |
 |---|---|---|---|
 | `INVALID_VERIFICATION_CODE` | 400 | verify-code | 验证码错 |
-| `IDENTITY_NOT_VERIFIED` | 403 | `POST /api/orders` | 排在 `EMERGENCY_CONTACT_REQUIRED` **之前**。当前版本**只引导不阻断**（后端从不读 `verifyStatus`） |
+| `IDENTITY_NOT_VERIFIED` | 403 | （已不再返回） | 视障跑者 2026-11-05 取消实名（#767 / backend#924）。iOS 只留通用失败文案，不导向任何页面；后端若删掉这个码，iOS 要同时删 case，否则 `validate-error-codes.mjs` 红 |
 | `EMERGENCY_CONTACT_REQUIRED` | 403 | `POST /api/orders` | 取代此前复用的通用 `ORDER_PERMISSION_DENIED`。**这条是真门禁，UI 必须硬拦** |
 | `CONTACT_MINIMUM_REQUIRED` | 400 | 删联系人 | 删最后一个联系人被拒，UI 也要拦 |
 | `ORDER_NOT_FOUND` | 404 | — | 订单不存在 |

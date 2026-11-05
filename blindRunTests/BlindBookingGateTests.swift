@@ -11,7 +11,6 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertNil(
             BlindBookingGate.firstMissing(
                 isBasicProfileComplete: true,
-                isIdentityVerified: true,
                 hasValidEmergencyContacts: true,
                 hasStartPoint: true,
                 isAppointmentTimeValid: true
@@ -22,73 +21,36 @@ final class BlindBookingGateTests: XCTestCase {
     func testFirstMissingFollowsDeclaredOrder() {
         // 全部缺失时只报第一个可操作项，逐个补齐后依次推进。
         let expectedSequence: [BlindBookingGate] = [
-            .basicProfile, .identityVerification, .emergencyContacts,
-            .startPoint, .appointmentTime
+            .basicProfile, .emergencyContacts, .startPoint, .appointmentTime
         ]
-        // profile, identity, contacts, startPoint, timeValid
-        var flags = [false, false, false, false, false]
+        // profile, contacts, startPoint, timeValid
+        var flags = [false, false, false, false]
 
         for expected in expectedSequence {
             let gate = BlindBookingGate.firstMissing(
                 isBasicProfileComplete: flags[0],
-                isIdentityVerified: flags[1],
-                hasValidEmergencyContacts: flags[2],
-                hasStartPoint: flags[3],
-                isAppointmentTimeValid: flags[4]
+                hasValidEmergencyContacts: flags[1],
+                hasStartPoint: flags[2],
+                isAppointmentTimeValid: flags[3]
             )
             XCTAssertEqual(gate, expected)
 
             switch expected {
             case .basicProfile: flags[0] = true
-            case .identityVerification: flags[1] = true
-            case .emergencyContacts: flags[2] = true
-            case .startPoint: flags[3] = true
-            case .appointmentTime: flags[4] = true
+            case .emergencyContacts: flags[1] = true
+            case .startPoint: flags[2] = true
+            case .appointmentTime: flags[3] = true
             }
         }
 
         XCTAssertNil(
             BlindBookingGate.firstMissing(
                 isBasicProfileComplete: flags[0],
-                isIdentityVerified: flags[1],
-                hasValidEmergencyContacts: flags[2],
-                hasStartPoint: flags[3],
-                isAppointmentTimeValid: flags[4]
+                hasValidEmergencyContacts: flags[1],
+                hasStartPoint: flags[2],
+                isAppointmentTimeValid: flags[3]
             )
         )
-    }
-
-    /// 后端 `OrderCreationService` 先查实名再查紧急联系人；两者同时缺失时
-    /// 客户端**不能**先播报紧急联系人，否则用户补完联系人还是会被 403 挡回来。
-    func testIdentityGateIsReportedBeforeEmergencyContacts() {
-        let gate = BlindBookingGate.firstMissing(
-            isBasicProfileComplete: true,
-            isIdentityVerified: false,
-            hasValidEmergencyContacts: false,
-            hasStartPoint: true,
-            isAppointmentTimeValid: true
-        )
-        XCTAssertEqual(gate, .identityVerification)
-        XCTAssertNotEqual(gate, .emergencyContacts)
-
-        // 只有实名补上之后，紧急联系人才成为下一个被播报的缺失项。
-        XCTAssertEqual(
-            BlindBookingGate.firstMissing(
-                isBasicProfileComplete: true,
-                isIdentityVerified: true,
-                hasValidEmergencyContacts: false,
-                hasStartPoint: true,
-                isAppointmentTimeValid: true
-            ),
-            .emergencyContacts
-        )
-    }
-
-    /// 实名档的播报必须给出能走通的下一步（设置 → 实名认证），不能只说"不行"。
-    func testIdentityGateMessagePointsToIdentityPage() {
-        let message = BlindBookingGate.identityVerification.message
-        XCTAssertTrue(message.contains("实名认证"))
-        XCTAssertTrue(message.contains("设置"))
     }
 
     // MARK: - 门槛在 ViewModel 上的真实接线
@@ -314,55 +276,14 @@ final class BlindBookingGateTests: XCTestCase {
 
     func testOnboardingStepOrder() {
         XCTAssertEqual(
-            BlindOnboardingStep.first(
-                isBasicProfileComplete: false,
-                hasValidEmergencyContacts: false,
-                shouldPromptIdentity: true,
-                didDismissIdentityPrompt: false
-            ),
+            BlindOnboardingStep.first(isBasicProfileComplete: false, hasValidEmergencyContacts: false),
             .basicProfile
         )
-
         XCTAssertEqual(
-            BlindOnboardingStep.first(
-                isBasicProfileComplete: true,
-                hasValidEmergencyContacts: false,
-                shouldPromptIdentity: true,
-                didDismissIdentityPrompt: false
-            ),
+            BlindOnboardingStep.first(isBasicProfileComplete: true, hasValidEmergencyContacts: false),
             .emergencyContacts
         )
-
-        XCTAssertEqual(
-            BlindOnboardingStep.first(
-                isBasicProfileComplete: true,
-                hasValidEmergencyContacts: true,
-                shouldPromptIdentity: true,
-                didDismissIdentityPrompt: false
-            ),
-            .identityPrompt
-        )
-    }
-
-    /// 引导流的「稍后再说」只放行进首页（还能看历史订单、进设置），
-    /// **不等于放行下单**——下单拦截在 `BlindBookingGate.identityVerification`。
-    func testDismissedIdentityPromptLetsUserThrough() {
-        XCTAssertNil(
-            BlindOnboardingStep.first(
-                isBasicProfileComplete: true,
-                hasValidEmergencyContacts: true,
-                shouldPromptIdentity: true,
-                didDismissIdentityPrompt: true
-            )
-        )
-
-        XCTAssertNil(
-            BlindOnboardingStep.first(
-                isBasicProfileComplete: true,
-                hasValidEmergencyContacts: true,
-                shouldPromptIdentity: false,
-                didDismissIdentityPrompt: false
-            )
-        )
+        // 2026-11-05 起没有实名这一步（#767）：资料和联系人齐了就进首页。
+        XCTAssertNil(BlindOnboardingStep.first(isBasicProfileComplete: true, hasValidEmergencyContacts: true))
     }
 }
