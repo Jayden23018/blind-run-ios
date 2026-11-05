@@ -148,18 +148,17 @@ extension AccessibilityAuditTests {
         attachScreenshot(volunteer, name: "volunteer-intro-call-safety-actions")
     }
 
-    /// 拉黑后这一行消失，下一行不能接手「已拉黑」的状态：列表按下标当身份，靠 `.id(target.userId)` 隔开。
+    /// 拉黑后这一行消失，下一位不能接手「已拉黑」的状态：行按 userId 当身份，详情页靠 `.id(target.userId)` 隔开。
+    /// #752 起举报 / 不再匹配挪进搭档详情页：拉黑后详情页关掉，结果写在列表顶部。
     @MainActor
     func testBlockingAPartnerRemovesTheRowWithoutLeakingStateToTheNext() throws {
         let app = launchBlindHome(emptyOrders: false)
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 20))
-        tabBar.buttons["我的"].tap()
-        revealButton(app, "blindFavoriteVolunteersSettingsEntry", maxDrags: 12).tap()
+        openBlindPartners(app, variant: "default")
+        openBlindPartnerRow(app, index: 0)
 
-        let block = revealButton(app, "counterpartBlockButton")
-        XCTAssertTrue(block.label.hasPrefix("不再匹配"), "多人列表要听得出是谁：\(block.label)")
-        XCTAssertNotEqual(block.label, "不再匹配此人", "多人列表要听得出是谁")
+        let block = revealBlindPartnerButton(app, "counterpartBlockButton")
+        XCTAssertTrue(block.label.hasPrefix("不再匹配"), "要听得出是谁：\(block.label)")
+        XCTAssertNotEqual(block.label, "不再匹配此人", "要听得出是谁")
         let firstName = block.label
         attachScreenshot(app, name: "blind-partner-safety-actions")
         block.tap()
@@ -168,9 +167,10 @@ extension AccessibilityAuditTests {
         alert.buttons["不再匹配"].tap()
 
         let notice = app.descendants(matching: .any)["blindFavoriteActionNotice"].firstMatch
-        XCTAssertTrue(notice.waitForExistence(timeout: 10), "这一行消失后，结果要留在页面上")
-        let next = app.buttons["counterpartBlockButton"].firstMatch
-        XCTAssertTrue(next.waitForExistence(timeout: 10), "下一行的入口被上一行的状态吃掉了")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "这一行消失后，结果要留在列表上")
+        openBlindPartnerRow(app, index: 0)
+        let next = revealBlindPartnerButton(app, "counterpartBlockButton")
+        XCTAssertTrue(next.exists, "下一位的入口被上一位的状态吃掉了")
         XCTAssertNotEqual(next.label, firstName, "被拉黑的人还在列表里")
         // 这一句才分得清：去掉 `.id` 后下一行接手上一行的「已拉黑」状态，别的行仍有按钮，只看按钮查不出来（验红时实测）。
         XCTAssertFalse(
