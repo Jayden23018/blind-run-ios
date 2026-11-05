@@ -27,8 +27,12 @@
 
 ## 6. 等后端部署后做（`Jayden23018/blind-run-backend#885`）
 
-- [ ] 6.1 确认 `https://blindrun.culiu-tech.com/actuator/health` 返回 200，`wss` 能连上，证书校验通过
-- [ ] 6.2 后端契约的 server 地址合进 `main` 后，用 `scripts/sync-api-client.sh` 重新生成 `Packages/AidRunAPI`
+- [x] 6.1 确认 `https://blindrun.culiu-tech.com/actuator/health` 返回 200，`wss` 能连上，证书校验通过
+  - 2026-11-05：health 200，证书 `CN=blindrun.culiu-tech.com` 校验通过，到期 2027-01-29。`/ws/blind`、`/ws/volunteer` 不带 token 时握手被后端拒绝，响应头是 Spring 的，说明 Nginx 已转发。带 token 的握手没测。旧 IP 的 443 已经 TLS 失败。
+- [x] 6.2 后端契约的 server 地址合进 `main` 后，用 `scripts/sync-api-client.sh` 重新生成 `Packages/AidRunAPI`
+  - main 已重新生成：`Packages/` 下新域名 2 处，旧 IP 0 处。
 - [ ] 6.3 真机连域名跑登录和 WebSocket 流程，贴 `passed=N failed=0`
-- [ ] 6.4 Release 构建里搜不到旧 IP
+  - 没跑：负责人 2026-11-05 定改动不跑测试，由负责人自己在真机上验。
+- [x] 6.4 Release 构建里搜不到旧 IP
+  - 按源码核：`blindRun/` 与 `Packages/` 里旧 IP 0 处。只剩测试夹具来源 `blindRunTests/Fixtures/_manifest.json`，它不进 App 包。没有重新做 Release 构建。
 - [ ] 6.5 归档本变更，PR 转正式，用 `bash ~/.claude/scripts/ship.sh` 合并
