@@ -8,5 +8,5 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Run the affected unit tests and UI tests on the device, `failed=0`, new tests executed
-- [ ] 2.2 Capture before / after / Apple reference screenshots on the device and compare
+- [x] 2.1 Run the affected unit tests and UI tests on the device, `failed=0`, new tests executed
+- [x] 2.2 Capture before / after / Apple reference screenshots on the device and compare
