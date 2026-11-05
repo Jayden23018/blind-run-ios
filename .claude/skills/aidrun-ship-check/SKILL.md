@@ -320,14 +320,17 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 
 如果本轮修的是一个**已经犯过第二次**的错，按 `AGENTS.md` 的「事故复盘规则」给它找归宿：能静态查的进 `scripts/hooks/guard.mjs`（配 `scripts/validate-guard.mjs` 的正反用例），能运行时查的进测试，两者都不能的写进项目记忆。只写文档不算完成。
 
+守卫的规则按主题分在 `scripts/hooks/guard/` 下（#722），`guard.mjs` 只做入口与调度，模块清单写在它顶部的注释里。加规则：逐行内容规则进 `rules-*.mjs` 的表；整段判定写成 `check…` 函数放进对应主题模块，再把函数加进 `guard.mjs` 的清单。正反用例放进 `scripts/validate-guard/` 下同名的主题文件，`scripts/validate-guard.mjs` 只是运行器。
+
 加守卫前先看已有哪些规则。守卫管的不止冻结文件；**规则清单和用例数不抄进任何文档** —— 要用就当场取
 （2026-10-20 从 `AGENTS.md` §9 搬来，#482）：
 
 ```bash
 # 规则 id（两处来源：rules 对象的键 + fail() 里硬编码的。少查一处就会漏掉三条）
+# 规则分在 guard.mjs 与 guard/ 下多个模块里（#722），只读 guard.mjs 一条都取不到。
 python3 -c "
-import re
-s=open('scripts/hooks/guard.mjs').read()
+import re,glob
+s=''.join(open(f).read() for f in ['scripts/hooks/guard.mjs',*sorted(glob.glob('scripts/hooks/guard/*.mjs'))])
 ids=set(re.findall(r\"fail\(\s*'([a-z0-9-]+)'\",s))|set(re.findall(r\"^  '([a-z0-9-]+)':\",s,re.M))
 print('\n'.join(sorted(ids)));print('共',len(ids),'条')"
 
