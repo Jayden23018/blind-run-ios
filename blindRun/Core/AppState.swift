@@ -276,7 +276,7 @@ final class AppState: ObservableObject {
         didSet { syncRoleLocationIntents() }
     }
 
-    /// 本次登录里按下过「同意共享位置」的目的。拿不到 userId 时写不了盘，
+    /// 本次登录里在位置轨迹说明页上同意过的目的。拿不到 userId 时写不了盘，
     /// 这一份让「刚同意完又被问一次」不会发生；换 token 就清掉。
     var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
 

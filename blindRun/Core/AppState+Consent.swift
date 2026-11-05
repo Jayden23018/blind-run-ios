@@ -61,7 +61,7 @@ extension AppState {
         locationTrackConsentGrantedThisSession.remove(purpose)
     }
 
-    /// 唯一的写入点：触发者只能是用户按下同意页上的「同意共享位置」。
+    /// 唯一的写入点：触发者只能是用户在位置轨迹说明页上同意（#776：系统框选允许，或系统定位已决定时点「继续」）。
     func recordLocationTrackConsent(_ purpose: PrivacyConsentPurpose) {
         guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack else { return }
         locationTrackConsentGrantedThisSession.insert(purpose)

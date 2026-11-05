@@ -337,10 +337,10 @@ final class LocationService: NSObject, ObservableObject {
 
     // MARK: - Public Methods
 
-    /// 请求定位权限（仅在用户尚未决定时有效）
-    func requestPermission() {
+    /// 请求定位权限（仅在用户尚未决定时有效）。位置轨迹说明页的「继续」传 true（#776）：系统框的回答就是那份同意，此刻还没有记录，调试断言放过它。
+    func requestPermission(fromTrackConsentScreen: Bool = false) {
         #if DEBUG
-        if let precondition = trackConsentPreconditionForDebug, !precondition() {
+        if !fromTrackConsentScreen, let precondition = trackConsentPreconditionForDebug, !precondition() {
             assertionFailure("系统定位授权框早于位置轨迹同意：这一处 requestPermission() 前要先判 hasLocationTrackConsent（#368）")
         }
         guard !isUsingUITestDemoLocation else { return }

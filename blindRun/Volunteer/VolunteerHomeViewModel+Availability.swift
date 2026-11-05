@@ -111,15 +111,14 @@ extension VolunteerHomeViewModel {
         }
     }
 
-    /// 同意页上按了「同意共享位置」。`requestLocationPermission` 由视图传入 ——
-    /// 系统授权框挪到这一刻弹（告知在前），view model 不持有定位服务。
-    func agreeTrackConsent(requestLocationPermission: () -> Void) {
+    /// 说明页上同意了（#776：「继续」后系统框选允许，或系统定位已决定时点「继续」）。
+    /// 系统授权框已在说明页上问过，这里不再请求授权。
+    func agreeTrackConsent() {
         guard let request = trackConsentRequest, let appState else { return }
         trackConsentRequest = nil
         trackConsentDeclinedNotice = nil
         declinedResumeTrackConsent = false
         appState.recordLocationTrackConsent(.volunteerLocationTrack)
-        requestLocationPermission()
         switch request {
         case .turnOn:
             // 只在开关真的开始打开时才进接单主页，否则会进到一个「开关其实没开」的接单主页。
@@ -136,7 +135,7 @@ extension VolunteerHomeViewModel {
         }
     }
 
-    /// 同意页上按了「先不同意」。拒绝是完整的答案，不追问。
+    /// 说明页上拒绝了（系统框选不允许，或点「不同意」）。拒绝是完整的答案，不追问。
     func declineTrackConsent() {
         guard let request = trackConsentRequest else { return }
         trackConsentRequest = nil

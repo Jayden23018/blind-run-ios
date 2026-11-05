@@ -274,19 +274,17 @@ final class LocationTrackConsentTests: XCTestCase {
         XCTAssertFalse(appState.volunteerWantsDispatch)
     }
 
-    func testAgreeingTurnsOnRequestsPermissionAndEntersTheHub() async {
+    func testAgreeingTurnsOnAndEntersTheHub() async {
         let orders = FakeOrderService()
         orders.setDispatchStatusResult = .success(())
         orders.dispatchSummaryResult = .success(Self.summary(wantsDispatch: true))
         let (appState, viewModel, _) = Self.makeVolunteerHome(orders: orders)
         viewModel.setAvailability(true)
-        var permissionRequests = 0
 
-        viewModel.agreeTrackConsent { permissionRequests += 1 }
+        viewModel.agreeTrackConsent()
         let turnedOn = await Self.waitUntil(timeout: 2) { orders.lastWantsDispatch == true }
 
         XCTAssertTrue(turnedOn, "同意之后才打开开关")
-        XCTAssertEqual(permissionRequests, 1, "系统授权框在按同意时弹")
         XCTAssertTrue(viewModel.entersDispatchHubAfterTrackConsent)
         XCTAssertTrue(appState.hasLocationTrackConsent(.volunteerLocationTrack))
         XCTAssertNil(viewModel.trackConsentRequest)
