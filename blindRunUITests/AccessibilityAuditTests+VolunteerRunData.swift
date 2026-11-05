@@ -109,7 +109,7 @@ extension AccessibilityAuditTests {
 
     /// 默认字号逐屏过审计，每屏截一张。亮暗拆成两条：合在一条里会超过 420 秒的挂死判定。
     /// 陪跑员端不测最大字号（负责人 2026-11-05 定，记忆 `volunteer-side-no-largest-text-tests`）。
-    /// 滚到导航栏后面的上一屏内容由 `audit` 的导航栏遮挡判据放过（几何上看不见）。
+    /// 滚到导航栏后面的上一屏内容由 `audit(_:contentScrolledUnderNavigationBar:)` 放过（几何上看不见）。
     @MainActor
     func auditVolunteerRunDataScreens(colorScheme: String) throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
@@ -122,7 +122,8 @@ extension AccessibilityAuditTests {
             let element = scrollRunDataSection(app, screen)
             XCTAssertLessThanOrEqual(element.frame.maxY, app.frame.maxY, "\(colorScheme)：「\(screen)」滚不进屏幕")
             attachScreenshot(app, name: "volunteer-run-data-\(colorScheme)-\(index + 1)")
-            try audit(app)
+            // 第 2 屏起页面已上推，上一屏的内容滚到了半透明导航栏下面（#700 的判据，默认关）。
+            try audit(app, contentScrolledUnderNavigationBar: index > 0)
         }
     }
 
