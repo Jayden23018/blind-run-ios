@@ -4,7 +4,7 @@
 Defines the root page of the bottom 「我的」 tab for both roles: its title and the personal summary card at the top (runner: runs and distance this month; volunteer: completed runs and service hours). The settings list reached from the volunteer home gear keeps the title 「设置」 and shows no card.
 ## Requirements
 ### Requirement: Profile tab root is titled 我的 and opens with a personal summary
-The root page of the bottom 「我的」 tab SHALL be titled 「我的」 for both roles and SHALL begin with a personal summary card when its data loads. The same settings list reached from the volunteer home gear (labelled 「设置」) SHALL keep the title 「设置」 and SHALL NOT show the card.
+The root page of the bottom 「我的」 tab SHALL be titled 「我的」 for both roles. The runner page SHALL begin with a personal summary card when its data loads. The volunteer page SHALL show the summary as the first row of its list (「服务成就」 with completed escorts and service time) when achievements load. The same settings page reached from the volunteer home avatar SHALL keep the title 「设置」 and SHALL NOT show the summary.
 
 #### Scenario: Runner opens the tab
 - **WHEN** a runner opens the 「我的」 tab and the current month's run records load
@@ -13,9 +13,9 @@ The root page of the bottom 「我的」 tab SHALL be titled 「我的」 for bo
 
 #### Scenario: Volunteer opens the tab
 - **WHEN** a volunteer opens the 「我的」 tab and achievements load
-- **THEN** the page SHALL show completed escorts and total service hours, and tapping the card SHALL open the service recognition page
+- **THEN** the list SHALL start with 「服务成就」 showing completed escorts and total service time, and tapping it SHALL open the service recognition page
 
 #### Scenario: Summary data fails
 - **WHEN** the summary request fails
-- **THEN** the card SHALL NOT be shown and the settings list SHALL remain usable
+- **THEN** the summary SHALL NOT be shown and the rest of the page SHALL remain usable
 

@@ -1407,7 +1407,7 @@ final class blindRunUITests: XCTestCase {
         assertLogoutOverlayHidesTheScreenBehindIt(app)
     }
 
-    /// 同一个 modifier 挂在根上，但志愿者端的设置页是另一份视图（`VolunteerOrderFlowViews`），
+    /// 同一个 modifier 挂在根上，但志愿者端的退出登录在另一份视图（账户页 `VolunteerAccountView`），
     /// 背后的标签栏容器也是另一个（`VolunteerTabView`）—— 不单独跑一遍就只是「推断」两端一样。
     @MainActor
     func testSessionLifecycleOverlayHidesTheVolunteerScreenBehindItFromAccessibility() throws {
@@ -1420,7 +1420,7 @@ final class blindRunUITests: XCTestCase {
             mockLogoutFailure: true,
             slowSessionEndSeconds: 8
         )
-        assertLogoutOverlayHidesTheScreenBehindIt(app)
+        assertLogoutOverlayHidesTheScreenBehindIt(app, throughAccountPage: true)
     }
 
     /// 删除账户走同一层遮罩（`accountDeletionState == .inProgress`）。mock 删除成功后直接回登录页，
@@ -1459,10 +1459,10 @@ final class blindRunUITests: XCTestCase {
     ///
     /// #391 起服务端登出失败也照样清本地会话（契约 blind-run-backend#669），所以遮罩收起后到的是登录页，
     /// 不再是「失败弹窗 → 取消 → 回到设置页」—— 收起后要验的是 hider 放开了新挂上的登录页。
-    private func assertLogoutOverlayHidesTheScreenBehindIt(_ app: XCUIApplication) {
+    private func assertLogoutOverlayHidesTheScreenBehindIt(_ app: XCUIApplication, throughAccountPage: Bool = false) {
         openSettings(app)
+        if throughAccountPage { app.openVolunteerAccountPage() } // 陪跑员的退出登录在账户页（#700）
         let logoutButton = app.buttons["退出登录"].firstMatch
-        // 志愿者设置页更长，`List` 不渲染屏幕外的行 —— 不滚就不在树里（同 `assertLogoutRequiresConfirmation`）。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
         logoutButton.tap()
@@ -1531,6 +1531,7 @@ final class blindRunUITests: XCTestCase {
             emptyMockOrders: true
         )
         openSettings(volunteerSettings)
+        volunteerSettings.openVolunteerAccountPage()
         assertLogoutRequiresConfirmation(volunteerSettings)
     }
 
@@ -1597,8 +1598,7 @@ final class blindRunUITests: XCTestCase {
         // 本轮给志愿者端补上标签栏之后它才重新跑得通 —— 命中记忆
         // `merged-prs-whose-tests-never-ran`（CI 跑不了 XCTest，编译绿不代表用例跑过）。
         openSettings(app)
-        // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），「删除账户」
-        // 在最后一组 —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有。
+        app.openVolunteerAccountPage() // #700 起「删除账户」在账户页（「我的」→ 头像卡）
         let deleteAccount = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(
             scrollUntilExists(deleteAccount, app: app),
@@ -2054,9 +2054,8 @@ final class blindRunUITests: XCTestCase {
 
     private func assertLogoutRequiresConfirmation(_ app: XCUIApplication) {
         let logoutButton = app.buttons["退出登录"].firstMatch
-        // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），退出登录在最后
-        // —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有，`waitForExistence` 永远等不到。
-        // 已经在屏上时 `scrollUntilExists` 第一行就返回，对盲人端那两档是零开销。
+        // 退出登录在列表最后：`List` 不渲染屏幕外的行，不滚它连无障碍树里都没有。
+        // 已经在屏上时 `scrollUntilExists` 第一行就返回，零开销。
         // 这里原本还跟一句 `waitForExistence(timeout: 10)`：上一行已断言存在，它只会白等约 1 秒。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")

@@ -16,7 +16,7 @@ extension AccessibilityAuditTests {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         for variant in accountPageVariants {
             let app = launchVolunteerHome(extraEnvironment: variant.environment)
-            openAccountPage(app, entry: app.buttons["个人资料"].firstMatch)
+            openAccountPage(app, entry: app.buttons["个人资料"].firstMatch, throughAccountPage: true)
 
             let page = accountElement(app, "volunteerAccountProfileView")
             XCTAssertTrue(page.waitForExistence(timeout: 15), "\(variant.name)：没有进到个人资料页")
@@ -111,12 +111,13 @@ extension AccessibilityAuditTests {
 
     // MARK: - 辅助
 
-    /// 「我的」标签就是设置页；入口在长列表里，`List` 不渲染屏外的行，先拖到它露出来再点。
+    /// 「我的」标签就是设置页；先拖到入口露出来再点。个人资料在账户页（「我的」→ 头像卡，#700）。
     @MainActor
-    private func openAccountPage(_ app: XCUIApplication, entry: XCUIElement) {
+    private func openAccountPage(_ app: XCUIApplication, entry: XCUIElement, throughAccountPage: Bool = false) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 25), "标签栏没起来")
         tabBar.buttons["我的"].tap()
+        if throughAccountPage { app.openVolunteerAccountPage() }
         _ = entry.waitForExistence(timeout: 8)
         for _ in 0..<24 {
             let bottom = tabBar.exists ? tabBar.frame.minY : app.frame.maxY - 60
