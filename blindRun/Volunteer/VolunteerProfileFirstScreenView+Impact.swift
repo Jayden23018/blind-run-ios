@@ -221,21 +221,43 @@ extension VolunteerProfileFirstScreen {
     @ViewBuilder
     func halfCard(_ card: VolunteerHomeHalfCard) -> some View {
         if card.hasDestination {
-            // 连续陪跑与固定搭档都去固定搭档页（每位搭档的火花周数在那里）。
+            // 有连续周数的卡去「连续陪跑」跑步数据页（#710）；退成「固定搭档 N 位」的卡仍去固定搭档页。
             NavigationLink {
-                VolunteerPartnersView()
+                halfCardDestination(card)
             } label: {
                 halfCardBody(card)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(card.spoken)
-            .accessibilityHint(VolunteerProfileCopy.partnersCardHint)
+            .accessibilityHint(card.kind == .streak ? VolunteerRunDataCopy.homeCardHint : VolunteerProfileCopy.partnersCardHint)
             .accessibilityIdentifier("volunteerHomeHalfCard.\(card.kind)")
         } else {
             halfCardBody(card)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(card.spoken)
                 .accessibilityIdentifier("volunteerHomeHalfCard.\(card.kind)")
+        }
+    }
+
+    /// 🔴 火花、姓名、周号都从**生成这张卡的同一份摘要**里取，原样交给数据页 ——
+    /// 数据页不重拉火花，否则两次请求之间数据变了，结论卡会和刚点的卡说两个人。
+    @ViewBuilder
+    private func halfCardDestination(_ card: VolunteerHomeHalfCard) -> some View {
+        if card.kind == .streak,
+           let summary = incentive.summary,
+           let streak = summary.streak,
+           let achievements = summary.achievements {
+            VolunteerRunDataView(
+                streak: VolunteerRunDataStreak(
+                    display: streak,
+                    partnerName: summary.streakPartnerName,
+                    lastCreditedWeek: summary.streakLastCreditedWeek
+                ),
+                achievements: achievements,
+                favoritedByCount: summary.favoritedByCount
+            )
+        } else {
+            VolunteerPartnersView()
         }
     }
 

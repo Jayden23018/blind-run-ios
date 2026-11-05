@@ -132,6 +132,7 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
         var achievements: VolunteerAchievementsResponse?
         var streak: PartnerStreakDisplay?
         var streakPartnerName: String?
+        var streakLastCreditedWeek: String?
         var allSucceeded = true
 
         do {
@@ -165,6 +166,7 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
                         bestWeeks: strongest.bestWeeks
                     )
                     streakPartnerName = strongest.partnerName
+                    streakLastCreditedWeek = strongest.lastCreditedWeek
                 }
             } catch {
                 allSucceeded = false
@@ -179,6 +181,7 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
             nextBadge: achievements?.nextBadge,
             streak: streak,
             streakPartnerName: streakPartnerName,
+            streakLastCreditedWeek: streakLastCreditedWeek,
             achievements: achievements
         )
         loadFailed = !allSucceeded

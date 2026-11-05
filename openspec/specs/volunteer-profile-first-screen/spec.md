@@ -51,7 +51,7 @@ The volunteer home's scheduled order card SHALL use the same components as the o
 - **THEN** both the confirm button and the "我去不了" button SHALL be at least 64pt tall
 
 ### Requirement: 首页只放「我做过什么」，接单内容在接单页
-志愿者首页 SHALL 按顺序显示：「需要你处理」（有事时）→ 陪伴时长卡 → 连续陪跑与评分两张半宽卡 → 最近陪跑 → 徽章，全部为白色圆角卡片。首页 SHALL NOT 显示派单状态与定位摘要；它们 SHALL 显示在接单页顶部的状态卡里。卡片 SHALL 只在有去处时画箭头：陪伴时长去服务成就，连续陪跑去固定搭档，最近陪跑去跑后详情；评分卡没有去处，SHALL NOT 画箭头。无障碍字号下两张半宽卡 SHALL 改为上下排。
+志愿者首页 SHALL 按顺序显示：「需要你处理」（有事时）→ 陪伴时长卡 → 连续陪跑与评分两张半宽卡 → 最近陪跑 → 徽章，全部为白色圆角卡片。首页 SHALL NOT 显示派单状态与定位摘要；它们 SHALL 显示在接单页顶部的状态卡里。卡片 SHALL 只在有去处时画箭头：陪伴时长去服务成就，有连续周数的连续陪跑卡去「连续陪跑」跑步数据页，没有连续周数时退成的「固定搭档 N 位」卡去固定搭档，最近陪跑去跑后详情；评分卡没有去处，SHALL NOT 画箭头。无障碍字号下两张半宽卡 SHALL 改为上下排。
 
 #### Scenario: 首页没有派单状态
 - **WHEN** 志愿者打开首页，派单摘要已加载
@@ -60,6 +60,14 @@ The volunteer home's scheduled order card SHALL use the same components as the o
 #### Scenario: 有待确认预约
 - **WHEN** 有一张待确认的跨天预约
 - **THEN** 它出现在首页标题下方、陪伴时长卡之前
+
+#### Scenario: 连续陪跑卡进跑步数据页
+- **WHEN** 志愿者和某位跑者有已点亮的连续周数，点首页「连续陪跑」卡
+- **THEN** 进入标题为「连续陪跑」的跑步数据页，而不是固定搭档列表
+
+#### Scenario: 退化的固定搭档卡仍去固定搭档页
+- **WHEN** 没有已点亮的连续周数，首页那张卡显示「固定搭档 N 位」，志愿者点它
+- **THEN** 进入固定搭档页
 
 ### Requirement: 最近陪跑卡取跑后记录月度列表
 最近陪跑卡 SHALL 取 `GET /api/orders/mine/run-records` 本月第一条记录；本月没有记录时 SHALL 取上月。卡上 SHALL 显示公里数（`distanceM` 为空时不显示）、对方脱敏姓名与地点；`thumbnail` 为空或点全部重合时 SHALL NOT 画路线图，也 SHALL NOT 画占位图。两个月都没有记录时 SHALL 显示一句说明并保留「全部记录」入口；加载失败时 SHALL 显示失败说明与重试按钮。系统 SHALL NOT 显示接口没有给出的数字（例如单次陪伴分钟数）。
