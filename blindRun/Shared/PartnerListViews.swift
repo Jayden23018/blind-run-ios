@@ -108,7 +108,8 @@ struct BlindFavoriteVolunteersView: View {
                     .foregroundColor(AppColors.primary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(PartnerStreakCopy.blindHeroTitle(count))
+                    // 只有「一起跑过的人」时不写「0 位固定搭档」：读屏先念到 0，容易以为整页是空的。
+                    Text(count > 0 ? PartnerStreakCopy.blindHeroTitle(count) : PartnerStreakCopy.blindEmptyTitle)
                         .font(AppFonts.body().weight(.semibold))
                         .foregroundColor(AppColors.textPrimary)
                     Text(PartnerStreakCopy.blindHeroCaption)
@@ -218,7 +219,11 @@ struct BlindFavoriteVolunteersView: View {
                     ? PartnerStreakCopy.favoriteAdded(spokenName)
                     : PartnerStreakCopy.favoriteRemoved(spokenName)
             )
-            Task { await load() }
+            Task {
+                await load()
+                // 重拉失败时列表还是旧的，要让用户看到错误，不能被成功提示盖住（同 `blocked()`）。
+                if errorMessage != nil { actionNotice = nil }
+            }
             return nil
         } catch let error as APIError {
             let message = error.localizedMessage

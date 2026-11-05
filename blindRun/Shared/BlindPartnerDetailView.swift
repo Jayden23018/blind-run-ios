@@ -45,12 +45,17 @@ struct BlindPartnerAvatar: View {
 struct BlindPartnerRowLabel: View {
     let row: PartnerRow
     let index: Int
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var name: String { row.displayName(fallback: PartnerStreakCopy.unknownVolunteerName) }
 
     var body: some View {
         HStack(spacing: 12) {
-            BlindPartnerAvatar(name: name, tint: BlindPartnerAvatar.tint(for: row, index: index))
+            // 辅助功能字号档不画头像：它随字号放大到约 120pt，把文字挤成一行两三个字（AX5 真机截图）。
+            // 头像只是装饰，名字就在旁边。
+            if !dynamicTypeSize.isAccessibilitySize {
+                BlindPartnerAvatar(name: name, tint: BlindPartnerAvatar.tint(for: row, index: index))
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(AppFonts.body().weight(.semibold))

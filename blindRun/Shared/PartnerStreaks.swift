@@ -424,11 +424,6 @@ enum PartnerStreakCopy {
         "已取消收藏\(name)。"
     }
 
-    static func togetherText(_ count: Int?) -> String? {
-        guard let count, count > 0 else { return nil }
-        return "一起跑完过 \(count) 次"
-    }
-
     static func favoritedAtText(_ raw: String?) -> String? {
         guard let day = raw?.nilIfBlank?.backendTimestamp else { return nil }
         return "\(DateFormatter.aidRunDisplayDay.string(from: day))设为固定搭档"
