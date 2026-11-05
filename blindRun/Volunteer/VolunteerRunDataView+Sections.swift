@@ -112,7 +112,7 @@ extension VolunteerRunDataView {
         return VolunteerSecondaryCard {
             VStack(alignment: .leading, spacing: 10) {
                 VolunteerSecondaryCardHeader(
-                    title: VolunteerRunDataCopy.partnersTitle, symbol: .system("person.2.fill"),
+                    title: VolunteerRunDataCopy.partnersTitle, symbol: .system("flame.fill"),
                     tint: AppColors.VolunteerHome.streakOrange
                 )
                 Text(VolunteerRunDataCopy.partnersHeadline(summary.partners))

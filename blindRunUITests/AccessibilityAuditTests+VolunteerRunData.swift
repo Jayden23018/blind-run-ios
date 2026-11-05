@@ -1,6 +1,6 @@
 import XCTest
 
-/// 陪跑员「连续陪跑」跑步数据页（#710）：首页卡点进来、里程四档切换、亮 / 暗 / AX5 整页审计。
+/// 陪跑员「连续陪跑」跑步数据页（#710）：首页卡点进来、里程四档切换、亮 / 暗整页审计。
 /// 数据用 Mock 的近半年样例（`AIDRUN_UI_TEST_SEED_RUN_DATA=1`，照定稿脚本生成），否则每单 1.04 公里，图上看不出起伏。
 extension AccessibilityAuditTests {
     static let runDataSeed = ["AIDRUN_UI_TEST_SEED_RUN_DATA": "1"]
@@ -73,15 +73,16 @@ extension AccessibilityAuditTests {
         }
     }
 
-    /// 亮 / 暗 / AX5 亮 / AX5 暗逐屏过审计，每屏截一张。AX5 下陪跑日历换成按月列表。
+    /// 默认字号的亮 / 暗逐屏过审计，每屏截一张。
+    /// 陪跑员端不测最大字号（负责人 2026-11-05 定，记忆 `volunteer-side-no-largest-text-tests`）。
     ///
     /// ⚠️ 审计只看屏幕上的元素：每滚一屏审一次，一直滚到页底的规则说明出现。
     @MainActor
-    func testVolunteerRunDataPassesAuditInLightDarkAndLargestText() throws {
+    func testVolunteerRunDataPassesAuditInLightAndDark() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .portrait
-        for variant in Self.appearanceVariants {
+        for variant in Self.appearanceVariants where variant.arguments.isEmpty {
             let app = openVolunteerRunData(environment: variant.environment, arguments: variant.arguments)
             let calendar = app.descendants(matching: .any)["volunteerRunData.calendar"].firstMatch
             XCTAssertTrue(calendar.waitForExistence(timeout: 15), "\(variant.name)：陪跑日历没出来")
