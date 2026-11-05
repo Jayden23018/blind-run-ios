@@ -53,13 +53,13 @@ struct SessionExpiryNotice: View {
                 .accessibilityLabel(context.deferral.bannerMessage)
                 .accessibilityIdentifier("sessionExpiryDeferralMessage")
 
-                // `frame` 挂在 label 里：挂在 Button 外面只撑布局、不撑可点区域
+                // 整行、≥64pt 的可点区由 `OutlineSecondaryButtonStyle` 自己给（#749），标签里不再挂 frame ——
+                // 再挂一层 64 会把看得见的胶囊撑到 80pt。别挂在 Button 外面：那只撑布局、不撑可点区域
                 // （记忆 `button-frame-outside-label-does-not-grow-hit-area`，第一版真机量到 34.3pt）。
                 Button {
                     confirmsRelogin = true
                 } label: {
                     Text("现在重新登录")
-                        .frame(maxWidth: .infinity, minHeight: 64)
                 }
                 .buttonStyle(OutlineSecondaryButtonStyle())
                 .accessibilityHint("退出当前账号并回到登录页，会先让你确认")

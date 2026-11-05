@@ -109,15 +109,20 @@ extension BlindBookingView {
                         viewModel.moveToNextStep()
                     }
                 }
+                // 不再额外压透明度：按钮样式在 `.disabled` 时已换成不可用配色（灰底灰字 5.3:1），
+                // 再乘 0.45 会让低视力用户读不出这枚按钮是什么（#749 审查 B1）。
                 .disabled(primaryActionDisabled)
-                .opacity(primaryActionDisabled ? 0.45 : 1)
                 .accessibilityLabel(viewModel.currentStep.nextActionTitle)
                 .accessibilityHint(primaryActionHint)
             }
+            // 并排的一行：胶囊只变矮、不左右收进（#749 定稿 ②），否则最大字号下「提交预约」一行只剩一个字。
+            .capsuleButtonsInRow()
 
-            PrimaryButton("重复当前状态") {
+            // 次按钮而不是第二块实心蓝：同一屏只留「下一步 / 提交预约」一个实心主按钮（#749，负责人 2026-11-05）。
+            Button("重复当前状态") {
                 viewModel.repeatCurrentStepStatus()
             }
+            .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel("重复当前状态")
             .accessibilityHint("点击后重新播报当前预约步骤状态")
         }

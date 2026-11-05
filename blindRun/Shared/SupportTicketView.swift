@@ -141,7 +141,9 @@ struct SupportTicketView: View {
 
                     // 不放工具栏：系统会把工具栏文字按钮包成字号固定的玻璃按钮，审计判对比度与字号都不过，
                     // 也够不到 64pt（记忆 sheet-toolbar-text-button-fails-audit，举报页 #524 同样处理）。
-                    FlowActionButton(UserSafetyCopy.close, style: .ghost) { dismiss() }
+                    // 灰按钮，与上面的实心主按钮同形状（#749，举报页同样处理）。
+                    Button(UserSafetyCopy.close) { dismiss() }
+                        .buttonStyle(NeutralButtonStyle())
                         .accessibilityIdentifier("supportTicketClose")
                 }
                 .padding(20)

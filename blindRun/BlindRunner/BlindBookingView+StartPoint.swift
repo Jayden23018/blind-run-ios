@@ -95,10 +95,9 @@ extension BlindBookingView {
                     speechService.speak("已收藏出发地点，\(place.title)。下次可以直接选。")
                 }
             } label: {
+                // 可点区（整行、≥64pt）由 `OutlineSecondaryButtonStyle` 给（#749），标签里不再挂 frame。
                 Label("收藏这个出发地点", systemImage: "star")
                     .font(AppFonts.body().weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
             }
             .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel("收藏这个出发地点，\(place.title)")
