@@ -14,7 +14,7 @@ struct VolunteerSettingsTileLabel: View {
                 .accessibilityHidden(true)
             Spacer(minLength: 14)
             Text(tile.title)
-                .font(.headline)
+                .font(.headline.weight(.bold)) // 稿子方块名是粗体；.headline 的中文半粗在真机上偏细
                 .foregroundColor(.white)
                 .fixedSize(horizontal: false, vertical: true)
         }

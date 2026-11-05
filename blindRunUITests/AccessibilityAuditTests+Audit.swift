@@ -65,24 +65,25 @@ extension AccessibilityAuditTests {
         // 记下来，最后逐个滚到整个露出再单审一次 —— 仍报才算失败，滚不出来直接 XCTFail。
         // **不放过任何一条**：真的对比度不足，整个露出来时照样报。
         let screen = app.frame
-        var cutByScreenEdge: [(element: XCUIElement, label: String, underBanner: Bool)] = []
+        let navigationBar = Self.navigationBarOcclusion(in: app)
+        var cutByScreenEdge: [(element: XCUIElement, label: String, visibleTop: CGFloat?)] = []
         try app.performAccessibilityAudit(
             for: [
                 .contrast // guard:allow a11y-audit-types —— 对比度单独一遍（#480），其余六项在下一遍，两遍合起来是全集
             ]
         ) { issue in
             // 先走原有的遮挡 / 白名单放行，放不掉的才看是否被屏幕边缘切掉。
-            if self.isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame) {
+            if self.isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame, navigationBar: navigationBar) {
                 return true
             }
             if let element = issue.element,
                let cut = Self.partiallyHiddenElement(
-                   element, screen: screen, mockBannerFrame: mockBannerFrame, occludingBar: occludingBarTop
+                   element, screen: screen, mockBannerFrame: mockBannerFrame, occludingBar: occludingBarTop, navigationBar: navigationBar
                ) {
                 cutByScreenEdge.append(cut)
                 return true
             }
-            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
+            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame, navigationBar: navigationBar)
         }
         try app.performAccessibilityAudit(
             for: [
@@ -91,13 +92,13 @@ extension AccessibilityAuditTests {
             ]
         ) { issue in
             if let designException, designException(issue) { return true }
-            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame)
+            return self.isIgnoredAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame, navigationBar: navigationBar)
         }
         for cut in cutByScreenEdge {
             try recheckContrastFullyOnScreen(
                 cut.element, label: cut.label, in: app,
                 occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame,
-                belowBanner: cut.underBanner
+                visibleTop: cut.visibleTop
             )
         }
     }
@@ -108,7 +109,7 @@ extension AccessibilityAuditTests {
     @available(iOS 17.0, *)
     private func recheckContrastFullyOnScreen(
         _ element: XCUIElement, label: String, in app: XCUIApplication,
-        occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?, belowBanner: Bool
+        occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?, visibleTop: CGFloat?
     ) throws {
         let screen = app.frame
         // 回调给的元素绑定的是那一个无障碍元素；`List` 复用行之后它会消失，这时按文案找回来。
@@ -118,7 +119,8 @@ extension AccessibilityAuditTests {
             element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
         }
         // 页面可见的部分到底栏上沿为止：露在屏内却压在栏后面，取到的是栏的颜色（#515，最大字号下元素高 408pt）。
-        let top = belowBanner ? max(screen.minY, mockBannerFrame?.maxY ?? screen.minY) : screen.minY
+        // 被横幅或导航栏压住一截的，可见区从横幅 / 导航栏下沿算起。
+        let top = max(screen.minY, visibleTop ?? screen.minY)
         let visibleArea = CGRect(
             x: screen.minX, y: top, width: screen.width,
             height: (occludingBarTop?.top ?? screen.maxY) - top
@@ -157,27 +159,40 @@ extension AccessibilityAuditTests {
     /// 被屏幕边缘切掉一截、或被 Mock 横幅压住一截的元素：`.contrast` 只拿露出来的那几个像素算，不能当场下结论（#480、#673）。
     /// 返回 nil = 不是这两种，照常判。
     private static func partiallyHiddenElement(
-        _ element: XCUIElement, screen: CGRect, mockBannerFrame: CGRect?, occludingBar: OccludingBar?
-    ) -> (element: XCUIElement, label: String, underBanner: Bool)? {
+        _ element: XCUIElement, screen: CGRect, mockBannerFrame: CGRect?, occludingBar: OccludingBar?, navigationBar: OccludingBar?
+    ) -> (element: XCUIElement, label: String, visibleTop: CGFloat?)? {
         let frame = element.frame
         guard !frame.isEmpty else { return nil }
         let label = element.label
         if !isShownAsFullyAsPossible(frame, on: screen) {
             print("[AUDIT-partial] \(label) frame=\(frame) 没有整个落在屏内（\(screen)），整个露出后再审")
-            return (element, label, false)
+            return (element, label, nil)
         }
         // 跨在底栏上沿的元素同理：下半截取到的是栏的颜色（#700 陪跑员「我的」的「我的工单」行压在悬浮标签栏上）。
         // 复审的可见区到栏上沿为止，会把它滚到整个露在栏上方再审，不放过。栏自己的子元素都在上沿以下，碰不到这条。
         if let bar = occludingBar, frame.minY < bar.top, frame.maxY > bar.top + 0.5 {
             print("[AUDIT-partial] \(label) frame=\(frame) 下半截压在底栏（上沿 \(bar.top)）后面，滚到栏上方再审")
-            return (element, label, false)
+            return (element, label, nil)
+        }
+        // 顶部导航栏同理（`top` 存的是栏下沿）：上半截在滚动边缘模糊里。滚到整个落在栏下沿以下再审。
+        if let bar = navigationBar, frame.minY < bar.top - 0.5, frame.maxY > bar.top, !bar.ownFrames.contains(frame) {
+            print("[AUDIT-partial] \(label) frame=\(frame) 上半截压在导航栏（下沿 \(bar.top)）下面，滚到栏下方再审")
+            return (element, label, bar.top)
         }
         // 最大字号下横幅长到 130pt，滚动中的行常被它压住一截。滚到整个落在横幅下沿以下再审，不放过（横幅只在 DEBUG + Mock）。
         if let banner = mockBannerFrame, element.identifier != "mockEnvironmentBanner", frame.intersects(banner) {
             print("[AUDIT-partial] \(label) frame=\(frame) 被 Mock 横幅（\(banner)）压住一截，滚到横幅下沿以下再审")
-            return (element, label, true)
+            return (element, label, banner.maxY)
         }
         return nil
+    }
+
+    /// 顶部导航栏：页面上推后，滚到栏下面的内容被滚动边缘模糊盖住，审计取到的是模糊后的颜色（#700，「我的」上推后的「类别」）。
+    /// 借 `OccludingBar` 存，`top` 存的是栏的**下沿**；`ownFrames` 是栏自己的标题、按钮，照常审。
+    private static func navigationBarOcclusion(in app: XCUIApplication) -> OccludingBar? {
+        let bar = app.navigationBars.firstMatch
+        guard bar.exists, !bar.frame.isEmpty else { return nil }
+        return OccludingBar(top: bar.frame.maxY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame))
     }
 
     /// 复审时最多滑几次去把被切掉的元素整个露出来（#480）。
@@ -195,9 +210,9 @@ extension AccessibilityAuditTests {
     /// `audit` 的放行判据：返回 `true` 表示这一条不算失败；不放行时打出 `[AUDIT]` 那一行。
     @available(iOS 17.0, *)
     private func isIgnoredAuditIssue(
-        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?
+        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?, navigationBar: OccludingBar? = nil
     ) -> Bool {
-        if isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame) {
+        if isAllowedAuditIssue(issue, occludingBarTop: occludingBarTop, mockBannerFrame: mockBannerFrame, navigationBar: navigationBar) {
             return true
         }
         // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
@@ -212,8 +227,14 @@ extension AccessibilityAuditTests {
     /// 遮挡与白名单：几何上看不见的、或白名单里的元素，返回 `true`。
     @available(iOS 17.0, *)
     private func isAllowedAuditIssue(
-        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?
+        _ issue: XCUIAccessibilityAuditIssue, occludingBarTop: OccludingBar?, mockBannerFrame: CGRect?, navigationBar: OccludingBar? = nil
     ) -> Bool {
+        // 整个在导航栏下沿以上（状态栏 + 导航栏的滚动边缘模糊里）的页面内容看不见；栏自己的标题、返回按钮照常审（#700）。
+        if issue.auditType == .contrast, let bar = navigationBar, let frame = issue.element?.frame,
+           frame.maxY <= bar.top + 0.5, !bar.ownFrames.contains(frame) {
+            print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在导航栏（下沿 \(bar.top)）下面，不可见")
+            return true
+        }
         if issue.auditType == .contrast, let bar = occludingBarTop, let frame = issue.element?.frame,
            frame.minY >= bar.top - 0.5, !bar.ownFrames.contains(frame) {
             let top = bar.top
