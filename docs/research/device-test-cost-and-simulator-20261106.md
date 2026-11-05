@@ -79,7 +79,22 @@
    输出 `** TEST BUILD SUCCEEDED **`。`blindRun.app/blindRun` 是 `x86_64`，`blindRunTests.xctest` 与 `blindRunUITests.xctest` 都生成了，高德与阿里云都链接上了。
 
 ⇒ 「永久不可用」是把「默认运行时只有 arm64」误当成「Xcode 26 去掉了 Rosetta 模拟器」。
-**还差运行这一步没验**：要装通用版运行时（几 GB），再跑一个单测类，看 `passed>0 failed=0`。
+
+7. **运行这一步实测失败（2026-11-06 同日）**：
+   - `xcodebuild -downloadPlatform iOS -buildVersion 26.2 -architectureVariant universal` 退出码 70，没有报错文字。
+     不指定版本、加 `-exportPath` 后成功，装上 `iOS 26.3.1 (23D8133)`，`supportedArchitectures` 为 `['x86_64', 'arm64']`。导出的 dmg 是 10.4 GB。
+   - 在这个运行时上建 iPhone 17 Pro 模拟器，用上面编好的产物跑
+     `xcodebuild test-without-building … -destination 'platform=iOS Simulator,id=<UDID>,arch=x86_64' -only-testing:blindRunTests`。
+   - 几分钟内 App 进程崩了 14 次，每次都在 Mac 上弹「blindRun quit unexpectedly」，所以中途停掉，没拿到结果包。
+   - 崩溃报告（`~/Library/Logs/DiagnosticReports/blindRun-2026-11-06-02*.ips`）都是 `EXC_CRASH (SIGABRT)`，栈一致：
+     `malloc_report` ← `swift_task_deinitOnExecutorImpl` ← `swift_task_deinitOnExecutorMainActorBackDeploy` ← `UserDefaultsAppStatePersistence.__deallocating_deinit` ← `AppState.deinit` ← `AppState.__isolated_deallocating_deinit`。
+     另 1 次落在 `LoginViewModel.__deallocating_deinit`（`OnboardingAudibleFeedbackTests.testLoggingInWithAShortCodeSaysHowManyDigitsWereTyped`）。
+   - 来源：工程设了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`（`project.pbxproj:718`），编译器给主线程类生成「在主线程上释放」的 deinit。部署目标 iOS 16，所以用的是 App 内嵌的向后兼容版（`…BackDeploy`）。它在 x86_64 模拟器上一遇到嵌套释放就崩。
+   - 真机上没有：11-04 到 11-05 的 157 份真机日志里，崩溃标记出现 0 次。
+   - 影响面：`blindRunTests/` 里 95 个文件会创建 `AppState`。
+
+⇒ **模拟器这条路现在走不通。** 编译能过，但大部分单测会让进程崩溃，还会在负责人的 Mac 上不停弹窗。
+为了绕开一个只在模拟器上出现的运行时问题去改 App 的并发设置，不值得。真机仍然是唯一可用的 XCTest 通道。
 
 天花板：Rosetta 的长期支持要以 Apple 公告为准，这次没核。高德或阿里云换成 xcframework 并带 arm64 模拟器片后，这条路就不需要了。
 
@@ -93,7 +108,7 @@
 
 1. 等待不再占轮次：启动后一次后台等到结束，只回一行结论，不再 `pgrep` / `tail` 轮询。估计能去掉「等待」那 115.6M 中的大部分。
 2. 审计按改动的页面跑，攒成一批由调度会话统一跑（11-04 负责人已许可「改完一起跑一次」）。先把 40 轮「只挂审计」的失败分成真缺陷和误报。
-3. 验证通用版模拟器运行时。成立的话：单测改到模拟器跑，不占手机，还可能让 CI 跑单测，堵住「合并了从没跑过的用例」（记忆 `merged-prs-whose-tests-never-ran`）。
+3. ~~单测改到模拟器跑~~：11-06 实测不可行，见 §4 第 7 条。
 
 ## 来源
 
