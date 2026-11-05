@@ -1,5 +1,5 @@
-// 测试 helper 里「造了被 weak 持有的依赖、却没交还给调用方」的检测（#450）。由 guard.mjs 的 post 段调用，
-// 判据与三次现场见那里的注释；正反用例在 scripts/validate-guard.mjs（搜 weak-helper）。
+// 测试 helper 里「造了被 weak 持有的依赖、却没交还给调用方」的检测（#450）。由 guard/test-target.mjs 的 checkWeakHelper 调用，
+// 判据与三次现场见那里的注释；正反用例在 scripts/validate-guard/test-target.mjs（搜 weak-helper）。
 //
 // 只做词法级判断（去掉注释与字符串后数括号），不解析 Swift。漏判的形状写在下面，误判走 `guard:allow weak-helper`。
 // ponytail: 只认函数 / init / setUp 体内 `let|var X = 类型(` 与 `let X = X ?? 类型(`（#601）这两种建法、
