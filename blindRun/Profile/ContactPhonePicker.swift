@@ -66,19 +66,31 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
 
         func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact) {
             let number = contact.phoneNumbers.first?.value.stringValue ?? ""
-            finish(contact: contact, rawPhone: number)
+            finish(picker, contact: contact, rawPhone: number)
         }
 
         func contactPicker(_ picker: CNContactPickerViewController, didSelect contactProperty: CNContactProperty) {
             let number = (contactProperty.value as? CNPhoneNumber)?.stringValue ?? ""
-            finish(contact: contactProperty.contact, rawPhone: number)
+            finish(picker, contact: contactProperty.contact, rawPhone: number)
         }
 
-        private func finish(contact: CNContact, rawPhone: String) {
+        /// 等选择器退场结束再交出结果（#746）：列表页拿到结果要接着弹表单 sheet，
+        /// 退场动画途中弹的 sheet 会被系统丢掉，用户看到的就是「选完人什么都没发生」。
+        private func finish(_ picker: CNContactPickerViewController, contact: CNContact, rawPhone: String) {
             isPresenting = false
             parent.isPresented = false
             let name = CNContactFormatter.string(from: contact, style: .fullName) ?? ""
-            parent.onPick(ContactPhonePick(name: name, rawPhone: rawPhone))
+            let pick = ContactPhonePick(name: name, rawPhone: rawPhone)
+            let onPick = parent.onPick
+            DispatchQueue.main.async {
+                if let coordinator = picker.transitionCoordinator {
+                    coordinator.animate(alongsideTransition: nil) { _ in onPick(pick) }
+                } else if picker.presentingViewController != nil {
+                    picker.dismiss(animated: true) { onPick(pick) }
+                } else {
+                    onPick(pick)
+                }
+            }
         }
     }
 }
