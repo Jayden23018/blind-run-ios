@@ -68,17 +68,9 @@ final class VolunteerFaceVerifyCompletionTests: XCTestCase, BlindRunTestSupport 
         XCTAssertNil(viewModel.faceVerifyMessage)
         XCTAssertFalse(client.requestedPaths.contains { $0.contains("/training/") })
 
-        // 完成态刻意不在此刻发布：一旦 AppState 认定注册完成，ContentView 的根路由会重跑并切到
-        // 志愿者首页，把注册流连同「注册完成」页一起拆掉，用户只听到 TTS 却看不到确认页。
-        // 未完成的中间态照常发布，AppState 这时停在进流程前的 STEP_3_FACE_VERIFY。
-        XCTAssertFalse(
-            appState.volunteerRegistrationStatus?.isRegistrationComplete == true,
-            "注册完成态不能在用户还停留在注册流时就推给 AppState"
-        )
-
-        // 用户点「返回志愿者首页」时才发布，根路由这时切走才是对的。
-        viewModel.prepareReturnToVolunteerHome()
+        // 人脸通过即发布完成态，根路由自动切到志愿者首页，不再等用户点「返回志愿者首页」（#768）。
         XCTAssertTrue(appState.volunteerRegistrationStatus?.isRegistrationComplete == true)
+        XCTAssertTrue(appState.isVolunteerProfileApproved, "根路由靠它切到首页")
     }
 
     func testVolunteerFaceVerifySDKFailureClearsCertifyIdAndAllowsRetry() async {
@@ -144,7 +136,6 @@ final class VolunteerFaceVerifyCompletionTests: XCTestCase, BlindRunTestSupport 
             "/api/volunteer/registration/step1",
             body: BasicInfoRequest(
                 name: "赵冉杰",
-                phone: "13800138000",
                 idCardName: "赵冉杰",
                 idCardNumber: "110101199001011234",
                 runningExperience: nil,
@@ -155,7 +146,6 @@ final class VolunteerFaceVerifyCompletionTests: XCTestCase, BlindRunTestSupport 
         let viewModel = VolunteerRegistrationViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.name = "赵冉杰"
-        viewModel.phone = "18314555097"
         viewModel.idCardName = "赵冉杰"
         viewModel.idCardNumber = "110101199001011234"
 

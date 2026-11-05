@@ -10,7 +10,7 @@ import SwiftUI
 enum BasicInfoPage: Equatable {
     /// 说明页：三步一览，外加改走人工审核的入口。
     case intro
-    /// 界面第 1 步：姓名、身份证号、手机号（必填）。
+    /// 界面第 1 步：姓名、身份证号（必填）。手机号登录时已核验过，不再填（#768）。
     case identity
     /// 界面第 2 步：陪跑经历（选填，可跳过）。
     case experience
@@ -19,15 +19,12 @@ enum BasicInfoPage: Equatable {
 extension VolunteerRegistrationViewModel {
     /// 身份那一屏还差哪几项，按屏上的顺序。空数组才放「下一步」。
     /// 判据与 `basicInfoValidationMessage` 同一套，只是一次列全，按钮下面写「还差：xx」。
-    /// 填了但格式不对的写「正确的 xx」：框里明明有字，只写「还差手机号」会让人以为没填上。
+    /// 填了但格式不对的写「正确的 xx」：框里明明有字，只写「还差身份证号」会让人以为没填上。
     var identityPageMissingFields: [String] {
         var missing: [String] = []
         if name.trimmed.isEmpty { missing.append("姓名") }
         if identityInfoValidationMessage != nil {
             missing.append(idCardNumber.trimmed.isEmpty ? "身份证号" : "正确的 18 位身份证号")
-        }
-        if !AppState.isValidMainlandPhone(phone.trimmed) {
-            missing.append(phone.trimmed.isEmpty ? "手机号" : "正确的 11 位手机号")
         }
         return missing
     }
@@ -95,15 +92,6 @@ struct VolunteerRegistrationBasicInfoContent: View {
                         identifier: "volunteerRegistrationField.身份证号",
                         keyboardType: .asciiCapable,
                         capitalizesCharacters: true
-                    )
-                    RegistrationRowDivider()
-                    RegistrationTextFieldRow(
-                        title: "手机号",
-                        placeholder: "11 位手机号",
-                        text: $viewModel.phone,
-                        identifier: "volunteerRegistrationField.手机号",
-                        keyboardType: .phonePad,
-                        textContentType: .telephoneNumber
                     )
                 }
 

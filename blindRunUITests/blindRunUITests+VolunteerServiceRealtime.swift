@@ -99,15 +99,7 @@ extension blindRunUITests {
         XCTAssertTrue(faceVerify.waitForExistence(timeout: 8))
         faceVerify.tap()
 
-        let completion = app.descendants(matching: .any)["volunteerReadinessTitle"].firstMatch
-        XCTAssertTrue(completion.waitForExistence(timeout: 12))
-        XCTAssertTrue(completion.label.hasPrefix("还差"), "结束页要说还差几步，实际：\(completion.label)")
-        let returnHome = app.buttons["返回志愿者首页"].firstMatch
-        XCTAssertTrue(returnHome.exists)
-        XCTAssertFalse(app.staticTexts["培训学习"].exists)
-        XCTAssertFalse(app.buttons["提交测验"].exists)
-
-        returnHome.tap()
+        // 人脸通过后自动进志愿者首页，不再停在结束页等「返回志愿者首页」（#768）。
         // 2026-09-14 改版把首页那个 `Toggle` 换成了底部的滑动 CTA，`app.switches` 不再存在。
         // 「没有被自动打开」这条约束没变，判据换成：滑块的无障碍按钮名是**关闭态**那一个。
         //
@@ -116,7 +108,8 @@ extension blindRunUITests {
         //
         // Mock 默认未完成培训，所以这里是第三态：滑不开，按钮名是「查看接单前进度」（#658）。
         let slider = app.buttons["查看接单前进度"].firstMatch
-        XCTAssertTrue(slider.waitForExistence(timeout: 8), "未完成培训时底部应当是通往进度页的入口")
+        XCTAssertTrue(slider.waitForExistence(timeout: 12), "未完成培训时底部应当是通往进度页的入口")
+        XCTAssertFalse(app.buttons["返回志愿者首页"].exists, "人脸通过后不该再要用户手动返回")
         XCTAssertFalse(
             app.buttons["进入接单"].exists,
             "Legacy completion must not automatically enable availability"

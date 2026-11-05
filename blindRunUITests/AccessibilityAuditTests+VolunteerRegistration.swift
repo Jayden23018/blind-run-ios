@@ -69,7 +69,7 @@ extension AccessibilityAuditTests {
         waitUntilSettled(nameField)
         XCTAssertFalse(next.isEnabled, "\(variant)：没填时「下一步」不可点")
         XCTAssertEqual(
-            app.staticTexts["volunteerRegistrationMissingFields"].label, "还差：姓名、身份证号、手机号",
+            app.staticTexts["volunteerRegistrationMissingFields"].label, "还差：姓名、身份证号",
             "\(variant)：按钮下要写清还差哪几项"
         )
         attachScreenshot(app, name: "identity-step1-empty-\(variant)")

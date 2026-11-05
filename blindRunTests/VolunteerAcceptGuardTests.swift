@@ -108,7 +108,7 @@ final class VolunteerAcceptGuardTests: XCTestCase, BlindRunTestSupport {
         XCTAssertTrue(profile.isMainRegistrationCompleteWhenStatusUnavailable)
     }
 
-    func testVolunteerRegistrationReturnHomeCreatesUnavailableProfileSnapshotWhenMissing() {
+    func testVolunteerRegistrationCompletionCreatesUnavailableProfileSnapshotWhenMissing() {
         let appState = AppState()
         let viewModel = VolunteerRegistrationViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
@@ -120,8 +120,7 @@ final class VolunteerAcceptGuardTests: XCTestCase, BlindRunTestSupport {
             faceVerifyStatus: "APPROVED"
         ))
 
-        viewModel.prepareReturnToVolunteerHome()
-
+        // 人脸通过的完成态当场发布（#768），不用点「返回志愿者首页」。
         XCTAssertEqual(appState.volunteerProfile?.name, "测试志愿者")
         XCTAssertEqual(appState.volunteerProfile?.registrationStep, "STEP_4_TRAINING")
         XCTAssertFalse(appState.volunteerProfile?.isAvailable ?? true)

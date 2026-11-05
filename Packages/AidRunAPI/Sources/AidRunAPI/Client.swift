@@ -792,9 +792,8 @@ public struct Client: APIProtocol {
     ///   - 200 成功：`data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
     ///   - 400 失败：`data = {"verifyStatus": "FAILED"}`（`message` 仍在信封顶层，不在 `data` 里）
     /// `verifyStatus` enum 仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`（无 PENDING）。
-    /// **`verifyStatus` 现在是下单硬门槛**：`OrderCreationService.createOrder` 要求 `verifyStatus == VERIFIED`，
-    /// 否则 403 `IDENTITY_NOT_VERIFIED`（2026-07-30 由软引导升级为硬门槛，回应 `handoff.md`
-    /// 待后端确认 Q1，2026-07-29）。
+    /// 🚩 **#924（2026-11-05）起实名不再是任何功能的门槛**：下单、语音都不看 `verifyStatus`，
+    /// 不再返回 403 `IDENTITY_NOT_VERIFIED`。本端点保留（老客户端还会调），客户端不必再引导盲人实名。
     ///
     /// - Remark: HTTP `POST /api/blind/verify-identity`.
     /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)`.
@@ -1990,7 +1989,7 @@ public struct Client: APIProtocol {
     ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
     ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
     ///    没开始派单就取消的、系统取消的不计。
-    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 9. ~~盲人实名门槛~~：**#924（2026-11-05）起取消**，`BlindProfile.verifyStatus` 不再影响下单，不再返回 403 `IDENTITY_NOT_VERIFIED`
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
@@ -2077,6 +2076,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createOrder.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
                 case 409:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.createOrder.Output.Conflict.Body
@@ -8720,6 +8741,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitBasicInfo.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 case 429:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.submitBasicInfo.Output.TooManyRequests.Body

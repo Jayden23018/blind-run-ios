@@ -437,14 +437,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     // Step 1
     @Published var name = ""
-    @Published var phone = "" {
-        didSet {
-            let normalized = Self.normalizedPhoneNumber(phone)
-            if normalized != phone {
-                phone = normalized
-            }
-        }
-    }
     @Published var idCardName = ""
     @Published var idCardNumber = "" {
         didSet {
@@ -525,10 +517,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     static let declineNeedsIdVerificationMessage =
         "请先重新填写姓名和身份证号码，通过核验后才能选择替代认证方式。"
 
-    static func normalizedPhoneNumber(_ value: String) -> String {
-        String(value.filter(\.isNumber).prefix(11))
-    }
-
     static func normalizedIdCardNumber(_ value: String) -> String {
         String(value.filter { $0.isNumber || $0 == "X" || $0 == "x" }.prefix(18))
     }
@@ -572,7 +560,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     func configure(appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
-        phone = ""
     }
 
     // MARK: - Load Registration Status
@@ -615,14 +602,15 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         let wasAwaitingCompletion = isAwaitingRegistrationCompletion
         let previousStep = currentStep
         registrationStatus = status
-        // 完成态**不能**立刻发布给 AppState：`isVolunteerProfileApproved` 一翻真，
-        // ContentView 的 `rootRoutingKey` 就变，根路由会重跑 hydrate 并切到 .volunteerHome，
-        // 把整个注册流连同「注册完成」页一起拆掉——用户只听到 TTS 报了完成，却看不到确认页，
-        // 也点不到「返回志愿者首页」。改为攒着，等用户主动离开时再发布。
-        if status.isRegistrationComplete {
-            pendingCompletedStatus = status
-        } else {
+        // 完成态一发布给 AppState，`isVolunteerProfileApproved` 就翻真，ContentView 的
+        // `rootRoutingKey` 随之变，根路由切到志愿者首页、拆掉整个注册流。
+        // - 人脸通过：要的就是这个（#768，负责人：识别完自动进首页）。在本函数末尾、播完那句之后发布。
+        // - 拒绝人脸：**不能**立刻发布 —— 他还要从落地页去传身份材料，注册流一拆就够不着了。
+        //   攒着，等他点「返回志愿者首页」再发布。
+        if !status.isRegistrationComplete {
             appState?.updateVolunteerRegistrationStatus(status)
+        } else if status.hasDeclinedFaceVerification {
+            pendingCompletedStatus = status
         }
         isRegistrationCompleted = status.isRegistrationComplete
         // `wasCompleted` 必须参与这个 sticky 判断：一条过期/乱序的状态响应不能把已经完成注册的人
@@ -651,6 +639,12 @@ final class VolunteerRegistrationViewModel: ObservableObject {
                 }
             }
             pendingDeclineAnnouncement = nil
+            // 播报先于发布：合成器是全进程一个，不随注册流销毁；首页出现时不播任何话，不会切断这一句。
+            if !status.hasDeclinedFaceVerification, let appState {
+                appState.updateVolunteerRegistrationStatus(status)
+                pendingCompletedStatus = nil
+                ensureVolunteerProfile(appState: appState)
+            }
         }
     }
 
@@ -659,16 +653,20 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         registrationStatus?.hasDeclinedFaceVerification == true
     }
 
+    /// 替代路径落地页上的「返回志愿者首页」。人脸通过的人不经过这里，`applyRegistrationStatus` 当场发布。
     func prepareReturnToVolunteerHome() {
         guard isRegistrationCompleted, let appState else { return }
 
         // 这里才把完成态交给 AppState，根路由随后切到志愿者首页。
-        // 必须在下面那道 `volunteerProfile == nil` 早退之前做，否则已有资料的用户永远发布不出去。
         if let pendingCompletedStatus {
             appState.updateVolunteerRegistrationStatus(pendingCompletedStatus)
             self.pendingCompletedStatus = nil
         }
+        ensureVolunteerProfile(appState: appState)
+    }
 
+    /// `isVolunteerProfileApproved` 还要求有志愿者资料；刚注册完的人可能还没有，补一份本地的。
+    private func ensureVolunteerProfile(appState: AppState) {
         guard appState.volunteerProfile == nil else { return }
 
         appState.updateVolunteerProfile(VolunteerProfileResponse(
@@ -747,7 +745,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
         let request = BasicInfoRequest(
             name: name.trimmed,
-            phone: phone.trimmed,
             idCardName: name.trimmed,
             idCardNumber: idCardNumber.trimmed,
             runningExperience: runningExperience.trimmed.isEmpty ? nil : runningExperience.trimmed,
@@ -801,6 +798,14 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         }
         let previousStep = currentStep
         let localizedMessage = error.localizedMessage
+        // 一证一个志愿者（#768）：回到填身份证号的那一屏，原因写在那一屏上。
+        if case .serverError(let response) = error, response.errorCode == .idCardAlreadyRegistered {
+            isLoading = false
+            basicInfoPage = .identity
+            errorMessage = localizedMessage
+            speechService?.speakError(localizedMessage)
+            return
+        }
         if shouldRefreshRegistrationStatus(after: error), let appState {
             do {
                 let status = try await activeProfileService(appState: appState).volunteerRegistrationStatus()
@@ -1243,9 +1248,6 @@ extension VolunteerRegistrationViewModel {
         if name.trimmed.isEmpty {
             return "请填写姓名"
         }
-        if !AppState.isValidMainlandPhone(phone.trimmed) {
-            return "请输入 11 位中国大陆手机号"
-        }
         return identityInfoValidationMessage
     }
 
@@ -1353,7 +1355,7 @@ struct VolunteerRegistrationFlowView: View {
         // 经历那一屏的系统返回会直接离开注册、丢掉第 1 步刚填的内容；那一屏只给页内「上一步」。
         .navigationBarBackButtonHidden(viewModel.isOnExperiencePage)
         .toolbar {
-            // 手机号是数字键盘、没有回车键；不给这一枚，键盘收不起来，底部「下一步」一直被压着。
+            // 经历那一屏是多行输入，回车只换行；不给这一枚，键盘收不起来，底部「下一步」一直被压着。
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("完成") {
@@ -1566,25 +1568,14 @@ struct VolunteerRegistrationFlowView: View {
         }
     }
 
-    /// 活体通过的落地屏。**不是「注册完成」**：后面还有证书、审核、培训，这一屏要说清还差什么。
+    /// 活体通过后，完成态已经交给 AppState，根路由马上切到志愿者首页（#768）。
+    /// 这一屏只在切换前的一瞬可见，不放按钮；接单前还差什么在首页「查看接单前进度」里看。
     private var faceVerifiedCompletionStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VolunteerReadinessProgressContent(viewModel: progressViewModel)
-
-            PrimaryButton("返回志愿者首页") {
-                viewModel.prepareReturnToVolunteerHome()
-                dismiss()
-            }
-            .accessibilityLabel("返回志愿者首页")
-            .accessibilityHint("回到首页后，也可以从底部查看这份进度")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .task { await progressViewModel.configureAndLoad(
-            appState: appState,
-            speechService: speechService,
-            registration: viewModel.registrationStatus,
-            announces: false
-        ) }
+        ProgressView("正在进入志愿者首页")
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.textPrimary)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("正在进入志愿者首页")
     }
 
     /// 走了替代认证路径的落地屏。

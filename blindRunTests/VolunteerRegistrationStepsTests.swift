@@ -14,18 +14,14 @@ final class VolunteerRegistrationStepsTests: XCTestCase {
 
     func testIdentityPageListsWhatIsStillMissingInScreenOrder() {
         let viewModel = VolunteerRegistrationViewModel(apiClient: StepsFlowAPIClient(statuses: []))
-        XCTAssertEqual(viewModel.identityPageMissingFields, ["姓名", "身份证号", "手机号"])
+        XCTAssertEqual(viewModel.identityPageMissingFields, ["姓名", "身份证号"], "手机号登录时已核验，不再要（#768）")
 
         viewModel.name = "测试志愿者"
         // 17 位：差一位也要算「还差身份证号」，不是只看有没有填。
         viewModel.idCardNumber = "11010119900101123"
-        XCTAssertEqual(viewModel.identityPageMissingFields, ["正确的 18 位身份证号", "手机号"])
+        XCTAssertEqual(viewModel.identityPageMissingFields, ["正确的 18 位身份证号"])
 
         viewModel.idCardNumber = "110101199001011234"
-        viewModel.phone = "1380000000"
-        XCTAssertEqual(viewModel.identityPageMissingFields, ["正确的 11 位手机号"], "10 位手机号不算填好，且要说清是格式不对")
-
-        viewModel.phone = "13800000002"
         XCTAssertEqual(viewModel.identityPageMissingFields, [])
     }
 
@@ -38,7 +34,7 @@ final class VolunteerRegistrationStepsTests: XCTestCase {
 
         viewModel.name = "测试志愿者"
         viewModel.advanceToExperiencePage()
-        XCTAssertEqual(viewModel.basicInfoPage, .identity, "身份证号和手机号没填，不能进经历那一屏")
+        XCTAssertEqual(viewModel.basicInfoPage, .identity, "身份证号没填，不能进经历那一屏")
 
         fillIdentity(viewModel)
         viewModel.advanceToExperiencePage()
@@ -128,7 +124,6 @@ final class VolunteerRegistrationStepsTests: XCTestCase {
     private func fillIdentity(_ viewModel: VolunteerRegistrationViewModel) {
         viewModel.name = "测试志愿者"
         viewModel.idCardNumber = "110101199001011234"
-        viewModel.phone = "13800000002"
     }
 
     /// 调用方作用域里的 `let`：view model 对 AppState 是 weak 引用，临时对象会当场释放。

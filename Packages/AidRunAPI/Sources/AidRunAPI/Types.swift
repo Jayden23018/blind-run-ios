@@ -112,9 +112,8 @@ public protocol APIProtocol: Sendable {
     ///   - 200 成功：`data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
     ///   - 400 失败：`data = {"verifyStatus": "FAILED"}`（`message` 仍在信封顶层，不在 `data` 里）
     /// `verifyStatus` enum 仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`（无 PENDING）。
-    /// **`verifyStatus` 现在是下单硬门槛**：`OrderCreationService.createOrder` 要求 `verifyStatus == VERIFIED`，
-    /// 否则 403 `IDENTITY_NOT_VERIFIED`（2026-07-30 由软引导升级为硬门槛，回应 `handoff.md`
-    /// 待后端确认 Q1，2026-07-29）。
+    /// 🚩 **#924（2026-11-05）起实名不再是任何功能的门槛**：下单、语音都不看 `verifyStatus`，
+    /// 不再返回 403 `IDENTITY_NOT_VERIFIED`。本端点保留（老客户端还会调），客户端不必再引导盲人实名。
     ///
     /// - Remark: HTTP `POST /api/blind/verify-identity`.
     /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)`.
@@ -353,7 +352,7 @@ public protocol APIProtocol: Sendable {
     ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
     ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
     ///    没开始派单就取消的、系统取消的不计。
-    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 9. ~~盲人实名门槛~~：**#924（2026-11-05）起取消**，`BlindProfile.verifyStatus` 不再影响下单，不再返回 403 `IDENTITY_NOT_VERIFIED`
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
@@ -1628,9 +1627,8 @@ extension APIProtocol {
     ///   - 200 成功：`data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
     ///   - 400 失败：`data = {"verifyStatus": "FAILED"}`（`message` 仍在信封顶层，不在 `data` 里）
     /// `verifyStatus` enum 仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`（无 PENDING）。
-    /// **`verifyStatus` 现在是下单硬门槛**：`OrderCreationService.createOrder` 要求 `verifyStatus == VERIFIED`，
-    /// 否则 403 `IDENTITY_NOT_VERIFIED`（2026-07-30 由软引导升级为硬门槛，回应 `handoff.md`
-    /// 待后端确认 Q1，2026-07-29）。
+    /// 🚩 **#924（2026-11-05）起实名不再是任何功能的门槛**：下单、语音都不看 `verifyStatus`，
+    /// 不再返回 403 `IDENTITY_NOT_VERIFIED`。本端点保留（老客户端还会调），客户端不必再引导盲人实名。
     ///
     /// - Remark: HTTP `POST /api/blind/verify-identity`.
     /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)`.
@@ -1947,7 +1945,7 @@ extension APIProtocol {
     ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
     ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
     ///    没开始派单就取消的、系统取消的不计。
-    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 9. ~~盲人实名门槛~~：**#924（2026-11-05）起取消**，`BlindProfile.verifyStatus` 不再影响下单，不再返回 403 `IDENTITY_NOT_VERIFIED`
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
@@ -5675,7 +5673,7 @@ public enum Components {
                 case visionLevel
             }
         }
-        /// 志愿者基本信息（Step 1）。提交时自动触发阿里云 Id2Meta 二要素核验（idCardName + idCardNumber）。 核验通过则推进到 Step 3 动作活体认证；核验未通过则保持 STEP_1_BASIC_INFO 并返回 HTTP 400 加 errorCode ID_INFO_INVALID（前端停留 Step1 引导修改）。后端自动 trim 并将 身份证号末位 X 统一大写。原 Step 2 身份证照片上传已下线。
+        /// 志愿者基本信息（Step 1）。提交时自动触发阿里云 Id2Meta 二要素核验（idCardName + idCardNumber）。 核验通过则推进到 Step 3 动作活体认证；核验未通过则保持 STEP_1_BASIC_INFO 并返回 HTTP 400 加 errorCode ID_INFO_INVALID（前端停留 Step1 引导修改）。后端自动 trim 并将 身份证号末位 X 统一大写。身份证号已被另一个志愿者账号实名通过时返回 409 `ID_CARD_ALREADY_REGISTERED`（#924，一证一个志愿者）。原 Step 2 身份证照片上传已下线。
         ///
         /// - Remark: Generated from `#/components/schemas/BasicInfoRequest`.
         public struct BasicInfoRequest: Codable, Hashable, Sendable {
@@ -5695,8 +5693,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/BasicInfoRequest/name`.
             public var name: Swift.String
+            /// 可不传（#924）。**传了也不用**：档案手机号一律取当前登录账号的手机号（登录时已收过验证码），不会因为与账号不一致而报错
+            ///
             /// - Remark: Generated from `#/components/schemas/BasicInfoRequest/phone`.
-            public var phone: Swift.String
+            public var phone: Swift.String?
             /// - Remark: Generated from `#/components/schemas/BasicInfoRequest/runningExperience`.
             public var runningExperience: Swift.String?
             /// Creates a new `BasicInfoRequest`.
@@ -5707,7 +5707,7 @@ public enum Components {
             ///   - idCardName: 身份证姓名（提交即触发二要素核验）
             ///   - idCardNumber: 身份证号码（18 位，末位可为 X）
             ///   - name: 展示姓名（盲人看到的就是它）。🚩 #826 M8：必须等于 `idCardName`（去掉首尾空白后比较），不一致返回 400，且不扣二要素核验次数、不调阿里云
-            ///   - phone:
+            ///   - phone: 可不传（#924）。**传了也不用**：档案手机号一律取当前登录账号的手机号（登录时已收过验证码），不会因为与账号不一致而报错
             ///   - runningExperience:
             public init(
                 emergencyExperience: Swift.String? = nil,
@@ -5715,7 +5715,7 @@ public enum Components {
                 idCardName: Swift.String,
                 idCardNumber: Swift.String,
                 name: Swift.String,
-                phone: Swift.String,
+                phone: Swift.String? = nil,
                 runningExperience: Swift.String? = nil
             ) {
                 self.emergencyExperience = emergencyExperience
@@ -5985,8 +5985,7 @@ public enum Components {
             public var tetherPreference: Components.Schemas.BlindProfileResponse.tetherPreferencePayload?
             /// 实名认证状态，权威来源。仅三态，**没有 PENDING / 审核中** —— `POST /api/blind/verify-identity`
             /// 是同步二要素核验，直接落 `VERIFIED` 或 `FAILED`。
-            /// 该字段**是下单硬门槛**：非 `VERIFIED` 时 `POST /api/orders` 返回 403 `IDENTITY_NOT_VERIFIED`
-            /// （2026-07-30 由软引导升级为硬门槛，回应 handoff Q1，2026-07-29）。
+            /// #924（2026-11-05）起**不再是下单门槛**，只做展示。
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus`.
             public struct verifyStatusPayload: Codable, Hashable, Sendable {
@@ -6043,8 +6042,7 @@ public enum Components {
             }
             /// 实名认证状态，权威来源。仅三态，**没有 PENDING / 审核中** —— `POST /api/blind/verify-identity`
             /// 是同步二要素核验，直接落 `VERIFIED` 或 `FAILED`。
-            /// 该字段**是下单硬门槛**：非 `VERIFIED` 时 `POST /api/orders` 返回 403 `IDENTITY_NOT_VERIFIED`
-            /// （2026-07-30 由软引导升级为硬门槛，回应 handoff Q1，2026-07-29）。
+            /// #924（2026-11-05）起**不再是下单门槛**，只做展示。
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus`.
             public var verifyStatus: Components.Schemas.BlindProfileResponse.verifyStatusPayload?
@@ -17811,9 +17809,8 @@ public enum Operations {
     ///   - 200 成功：`data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
     ///   - 400 失败：`data = {"verifyStatus": "FAILED"}`（`message` 仍在信封顶层，不在 `data` 里）
     /// `verifyStatus` enum 仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`（无 PENDING）。
-    /// **`verifyStatus` 现在是下单硬门槛**：`OrderCreationService.createOrder` 要求 `verifyStatus == VERIFIED`，
-    /// 否则 403 `IDENTITY_NOT_VERIFIED`（2026-07-30 由软引导升级为硬门槛，回应 `handoff.md`
-    /// 待后端确认 Q1，2026-07-29）。
+    /// 🚩 **#924（2026-11-05）起实名不再是任何功能的门槛**：下单、语音都不看 `verifyStatus`，
+    /// 不再返回 403 `IDENTITY_NOT_VERIFIED`。本端点保留（老客户端还会调），客户端不必再引导盲人实名。
     ///
     /// - Remark: HTTP `POST /api/blind/verify-identity`.
     /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)`.
@@ -20488,7 +20485,7 @@ public enum Operations {
     ///    **取消次数闸（#826 M9）**：滚动 `app.order.cancel-limit-window-hours`（默认 24）小时内，**已开始派单**就被盲人自己取消的单满
     ///    `app.order.cancel-limit-count`（默认 5）张时拒绝，409 `ORDER_CANCEL_LIMIT_REACHED`，`message` 里带最早恢复下单的时刻。
     ///    没开始派单就取消的、系统取消的不计。
-    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 9. ~~盲人实名门槛~~：**#924（2026-11-05）起取消**，`BlindProfile.verifyStatus` 不再影响下单，不再返回 403 `IDENTITY_NOT_VERIFIED`
     /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
@@ -20614,7 +20611,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 实名认证未通过（IDENTITY_NOT_VERIFIED）或未设置紧急联系人（EMERGENCY_CONTACT_REQUIRED）
+            /// 未设置紧急联系人（EMERGENCY_CONTACT_REQUIRED）或账号被平台停用（ACCOUNT_SUSPENDED）
             ///
             /// - Remark: Generated from `#/paths//api/orders/post(createOrder)/responses/403`.
             ///
@@ -20632,6 +20629,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/POST/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/POST/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.createOrder.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.createOrder.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 下单账号已不存在（已注销而 token 还没失效，RESOURCE_NOT_FOUND）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/post(createOrder)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.createOrder.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.createOrder.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
@@ -21619,7 +21667,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 非盲人角色；或盲人实名未通过（errorCode = IDENTITY_NOT_VERIFIED，与下单、asr-token 同一道门槛，客户端应跳实名页）
+            /// 非盲人角色
             ///
             /// - Remark: Generated from `#/paths//api/orders/voice/parse/post(parseOrder)/responses/403`.
             ///
@@ -21792,7 +21840,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 非盲人角色；或盲人实名未通过（errorCode = IDENTITY_NOT_VERIFIED，与下单、asr-token 同一道门槛，客户端应跳实名页）
+            /// 非盲人角色
             ///
             /// - Remark: Generated from `#/paths//api/orders/voice/parse-slot/post(parseSlot)/responses/403`.
             ///
@@ -21969,7 +22017,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 非盲人角色；或盲人实名未通过（errorCode = IDENTITY_NOT_VERIFIED，与下单、asr-token 同一道门槛，客户端应跳实名页）
+            /// 非盲人角色
             ///
             /// - Remark: Generated from `#/paths//api/orders/voice/resolve-address/post(resolveAddress)/responses/403`.
             ///
@@ -35198,6 +35246,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/registration/step1/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/registration/step1/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitBasicInfo.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitBasicInfo.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 身份证号已被另一个志愿者账号实名通过（errorCode `ID_CARD_ALREADY_REGISTERED`，#924 一证一个志愿者，不调阿里云、不扣核验次数）；或当前步骤不允许提交（`REGISTRATION_STEP_INVALID`）
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/registration/step1/post(submitBasicInfo)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.submitBasicInfo.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.submitBasicInfo.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }

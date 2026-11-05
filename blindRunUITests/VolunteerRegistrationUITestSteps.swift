@@ -3,17 +3,16 @@ import XCTest
 /// 志愿者注册第 1 步拆屏之后（#699）的填表走法，`blindRunUITests` 与 `AccessibilityAuditTests` 共用。
 ///
 /// 按 `accessibilityIdentifier` 找输入框，不按 `textFields` 下标：拆屏前的用例按下标填，
-/// 换一次字段顺序就把手机号填进身份证号框。单独成文件：`blindRunUITests.swift` 已超长，SwiftLint 棘轮不许它再变长。
+/// 换一次字段顺序就把姓名填进身份证号框。单独成文件：`blindRunUITests.swift` 已超长，SwiftLint 棘轮不许它再变长。
 @MainActor
 enum VolunteerRegistrationUITestSteps {
     static let identityValues: [(identifier: String, text: String)] = [
         ("volunteerRegistrationField.姓名", "测试志愿者"),
         ("volunteerRegistrationField.身份证号", "110101199001011234"),
-        ("volunteerRegistrationField.手机号", "13800000002"),
     ]
 
-    /// 在身份那一屏填三项必填。每填完一项就用键盘上的「完成」收起键盘（手机号是数字键盘，没有回车）：
-    /// AX5 下三行上下排，下一个框会落在键盘后面，不收起的话 `tap()` 会点到键盘上的键。
+    /// 在身份那一屏填两项必填（手机号登录时已核验，#768 起不再填）。每填完一项就用键盘上的「完成」收起键盘：
+    /// AX5 下几行上下排，下一个框会落在键盘后面，不收起的话 `tap()` 会点到键盘上的键。
     static func fillIdentity(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         for value in identityValues {
             let field = app.textFields[value.identifier].firstMatch

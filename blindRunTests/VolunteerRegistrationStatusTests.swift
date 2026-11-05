@@ -197,7 +197,6 @@ final class VolunteerRegistrationStatusTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel(apiClient: client)
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.name = "赵冉杰"
-        viewModel.phone = "13800138000"
         viewModel.idCardName = "赵冉杰"
         viewModel.idCardNumber = "110101199001011234"
 
@@ -206,6 +205,31 @@ final class VolunteerRegistrationStatusTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(viewModel.currentStep, .basicInfo)
         XCTAssertEqual(viewModel.errorMessage, "身份证二要素核验未通过，请更新身份证信息")
         XCTAssertEqual(speechService.lastSpokenText, "身份证二要素核验未通过，请更新身份证信息")
+    }
+
+    /// 一证一个志愿者（#768）：从经历那一屏提交被拒，要回到填身份证号的那一屏，且不引导「核对证件」。
+    func testVolunteerRegistrationIdCardAlreadyRegisteredReturnsToIdentityPage() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let client = BasicInfoFailingAPIClient(
+            error: APIError.serverError(ErrorResponse(code: "ID_CARD_ALREADY_REGISTERED", message: "该身份证号已注册"))
+        )
+        let viewModel = VolunteerRegistrationViewModel(apiClient: client)
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.startIdentityEntry(prefersAlternativePath: false)
+        viewModel.name = "赵冉杰"
+        viewModel.idCardNumber = "110101199001011234"
+        viewModel.advanceToExperiencePage()
+        XCTAssertEqual(viewModel.basicInfoPage, .experience)
+
+        await viewModel.submitBasicInfo()
+
+        let expected = ErrorCode.idCardAlreadyRegistered.localizedMessage
+        XCTAssertEqual(viewModel.basicInfoPage, .identity)
+        XCTAssertEqual(viewModel.errorMessage, expected)
+        XCTAssertEqual(speechService.lastSpokenText, expected)
+        XCTAssertFalse(expected.contains("核对"), "证件没问题，不能让他去核对证件")
     }
 
     func testVolunteerRegistrationStep1SuccessRefreshesToFaceVerifyStatus() async {
@@ -218,7 +242,6 @@ final class VolunteerRegistrationStatusTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel(apiClient: client)
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.name = "赵冉杰"
-        viewModel.phone = "13800138000"
         viewModel.idCardName = "赵冉杰"
         viewModel.idCardNumber = "110101199001011234"
 

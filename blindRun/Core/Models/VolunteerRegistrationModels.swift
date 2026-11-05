@@ -183,9 +183,10 @@ struct VolunteerRegistrationStepDetails: Codable, Sendable {
 
 // MARK: - Step 1: Basic Info
 
+/// 不带 `phone`：手机号登录时已经核验过，后端用账号上的号码（后端 #924，iOS #768）。
+/// `/api/auth/me` 只给脱敏号码，客户端本来也拿不到完整号码。
 struct BasicInfoRequest: Codable, Sendable {
     let name: String
-    let phone: String
     let idCardName: String
     let idCardNumber: String
     let runningExperience: String?

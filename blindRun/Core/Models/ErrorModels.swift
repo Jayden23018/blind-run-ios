@@ -1,7 +1,6 @@
 import Foundation
 
 // MARK: - Error Code
-
 enum ErrorCode: String, Codable, Sendable {
     case invalidVerificationCode = "INVALID_VERIFICATION_CODE"
     case orderNotFound = "ORDER_NOT_FOUND"
@@ -66,6 +65,7 @@ enum ErrorCode: String, Codable, Sendable {
     case registrationStepInvalid = "REGISTRATION_STEP_INVALID"
     case internalError = "INTERNAL_ERROR"
     case idInfoInvalid = "ID_INFO_INVALID"
+    case idCardAlreadyRegistered = "ID_CARD_ALREADY_REGISTERED" // 一证一个志愿者（后端 #924）。证件没问题，别引导去核对
     case orderInProgress = "ORDER_IN_PROGRESS"
     case orderPermissionDenied = "ORDER_PERMISSION_DENIED"
     case smsSendLimitExceeded = "SMS_SEND_LIMIT_EXCEEDED"
@@ -207,7 +207,6 @@ enum ErrorCode: String, Codable, Sendable {
         default: return nil
         }
     }
-
     var localizedMessage: String {
         switch self {
         case .invalidVerificationCode:
@@ -309,6 +308,7 @@ enum ErrorCode: String, Codable, Sendable {
             return "服务器内部错误，请稍后重试。"
         case .idInfoInvalid:
             return "身份信息核验未通过，请检查后重试。"
+        case .idCardAlreadyRegistered: return "这个身份证号已经注册过志愿者，一个身份证只能注册一个志愿者账号。请用原来的账号登录；如果不是你本人注册的，请联系客服。"
         case .orderInProgress:
             // 后端只在「取消受阻」这一处抛该码（`OrderLifecycleService`），文案跟着这个唯一场景走。
             return "陪跑员已出发或服务进行中，如需取消请联系陪跑员。"

@@ -101,7 +101,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
             "/api/volunteer/registration/step1",
             body: BasicInfoRequest(
                 name: "测试志愿者",
-                phone: "13800000002",
                 idCardName: "测试志愿者",
                 idCardNumber: "110101199001011234",
                 runningExperience: nil,
@@ -141,7 +140,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
     func testVolunteerRegistrationBasicInfoRequestEncodesIdCardFields() throws {
         let request = BasicInfoRequest(
             name: "赵冉杰",
-            phone: "18314551097",
             idCardName: "赵冉杰",
             idCardNumber: "110101199001011234",
             runningExperience: "3年跑步经验",
@@ -154,6 +152,7 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
 
         XCTAssertEqual(object["idCardName"] as? String, "赵冉杰")
         XCTAssertEqual(object["idCardNumber"] as? String, "110101199001011234")
+        XCTAssertNil(object["phone"], "手机号登录时已核验，step1 不再带 phone（#768）")
     }
 
     func testVolunteerRegistrationStep1UsesNameAsIdCardName() async {
@@ -166,7 +165,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel(apiClient: client)
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.name = "赵冉杰"
-        viewModel.phone = "13800138000"
         viewModel.idCardName = "不应提交的旧姓名"
         viewModel.idCardNumber = "110101199001011234"
 
@@ -184,7 +182,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.name = "测试志愿者"
-        viewModel.phone = "13800000002"
         viewModel.idCardName = "测试志愿者"
         viewModel.idCardNumber = "110101199001011234"
 
@@ -194,43 +191,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertEqual(speechService.lastSpokenText, "身份核验通过，请开始刷脸")
-    }
-
-    func testVolunteerRegistrationBasicInfoShowsBlockedReasonForInvalidPhone() async {
-        let appState = AppState()
-        appState.currentEnvironment = .mock
-        let speechService = SpeechService()
-        let viewModel = VolunteerRegistrationViewModel()
-        viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.name = "赵冉杰"
-        viewModel.phone = "1831455097"
-        viewModel.idCardName = "赵冉杰"
-        viewModel.idCardNumber = "110101199001011234"
-
-        XCTAssertFalse(viewModel.canSubmitBasicInfo)
-        XCTAssertEqual(viewModel.basicInfoValidationMessage, "请输入 11 位中国大陆手机号")
-
-        await viewModel.submitBasicInfo()
-
-        XCTAssertEqual(viewModel.currentStep, .basicInfo)
-        XCTAssertEqual(viewModel.errorMessage, "请输入 11 位中国大陆手机号")
-        XCTAssertEqual(speechService.lastSpokenText, "请输入 11 位中国大陆手机号")
-    }
-
-    func testVolunteerRegistrationPhoneDirectAssignmentKeepsOnlyFirstElevenDigits() {
-        let viewModel = VolunteerRegistrationViewModel()
-
-        viewModel.phone = "13800138000999"
-
-        XCTAssertEqual(viewModel.phone, "13800138000")
-    }
-
-    func testVolunteerRegistrationPhoneInputDropsNonDigits() {
-        let viewModel = VolunteerRegistrationViewModel()
-
-        viewModel.phone = "abc 138-0013-8000 xyz"
-
-        XCTAssertEqual(viewModel.phone, "13800138000")
     }
 
     func testVolunteerRegistrationIdCardDirectAssignmentKeepsOnlyFirstEighteenCharacters() {
@@ -245,7 +205,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel()
 
         viewModel.name = "赵冉杰"
-        viewModel.phone = "13800138000"
         viewModel.idCardName = "赵冉杰"
         viewModel.idCardNumber = "11010119900101123x"
 
@@ -260,7 +219,6 @@ final class VolunteerRegistrationTests: XCTestCase, BlindRunTestSupport {
         let viewModel = VolunteerRegistrationViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.name = "赵冉杰"
-        viewModel.phone = "13800138000"
         viewModel.idCardName = "赵冉杰"
         viewModel.idCardNumber = "123"
 
