@@ -316,18 +316,12 @@ struct BlindIdentityVerificationView: View {
             .accessibilityHint(
                 viewModel.canSubmit
                     ? "点击后提交核验"
-                    : "按钮下面写着还差哪几项"
+                    : "请先填写真实姓名和18位身份证号"
             )
             .accessibilityIdentifier("blindIdentitySubmitButton")
 
             if let submitFootnote {
-                Text(submitFootnote)
-                    .font(.subheadline)
-                    .foregroundColor(AppColors.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("blindIdentitySubmitFootnote")
+                RegistrationBottomHint(text: submitFootnote, identifier: "blindIdentitySubmitFootnote")
             }
         }
         .padding(.horizontal, 16)
@@ -350,11 +344,23 @@ struct BlindIdentityVerificationView: View {
     }
 
     /// 按钮下面那行灰字：没填完写「还差：xx」；填完了但还没同意过，先说清点了会先问同意。
+    /// 填了但不合格时说清差在哪，免得像没填上（姓名 1 个字、号码不满 18 位）。
     private var submitFootnote: String? {
         guard !viewModel.isSubmitting else { return nil }
         var missing: [String] = []
-        if !viewModel.isNameValid { missing.append("姓名") }
-        if !viewModel.isIdCardNumberValid { missing.append("身份证号") }
+        if !viewModel.isNameValid {
+            missing.append(viewModel.idCardName.trimmed.isEmpty ? "姓名" : "姓名要 2 到 50 个字")
+        }
+        if !viewModel.isIdCardNumberValid {
+            let count = viewModel.idCardNumber.count
+            if count == 0 {
+                missing.append("身份证号")
+            } else if count < 18 {
+                missing.append("身份证号还差 \(18 - count) 位")
+            } else {
+                missing.append("身份证号只有最后一位可以是 X")
+            }
+        }
         if !missing.isEmpty {
             return "还差：\(missing.joined(separator: "、"))"
         }

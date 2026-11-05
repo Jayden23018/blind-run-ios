@@ -47,6 +47,16 @@ extension AccessibilityAuditTests {
                 "\(variant)：填了姓名后「还差」没更新：\(footnote.label)"
             )
             XCTAssertFalse(submit.isEnabled, "\(variant)：只填了姓名不该能提交")
+
+            // 号码没填满时说差几位，不再只写「身份证号」（#751 审查）。AX5 下键盘会盖住号码框，只在默认字号验。
+            guard !variant.hasPrefix("ax5") else { return }
+            let idField = app.secureTextFields["身份证号，必填，18位"].firstMatch
+            idField.tap()
+            idField.typeText("11010")
+            XCTAssertTrue(
+                footnote.waitForLabel("还差：身份证号还差 13 位", timeout: 5),
+                "\(variant)：号码没填满时「还差」没说差几位：\(footnote.label)"
+            )
         }
     }
 
