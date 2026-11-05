@@ -104,7 +104,7 @@ if [ "$FULL" = "1" ] || touches '^(Packages/AidRunAPI/|scripts/(generate|sync)-a
   run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
   RUN_CLIENT_CHECK=1
 else
-  echo "[pre-push] 跳过 swift test 与生成代码比对：本次未改 API 包（CI build job 会跑）"
+  echo "[pre-push] 跳过 swift test 与生成代码比对：本次未改 API 包（PR 上的 CI 同样跳过，合进 main 后那次 CI 会跑，#714）"
   TIERED_OUT=1
   RUN_CLIENT_CHECK=0
 fi
