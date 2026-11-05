@@ -74,7 +74,7 @@
 | 派单 → 接单 → 在路上 → 已到达 → 服务中 → 完成 | 完整状态机 |
 | 「继续等待」避免自动取消 | `blindRunTests/KeepWaitingTests.swift` |
 | 志愿者位置实时可见 | `GET /api/blind/volunteer-location` + WS |
-| 求助 SOS（仅服务中）+ 二次确认 | `EmergencySOSTests` 逐状态钉住 |
+| 求助 SOS（仅服务中）+ 二次确认 | `EmergencySOS*Tests`（8 个类）逐状态钉住 |
 | 紧急联系人管理（1–5 人）| `EmergencyContactsView.swift` |
 | 行程分享给紧急联系人 | `RunPlanLiveShareTests` / `RunPlanShareConsentTests` |
 | 约定结束时间 + 超时告警 | `PlannedEndAndOverdueTests` |

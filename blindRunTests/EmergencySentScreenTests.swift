@@ -11,7 +11,7 @@ import XCTest
 @MainActor
 final class EmergencySentScreenTests: XCTestCase {
     override func tearDown() async throws {
-        await MainActor.run { EmergencySOSTests.teardownAlarmObservers() }
+        await MainActor.run { EmergencySOSFixtures.teardownAlarmObservers() }
         try await super.tearDown()
     }
 
@@ -124,7 +124,7 @@ final class EmergencySentScreenTests: XCTestCase {
         XCTAssertEqual(EmergencySafetyCopy.sentOtherCallsAccessibilityHint(hasContact: false), "打开号码选择：120、110")
     }
 
-    /// 同 `EmergencySOSTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 的红线，覆盖这一屏新增的每一句
+    /// 同 `EmergencySOSTruthfulnessTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 的红线，覆盖这一屏新增的每一句
     /// （那个文件长度已冻结，不往里加）。
     func testNewSentScreenCopyNeverClaimsDelivery() {
         let forbidden = ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人", "短信已送达"]
@@ -219,8 +219,8 @@ final class EmergencySentScreenTests: XCTestCase {
     }
 
     private static func coordinator(mergedTwice: Bool = false, unsent: Bool = false) async -> EmergencyCoordinator {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        let order = EmergencySOSTests.makeOrder(status: .inProgress)
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        let order = EmergencySOSFixtures.makeOrder(status: .inProgress)
         if unsent {
             _ = await coordinator.trigger(order: order, role: .blind, userID: 7, safety: safety, locate: { nil })
             return coordinator
@@ -230,12 +230,12 @@ final class EmergencySentScreenTests: XCTestCase {
         )
         _ = await coordinator.trigger(
             order: order, role: .blind, userID: 7, safety: safety,
-            locate: { EmergencySOSTests.coordinate(latitude: 39.915, longitude: 116.404) }
+            locate: { EmergencySOSFixtures.coordinate(latitude: 39.915, longitude: 116.404) }
         )
         if mergedTwice {
             _ = await coordinator.trigger(
                 order: order, role: .blind, userID: 7, safety: safety,
-                locate: { EmergencySOSTests.coordinate(latitude: 39.916, longitude: 116.405) }
+                locate: { EmergencySOSFixtures.coordinate(latitude: 39.916, longitude: 116.405) }
             )
         }
         return coordinator

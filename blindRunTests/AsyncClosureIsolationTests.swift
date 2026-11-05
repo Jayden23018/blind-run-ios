@@ -17,8 +17,8 @@ final class AsyncClosureIsolationTests: XCTestCase {
 
     /// 倒计时里按「取消」：闭包里调 `cancelCountdown`，撤的必须是服务端那条倒计时（`BlindOrderStatusView` 同一写法）。
     func testCancellingTheCountdownThroughTheScreenClosureWithdrawsTheServerCountdown() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(
             success: true,
             eventId: 950,
@@ -27,11 +27,11 @@ final class AsyncClosureIsolationTests: XCTestCase {
         ))
         safety.cancelEmergencyResult = .success(EmergencyCancelResponse(success: true, eventId: 950, status: "CANCELLED"))
         coordinator.beginCountdown(
-            order: EmergencySOSTests.makeOrder(status: .inProgress),
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
             safety: safety,
-            locate: { EmergencySOSTests.coordinate(latitude: 39.915, longitude: 116.404) }
+            locate: { EmergencySOSFixtures.coordinate(latitude: 39.915, longitude: 116.404) }
         )
         try? await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertTrue(coordinator.state.isCountingDown, "前提：已进服务端倒计时")
@@ -52,16 +52,16 @@ final class AsyncClosureIsolationTests: XCTestCase {
 
     /// 求助已发出页的「撤销求助」：闭包里调 `cancelByOwner`，撤的必须是刚发出的那一条。
     func testCancellingOwnEmergencyThroughTheScreenClosureReachesTheService() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 77, status: "CONTACT_NOTIFIED"))
         safety.cancelEmergencyResult = .success(EmergencyCancelResponse(success: true, eventId: 77, status: "FALSE_ALARM"))
         await coordinator.trigger(
-            order: EmergencySOSTests.makeOrder(status: .inProgress),
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
             safety: safety,
-            locate: { EmergencySOSTests.coordinate(latitude: 39.915, longitude: 116.404) }
+            locate: { EmergencySOSFixtures.coordinate(latitude: 39.915, longitude: 116.404) }
         )
         XCTAssertEqual(coordinator.activeEvent?.eventID, 77, "前提：求助已发出")
 

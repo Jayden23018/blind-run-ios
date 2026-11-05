@@ -100,7 +100,7 @@ final class VoiceOrderWizardIdentityRejectionTests: XCTestCase {
         )
     }
 
-    /// 与 `VoiceOrderWizardTests.makeWizard` 同一套接线。`bookingViewModel` 由调用方持有：
+    /// 与 `VoiceOrderWizardTestSupport.makeWizard` 同一套接线。`bookingViewModel` 由调用方持有：
     /// 向导里它是 weak，在这里当场构造就等于传 nil。
     private func makeWizard(
         stub: VoiceOrderAPIClientStub,

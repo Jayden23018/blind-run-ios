@@ -14,7 +14,7 @@ set -uo pipefail
 #
 # 用法：
 #   scripts/device-test.sh                      # 全量
-#   scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTests
+#   scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTriggerTests
 #
 # 环境变量：
 #   AIDRUN_DEVICE_ID    真机**硬件 UDID**（默认见下；设备名会变，所以默认用 id 不用 name）

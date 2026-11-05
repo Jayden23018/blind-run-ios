@@ -70,7 +70,7 @@ REMATCHING → CANCELLED（只能盲人 token）
   > **那句话是错的**，而错得有代价：它让人以为 `telURL` 只取数字位就已经兜住了这件事。
   > 实际拼出来的是 `tel://1381234`，一个**七位的、可能真打给别人**的号码。
   > 现在 `EmergencyDialer.telURL` 显式拦掩码标记（`*` / `＊`，见 `redactionMarkers`），
-  > 用例 `EmergencySOSTests.testDialerRefusesMaskedNumbersButKeepsFormattedPlainOnes` 双向钉住
+  > 用例 `EmergencySOSHomeBarTests.testDialerRefusesMaskedNumbersButKeepsFormattedPlainOnes` 双向钉住
   > （拒掩码 / 放行带空格横线的明文号与三位急救号 —— 后者是这道闸唯一的误报面）。
   > provenance 那道防线保留：两道管的不是一件事，一道管「该不该用这个字段拨号」、
   > 一道管「这个值长得能不能拨」。
@@ -131,7 +131,7 @@ REMATCHING → CANCELLED（只能盲人 token）
      > 而骨架那一屏没有 `EmergencyStatusNotice` 的渲染点 ⇒ **长按 3 秒之后屏幕零变化、
      > 一个字也不播**。用例 `AccessibilityAuditTests`
      > `testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS` +
-     > `EmergencySOSTests.testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun` 钉住。
+     > `EmergencySOSSafetyHubTests.testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun` 钉住。
      > 教训是可复用的：**给一个原本只在某一态可达的入口开放新的到达路径时，
      > 先问那一层里每个动作在新的状态下还成不成立** —— 加的是入口，坏的是别人。
   3. **陪跑员订单页右上角的求助胶囊**（`VolunteerOrderFlowPage` → `FlowOrderNavBar`，2026-09-26 起）——
@@ -160,4 +160,4 @@ REMATCHING → CANCELLED（只能盲人 token）
   > 「一键求助」在本 App 里专指云端链路，两者共用一个词会让人以为求助已经发出。
   降级分支的文案必须说清「App 不会代你发送求助」—— 按下去只有拨号音，不说清等同于让盲人以为求助已发出。
   判定在 `BlindHomeSOSMode.resolve`（`blindRun/Safety/SafetyModule.swift`），
-  用例 `EmergencySOSTests.testHomeSOSBarOnlyUsesTheCloudPathDuringInProgress` 逐状态钉住。
+  用例 `EmergencySOSHomeBarTests.testHomeSOSBarOnlyUsesTheCloudPathDuringInProgress` 逐状态钉住。

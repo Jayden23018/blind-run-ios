@@ -54,7 +54,7 @@
 ### `blindRun/Safety/SafetyModule.swift`（179 行）
 
 - `EmergencySafetyCopy`（`:22-133`）：**所有面向用户的求助文案必须加在这里**。
-  测试 `EmergencySOSTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 按这个枚举扫红线文案
+  测试 `EmergencySOSTruthfulnessTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 按这个枚举扫红线文案
 - `EmergencyActionButton`（`:135-149`）：`PrimaryButton(isDestructive:true)`，`IN_PROGRESS` 分支直接复用
 - `emergencyConfirmationAlert(isPresented:onConfirm:)`（`:167-179`）：二次确认弹窗，
   文案 `EmergencySafetyCopy.confirmationMessage` 由 `AGENTS.md` 第 10 节**逐字锁定，一个字都不能改**
@@ -132,13 +132,21 @@ xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
 真机是唯一 XCTest 通道。**先解锁设备并把自动锁定设为「永不」**，否则脚本判定锁屏直接失败：
 
 ```bash
-DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号> scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTests
+DEVELOPMENT_TEAM=<按 skill aidrun-device-test 当场判定，别照抄旧号> scripts/device-test.sh \
+  -only-testing:blindRunTests/EmergencySOSAlarmTests \
+  -only-testing:blindRunTests/EmergencySOSCountdownTests \
+  -only-testing:blindRunTests/EmergencySOSHomeBarTests \
+  -only-testing:blindRunTests/EmergencySOSRealtimeTests \
+  -only-testing:blindRunTests/EmergencySOSReconciliationTests \
+  -only-testing:blindRunTests/EmergencySOSSafetyHubTests \
+  -only-testing:blindRunTests/EmergencySOSTriggerTests \
+  -only-testing:blindRunTests/EmergencySOSTruthfulnessTests
 ```
 
 - 全量约 10 分钟、会超 Bash 600s 上限 → 用后台跑
 - **`passed=0 failed=0` 一律当失败查**，零执行不是通过
 - UI 测试断言前先滚动：SwiftUI `List` 不渲染屏幕外的行
-- 本次改动**碰了 `EmergencySafetyCopy` 与首页布局**，`EmergencySOSTests` 与
+- 本次改动**碰了 `EmergencySafetyCopy` 与首页布局**，`EmergencySOS*Tests`（#721 拆成 8 个类）与
   `blindRunUITests` 都要跑；改了共享出口（`EmergencyCoordinator`）则按 AGENTS §11 跑全量
 
 ## 本机环境（已验，省得重查）

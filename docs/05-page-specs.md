@@ -247,7 +247,7 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 云端求助的结果面（状态提示、失败兜底拨号、撤销）只在订单页，所以陪跑中一律回订单页。
 
 降级分支的文案必须说清"App 不会代你发送求助"——按下去只有拨号音，不说清就等同于让盲人
-以为求助已经发出。这条由 `EmergencySOSTests.testLocalCallCopySaysTheAppSendsNothing` 守住。
+以为求助已经发出。这条由 `EmergencySOSHomeBarTests.testLocalCallCopySaysTheAppSendsNothing` 守住。
 
 **主要操作**：
 - 点击"开始约跑" → 创建预约页

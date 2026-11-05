@@ -42,8 +42,8 @@ final class EmergencyUITestLocationSeamTests: XCTestCase {
 
     /// 单测替身不是 Mock：判错的代价不对称，宁可按真实后端算。
     func testTestSourcedSampleIsNeverSentThroughANonMockService() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 1, status: "PENDING"))
 
         let outcome = await trigger(coordinator, safety: safety, sample: Self.sample(.uiTestSeam))
@@ -67,8 +67,8 @@ final class EmergencyUITestLocationSeamTests: XCTestCase {
 
     /// 反向哨兵：设备采样照常发。没有这一条，上面两条在「一律不发」的实现下也是绿的。
     func testDeviceSampleIsStillSentThroughANonMockService() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 77, status: "CONTACT_NOTIFIED"))
 
         let outcome = await trigger(coordinator, safety: safety, sample: Self.sample(.device))
