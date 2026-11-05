@@ -422,9 +422,12 @@ final class SpeechInputService: ObservableObject {
     /// 首次静音上限是 8 秒，识别结果那一路照常生效。
     static let inputWarmUpWindow: TimeInterval = 0.4
     static let keyboardFallbackErrorMessage = "语音识别失败，请使用键盘输入。"
+    /// 见 `startRecordingWhenApplicationIsActive`（`SpeechInputService+Authorization.swift`）。
+    let isApplicationActive: @MainActor () -> Bool
 
-    init(audioSession: (any SpeechAudioSessionManaging)? = nil) {
+    init(audioSession: (any SpeechAudioSessionManaging)? = nil, isApplicationActive: (@MainActor () -> Bool)? = nil) {
         self.audioSession = audioSession ?? SystemSpeechAudioSession()
+        self.isApplicationActive = isApplicationActive ?? { UIApplication.shared.applicationState == .active }
     }
 
     /// 启动时就把音频分类定下来。**由 `blindRunApp` 在启动阶段调一次。**
@@ -508,8 +511,7 @@ final class SpeechInputService: ObservableObject {
                 return
             }
 
-            guard isCurrentRecognitionSession(sessionID, field: field) else { return }
-            beginRecognition(onTextChanged: onTextChanged)
+            await startRecordingWhenApplicationIsActive(sessionID: sessionID, field: field) { self.beginRecognition(onTextChanged: onTextChanged) }
             if recognitionStartTask != nil, recognitionSessionID == sessionID {
                 recognitionStartTask = nil
             }
@@ -623,7 +625,7 @@ final class SpeechInputService: ObservableObject {
     /// 下一条新增的路径自动受益，而不是每个调用点各补一遍、各漏一遍。
     ///
     /// 计时器**刻意不在其中**：它依赖真实音频轮询，替身起了会在 8 秒后把自己停掉。
-    private func markRecognitionStarted() {
+    func markRecognitionStarted() {
         isListening = true
         lastStopReason = nil
         // 真的起听成功了，之前那次「语音链路不可用」的判断作废（授权可能刚被补授、recognizer 可能刚恢复）。
@@ -635,7 +637,7 @@ final class SpeechInputService: ObservableObject {
         RecordingCue.begin()
     }
 
-    private func isCurrentRecognitionSession(_ sessionID: UUID, field: SpeechInputField) -> Bool {
+    func isCurrentRecognitionSession(_ sessionID: UUID, field: SpeechInputField) -> Bool {
         recognitionSessionID == sessionID && activeField == field && !Task.isCancelled
     }
 
@@ -900,14 +902,6 @@ final class SpeechInputService: ObservableObject {
         }
         let meanSquare = sum / Float(frameLength * channelCount)
         return sqrt(meanSquare) >= speechPowerThreshold
-    }
-
-    private func requestSpeechAuthorization() async -> Bool {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
-            }
-        }
     }
 
     private func requestMicrophoneAuthorization() async -> Bool {
