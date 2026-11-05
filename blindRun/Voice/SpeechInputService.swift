@@ -422,16 +422,10 @@ final class SpeechInputService: ObservableObject {
     /// 首次静音上限是 8 秒，识别结果那一路照常生效。
     static let inputWarmUpWindow: TimeInterval = 0.4
     static let keyboardFallbackErrorMessage = "语音识别失败，请使用键盘输入。"
-    /// 授权拿到之后，最多等多久让 App 回到前台再开麦。超时照常开麦，与改动前的行为一致。
-    static let foregroundWaitTimeout: TimeInterval = 2
-    static let foregroundPollIntervalNanoseconds: UInt64 = 50_000_000
+    /// 见 `startRecordingWhenApplicationIsActive`（`SpeechInputService+Authorization.swift`）。
+    let isApplicationActive: @MainActor () -> Bool
 
-    private let isApplicationActive: @MainActor () -> Bool
-
-    init(
-        audioSession: (any SpeechAudioSessionManaging)? = nil,
-        isApplicationActive: (@MainActor () -> Bool)? = nil
-    ) {
+    init(audioSession: (any SpeechAudioSessionManaging)? = nil, isApplicationActive: (@MainActor () -> Bool)? = nil) {
         self.audioSession = audioSession ?? SystemSpeechAudioSession()
         self.isApplicationActive = isApplicationActive ?? { UIApplication.shared.applicationState == .active }
     }
@@ -517,9 +511,7 @@ final class SpeechInputService: ObservableObject {
                 return
             }
 
-            await startRecordingWhenApplicationIsActive(sessionID: sessionID, field: field) {
-                self.beginRecognition(onTextChanged: onTextChanged)
-            }
+            await startRecordingWhenApplicationIsActive(sessionID: sessionID, field: field) { self.beginRecognition(onTextChanged: onTextChanged) }
             if recognitionStartTask != nil, recognitionSessionID == sessionID {
                 recognitionStartTask = nil
             }
@@ -633,7 +625,7 @@ final class SpeechInputService: ObservableObject {
     /// 下一条新增的路径自动受益，而不是每个调用点各补一遍、各漏一遍。
     ///
     /// 计时器**刻意不在其中**：它依赖真实音频轮询，替身起了会在 8 秒后把自己停掉。
-    private func markRecognitionStarted() {
+    func markRecognitionStarted() {
         isListening = true
         lastStopReason = nil
         // 真的起听成功了，之前那次「语音链路不可用」的判断作废（授权可能刚被补授、recognizer 可能刚恢复）。
@@ -645,33 +637,7 @@ final class SpeechInputService: ObservableObject {
         RecordingCue.begin()
     }
 
-    /// 两次授权都拿到之后，**等 App 回到前台再开麦**。
-    ///
-    /// 第一次用语音时会弹系统授权框。用户点「允许」时，授权回调常常比 App 回到前台更早到。
-    /// 以前回调一到就开麦：这时 App 还是 `.inactive`，授权框还在收起，
-    /// 在这个状态下打开录音会话与音频引擎，录音一开就断（2026-11-05 负责人真机报：
-    /// 第一次点必失败，再点一次才行）。第二次点没有弹窗，App 全程在前台，所以正常。
-    /// 等到前台再开麦，就让第一次和第二次走同一个状态。
-    ///
-    /// 同时也避开了 `RecognitionLifecyclePolicy` 的一个窗口：它在「`.inactive` 且正在听」时会停麦。
-    /// 只要开麦落在前台之后，弹窗收起前后的 `.inactive` 就碰不到一个正在听的会话。
-    ///
-    /// 等待期间会话被作废（真进后台、用户换了输入框）就不开麦。超时照常开麦，不比改动前更糟。
-    private func startRecordingWhenApplicationIsActive(
-        sessionID: UUID,
-        field: SpeechInputField,
-        start: () -> Void
-    ) async {
-        let deadline = Date().addingTimeInterval(Self.foregroundWaitTimeout)
-        while !isApplicationActive(), Date() < deadline {
-            try? await Task.sleep(nanoseconds: Self.foregroundPollIntervalNanoseconds)
-            guard isCurrentRecognitionSession(sessionID, field: field) else { return }
-        }
-        guard isCurrentRecognitionSession(sessionID, field: field) else { return }
-        start()
-    }
-
-    private func isCurrentRecognitionSession(_ sessionID: UUID, field: SpeechInputField) -> Bool {
+    func isCurrentRecognitionSession(_ sessionID: UUID, field: SpeechInputField) -> Bool {
         recognitionSessionID == sessionID && activeField == field && !Task.isCancelled
     }
 
@@ -938,14 +904,6 @@ final class SpeechInputService: ObservableObject {
         return sqrt(meanSquare) >= speechPowerThreshold
     }
 
-    private func requestSpeechAuthorization() async -> Bool {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
-            }
-        }
-    }
-
     private func requestMicrophoneAuthorization() async -> Bool {
         await withCheckedContinuation { continuation in
             audioSession.requestRecordPermission { granted in
@@ -1049,16 +1007,6 @@ final class SpeechInputService: ObservableObject {
     ) {
         guard isCurrentRecognitionSession(sessionID, field: field) else { return }
         markRecognitionStarted()
-    }
-
-    /// 与生产路径共用 `startRecordingWhenApplicationIsActive`，只把真开麦换成 `markRecognitionStarted`。
-    func simulateAuthorizationGrantedForTesting(
-        sessionID: UUID,
-        field: SpeechInputField
-    ) async {
-        await startRecordingWhenApplicationIsActive(sessionID: sessionID, field: field) {
-            self.markRecognitionStarted()
-        }
     }
 
     func finishRecognitionForTesting(
