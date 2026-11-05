@@ -38,6 +38,8 @@ enum PrivacyAuthorizationCopy {
     static let visionWithdrawalPendingHint = "资料里的视力状况和导盲犬还在。"
     /// 失败那句「请再点一次『…』」里的按钮名也用它（`withdrawalRetryButtonTitle`）。
     static let visionRevokeButtonTitle = "撤回视力状况和导盲犬的同意"
+    /// 以可见标题开头：失败那句让用户「再点一次」这个名字，读屏念到的按钮名要对得上。
+    static let visionRevokeLabel = "撤回视力状况和导盲犬的同意。按下后立刻把资料里这两项改成不提供，以后想填可以再同意"
     static let visionRevokeFootnote = "撤回后，资料里的视力状况和导盲犬会立刻改成不提供。以后想填可以再同意。"
 
     static let locationTitle = "陪跑时的位置共享"
@@ -76,11 +78,10 @@ enum VisionRevokeRow: Equatable {
         }
     }
 
-    /// 第二层「当前」那组下面的补充说明。
+    /// 第二层「当前」那组下面的补充说明。资料没加载那句不在这里：它占撤回行的位置（详情页的结果行）。
     var hint: String? {
         switch self {
-        case .profileNotLoaded: return PrivacyAuthorizationCopy.visionProfileNotLoaded
-        case .granted: return nil
+        case .profileNotLoaded, .granted: return nil
         case .withdrawalPending: return PrivacyAuthorizationCopy.visionWithdrawalPendingHint
         case .notGranted: return PrivacyAuthorizationCopy.visionNotGrantedHint
         }

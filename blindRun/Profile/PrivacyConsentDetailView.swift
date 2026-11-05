@@ -84,7 +84,8 @@ struct PrivacyVoiceConsentDetailView: View {
         PrivacyConsentDetailPage(
             title: PrivacyAuthorizationCopy.voiceTitle,
             statusValue: granted ? PrivacyAuthorizationCopy.grantedValue : PrivacyAuthorizationCopy.notGrantedValue,
-            statusHint: granted ? nil : PrivacyAuthorizationCopy.voiceNotGrantedHint,
+            // 撤回成功后结果那句已说清下次怎么办，组下不再重复同一句。
+            statusHint: granted || notice != nil ? nil : PrivacyAuthorizationCopy.voiceNotGrantedHint,
             purpose: PrivacyAuthorizationCopy.voicePurpose,
             revoke: granted ? PrivacyRevokeAction(
                 title: PrivacyAuthorizationCopy.voiceRevokeButtonTitle,
@@ -112,6 +113,7 @@ struct PrivacyVoiceConsentDetailView: View {
 /// 成功那句与失败那句都由 view model 朗读，这里只负责留在屏幕上。
 struct PrivacyVisionConsentDetailView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
     @ObservedObject var profileViewModel: BlindRunnerProfileViewModel
 
     var body: some View {
@@ -127,18 +129,26 @@ struct PrivacyVisionConsentDetailView: View {
             purpose: PrivacyAuthorizationCopy.visionPurpose,
             revoke: row.offersRevoke ? PrivacyRevokeAction(
                 title: PrivacyAuthorizationCopy.visionRevokeButtonTitle,
-                label: VisionConsentWithdrawalCopy.accessibilityLabel,
+                label: PrivacyAuthorizationCopy.visionRevokeLabel,
                 identifier: "privacyRevokeVisionConsent",
                 isDisabled: profileViewModel.isLoading,
                 // 撤回没存上时重试同一次保存（`withdrawVisionConsent` 在已收起时什么都不做）。
                 perform: row == .withdrawalPending ? { profileViewModel.submit() } : { profileViewModel.withdrawVisionConsent() }
             ) : nil,
-            notice: notice,
+            notice: notice(for: row),
             revokeFootnote: PrivacyAuthorizationCopy.visionRevokeFootnote
         )
+        .onAppear {
+            // 资料没加载时这一页没有撤回行，原因占撤回行的位置，进页念一次（点了没反应对盲人就是事故）。
+            guard row == .profileNotLoaded else { return }
+            speechService.speak(PrivacyAuthorizationCopy.visionProfileNotLoaded)
+        }
     }
 
-    private var notice: PrivacyRevokeNotice? {
+    private func notice(for row: VisionRevokeRow) -> PrivacyRevokeNotice? {
+        if row == .profileNotLoaded {
+            return PrivacyRevokeNotice(text: PrivacyAuthorizationCopy.visionProfileNotLoaded, isSuccess: false)
+        }
         if let succeeded = profileViewModel.visionConsentWithdrawnNotice {
             return PrivacyRevokeNotice(text: succeeded, isSuccess: true)
         }
@@ -160,7 +170,7 @@ struct PrivacyLocationConsentDetailView: View {
         PrivacyConsentDetailPage(
             title: PrivacyAuthorizationCopy.locationTitle,
             statusValue: granted ? PrivacyAuthorizationCopy.grantedValue : PrivacyAuthorizationCopy.notGrantedValue,
-            statusHint: granted ? nil : PrivacyAuthorizationCopy.locationNotGrantedHint,
+            statusHint: granted || notice != nil ? nil : PrivacyAuthorizationCopy.locationNotGrantedHint,
             purpose: PrivacyAuthorizationCopy.locationPurpose,
             revoke: granted ? PrivacyRevokeAction(
                 title: PrivacyAuthorizationCopy.locationRevokeButtonTitle,

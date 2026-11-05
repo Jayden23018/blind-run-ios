@@ -101,21 +101,18 @@ struct PrivacyConsentListRowLabel: View {
 }
 
 /// 第二层的红字撤回行，放在一张分组卡里。整行可点、不低于 64pt
-/// （64pt 写在标签内部：外挂在按钮外的 frame 撑不大可点区，记忆 button-frame-outside-label-does-not-grow-hit-area）。
+/// （64pt 在标签内部：外挂在按钮外的 frame 撑不大可点区，记忆 button-frame-outside-label-does-not-grow-hit-area）。
 struct PrivacyRevokeRowButton: View {
     let action: PrivacyRevokeAction
 
     var body: some View {
         Button(action: action.perform) {
-            Text(action.title)
-                .font(AppFonts.body())
-                .foregroundColor(action.isDisabled ? AppColors.textSecondary : AppColors.destructive)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
-                .contentShape(Rectangle())
+            // 同账户页「退出登录」的红字行写法：`SettingsRowLabel` 自带 64pt 与整行 `contentShape`。
+            SettingsRowLabel(
+                title: action.title,
+                titleColor: action.isDisabled ? AppColors.textSecondary : AppColors.destructive,
+                showsChevron: false
+            )
         }
         .buttonStyle(.plain)
         .disabled(action.isDisabled)
