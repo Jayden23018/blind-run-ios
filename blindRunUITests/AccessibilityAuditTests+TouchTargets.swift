@@ -34,11 +34,66 @@ extension AccessibilityAuditTests {
         attachScreenshot(app, name: "blind-emergency-contacts")
         try audit(app)
 
+        // 添加区两行（#746）也是盲人端入口，同样 64pt。
+        for (identifier, name) in [
+            ("emergencyContactAddFromContacts", "从通讯录添加"),
+            ("emergencyContactAddManually", "手动输入"),
+        ] {
+            let addRow = app.descendants(matching: .any)[identifier].firstMatch
+            XCTAssertTrue(swipeUntilHittable(addRow, in: app), "添加区没有「\(name)」")
+            assertBlindTouchTarget(addRow, name: name)
+        }
+
+        swipeUntilHittable(contactRow, in: app)
         contactRow.tap()
+        // 关系改成选择页（#746）：表单里那一行与选择页本身都要过审计。
+        let relationshipRow = app.descendants(matching: .any)["emergencyContactRelationshipRow"].firstMatch
+        XCTAssertTrue(swipeUntilHittable(relationshipRow, in: app), "编辑页没有「关系」行")
+        assertBlindTouchTarget(relationshipRow, name: "关系")
         let deleteButton = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(swipeUntilHittable(deleteButton, in: app), "编辑页没有删除按钮")
         assertBlindTouchTarget(deleteButton, name: "删除")
         attachScreenshot(app, name: "blind-emergency-contact-editor")
+        try audit(app)
+
+        swipeUntilHittable(relationshipRow, in: app)
+        relationshipRow.tap()
+        XCTAssertTrue(app.navigationBars["关系"].waitForExistence(timeout: 8), "没进关系选择页")
+        let checked = app.buttons["家人"].firstMatch
+        XCTAssertTrue(checked.waitForExistence(timeout: 5), "关系选择页没有「家人」")
+        XCTAssertTrue(checked.isSelected, "张三存的关系是「家人」，选择页应把它标为已选")
+        assertBlindTouchTarget(checked, name: "关系选项")
+        attachScreenshot(app, name: "blind-emergency-contact-relationship")
+        try audit(app)
+    }
+
+    /// 紧急联系人页在最大字号下（#746 改版后第一次有这一档的用例）：列表、手动新增表单、关系选择页都过审计。
+    @MainActor
+    func testEmergencyContactsPagesPassAuditAtLargestText() throws {
+        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
+        let app = launchBlindHome(
+            extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        )
+        openBlindProfile(app)
+        let contactsRow = navigationRow(app, labelBeginsWith: "管理紧急联系人")
+        XCTAssertTrue(swipeUntilHittable(contactsRow, in: app), "资料页没有「管理紧急联系人」")
+        contactsRow.tap()
+        XCTAssertTrue(app.navigationBars["紧急联系人"].waitForExistence(timeout: 12), "没进紧急联系人页")
+        attachScreenshot(app, name: "blind-emergency-contacts-ax5")
+        try audit(app)
+
+        let manual = app.descendants(matching: .any)["emergencyContactAddManually"].firstMatch
+        XCTAssertTrue(swipeUntilHittable(manual, in: app), "添加区没有「手动输入」")
+        manual.tap()
+        XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8), "没进新增表单")
+        attachScreenshot(app, name: "blind-emergency-contact-form-ax5")
+        try audit(app)
+
+        let relationshipRow = app.descendants(matching: .any)["emergencyContactRelationshipRow"].firstMatch
+        XCTAssertTrue(swipeUntilHittable(relationshipRow, in: app), "新增表单没有「关系」行")
+        relationshipRow.tap()
+        XCTAssertTrue(app.navigationBars["关系"].waitForExistence(timeout: 8), "没进关系选择页")
+        attachScreenshot(app, name: "blind-emergency-contact-relationship-ax5")
         try audit(app)
     }
 

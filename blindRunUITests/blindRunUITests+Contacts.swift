@@ -3,7 +3,8 @@ import XCTest
 // 紧急联系人页的操作步骤。主类已超长，新的辅助方法放这里。
 extension blindRunUITests {
     func addContact(_ app: XCUIApplication, name: String, phone: String, relationship: String) {
-        let addButton = app.buttons["新增紧急联系人"].firstMatch
+        // 「从通讯录添加」弹的是进程外的系统选择器，用例驱动不了，所以走「手动输入」（#746）。
+        let addButton = app.buttons["手动输入新增紧急联系人"].firstMatch
         // 必须先滚：联系人到 4 个时列表已经把「新增」入口顶出屏幕，SwiftUI List 不渲染屏幕外的行，
         // 元素根本不在无障碍树里 —— 先断言存在会直接失败，而 scrollElementIntoView 又要求元素已存在。
         scrollUntilExists(addButton, app: app)
@@ -21,9 +22,20 @@ extension blindRunUITests {
         tapWhenHittableOrByCoordinate(phoneField, app: app)
         phoneField.typeText(phone)
 
-        let relationshipField = app.textFields["与联系人的关系，选填"].firstMatch
-        tapWhenHittableOrByCoordinate(relationshipField, app: app)
-        relationshipField.typeText(relationship)
+        // 关系改成选择页（#746）：点「关系」行，在列表里点预设，选完自动退回表单。
+        let relationshipRow = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "与联系人的关系，")
+        ).firstMatch
+        XCTAssertTrue(relationshipRow.waitForExistence(timeout: 5), "表单里没有「关系」行")
+        tapWhenHittableOrByCoordinate(relationshipRow, app: app)
+        XCTAssertTrue(app.navigationBars["关系"].waitForExistence(timeout: 8), "没进关系选择页")
+        let preset = app.buttons[relationship].firstMatch
+        scrollUntilExists(preset, app: app)
+        tapWhenHittableOrByCoordinate(preset, app: app)
+        XCTAssertTrue(
+            app.buttons["与联系人的关系，\(relationship)"].firstMatch.waitForExistence(timeout: 8),
+            "选完关系应回到表单，并显示「\(relationship)」"
+        )
 
         // 「保存」在导航栏，不会被键盘挡住，所以不需要先收键盘。
         tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)

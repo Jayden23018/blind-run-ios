@@ -147,7 +147,8 @@ extension AccessibilityAuditTests {
         let manage = app.buttons["管理紧急联系人"].firstMatch
         XCTAssertTrue(manage.waitForExistence(timeout: 10))
         manage.tap()
-        let add = app.buttons["新增紧急联系人"].firstMatch
+        // 列表页的「从通讯录添加」直接弹系统选择器（#746），表单里的那枚要从「手动输入」进。
+        let add = anyElement(app, "emergencyContactAddManually")
         XCTAssertTrue(add.waitForExistence(timeout: 10))
         add.tap()
         XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8))
@@ -163,11 +164,9 @@ extension AccessibilityAuditTests {
         nameField.tap()
         XCTAssertTrue(app.buttons["下一项"].firstMatch.waitForExistence(timeout: 5), "姓名框键盘上方没有「下一项」")
         app.buttons["下一项"].firstMatch.tap()
-        // 跳到号码框之后，数字键盘上方仍是「下一项」（号码 → 关系）。
-        XCTAssertTrue(app.buttons["下一项"].firstMatch.waitForExistence(timeout: 5), "号码框键盘上方没有「下一项」")
+        // 号码是最后一个输入框（关系改成选择页，#746），数字键盘上方是「收起键盘」。
+        XCTAssertTrue(app.buttons["收起键盘"].firstMatch.waitForExistence(timeout: 5), "号码框键盘上方没有「收起键盘」")
         keepOnboardingScreenshot("onboarding-contact-form-next")
-        app.buttons["下一项"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["收起键盘"].firstMatch.waitForExistence(timeout: 5), "跳到关系框后应换成「收起键盘」")
         app.buttons["收起键盘"].firstMatch.tap()
 
         // 系统选择器在进程外，内容随手机通讯录而变，这里只留一张图给人看它起来了。

@@ -49,10 +49,14 @@ extension blindRunUITests {
             "列表不得展示或朗读完整手机号"
         )
 
-        let addButton = app.buttons["新增紧急联系人"].firstMatch
-        XCTAssertTrue(addButton.exists)
+        // 添加区两行：通讯录在前、手动在后（#746）。
+        let pickButton = app.buttons["从通讯录添加紧急联系人"].firstMatch
+        let addButton = app.buttons["手动输入新增紧急联系人"].firstMatch
+        XCTAssertTrue(pickButton.exists, "添加区没有「从通讯录添加」")
+        XCTAssertTrue(addButton.exists, "添加区没有「手动输入」")
         XCTAssertLessThan(summary.frame.minY, row.frame.minY)
-        XCTAssertLessThan(row.frame.minY, addButton.frame.minY)
+        XCTAssertLessThan(row.frame.minY, pickButton.frame.minY)
+        XCTAssertLessThan(pickButton.frame.minY, addButton.frame.minY)
     }
 
     /// 新增 → 编辑 → 删除的完整往返。
@@ -78,6 +82,12 @@ extension blindRunUITests {
             "后端返回明文，编辑时应明文回填"
         )
         replaceText(in: phoneField, with: "13611116666", app: app)
+        // 关系在选择页里改（#746）。从选择页退回会再触发表单的 onAppear，曾把刚改的号码和关系重置回旧值。
+        chooseContactRelationship(app, "同事")
+        XCTAssertTrue(
+            waitForTextFieldValue(phoneField, equals: "13611116666", timeout: 5),
+            "从关系选择页回来后，改过的号码不能被重置"
+        )
         tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)
         XCTAssertTrue(
             waitForElementToDisappear(app.navigationBars["编辑紧急联系人"], timeout: 15),
@@ -85,7 +95,8 @@ extension blindRunUITests {
         )
 
         XCTAssertTrue(
-            app.buttons["李四，关系朋友，电话136****6666，非主联系人"].firstMatch.waitForExistence(timeout: 10)
+            app.buttons["李四，关系同事，电话136****6666，非主联系人"].firstMatch.waitForExistence(timeout: 10),
+            "号码和关系都应按编辑后的值保存"
         )
 
         deleteContact(app, named: "李四")
@@ -149,7 +160,8 @@ extension blindRunUITests {
             waitForContactSummary(app, "共 \(index) 位紧急联系人，最多 5 位。主联系人是张三。")
         }
 
-        let addButton = app.buttons["新增紧急联系人"].firstMatch
+        let pickButton = app.buttons["从通讯录添加紧急联系人"].firstMatch
+        let addButton = app.buttons["手动输入新增紧急联系人"].firstMatch
         scrollUntilExists(addButton, app: app)
         XCTAssertTrue(addButton.waitForExistence(timeout: 8))
         scrollElementIntoView(addButton, app: app)
@@ -158,6 +170,7 @@ extension blindRunUITests {
         let limitNotice = app.staticTexts["已保存 5 位紧急联系人，达到上限。如需新增，请先删除一位。"].firstMatch
         scrollUntilExists(limitNotice, app: app)
         XCTAssertTrue(limitNotice.waitForExistence(timeout: 8))
-        XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
+        XCTAssertFalse(addButton.isEnabled, "到达上限后「手动输入」必须禁用")
+        XCTAssertFalse(pickButton.isEnabled, "到达上限后「从通讯录添加」必须禁用")
     }
 }

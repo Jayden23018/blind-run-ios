@@ -237,7 +237,7 @@ final class EmergencyContactsViewModel: ObservableObject {
             return true
         }
 
-        announce("\(successMessage)\(listSummary)")
+        announce(successMessage, summary: listSummary)
         return true
     }
 
@@ -268,10 +268,12 @@ final class EmergencyContactsViewModel: ObservableObject {
         speechService?.speakError(message)
     }
 
-    private func announce(_ message: String) {
+    /// 屏幕上只留结果那一句：概览行就在它正上方，再显示一遍概览就是同一段话印两次（#746 改版前的样子）。
+    /// 朗读仍是「结果 + 概览」，读屏用户听不到上一行。
+    private func announce(_ message: String, summary: String) {
         errorMessage = nil
         statusMessage = message
-        speechService?.announce(message)
+        speechService?.announce("\(message)\(summary)")
     }
 
     // MARK: Validation
@@ -302,31 +304,45 @@ final class EmergencyContactsViewModel: ObservableObject {
 
 /// 紧急联系人管理页。始终由外层 `NavigationStack` 以 `NavigationLink` push 呈现
 /// （资料页、设置页、引导流都在 `NavigationStack` 内）。
+///
+/// 版式照苹果「健康 › 医疗急救卡」的紧急联系人（#746）：概览一组、联系人一组、添加一组。
+/// 添加的主路径是「从通讯录添加」—— 点了直接弹系统通讯录，选完进预填好的表单，只剩选关系、保存
+/// （苹果官方步骤：点「添加紧急联系人」→ 选一位联系人 → 选关系，support.apple.com/105072）。
 struct EmergencyContactsView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = EmergencyContactsViewModel()
     @State private var editingTarget: EmergencyContactEditTarget?
+    @State private var showContactPicker = false
 
     var body: some View {
         List {
             Section {
                 Text(viewModel.listSummary)
                     .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, AppSpacing.xSmall)
                     .accessibilityLabel(viewModel.listSummary)
 
                 // 成功提示跟着概览走：它俩说的是同一件事（当前状态），排在页首才有机会被看见。
                 if let statusMessage = viewModel.statusMessage {
-                    Text(statusMessage)
+                    Label(statusMessage, systemImage: "checkmark.circle.fill")
                         .font(AppFonts.body())
+                        .foregroundColor(AppColors.success)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(statusMessage)
                 }
 
                 Button {
                     viewModel.repeatStatus()
                 } label: {
-                    contactsActionLabel("重复当前状态", systemImage: "speaker.wave.2")
+                    EmergencyContactAddRowLabel(
+                        title: "重复当前状态",
+                        systemImage: "speaker.wave.2.fill",
+                        tint: AppColors.primary,
+                        isEnabled: true
+                    )
                 }
                 .accessibilityLabel("重复当前状态")
                 .accessibilityHint("再次朗读紧急联系人数量和主联系人")
@@ -348,24 +364,9 @@ struct EmergencyContactsView: View {
                 Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）\u{202F}").foregroundColor(AppColors.textSecondary) // 默认灰只有约 3.3:1；全角「）」后补窄空格防判截断
             }
 
-            Section {
-                Button {
-                    editingTarget = .new
-                } label: {
-                    contactsActionLabel("新增紧急联系人", systemImage: "plus", isEnabled: viewModel.canAddContact)
-                }
-                .disabled(!viewModel.canAddContact || viewModel.isMutating)
-                .accessibilityLabel("新增紧急联系人")
-                .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名、手机号和关系后保存")
-
-                if let addBlockedReason = viewModel.addBlockedReason {
-                    Text(addBlockedReason)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .accessibilityLabel(addBlockedReason)
-                }
-            }
+            addSection
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("紧急联系人")
         .refreshable {
             await viewModel.load()
@@ -380,7 +381,8 @@ struct EmergencyContactsView: View {
             NavigationStack {
                 EmergencyContactFormView(
                     viewModel: viewModel,
-                    contact: target.contact
+                    contact: target.contact,
+                    initialPick: target.pick
                 ) {
                     editingTarget = nil
                 }
@@ -392,6 +394,64 @@ struct EmergencyContactsView: View {
             Text(viewModel.errorMessage ?? "")
         }
     }
+
+    /// 两行都是整行按钮：「从通讯录添加」在前（能选就别打），「手动输入」在后。
+    /// 满 5 位时两行一起禁用，原因写在组脚注里，同时进两行的读屏提示。
+    private var addSection: some View {
+        Section {
+            Button {
+                showContactPicker = true
+            } label: {
+                EmergencyContactAddRowLabel(
+                    title: "从通讯录添加",
+                    systemImage: "plus.circle.fill",
+                    tint: AppColors.success,
+                    isEnabled: canStartAdding
+                )
+            }
+            .disabled(!canStartAdding)
+            .accessibilityLabel("从通讯录添加紧急联系人")
+            .accessibilityHint(
+                viewModel.addBlockedReason
+                    ?? "打开系统通讯录选一位联系人，自动填入姓名和手机号。助盲跑只拿到你选的这一位"
+            )
+            .accessibilityIdentifier("emergencyContactAddFromContacts")
+            .background(
+                ContactPhonePicker(isPresented: $showContactPicker) { pick in
+                    editingTarget = .picked(pick)
+                }
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+            )
+
+            Button {
+                editingTarget = .new
+            } label: {
+                EmergencyContactAddRowLabel(
+                    title: "手动输入",
+                    systemImage: "keyboard",
+                    tint: AppColors.primary,
+                    isEnabled: canStartAdding
+                )
+            }
+            .disabled(!canStartAdding)
+            .accessibilityLabel("手动输入新增紧急联系人")
+            .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名、手机号和关系后保存")
+            .accessibilityIdentifier("emergencyContactAddManually")
+        } header: {
+            Text("添加联系人").foregroundColor(AppColors.textSecondary)
+        } footer: {
+            if let addBlockedReason = viewModel.addBlockedReason {
+                Text(addBlockedReason)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(addBlockedReason)
+            }
+        }
+    }
+
+    private var canStartAdding: Bool { viewModel.canAddContact && !viewModel.isMutating }
 
     /// 表单以 sheet 呈现时不弹：被 sheet 盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
     /// 而表单自己就把同一条 message 显示在它那张三段式短表里，不会被挤出屏幕。
@@ -405,61 +465,17 @@ struct EmergencyContactsView: View {
         )
     }
 
-    private func contactsActionLabel(_ title: String, systemImage: String, isEnabled: Bool = true) -> some View {
-        HStack(spacing: AppSpacing.small) {
-            Image(systemName: systemImage)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(AppFonts.body().weight(.semibold))
-            Spacer(minLength: 0)
-        }
-        // 写死颜色后系统不再把禁用态变灰，要自己分开。
-        .foregroundColor(isEnabled ? AppColors.primary : AppColors.textSecondary)
-        .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
     /// 行里只放内容，整行进编辑页；设为主联系人和删除都在编辑页里（#606）。
     /// Apple 通讯录式的「行 + 详情」：联系人多时列表仍然好扫读，空闲时间页也是这个写法（#481）。
     private func contactRow(_ contact: EmergencyContactResponse) -> some View {
         Button {
             editingTarget = .existing(contact)
         } label: {
-            HStack(spacing: AppSpacing.small) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(contact.name?.nilIfBlank ?? "未命名联系人")
-                            .font(.headline)
-                            .foregroundColor(AppColors.textPrimary)
-                        if contact.isPrimary == true {
-                            Text("主联系人")
-                                .font(AppFonts.caption())
-                                .foregroundColor(AppColors.primary)
-                        }
-                    }
-                    Text(contactDetailLine(contact))
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(AppFonts.caption().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
-            .contentShape(Rectangle())
+            EmergencyContactRowLabel(contact: contact)
         }
         .disabled(viewModel.isMutating)
         .accessibilityLabel(viewModel.accessibilityLabel(for: contact))
         .accessibilityHint(contact.isPrimary == true ? "修改资料或删除" : "修改资料、设为主联系人或删除")
-    }
-
-    private func contactDetailLine(_ contact: EmergencyContactResponse) -> String {
-        let phone = contact.maskedPhone ?? "未填写手机号"
-        guard let relationship = contact.relationship?.nilIfBlank else { return phone }
-        return "\(phone) · \(relationship)"
     }
 }
 
@@ -467,20 +483,26 @@ struct EmergencyContactsView: View {
 
 enum EmergencyContactEditTarget: Identifiable {
     case new
+    /// 从列表页的「从通讯录添加」选中的人，表单打开时已填好姓名和号码。
+    case picked(ContactPhonePick)
     case existing(EmergencyContactResponse)
 
     var id: Int64 {
         switch self {
         case .new: return -1
+        case .picked: return -2
         case .existing(let contact): return contact.id
         }
     }
 
     var contact: EmergencyContactResponse? {
-        switch self {
-        case .new: return nil
-        case .existing(let contact): return contact
-        }
+        if case .existing(let contact) = self { return contact }
+        return nil
+    }
+
+    var pick: ContactPhonePick? {
+        if case .picked(let pick) = self { return pick }
+        return nil
     }
 }
 
