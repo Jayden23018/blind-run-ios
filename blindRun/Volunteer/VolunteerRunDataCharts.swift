@@ -304,6 +304,13 @@ struct VolunteerRunDataWeekDots: View {
 /// 这里每段至少 44pt 高、整段可点。
 struct VolunteerRunDataRangePicker: View {
     @Binding var selection: VolunteerRunDataSummary.MileageRange
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// 选中那一段的底色。暗色下卡片底（`Flow.surface` `#1C1C1E`）和轨道一样深，选中看不出来
+    ///（2026-11-05 真机暗色截图），换成更亮一档的 `Flow.progressTrack`（`#3A3A3C`）。
+    private var selectedFill: Color {
+        colorScheme == .dark ? AppColors.Flow.progressTrack : AppColors.Flow.surface
+    }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -318,7 +325,7 @@ struct VolunteerRunDataRangePicker: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(
                             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(isSelected ? AppColors.Flow.surface : Color.clear)
+                                .fill(isSelected ? selectedFill : Color.clear)
                                 .shadow(color: .black.opacity(isSelected ? 0.08 : 0), radius: 2, y: 1)
                         )
                         .contentShape(Rectangle())
