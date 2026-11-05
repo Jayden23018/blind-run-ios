@@ -278,7 +278,7 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
         case .failed:
             errorMessage = "实名认证未通过，请核对姓名和身份证号后重新提交。"
         case .notVerified, .unknown:
-            successMessage = "实名信息已提交，稍后可返回本页查看最新状态。"
+            successMessage = "已提交核验，稍后可返回本页查看最新状态。"
         }
     }
 

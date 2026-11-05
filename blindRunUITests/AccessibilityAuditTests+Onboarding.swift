@@ -214,7 +214,7 @@ extension AccessibilityAuditTests {
         name.tap()
         name.typeText("张三")
         if app.buttons["收起键盘"].firstMatch.exists { app.buttons["收起键盘"].firstMatch.tap() }
-        let submit = app.buttons["提交实名信息"].firstMatch
+        let submit = app.buttons["提交核验"].firstMatch  // #751 改名，原「提交实名信息」
         XCTAssertTrue(submit.waitForExistence(timeout: 5))
         submit.tap()
         let agree = app.buttons.matching(NSPredicate(format: "identifier ENDSWITH %@", "AgreeButton")).firstMatch
