@@ -1313,10 +1313,7 @@ struct VolunteerRegistrationFlowView: View {
                     } else {
                         switch viewModel.currentStep {
                         case .basicInfo:
-                            VolunteerRegistrationBasicInfoContent(
-                                viewModel: viewModel,
-                                consentDeclinedNotice: consentDeclinedNotice
-                            )
+                            VolunteerRegistrationBasicInfoContent(viewModel: viewModel)
                         case .faceVerify:
                             faceVerifyStep
                         }
@@ -1345,6 +1342,7 @@ struct VolunteerRegistrationFlowView: View {
                 VolunteerRegistrationBasicInfoBottomBar(
                     viewModel: viewModel,
                     identityConsentChecked: $identityConsentChecked,
+                    consentNotice: consentDeclinedNotice,
                     onSubmit: handleBasicInfoSubmitTapped
                 )
             }
@@ -1401,7 +1399,8 @@ struct VolunteerRegistrationFlowView: View {
     /// 提交按钮（含「跳过」）的唯一入口：**没勾同意就不发请求**，并当场说清要勾哪一项。
     private func handleBasicInfoSubmitTapped() {
         guard identityConsentChecked else {
-            let notice = "请先勾选「我已阅读并同意《\(PrivacyConsentPurpose.volunteerIdentity.checkboxDocumentTitle ?? "")》」，再提交。"
+            let purpose = PrivacyConsentPurpose.volunteerIdentity
+            let notice = "请先勾选「我已阅读并同意《\(purpose.checkboxDocumentTitle ?? purpose.title)》」，再提交。"
             consentDeclinedNotice = notice
             speechService.speak(notice)
             return

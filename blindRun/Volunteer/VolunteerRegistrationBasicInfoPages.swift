@@ -56,7 +56,6 @@ extension VolunteerRegistrationViewModel {
 
 struct VolunteerRegistrationBasicInfoContent: View {
     @ObservedObject var viewModel: VolunteerRegistrationViewModel
-    let consentDeclinedNotice: String?
 
     var body: some View {
         switch viewModel.basicInfoPage {
@@ -157,15 +156,6 @@ struct VolunteerRegistrationBasicInfoContent: View {
                     .foregroundColor(AppColors.destructive)
                     .accessibilityLabel("无法提交身份信息：\(validationMessage)")
             }
-
-            if let consentDeclinedNotice {
-                Text(consentDeclinedNotice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(consentDeclinedNotice)
-                    .accessibilityIdentifier("volunteerIdentityConsentDeclinedNotice")
-            }
         }
     }
 }
@@ -176,6 +166,8 @@ struct VolunteerRegistrationBasicInfoBottomBar: View {
     @ObservedObject var viewModel: VolunteerRegistrationViewModel
     /// 身份证号 + 人脸的单独同意（#769：由整页同意改成提交按钮上方的勾选框，默认不勾）。
     @Binding var identityConsentChecked: Bool
+    /// 没勾就点了提交时的提示。画在底栏勾选框上方而不是滚动内容末尾：经历填得长时那里在屏幕外。
+    let consentNotice: String?
     /// 经历那一屏的「下一步」：必须走 `handleBasicInfoSubmitTapped`，没勾同意就不发请求。
     let onSubmit: () -> Void
 
@@ -228,6 +220,14 @@ struct VolunteerRegistrationBasicInfoBottomBar: View {
 
     @ViewBuilder
     private var experienceButton: some View {
+        if let consentNotice {
+            Text(consentNotice)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("volunteerIdentityConsentDeclinedNotice")
+        }
         identityConsentCheckbox
         PrimaryButton("下一步", isLoading: viewModel.isLoading, action: onSubmit)
             .disabled(!viewModel.canSubmitBasicInfo)
