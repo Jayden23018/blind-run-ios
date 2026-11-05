@@ -21,6 +21,7 @@ import fs from 'node:fs';
 const API_PREFIXES = ['Packages/AidRunAPI/', 'scripts/openapi/'];
 const API_FILES = [
   'scripts/generate-api-client.sh',
+  'scripts/sync-api-client.sh', // 与 scripts/hooks/pre-push.sh 的分档口径一致
   '.github/workflows/verify.yml',
   'scripts/ci-changed-paths.mjs',
 ];
@@ -62,6 +63,7 @@ function selfTest() {
     ['改 App 的 Swift 不跑 AidRunAPI 两步', ['blindRun/Core/APIClient.swift'], false, false],
     ['改 AidRunAPI 包', ['Packages/AidRunAPI/Sources/AidRunAPI/Types.swift'], false, true],
     ['改生成脚本', ['scripts/generate-api-client.sh'], false, true],
+    ['改一键同步脚本', ['scripts/sync-api-client.sh'], false, true],
     ['改生成器钉版本的包', ['scripts/openapi/Package.resolved'], false, true],
     ['改 verify.yml 全跑', ['.github/workflows/verify.yml'], false, true],
     ['改本判定脚本全跑', ['scripts/ci-changed-paths.mjs'], false, true],
