@@ -522,7 +522,7 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 |---|---|---|
 | `blindRunTests/` 下 33 个按主题的类 + 3 个共享 helper 文件（`BlindRunTestSupport.swift` 等；原 `blindRunTests.swift`，#717 拆分） | 共 277 KB | 主干单元测试 |
 | `blindRunTests/` 下 13 个 `VoiceOrderWizard*Tests` 类 + `VoiceOrderWizardTestSupport.swift`（原 `VoiceOrderWizardTests.swift`，#721 拆分） | 共 164 KB | 语音下单状态机 |
-| `blindRunUITests.swift` | 78 KB | UI 端到端 |
+| `blindRunUITests.swift` + 12 个 `blindRunUITests+主题.swift`（#723 拆分，类名不变） | 78 KB | UI 端到端 |
 | `LiveEscortTrackTests.swift` | 32 KB | 位置共享与路线 |
 | `blindRunTests/` 下 8 个 `EmergencySOS*Tests` 类 + `EmergencySOSTestSupport.swift`（原 `EmergencySOSTests.swift`，#721 拆分） | 共 96 KB | 求助逐状态验证 |
 | `AppRealtimeCoordinatorTests.swift` | 46 KB | 实时事件分发 |
@@ -690,7 +690,7 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 | 坐标系 | `blindRun/Map/CoordinateSystem.swift`（112 行） |
 | Token 存储 | `blindRun/Core/KeychainTokenStore.swift`（107 行） |
 | 环境配置 | `blindRun/Core/EnvironmentConfig.swift`（105 行） |
-| 志愿者服务流程 | `blindRun/Volunteer/VolunteerOrderFlowViews.swift`（2727 行） |
+| 志愿者服务流程 | `blindRun/Volunteer/VolunteerInServiceView.swift` + `VolunteerInServiceView+{Flow,Fallback}.swift`、`VolunteerInServiceViewModel.swift` + `VolunteerInServiceViewModel+{RunControls,Nudges,ServiceLifecycle,Transition,OrderUpdates}.swift`、`VolunteerOrderDetailView(Model).swift`；共用的守卫与流转状态在 `VolunteerOrderFlowViews.swift`（原 3,313 行，#723 按类型拆分） |
 | 进程内 Mock | `blindRun/Core/MockAPIClient.swift` + `MockAPIClient+{Auth,Profile,Incentive,EmergencyContact,Order,IntroCall,Voice}.swift` |
 | 领域 service 层 | `blindRun/Core/Services/`：`AuthService`（认证·会话）、`IncentiveService`（激励）、`ProfileService`（档案·实名·资质）、`SafetyService`（求助·通话磨合·轨迹）、`OrderService`（订单）+ `blindRun/Core/Endpoints/{EndpointRequest,OrderEndpoint}.swift`。五片全部迁完；**唯一残留**是 `VoiceOrderWizard.parseOrderResponse`（`blindRun/Voice/VoiceOrderWizard.swift:1070`）仍直接 `apiClient.post`，它自己持有 `apiClient` 而不是走 `AppState`，端点已是常量 `VoiceOrderEndpoint.parseOrder`，缺的是一层 `VoiceServing`。 |
 
