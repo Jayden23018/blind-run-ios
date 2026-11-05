@@ -364,58 +364,6 @@ enum PartnerStreakCopy {
 
     static func removeFavoriteTitle(_ name: String) -> String { "取消收藏\(name)" }
 
-    /// 取消收藏前要不要拦一道，以及拦下来说什么。
-    struct RemoveFavoriteConfirmation: Equatable {
-        let title: String
-        let message: String
-        let confirm: String
-        let cancel: String
-    }
-
-    /// **每次都弹窗**（负责人 2026-11-05 定，#752）。两档文案不同：
-    ///
-    /// 没退出过的那一档确实可逆（再收藏一次即可），短文案只说后果和「还能设回来」。
-    /// 2026-11-05 之前这一档不弹窗，理由是「可逆动作不加负担」；改版后取消挪进了详情页，
-    /// 一次误触就让一位常跑的搭档从派单加分里消失，负责人选了每次都问。
-    ///
-    /// 🔴 **对方已退出时它不可逆，而且不可逆的后果落在对方身上。**
-    ///
-    /// 后端 `FavoriteVolunteerService.optOut()` 是**打标记不删行**，注释逐字写着理由：
-    /// 「删了盲人会以为收藏丢了、于是重新收藏一次，把志愿者刚做的退出撤销掉」。
-    /// 但同一个 service 的 `remove()` 就是 `deleteByBlindUserIdAndVolunteerUserId` ——
-    /// **硬删整行，连同 `volunteer_opted_out_at` 一起**；随后 `add()` 建一条
-    /// `optedOut = null` 的新行，门槛只有「一起跑完过至少一单」（那还成立）。
-    /// 于是那个被防住的后果，由取消收藏按钮自己提供了入口。
-    ///
-    /// 🚩 **警告只能放在取消这一刻，放不到别处。** 行被删之后，「他曾经退出过」这个事实
-    /// 在客户端就不存在了 —— 订单详情页那条收藏入口
-    /// （`BlindOrderStatusView.favoriteVolunteerSection`）根本拿不到它，无从警告。
-    static func removeFavoriteConfirmation(
-        name: String,
-        hasOptedOut: Bool
-    ) -> RemoveFavoriteConfirmation {
-        guard hasOptedOut else {
-            return RemoveFavoriteConfirmation(
-                title: "取消\(name)的固定搭档？",
-                message: "取消后，派单时不再把\(name)当作你的固定搭档。以后还可以再设回来。",
-                confirm: "取消固定搭档",
-                // 不写「取消」：同下面那一档的「保留收藏」。
-                cancel: "保留固定搭档"
-            )
-        }
-        return RemoveFavoriteConfirmation(
-            title: "\(removeFavoriteTitle(name))？",
-            // 后果必须写进正文、且是读屏能一口气念清楚的一整句 —— 只给「确定 / 取消」
-            // 等于把一个会影响**别人**的决定做成了一次无声点击。
-            message: "\(name)已经退出了你们的固定搭档。取消收藏会把这条退出记录一起删掉："
-                + "之后你如果再把\(name)设为固定搭档，他的退出就不作数了，而他不会收到任何提示。",
-            confirm: "仍然取消收藏",
-            // 🚩 **不写「取消」**：在一个讲「取消收藏」的弹窗里，「取消」有两种读法
-            // （取消这个动作？还是确认取消收藏？）。念出来尤其分不清。
-            cancel: "保留收藏"
-        )
-    }
-
     static func favoriteAdded(_ name: String) -> String {
         "已把\(name)设为固定搭档。\(favoriteExplanation)"
     }
