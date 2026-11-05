@@ -32,6 +32,8 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(swipeUntilHittable(contactRow, in: app), "列表没有张三这一行")
         assertBlindTouchTarget(contactRow, name: "联系人行")
         attachScreenshot(app, name: "blind-emergency-contacts")
+        // 已知红灯 #756：列表分「主联系人 / 其他联系人」两组后，默认字号下「其他联系人」「手动输入」被误报改不了字号
+        // （AX5 那条用例同一页不报、字确实放大）。按负责人口径不加白名单；判回归比点名的元素，别比条数。
         try audit(app)
 
         // 添加区两行（#746）也是盲人端入口，同样 64pt。

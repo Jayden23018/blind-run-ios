@@ -348,29 +348,43 @@ struct EmergencyContactsView: View {
                 .accessibilityHint("再次朗读紧急联系人数量和主联系人")
             }
 
-            Section {
-                if viewModel.isLoading && viewModel.contacts.isEmpty {
-                    Text("正在加载紧急联系人…")
-                        .accessibilityLabel("正在加载紧急联系人")
-                } else if viewModel.contacts.isEmpty {
-                    Text("还没有紧急联系人，请至少添加一位。")
-                        .accessibilityLabel("还没有紧急联系人，请至少添加一位")
-                } else {
-                    ForEach(viewModel.contacts) { contact in
+            if let primary = viewModel.primaryContact {
+                // 主联系人单独一组 + 实心头像（负责人 2026-11-05 选的折中，#746）。组标题已经说了它是谁，行里不再写字。
+                // 没有唯一主联系人（加载中、空列表、后端数据异常）时走下面的单组写法，联系人一个不漏。
+                Section {
+                    contactRow(primary)
+                } header: {
+                    groupHeader("主联系人")
+                }
+                Section {
+                    ForEach(viewModel.contacts.filter { $0.id != primary.id }) { contact in
                         contactRow(contact)
                     }
+                    addRows
+                } header: {
+                    groupHeader("其他联系人")
+                } footer: {
+                    addLimitFooter
                 }
-                // 照医疗急救卡：添加行是联系人这一组的最后几行，不另起一组（也就少一个组标题要念）。
-                addRows
-            } header: {
-                Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）\u{202F}").foregroundColor(AppColors.textSecondary) // 默认灰只有约 3.3:1；全角「）」后补窄空格防判截断
-            } footer: {
-                if let addBlockedReason = viewModel.addBlockedReason {
-                    Text(addBlockedReason)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(addBlockedReason)
+            } else {
+                Section {
+                    if viewModel.isLoading && viewModel.contacts.isEmpty {
+                        Text("正在加载紧急联系人…")
+                            .accessibilityLabel("正在加载紧急联系人")
+                    } else if viewModel.contacts.isEmpty {
+                        Text("还没有紧急联系人，请至少添加一位。")
+                            .accessibilityLabel("还没有紧急联系人，请至少添加一位")
+                    } else {
+                        ForEach(viewModel.contacts) { contact in
+                            contactRow(contact)
+                        }
+                    }
+                    // 照医疗急救卡：添加行是联系人这一组的最后几行，不另起一组（也就少一个组标题要念）。
+                    addRows
+                } header: {
+                    groupHeader("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）\u{202F}") // 全角「）」后补窄空格防判截断
+                } footer: {
+                    addLimitFooter
                 }
             }
         }
@@ -446,6 +460,22 @@ struct EmergencyContactsView: View {
         .accessibilityLabel("手动输入新增紧急联系人")
         .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名、手机号和关系后保存")
         .accessibilityIdentifier("emergencyContactAddManually")
+    }
+
+    /// 默认灰只有约 3.3:1，组标题统一压成 `textSecondary`。
+    private func groupHeader(_ title: String) -> some View {
+        Text(title).foregroundColor(AppColors.textSecondary)
+    }
+
+    @ViewBuilder
+    private var addLimitFooter: some View {
+        if let addBlockedReason = viewModel.addBlockedReason {
+            Text(addBlockedReason)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(addBlockedReason)
+        }
     }
 
     private var canStartAdding: Bool { viewModel.canAddContact && !viewModel.isMutating }

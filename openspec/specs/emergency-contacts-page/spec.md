@@ -38,9 +38,15 @@ The form SHALL let the user choose the relationship from a preset list, show a c
 - **THEN** the custom row SHALL show the stored value and be checked
 
 ### Requirement: Contact rows keep masked phones and the existing VoiceOver label
-Each contact row SHALL show a monogram avatar, the name, a "主联系人" marker for the primary contact, the relationship and the masked phone. The full phone SHALL NOT appear on the list. The row's accessibility label SHALL stay "姓名，关系X，电话<掩码>，主联系人/非主联系人".
+Each contact row SHALL show a monogram avatar, the name, the relationship and the masked phone. When exactly one primary contact exists, the list SHALL show it alone in a group titled "主联系人", above a group titled "其他联系人" that holds the other contacts and the add rows, and its avatar SHALL be solid (filled) while the others are tinted. The full phone SHALL NOT appear on the list. The row's accessibility label SHALL stay "姓名，关系X，电话<掩码>，主联系人/非主联系人".
 
 #### Scenario: Primary contact row is read with VoiceOver
 - **WHEN** VoiceOver focuses the primary contact row
 - **THEN** it SHALL read one element with the name, relationship, masked phone and "主联系人", and the avatar SHALL be hidden from VoiceOver
 
+### Requirement: Form rows are compact
+Rows in the add and edit forms SHALL be exactly as tall as the 64pt blind touch target, with no extra vertical inset, and SHALL use the `AppFonts.formRow()` text style. The "设为主联系人" and "删除联系人" actions SHALL share one group.
+
+#### Scenario: Owner reviews the edit form
+- **WHEN** the edit form for a non-primary contact is shown at the default text size
+- **THEN** each row SHALL be 64pt tall and the two actions SHALL be in the same group

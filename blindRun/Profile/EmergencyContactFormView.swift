@@ -61,9 +61,11 @@ struct EmergencyContactFormView: View {
                         title: pickButtonTitle,
                         systemImage: "person.crop.circle.fill",
                         tint: AppColors.primary,
-                        isEnabled: !viewModel.isMutating
+                        isEnabled: !viewModel.isMutating,
+                        font: AppFonts.formRow().weight(.semibold)
                     )
                 }
+                .emergencyFormRow()
                 .disabled(viewModel.isMutating)
                 .accessibilityLabel(pickButtonTitle)
                 .accessibilityHint("打开系统通讯录选一位联系人，自动填入姓名和手机号。助盲跑只拿到你选的这一位")
@@ -78,17 +80,18 @@ struct EmergencyContactFormView: View {
 
                 if let pickNotice {
                     Text(pickNotice)
-                        .font(AppFonts.body())
+                        .font(AppFonts.formRow())
                         .foregroundColor(AppColors.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(pickNotice)
                         .accessibilityIdentifier("emergencyContactPickNotice")
+                        .padding(.vertical, AppSpacing.medium)
+                        .emergencyFormRow()
                 }
-            }
 
-            Section {
                 EmergencyContactLabelledField(title: "姓名") {
                     TextField("必填", text: $name)
+                        .font(AppFonts.formRow())
                         .focused($focusedField, equals: .name)
                         .submitLabel(.next)
                         .onSubmit { focusedField = .phone }
@@ -98,6 +101,7 @@ struct EmergencyContactFormView: View {
 
                 EmergencyContactLabelledField(title: "手机号") {
                     TextField("11 位手机号", text: $phone)
+                        .font(AppFonts.formRow())
                         .keyboardType(.numberPad)
                         .focused($focusedField, equals: .phone)
                         .accessibilityLabel("联系人手机号，必填，11 位")
@@ -119,7 +123,11 @@ struct EmergencyContactFormView: View {
 
             if !isEditing {
                 Section {
-                    Toggle("设为主联系人", isOn: $makePrimary)
+                    Toggle(isOn: $makePrimary) {
+                        Text("设为主联系人").font(AppFonts.formRow())
+                    }
+                        .frame(minHeight: AppTouchTarget.blindPrimary)
+                        .emergencyFormRow()
                         .disabled(viewModel.contacts.isEmpty)
                         .accessibilityLabel("设为主联系人")
                         .accessibilityHint(
@@ -222,8 +230,8 @@ struct EmergencyContactFormView: View {
     /// 这两项会改变谁能接到紧急呼叫，所以放在页面最下面，都要二次确认。
     @ViewBuilder
     private func contactActions(_ contact: EmergencyContactResponse) -> some View {
-        if contact.isPrimary != true {
-            Section {
+        Section {
+            if contact.isPrimary != true {
                 Button {
                     showPrimaryConfirmation = true
                 } label: {
@@ -232,10 +240,9 @@ struct EmergencyContactFormView: View {
                 .disabled(viewModel.isMutating)
                 .accessibilityLabel("把\(displayName)设为主联系人")
                 .accessibilityHint("需要二次确认")
+                .emergencyFormRow()
             }
-        }
 
-        Section {
             Button(role: .destructive) {
                 if viewModel.deletionBlockedReason(for: contact) == nil {
                     showDeleteConfirmation = true
@@ -249,12 +256,13 @@ struct EmergencyContactFormView: View {
             .disabled(viewModel.isMutating)
             .accessibilityLabel("删除\(displayName)")
             .accessibilityHint(viewModel.deletionBlockedReason(for: contact) ?? "危险操作，需要二次确认")
+            .emergencyFormRow()
         }
     }
 
     private func contactActionLabel(_ title: String, color: Color) -> some View {
         Text(title)
-            .font(AppFonts.body().weight(.semibold))
+            .font(AppFonts.formRow().weight(.semibold))
             .foregroundColor(color)
             .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
             .contentShape(Rectangle())
@@ -272,16 +280,17 @@ extension EmergencyContactFormView {
         } label: {
             HStack(spacing: AppSpacing.medium) {
                 Text("关系")
-                    .font(AppFonts.body())
+                    .font(AppFonts.formRow())
                     .foregroundColor(AppColors.textPrimary)
                 Spacer(minLength: AppSpacing.small)
                 Text(value)
-                    .font(AppFonts.body())
+                    .font(AppFonts.formRow())
                     .foregroundColor(relationship.trimmed.isEmpty ? AppColors.textSecondary : AppColors.primary)
                     .multilineTextAlignment(.trailing)
             }
             .frame(minHeight: AppTouchTarget.blindPrimary)
         }
+        .emergencyFormRow()
         // 标签直接挂在 NavigationLink 上：它本身就是一个按钮元素，再套一层 `.ignore` 有吞掉读屏双击的风险。
         .accessibilityLabel("与联系人的关系，\(value)")
         .accessibilityHint("选填。打开列表选择关系")

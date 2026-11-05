@@ -325,6 +325,12 @@ enum AppFonts {
         .caption
     }
 
+    /// 盲人端表单行（标签 + 输入 + 行内动作）。比正文大一档：64pt 的行里放 17pt 显得空、字显小
+    /// （负责人 2026-11-05 看紧急联系人表单：「是不是有点太小了…非常大的空白没有很紧密」，#746）。
+    static func formRow() -> Font {
+        .title3
+    }
+
     static func primaryButton() -> Font {
         .title3.bold()
     }
