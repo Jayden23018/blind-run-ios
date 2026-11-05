@@ -8,6 +8,7 @@ extension AccessibilityAuditTests {
 
     /// 回归：「保存」曾被红条盖住 56pt，点它落到紧急呼叫上（真机 frame y 715–779 对 723–787）。
     /// `isHittable` 不判遮挡，所以断言打在 frame 与点击结果上。
+    /// #750 起账户页进来的资料页是查看页，「保存」在改文字的编辑页底部，量那一枚。
     @MainActor
     func testProfileSaveButtonIsNotCoveredByAnEmergencyBar() throws {
         let app = launchBlindHome()
@@ -15,9 +16,12 @@ extension AccessibilityAuditTests {
         let profileLink = app.buttons["个人资料"].firstMatch
         XCTAssertTrue(profileLink.waitForExistence(timeout: 10))
         profileLink.tap()
+        let nicknameRow = app.descendants(matching: .any)["blindProfileNicknameRow"].firstMatch
+        XCTAssertTrue(nicknameRow.waitForExistence(timeout: 10), "查看页没有「昵称」")
+        nicknameRow.tap()
 
-        let save = app.buttons["保存，保存资料"].firstMatch
-        XCTAssertTrue(save.waitForExistence(timeout: 10), "资料页没有「保存」")
+        let save = app.buttons["blindProfileTextEditSave"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 10), "编辑页没有「保存」")
         let sos = emergencyCallButton(app)
         if sos.exists {
             XCTAssertTrue(
