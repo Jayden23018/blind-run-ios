@@ -75,7 +75,7 @@ struct VolunteerRunDataAxisLabels: View {
                     let band = proxy.size.width / CGFloat(max(1, count))
                     ForEach(labels.keys.sorted(), id: \.self) { index in
                         let centre = band * (CGFloat(index) + 0.5)
-                        let alignment: Alignment = centre < band * 2 ? .leading : (centre > proxy.size.width - band * 2 ? .trailing : .center)
+                        let alignment = Self.alignment(centre: centre, width: proxy.size.width)
                         Text(labels[index] ?? "")
                             .font(.caption)
                             .foregroundColor(AppColors.textSecondary)
@@ -88,6 +88,14 @@ struct VolunteerRunDataAxisLabels: View {
     }
 
     private static let slot: CGFloat = 64
+
+    /// 居中放得下就居中；只有居中会伸出左 / 右边时才改成向内对齐。
+    /// 按「离边几根柱」判的话，柱子宽（周档、6 个月）时第二根的标签也被推到柱左沿（2026-11-05 代码审查）。
+    private static func alignment(centre: CGFloat, width: CGFloat) -> Alignment {
+        if centre - slot / 2 < 0 { return .leading }
+        if centre + slot / 2 > width { return .trailing }
+        return .center
+    }
 
     /// 靠左的标签左沿对准柱左沿，靠右的右沿对准柱右沿，其余居中。
     private static func slotCentre(_ centre: CGFloat, alignment: Alignment, band: CGFloat) -> CGFloat {

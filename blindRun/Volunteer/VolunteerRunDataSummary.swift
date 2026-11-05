@@ -63,9 +63,13 @@ struct VolunteerRunDataSummary: Equatable {
         thisWeek = Self.makeThisWeek(context)
         mileage = Self.makeMileage(context, weeks: calendarWeeks)
         serviceMonths = Self.makeServiceMonths(context)
-        averageServiceMinutes = serviceMonths.contains { $0.minutes != nil }
-            ? Int64(Self.average(serviceMonths.compactMap { $0.minutes.map(Double.init) }).rounded())
-            : nil
+        let loadedService = serviceMonths.filter { $0.minutes != nil }
+        averageServiceMinutes = loadedService.isEmpty
+            ? nil
+            : Int64(Self.average(
+                loadedService.map { Double($0.minutes ?? 0) },
+                lastIsUnfinished: loadedService.last?.month == context.currentMonth
+            ).rounded())
         mileageComparison = Self.makeComparison(context)
         let counts = Self.makeWeekdayCounts(context)
         let topCount = counts.max() ?? 0
@@ -201,10 +205,11 @@ extension VolunteerRunDataSummary {
     }
 
     /// 平均。最后一段（本周 / 本月）还没结束，**还没有数时不进分母** —— 否则每周一、每月初平均都被拉低一截。
-    /// 已经有数时照算：它是真跑出来的。
-    static func average(_ values: [Double]) -> Double {
+    /// 已经有数时照算：它是真跑出来的。`lastIsUnfinished` 为 false 时（最后一个不是本周 / 本月，
+    /// 例如本月没加载出来），最后一个是 0 也照算。
+    static func average(_ values: [Double], lastIsUnfinished: Bool = true) -> Double {
         guard let last = values.last else { return 0 }
-        let denominator = values.count - (last == 0 ? 1 : 0)
+        let denominator = values.count - (lastIsUnfinished && last == 0 ? 1 : 0)
         guard denominator > 0 else { return 0 }
         return values.reduce(0, +) / Double(denominator)
     }

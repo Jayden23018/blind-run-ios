@@ -4,7 +4,7 @@ import Foundation
 // 跑步数据页（#710）的取数：近 12 个月的月度列表，并发拉，每到一个月重算一次（先到先画）。
 // 火花、累计里程、累计陪伴由首页带进来（同一份数据，不另发请求，理由见 `VolunteerRunDataStreak`）。
 
-extension RunRecordMonth: Hashable {
+nonisolated extension RunRecordMonth: Hashable {
     // `RunRecordMonth` 声明在别的文件里，合成的 Hashable 只在声明所在文件生效，所以手写。
     func hash(into hasher: inout Hasher) {
         hasher.combine(year)

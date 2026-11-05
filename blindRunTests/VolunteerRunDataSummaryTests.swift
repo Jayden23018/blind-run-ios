@@ -184,10 +184,36 @@ final class VolunteerRunDataSummaryTests: XCTestCase {
             let day = calendar.date(byAdding: .month, value: -offset, to: date(2026, 11, 10))!
             return run(Int64(offset), day, metres: 10_000)
         }
-        let year = summary(runs, now: now).mileage[.year]!
+        let allLoaded = Dictionary(uniqueKeysWithValues: (0..<12).map { offset -> (RunRecordMonth, Int64) in
+            var month = RunRecordMonth(year: 2026, month: 11)
+            for _ in 0..<offset { month = month.previous }
+            return (month, 60)
+        })
+        let year = summary(runs, now: now, loaded: allLoaded).mileage[.year]!
         XCTAssertEqual(year.bars.count, 12)
         XCTAssertEqual(year.headlineKm, 10.0, accuracy: 0.001)
         XCTAssertEqual(calendar.component(.month, from: year.bars.first!.start), 12)
+
+        // 1–3 月没加载出来（自然也没有单子）：不当 0 公里进分母。
+        // 对的实现 80 / 8 = 10；当 0 算的实现 80 / 11 ≈ 7.27。
+        let missing = [RunRecordMonth(year: 2026, month: 1), RunRecordMonth(year: 2026, month: 2), RunRecordMonth(year: 2026, month: 3)]
+        var partial = allLoaded
+        missing.forEach { partial.removeValue(forKey: $0) }
+        let loadedRuns = runs.filter { !missing.contains(RunRecordMonth(containing: $0.finishedAt, calendar: calendar)) }
+        XCTAssertEqual(loadedRuns.count, 8)
+        XCTAssertEqual(summary(loadedRuns, now: now, loaded: partial).mileage[.year]!.headlineKm, 10.0, accuracy: 0.001)
+    }
+
+    /// 本月没加载出来、上月真的是 0 分钟：上月照算进分母（不是「本月未结束」）。
+    /// 把「最后一个是 0 就不算」用到上月的实现得 60，对的是 40。
+    func testServiceAverageOnlySkipsAnEmptyCurrentMonth() {
+        let now = date(2026, 11, 5)
+        let loaded: [RunRecordMonth: Int64] = [
+            RunRecordMonth(year: 2026, month: 9): 60,
+            RunRecordMonth(year: 2026, month: 8): 60,
+            RunRecordMonth(year: 2026, month: 10): 0
+        ]
+        XCTAssertEqual(summary([], now: now, loaded: loaded).averageServiceMinutes, 40)
     }
 
     /// 最常陪跑的星期几：并列时两个都说。

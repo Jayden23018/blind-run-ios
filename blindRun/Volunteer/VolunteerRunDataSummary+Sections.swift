@@ -149,10 +149,16 @@ extension VolunteerRunDataSummary {
                 start: context.windowStart, end: weekEnd
             ),
             .year: MileageSeries(
-                range: .year, bars: yearBars, headlineKm: average(yearBars.map(\.value)),
+                range: .year, bars: yearBars, headlineKm: yearAverage(context, bars: yearBars),
                 start: context.firstDay(of: context.yearMonths[0]), end: monthStart
             )
         ]
+    }
+
+    /// 年档平均只算加载出来的月份：没加载出来的月份是「不知道」，不是 0 公里（2026-11-05 代码审查）。
+    static func yearAverage(_ context: Context, bars: [Bar]) -> Double {
+        let loaded = zip(context.yearMonths, bars).filter { context.serviceMinutes[$0.0] != nil }
+        return average(loaded.map(\.1.value), lastIsUnfinished: loaded.last?.0 == context.currentMonth)
     }
 
     // MARK: 陪伴时长与提要

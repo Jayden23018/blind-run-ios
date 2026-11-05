@@ -152,12 +152,16 @@ extension MockAPIClient {
         let calendar = Calendar.volunteerRunData
         let fullNames = ["李*": "李明", "王*": "王芳", "张*": "张伟"]
         let formatter = DateFormatter.aidRunBackendLocalDateTime
-        orders = Self.mockRunDataSchedule(now: Date(), calendar: calendar)
+        let now = Date()
+        orders = Self.mockRunDataSchedule(now: now, calendar: calendar)
             .sorted { $0.day > $1.day }
             .enumerated()
             .map { index, run in
                 let orderId = Int64(2_000 + index)
-                let finished = calendar.date(bySettingHour: 6, minute: 30, second: 0, of: run.day) ?? run.day
+                // 落在今天时不晚于现在：周一清早 6:30 之前跑测，「将来」的一单会被数据页过滤掉，
+                // 而 Mock 火花仍说本周记上了，两边对不上。
+                let planned = calendar.date(bySettingHour: 6, minute: 30, second: 0, of: run.day) ?? run.day
+                let finished = min(planned, now.addingTimeInterval(-60))
                 runRecordSamples[orderId] = MockRunRecordSample(
                     distanceM: Int((run.km * 1_000).rounded()),
                     serviceMin: Int((run.km * 8.5 + 18).rounded())
