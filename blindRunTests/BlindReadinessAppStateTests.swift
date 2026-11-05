@@ -34,7 +34,6 @@ final class BlindReadinessAppStateTests: XCTestCase {
             appState.updateEmergencyContacts([contact(1, primary: true)])
 
             XCTAssertTrue(appState.isBlindBookingReady, "\(status ?? "nil") 不应阻塞下单")
-            XCTAssertNil(appState.blindOnboardingStep, "\(status ?? "nil") 不应停在引导页")
         }
     }
 
@@ -56,17 +55,27 @@ final class BlindReadinessAppStateTests: XCTestCase {
         XCTAssertTrue(appState.isBlindBookingReady)
     }
 
-    // MARK: - 引导流步骤（AppState 侧接线）
+    // MARK: - 约跑页「约跑前还差 N 项」（#781）
 
-    func testOnboardingStepAdvancesAsRequirementsAreSatisfied() {
+    /// 新用户不再有引导页，缺什么由约跑页顶部那张卡列出来。
+    /// 三种紧急联系人状态各取一值：一个都没有、有人但没有唯一主联系人、齐了 ——
+    /// 若实现把后两种塌成同一句，或「齐了」仍出一行，这里会红。
+    func testMissingSetupCardListsOnlyWhatIsStillMissing() {
         let appState = makeAppState()
-        XCTAssertEqual(appState.blindOnboardingStep, .basicProfile)
+        var card = BlindBookingMissingSetupCard(appState: appState)
+        XCTAssertTrue(card.needsNickname)
+        XCTAssertEqual(card.emergencyContactsValue, "未添加")
 
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "NOT_VERIFIED"))
-        XCTAssertEqual(appState.blindOnboardingStep, .emergencyContacts)
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
+        appState.updateEmergencyContacts([contact(1, primary: false)])
+        card = BlindBookingMissingSetupCard(appState: appState)
+        XCTAssertFalse(card.needsNickname)
+        XCTAssertEqual(card.emergencyContactsValue, "未设主联系人")
 
         appState.updateEmergencyContacts([contact(1, primary: true)])
-        XCTAssertNil(appState.blindOnboardingStep, "资料和联系人齐了就进首页，没有实名这一步")
+        card = BlindBookingMissingSetupCard(appState: appState)
+        XCTAssertFalse(card.needsNickname)
+        XCTAssertNil(card.emergencyContactsValue, "齐了就不再列这一行")
         XCTAssertTrue(appState.isBlindBookingReady)
     }
 }

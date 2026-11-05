@@ -272,18 +272,25 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertNil(onPageOnly.errorMessage)
     }
 
-    // MARK: - 引导流步骤
+    /// 从「约跑前还差 N 项」补完回到约跑页（页面重新出现）时，上次那句「还要填昵称」要撤掉（#781）。
+    /// 别的错误（比如提交失败）不归这里管，留着。
+    @MainActor
+    func testEntryAnnouncementClearsSetupMessageOnceFilledIn() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        let viewModel = makeBookingViewModel(locationService: nil, appState: appState)
+        viewModel.announceEntryGateIfNeeded()
+        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.basicProfile.message, "前提：缺昵称时念过")
 
-    func testOnboardingStepOrder() {
-        XCTAssertEqual(
-            BlindOnboardingStep.first(isBasicProfileComplete: false, hasValidEmergencyContacts: false),
-            .basicProfile
-        )
-        XCTAssertEqual(
-            BlindOnboardingStep.first(isBasicProfileComplete: true, hasValidEmergencyContacts: false),
-            .emergencyContacts
-        )
-        // 2026-11-05 起没有实名这一步（#767）：资料和联系人齐了就进首页。
-        XCTAssertNil(BlindOnboardingStep.first(isBasicProfileComplete: true, hasValidEmergencyContacts: true))
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
+        viewModel.announceEntryGateIfNeeded()
+        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.emergencyContacts.message, "补了昵称，改念还差的那一项")
+
+        appState.updateEmergencyContacts([contact(1, primary: true)])
+        viewModel.announceEntryGateIfNeeded()
+        XCTAssertNil(viewModel.errorMessage, "都补齐了，屏幕上不能还留着「还差」那句")
+
+        viewModel.errorMessage = "订单提交失败"
+        viewModel.announceEntryGateIfNeeded()
+        XCTAssertEqual(viewModel.errorMessage, "订单提交失败", "别的错误不归这里清")
     }
 }

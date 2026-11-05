@@ -15,6 +15,9 @@ extension BlindBookingView {
                     .accessibilityLabel(fallbackMessage)
             }
 
+            // 缺昵称或紧急联系人时在这里补（#781）。都齐了它不渲染任何东西。
+            BlindBookingMissingSetupCard(appState: appState)
+
             zeroInputBookingSection
 
             // 外观走 `PrimaryButtonStyle`：原先 frame / 底色挂在 Button 外面，可点区只有字那么大（#295 走查 B5）。

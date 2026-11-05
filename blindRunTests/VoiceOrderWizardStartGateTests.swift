@@ -59,6 +59,31 @@ final class VoiceOrderWizardStartGateTests: XCTestCase, VoiceOrderWizardTestSupp
         XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.basicProfile.message, "拦住了就必须说得出原因")
     }
 
+    /// 从「约跑前还差 N 项」补完回来（#781）：顶上那句改成还差的下一项，都齐了就撤掉，且不开麦。
+    /// 撤不掉的话，屏幕在卡片消失后还说「还要填昵称」，零输入下单的大按钮也会被它误放出来。
+    func testRefreshAfterFillingSetupItemsUpdatesThenClearsTheFallback() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
+        XCTAssertFalse(wizard.start(), "前提：缺昵称被拦下")
+
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
+        wizard.refreshSetupGateFallback()
+        XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.emergencyContacts.message, "补了昵称，改说还差的那一项")
+
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
+        ])
+        wizard.refreshSetupGateFallback()
+        XCTAssertNil(wizard.fallbackMessage, "都齐了就撤掉")
+        XCTAssertFalse(wizard.isRunning, "回来时不自动开麦")
+
+        wizard.fallbackMessage = "语音输入当前不可用"
+        wizard.refreshSetupGateFallback()
+        XCTAssertEqual(wizard.fallbackMessage, "语音输入当前不可用", "别的降级原因不归这里管")
+    }
+
     /// 起点与时间**缺失时反而要照常起步** —— 它们正是用户接下来要说出口的槽位。
     ///
     /// ⚠️ openspec tasks 3.4 原文写的是「默认值不可用时**不**出现首步」，那描述属于已被推翻的
