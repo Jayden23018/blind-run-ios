@@ -74,8 +74,12 @@
 5. Xcode 26 安装运行时默认只下 arm64 版。本机 `xcodebuild -help` 列出 `-downloadPlatform iOS … -architectureVariant <universal|arm64>`，可以装带 x86_64 的通用版。
    第三方文章写明了这一点：iOS 26 之前的运行时是通用版，Xcode 26 改成默认只下 arm64，要 x86_64 就用 `-architectureVariant universal`。
 
+6. **编译这一步已实测通过**（2026-11-06，Xcode 26.2）：
+   `xcodebuild build-for-testing -workspace blindRun.xcworkspace -scheme blindRun -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO`
+   输出 `** TEST BUILD SUCCEEDED **`。`blindRun.app/blindRun` 是 `x86_64`，`blindRunTests.xctest` 与 `blindRunUITests.xctest` 都生成了，高德与阿里云都链接上了。
+
 ⇒ 「永久不可用」是把「默认运行时只有 arm64」误当成「Xcode 26 去掉了 Rosetta 模拟器」。
-**还没端到端验证**：要装通用版运行时（几 GB），再跑一个单测类，看 `passed>0 failed=0`。
+**还差运行这一步没验**：要装通用版运行时（几 GB），再跑一个单测类，看 `passed>0 failed=0`。
 
 天花板：Rosetta 的长期支持要以 Apple 公告为准，这次没核。高德或阿里云换成 xcframework 并带 arm64 模拟器片后，这条路就不需要了。
 
