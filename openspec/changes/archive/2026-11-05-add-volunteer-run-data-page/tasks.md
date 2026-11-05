@@ -15,4 +15,4 @@
 
 - [x] 3.1 Mock 近半年有起伏的样例数据（launch 环境变量打开）
 - [x] 3.2 UI 用例：点连续陪跑卡进数据页、切里程档、`performAccessibilityAudit`
-- [ ] 3.3 真机截图对照定稿打分；定稿进 `docs/ui/mockups/volunteer-run-data-20261105/` 并在 INDEX 加一行
+- [x] 3.3 真机截图对照定稿打分；定稿进 `docs/ui/mockups/volunteer-run-data-20261105/` 并在 INDEX 加一行
