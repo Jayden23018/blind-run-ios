@@ -124,6 +124,23 @@ final class PrivacyAuthorizationTests: XCTestCase {
         XCTAssertFalse(VisionRevokeRow.profileNotLoaded.offersRevoke)
     }
 
+    /// #754 第一层灰字与详情页「当前」行：撤回没存上时不许说「已同意」或「没有同意」，否则列表在说一件没发生的事。
+    func testVisionRowValueAndHintPerState() {
+        XCTAssertEqual(VisionRevokeRow.granted.value, "已同意")
+        XCTAssertEqual(VisionRevokeRow.notGranted.value, "没有同意")
+        XCTAssertEqual(VisionRevokeRow.withdrawalPending.value, "撤回还没完成")
+        XCTAssertEqual(VisionRevokeRow.profileNotLoaded.value, "已同意", "资料没加载时同意记录还在")
+        XCTAssertNil(VisionRevokeRow.granted.hint)
+        XCTAssertNil(VisionRevokeRow.profileNotLoaded.hint, "资料没加载那句占撤回行的位置，不进状态组说明")
+        XCTAssertEqual(VisionRevokeRow.withdrawalPending.hint, PrivacyAuthorizationCopy.visionWithdrawalPendingHint)
+        XCTAssertEqual(VisionRevokeRow.notGranted.hint, PrivacyAuthorizationCopy.visionNotGrantedHint)
+    }
+
+    /// 失败那句让用户「再点一次」撤回行，读屏标签必须以同一个名字开头，盲人才找得到。
+    func testVisionRevokeLabelStartsWithTheVisibleTitle() {
+        XCTAssertTrue(PrivacyAuthorizationCopy.visionRevokeLabel.hasPrefix(PrivacyAuthorizationCopy.visionRevokeButtonTitle))
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(timeout: TimeInterval = 2, _ condition: @MainActor () -> Bool) async -> Bool {

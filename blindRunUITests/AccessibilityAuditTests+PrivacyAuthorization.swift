@@ -14,21 +14,45 @@ private let privacyAuditVariants: [(name: String, environment: [String: String],
 /// 每种外观在页首、页尾各审一次并截图：`audit` 不保证判到第一遍时整个在屏外的元素（见 `AccessibilityAuditTests+Audit.swift`）。
 extension AccessibilityAuditTests {
 
+    /// 盲人端 #754 起分两层：第一层（说明卡 + 三行）审一次，再进语音、位置两项的详情页各审一次。
+    /// 视力那项在 UI 用例里没有同意，详情页没有撤回行，不单独进。
     @MainActor
     func testBlindPrivacyAuthorizationPagePassesAuditInLightDarkAndLargestText() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .portrait
+        let details = [
+            (entry: "privacyVoiceOrderConsentEntry", revoke: "privacyRevokeVoiceOrderConsent", page: "voice"),
+            (entry: "privacyLocationTrackConsentEntry", revoke: "privacyRevokeLocationTrackConsent", page: "location"),
+        ]
         for variant in privacyAuditVariants {
             let app = launchBlindHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
             openPrivacyAuthorization(app, entryIdentifier: "blindPrivacyAuthorizationSettingsEntry", variant: variant.name, throughAccountPage: true)
-            // UI 用例默认跳过语音与位置两项同意（环境变量），两项都显示为已同意、都有撤回按钮。
-            try auditPrivacyPage(
-                app,
-                firstButton: "privacyRevokeVoiceOrderConsent",
-                lastButton: "privacyRevokeLocationTrackConsent",
-                name: "blind-privacy-\(variant.name)"
-            )
+
+            let firstRow = app.descendants(matching: .any)[details[0].entry].firstMatch
+            XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "\(variant.name)：第一层的三行没出来")
+            waitUntilSettled(firstRow)
+            attachScreenshot(app, name: "blind-privacy-\(variant.name)-list")
+            try audit(app)
+
+            // UI 用例默认跳过语音与位置两项同意（环境变量），两项都显示为已同意、详情页都有撤回行。
+            for detail in details {
+                let row = app.descendants(matching: .any)[detail.entry].firstMatch
+                for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
+                XCTAssertTrue(row.exists && row.isHittable, "\(variant.name)：第一层滑到底也没露出 \(detail.entry)")
+                row.tap()
+                try auditPrivacyPage(
+                    app,
+                    firstButton: detail.revoke,
+                    lastButton: detail.revoke,
+                    name: "blind-privacy-\(detail.page)-\(variant.name)"
+                )
+                app.navigationBars.buttons.firstMatch.tap()
+                XCTAssertTrue(
+                    app.navigationBars["隐私与授权"].waitForExistence(timeout: 10),
+                    "\(variant.name)：从 \(detail.page) 详情页没回到第一层"
+                )
+            }
             app.terminate()
         }
     }
@@ -81,7 +105,7 @@ extension AccessibilityAuditTests {
         )
     }
 
-    /// 页首审一次，滑到最后一枚撤回按钮露出来再审一次。
+    /// 页首审一次，滑到最后一枚撤回按钮露出来再审一次。盲人端详情页只有一枚，首尾传同一个。
     @available(iOS 17.0, *)
     @MainActor
     func auditPrivacyPage(_ app: XCUIApplication, firstButton: String, lastButton: String, name: String) throws {
