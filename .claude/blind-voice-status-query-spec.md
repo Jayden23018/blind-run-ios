@@ -225,7 +225,7 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceStatusQueryTests
 ### 2. 回归（改了 `SpeechInputField` 枚举，覆盖它的既有 suite 要跑）
 
 ```bash
-scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests -only-testing:blindRunTests/blindRunTests
+scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests -only-testing:blindRunTests/VoiceAndSpeechInputTests
 ```
 
 **不必全量。** 本次没动 `SystemSpeechAudioSession` / `APIClient` / `AppState` 这类全 App

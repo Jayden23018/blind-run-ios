@@ -892,7 +892,7 @@ final class LiveEscortTrackTests: XCTestCase {
     }
 
     /// 轮询等待某个正向条件成立，替代"固定 sleep 之后直接断言"的写法。
-    /// 与 blindRunTests.swift 中的同名私有助手保持一致；本类不是 @MainActor，故显式标注。
+    /// 与 BlindRunTestSupport.swift 中的同名助手保持一致；本类不是 @MainActor，故显式标注。
     @MainActor
     private func waitUntil(
         timeout: TimeInterval = 2,

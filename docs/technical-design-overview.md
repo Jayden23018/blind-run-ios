@@ -520,7 +520,7 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 
 | 测试文件 | 规模 | 覆盖 |
 |---|---|---|
-| `blindRunTests.swift` | 277 KB | 主干单元测试 |
+| `blindRunTests/` 下 33 个按主题的类 + 3 个共享 helper 文件（`BlindRunTestSupport.swift` 等；原 `blindRunTests.swift`，#717 拆分） | 共 277 KB | 主干单元测试 |
 | `VoiceOrderWizardTests.swift` | 135 KB | 语音下单状态机 |
 | `blindRunUITests.swift` | 78 KB | UI 端到端 |
 | `LiveEscortTrackTests.swift` | 32 KB | 位置共享与路线 |

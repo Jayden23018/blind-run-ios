@@ -1560,7 +1560,7 @@ final class blindRunUITests: XCTestCase {
         let finalAlert = app.alerts["最终确认删除账户"].firstMatch
         XCTAssertTrue(finalAlert.waitForExistence(timeout: 8))
         // 文案内容**不在这里断**。它的主是单测 `testAccountDeletionCopyStatesWhatIsDeletedAndWhatIsKept`
-        // （`blindRunTests/blindRunTests.swift`），那条进程内直接对
+        // （`blindRunTests/AuthSessionLifecycleTests.swift`），那条进程内直接对
         // `AccountDeletionViewModel.finalConfirmationMessage(for:)` 断言，拿得到真源。
         // 这里再抄一份字面量只会周期性漂移 —— `9f9cede` 把「会失效」改成「立即失效」，
         // 单测跟着改了，抄在这儿的那份没有，于是这条用例红了 7 天。

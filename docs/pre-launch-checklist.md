@@ -180,7 +180,7 @@
   两道确认 + `AccountDeletionViewModel` 先 preflight 查活跃订单（被拦时**语音播报**原因），
   真实调用在 [`AppState.swift:534`](../blindRun/Core/AppState.swift)
   `apiClient.delete("/api/users/\(userId)")`，失败重试在 `ContentView.swift:489`，
-  单测 `blindRunTests.swift:2349` + UI 测试 `blindRunUITests.swift:880-893` 都在。
+  单测 `AuthSessionLifecycleTests.testAccountDeletion*` + UI 测试 `blindRunUITests.swift:880-893` 都在。
   - ⚠️ **写错的原因值得记一笔**：搜的是「注销 / deleteAccount / 删除账号」，
     代码里写的是「**删除账户** / `deleteCurrentAccount`」—— 同义词错开，两个人先后判成「零调用点」。
     断言某功能「不存在」之前，至少换一组近义词再搜一遍。

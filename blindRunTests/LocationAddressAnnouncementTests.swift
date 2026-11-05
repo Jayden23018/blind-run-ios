@@ -213,7 +213,7 @@ final class LocationAddressAnnouncementTests: XCTestCase {
     }
 }
 
-/// 只数逆地理被调了几次。`blindRunTests.swift` 里那个 `FakePlaceSearchProvider` 是 private 的，且不计数。
+/// 只数逆地理被调了几次。`BlindRunTestDoubles.swift` 里那个 `FakePlaceSearchProvider` 不计数。
 @MainActor
 private final class CountingPlaceSearchProvider: PlaceSearchProviding {
     var lastErrorMessage: String?

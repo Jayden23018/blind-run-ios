@@ -105,11 +105,13 @@ const cases = [
   },
   {
     // 真仓库兜底：估算恒为 0 时上面的用例照样全绿，只有这一组看得出闸失效了。
-    name: '真仓库：blindRunTests 这个大类能数出来，且单独跑就会被拦',
+    // #717 拆掉了 300+ 条的 blindRunTests 大类，没有单个类再超过上限：类级只验数得出来，拦截改用整个目标验。
+    name: '真仓库：单测类能数出来，整个单测目标裸跑会被拦',
     run: () => {
       const real = countsFromRepository('.');
-      const result = estimate(['blindRunTests/blindRunTests'], real);
-      return result.total > WIDE_RUN_LIMIT && wideRunMessage(result) !== null;
+      const oneClass = estimate(['blindRunTests/VolunteerFaceVerifyTests'], real);
+      const result = estimate(['blindRunTests'], real);
+      return oneClass.total > 0 && result.total > WIDE_RUN_LIMIT && wideRunMessage(result) !== null;
     },
   },
   {

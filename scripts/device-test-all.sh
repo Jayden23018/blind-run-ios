@@ -34,7 +34,8 @@ UNIT_ONLY=0
 # 负责人定的是「非全量不可时先问」，所以上限不在这里重复拦：问过了才会跑到这一行。
 export AIDRUN_ALLOW_WIDE_RUN=1
 
-# 单测按 suite 分 4 批。`blindRunTests` 自己就有 300+ 条，单独一批。
+# 单测按 suite 平均分 4 批。原来 300+ 条的 `blindRunTests` 大类单独一批；
+# #717 把它拆成 33 个按主题的类后，不再有需要单独一批的大类。
 # 批次大小刻意保守（每批远低于观测到的 538 条挂死点）——批多一点的代价只是多几次
 # 编译缓存命中，比跑到一半挂掉便宜得多。
 UNIT_SUITES="$(grep -rhoE '(final +)?class +[A-Za-z0-9_]+ *: *XCTestCase' blindRunTests \
@@ -104,15 +105,13 @@ run_batch() {
 }
 
 # ---- 单测 ----
-# blindRunTests 单独一批，其余平均分 3 批。
-BIG="blindRunTests"
-REST="$(printf '%s\n' "$UNIT_SUITES" | grep -vx "$BIG" || true)"
+# 全部 suite 平均分 4 批。
+REST="$UNIT_SUITES"
 REST_COUNT="$(printf '%s\n' "$REST" | grep -c . || true)"
-PER=$(( (REST_COUNT + 2) / 3 ))
+PER=$(( (REST_COUNT + 3) / 4 ))
 
-run_batch "单测 1/4" blindRunTests "$BIG"
 i=0; batch=()
-n=1
+n=0
 while IFS= read -r s; do
   [ -z "$s" ] && continue
   batch+=("$s"); i=$((i+1))

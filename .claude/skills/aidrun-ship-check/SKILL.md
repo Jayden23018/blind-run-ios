@@ -187,9 +187,9 @@ for root, _, fs in os.walk('blindRunTests'):
         if n: print(f'{f}: {n} 处')
 PYEOF
 
-# ② 只跑命中的用例。`blindRunTests` 这个类有 310 条，别为一条用例带上整个类
+# ② 只跑命中的用例。一个类常有十几到几十条，别为一条用例带上整个类（类名用 grep 'class .*: XCTestCase' 查）
 scripts/device-test.sh -only-testing:blindRunTests/PreciseLocationGateTests \
-                       -only-testing:blindRunTests/blindRunTests/testSomethingYouChanged
+                       -only-testing:blindRunTests/VolunteerFaceVerifyTests/testSomethingYouChanged
 ```
 
 **改共享单例也不全量**（负责人 2026-09-24 原话「每次只跑改了的部分，不要跑全量的测试」，
