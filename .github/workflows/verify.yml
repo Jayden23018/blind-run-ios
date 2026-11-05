@@ -47,8 +47,32 @@ jobs:
     # job 级 env 允许 secrets，转一道再在 if 里读 env。
     env:
       HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}
+    # 给编译门禁用的两个开关（#714），由下面「按改动路径决定」那一步写出。
+    outputs:
+      docs_only: ${{ steps.paths.outputs.docs_only }}
+      api_package: ${{ steps.paths.outputs.api_package }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR 检出的是合并提交，多拉一层才有它的第一个父提交（目标分支）可比，算出这个 PR 改了哪些路径。
+          fetch-depth: 2
+
+      # 负责人 2026-11-05 批准放松（#714，体检报告 W1/W2）：纯文档 PR 不占 macOS 机器，
+      # 没碰 AidRunAPI 的 PR 不跑那两步（各 200–320 秒）。push 到 main 与定时任务照跑全量。
+      # 判据坏了的样子是门禁静默空过，所以先自测；拿不准时脚本一律判「全跑」。
+      - name: 按改动路径决定编译门禁跑哪几步
+        id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          node scripts/ci-changed-paths.mjs --self-test
+          if [ "$EVENT" = pull_request ]; then
+            # -z：不加 -z 时中文文件名会被加引号转义，判不出是文档（docs/ui/mockups 下有 14 个）。
+            git diff -z --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            node scripts/ci-changed-paths.mjs < "$RUNNER_TEMP/changed-paths.txt"
+          else
+            printf 'docs_only=false\napi_package=true\n' | tee -a "$GITHUB_OUTPUT"
+          fi
 
       # 契约唯一源在后端仓库，本仓库不留副本（AGENTS.md 第 7 节）。
       # 两个仓库不同 owner，所以需要 PAT。没配就跳过并**大声说出来** ——
@@ -249,7 +273,12 @@ jobs:
     needs: specs
     # 草稿 PR 不占 macOS 机器（负责人 2026-11-05 定）：2026-11-04 七个 PR 同时排队，五个是草稿，
     # 要合并的 #696 排不上。草稿合不进去；转正式触发 ready_for_review，在这里补跑，门槛不降。
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # 只改文档类路径的 PR 也跳过（#714）。⛔ 别改成 workflow 级 paths-ignore：那样整个 run 不触发，
+    # 必需检查一直 pending，PR 合不进去；job 级跳过在必需检查里算通过。
+    # 写 != 'true'：开关没写出来时照跑。
+    if: >-
+      (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+      && needs.specs.outputs.docs_only != 'true'
     env:
       HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}   # 理由同 specs job
     steps:
@@ -286,12 +315,18 @@ jobs:
       # 本仓库唯一能在 CI 上真正**执行**的测试。AidRunAPI 包不依赖高德，
       # 所以它不受「模拟器永久不可用」的限制。别的测试仍然只能真机跑。
       # 放在 pod install 之前：它不需要 Pods，且失败得快。
+      # 只在 PR 碰了 AidRunAPI 包或生成链路时跑（#714，判据见 scripts/ci-changed-paths.mjs）；
+      # push 到 main 与定时任务照跑。写 != 'false'：开关没写出来时照跑。
       - name: swift test — AidRunAPI 包（CI 唯一可执行的测试）
+        if: github.event_name != 'pull_request' || needs.specs.outputs.api_package != 'false'
         run: swift test --package-path Packages/AidRunAPI
 
       # 契约改了却没重新生成，生成代码就成了过期的快照 —— 那比没有它更糟，
       # 因为它看起来还是绿的。这一步让「忘记重新生成」变成红。
+      # PR 上的触发条件同上一步（#714）。后端契约在 PR 期间变了而 PR 没碰这些路径时，
+      # 由合并后 push 到 main 那次和每天的定时任务抓，本地 pre-push 也会拦。
       - name: 重新生成 API 客户端并比对
+        if: github.event_name != 'pull_request' || needs.specs.outputs.api_package != 'false'
         run: |
           set -euo pipefail
           SPEC=.backend/docs/api_spec.yaml
