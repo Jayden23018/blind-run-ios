@@ -76,7 +76,9 @@ extension AccessibilityAuditTests {
                 return true
             }
             if let element = issue.element,
-               let cut = Self.partiallyHiddenElement(element, screen: screen, mockBannerFrame: mockBannerFrame) {
+               let cut = Self.partiallyHiddenElement(
+                   element, screen: screen, mockBannerFrame: mockBannerFrame, occludingBar: occludingBarTop
+               ) {
                 cutByScreenEdge.append(cut)
                 return true
             }
@@ -155,13 +157,19 @@ extension AccessibilityAuditTests {
     /// 被屏幕边缘切掉一截、或被 Mock 横幅压住一截的元素：`.contrast` 只拿露出来的那几个像素算，不能当场下结论（#480、#673）。
     /// 返回 nil = 不是这两种，照常判。
     private static func partiallyHiddenElement(
-        _ element: XCUIElement, screen: CGRect, mockBannerFrame: CGRect?
+        _ element: XCUIElement, screen: CGRect, mockBannerFrame: CGRect?, occludingBar: OccludingBar?
     ) -> (element: XCUIElement, label: String, underBanner: Bool)? {
         let frame = element.frame
         guard !frame.isEmpty else { return nil }
         let label = element.label
         if !isShownAsFullyAsPossible(frame, on: screen) {
             print("[AUDIT-partial] \(label) frame=\(frame) 没有整个落在屏内（\(screen)），整个露出后再审")
+            return (element, label, false)
+        }
+        // 跨在底栏上沿的元素同理：下半截取到的是栏的颜色（#700 陪跑员「我的」的「我的工单」行压在悬浮标签栏上）。
+        // 复审的可见区到栏上沿为止，会把它滚到整个露在栏上方再审，不放过。栏自己的子元素都在上沿以下，碰不到这条。
+        if let bar = occludingBar, frame.minY < bar.top, frame.maxY > bar.top + 0.5 {
+            print("[AUDIT-partial] \(label) frame=\(frame) 下半截压在底栏（上沿 \(bar.top)）后面，滚到栏上方再审")
             return (element, label, false)
         }
         // 最大字号下横幅长到 130pt，滚动中的行常被它压住一截。滚到整个落在横幅下沿以下再审，不放过（横幅只在 DEBUG + Mock）。

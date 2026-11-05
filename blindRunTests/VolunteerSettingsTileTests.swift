@@ -4,12 +4,10 @@ import XCTest
 
 /// 陪跑员「我的」六个方块（#700）：白字对比度、大字号单列门槛、入口标识。
 final class VolunteerSettingsTileTests: XCTestCase {
-    /// 方块是上浅下深的渐变，白字压在整块上，所以两端都要过 4.5:1（正文门槛）。
-    func testTileGradientsKeepWhiteTextReadableAtBothEnds() {
+    /// 方块是纯色底压白字，过 4.5:1（正文门槛）。
+    func testTileColoursKeepWhiteTextReadable() {
         for tile in VolunteerSettingsTile.allCases {
-            let (top, bottom) = tile.gradientRGB
-            XCTAssertGreaterThanOrEqual(LowVisionChannelTests.contrastRatio(0xFFFFFF, top), 4.5, "\(tile.title) 上端")
-            XCTAssertGreaterThanOrEqual(LowVisionChannelTests.contrastRatio(0xFFFFFF, bottom), 4.5, "\(tile.title) 下端")
+            XCTAssertGreaterThanOrEqual(LowVisionChannelTests.contrastRatio(0xFFFFFF, tile.rgb), 4.5, tile.title)
         }
     }
 

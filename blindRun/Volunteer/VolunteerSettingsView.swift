@@ -47,16 +47,17 @@ enum VolunteerSettingsTile: CaseIterable, Identifiable {
         }
     }
 
-    /// 方块底色是上浅下深的渐变，两端都压白字，所以两端都要过 4.5:1（`VolunteerSettingsTileTests`）。
-    /// 亮暗两档同值：深底白字在两档下都成立。
-    var gradientRGB: (top: UInt32, bottom: UInt32) {
+    /// 方块底色（纯色，压白字，亮暗两档同值）。必须过 4.5:1（`VolunteerSettingsTileTests`）。
+    /// 不用稿子的上浅下深渐变：渐变底在真机无障碍审计里六块全判对比度不足（2026-11-05，#700），
+    /// 纯色底同样压白字的资质证书卡则能过。取渐变里深的那一端。
+    var rgb: UInt32 {
         switch self {
-        case .training: return (0x2A8045, 0x1A6B33)
-        case .schedule: return (0xC0392F, 0xA8231A)
-        case .certificate: return (0x1F68C4, 0x0A4FA6)
-        case .partners: return (0xC24D14, 0xB23A0B)
-        case .points: return (0x9A6200, 0x8A5500)
-        case .invite: return (0x117780, 0x075960)
+        case .training: return 0x1A6B33
+        case .schedule: return 0xA8231A
+        case .certificate: return 0x0A4FA6
+        case .partners: return 0xB23A0B
+        case .points: return 0x8A5500
+        case .invite: return 0x075960
         }
     }
 

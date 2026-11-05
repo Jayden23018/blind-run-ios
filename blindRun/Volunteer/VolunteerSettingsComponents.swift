@@ -20,13 +20,7 @@ struct VolunteerSettingsTileLabel: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 92, maxHeight: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color(uiColor: UIColor(rgb: tile.gradientRGB.top)), Color(uiColor: UIColor(rgb: tile.gradientRGB.bottom))],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(Color(uiColor: UIColor(rgb: tile.rgb)))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
