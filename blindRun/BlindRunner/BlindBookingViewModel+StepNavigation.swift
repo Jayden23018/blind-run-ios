@@ -42,8 +42,16 @@ extension BlindBookingViewModel {
     /// 看不见屏幕的人只会当成「点了没反应」。
     ///
     /// 语音路径不走这里 —— `VoiceOrderWizard.start()` 在启动前用同一套门槛自己播过一次了。
+    ///
+    /// 从约跑页顶部的「约跑前还差 N 项」补完回来时也走这里（页面重新出现，#781）：
+    /// 补上了的那项不再念，上一次留在屏幕上的那句撤掉，否则屏幕还在说「还要填昵称」。
     func announceEntryGateIfNeeded() {
-        guard let gate = firstMissingGate, gate != .startPoint, gate != .appointmentTime else { return }
+        guard let gate = firstMissingGate, gate != .startPoint, gate != .appointmentTime else {
+            if let errorMessage, BlindBookingGate.isSetupMessage(errorMessage) {
+                self.errorMessage = nil
+            }
+            return
+        }
         errorMessage = gate.message
         speechService?.speak(gate.message)
     }

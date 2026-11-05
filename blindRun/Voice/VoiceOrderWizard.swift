@@ -218,6 +218,15 @@ final class VoiceOrderWizard: ObservableObject {
 
     // MARK: Lifecycle
 
+    /// 从「约跑前还差 N 项」补完回到约跑页时调用（#781）。`start()` 被昵称 / 紧急联系人拦下时
+    /// 留在屏幕顶上的那句改成还差的下一项，都齐了就撤掉。别的降级原因（语音坏了等）不动。
+    /// 不开麦：回来的人可能已经改用表单，要语音就自己按「用语音重新说一次」。
+    func refreshSetupGateFallback() {
+        guard let current = fallbackMessage, BlindBookingGate.isSetupMessage(current) else { return }
+        let gate = bookingViewModel?.firstMissingGate
+        fallbackMessage = gate.flatMap { BlindBookingGate.setupGates.contains($0) ? $0.message : nil }
+    }
+
     /// 起步前先跑一遍下单硬门槛。让盲人说完一整句才被服务端 403 拒掉是最坏的顺序 ——
     /// 门槛的唯一真源是 `OrderCreationService.createOrder`，客户端这份只是把同样的顺序提前。
     /// 返回 `false` 表示没有启动，调用方按 `fallbackMessage` 引导用户去补前置项。

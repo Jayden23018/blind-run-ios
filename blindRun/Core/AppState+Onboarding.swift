@@ -41,14 +41,6 @@ extension AppState {
         isBlindBasicProfileComplete && hasValidEmergencyContacts
     }
 
-    /// 盲人引导流当前该停在哪一步；nil 表示可以直接进首页。
-    var blindOnboardingStep: BlindOnboardingStep? {
-        BlindOnboardingStep.first(
-            isBasicProfileComplete: isBlindBasicProfileComplete,
-            hasValidEmergencyContacts: hasValidEmergencyContacts
-        )
-    }
-
     /// 首次引导看完（按了「知道了」）。**只有这一个写入点** ——
     /// 「进过这一页」不算看完：自动进入的那次如果用户直接返回，下次还该给他。
     func markBlindFirstRunHelpSeen() {

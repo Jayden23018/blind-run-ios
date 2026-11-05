@@ -168,13 +168,22 @@ enum BlindBookingGate: Equatable {
         return nil
     }
 
+    /// 要去别的页面补的两项（昵称 / 紧急联系人）。约跑页顶部的 `BlindBookingMissingSetupCard` 就是补它们的入口。
+    static let setupGates: [BlindBookingGate] = [.basicProfile, .emergencyContacts]
+
+    /// 这句话是不是上面两项之一的缺失说明。补齐回来时据它撤掉留在屏幕上的旧句子。
+    static func isSetupMessage(_ text: String) -> Bool {
+        setupGates.contains { $0.message == text }
+    }
+
     /// 展示与朗读共用的缺失说明。
     var message: String {
         switch self {
         case .basicProfile:
-            return "请先完善个人资料，至少填写昵称。"
+            // 约跑页最上面就是补这一项的入口（`BlindBookingMissingSetupCard`，#781）。
+            return "约跑前还要填一个昵称。点本页最上面的「昵称」去填。"
         case .emergencyContacts:
-            return "请先设置紧急联系人：至少 1 位，并指定其中 1 位为主联系人。"
+            return "约跑前还要设好紧急联系人：至少 1 位，并设其中 1 位为主联系人。点本页最上面的「紧急联系人」去设。"
         case .startPoint:
             return "请选择出发地点。"
         case .appointmentTime:
@@ -214,6 +223,9 @@ struct BlindBookingView: View {
     /// 一次 `onAppear`，没有它就会再弹一次 —— 对刚拒绝的人那是劝返，也可能是循环。
     /// 用户自己再点语音按钮 / Magic Tap 不受影响，那是他主动再次发起。
     @State var declinedVoiceConsentThisVisit = false
+    /// 这一页已经出现过一次。从「约跑前还差 N 项」推进去的页面返回时 `onAppear` 会再触发一次，
+    /// 那一次不能再自动开语音（用户可能刚改用表单），只更新「还差什么」（#781）。
+    @State var hasAppearedOnce = false
     /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
     /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
     let startsWithVoice: Bool
@@ -318,11 +330,16 @@ struct BlindBookingView: View {
             }
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
+            } else if hasAppearedOnce {
+                // 从补资料的页面回来：只更新「还差什么」，不重开语音。
+                voiceWizard.refreshSetupGateFallback()
+                viewModel.announceEntryGateIfNeeded()
             } else if startsWithVoice, !voiceWizard.isRunning, !declinedVoiceConsentThisVisit {
                 startVoiceWizard()
             } else {
                 viewModel.announceEntryGateIfNeeded()
             }
+            hasAppearedOnce = true
         }
         .onDisappear {
             // 页面离开就停录音：麦克风不该在用户看不见的地方继续开着。

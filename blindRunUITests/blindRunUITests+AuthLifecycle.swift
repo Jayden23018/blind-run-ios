@@ -161,8 +161,8 @@ extension blindRunUITests {
             activeRole: "blind_runner",
             emptyMockOrders: true
         )
-        // 盲人侧没有「直接暴露退出登录」的界面：首页和引导流都只放设置入口，
-        // 退出登录统一收在 BlindRunnerSettingsView（见 BlindRunnerOnboardingView 的容器注释）。
+        // 盲人侧没有「直接暴露退出登录」的界面：首页只放设置入口（#781 起没有引导流），
+        // 退出登录统一收在「我的」→ 账户页。
         openBlindAccount(blindProfile)
         assertLogoutRequiresConfirmation(blindProfile)
 

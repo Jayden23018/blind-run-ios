@@ -13,7 +13,6 @@ enum RootRoute: Equatable {
     case restoringAccount
     case unauthenticated
     case roleSelection
-    case blindProfile
     case blindHome
     case volunteerProfile
     case volunteerHome
@@ -26,7 +25,7 @@ private extension RootRoute {
         case .restoringAccount: return "account-restoration"
         case .unauthenticated: return "login"
         case .roleSelection: return "role-selection"
-        case .blindProfile, .volunteerProfile: return "profile"
+        case .volunteerProfile: return "profile"
         case .blindHome, .volunteerHome: return "home"
         case .recoveryFailed: return "recovery-failed"
         }
@@ -121,9 +120,9 @@ final class ContentRootRouter: ObservableObject {
                 ) else { return }
                 appState.updateBlindProfile(profile)
                 appState.updateEmergencyContacts(contacts)
-                // 引导流：硬门槛（昵称 + 恰好 1 位主紧急联系人）未过时
-                // 停在 .blindProfile（由 BlindRunnerOnboardingView 决定展示哪一步）。
-                route = appState.blindOnboardingStep == nil ? .blindHome : .blindProfile
+                // 资料没填齐也直接进首页（#781）：昵称和紧急联系人到约跑时才要，
+                // 由约跑页顶部的「约跑前还差 N 项」卡引导去补（`BlindBookingMissingSetupCard`）。
+                route = .blindHome
             } catch {
                 handleHydrationFailure(
                     error,
@@ -219,7 +218,8 @@ final class ContentRootRouter: ObservableObject {
                 return
             }
             if case .unknown(statusCode: 404) = apiError {
-                route = role == .blind ? .blindProfile : .volunteerProfile
+                // 盲人没有档案也进首页：第一次保存资料时后端会补建（`BlindService.updateProfile`）。
+                route = role == .blind ? .blindHome : .volunteerProfile
                 return
             }
             route = .recoveryFailed(message: apiError.localizedMessage)
@@ -258,7 +258,9 @@ struct ContentView: View {
         case .authenticated: restoration = "authenticated"
         }
         // 会话代号而不是 token 值：续期换 token 时这把键不能变，否则跑步途中会重跑一遍根路由（#391）。
-        return "\(restoration)-\(appState.isLoggedIn ? appState.sessionGeneration : 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.isVolunteerProfileApproved)"
+        // 盲人资料齐不齐**不进**这把键（#781）：盲人不再有引导页，而在约跑页里补完紧急联系人时
+        // 键一变就重跑根路由、整棵树重建，人会被踢出约跑页。
+        return "\(restoration)-\(appState.isLoggedIn ? appState.sessionGeneration : 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isVolunteerProfileApproved)"
     }
 
     /// 同意隐私告知之后的正文。抽成独立属性只是为了给 `body` 里的同意门腾出 if/else 的位置，
@@ -305,12 +307,6 @@ struct ContentView: View {
                 RoleSelectionView()
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.roleSelection")
-            case .blindProfile:
-                // 兜底取 .emergencyContacts：这条路由只在 step != nil 时进入，
-                // step 变 nil 的那一瞬间 rootRoutingKey 已经变了，下一帧就会重新路由到 .blindHome。
-                BlindRunnerOnboardingView(step: appState.blindOnboardingStep ?? .emergencyContacts)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("rootRoute.blindProfile")
             case .blindHome:
                 // 2026-09-16 起这里是标签栏容器（首页 / 记录 / 我的），不再是裸的首页。
                 // identifier 逐字不变：`testRootHydrationMountsOnlyBlindHomeWithoutLoginOrProfileGhosts`
