@@ -1284,11 +1284,12 @@ struct VolunteerRegistrationFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
     @StateObject private var progressViewModel = VolunteerReadinessProgressViewModel()
-    /// 身份证号 + 人脸的**单独同意**（PIPL 第 29 条）。与盲人实名页同一套告知组件，
-    /// 只是告知内容多一条人脸活体 —— 这一步提交成功后下一屏就是活体认证，不能等到那时才说。
-    @State private var showIdentityConsent = false
+    /// 身份证号 + 人脸的**单独同意**（PIPL 第 29 条）：提交按钮上方的勾选框，默认不勾（#769）。
+    /// 这一步提交成功后下一屏就是活体认证，所以在这里一并说人脸，不能等到那时才说。
+    @State private var identityConsentChecked = false
+    /// 没勾就点了提交时的提示（屏幕上一行字 + 朗读）。
     @State private var consentDeclinedNotice: String?
-    /// 拒绝人脸那个按钮的高度。跟 `ConsentDisclosureView` 用同一个基准 ——
+    /// 拒绝人脸那个按钮的高度（88，随字号放大）——
     /// 替代通道的可点面积不能比人脸那条小，字号调大时也要一起长。
     @ScaledMetric(relativeTo: .largeTitle) private var declineButtonHeight: CGFloat = 88
 
@@ -1312,10 +1313,7 @@ struct VolunteerRegistrationFlowView: View {
                     } else {
                         switch viewModel.currentStep {
                         case .basicInfo:
-                            VolunteerRegistrationBasicInfoContent(
-                                viewModel: viewModel,
-                                consentDeclinedNotice: consentDeclinedNotice
-                            )
+                            VolunteerRegistrationBasicInfoContent(viewModel: viewModel)
                         case .faceVerify:
                             faceVerifyStep
                         }
@@ -1343,7 +1341,8 @@ struct VolunteerRegistrationFlowView: View {
             if !viewModel.isRegistrationCompleted, viewModel.currentStep == .basicInfo {
                 VolunteerRegistrationBasicInfoBottomBar(
                     viewModel: viewModel,
-                    hasConsentedToIdentity: hasConsentedToIdentity,
+                    identityConsentChecked: $identityConsentChecked,
+                    consentNotice: consentDeclinedNotice,
                     onSubmit: handleBasicInfoSubmitTapped
                 )
             }
@@ -1376,23 +1375,12 @@ struct VolunteerRegistrationFlowView: View {
             guard viewModel.shouldPollRegistrationStatus else { return }
             await viewModel.pollStatusWhileNeeded()
         }
-        // 全屏而不是对话框：三条告知要各自可听、可停、可回头再听，理由见 `ConsentDisclosureView`。
-        .fullScreenCover(isPresented: $showIdentityConsent) {
-            ConsentDisclosureView(
-                purpose: .volunteerIdentity,
-                onAgree: {
-                    showIdentityConsent = false
-                    consentDeclinedNotice = nil
-                    // 同意先落盘再发请求：一次网络失败不该让用户再看一遍全文告知。
-                    consentStore.recordConsent(to: .volunteerIdentity, scope: consentScope)
-                    Task { await viewModel.submitBasicInfo() }
-                },
-                onDecline: {
-                    showIdentityConsent = false
-                    consentDeclinedNotice = PrivacyConsentPurpose.volunteerIdentity.declinedFeedback
-                    speechService.speak(PrivacyConsentPurpose.volunteerIdentity.declinedFeedback)
-                }
-            )
+        // 同一账号同意过就保持勾上：那是他之前明确作出的同意，不是替他默认勾选。
+        .onAppear {
+            if hasConsentedToIdentity { identityConsentChecked = true }
+        }
+        .onChange(of: identityConsentChecked) { checked in
+            if checked { consentDeclinedNotice = nil }
         }
     }
 
@@ -1408,12 +1396,18 @@ struct VolunteerRegistrationFlowView: View {
         return .user(String(userId))
     }
 
-    /// 提交按钮的唯一入口：**没有单独同意就不发请求**。
+    /// 提交按钮（含「跳过」）的唯一入口：**没勾同意就不发请求**，并当场说清要勾哪一项。
     private func handleBasicInfoSubmitTapped() {
-        guard consentStore.hasConsented(to: .volunteerIdentity, scope: consentScope) else {
-            showIdentityConsent = true
+        guard identityConsentChecked else {
+            let purpose = PrivacyConsentPurpose.volunteerIdentity
+            let notice = "请先勾选「我已阅读并同意《\(purpose.checkboxDocumentTitle ?? purpose.title)》」，再提交。"
+            consentDeclinedNotice = notice
+            speechService.speak(notice)
             return
         }
+        consentDeclinedNotice = nil
+        // 同意先落盘再发请求：一次网络失败不该让用户再勾一遍。
+        consentStore.recordConsent(to: .volunteerIdentity, scope: consentScope)
         Task { await viewModel.submitBasicInfo() }
     }
 
@@ -1429,7 +1423,7 @@ struct VolunteerRegistrationFlowView: View {
         "\(viewModel.isRegistrationCompleted)-\(viewModel.currentStep.rawValue)-\(String(describing: viewModel.basicInfoPage))"
     }
 
-    /// 同意层在提交前弹（`handleBasicInfoSubmitTapped`）。已经同意过的人不再说「会先请你同意」。
+    /// 本账号在本机是否同意过。同意过就把勾选框初始化为已勾。
     private var hasConsentedToIdentity: Bool {
         consentStore.hasConsented(to: .volunteerIdentity, scope: consentScope)
     }

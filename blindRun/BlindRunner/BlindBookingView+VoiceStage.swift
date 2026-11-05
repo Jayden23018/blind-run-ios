@@ -41,38 +41,34 @@ extension BlindBookingView {
         }
     }
 
-    /// 语音下单的单独同意页。文案全部取自 `PrivacyConsentPurpose`（被单测钉住的合规文本，不在 View 里另写）。
+    /// 语音下单的单独同意小弹窗。文案全部取自 `PrivacyConsentPurpose`（被单测钉住的合规文本，不在 View 里另写）。
     ///
     /// 同意 → 记录后直接启动向导，用户不用再点一次。
     /// 拒绝 → 关掉同意页，下单页此刻停在手动表单上（向导没跑，`showsVoiceStage` 为 false）；
     /// 当场念出反馈，因为对看不见屏幕的人，页面悄悄换回表单等于「点了没反应」。
     /// 不劝返、不重试：拒绝是一个完整的答案。
     var voiceConsentScreen: some View {
-        NavigationStack {
-            ConsentDisclosureView(
-                purpose: .voiceOrderThirdPartyLLM,
-                onAgree: {
-                    appState.recordVoiceOrderConsent()
-                    declinedVoiceConsentThisVisit = false
-                    showsVoiceConsent = false
-                    // 先掐掉还没念完的告知朗读：向导起步要等当前播报落定才开麦，不掐就白等那段长文本。
-                    speechService.stop()
-                    startVoiceWizard()
-                },
-                onDecline: {
-                    declinedVoiceConsentThisVisit = true
-                    showsVoiceConsent = false
-                    speechService.stop()
-                    speechService.speak(PrivacyConsentPurpose.voiceOrderThirdPartyLLM.declinedFeedback)
-                }
-            )
-            .navigationTitle("语音下单")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        ConsentDisclosureView(
+            purpose: .voiceOrderThirdPartyLLM,
+            onAgree: {
+                appState.recordVoiceOrderConsent()
+                declinedVoiceConsentThisVisit = false
+                showsVoiceConsent = false
+                // 先掐掉还没念完的告知朗读：向导起步要等当前播报落定才开麦，不掐就白等那段长文本。
+                speechService.stop()
+                startVoiceWizard()
+            },
+            onDecline: {
+                declinedVoiceConsentThisVisit = true
+                showsVoiceConsent = false
+                speechService.stop()
+                speechService.speak(PrivacyConsentPurpose.voiceOrderThirdPartyLLM.declinedFeedback)
+            }
+        )
         // 系统模态不会把背后的下单页移出读屏树（真机实测），要自己藏，见 `PresenterAccessibilityHider`。
         .background(PresenterAccessibilityHider())
         .task {
-            speechService.speak(text: PrivacyConsentPurpose.voiceOrderThirdPartyLLM.spokenScript)
+            speechService.speak(text: PrivacyConsentPurpose.voiceOrderThirdPartyLLM.popupSpokenScript)
         }
     }
 

@@ -5,19 +5,19 @@ TBD - created by archiving change gate-voice-ordering-on-third-party-llm-consent
 ## Requirements
 ### Requirement: 语音下单前单独同意交给第三方大模型
 
-第一次启动语音下单前，App SHALL 弹出一个全屏的单独同意页，逐条说明：说的话会转成文字；文字会发给阿里云通义千问理解；不同意可以改用手动填写。同意 SHALL 按账号记录；换账号 MUST NOT 继承前一个账号的同意。记录的存储键 MUST NOT 含手机号或令牌。
+第一次启动语音下单前，App SHALL 弹出一个单独同意的小弹窗：正文用一两句说明说的话会转成文字、文字会发给阿里云通义千问理解、不同意可以改用手动填写；逐条告知原文收在可展开的「详细说明」里。同意 SHALL 按账号记录；换账号 MUST NOT 继承前一个账号的同意。记录的存储键 MUST NOT 含手机号或令牌。
 
 #### Scenario: 首次语音下单
 - **WHEN** 已登录账号从未同意过，进入语音下单
-- **THEN** 先出现单独同意页，向导此时不启动，也不录音
+- **THEN** 先出现单独同意弹窗，向导此时不启动，也不录音
 
 #### Scenario: 同意后
-- **WHEN** 用户在同意页选择同意
+- **WHEN** 用户在同意弹窗选择同意
 - **THEN** 记录该账号的同意，语音向导立即启动，之后同一账号不再询问
 
 #### Scenario: 换账号
 - **WHEN** 账号 A 已同意，同一台手机换账号 B 登录后进入语音下单
-- **THEN** B 仍然先看到同意页
+- **THEN** B 仍然先看到同意弹窗
 
 ### Requirement: 未同意时不发送解析请求
 
@@ -37,11 +37,11 @@ TBD - created by archiving change gate-voice-ordering-on-third-party-llm-consent
 
 ### Requirement: 同意页读屏可用
 
-同意页 SHALL 以全屏方式出现，使背后的内容不在无障碍树里；标题带 header 特征；每条告知是独立的读屏焦点；同意与不同意按钮同样大，高度不低于 64pt。
+同意弹窗 SHALL 以模态方式出现，使背后的内容不在无障碍树里；标题带 header 特征；展开「详细说明」后每条告知是独立的读屏焦点；同意与不同意按钮等宽，可点高度不低于 64pt。
 
 #### Scenario: 读屏遍历
-- **WHEN** VoiceOver 用户在同意页向右滑动
-- **THEN** 先到标题，再逐条到各条告知，最后到两个按钮；无法滑到背后的下单页
+- **WHEN** VoiceOver 用户在同意弹窗向右滑动
+- **THEN** 先到标题，再到摘要和「查看详细说明」，最后到两个按钮；无法滑到背后的下单页
 
 ### Requirement: 首启告知与内置隐私说明披露第三方大模型
 

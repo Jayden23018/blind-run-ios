@@ -168,13 +168,6 @@ final class PrivacyConsentTests: XCTestCase {
         )
     }
 
-    /// 二级页「完整收集清单」必须原样带出 `disclosures`，一条不少、一个字不改 ——
-    /// 摘要只是把它们挪到了下一步，不是替代。
-    func testFullDisclosureDocumentCarriesEveryDisclosureVerbatim() {
-        let document = PrivacyConsentGateView.fullDisclosureDocument(for: .appLaunch)
-        XCTAssertEqual(document.sections.flatMap(\.bullets), PrivacyConsentPurpose.appLaunch.disclosures)
-    }
-
     /// 两个实名收集点必须逐字说出「身份证号」，首启那条必须说出三类敏感信息 ——
     /// 告知里不点名，用户无从判断自己在同意什么。
     func testSensitiveItemsAreNamedInTheDisclosures() {

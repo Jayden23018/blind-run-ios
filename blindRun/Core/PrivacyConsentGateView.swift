@@ -12,14 +12,14 @@ import SwiftUI
 /// 真正的单独同意在实名认证页和行程分享页。
 ///
 /// **形态（issue #277）**：与常规 App 一致的**居中卡片弹窗** —— 压暗的背景 + 标题 + 一段摘要 +
-/// 隐私政策 / 用户协议 / 完整清单入口 + 左「不同意」右「同意」。不是整页。
+/// 隐私政策 / 用户协议两个入口 + 左「不同意」右「同意」。不是整页。
 /// 背后只放品牌底板，**不渲染登录页**：手机号是个人信息，同意之前登录页不许出现。
-/// 7 条完整告知原文不变（`disclosures` 仍是合规文本的唯一来源），放在二级页「完整收集清单」。
+/// 7 条完整告知原文（`disclosures`）的内容都在隐私政策里；#769 起弹窗不再单列「完整收集清单」。
 ///
 /// 无障碍三处取舍：
 /// - 两个按钮常规字号**左右并排**（左拒右同意，与常规 App 一致）、大小相同；辅助功能字号退回竖排，
 ///   否则一行放不下两个按钮的字。不用 `ViewThatFits`（本仓库已知它会让整页被审计判成改不了字号）。
-/// - 所有可点控件 ≥ 64pt（盲人端触达下限）；为了不把弹窗撑成整页，入口两两并排成两行。
+/// - 所有可点控件 ≥ 64pt（盲人端触达下限）；两个协议入口并排一行。
 /// - 弹窗标 `isModal`，背景对读屏隐藏，焦点只在卡片内。
 struct PrivacyConsentGateView: View {
     @EnvironmentObject private var appState: AppState
@@ -135,36 +135,14 @@ struct PrivacyConsentGateView: View {
 
     // MARK: - Links
 
-    /// 弹窗里的入口，两两并排成两行：《隐私政策》《用户协议》 / 完整收集清单、再听一遍。
+    /// 弹窗里的入口：《隐私政策》《用户协议》并排一行，与常规 App 一致（#769 去掉了「完整收集清单」
+    /// 「再听一遍」那一行：逐条清单就是隐私政策的内容；朗读用读屏左右滑动即可重听，进页面时也会自动播报）。
     /// 每个是独立的读屏焦点（而不是一段文字里的内联链接 —— 内联链接要靠转子才找得到，
     /// 对读屏用户等于藏起来）。辅助功能字号下竖排。
     private var links: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            rowOfTwo {
-                ForEach(LegalDocumentKind.allCases) { kind in
-                    legalLink(kind)
-                }
-            }
-            rowOfTwo {
-                NavigationLink {
-                    LegalFallbackDocumentView(
-                        document: Self.fullDisclosureDocument(for: purpose),
-                        footer: { EmptyView() }
-                    )
-                } label: {
-                    linkLabel("完整收集清单")
-                }
-                .accessibilityLabel("查看完整收集清单")
-                .accessibilityHint("逐条查看我们会收集哪些信息")
-                .accessibilityIdentifier("appLaunchConsentFullListLink")
-
-                // 与首次引导页同一个理由：一次性播报漏听就再也拿不回来。
-                Button(action: speak) {
-                    linkLabel("再听一遍")
-                }
-                .accessibilityLabel("再听一遍")
-                .accessibilityHint("从头重新播报这段隐私说明")
-                .accessibilityIdentifier("appLaunchConsentRepeatButton")
+        rowOfTwo {
+            ForEach(LegalDocumentKind.allCases) { kind in
+                legalLink(kind)
             }
         }
     }
@@ -257,17 +235,6 @@ struct PrivacyConsentGateView: View {
 
     private func speak() {
         speechService.speak(text: purpose.launchSpokenScript)
-    }
-
-    /// 二级页「完整收集清单」：`disclosures` 原文逐条成行，不改一个字。
-    static func fullDisclosureDocument(for purpose: PrivacyConsentPurpose) -> LegalFallbackCopy.Document {
-        LegalFallbackCopy.Document(
-            title: "完整收集清单",
-            notice: "以下是首次使用前我们需要告知你的全部内容。看完回到上一页再选择同意或不同意。",
-            sections: [
-                LegalFallbackCopy.Section(heading: "我们会收集和使用什么", bullets: purpose.disclosures)
-            ]
-        )
     }
 }
 

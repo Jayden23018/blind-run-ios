@@ -95,16 +95,6 @@ extension blindRunUITests {
         XCTAssertFalse(app.buttons["提交测验"].exists)
         VolunteerRegistrationUITestSteps.submitIdentityAndExperience(app)
 
-        // 身份证号与人脸要单独同意才发得出去（`c46da3c`，闸门在
-        // `VolunteerRegistrationFlowView.handleBasicInfoSubmitTapped`）。UI 用例一律 `RESET_STATE`，
-        // 同意没有落盘，所以这道门每次都会出现 —— 不点它，后面的活体认证永远不来。
-        let identityConsentAgree = app.buttons["volunteerIdentityConsentAgreeButton"].firstMatch
-        XCTAssertTrue(
-            identityConsentAgree.waitForExistence(timeout: 8),
-            "提交实名信息前必须先过单独的告知同意门"
-        )
-        identityConsentAgree.tap()
-
         let faceVerify = app.buttons["volunteerFaceVerifyStartButton"].firstMatch
         XCTAssertTrue(faceVerify.waitForExistence(timeout: 8))
         faceVerify.tap()

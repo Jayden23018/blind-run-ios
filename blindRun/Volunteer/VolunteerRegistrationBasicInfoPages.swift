@@ -56,7 +56,6 @@ extension VolunteerRegistrationViewModel {
 
 struct VolunteerRegistrationBasicInfoContent: View {
     @ObservedObject var viewModel: VolunteerRegistrationViewModel
-    let consentDeclinedNotice: String?
 
     var body: some View {
         switch viewModel.basicInfoPage {
@@ -157,15 +156,6 @@ struct VolunteerRegistrationBasicInfoContent: View {
                     .foregroundColor(AppColors.destructive)
                     .accessibilityLabel("无法提交身份信息：\(validationMessage)")
             }
-
-            if let consentDeclinedNotice {
-                Text(consentDeclinedNotice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(consentDeclinedNotice)
-                    .accessibilityIdentifier("volunteerIdentityConsentDeclinedNotice")
-            }
         }
     }
 }
@@ -174,8 +164,11 @@ struct VolunteerRegistrationBasicInfoContent: View {
 
 struct VolunteerRegistrationBasicInfoBottomBar: View {
     @ObservedObject var viewModel: VolunteerRegistrationViewModel
-    let hasConsentedToIdentity: Bool
-    /// 经历那一屏的「下一步」：必须走 `handleBasicInfoSubmitTapped`，没有单独同意就不发请求。
+    /// 身份证号 + 人脸的单独同意（#769：由整页同意改成提交按钮上方的勾选框，默认不勾）。
+    @Binding var identityConsentChecked: Bool
+    /// 没勾就点了提交时的提示。画在底栏勾选框上方而不是滚动内容末尾：经历填得长时那里在屏幕外。
+    let consentNotice: String?
+    /// 经历那一屏的「下一步」：必须走 `handleBasicInfoSubmitTapped`，没勾同意就不发请求。
     let onSubmit: () -> Void
 
     var body: some View {
@@ -227,13 +220,59 @@ struct VolunteerRegistrationBasicInfoBottomBar: View {
 
     @ViewBuilder
     private var experienceButton: some View {
-        let hint = hasConsentedToIdentity
-            ? "点下一步会一起提交第 1、2 步填的内容"
-            : "点下一步会先请你同意使用身份证号和人脸信息，再一起提交第 1、2 步填的内容"
+        if let consentNotice {
+            Text(consentNotice)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("volunteerIdentityConsentDeclinedNotice")
+        }
+        identityConsentCheckbox
         PrimaryButton("下一步", isLoading: viewModel.isLoading, action: onSubmit)
             .disabled(!viewModel.canSubmitBasicInfo)
             .accessibilityHint("提交第 1、2 步填的内容")
             .accessibilityIdentifier("volunteerRegistrationSubmitButton")
-        RegistrationBottomHint(text: hint, identifier: "volunteerRegistrationSubmitHint")
+    }
+
+    /// 「我已阅读并同意《身份信息与人脸核验授权》」：勾选框与协议名是两个焦点 ——
+    /// 一个切换勾选，一个打开协议原文（`PrivacyConsentPurpose.volunteerIdentity.disclosures`）。
+    private var identityConsentCheckbox: some View {
+        let purpose = PrivacyConsentPurpose.volunteerIdentity
+        let documentTitle = purpose.checkboxDocumentTitle ?? purpose.title
+        return HStack(alignment: .center, spacing: 4) {
+            Button {
+                identityConsentChecked.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: identityConsentChecked ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundColor(identityConsentChecked ? AppColors.primary : AppColors.textSecondary)
+                    Text("我已阅读并同意")
+                        .font(.callout)
+                        .foregroundColor(AppColors.textPrimary)
+                }
+                .frame(minHeight: AppTouchTarget.minimum)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("我已阅读并同意\(documentTitle)")
+            .accessibilityValue(identityConsentChecked ? "已勾选" : "未勾选")
+            .accessibilityIdentifier("volunteerIdentityConsentCheckbox")
+
+            NavigationLink {
+                LegalFallbackDocumentView(document: purpose.checkboxDocument, footer: { EmptyView() })
+            } label: {
+                Text("《\(documentTitle)》")
+                    .font(.callout)
+                    .foregroundColor(AppColors.primary)
+                    .multilineTextAlignment(.leading)
+                    .frame(minHeight: AppTouchTarget.minimum)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityHint("查看授权全文")
+            .accessibilityIdentifier("volunteerIdentityConsentDocumentLink")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
