@@ -3,7 +3,12 @@ import UIKit
 
 // MARK: - Blind Identity Verification View
 
-/// 可独立 push 的实名认证页。入口挂载见任务 3.3（设置页 / 引导流程）。
+/// 可独立 push 的实名认证页（首页实名入口、账户页、首次引导三处进入）。
+///
+/// 版式照定稿 `docs/ui/mockups/blind-identity-20261105/identity-final.png`（#751）：
+/// 灰底白卡；顶部图标 + 一句话；状态卡最后一行是「重复当前状态」；姓名、身份证号左名右值；
+/// 底部「提交核验」没填完不可点，按钮下写「还差：xx」；未通过时按钮叫「重新提交」；已认证只剩结果，不出表单。
+/// 提交、校验、清空时机都在 `BlindIdentityVerificationViewModel`，这里只管画。
 struct BlindIdentityVerificationView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
@@ -16,23 +21,32 @@ struct BlindIdentityVerificationView: View {
     @FocusState private var isIdCardFieldFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                statusCard
-                if viewModel.status != .verified {
-                    formSection
+        // 按钮栏放在滚动区**下面**，不叠在内容上：叠上去时栏后面的字会被审计判成对比度不足
+        // （记忆 `opaque-bottom-bar-fakes-contrast-failure`）。
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    statusCard
+                    if showsForm {
+                        formCard
+                        idCardActionsCard
+                    }
+                    messageSection
                 }
-                messageSection
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 40)
+            if showsForm {
+                bottomBar
+            }
         }
-        .background(AppColors.background)
+        .background(AppColors.Flow.page.ignoresSafeArea())
         .navigationTitle("实名认证")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) { bottomBar }
+        // 二级页藏标签栏，否则最后一行被它盖住（记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 // 只在身份证号框聚焦时出现：姓名框用的是带回车键的普通键盘。
@@ -82,6 +96,11 @@ struct BlindIdentityVerificationView: View {
         }
     }
 
+    /// 已认证整页只剩结果：不出表单，也没有提交按钮。
+    private var showsForm: Bool {
+        viewModel.status != .verified
+    }
+
     // MARK: - Sensitive Consent
 
     private var consentStore: PrivacyConsentStore {
@@ -104,42 +123,96 @@ struct BlindIdentityVerificationView: View {
         }
         viewModel.submit()
     }
+}
 
-    // MARK: - Sections
+// 各区块放在同文件的扩展里：结构体正文超过 SwiftLint `type_body_length` 250 行上限（#751）。
+// 同一文件内的扩展能读到上面的 private 状态。
+extension BlindIdentityVerificationView {
 
+    // MARK: - Header
+
+    @ViewBuilder
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText("实名认证", style: .title)
-                .accessibilityAddTraits(.isHeader)
-
-            Text("完成实名认证后才能预约跑步。身份证号只用于本次核验，不会保存在本机。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("完成实名认证后才能预约跑步。身份证号只用于本次核验，不会保存在本机")
+        switch viewModel.status {
+        case .verified:
+            BlindIdentityVerifiedHeader()
+        case .failed:
+            BlindIdentityLeadingHeader(
+                systemImage: "exclamationmark",
+                tileColor: AppColors.destructive,
+                title: "没有通过核验",
+                subtitle: "姓名和身份证号对不上。核对后重新提交。"
+            )
+        case .notVerified, .unknown:
+            BlindIdentityLeadingHeader(
+                systemImage: "person.text.rectangle",
+                tileColor: AppColors.primarySolidSurface,
+                title: "先确认是你本人",
+                subtitle: "实名后才能预约跑步。身份证号只用于这次核验，不会保存在这台手机上。"
+            )
         }
     }
 
+    // MARK: - Status Card
+
+    /// 状态卡：当前状态一行 +「重复当前状态」一行。已认证时状态行改成「实名状态 · 已通过」，
+    /// 「重复当前状态」单独一张卡（定稿第二屏）。读屏标签和以前一样：「当前实名状态，xx」+ 完整引导。
+    @ViewBuilder
     private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText(viewModel.status.displayName, style: .status)
-            Text(viewModel.status.guidanceMessage)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
+        if viewModel.status == .verified {
+            GroupedCard {
+                HStack(spacing: 8) {
+                    Text("实名状态")
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("已通过")
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .modifier(BlindIdentityStatusRowStyle(status: viewModel.status))
+            }
+            GroupedCard {
+                repeatStatusRow
+            }
+        } else {
+            GroupedCard {
+                (Text("当前：") + Text(statusLine).fontWeight(.semibold))
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .modifier(BlindIdentityStatusRowStyle(status: viewModel.status))
+                GroupedCardDivider()
+                repeatStatusRow
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("当前实名状态，\(viewModel.status.displayName)")
-        .accessibilityValue(viewModel.status.guidanceMessage)
     }
 
-    private var formSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            IdentityInputField(
-                title: "真实姓名",
-                placeholder: "姓名",
+    /// 状态卡上看得见的那半句。读屏念的仍是 `guidanceMessage` 全文（见 `BlindIdentityStatusRowStyle`）。
+    /// 状态未知时没有更短的说法，沿用原文案。
+    private var statusLine: String {
+        switch viewModel.status {
+        case .notVerified: return "还没有实名认证。"
+        case .failed: return "实名认证未通过，暂时不能预约跑步。"
+        case .verified: return "已通过"
+        case .unknown: return viewModel.status.guidanceMessage
+        }
+    }
+
+    private var repeatStatusRow: some View {
+        BlindIdentityRepeatStatusRow { viewModel.announceCurrentStatus() }
+    }
+
+    // MARK: - Form
+
+    private var formCard: some View {
+        GroupedCard {
+            BlindIdentityFieldRow(
+                title: "姓名",
+                placeholder: "身份证上的姓名",
                 text: $viewModel.idCardName,
                 errorMessage: viewModel.idCardName.isEmpty || viewModel.isNameValid
                     ? nil
@@ -149,46 +222,54 @@ struct BlindIdentityVerificationView: View {
                 accessibilityHint: "请输入身份证上的姓名"
             )
 
-            VStack(alignment: .leading, spacing: 8) {
-                IdentityInputField(
-                    title: "身份证号",
-                    placeholder: "18位号码",
-                    text: $viewModel.idCardNumber,
-                    isSecure: !isRevealingNumber,
-                    keyboardType: .numberPad,
-                    errorMessage: viewModel.idCardNumber.isEmpty || viewModel.isIdCardNumberValid
-                        ? nil
-                        : "请输入 18 位身份证号，最后一位可以是字母 X",
-                    accessibilityLabel: "身份证号，必填，18位",
-                    accessibilityValue: idCardAccessibilityValue,
-                    accessibilityHint: "数字键盘。最后一位是 X 时，用键盘上方的「输入 X」。输入内容默认隐藏，只用于实名认证，不会保存在本机"
-                )
-                .focused($isIdCardFieldFocused)
-                .onChange(of: viewModel.idCardNumber) { newValue in
-                    viewModel.sanitizeIdCardInput(newValue)
-                }
+            GroupedCardDivider()
 
-                Button(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号") {
-                    isRevealingNumber.toggle()
-                }
-                .buttonStyle(TextButtonStyle())
-                .accessibilityLabel(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号")
-                .accessibilityHint(
-                    isRevealingNumber
-                        ? "再次点击后重新隐藏身份证号"
-                        : "点击后在屏幕上临时显示身份证号，再次点击即可隐藏"
-                )
-
-                // 读屏用户核对 18 位的唯一办法：字段本身只念位数和末四位（#657 B-11）。
-                if !viewModel.idCardNumber.isEmpty {
-                    Button("逐位朗读身份证号") {
-                        readIdCardDigitByDigit()
-                    }
-                    .buttonStyle(TextButtonStyle())
-                    .accessibilityHint("用读屏把完整号码一位一位念出来，周围的人可能听到，建议戴耳机")
-                    .accessibilityIdentifier("blindIdentityReadDigits")
-                }
+            BlindIdentityFieldRow(
+                title: "身份证号",
+                placeholder: "18 位，最后一位可以是 X",
+                text: $viewModel.idCardNumber,
+                isSecure: !isRevealingNumber,
+                keyboardType: .numberPad,
+                errorMessage: viewModel.idCardNumber.isEmpty || viewModel.isIdCardNumberValid
+                    ? nil
+                    : "请输入 18 位身份证号，最后一位可以是字母 X",
+                accessibilityLabel: "身份证号，必填，18位",
+                accessibilityValue: idCardAccessibilityValue,
+                accessibilityHint: "数字键盘。最后一位是 X 时，用键盘上方的「输入 X」。输入内容默认隐藏，只用于实名认证，不会保存在本机"
+            )
+            .focused($isIdCardFieldFocused)
+            .onChange(of: viewModel.idCardNumber) { newValue in
+                viewModel.sanitizeIdCardInput(newValue)
             }
+        }
+    }
+
+    /// 「临时显示 / 隐藏」与「逐位朗读」两行蓝字。两行一直都在（定稿空表单也画着逐位朗读）；
+    /// 没填号码时点逐位朗读，念一句「还没有输入」，不让点了没反应。
+    private var idCardActionsCard: some View {
+        GroupedCard {
+            Button(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号") {
+                isRevealingNumber.toggle()
+            }
+            .buttonStyle(TextButtonStyle())
+            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+            .accessibilityLabel(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号")
+            .accessibilityHint(
+                isRevealingNumber
+                    ? "再次点击后重新隐藏身份证号"
+                    : "点击后在屏幕上临时显示身份证号，再次点击即可隐藏"
+            )
+            .accessibilityIdentifier("blindIdentityRevealToggle")
+
+            // 读屏用户核对 18 位的唯一办法：字段本身只念位数和末四位（#657 B-11）。
+            GroupedCardDivider()
+            Button("逐位朗读身份证号") {
+                readIdCardDigitByDigit()
+            }
+            .buttonStyle(TextButtonStyle())
+            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+            .accessibilityHint("用读屏把完整号码一位一位念出来，周围的人可能听到，建议戴耳机")
+            .accessibilityIdentifier("blindIdentityReadDigits")
         }
     }
 
@@ -196,6 +277,10 @@ struct BlindIdentityVerificationView: View {
     /// 「重复当前状态」的缓存里，换个页面一按就把身份证号外放出来。
     /// 读屏没开：不念号码，改成临时在屏幕上显示。
     private func readIdCardDigitByDigit() {
+        guard !viewModel.idCardNumber.isEmpty else {
+            speechService.speak("还没有输入身份证号。")
+            return
+        }
         guard UIAccessibility.isVoiceOverRunning else {
             isRevealingNumber = true
             speechService.speak("已在屏幕上临时显示身份证号。")
@@ -212,68 +297,80 @@ struct BlindIdentityVerificationView: View {
         UIAccessibility.post(notification: .announcement, argument: announcement)
     }
 
-    @ViewBuilder
+    // MARK: - Messages
+
     private var messageSection: some View {
-        if let notice = viewModel.clearedOnBackgroundNotice {
-            Text(notice)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(notice)
-                .accessibilityIdentifier("blindIdentityClearedOnBackgroundNotice")
-        }
-        if let consentDeclinedNotice {
-            Text(consentDeclinedNotice)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel(consentDeclinedNotice)
-                .accessibilityIdentifier("blindIdentityConsentDeclinedNotice")
-        }
-        if let successMessage = viewModel.successMessage {
-            Text(successMessage)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel(successMessage)
-        }
-        if let errorMessage = viewModel.errorMessage {
-            Text(errorMessage)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.destructive)
-                .accessibilityLabel(errorMessage)
-        }
+        BlindIdentityMessageList(
+            clearedOnBackgroundNotice: viewModel.clearedOnBackgroundNotice,
+            consentDeclinedNotice: consentDeclinedNotice,
+            successMessage: viewModel.successMessage,
+            errorMessage: viewModel.errorMessage
+        )
     }
 
-    private var bottomBar: some View {
-        VStack(spacing: 12) {
-            if viewModel.status != .verified {
-                PrimaryButton(submitTitle, isLoading: viewModel.isSubmitting) {
-                    handleSubmitTapped()
-                }
-                .disabled(!viewModel.canSubmit)
-                .opacity(viewModel.canSubmit ? 1 : 0.45)
-                .accessibilityLabel(submitTitle)
-                .accessibilityHint(
-                    viewModel.canSubmit
-                        ? "点击后提交实名信息"
-                        : "请先填写真实姓名和18位身份证号"
-                )
-            }
+    // MARK: - Bottom Bar
 
-            PrimaryButton("重复当前状态") {
-                viewModel.announceCurrentStatus()
+    private var bottomBar: some View {
+        VStack(spacing: 8) {
+            PrimaryButton(submitTitle, isLoading: viewModel.isSubmitting) {
+                handleSubmitTapped()
             }
-            .accessibilityLabel("重复当前状态")
-            .accessibilityHint("点击后重新播报当前实名状态")
+            .disabled(!viewModel.canSubmit)
+            .opacity(viewModel.canSubmit ? 1 : 0.45)
+            .accessibilityLabel(submitTitle)
+            .accessibilityHint(
+                viewModel.canSubmit
+                    ? "点击后提交核验"
+                    : "请先填写真实姓名和18位身份证号"
+            )
+            .accessibilityIdentifier("blindIdentitySubmitButton")
+
+            if let submitFootnote {
+                RegistrationBottomHint(text: submitFootnote, identifier: "blindIdentitySubmitFootnote")
+            }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(AppColors.Flow.page)
+        // 审计按这个标识认出底栏：滚到栏后面的状态卡文字不算对比度失败（AX5 实测，#751）。
+        // `.contain` 保住按钮与灰字自己的标识（记忆 `accessibility-identifier-overwrites-children`）。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("blindIdentitySubmitBar")
     }
 
     // MARK: - Helpers
 
+    /// 改名（#751）：「提交实名信息」→「提交核验」，失败后「重新提交实名信息」→「重新提交」。
+    /// 播报同步：提交后念「已提交核验」；失败引导「请核对姓名和身份证号后重新提交」与新名一致。
     private var submitTitle: String {
-        viewModel.status == .failed ? "重新提交实名信息" : "提交实名信息"
+        viewModel.status == .failed ? "重新提交" : "提交核验"
+    }
+
+    /// 按钮下面那行灰字：没填完写「还差：xx」；填完了但还没同意过，先说清点了会先问同意。
+    /// 填了但不合格时说清差在哪，免得像没填上（姓名 1 个字、号码不满 18 位）。
+    private var submitFootnote: String? {
+        guard !viewModel.isSubmitting else { return nil }
+        var missing: [String] = []
+        if !viewModel.isNameValid {
+            missing.append(viewModel.idCardName.trimmed.isEmpty ? "姓名" : "姓名要 2 到 50 个字")
+        }
+        if !viewModel.isIdCardNumberValid {
+            let count = viewModel.idCardNumber.count
+            if count == 0 {
+                missing.append("身份证号")
+            } else if count < 18 {
+                missing.append("身份证号还差 \(18 - count) 位")
+            } else {
+                missing.append("身份证号只有最后一位可以是 X")
+            }
+        }
+        if !missing.isEmpty {
+            return "还差：\(missing.joined(separator: "、"))"
+        }
+        guard !consentStore.hasConsented(to: .blindIdentity, scope: consentScope) else { return nil }
+        return "提交前会先问你同不同意使用身份证号"
     }
 
     /// VoiceOver 永远读不到完整身份证号：只播报位数和末四位。
@@ -282,64 +379,6 @@ struct BlindIdentityVerificationView: View {
         guard count > 0 else { return "尚未输入" }
         guard count >= 4 else { return "已输入\(count)位" }
         return "已输入\(count)位，末四位\(viewModel.idCardNumber.suffix(4))"
-    }
-}
-
-// MARK: - Identity Input Field
-
-/// `ProfileModule` 里的输入框是 private，这里保留一个支持隐私输入的最小版本。
-private struct IdentityInputField: View {
-    let title: String
-    let placeholder: String
-    @Binding var text: String
-    var isSecure: Bool = false
-    var keyboardType: UIKeyboardType = .default
-    let errorMessage: String?
-    let accessibilityLabel: String
-    let accessibilityValue: String
-    let accessibilityHint: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                Text("*")
-                    .font(.headline)
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityHidden(true)
-            }
-
-            Group {
-                if isSecure {
-                    SecureField(placeholder, text: $text)
-                } else {
-                    TextField(placeholder, text: $text)
-                }
-            }
-            .keyboardType(keyboardType)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .font(AppFonts.body())
-            .padding()
-            .background(AppColors.secondaryBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(errorMessage == nil ? Color.clear : AppColors.destructive, lineWidth: 1)
-            )
-            .cornerRadius(8)
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityValue(accessibilityValue)
-            .accessibilityHint(accessibilityHint)
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel(errorMessage)
-            }
-        }
     }
 }
 
