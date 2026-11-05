@@ -273,7 +273,7 @@ Recommended status announcements:
   （**终态**，不是等待中：后端派单彻底失败时订单已是 `NO_VOLUNTEER` + `cancelledBy=SYSTEM`。
   文案必须说出这一单已结束并给出出路，不得出现「稍后再试」这类暗示还能等的话 ——
   盲人被告知继续等一件已经结束的事，是事故不是措辞问题。
-  钉在 `blindRunTests.testNoVolunteerCopySaysTheOrderEndedInsteadOfAskingToKeepWaiting`。）
+  钉在 `OrderStatusAndCancelTests.testNoVolunteerCopySaysTheOrderEndedInsteadOfAskingToKeepWaiting`。）
 
 SOS copy is separate from order-status copy and is owned by `EmergencySafetyCopy` (`blindRun/Safety/SafetyModule.swift`). Every line is progressive-tense and ends with “若情况危急请立即拨打120或110。”:
 
