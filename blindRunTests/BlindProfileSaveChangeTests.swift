@@ -119,4 +119,16 @@ final class BlindProfileSaveChangeTests: XCTestCase {
         untouched.defaultPace = .easy
         XCTAssertEqual(untouched.makeProfileUpdateRequest().defaultPace, .easy)
     }
+
+    /// `runningPace` 界面不改，但契约是「不带这个键 = 清空」：每次保存要把读到的值原样带回。
+    /// **验红方式**：把 `makeProfileUpdateRequest` 的 `runningPace` 改回 `nil`，这条必须失败。
+    func testSavingKeepsTheStoredRunningPace() {
+        let appState = makeAppState()
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试昵称", runningPace: "MODERATE"))
+        let viewModel = makeViewModel(appState: appState)
+
+        viewModel.tetherPreference = .armHold
+
+        XCTAssertEqual(viewModel.makeProfileUpdateRequest().runningPace, "MODERATE", "不带 runningPace 后端会把它清空")
+    }
 }

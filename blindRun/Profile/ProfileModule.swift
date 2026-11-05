@@ -70,6 +70,9 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     private var isGuideDogBaselineUnreadable = false
     /// 档案里的配速这个版本认不出（解码成 `.unknown`，界面显示「无偏好」）。为真且用户没改 ⇒ 保存时不带 `defaultPace`。
     private var isPaceBaselineUnreadable = false
+    /// 旧字段 `runningPace`，界面不展示也不改，但契约规定「不带这个键 = 清空」（backend#926 起写明），
+    /// 所以每次保存把读到的值原样带回，否则逐行保存会一次次把它清掉。
+    private var preservedRunningPace: String?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -115,6 +118,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             name = profile.name ?? ""
             defaultPace = profile.defaultPace?.selectable ?? .noPreference
             isPaceBaselineUnreadable = profile.defaultPace == .unknown
+            preservedRunningPace = profile.runningPace
             specialNeeds = profile.specialNeeds ?? ""
             tetherPreference = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
             tetherPreferenceBaseline = tetherPreference
@@ -207,7 +211,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             // 没填昵称就不带键（后端保留原值，backend#926）：新用户登录后直接进首页（#781），
             // 可能还没填昵称就来改别的行，带空串会被 400「姓名不能为空」。
             name: name.trimmed.nilIfBlank,
-            runningPace: nil,
+            runningPace: preservedRunningPace,
             specialNeeds: specialNeeds.nilIfBlank,
             // 🔴 **没取得单独同意就绝不传「默认值」。**
             // 传 `TOTAL_BLIND` 或 `false` 会把「用户没说」伪造成「用户说了」。
@@ -299,6 +303,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             tetherPreferenceBaseline = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
             isGuideDogBaselineUnreadable = profile.guideDogStatus == nil
             isPaceBaselineUnreadable = profile.defaultPace == .unknown
+            preservedRunningPace = profile.runningPace
             isLoading = false
             if withdrawing, isVisionConsentWithdrawalPending {
                 consentStore?.revokeConsent(to: .blindVisionProfile, scope: consentScope)
