@@ -3,7 +3,7 @@ import XCTest
 
 /// 陪跑进行中那一屏（`BlindActiveRunView`）的判据。
 ///
-/// 求助中心的顺序与文案在 `EmergencySOSTests`，这里只管**数字**：
+/// 求助中心的顺序与文案在 `EmergencySOSSafetyHubTests`，这里只管**数字**：
 /// 屏幕口径的格式化、每公里播报的触发、以及「定位正常」不许在没有定位时亮起。
 final class BlindActiveRunTests: XCTestCase {
 

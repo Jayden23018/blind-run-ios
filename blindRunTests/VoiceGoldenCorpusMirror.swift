@@ -1,7 +1,7 @@
 import Foundation
 
 /// 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像（五族 167 条，2026-10-28）。只放数据，
-/// 断言在 `VoiceOrderWizardTests` 的 `testMock…MatchesTheBackendGoldenCorpus` 那几条里。
+/// 断言在 `VoiceOrderWizardGoldenCorpusTests` 的 `testMock…MatchesTheBackendGoldenCorpus` 那几条里。
 ///
 /// 锁的是 **Mock 不许比真实解析器松或紧**：Mock 认得的说法真机上也要认得，Mock 认不得的
 /// （语料里 `source: "llm"` 那几条）在开发期就该走到 `needReask` 分支。
