@@ -147,6 +147,42 @@ final class SpeechInputLifecycleTests: XCTestCase {
         )
     }
 
+    /// 第一次用语音：用户点「允许」时，授权回调比 App 回到前台更早到。
+    /// 以前回调一到就开麦，App 还在 `.inactive`，录音一开就断，第一次点必失败（2026-11-05 真机报）。
+    /// 现在要等到前台才开麦。旧实现下第一条断言会红：回调一到 `isListening` 就是 true。
+    func testGrantedAuthorizationWaitsForForegroundBeforeListening() async {
+        let foreground = ForegroundFlag()
+        let service = SpeechInputService(isApplicationActive: { foreground.isActive })
+        let session = service.startPendingAuthorizationForTesting(field: .startPlaceSearch)
+
+        let start = Task {
+            await service.simulateAuthorizationGrantedForTesting(sessionID: session, field: .startPlaceSearch)
+        }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertFalse(service.isListening, "授权框还没收起、App 还不在前台，就已经开麦了")
+
+        // 照抄 `blindRunApp.swift` 的 `onChange(of: scenePhase)`：收起授权框前后那次 .inactive
+        // 不能把还在等前台的会话停掉。
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive, isListening: service.isListening) {
+            service.cancelRecognitionForLifecycle()
+        }
+        foreground.isActive = true
+        await start.value
+
+        XCTAssertTrue(service.isListening, "App 回到前台之后麦克风没有打开")
+    }
+
+    /// 一直等不到前台也不能卡死：超时照常开麦，与改动前一致。
+    func testGrantedAuthorizationStartsAfterForegroundWaitTimesOut() async {
+        let service = SpeechInputService(isApplicationActive: { false })
+        let session = service.startPendingAuthorizationForTesting(field: .startPlaceSearch)
+
+        await service.simulateAuthorizationGrantedForTesting(sessionID: session, field: .startPlaceSearch)
+
+        XCTAssertTrue(service.isListening, "等前台超时后没有开麦，语音入口会永远没反应")
+    }
+
     func testSpeechInputPendingAuthorizationOwnsRecognitionSessionBeforeListening() {
         let service = SpeechInputService()
 
@@ -217,4 +253,9 @@ final class SpeechInputLifecycleTests: XCTestCase {
         XCTAssertNil(service.activeFieldId)
         XCTAssertEqual(service.lastStopReason, .silenceTimeout(hadDetectedSound: false))
     }
+}
+
+@MainActor
+private final class ForegroundFlag {
+    var isActive = false
 }
