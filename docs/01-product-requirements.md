@@ -87,7 +87,7 @@
 |--------|------|
 | 客户端 | Swift 原生 iOS，SwiftUI + MVVM |
 | iOS 版本 | iOS 16+ |
-| 外部服务 | 仓库外云端 API，唯一地址 `http://47.114.113.171` |
+| 外部服务 | 仓库外云端 API，唯一地址 `https://blindrun.culiu-tech.com` |
 | 网络层 | URLSession + async/await |
 | Token 存储 | Keychain（`kSecAttrAccessibleAfterFirstUnlock`，后台/锁屏可读）；已于 2026-07-29 完成迁移 |
 | 地图服务 | 高德地图（AMap） |
@@ -134,7 +134,7 @@ Swift 原生 iOS
 ### 外部 API
 
 ```
-仓库外云端服务（http://47.114.113.171）
+仓库外云端服务（https://blindrun.culiu-tech.com）
 ├── REST API（后端仓库 docs/api_spec.yaml）
 ├── WebSocket（后端仓库 docs/websocket-protocol.md）
 └── JWT Bearer Auth

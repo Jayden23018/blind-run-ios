@@ -85,7 +85,7 @@ function swiftFiles(dir, out = []) {
 /**
  * 砍掉一行里的 `//` 注释。
  *
- * 必须先认字符串：`"http://47.114.113.171/api/orders"` 里的 `//` 不是注释，
+ * 必须先认字符串：`"https://blindrun.culiu-tech.com/api/orders"` 里的 `//` 不是注释，
  * 一刀切会把真实调用点砍成半截路径 —— 那是把误报换成漏报，更难发现。
  */
 function stripLineComment(line) {
@@ -185,8 +185,8 @@ function findPathsMissingFromGeneratorFilter(clientPathKeys, specPathSet, filter
     [stripLineComment('  // 原来打的是 "/api/gone"'), '  ', '整行注释被砍掉'],
     [stripLineComment('let p = "/api/x" // 说明 "/api/y"'), 'let p = "/api/x" ', '行尾注释被砍掉'],
     [
-      stripLineComment('let u = "http://47.114.113.171/api/orders"'),
-      'let u = "http://47.114.113.171/api/orders"',
+      stripLineComment('let u = "https://blindrun.culiu-tech.com/api/orders"'),
+      'let u = "https://blindrun.culiu-tech.com/api/orders"',
       '字符串里的 // 不是注释',
     ],
     [stripLineComment('let s = "a\\"// b" // real'), 'let s = "a\\"// b" ', '转义引号不打断字符串'],

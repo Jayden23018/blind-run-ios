@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const baseURL = 'http://47.114.113.171';
+const baseURL = 'https://blindrun.culiu-tech.com';
 const phone = process.env.AIDRUN_AUTH_LIFECYCLE_PHONE;
 const fallbackCode = process.env.AIDRUN_AUTH_LIFECYCLE_CODE ?? '000000';
 const timeoutMs = Number(process.env.AIDRUN_AUTH_LIFECYCLE_TIMEOUT_MS ?? 25000);
