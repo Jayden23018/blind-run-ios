@@ -53,19 +53,6 @@ The iOS volunteer client SHALL receive backend `NEW_ORDER` prompts through the a
 - **THEN** the app SHALL call `POST /api/orders/{id}/respond` with `action = DECLINE` when appropriate
 - **AND** the app SHALL dismiss the prompt without showing a "later" business action
 
-### Requirement: Volunteer statistics and temporary points are displayed
-The iOS volunteer home screen SHALL display service statistics from dispatch summary and SHALL use a temporary client-side points placeholder until a real points API exists.
-
-#### Scenario: Summary contains completed count
-- **WHEN** dispatch summary contains `totalCompleted`
-- **THEN** the app SHALL display completed service count from `totalCompleted`
-- **AND** the app SHALL NOT treat `totalAccepted` as completed service count
-
-#### Scenario: Points API is unavailable
-- **WHEN** dispatch summary does not contain a real `pointsBalance`
-- **THEN** the app SHALL display temporary points as `totalCompleted * 100`
-- **AND** recent completed orders without `pointsDelta` SHALL display a temporary `+100` points value
-
 ### Requirement: Blind runner waiting describes system dispatch
 The iOS blind-runner waiting experience SHALL describe `PENDING_MATCH` as backend system dispatch in progress.
 
@@ -158,4 +145,96 @@ The volunteer home SHALL use `upcomingOrders` from `GET /api/volunteer/dispatch-
 #### Scenario: Null
 - **WHEN** `upcomingOrders` is `null`
 - **THEN** the app SHALL call `orders/mine` once for each of the two statuses and show what comes back
+
+### Requirement: Volunteer statistics and service recognition are displayed
+The iOS volunteer home screen SHALL display service statistics from dispatch summary, and SHALL derive every displayed figure from a backend-provided field. The app SHALL NOT synthesise a currency, balance, or reward figure that no backend field supplies.
+
+#### Scenario: Summary contains completed count
+- **WHEN** dispatch summary contains `totalCompleted`
+- **THEN** the app SHALL display completed service count from `totalCompleted`
+- **AND** the app SHALL NOT treat `totalAccepted` as completed service count
+
+#### Scenario: A reward field is absent
+- **WHEN** dispatch summary omits a rewards figure such as `pointsBalance`, or a recent order omits `pointsDelta`
+- **THEN** the app SHALL omit that figure entirely
+- **AND** the app SHALL NOT substitute a value derived from `totalCompleted`
+- **AND** the app SHALL NOT present a rewards catalogue, balance, or redemption path that no backend endpoint serves
+
+#### Scenario: Volunteer opens service recognition
+- **WHEN** the volunteer opens the service recognition screen
+- **THEN** the screen SHALL read its data from `GET /api/volunteer/achievements`
+- **AND** the screen SHALL NOT synthesise recognition tiers that no backend field supplies
+- **AND** the screen SHALL show the national star level and the platform badges as two separate sections
+- **AND** each badge SHALL be distinguishable by its name and its symbol, not by colour alone
+
+#### Scenario: National star level is shown separately from platform badges
+- **WHEN** the recognition screen renders the national star level
+- **THEN** the thresholds SHALL be those of GB/T 40143—2021, namely 100, 300, 600, 1000 and 1500 accumulated service hours
+- **AND** the screen SHALL NOT merge the star level with the platform badges, because the highest platform hour badge is 50 hours and cannot reach the 100-hour first star
+- **AND** the remaining hours to the next star SHALL be available as readable text, not only as the geometry of a progress bar
+
+#### Scenario: Badge list semantics
+- **WHEN** the response contains `badges`
+- **THEN** the app SHALL treat every entry as unlocked, because the contract states that locked badges do not appear in the list
+- **AND** the app SHALL NOT read an `unlocked` flag to decide whether an entry is unlocked
+- **AND** an unrecognised badge `code` SHALL still render with its `name` and a fallback symbol rather than failing the whole response
+
+#### Scenario: Progress toward the next badge is not available
+- **WHEN** the response omits `nextBadge`, which the contract uses to mean every badge is unlocked
+- **THEN** the screen SHALL omit the next-badge section entirely
+- **AND** the screen SHALL NOT derive that progress from client-side badge thresholds
+
+#### Scenario: Next-badge progress carries a code-dependent unit
+- **WHEN** the screen renders `nextBadge.current` and `nextBadge.target`
+- **THEN** a `FIRST_RUN` or `RUNS_*` code SHALL be rendered as a count of runs
+- **AND** an `HOURS_*` code SHALL be converted from minutes to whole hours before display, because the backend sends minutes for those codes
+- **AND** a `HIGH_RATED` code SHALL be rendered as a count of ratings
+- **AND** an unrecognised code SHALL hide the progress bar and its text while still showing the badge name
+
+#### Scenario: Next-badge copy does not promise an unlock
+- **WHEN** the screen renders next-badge progress for `HIGH_RATED`
+- **THEN** the copy SHALL NOT state how many more units unlock the badge, because `HIGH_RATED` also requires an average rating and its progress bar can be full while the badge stays locked
+
+#### Scenario: Achievements request fails or fields are absent
+- **WHEN** the request fails, or `totalCompleted` and `totalServiceMinutes` are absent
+- **THEN** the screen SHALL treat the missing figures as zero and SHALL NOT fail to render
+- **AND** a failed request SHALL offer a retry
+
+#### Scenario: Recognition copy is not a credential
+- **WHEN** the recognition screen renders any of its own copy
+- **THEN** that copy SHALL NOT use the words 证明, 证书 or 已认证 for service hours or star level, because a verifiable volunteer service record must be issued through the volunteer service information system (民政部令第 67 号) and this platform has no data integration with it
+- **AND** the screen SHALL state where an external declaration is actually filed
+
+### Requirement: Invite APNs lock-screen actions
+The app SHALL register the `INVITE` category with `ACCEPT_INVITE` and `DECLINE_INVITE`, and the `INVITE_INTRO_CALL` category with only `DECLINE_INVITE`. Both actions SHALL require authentication and SHALL bring the app to the foreground. The app SHALL reply only to the matching invite (same `inviteId`, otherwise same `expiresAt`) that is still awaiting a reply in the current account's queue, through the same call as the invite card's button.
+
+#### Scenario: Accept from the lock screen
+- **WHEN** the volunteer taps "接下这次陪跑" on an invite notification
+- **THEN** after the invite is in the in-app queue the app SHALL open that invite card and respond through the same call as the card's accept button
+- **AND** when the next pending-invites snapshot does not contain the invite, the app SHALL say "这个邀请已失效，不需要再回复了"
+
+#### Scenario: Decline from the lock screen
+- **WHEN** the volunteer taps "这次去不了" on an invite notification and the invite is in the queue
+- **THEN** the app SHALL decline it through the card's decline call, with the same 5-second undo
+
+#### Scenario: Notification for an older invite of the same order
+- **WHEN** the queue holds a newer invite for the same order with a different `expiresAt`
+- **THEN** the lock-screen action SHALL NOT reply to the newer invite
+
+#### Scenario: Stale notifications are removed
+- **WHEN** an invite is withdrawn, replied to in the app, or missing from a snapshot it predates
+- **THEN** the delivered notifications for that invite SHALL be removed, and those of a newer invite for the same order SHALL stay
+
+#### Scenario: New invite APNs while the app is in the foreground
+- **WHEN** a `NEW_ORDER` APNs arrives while the app is in the foreground
+- **THEN** the system banner SHALL NOT be shown and nothing SHALL be spoken for it
+- **AND** the app SHALL reconcile the pending-invites list so the invite appears once in the app
+
+### Requirement: Consecutive declines follow the backend count
+The availability prompt SHALL use `consecutiveDeclineCount` from `GET /api/volunteer/pending-invites`. The client SHALL remember the count at which it last asked and SHALL ask again only after the count rises by 3 more; when the backend count drops below that value, the remembered value SHALL reset.
+
+#### Scenario: Asking again
+- **WHEN** the prompt was shown at count 3 and the backend later reports 5
+- **THEN** the prompt SHALL NOT be shown
+- **AND** when the backend reports 6 the prompt SHALL be shown
 

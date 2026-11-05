@@ -107,3 +107,13 @@
 
 **归档仍被 6.6 阻塞**：真机批跑没跑过就归档，等于把「编译通过」当成「测试通过」入库。
 6.4（云端探针）需与后端约定演练时间窗；6.2a 依赖 6.6。
+
+## 2026-11-05 清账判定（#739）：保留，不归档
+
+求助的主体代码在 `main`。不归档有两个原因：
+
+- **规格已过期**：`specs/in-run-dual-role-sos/spec.md:118` 的「The blind-runner home exposes a persistent help affordance」要求首页常驻求助条。
+  这条已被推翻：负责人 2026-09-16、2026-10-30 两次定为「任何页面都不显示常驻紧急红条」（#605，`67818296`），
+  代码见 `blindRun/BlindRunner/BlindRunnerHomeView.swift:590`（求助条已删，入口在「我的」列表一行）与 `blindRun/BlindRunner/BlindRunnerTabView.swift:15`（magic tap 上移）。
+  原样归档会把作废的要求写进主规格。归档前要先把这条 delta 改成现状，并核对第 8 节其余条目。
+- 6.4 云端探针要和后端约演练时间窗（真实 SOS 会给紧急联系人发短信）；6.2a、6.6 锁屏 / 后台真机验收没做；8.7 跟着第 8 节一起重判。
