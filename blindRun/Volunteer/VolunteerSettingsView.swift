@@ -87,18 +87,10 @@ enum VolunteerSettingsTile: CaseIterable, Identifiable {
     }
 }
 
-enum VolunteerSettingsLayout {
-    /// AX3 及以上两列放不下「陪跑培训」四个字，改单列。
-    static func tileColumnCount(for size: DynamicTypeSize) -> Int {
-        size >= .accessibility3 ? 1 : 2
-    }
-}
-
 // MARK: - 页面
 
 struct VolunteerSettingsView: View {
     @EnvironmentObject private var appState: AppState
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var achievements = VolunteerAchievementsViewModel()
 
     /// 底部「我的」标签的根页为 true：标题叫「我的」、列表第一行是服务成就。
@@ -139,26 +131,7 @@ struct VolunteerSettingsView: View {
         NavigationLink {
             VolunteerAccountView()
         } label: {
-            HStack(spacing: 14) {
-                VolunteerAvatarCircle(side: 52)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayName)
-                        .font(.title3.weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                    Text(VolunteerSettingsCopy.accountCardSubtitle)
-                        .font(.subheadline)
-                        .foregroundColor(AppColors.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                VolunteerSettingsChevron()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
-            .background(AppColors.Flow.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous))
-            .contentShape(Rectangle())
+            ProfileAccountCardLabel(name: displayName, subtitle: VolunteerSettingsCopy.accountCardSubtitle)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
@@ -170,27 +143,8 @@ struct VolunteerSettingsView: View {
     // MARK: 类别方块
 
     private var categories: some View {
-        let columns = VolunteerSettingsLayout.tileColumnCount(for: dynamicTypeSize)
-        let tiles = VolunteerSettingsTile.allCases
-        let rows = stride(from: 0, to: tiles.count, by: columns).map {
-            Array(tiles[$0..<min($0 + columns, tiles.count)])
-        }
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(VolunteerSettingsCopy.categoriesTitle)
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-                .padding(.top, 8)
-                .accessibilityAddTraits(.isHeader)
-            // 不用 LazyVGrid：懒加载的格子滚出屏幕就不在无障碍树里，UI 用例按标识找不到。
-            ForEach(rows.indices, id: \.self) { index in
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(rows[index]) { tile in
-                        tileLink(tile)
-                    }
-                }
-                // 同一排两块等高：一块换行时另一块跟着长。
-                .fixedSize(horizontal: false, vertical: true)
-            }
+        SettingsTileGrid(title: VolunteerSettingsCopy.categoriesTitle, items: VolunteerSettingsTile.allCases) { tile in
+            tileLink(tile)
         }
     }
 
@@ -198,7 +152,7 @@ struct VolunteerSettingsView: View {
         NavigationLink {
             destination(for: tile)
         } label: {
-            VolunteerSettingsTileLabel(tile: tile)
+            SettingsTileLabel(title: tile.title, systemImage: tile.systemImage, rgb: tile.rgb)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
@@ -234,37 +188,37 @@ struct VolunteerSettingsView: View {
     // MARK: 列表
 
     private var listGroup: some View {
-        VolunteerAccountGroup {
+        GroupedCard {
             if isTabRoot, let response = achievements.achievements {
                 VolunteerSettingsAchievementsRow(response: response)
-                VolunteerAccountRowDivider()
+                GroupedCardDivider()
             }
             VolunteerSupportSettingsRows()
-            VolunteerAccountRowDivider()
+            GroupedCardDivider()
             // #521：通知开没开，拒绝过时给去系统设置的入口。
             NotificationPermissionRow()
-                .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                 .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: VolunteerAccountMetrics.rowMinHeight, alignment: .leading)
-            VolunteerAccountRowDivider()
+                .frame(maxWidth: .infinity, minHeight: GroupedCardMetrics.rowMinHeight, alignment: .leading)
+            GroupedCardDivider()
             VolunteerHelpSettingsLink() // #656：第一次打开订单页会自动弹一次，这里是随时回看的入口
-            VolunteerAccountRowDivider()
+            GroupedCardDivider()
             NavigationLink {
                 AboutAidRunView()
             } label: {
-                VolunteerSettingsRowLabel(title: "关于")
+                SettingsRowLabel(title: "关于")
             }
             .buttonStyle(.plain)
 
             #if DEBUG
             if AppBuildChannel.current.allowsEnvironmentSwitcher {
-                VolunteerAccountRowDivider()
+                GroupedCardDivider()
                 Picker("API 环境", selection: $appState.currentEnvironment) {
                     ForEach(AppState.debugTestEnvironments, id: \.self) { environment in
                         Text(environment.displayName).tag(environment)
                     }
                 }
-                .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                 .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
                 .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
             }

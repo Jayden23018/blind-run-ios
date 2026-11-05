@@ -1,6 +1,6 @@
 import XCTest
 
-// #605：「我的」不再有常驻红条。紧急入口是设置列表里的一行，二级页的底部按钮不再被盖住。
+// #605：「我的」不再有常驻红条，二级页的底部按钮不再被盖住。#711 起列表里那一行紧急入口也删了，只剩全屏手势。
 extension AccessibilityAuditTests {
     private func emergencyCallButton(_ app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "紧急呼叫")).firstMatch
@@ -11,7 +11,7 @@ extension AccessibilityAuditTests {
     @MainActor
     func testProfileSaveButtonIsNotCoveredByAnEmergencyBar() throws {
         let app = launchBlindHome()
-        app.tabBars.firstMatch.buttons["我的"].tap()
+        app.tabBars.firstMatch.buttons["我的"].tap(); app.openBlindAccountPage() // 个人资料在账户页（#711）
         let profileLink = app.buttons["个人资料"].firstMatch
         XCTAssertTrue(profileLink.waitForExistence(timeout: 10))
         profileLink.tap()
@@ -25,8 +25,10 @@ extension AccessibilityAuditTests {
                 "「保存」\(save.frame) 被紧急呼叫 \(sos.frame) 盖住"
             )
         }
-        let tabBarTop = app.tabBars.firstMatch.frame.minY
-        XCTAssertLessThanOrEqual(save.frame.maxY, tabBarTop, "「保存」压在标签栏上")
+        // #711 起资料页从账户页进入，标签栏跟着藏起来；藏了就判「保存」整个在屏内。
+        let tabBar = app.tabBars.firstMatch
+        let bottom = tabBar.exists ? tabBar.frame.minY : app.windows.firstMatch.frame.maxY
+        XCTAssertLessThanOrEqual(save.frame.maxY, bottom, "「保存」压在标签栏上或伸出屏幕")
 
         save.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertFalse(
@@ -41,42 +43,41 @@ extension AccessibilityAuditTests {
         let app = launchBlindHome()
         let tabBar = app.tabBars.firstMatch
         tabBar.buttons["我的"].tap()
-        let firstRow = app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch
-        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "「我的」没有加载出来")
-        // `List` 不渲染屏幕外的行，滚动之后才能断言存在。
+        XCTAssertTrue(app.buttons["blindAccountCardEntry"].firstMatch.waitForExistence(timeout: 10), "「我的」没有加载出来")
+        // #711 起删除账户在账户页（「我的」→ 头像卡）。账户页藏标签栏，所以要验的是栏真的藏了、按钮整行露在屏幕里。
+        app.openBlindAccountPage()
         app.swipeUp()
         app.swipeUp()
         let delete = app.buttons["删除账户"].firstMatch
-        XCTAssertTrue(delete.waitForExistence(timeout: 10), "「我的」没有删除账户")
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "账户页没有删除账户")
         sleep(1)
-        XCTAssertLessThanOrEqual(delete.frame.maxY, tabBar.frame.minY, "「删除账户」\(delete.frame) 被标签栏盖住")
+        XCTAssertFalse(tabBar.exists, "账户页的标签栏没藏起来")
+        XCTAssertTrue(delete.isHittable, "「删除账户」\(delete.frame) 点不到")
+        XCTAssertLessThanOrEqual(delete.frame.maxY, app.windows.firstMatch.frame.maxY, "「删除账户」\(delete.frame) 伸出屏幕")
         let sos = emergencyCallButton(app)
         if sos.exists {
             XCTAssertTrue(delete.frame.intersection(sos.frame).isNull, "「删除账户」被紧急呼叫盖住")
         }
     }
 
+    /// 负责人 2026-11-05（#711）：「盲人的“我的”界面不需要一个常驻的求助按钮」，整行删掉。
+    /// 不陪跑、陪跑中两种状态下「我的」都不能再出现这一行；求助走 Magic Tap 和订单页（下面两条手势用例守着）。
     @MainActor
-    func testProfileEmergencyRowDialsLocallyWhenThereIsNoRun() throws {
-        let app = launchBlindHome()
-        app.tabBars.firstMatch.buttons["我的"].tap()
-        let row = app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "「我的」没有紧急入口")
-        XCTAssertTrue(row.label.hasPrefix("紧急呼叫"), "没有陪跑时不能叫求助：\(row.label)")
-        row.tap()
-        XCTAssertTrue(app.buttons["拨打110"].firstMatch.waitForExistence(timeout: 5), "没有弹本地拨号单")
-    }
+    func testProfileTabHasNoEmergencyRowWithOrWithoutARun() throws {
+        let idle = launchBlindHome()
+        idle.tabBars.firstMatch.buttons["我的"].tap()
+        XCTAssertTrue(idle.buttons["blindAccountCardEntry"].firstMatch.waitForExistence(timeout: 10), "「我的」没有加载出来")
+        XCTAssertFalse(idle.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch.exists, "不陪跑时「我的」还有紧急入口")
+        XCTAssertFalse(emergencyCallButton(idle).exists, "不陪跑时「我的」还有「紧急呼叫」")
+        idle.terminate()
 
-    /// 回到订单页才看得到云端求助的结果面，留在「我的」发求助时失败无人知晓。
-    @MainActor
-    func testProfileEmergencyRowOpensTheOrderSafetyHubDuringARun() throws {
-        let app = launchToProfileDuringRun()
-        let row = app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "「我的」没有紧急入口")
-        XCTAssertTrue(row.label.hasPrefix("求助与安全"), "陪跑中这一行不是求助与安全：\(row.label)")
-        row.tap()
-        let hub = app.descendants(matching: .any)["blindSafetyHub"].firstMatch
-        XCTAssertTrue(hub.waitForExistence(timeout: 8), "按入口后没有打开订单页的求助中心")
+        let running = launchToProfileDuringRun()
+        XCTAssertTrue(running.buttons["blindAccountCardEntry"].firstMatch.waitForExistence(timeout: 10), "陪跑中「我的」没有加载出来")
+        XCTAssertFalse(running.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch.exists, "陪跑中「我的」还有紧急入口")
+        XCTAssertFalse(
+            running.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "求助与安全")).firstMatch.exists,
+            "陪跑中「我的」还有「求助与安全」"
+        )
     }
 
     /// 手势从别的 tab 触发时，订单页要被推上来并弹出逐字锁定的二次确认，不能被推入动画吞掉。

@@ -115,7 +115,7 @@ extension AccessibilityAuditTests {
     func testBlindProfileSaveShowsSavedNotice() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         let app = launchBlindHome()
-        app.tabBars.firstMatch.buttons["我的"].tap()
+        app.tabBars.firstMatch.buttons["我的"].tap(); app.openBlindAccountPage() // 个人资料在账户页（#711）
         let profileLink = app.buttons["个人资料"].firstMatch
         XCTAssertTrue(profileLink.waitForExistence(timeout: 10))
         profileLink.tap()
@@ -140,7 +140,7 @@ extension AccessibilityAuditTests {
     func testEmergencyContactFormOffersTheContactsPickerAndPassesAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         let app = launchBlindHome()
-        app.tabBars.firstMatch.buttons["我的"].tap()
+        app.tabBars.firstMatch.buttons["我的"].tap(); app.openBlindAccountPage() // 个人资料在账户页（#711）
         let profileLink = app.buttons["个人资料"].firstMatch
         XCTAssertTrue(profileLink.waitForExistence(timeout: 10))
         profileLink.tap()

@@ -77,32 +77,20 @@ struct VolunteerAccountView: View {
     // MARK: 头部
 
     private var header: some View {
-        VStack(spacing: 8) {
-            VolunteerAvatarCircle(side: 96)
-            Text(appState.volunteerProfile?.name?.nilIfBlank ?? VolunteerSettingsCopy.unnamed)
-                .font(.title.weight(.bold))
-                .foregroundColor(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-            Text(VolunteerAccountCopy.roleLine)
-                .font(.subheadline)
-                .foregroundColor(AppColors.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        ProfileAccountHeader(
+            name: appState.volunteerProfile?.name?.nilIfBlank ?? VolunteerSettingsCopy.unnamed,
+            roleLine: VolunteerAccountCopy.roleLine
+        )
     }
 
     // MARK: 个人
 
     private var personalGroup: some View {
-        VolunteerAccountGroup {
+        GroupedCard {
             NavigationLink {
                 VolunteerProfileView()
             } label: {
-                VolunteerSettingsRowLabel(title: VolunteerAccountCopy.profileTitle)
+                SettingsRowLabel(title: VolunteerAccountCopy.profileTitle)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(VolunteerAccountCopy.profileTitle)
@@ -112,11 +100,11 @@ struct VolunteerAccountView: View {
             if let identity = VolunteerAccountProfileContent.identityStatusText(
                 appState.volunteerRegistrationStatus?.resolvedIdVerifyStatus
             ) {
-                VolunteerAccountRowDivider()
+                GroupedCardDivider()
                 VolunteerAccountValueRow(title: VolunteerAccountCopy.identityTitle, value: identity)
                     .accessibilityIdentifier("volunteerAccountIdentityRow")
             }
-            VolunteerAccountRowDivider()
+            GroupedCardDivider()
             VolunteerAccountValueRow(title: VolunteerAccountCopy.certificateTitle, value: certificateState.displayName)
                 .accessibilityIdentifier("volunteerAccountCertificateRow")
         }
@@ -137,27 +125,27 @@ struct VolunteerAccountView: View {
             Text(VolunteerAccountCopy.privacyGroupTitle)
                 .font(.subheadline)
                 .foregroundColor(AppColors.textSecondary)
-                .padding(.leading, VolunteerAccountMetrics.rowHorizontalPadding)
+                .padding(.leading, GroupedCardMetrics.rowHorizontalPadding)
                 .padding(.top, 8)
                 .accessibilityAddTraits(.isHeader)
-            VolunteerAccountGroup {
+            GroupedCard {
                 // 位置共享同意的撤回（#530，与盲人端 #393 同一套交互）。
                 NavigationLink {
                     VolunteerPrivacyAuthorizationView()
                 } label: {
-                    VolunteerSettingsRowLabel(title: PrivacyAuthorizationCopy.title)
+                    SettingsRowLabel(title: PrivacyAuthorizationCopy.title)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(PrivacyAuthorizationCopy.title)
                 .accessibilityHint("查看并撤回接单和陪跑时位置共享的同意")
                 .accessibilityIdentifier("volunteerPrivacyAuthorizationSettingsEntry")
 
-                VolunteerAccountRowDivider()
+                GroupedCardDivider()
 
                 NavigationLink {
                     BlockedUsersView()
                 } label: {
-                    VolunteerSettingsRowLabel(title: UserSafetyCopy.blockedListTitle)
+                    SettingsRowLabel(title: UserSafetyCopy.blockedListTitle)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(UserSafetyCopy.blockedListTitle)
@@ -171,11 +159,11 @@ struct VolunteerAccountView: View {
 
     private var sessionGroup: some View {
         VStack(alignment: .leading, spacing: 8) {
-            VolunteerAccountGroup {
+            GroupedCard {
                 Button {
                     showLogoutConfirm = true
                 } label: {
-                    VolunteerSettingsRowLabel(
+                    SettingsRowLabel(
                         title: VolunteerAccountCopy.logout,
                         titleColor: AppColors.destructive,
                         showsChevron: false
@@ -185,12 +173,12 @@ struct VolunteerAccountView: View {
                 .accessibilityLabel(VolunteerAccountCopy.logout)
                 .accessibilityHint("退出后需要重新登录，需要二次确认")
 
-                VolunteerAccountRowDivider()
+                GroupedCardDivider()
 
                 Button {
                     showDeletionInitialConfirmation = true
                 } label: {
-                    VolunteerSettingsRowLabel(
+                    SettingsRowLabel(
                         title: VolunteerAccountCopy.deleteAccount,
                         titleColor: AppColors.destructive,
                         showsChevron: false
@@ -201,7 +189,7 @@ struct VolunteerAccountView: View {
                 .accessibilityLabel(VolunteerAccountCopy.deleteAccount)
                 .accessibilityHint("永久停用当前账户，需要再次确认")
             }
-            VolunteerAccountFootnote(text: VolunteerAccountCopy.deletionFootnote)
+            GroupedCardFootnote(text: VolunteerAccountCopy.deletionFootnote)
         }
     }
 }

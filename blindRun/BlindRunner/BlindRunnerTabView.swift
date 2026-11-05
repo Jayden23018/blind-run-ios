@@ -170,16 +170,12 @@ struct BlindRunnerTabView: View {
     }
     #endif
 
-    // MARK: - 「我的」：设置 + 紧急入口
+    // MARK: - 「我的」
+    // 没有紧急呼叫行（负责人 2026-11-05，#711）。求助走上面挂在 TabView 层的 Magic Tap。
 
     private var profileTab: some View {
         NavigationStack {
-            BlindRunnerSettingsView(
-                isTabRoot: true,
-                emergencyEntry: BlindSettingsEmergencyEntry(mode: sosMode) {
-                    activateSOS(request: sosMode.orderSafetyRequestForRow)
-                }
-            )
+            BlindRunnerSettingsView(isTabRoot: true)
         }
     }
 

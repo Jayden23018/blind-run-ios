@@ -73,13 +73,13 @@ extension AccessibilityAuditTests {
 
     // MARK: - 辅助
 
-    /// 首页 →「我的」→ 设置 → 个人资料。
+    /// 首页 →「我的」→ 头像卡（账户页，#711）→ 个人资料。
     @MainActor
     private func openBlindProfile(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "标签栏没起来")
         tabBar.buttons["我的"].tap()
-        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 10), "没有进到「我的」")
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 10), "没有进到「我的」"); app.openBlindAccountPage()
         let row = navigationRow(app, labelBeginsWith: "个人资料")
         XCTAssertTrue(swipeUntilHittable(row, in: app), "设置页没有「个人资料」")
         row.tap()

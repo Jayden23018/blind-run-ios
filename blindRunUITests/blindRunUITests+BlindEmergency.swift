@@ -128,7 +128,7 @@ extension blindRunUITests {
         )
 
         // 入口走「我的」tab（齿轮已随首页改版删除），与紧急联系人那批用例共用同一个 helper。
-        openSettings(app)
+        openBlindAccount(app) // #711 起盲人端的退出登录在账户页（「我的」→ 头像卡）
 
         let logoutButton = app.buttons["退出登录"].firstMatch
         XCTAssertTrue(logoutButton.waitForExistence(timeout: 5), "Settings should expose logout")

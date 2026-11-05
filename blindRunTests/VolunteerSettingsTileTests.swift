@@ -13,11 +13,11 @@ final class VolunteerSettingsTileTests: XCTestCase {
 
     /// AX3 及以上单列，以下两列。取门槛两侧的 AX2 / AX3，挡住「门槛被挪到 AX1 或 AX5」。
     func testTilesSwitchToOneColumnFromAccessibility3() {
-        XCTAssertEqual(VolunteerSettingsLayout.tileColumnCount(for: .large), 2)
-        XCTAssertEqual(VolunteerSettingsLayout.tileColumnCount(for: .xxxLarge), 2)
-        XCTAssertEqual(VolunteerSettingsLayout.tileColumnCount(for: .accessibility2), 2)
-        XCTAssertEqual(VolunteerSettingsLayout.tileColumnCount(for: .accessibility3), 1)
-        XCTAssertEqual(VolunteerSettingsLayout.tileColumnCount(for: .accessibility5), 1)
+        XCTAssertEqual(SettingsTileLayout.tileColumnCount(for: .large), 2)
+        XCTAssertEqual(SettingsTileLayout.tileColumnCount(for: .xxxLarge), 2)
+        XCTAssertEqual(SettingsTileLayout.tileColumnCount(for: .accessibility2), 2)
+        XCTAssertEqual(SettingsTileLayout.tileColumnCount(for: .accessibility3), 1)
+        XCTAssertEqual(SettingsTileLayout.tileColumnCount(for: .accessibility5), 1)
     }
 
     /// UI 用例按标识找入口：改版前六个入口的标识原样保留，且互不重复。

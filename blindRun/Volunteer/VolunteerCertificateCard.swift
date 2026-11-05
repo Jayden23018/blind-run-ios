@@ -117,7 +117,7 @@ struct VolunteerCertificateCard: View {
         .padding(20)
         .frame(maxWidth: .infinity, minHeight: Self.minHeight)
         .background(
-            RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous)
                 .strokeBorder(AppColors.Flow.ghostStroke, style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
         )
     }
@@ -148,7 +148,7 @@ struct VolunteerCertificateCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
     }
 
     /// 白底胶囊，字用卡的底色：三种卡底压白都过 4.5:1，反过来白底压它们也一样。
@@ -223,7 +223,7 @@ struct VolunteerCertificateStatusActions: View {
     var body: some View {
         let state = viewModel.displayState
         let showsRefresh = state == .pending || state == .statusUnavailable
-        VolunteerAccountGroup {
+        GroupedCard {
             if showsRefresh {
                 Button {
                     Task { await viewModel.refreshStatus(announce: true) }
@@ -240,7 +240,7 @@ struct VolunteerCertificateStatusActions: View {
                 .accessibilityLabel("重新获取状态")
                 .accessibilityHint("重新读取审核状态")
                 .accessibilityIdentifier("volunteerCertificateRefreshButton")
-                VolunteerAccountRowDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
+                GroupedCardDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
             }
 
             Button {

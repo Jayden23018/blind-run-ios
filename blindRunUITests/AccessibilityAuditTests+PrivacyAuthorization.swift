@@ -21,7 +21,7 @@ extension AccessibilityAuditTests {
         XCUIDevice.shared.orientation = .portrait
         for variant in privacyAuditVariants {
             let app = launchBlindHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
-            openPrivacyAuthorization(app, entryIdentifier: "blindPrivacyAuthorizationSettingsEntry", variant: variant.name)
+            openPrivacyAuthorization(app, entryIdentifier: "blindPrivacyAuthorizationSettingsEntry", variant: variant.name, throughAccountPage: true)
             // UI 用例默认跳过语音与位置两项同意（环境变量），两项都显示为已同意、都有撤回按钮。
             try auditPrivacyPage(
                 app,
@@ -62,13 +62,13 @@ extension AccessibilityAuditTests {
         }
     }
 
-    /// 「我的」→ 设置页里的「隐私与授权」入口。陪跑员的在账户页（「我的」→ 头像卡，#700）。
+    /// 「我的」→ 账户页（头像卡）里的「隐私与授权」入口。两端都在账户页（#700 / #711），按标识前缀分端。
     @MainActor
     func openPrivacyAuthorization(_ app: XCUIApplication, entryIdentifier: String, variant: String, throughAccountPage: Bool = false) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "\(variant)：底部标签栏不在")
         tabBar.buttons["我的"].tap()
-        if throughAccountPage { app.openVolunteerAccountPage() }
+        if throughAccountPage { entryIdentifier.hasPrefix("blind") ? app.openBlindAccountPage() : app.openVolunteerAccountPage() }
         let entry = app.descendants(matching: .any)[entryIdentifier].firstMatch
         // 先拖再断言：最大字号下入口在列表很下面，`List` 不渲染屏幕外的行，不拖就永远等不到（2026-10-28 真机 ax5 红过一次）。
         _ = entry.waitForExistence(timeout: 5)

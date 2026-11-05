@@ -677,6 +677,10 @@ struct BlindRunnerProfileView: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .background(.regularMaterial)
+        // 贴底的保存栏：审计要知道它在哪，滚到它后面的表单行才不会误判对比度（#711 起资料页藏标签栏，栏贴到屏幕底）。
+        // 先 `.contain` 再挂 id，否则会盖掉子元素的 id（记忆 `accessibility-identifier-overwrites-children`）。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("blindProfileSubmitBar")
     }
 }
 

@@ -1,30 +1,17 @@
 import XCTest
 @testable import blindRun
 
-/// #605：「我的」的紧急入口按模式分流。云端求助只能去订单页，本地拨号绝不碰订单页。
+/// #605：全屏手势按模式分流。云端求助只能去订单页，本地拨号绝不碰订单页。
+/// 「我的」列表那一行已删（负责人 2026-11-05，#711），只剩手势这一条通道。
 @MainActor
 final class BlindProfileEmergencyEntryTests: XCTestCase {
-    func testLocalCallStaysOnTheCurrentPageForBothEntries() {
+    func testLocalCallGestureStaysOnTheCurrentPage() {
         for mode in [BlindHomeSOSMode.localCall, .localCallSessionExpired] {
             XCTAssertNil(mode.orderSafetyRequestForGesture, "\(mode)")
-            XCTAssertNil(mode.orderSafetyRequestForRow, "\(mode)")
         }
     }
 
     func testCloudModeGestureGoesStraightToTheLockedConfirmation() {
         XCTAssertEqual(BlindHomeSOSMode.cloudTrigger.orderSafetyRequestForGesture, .confirmEmergency)
-    }
-
-    func testCloudModeRowOpensTheSafetyHubInsteadOfSending() {
-        XCTAssertEqual(BlindHomeSOSMode.cloudTrigger.orderSafetyRequestForRow, .safetyHub)
-        XCTAssertEqual(BlindHomeSOSMode.cloudTrigger.profileRowTitle, EmergencySafetyCopy.hubTitle)
-    }
-
-    func testLocalCallRowNeverPretendsToSendHelp() {
-        for mode in [BlindHomeSOSMode.localCall, .localCallSessionExpired] {
-            XCTAssertEqual(mode.profileRowTitle, EmergencySafetyCopy.homeCallTitle)
-            XCTAssertFalse(mode.profileRowTitle.contains("求助"), "\(mode)")
-            XCTAssertTrue(mode.profileRowAccessibilityHint.contains("不会代你发送求助"), "\(mode)")
-        }
     }
 }

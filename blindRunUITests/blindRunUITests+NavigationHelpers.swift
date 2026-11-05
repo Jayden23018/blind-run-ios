@@ -20,7 +20,7 @@ extension blindRunUITests {
     ///
     /// 设置页没有「紧急联系人」直达行，管理页挂在个人资料页下面，所以是三跳。
     func openContacts(_ app: XCUIApplication) {
-        openSettings(app)
+        openBlindAccount(app) // 个人资料在账户页（#711）
         tapNavigationRow(app, labelBeginsWith: "个人资料")
         tapNavigationRow(app, labelBeginsWith: "管理紧急联系人")
         XCTAssertTrue(
