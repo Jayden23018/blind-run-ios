@@ -93,7 +93,8 @@ extension AccessibilityAuditTests {
         }
         XCTAssertTrue(achievements.label.hasPrefix("服务成就"), "列表第一行是服务成就：\(achievements.label)")
         attachScreenshot(app, name: "volunteer-settings-\(variant)-bottom")
-        try audit(app)
+        // 上推之后「类别」和第一排方块滚到了导航栏的模糊区里，看不见（#700）。
+        try audit(app, contentScrolledUnderNavigationBar: true)
     }
 
     /// 账户页：个人资料、资质审核、隐私与授权、已拉黑的人、退出登录、删除账户；标签栏藏起来。

@@ -13,7 +13,10 @@ extension AccessibilityAuditTests {
     func audit(
         _ app: XCUIApplication,
         /// 只放行某一页上有书面依据的设计例外（要在调用处写明依据）。不是白名单：只作用于这一次调用，只作用于第二遍的六项。
-        allowing designException: ((XCUIAccessibilityAuditIssue) -> Bool)? = nil
+        allowing designException: ((XCUIAccessibilityAuditIssue) -> Bool)? = nil,
+        /// 页面已经上推、内容滚到了导航栏下面时传 `true`（#700）。默认关：有的页面故意把头图画进导航栏区域
+        /// （`ignoresSafeArea(edges: .top)`），那里的字看得见，必须照常审；弹层上 `navigationBars.firstMatch` 也可能取到底下那一页的栏。
+        contentScrolledUnderNavigationBar: Bool = false
     ) throws {
         // iOS 侧七个审计类型**全部**启用。少一项就少一类缺陷，而少了哪一项从测试结果上
         // 完全看不出来 —— 用例照样报绿，绿的是剩下那几项。守卫 `a11y-audit-types`
@@ -65,7 +68,7 @@ extension AccessibilityAuditTests {
         // 记下来，最后逐个滚到整个露出再单审一次 —— 仍报才算失败，滚不出来直接 XCTFail。
         // **不放过任何一条**：真的对比度不足，整个露出来时照样报。
         let screen = app.frame
-        let navigationBar = Self.navigationBarOcclusion(in: app)
+        let navigationBar = contentScrolledUnderNavigationBar ? Self.navigationBarOcclusion(in: app) : nil
         var cutByScreenEdge: [(element: XCUIElement, label: String, visibleTop: CGFloat?)] = []
         try app.performAccessibilityAudit(
             for: [

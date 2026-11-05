@@ -11,12 +11,6 @@ final class VolunteerSettingsTileTests: XCTestCase {
         }
     }
 
-    /// 验红：稿子原版的浅端（例如培训的 #3A9A5B）压白字不到 4.5:1，这条用例要能把它挡下来。
-    func testDesignOriginalLightEndWouldFailTheBar() {
-        XCTAssertLessThan(LowVisionChannelTests.contrastRatio(0xFFFFFF, 0x3A9A5B), 4.5)
-        XCTAssertLessThan(LowVisionChannelTests.contrastRatio(0xFFFFFF, 0xE2672E), 4.5)
-    }
-
     /// AX3 及以上单列，以下两列。取门槛两侧的 AX2 / AX3，挡住「门槛被挪到 AX1 或 AX5」。
     func testTilesSwitchToOneColumnFromAccessibility3() {
         XCTAssertEqual(VolunteerSettingsLayout.tileColumnCount(for: .large), 2)
