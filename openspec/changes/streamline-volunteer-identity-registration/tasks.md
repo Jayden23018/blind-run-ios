@@ -8,6 +8,6 @@
 
 ## 2. 验证
 
-- [ ] 2.1 编译检查通过（负责人 2026-11-05 定：不跑真机测试与单测）
+- [x] 2.1 编译检查通过（负责人 2026-11-05 定：不跑真机测试与单测）—— 2026-11-05 build-for-testing generic iOS：TEST BUILD SUCCEEDED
 - [x] 2.2 `node scripts/validate-spec-coverage.mjs` 用后端 origin/main 的 spec 通过
 - [ ] 2.3 负责人真机目视：第 1 步只剩姓名和身份证号；人脸通过后自动进首页并听到完成播报；同一身份证号第二个账号提交时看到新文案
