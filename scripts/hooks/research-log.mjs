@@ -7,7 +7,7 @@
 // 散落在临时文件里，下次同一个问题被原样重搜一遍。AGENTS.md §1：只写文档不算完成。
 //
 // 两个入口：
-//   `pre`  —— PreToolUse(联网工具) 前把整份索引灌回给模型。「先查记录再决定要不要重搜」
+//   `pre`  —— PreToolUse(联网工具) 前把索引表头 + 最近 20 行灌回给模型。「先查记录再决定要不要重搜」
 //             这件事靠提醒挡不住，靠把答案直接塞到眼前才挡得住。
 //   `researchTodo(payload)` —— 由 stop-checklist.mjs import：本轮联网调研过、
 //             但 `docs/research/` 一个字节都没动 → 记一条欠账。
@@ -29,9 +29,14 @@ export const INDEX_PATH = path.join(RESEARCH_DIR, 'INDEX.md');
 // 联网调研类工具。新增抓取类 MCP 时加进来 —— 漏一个，那条路径就绕过了整套约束。
 const RESEARCH_TOOL = /^(WebSearch|WebFetch|mcp__firecrawl__|mcp__.*__firecrawl_)/;
 
-// 灌回给模型的索引有上限：索引长到几千行时全量塞回去会挤掉真正的工作上下文。
-// 超了就截断并明说被截断，不静默丢尾巴（丢了尾巴等于「表里没有」，会触发重复调研）。
-const MAX_INDEX_CHARS = 12000;
+// 灌回给模型的只有表头 + 文件里最后 N 行数据（#715，负责人 2026-11-05 定）。
+// 索引按日期追加，最新的在文件尾。旧实现从文件头截 12,000 字符，
+// 69 行时只注入了 08-05 至 08-21 的 14 行，9 月以后的 55 行全看不到。
+// 更早的行明说「在文件里」，不静默丢（丢了等于「表里没有」，会触发重复调研）。
+export const RECENT_INDEX_ROWS = 20;
+
+// 找不到表格（索引被改坏）时才用：退回从头截取，至少不把几万字全灌进去。
+const FALLBACK_INDEX_CHARS = 12000;
 
 export function isResearchTool(name) {
   return typeof name === 'string' && RESEARCH_TOOL.test(name);
@@ -146,6 +151,29 @@ export function indexAlreadyInjected(sessionId, cwd = root) {
   return false;
 }
 
+// 取表头（列名行 + 分隔行）和最后 RECENT_INDEX_ROWS 行数据，按文件顺序。
+// 表头之前的说明文字不注入：那几条规则 RULES_TAIL 和开头那句已经说了。
+export function recentIndexExcerpt(index) {
+  const lines = index.split('\n');
+  const headerAt = lines.findIndex(
+    (l, i) => l.startsWith('|') && /^\|[\s|:-]+\|?\s*$/.test(lines[i + 1] ?? '')
+  );
+  if (headerAt === -1) {
+    return index.length > FALLBACK_INDEX_CHARS
+      ? `${index.slice(0, FALLBACK_INDEX_CHARS)}\n\n（索引没找到表格，已截断，完整内容见 ${INDEX_PATH}）`
+      : index;
+  }
+  const rows = lines.slice(headerAt + 2).filter((l) => l.startsWith('|'));
+  const recent = rows.slice(-RECENT_INDEX_ROWS);
+  const header = lines.slice(headerAt, headerAt + 2).join('\n');
+  const note =
+    rows.length > recent.length
+      ? `\n\n（以上是最近 ${recent.length} 行；更早的 ${rows.length - recent.length} 行在 \`${INDEX_PATH}\` 里，` +
+        `要查的问题这里没有时去那里搜，别直接重搜。）`
+      : '';
+  return `${header}\n${recent.join('\n')}${note}`;
+}
+
 export function buildPreContext(index, repeated) {
   if (index === null) {
     return (
@@ -155,7 +183,7 @@ export function buildPreContext(index, repeated) {
   }
   if (repeated) {
     return (
-      `本会话已经注入过 \`${INDEX_PATH}\` 全文，不再重复 —— 往上翻即可，别重新读文件。` +
+      `本会话已经注入过 \`${INDEX_PATH}\` 的表头与最近 ${RECENT_INDEX_ROWS} 行，不再重复 —— 往上翻即可。` +
       `表里已有且「复核触发条件」没触发的，直接用结论，不要重搜。` +
       RULES_TAIL
     );
@@ -163,9 +191,7 @@ export function buildPreContext(index, repeated) {
   return (
     `开搜前先读已有调研（唯一位置 \`${RESEARCH_DIR}/\`）。表里已有且「复核触发条件」没触发的，` +
     `直接用结论，不要重搜；缺的那一段才是本次该搜的范围。\n\n` +
-    (index.length > MAX_INDEX_CHARS
-      ? `${index.slice(0, MAX_INDEX_CHARS)}\n\n（索引已截断，完整内容见 ${INDEX_PATH}）`
-      : index) +
+    recentIndexExcerpt(index) +
     RULES_TAIL
   );
 }
