@@ -10,97 +10,21 @@ enum SessionRestorationState: Equatable {
     case authenticated
 }
 
-@MainActor
-final class AccountDeletionViewModel: ObservableObject {
-    @Published var showFinalConfirmation = false
-    @Published var preflightMessage: String?
-
-    /// 预检拦截的弹窗开关。
-    ///
-    /// 拦截**必须自己弹出来**。它此前唯一的展示面是设置页 `List` 末尾的一行文字，而 `089960e`（#76）
-    /// 往两端设置页各加了三、四个入口之后，那一行落到了第二屏 —— SwiftUI 的 `List` 压根不渲染
-    /// 屏幕外的行，于是用户点完「继续删除账户」屏幕上什么都不变，只有 `speakError` 那一声。
-    /// 明眼志愿者与低视力用户拿不到任何反馈，看起来就是「点了没反应」。
-    /// `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock` 从那天起一直红着，
-    /// 红的正是这件事，只是被当成了用例陈旧。
-    var isShowingPreflightBlock: Bool {
-        get { preflightMessage != nil }
-        set { if !newValue { preflightMessage = nil } }
-    }
-
-    /// 预检拦截的状态集。**口径是后端的「非终态」**（`OrderStatus.activeStatuses()`）——
-    /// 这道预检不做自己的判断，它存在的唯一价值是**在服务端拒绝之前先出声告诉用户**。
-    /// 漏一个状态的症状是：预检放行、不播任何提示，然后服务端按 `activeStatuses()` 拒 ⇒
-    /// 那一声提前的反馈就没了，而它正是为盲人加的。
-    ///
-    /// `.scheduledConfirmed` 在列：后端 `occupiesVolunteer()` 上逐字写着「必须拦住他带着
-    /// 这张单注销」，否则盲人的预约单会指向一个已注销的志愿者且不报任何错。
-    /// `.pendingIntroCall` 一并补上（它从加进枚举那天起就漏在这里）。
-    private static let blockingStatuses: Set<RunOrderStatus> = [
-        .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept,
-        .driverEnRoute, .driverArrived, .inProgress, .rematching
-    ]
-
-    func preflight(appState: AppState, speechService: SpeechService) async {
-        preflightMessage = nil
-        do {
-            let orders = try await appState.auth.accountDeletionOrderPreflight()
-            if orders.content.contains(where: { Self.blockingStatuses.contains($0.status) }) {
-                let message = "当前存在进行中的服务，请处理完成后再删除账户。"
-                preflightMessage = message
-                speechService.speakError(message)
-                return
-            }
-        } catch APIError.unauthorized {
-            appState.expireSession()
-            return
-        } catch {
-            // 预检只提供及时提示；最终权限与订单状态始终由删除接口裁决。
-        }
-        showFinalConfirmation = true
-    }
-
-    /// 最终确认弹窗正文。逐条对着后端 `UserService.deleteAccount` 的真实行为写：
-    /// 用户行软删除 + 手机号改写释放，PII 级联硬删（盲人是实名资料 / 紧急联系人 / 常用地址，
-    /// 志愿者是证件照 OSS / 资料 / 可服务时间，两端都删轨迹点 / 工单 / APNs token），
-    /// 而**订单、评价、求助事件刻意保留** —— 后端注释写明它们不存姓名手机号，留作纠纷复核审计。
-    ///
-    /// 两端说各自删的那份：文案里出现用户根本没有的东西（对盲人说「证件照」）会让他怀疑自己填过什么。
-    /// 保留项必须说 —— PIPL 第 47 条下用户对「删了什么、留了什么」有知情权，
-    /// 而「此操作不可撤销」配上只字不提的保留项，很容易被理解成订单记录也一并没了。
-    static func finalConfirmationMessage(for role: UserRole) -> String {
-        let deleted: String
-        switch role {
-        case .blind:
-            deleted = "你的实名信息、紧急联系人、常用地址和跑步轨迹"
-        case .volunteer:
-            deleted = "你的资质证件照、志愿者资料、可服务时间和服务轨迹"
-        case .unset:
-            // 角色还没定的账号只有登录信息，没有上面任何一份资料。
-            deleted = "你的账户资料"
-        }
-        return """
-        将删除\(deleted)。历史订单与评价会保留用于纠纷复核，其中不含你的姓名和手机号。\
-        所有登录令牌立即失效，手机号可以重新注册。此操作不可撤销。
-        """
-    }
-}
-
 // MARK: - AppState
 
 /// 全局应用状态，管理用户会话、Token 和环境配置。
 /// 作为 @EnvironmentObject 注入整个应用的 View 层级。
 @MainActor
 final class AppState: ObservableObject {
-    private let mockAPIClient = MockAPIClient()
+    let mockAPIClient = MockAPIClient()
     /// 补撤（`revocationTransport`）也要用它，所以不是 private。
     let apiClientOverride: (any APIClientProtocol)?
-    private let authOverride: (any AuthServing)?
-    private let incentiveOverride: (any IncentiveServing)?
-    private let safetyOverride: (any SafetyServing)?
-    private let ordersOverride: (any OrderServing)?
+    let authOverride: (any AuthServing)?
+    let incentiveOverride: (any IncentiveServing)?
+    let safetyOverride: (any SafetyServing)?
+    let ordersOverride: (any OrderServing)?
     let persistence: AppStatePersistence
-    private let tokenStore: any TokenStoring
+    let tokenStore: any TokenStoring
     /// refresh token 续期（#391）。每次新建的 `URLSessionAPIClient` 都带上它，single-flight 才是全 App 一份。
     let tokenRefresher: SessionTokenRefresher
     /// 退出登录时服务端没撤成的部分（解绑推送、登出），联网 / 回前台 / 下次登录前补撤（#459）。
@@ -153,7 +77,7 @@ final class AppState: ObservableObject {
     @Published private(set) var sessionGeneration: UInt64 = 0
 
     /// `applyRenewedAccessToken` 写 `accessToken` 期间为真，让 `didSet` 只持久化、不重置会话。
-    private var isApplyingRenewedAccessToken = false
+    var isApplyingRenewedAccessToken = false
 
     /// 当前用户 ID
     @Published var userId: Int64? {
@@ -175,11 +99,11 @@ final class AppState: ObservableObject {
     }
 
     /// 仅保存在内存中的当前用户，不额外持久化手机号等身份信息。
-    @Published private(set) var currentUser: CurrentUserResponse?
+    @Published var currentUser: CurrentUserResponse?
 
-    @Published private(set) var sessionRestorationState: SessionRestorationState = .restoring
-    @Published private(set) var logoutState: SessionOperationState = .idle
-    @Published private(set) var accountDeletionState: SessionOperationState = .idle
+    @Published var sessionRestorationState: SessionRestorationState = .restoring
+    @Published var logoutState: SessionOperationState = .idle
+    @Published var accountDeletionState: SessionOperationState = .idle
 
     /// 当前激活角色（首次登录可能为 nil，需路由到角色选择）
     @Published var activeRole: UserRole? {
@@ -211,20 +135,20 @@ final class AppState: ObservableObject {
     /// 实名引导页「稍后再说」的标记。按账号记：`performLocalSessionCleanup` 会清掉它。
     /// 只影响引导流是否还停在实名提示页，**不影响下单门槛**（`isBlindBookingReady` 仍看实名状态）。
     /// 走 `persistence` 而不是 `@AppStorage`，否则单元/UI 测试会写进 App 的标准域。
-    @Published private(set) var didDismissBlindIdentityPrompt = false
+    @Published var didDismissBlindIdentityPrompt = false
 
     /// 首次使用引导是否已经看过。**按设备记，登出不清**（理由见
     /// `AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen`）——
     /// 与上面那条按账号记的实名标记刻意不同。
-    @Published private(set) var didSeeBlindFirstRunHelp = false
+    @Published var didSeeBlindFirstRunHelp = false
 
     /// 首次启动的隐私告知是否已同意（`PrivacyConsentPurpose.appLaunch`）。
     /// 按**设备**记：同意发生在登录之前，那时还没有账号。登出不清 —— 告知的是这个 App 会收集什么，
     /// 与谁登录无关。告知内容改版时靠 key 里的版本号失效，不靠登出。
-    @Published private(set) var didAcceptPrivacyConsent = false
+    @Published var didAcceptPrivacyConsent = false
 
     /// 会话过期后带到登录页展示的一次性提示。
-    @Published private(set) var sessionExpirationMessage: String?
+    @Published var sessionExpirationMessage: String?
 
     /// 跑步中收到 401 后的「登录过期、暂缓退出」状态（#376）。nil = 没有暂缓。
     ///
@@ -232,7 +156,7 @@ final class AppState: ObservableObject {
     /// （`SessionTokenRefresher`），只有续期也被拒（refresh 过期 / 登出 / 被强制下线）才走到这里。此前任何 401 都立刻 `expireSession()`：盲人在跑道上被踢回登录页、
     /// WebSocket 断开、云端求助不可用，还要重新收短信。暂缓期间：会话保留，订单页停轮询，
     /// 云端求助一律不发（`EmergencyCoordinator.blocksCloudSOSForExpiredSession`），横幅可见可听。
-    @Published private(set) var sessionExpiryDeferral: SessionExpiryDeferral?
+    @Published var sessionExpiryDeferral: SessionExpiryDeferral?
 
     var isSessionExpiryDeferred: Bool { sessionExpiryDeferral != nil }
 
@@ -245,7 +169,7 @@ final class AppState: ObservableObject {
     var sessionClockForTesting: (() -> Date)?
     #endif
 
-    private var sessionNow: Date {
+    var sessionNow: Date {
         #if DEBUG
         if let sessionClockForTesting { return sessionClockForTesting() }
         #endif
@@ -256,11 +180,11 @@ final class AppState: ObservableObject {
 
     /// `GET /api/misc/legal-links` 的结果。`nil` = 尚未加载 / 加载失败 / 后端未配置 URL，
     /// 三种情况入口一律回退到内置文案页（`LegalDocumentKind.destination(in:)` 已如此处理）。
-    @Published private(set) var legalLinks: LegalLinksResponse?
+    @Published var legalLinks: LegalLinksResponse?
 
     /// 只请求一次就够：这两个 URL 来自后端配置，不会在一次会话里变。
     /// 失败也不重试 —— 回退文案页本来就是完整可读的，为它反复打请求不值得。
-    private var didAttemptLegalLinksLoad = false
+    var didAttemptLegalLinksLoad = false
 
     // MARK: - Feature Flags
 
@@ -269,14 +193,14 @@ final class AppState: ObservableObject {
     /// 🔴 **拿不到时不许落成「全关」。** 消费方（目前是固定搭档两侧的空态）必须把 `nil`
     /// 当成第三种情况处理，说一句两种开关状态下都成立的话 —— 一次网络抖动不该让用户
     /// 听到「这个功能还没开放」这种关于产品状态的断言。
-    @Published private(set) var featureFlags: FeatureFlagsResponse?
+    @Published var featureFlags: FeatureFlagsResponse?
 
     /// 与 `didAttemptLegalLinksLoad` **刻意不同：失败会重试。**
     ///
     /// 那边失败的后果是回退到一份完整可读的内置文案页，代价近于零；
     /// 这边失败的后果是空态少说一句话，而用户**下一次进这一页**很可能网络已经好了。
     /// 所以只在成功后置位，失败保持 false。
-    private var didLoadFeatureFlags = false
+    var didLoadFeatureFlags = false
 
     // MARK: - Rule Params
 
@@ -345,263 +269,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Computed
-
-    var isLoggedIn: Bool {
-        accessToken != nil
-    }
-
-    // MARK: 盲人完成度（拆成互相独立、可单独测试的判断）
-
-    /// 基础资料：目前只要求昵称非空。与紧急联系人、实名状态无关。
-    var isBlindBasicProfileComplete: Bool {
-        guard let name = blindProfile?.name else { return false }
-        return !name.trimmed.isEmpty
-    }
-
-    /// 实名状态。2026-07-30 起后端 `OrderCreationService` 在服务端硬校验
-    /// `verifyStatus == VERIFIED`（否则 403 `IDENTITY_NOT_VERIFIED`），
-    /// 所以这里既用于展示与语音引导，也参与下单门槛。
-    var blindIdentityStatus: BlindVerifyStatus {
-        blindProfile?.identityStatus ?? .unknown
-    }
-
-    /// 实名侧的下单硬门槛。状态未知（后端没返回 / 返回了不认识的值）时按未通过处理：
-    /// 服务端会拒，客户端提前引导比让用户白填一遍订单再被 403 更可用。
-    var isBlindIdentityVerified: Bool {
-        blindIdentityStatus.isVerified
-    }
-
-    var emergencyContactCount: Int {
-        emergencyContacts.count
-    }
-
-    /// 恰好一个主联系人时返回它；0 个或多个都返回 nil。
-    var primaryEmergencyContact: EmergencyContactResponse? {
-        EmergencyContactResponse.singlePrimary(in: emergencyContacts)
-    }
-
-    var hasExactlyOnePrimaryEmergencyContact: Bool {
-        primaryEmergencyContact != nil
-    }
-
-    /// 紧急联系人侧的硬门槛：至少 1 位，且恰好 1 位主联系人。
-    var hasValidEmergencyContacts: Bool {
-        emergencyContactCount >= EmergencyContactRules.minCount && hasExactlyOnePrimaryEmergencyContact
-    }
-
-    /// 下单硬门槛：基础资料 + 实名认证通过 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。
-    /// 实名这一档与后端 `OrderCreationService` 的 403 `IDENTITY_NOT_VERIFIED` 对齐，
-    /// 且与服务端同序（实名在紧急联系人之前）。
-    var isBlindBookingReady: Bool {
-        isBlindBasicProfileComplete && isBlindIdentityVerified && hasValidEmergencyContacts
-    }
-
-    /// 盲人引导流当前该停在哪一步；nil 表示可以直接进首页。
-    var blindOnboardingStep: BlindOnboardingStep? {
-        BlindOnboardingStep.first(
-            isBasicProfileComplete: isBlindBasicProfileComplete,
-            hasValidEmergencyContacts: hasValidEmergencyContacts,
-            shouldPromptIdentity: blindIdentityStatus.shouldPromptVerification,
-            didDismissIdentityPrompt: didDismissBlindIdentityPrompt
-        )
-    }
-
-    /// 「稍后再说」：跳过实名引导页进首页。**不等于可以下单**——
-    /// 未实名仍会被 `BlindBookingGate.identityVerification` 拦住（后端 403 `IDENTITY_NOT_VERIFIED`）。
-    ///
-    /// ⚠️ 这句话原本写的是「进首页**看历史订单**和设置」，而盲人端长期**没有任何历史入口** ——
-    /// 跳过实名的用户进来只有一个必定失败的「开始约跑」。注释在描述一个不存在的能力。
-    /// 入口现在有了：设置页 →「我的历史订单」（`BlindRunHistoryView`），
-    /// 收全部终态、点进去是订单详情，补评价也在那里。
-    func dismissBlindIdentityPrompt() {
-        didDismissBlindIdentityPrompt = true
-        persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
-    }
-
-    /// 首次引导看完（按了「知道了」）。**只有这一个写入点** ——
-    /// 「进过这一页」不算看完：自动进入的那次如果用户直接返回，下次还该给他。
-    func markBlindFirstRunHelpSeen() {
-        guard !didSeeBlindFirstRunHelp else { return }
-        didSeeBlindFirstRunHelp = true
-        persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen)
-    }
-
-    /// 首次启动告知的同意。**只有这一个写入点**：唯一的触发者是用户按下「同意并开始使用」。
-    /// 「看过这一页」不算同意 —— 同意必须是一个主动动作（PIPL 第 14 条）。
-    func acceptPrivacyConsent() {
-        guard !didAcceptPrivacyConsent else { return }
-        didAcceptPrivacyConsent = true
-        PrivacyConsentStore(persistence: persistence)
-            .recordConsent(to: .appLaunch, scope: .device)
-        // 高德要「用户同意之后」才声明已同意（#408）；这是冷启动时尚未同意的用户唯一的补发点。
-        AMapManager.setUserAcceptedPrivacy(true)
-    }
-
-    /// 启动时的初值。**在 `init` 里解析而不是等 `onAppear`** —— 晚一帧的代价是 UI 用例先看到
-    /// 同意页再看到它消失，断言打在那一帧上就是随机红。
-    ///
-    /// `environment` 可注入只是为了让下面这条规则本身有用例可测：它一旦写反，表现是**全部 UI 用例
-    /// 被同意页挡住**，而真机 UI 通道时好时坏，坏的时候没人会发现是这里写反了。
-    static func resolveInitialPrivacyConsent(
-        persistence: any AppStatePersistence,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        if PrivacyConsentStore(persistence: persistence).hasConsented(to: .appLaunch, scope: .device) {
-            return true
-        }
-        #if DEBUG || DEMO
-        // UI 用例一律 `RESET_STATE`，于是每一条都会被同意页挡住 —— 与首次引导同一个理由，默认跳过。
-        // 专门测同意门的用例设 `AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT=1` 走真实首启路径。
-        if environment["AIDRUN_UI_TEST_RESET_STATE"] == "1",
-           environment["AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT"] != "1" {
-            return true
-        }
-        #endif
-        return false
-    }
-
-    var isVolunteerProfileComplete: Bool {
-        guard let profile = volunteerProfile else {
-            return false
-        }
-        return profile.isProfileCompleteForDispatch
-    }
-
-    var isVolunteerProfileApproved: Bool {
-        guard let profile = volunteerProfile else { return false }
-        if let volunteerRegistrationStatus {
-            return volunteerRegistrationStatus.isRegistrationComplete
-        }
-        return profile.isMainRegistrationCompleteWhenStatusUnavailable && profile.isAdminReviewApprovedWhenAvailable
-    }
-
-    /// 根据当前环境返回对应的 API Client
-    var apiClient: any APIClientProtocol {
-        if let apiClientOverride { return apiClientOverride }
-        switch currentEnvironment {
-        case .mock where AppBuildChannel.current == .development:
-            return mockAPIClient
-        case .mock:
-            return DisabledAPIClient()
-        case .demoCloud:
-            guard AppBuildChannel.current.allows(currentEnvironment) else {
-                return DisabledAPIClient()
-            }
-            guard let baseURL = currentEnvironment.baseURL else {
-                return DisabledAPIClient()
-            }
-            return URLSessionAPIClient(
-                baseURL: baseURL,
-                tokenProvider: { [weak self] in self?.accessToken },
-                sessionRenewer: tokenRefresher
-            )
-        }
-    }
-
-    /// 认证·会话片的领域 service。
-    ///
-    /// 与 `apiClient` 一样**每次取都新建**：环境可以在运行时切换（Mock / Demo Cloud），
-    /// 缓存一个实例会让切换后的调用还打在旧 transport 上。
-    var auth: any AuthServing {
-        if let authOverride { return authOverride }
-        return AuthService(transport: apiClient)
-    }
-
-    /// 激励片的领域 service。每次取都新建，理由同 `auth`。
-    var incentive: any IncentiveServing {
-        if let incentiveOverride { return incentiveOverride }
-        return IncentiveService(transport: apiClient)
-    }
-
-    /// 档案·实名·资质片的领域 service。同样**每次取都新建**，理由同上。
-    ///
-    /// 这里没有 `AppState(profile:)` 注入口 —— 本片现有用例全部通过 `AppState(apiClient:)`
-    /// 打桩，桩实现的是 `APIClientProtocol`，`ProfileService` 照样架在它上面。
-    /// 真需要一个 `FakeProfileService` 时再照 `auth` 加，不先摆一个没人用的入口。
-    var profile: any ProfileServing {
-        ProfileService(transport: apiClient)
-    }
-
-    /// 跑后运动记录片的领域 service。每次取都新建，理由同 `auth`；注入口等真需要 fake 时再加，理由同 `profile`。
-    var runRecord: any RunRecordServing {
-        RunRecordService(transport: apiClient)
-    }
-
-    /// 求助·通话磨合·轨迹片的领域 service。每次取都新建，理由同 `auth`。
-    var safety: any SafetyServing {
-        if let safetyOverride { return safetyOverride }
-        return SafetyService(transport: apiClient)
-    }
-
-    /// 订单片的领域 service。理由与 `auth` 相同：每次取都新建，不缓存实例。
-    var orders: any OrderServing {
-        if let ordersOverride { return ordersOverride }
-        return OrderService(transport: apiClient)
-    }
-
-    /// 志愿者线上培训片的领域 service。每次取都新建，理由同 `auth`。
-    ///
-    /// 没有注入口，理由同 `profile`：培训的用例都通过 `AppState(apiClient:)` 打桩，
-    /// 桩实现的是 `APIClientProtocol`，`TrainingService` 照样架在它上面。
-    /// 真需要 `FakeTrainingService` 时再照 `auth` 加，不先摆一个没人用的入口。
-    var training: any TrainingServing {
-        TrainingService(transport: apiClient)
-    }
-
-    /// 语音下单解析片的领域 service。每次取都新建，理由同 `auth`。
-    ///
-    /// 这里没有注入口，理由同 `profile`：现有用例都通过给 `VoiceOrderWizard.configure`
-    /// 传一个架在 `APIClientProtocol` 桩上的 `VoiceOrderService` 打桩，够用。
-    /// 真需要 `FakeVoiceOrderService` 时再照 `auth` 加，不先摆一个没人用的入口。
-    ///
-    /// 外面包了一层同意闸门（`ConsentGatedVoiceOrderService`）：账号没同意把转写文字交给第三方大模型时
-    /// 不发 `/parse`。向导拿到的就是这一份，没有绕过它的路。
-    var voiceOrder: any VoiceOrderServing {
-        ConsentGatedVoiceOrderService(
-            base: VoiceOrderService(transport: apiClient),
-            isConsentGranted: { [weak self] in self?.hasVoiceOrderConsent ?? false }
-        )
-    }
-
-    // MARK: - 语音下单的第三方大模型同意
-
-    /// 按**账号**记（理由同 `ProfileModule` 的视力状况同意）。拿不到 userId 时退到 `.device`：
-    /// 宁可多问一次，也不让界面一声不响。
-    private var voiceOrderConsentScope: PrivacyConsentScope {
-        currentUser.map { .user(String($0.userId)) } ?? .device
-    }
-
-    /// 当前账号是否同意了「语音下单的转写文字交给阿里云通义千问」。每次现读，不缓存。
-    var hasVoiceOrderConsent: Bool {
-        if Self.uiTestSkipsVoiceOrderConsent() { return true }
-        return PrivacyConsentStore(persistence: persistence)
-            .hasConsented(to: .voiceOrderThirdPartyLLM, scope: voiceOrderConsentScope)
-    }
-
-    /// UI 用例默认跳过这道同意：好几条用例靠「点开始约跑」进下单页，同意页会把它们全部挡在门外。
-    /// 与首启告知同一个做法（`resolveInitialPrivacyConsent`）：专测同意页的用例设
-    /// `AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT=1` 走真实路径。UI 用例跑的是进程内 Mock，
-    /// 跳过它不会让任何文字发往第三方；真实安装没有这两个环境变量，一律要同意。
-    static func uiTestSkipsVoiceOrderConsent(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        #if DEBUG || DEMO
-        return environment["AIDRUN_UI_TEST_RESET_STATE"] == "1"
-            && environment["AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT"] != "1"
-        #else
-        return false
-        #endif
-    }
-
-    /// 唯一的写入点：触发者只能是用户按下同意页上的「同意并使用语音下单」。
-    func recordVoiceOrderConsent() {
-        PrivacyConsentStore(persistence: persistence)
-            .recordConsent(to: .voiceOrderThirdPartyLLM, scope: voiceOrderConsentScope)
-    }
-
-    // MARK: - 位置轨迹的单独同意（#368）
-
     /// 志愿者此刻开着接单开关（以首页 view model 为准，由它同步进来）。
     /// 不是 `@Published`：只有 `ContentView` 的定时上报读它，不驱动渲染。
     /// 关开关时连「获取」一起停（#425）：上报闸只管不上传，硬件定位要靠撤回 `.volunteerDispatch` 才停。
@@ -611,64 +278,7 @@ final class AppState: ObservableObject {
 
     /// 本次登录里按下过「同意共享位置」的目的。拿不到 userId 时写不了盘，
     /// 这一份让「刚同意完又被问一次」不会发生；换 token 就清掉。
-    private var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
-
-    /// 按**账号**记。拿不到 userId 时不读盘 —— 宁可多问一次，也不让一个身份不明的会话继承别人的同意。
-    var locationTrackConsentScope: PrivacyConsentScope? {
-        userId.map { .user(String($0)) }
-    }
-
-    /// 本账号在本机有没有这一角色的位置轨迹同意。**后端不存这项同意**：没有记录就当没同意过。
-    /// 每次现读，不缓存。`purpose` 只接受两个位置轨迹目的，其余一律 false。
-    func hasLocationTrackConsent(_ purpose: PrivacyConsentPurpose) -> Bool {
-        guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack else { return false }
-        if Self.uiTestSkipsLocationTrackConsent() { return true }
-        if locationTrackConsentGrantedThisSession.contains(purpose) { return true }
-        guard let scope = locationTrackConsentScope else { return false }
-        return PrivacyConsentStore(persistence: persistence).hasConsented(to: purpose, scope: scope)
-    }
-
-    /// 撤回时忘掉本次登录里记下的那一份（#393）。集合本身保持私有，「唯一写入点」的约定不破。
-    func forgetLocationTrackConsentThisSession(_ purpose: PrivacyConsentPurpose) {
-        locationTrackConsentGrantedThisSession.remove(purpose)
-    }
-
-    /// 唯一的写入点：触发者只能是用户按下同意页上的「同意共享位置」。
-    func recordLocationTrackConsent(_ purpose: PrivacyConsentPurpose) {
-        guard purpose == .blindLocationTrack || purpose == .volunteerLocationTrack else { return }
-        locationTrackConsentGrantedThisSession.insert(purpose)
-        if let scope = locationTrackConsentScope {
-            PrivacyConsentStore(persistence: persistence).recordConsent(to: purpose, scope: scope)
-        }
-        // 同一个目的可能同时有两处在问（接单开关的同意页 + 同行态的同意页），答了一处另一处要跟着收。
-        liveEscortCoordinator.trackConsentDidChange()
-        syncRoleLocationIntents()
-    }
-
-    /// 求助取坐标前读（#368）：当前角色在本机没有位置轨迹同意（还没回答或已拒绝）⇒ 求助**不附位置**，
-    /// 按「拿不到坐标就不发」处理（`AGENTS.md` §6），原因由 `LocationError.locationSharingNotConsented` 说清。
-    ///
-    /// 按角色判，**不看同行会话此刻有没有订单**：协调器在换 token / 换角色 / 冷启动之后会有几秒拿不到
-    /// 订单状态，按会话判的话那几秒会放行一个用户说过不的位置。云端求助只在 `IN_PROGRESS` 开放，
-    /// 而那一态没有同意的人一定被问过（同意页盖在界面上），所以按角色判不会误拦。拿不到角色时按「被拦」算。
-    var isEmergencyLocationSharingBlocked: Bool {
-        guard let purpose = PrivacyConsentPurpose.locationTrack(for: activeRole) else { return true }
-        return !hasLocationTrackConsent(purpose)
-    }
-
-    /// UI 用例默认跳过这道同意，理由同 `uiTestSkipsVoiceOrderConsent`：好几十条用例靠「预约 / 接单开关 /
-    /// 种一张同行态的单」进页面，同意页会把它们全挡在门外。专测同意页的用例设
-    /// `AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT=1`。真实安装没有这两个环境变量，一律要同意。
-    static func uiTestSkipsLocationTrackConsent(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        #if DEBUG || DEMO
-        return environment["AIDRUN_UI_TEST_RESET_STATE"] == "1"
-            && environment["AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT"] != "1"
-        #else
-        return false
-        #endif
-    }
+    var locationTrackConsentGrantedThisSession: Set<PrivacyConsentPurpose> = []
 
     // MARK: - Init
 
@@ -785,530 +395,9 @@ final class AppState: ObservableObject {
     }
 
     /// 不含 token 值：续期换 token 不该让陪跑会话以为换了个人（见 `sessionGeneration`）。
-    private var sessionIdentityKey: String? {
+    var sessionIdentityKey: String? {
         guard accessToken != nil, let userId else { return nil }
         return "\(userId):\(activeRole?.rawValue ?? "none"):\(sessionGeneration)"
-    }
-
-    // MARK: - 重连补读
-
-    /// WS 重连后补读断线期间遗漏的通知（`GET /api/notifications/since`）。
-    ///
-    /// `after` 优先用本次会话实时见到的最新 timestamp，其次读持久化游标；
-    /// 两者都是 ISO-8601（无时区），与后端 `notification_logs.sent_at` 同格式 ——
-    /// 传 epoch 毫秒会被后端判 400 `INVALID_TIMESTAMP`。
-    /// 首次安装且从未收到过通知时游标为空，此时不补读（后端窗口只有 24h/50 条，全量拉没有意义）。
-    ///
-    /// 一次补读可能跨多页：后端每页最多 50 条，`hasMore = true` 表示窗口里还有没返回完的，
-    /// 要拿本页最后一条的 `sentAt` 当新的 `after` 再拉（契约 `api_spec.yaml:3329`）。
-    /// 只拉第一页的后果是离线越久漏得越多，而那批恰恰是最该被听见的。
-    ///
-    /// ponytail: 上限 10 页 ≈ 500 条，远超后端 24h 窗口的现实量。后端要是坏成恒回
-    /// `hasMore = true`，宁可少补几条也不能让盲人的手机在这里空转。
-    static let catchUpPageLimit = 10
-
-    func catchUpMissedNotifications() async {
-        guard isLoggedIn else { return }
-        // 断线期间可能整条求助都发生完了（志愿者代触发、家属短信回执、客服解除），而通知信封不带
-        // eventId，补读文本无法还原事件状态。恢复只能问 `GET /api/emergency/active`，且必须先于补读，
-        // 免得补读把已解除的旧文案念成当前状态。
-        await recoverActiveEmergency()
-        let after = realtimeCoordinator.lastObservedNotificationTimestamp
-            ?? persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
-        guard let after, !after.isEmpty else { return }
-        var cursor = after
-        do {
-            for _ in 0..<Self.catchUpPageLimit {
-                let page = try await auth.missedNotifications(after: cursor)
-                realtimeCoordinator.ingestCatchUp(page.notifications)
-                // 逐页落盘：中途失败时已经补到的那几页不必下次重拉。
-                if let latest = realtimeCoordinator.lastObservedNotificationTimestamp {
-                    persistence.set(latest, forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
-                }
-                // 取本页最大的 `sentAt`，不是 `lastObservedNotificationTimestamp` —— 后者会被
-                // 循环期间到达的实时通知推到更靠后的时刻，拿它当 `after` 会跳过中间那一段。
-                // 契约说的「最后一条」在正序下就是最大值，用 max 是为了后端乱序时游标也只前进：
-                // 退回去会把同一页反复拉到上限为止。
-                guard page.hasMore == true,
-                      let next = page.notifications.compactMap(\.sentAt).max(),
-                      next > cursor else { break }
-                cursor = next
-            }
-        } catch {
-            // 补读是 best-effort：失败不阻断实时链路，下次重连自然重试。
-            ClientFlowDiagnostics.record(event: "failed", operation: "notification-catch-up")
-        }
-    }
-
-    /// 向 `GET /api/emergency/active` 要回当前未结束的求助。两个角色都调，但问的不是一件事：
-    /// 盲人拿自己的事件（屏 3b），志愿者拿他正在陪的那位盲人的事件（强提醒，后端 #387 ②，
-    /// 2026-09-15 起对志愿者开放）。
-    func recoverActiveEmergency() async {
-        switch activeRole {
-        case .blind:
-            await emergencyCoordinator.refreshActiveEvent(userID: userId)
-        case .volunteer:
-            await emergencyCoordinator.refreshVolunteerAlert(safety: safety)
-        case .unset, nil:
-            return
-        }
-    }
-
-    // MARK: - Legal Links
-
-    /// 拉一次隐私政策 / 用户协议的外链地址。
-    ///
-    /// **必须 `requiresAuth: false`** —— 后端对该端点 permitAll，App Store 审核员是未登录状态，
-    /// 而 5.1.1/5.1.2 要求他们能在应用内找到隐私政策。带鉴权会让未登录时 401 直接失败。
-    ///
-    /// 失败静默：入口在任何时刻都得是可点且有内容的，回退文案页承担这件事。
-    /// 这里冒出一个错误弹窗，反而会把审核员挡在隐私政策之外。
-    func loadLegalLinksIfNeeded() async {
-        guard !didAttemptLegalLinksLoad else { return }
-        didAttemptLegalLinksLoad = true
-        do {
-            legalLinks = try await auth.legalLinks()
-        } catch {
-            ClientFlowDiagnostics.record(event: "failed", operation: "legal-links")
-        }
-    }
-
-    /// 拉一次功能开关（`GET /api/config/features`，需登录、不限角色）。
-    ///
-    /// 失败静默，但**会在下一次调用时重试**（见 `didLoadFeatureFlags` 的注释）。
-    /// 失败时 `featureFlags` 保持 `nil`，消费方据此说一句不做承诺的话。
-    func loadFeatureFlagsIfNeeded() async {
-        guard !didLoadFeatureFlags, accessToken != nil else { return }
-        do {
-            featureFlags = try await auth.featureFlags()
-            didLoadFeatureFlags = true
-        } catch {
-            ClientFlowDiagnostics.record(event: "failed", operation: "feature-flags")
-        }
-    }
-
-    // MARK: - Session Management
-
-    /// 启动时恢复会话（Token 从 Keychain 读取，兼容旧版本 UserDefaults 存量）
-    func restoreSession() async {
-        sessionRestorationState = .restoring
-        accessToken = restoredToken()
-        if let roleRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.activeRole) {
-            activeRole = UserRole(rawValue: roleRaw)
-        }
-        if let savedUserId = persistence.object(forKey: AppConstants.UserDefaultsKeys.userId) as? NSNumber {
-            userId = savedUserId.int64Value
-        }
-        guard accessToken != nil else {
-            sessionRestorationState = .unauthenticated
-            return
-        }
-        mockAPIClient.syncSessionFromAppState(token: accessToken, role: activeRole)
-        do {
-            let user = try await auth.currentUser()
-            guard user.roleResolution != .invalid else {
-                performLocalSessionCleanup()
-                sessionExpirationMessage = "登录角色信息异常，请重新登录。"
-                return
-            }
-            currentUser = user
-            userId = user.userId
-            persistUserId()
-            activeRole = user.resolvedRole
-            if activeRole == nil {
-                disconnectWebSocket()
-                sessionRestorationState = .choosingRole
-            } else {
-                sessionRestorationState = .authenticated
-                connectWebSocketIfNeeded()
-                // 冷启动：WS 首次连上不发恢复信号（只有重连才发），回前台那条补读又可能跑在
-                // 会话恢复之前被 `isLoggedIn` 挡掉 —— 求助恢复不能押在这两者的先后上。
-                Task { await recoverActiveEmergency() }
-            }
-        } catch let error as APIError {
-            switch error {
-            case .unauthorized:
-                performLocalSessionCleanup()
-                sessionExpirationMessage = "登录状态已失效，请重新登录。"
-            default:
-                // 无法权威确认时不进入已认证页面，也不丢弃可能仍有效的凭据。
-                disconnectWebSocket()
-                sessionRestorationState = .validationFailed(message: error.localizedMessage)
-            }
-        } catch {
-            disconnectWebSocket()
-            sessionRestorationState = .validationFailed(message: "暂时无法验证登录状态，请检查网络后重试。")
-        }
-    }
-
-    /// 登录成功后保存会话（新后端: LoginResponse{token, userId, role}）
-    func handleLoginSuccess(response: LoginResponse) {
-        tokenRefresher.storeCredential(from: response)
-        accessToken = response.token
-        userId = response.userId
-        activeRole = Self.resolvedLoginRole(from: response.role)
-        currentUser = CurrentUserResponse(userId: response.userId, phone: nil, role: response.role)
-        persistUserId()
-        sessionRestorationState = activeRole == nil ? .choosingRole : .authenticated
-        connectWebSocketIfNeeded()
-    }
-
-    /// 续期拿到新 access 后由 `tokenRefresher` 调。只换值、持久化，**不重置会话**（见 `accessToken`）。
-    ///
-    /// WebSocket 不断开：契约说已建立的连接不受续期影响，只要下次重连握手用新的。
-    /// 已经登出（`accessToken == nil`）就什么都不做 —— 迟到的续期结果不能把会话复活。
-    func applyRenewedAccessToken(_ token: String) {
-        guard accessToken != nil, accessToken != token, !token.isEmpty else { return }
-        isApplyingRenewedAccessToken = true
-        accessToken = token
-        isApplyingRenewedAccessToken = false
-        webSocketService?.updateAccessTokenForReconnect(token)
-    }
-
-    /// 回前台时调（`blindRunApp`）：过了半衰期就续。续不了也不打扰用户 —— 旧 access 此刻还能用，
-    /// 真过期时 401 那条路会再试。
-    func renewSessionIfDue() async {
-        guard isLoggedIn else { return }
-        await tokenRefresher.renewIfDue()
-    }
-
-    /// 角色切换成功后替换 token（新后端: SetRoleResponse 包含新 token）
-    ///
-    /// refresh token 不动：选角色换发的 access 属于同一次登录（契约：登出时一起撤）。
-    func handleRoleSwitchSuccess(response: SetRoleResponse, requestedRole: UserRole) {
-        if let newToken = response.token {
-            accessToken = newToken
-        }
-        activeRole = requestedRole
-        if let currentUser {
-            self.currentUser = CurrentUserResponse(userId: currentUser.userId, phone: currentUser.phone, role: requestedRole.rawValue)
-        }
-        sessionRestorationState = .authenticated
-        connectWebSocketIfNeeded()
-    }
-
-    /// 清除会话（退出登录）
-    func clearSession() {
-        performLocalSessionCleanup()
-    }
-
-    /// 所有用户退出入口使用该服务端撤销操作。
-    ///
-    /// 契约（后端 #642 / #669）：登出撤销**这一次登录**的全部 token，仍要求 access 有效。
-    /// - access 已过期：`APIClient` 的 401 分支会先续期、再用新 access 重试一次 —— 这里不用另写。
-    ///   只删本地不调登出的话，服务器上的 refresh 还能用 30 天。
-    /// - 5xx：服务端什么都还没撤，拿同一个 token 原样重试一次。
-    /// - **无论成败都清本地会话**（用户的意图是退出）。原来的「服务端退出失败 → 重试 / 仅退出本机」
-    ///   弹窗因此删除：它保留会话的前提是「客户端拿着 token 才有机会再撤」，而契约改为由客户端放手。
-    func logout() async {
-        guard logoutState != .inProgress else { return }
-        logoutState = .inProgress
-        // **顺序不能换**：logout 会把 JWT 拉黑，之后再调解绑必然 401、token 删不掉，
-        // 而旧账号的 HIGH 推送（求助 / 走散告警 / 到达 / 取消预警）会继续送到这台手机
-        // 并被前台朗读出来。后端契约把这条顺序写在 `unregisterApnsToken` 的 description 里。
-        // 解绑失败不阻断登出：接口幂等、可安全重试。
-        let stillBoundDeviceToken = await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
-        // 解绑没成就先不登出：登出会作废这次登录的 JWT，之后谁都解不了绑。两步都记下，补撤时按顺序来。
-        let serverLoggedOut = stillBoundDeviceToken == nil ? await logOutOnServer() : false
-        // 没撤成的部分记进待撤记录，之后补撤（#459）。凭据要在下面清本地会话之前取。
-        recordUnfinishedRevocation(deviceToken: stillBoundDeviceToken, needsLogout: !serverLoggedOut)
-        performLocalSessionCleanup()
-    }
-
-    func dismissAccountDeletionFailure() {
-        if accountDeletionState.accountDeletionFailureAlert != nil { accountDeletionState = .idle }
-    }
-
-    func deleteCurrentAccount() async {
-        guard accountDeletionState != .inProgress, let userId = currentUser?.userId ?? self.userId else { return }
-        accountDeletionState = .inProgress
-        do {
-            let response = try await auth.deleteAccount(userId: userId)
-            guard response.success else {
-                accountDeletionState = .revocationFailed(message: response.message ?? "账户删除未完成。")
-                return
-            }
-            performLocalSessionCleanup()
-        } catch APIError.unauthorized {
-            expireSession()
-        } catch let error as APIError {
-            accountDeletionState = .accountDeletionFailure(for: error)
-        } catch {
-            accountDeletionState = .revocationFailed(message: "账户删除未完成，请重试。")
-        }
-    }
-
-    private func performLocalSessionCleanup() {
-        // 排在最前：下面清 token 会触发 `liveEscortCoordinator.reset`，进而触发结束暂缓的订阅。
-        sessionExpiryDeferral = nil
-        // refresh token 与 access 一起删（契约：登出、注销、`REFRESH_TOKEN_INVALID` 时一起删）。
-        // 在清 access 之前：进行中的续期回来时先看 refresh 还在不在，不在就丢弃结果。
-        tokenRefresher.clearCredential()
-        disconnectWebSocket()
-        // 连续拒绝次数按账号记（#552），要在 `userId = nil` 之前清：清的是这个账号的键。
-        VolunteerDeclineStreak.clearStoredCounts(for: userId, in: persistence)
-        accessToken = nil
-        userId = nil
-        currentUser = nil
-        activeRole = nil
-        blindProfile = nil
-        volunteerProfile = nil
-        volunteerRegistrationStatus = nil
-        emergencyContacts = []
-        resetRuleParams()
-        didDismissBlindIdentityPrompt = false
-        sessionExpirationMessage = nil
-        logoutState = .idle
-        accountDeletionState = .idle
-        sessionRestorationState = .unauthenticated
-        // Keychain 里的 Token 由上面 `accessToken = nil` 经 didSet -> persistToken 删除；
-        // 这里只清理旧版本可能遗留在 UserDefaults 的 Token，避免退出后又被迁移回来。
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
-        // 实名引导页的「稍后再说」是按账号记的：换账号后应重新提示一次。
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
-        // 补读游标同样是按账号的：留着会让新账号补读到上一个账号的时间窗。
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
-        // 「这个 device token 已经报给这个账号了」这份记忆也是按账号的。留着会让下一个账号的
-        // 上报被 `submitToken` 的短路判成「报过了」—— 推送从此静默失效，且没有任何报错。
-        // 与上面的解绑请求分开：那条只在主动登出时可能成功，而这一条每条会话结束路径都要走
-        // （401 过期那条路上 token 已经废了，解绑必然失败，本地这份记忆照样得清）。
-        pushNotificationsManager?.forgetLocalTokenBinding()
-        // 常用出发地点通常就是家庭住址。它不在 `persistence` 里（见 `FavoritePlaceStore`），
-        // 但同样是按账号的：换账号登录后，上一个人「什么时候会在哪」不该原样留在这台设备上。
-        FavoritePlaceStore.clearPersistedPlaces()
-        // 上面 `activeRole = nil` 已经会停，但退出时角色本来就是 nil（停在角色选择页）不经过那一道。
-        // 所有意图一起撤回：只停硬件的话，下一个账号改一次系统权限，授权回调就会把它开回来（#417）。
-        stopLocationUpdates()
-    }
-
-    /// 会话过期：清除本地登录态并让登录页展示一次性提示。
-    func expireSession(message: String = "登录已过期，请重新登录。") {
-        clearSession()
-        sessionExpirationMessage = message
-    }
-
-    func consumeSessionExpirationMessage() -> String? {
-        let message = sessionExpirationMessage
-        sessionExpirationMessage = nil
-        return message
-    }
-
-    @discardableResult
-    func handleAuthenticatedAPIError(_ error: APIError) -> Bool {
-        guard case .unauthorized = error else { return false }
-        if var deferral = sessionExpiryDeferral {
-            let now = sessionNow
-            if now.timeIntervalSince(deferral.lastAnnouncedAt) >= Self.deferredExpiryReminderInterval {
-                deferral.announcementSerial += 1
-                deferral.lastAnnouncedAt = now
-                sessionExpiryDeferral = deferral
-            }
-            return true
-        }
-        // 判据读 `liveEscortCoordinator.activeStatus`：全 App 唯一记着「本账号当前订单状态」的地方，
-        // 两端首页与订单页都往里写。冷启动时它还是空的 ⇒ 重启后的 401 照旧登出（design.md Non-Goals）。
-        guard liveEscortCoordinator.activeStatus == .inProgress else {
-            expireSession()
-            return true
-        }
-        sessionExpiryDeferral = SessionExpiryDeferral(
-            role: activeRole,
-            announcementSerial: 1,
-            lastAnnouncedAt: sessionNow
-        )
-        emergencyCoordinator.blockCloudSOSForExpiredSession()
-        return true
-    }
-
-    /// 结束暂缓，按原逻辑登出。三个入口：本单离开 `IN_PROGRESS`（`init` 里的两条订阅）、
-    /// 跑者从首页导航栈退出订单页（`BlindRunnerHomeView`）、横幅上的「现在重新登录」。
-    ///
-    /// **先归零再清会话**：`clearSession` 会让 `liveEscortCoordinator.activeStatus` 变 nil，
-    /// 那条订阅会再进来一次 —— 不先归零就是重入。
-    func endDeferredSessionExpiry() {
-        guard sessionExpiryDeferral != nil else { return }
-        sessionExpiryDeferral = nil
-        expireSession()
-    }
-
-    /// 切换角色
-    func switchRole(to role: UserRole) {
-        activeRole = role
-    }
-
-    /// 更新盲人资料
-    func updateBlindProfile(_ profile: BlindProfileResponse) {
-        blindProfile = profile
-    }
-
-    /// 更新志愿者资料
-    func updateVolunteerProfile(_ profile: VolunteerProfileResponse) {
-        volunteerProfile = profile
-    }
-
-    /// 只更新志愿者资料里的资质审核状态。
-    /// `GET /api/volunteer/verification/status` 只返回 `{status}`，不返回整份资料，
-    /// 因此这里保留其余字段，避免把已知资料覆盖成 nil。
-    func updateVolunteerVerificationStatus(_ status: String) {
-        let current = volunteerProfile
-        volunteerProfile = VolunteerProfileResponse(
-            name: current?.name,
-            verificationStatus: status,
-            adminReviewStatus: current?.adminReviewStatus,
-            registrationStep: current?.registrationStep,
-            canAcceptOrders: current?.canAcceptOrders,
-            isAvailable: current?.isAvailable,
-            wantsDispatch: current?.wantsDispatch,
-            availableTimeSlots: current?.availableTimeSlots,
-            acceptsGuideDog: current?.acceptsGuideDog,
-            paceRange: current?.paceRange
-        )
-    }
-
-    /// 更新志愿者主注册流程状态
-    func updateVolunteerRegistrationStatus(_ status: VolunteerRegistrationStatus) {
-        volunteerRegistrationStatus = status
-    }
-
-    /// 更新紧急联系人
-    func updateEmergencyContacts(_ contacts: [EmergencyContactResponse]) {
-        emergencyContacts = contacts
-    }
-
-    #if DEBUG
-    func returnToRoleSelectionForTesting() {
-        activeRole = nil
-    }
-
-    func switchToNextEnvironmentForTesting() {
-        let allEnvironments = AppState.debugTestEnvironments
-        let currentEnvironment = AppState.resolvedInitialEnvironment(currentEnvironment, channel: .development)
-        guard let currentIndex = allEnvironments.firstIndex(of: currentEnvironment) else {
-            self.currentEnvironment = allEnvironments[0]
-            clearSession()
-            return
-        }
-        let nextIndex = (currentIndex + 1) % allEnvironments.count
-        // 会话清理由 `currentEnvironment` 的 didSet 统一负责，这里不再重复调用。
-        self.currentEnvironment = allEnvironments[nextIndex]
-    }
-    #endif
-
-    #if DEBUG || DEMO
-    func resetUITestPersistence() {
-        persistence.reset()
-        performLocalSessionCleanup()
-        // 按**设备**记的标志不进 `performLocalSessionCleanup`（登出不该清它们），
-        // 但这里的语义是「恢复到全新安装」，必须一起清。
-        //
-        // 只清盘不够：`persistence.reset()` 抹掉的是磁盘，而 `AppState` 早在 init 里
-        // 就把值读进内存了。漏掉这一行的表现是**跨用例串味** —— 前一条用例按过「知道了」，
-        // 后一条就再也等不到引导页，报「引导页没起来」，看着像功能坏了。
-        didSeeBlindFirstRunHelp = false
-        // 同意门走同一个解析器，于是「默认跳过、显式要求时才真弹」的规则只有一处。
-        didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
-        // Keychain 不随 App 沙盒一起清除：只清 UserDefaults 的话，重置后 Token 仍会残留，
-        // 「本该未登录」的 UI 用例会拿着上一轮的 Token 继续跑。必须显式删除。
-        tokenStore.delete()
-    }
-    #endif
-
-    // MARK: - WebSocket (Private)
-
-    /// 根据当前 token 和角色连接 WebSocket（mock 环境跳过）
-    private func connectWebSocketIfNeeded() {
-        #if DEBUG
-        if currentEnvironment == .mock, Self.uiTestConfiguresEscortSessionWithoutWebSocket() {
-            liveEscortCoordinator.configure(identityKey: sessionIdentityKey, role: activeRole, webSocketService: nil)
-        }
-        #endif
-        #if DEBUG || DEMO
-        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] == "1" {
-            return
-        }
-        #endif
-
-        guard currentEnvironment != .mock,
-              AppBuildChannel.current.allows(currentEnvironment),
-              let token = accessToken,
-              let role = activeRole,
-              role != .unset,
-              let baseURL = currentEnvironment.baseURL else {
-            return
-        }
-
-        let wsRole: WSRole = (role == .blind) ? .blind : .volunteer
-
-        // 如果已有连接先断开
-        webSocketService?.disconnect()
-
-        let service = WebSocketService()
-        webSocketService = service
-        service.connect(baseURL: baseURL, token: token, role: wsRole)
-    }
-
-    #if DEBUG
-    /// UI 用例专用（#414）：Mock 下没有 WebSocket，协调器只在 `webSocketService` 的 didSet 里拿身份与角色，
-    /// 同行会话（含同行态的位置轨迹同意页）在 Mock 里根本不跑。打开它就在这里补配一次身份与角色、不连 WS。
-    /// 只给专测同行会话的用例开：默认打开会让每条停在出发 / 汇合 / 跑步中的用例底部多一条「网络已中断」横幅并播报。
-    static func uiTestConfiguresEscortSessionWithoutWebSocket(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        environment["AIDRUN_UI_TEST_RESET_STATE"] == "1"
-            && environment["AIDRUN_UI_TEST_MOCK_ESCORT_SESSION"] == "1"
-    }
-    #endif
-
-    /// 断开 WebSocket 并清除引用
-    private func disconnectWebSocket() {
-        webSocketService?.disconnect()
-        webSocketService = nil
-    }
-
-    // MARK: - Persistence (Private)
-
-    private func persistToken() {
-        if let token = accessToken {
-            tokenStore.save(token)
-        } else {
-            tokenStore.delete()
-        }
-    }
-
-    /// Keychain 优先读取；只有命中旧版本遗留在 UserDefaults 的 Token 时才做一次性迁移
-    /// （写入 Keychain 并清除旧值），保证老用户升级后不掉登录态。
-    private func restoredToken() -> String? {
-        if let token = tokenStore.read() {
-            return token
-        }
-        guard let legacyToken = persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken),
-              !legacyToken.isEmpty else {
-            return nil
-        }
-        tokenStore.save(legacyToken)
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
-        return legacyToken
-    }
-
-    private func persistActiveRole() {
-        if let role = activeRole {
-            persistence.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole)
-        } else {
-            persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
-        }
-    }
-
-    private func persistUserId() {
-        if let id = userId {
-            persistence.set(id, forKey: AppConstants.UserDefaultsKeys.userId)
-        }
-    }
-
-    private func persistEnvironment() {
-        persistence.set(currentEnvironment.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
     }
 }
 
@@ -1319,64 +408,4 @@ extension AppConstants.UserDefaultsKeys {
     static let emergencyRecoveryMetadata = "com.aidrun.safety.emergencyRecoveryMetadata"
     /// 重连补读游标：上次见到通知的 ISO-8601 时刻（后端 `sent_at` 同格式）。
     static let lastSeenNotificationTimestamp = "com.aidrun.mvp.lastSeenNotificationTimestamp"
-}
-
-// MARK: - Disabled API Client
-
-private final class DisabledAPIClient: APIClientProtocol, @unchecked Sendable {
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw APIError.invalidURL
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw APIError.invalidURL
-    }
-}
-
-/// 跑步中登录过期、暂缓退出（#376）。
-struct SessionExpiryDeferral: Equatable {
-    /// 进入暂缓时的角色。横幅文案按它分：跑者「跑完后需要重新登录」，陪跑员「结束陪跑要先重新登录」。
-    let role: UserRole?
-    /// 需要（再）播报一次就 +1。`ContentView` 按它的变化念，不按整个值 —— 值里还有时间戳。
-    var announcementSerial: Int
-    var lastAnnouncedAt: Date
-
-    /// 横幅与第一次播报。三件事都要说：发生了什么、为什么没退出、求助怎么办。
-    /// 最后一句是 `AGENTS.md` §6 的红线：凭证过期时云端求助发不出去，必须说清「App 不会代你发送求助」。
-    var bannerMessage: String {
-        switch role {
-        case .volunteer:
-            return "登录已过期。为了不打断陪跑，暂时不退出；结束陪跑等操作需要先点「现在重新登录」。"
-                + "云端求助发不出去，紧急情况请直接拨打120或110，App 不会代你发送求助。"
-        default:
-            return "登录已过期，跑完后需要重新登录。为了不打断跑步，暂时不退出；"
-                + "云端求助发不出去，紧急情况请直接拨打120或110，App 不会代你发送求助。"
-        }
-    }
-
-    /// 暂缓期间又收到 401（多半是用户自己按了某个按钮）时补念的那一句。比横幅短：横幅一直在屏幕上。
-    var reminderMessage: String {
-        switch role {
-        case .volunteer:
-            return "登录已过期，这个操作需要先重新登录，请点屏幕底部的「现在重新登录」。紧急情况请直接拨打120或110。"
-        default:
-            return "登录已过期，这个操作现在做不了，跑完后需要重新登录。紧急情况请直接拨打120或110。"
-        }
-    }
-
-    var spokenMessage: String {
-        announcementSerial <= 1 ? bannerMessage : reminderMessage
-    }
 }
