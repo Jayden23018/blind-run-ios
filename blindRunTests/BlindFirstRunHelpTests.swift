@@ -41,6 +41,21 @@ final class BlindFirstRunHelpTests: XCTestCase {
         XCTAssertTrue(body.contains("确认"), "没说需要二次确认，用户会以为一按就发出")
     }
 
+    /// #744 删掉了「我的」里的「紧急呼叫」那一行（#753）。引导再教用户去「我的」里找它，
+    /// 等于让盲人在最坏的时刻去找一个不存在的入口。
+    func testEmergencyTopicDoesNotPointToTheRemovedProfileEmergencyRow() {
+        let body = topic(id: "sos").body
+
+        XCTAssertFalse(body.contains("紧急呼叫"), "又教用户去找已删掉的「紧急呼叫」那一行：\(body)")
+        XCTAssertFalse(body.contains("里找到"), "又教用户去某一页里找求助入口：\(body)")
+        XCTAssertTrue(
+            body.contains("首页、记录、我的"),
+            "没说清两指双击在哪几页有效（负责人 2026-11-05 定稿）：\(body)"
+        )
+        XCTAssertTrue(body.contains("120"), "没说能拨 120：\(body)")
+        XCTAssertTrue(body.contains("110"), "没说能拨 110：\(body)")
+    }
+
     /// 两指双击的说明**必须限定页面**。
     ///
     /// Magic Tap 沿响应链查找，而全仓只在 `BlindRunnerHomeView.swift` 与 `BlindBookingView.swift`
@@ -91,6 +106,23 @@ final class BlindFirstRunHelpTests: XCTestCase {
             XCTAssertTrue(script.contains(topic.title), "播报脚本漏了标题：\(topic.title)")
             XCTAssertTrue(script.contains(topic.body), "播报脚本漏了正文：\(topic.title)")
         }
+    }
+
+    /// 卡片标题去掉了序号（#753），播报仍要带：听的人没有视觉分段，靠「第一、第二……」知道走到哪了。
+    func testSpokenScriptNumbersEachTopicInOrder() {
+        let script = BlindFirstRunHelp.spokenScript()
+        let titles = BlindFirstRunHelp.topics().map(\.title)
+
+        var searchStart = script.startIndex
+        for (index, title) in titles.enumerated() {
+            let spoken = "\(BlindFirstRunHelp.spokenOrdinals[index])，\(title)"
+            guard let range = script.range(of: spoken, range: searchStart..<script.endIndex) else {
+                XCTFail("播报脚本里没有按顺序念到「\(spoken)」：\(script)")
+                return
+            }
+            searchStart = range.upperBound
+        }
+        XCTAssertFalse(titles.contains { $0.hasPrefix("第") }, "卡片标题又带上序号了：\(titles)")
     }
 
     /// 第四条是系统 SOS（#657 B-12）：三条 App 自己的，加一条 App 管不到、但最危险时唯一免触的路径。
