@@ -10,8 +10,7 @@ extension AccessibilityAuditTests {
     @MainActor
     func testBlindProfileControlsAreTallEnoughAndPassAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
-        // 右上角的退出图标（#527 补到 64pt）只在**首次填资料**（引导里的「完善信息」）出现，UI 测试到不了：
-        // 不预置资料时 Mock 自带一份资料，照样进首页。那枚图标的 64pt 写的是 `AppTouchTarget.blindPrimary`，没有 UI 覆盖。
+        // #750 起资料页只有查看页：没有档案时也一样渲染，不再有「完善信息」标题和右上角退出图标。
         let app = launchBlindHome()
         openBlindProfile(app)
 
