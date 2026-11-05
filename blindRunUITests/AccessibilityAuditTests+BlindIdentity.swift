@@ -30,6 +30,9 @@ extension AccessibilityAuditTests {
             XCTAssertFalse(submit.isEnabled, "\(variant)：没填完时「提交核验」不该能点")
             let footnote = app.staticTexts["blindIdentitySubmitFootnote"].firstMatch
             XCTAssertEqual(footnote.label, "还差：姓名、身份证号", variant)
+            // 定稿空表单也画着两行蓝字（逐位朗读没填号码时念「还没有输入」）。
+            XCTAssertTrue(app.buttons["blindIdentityRevealToggle"].exists, "\(variant)：没有「临时显示身份证号」")
+            XCTAssertTrue(app.buttons["blindIdentityReadDigits"].exists, "\(variant)：空表单时也要有「逐位朗读身份证号」")
 
             // 填了姓名之后「还差」只剩身份证号。
             let name = app.textFields["真实姓名，必填"].firstMatch

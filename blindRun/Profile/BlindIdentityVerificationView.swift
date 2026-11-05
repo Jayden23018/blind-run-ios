@@ -239,7 +239,8 @@ struct BlindIdentityVerificationView: View {
         }
     }
 
-    /// 「临时显示 / 隐藏」与「逐位朗读」两行蓝字。逐位朗读只在填了号码后出现（原有行为）。
+    /// 「临时显示 / 隐藏」与「逐位朗读」两行蓝字。两行一直都在（定稿空表单也画着逐位朗读）；
+    /// 没填号码时点逐位朗读，念一句「还没有输入」，不让点了没反应。
     private var idCardActionsCard: some View {
         GroupedCard {
             Button(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号") {
@@ -256,16 +257,14 @@ struct BlindIdentityVerificationView: View {
             .accessibilityIdentifier("blindIdentityRevealToggle")
 
             // 读屏用户核对 18 位的唯一办法：字段本身只念位数和末四位（#657 B-11）。
-            if !viewModel.idCardNumber.isEmpty {
-                GroupedCardDivider()
-                Button("逐位朗读身份证号") {
-                    readIdCardDigitByDigit()
-                }
-                .buttonStyle(TextButtonStyle())
-                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
-                .accessibilityHint("用读屏把完整号码一位一位念出来，周围的人可能听到，建议戴耳机")
-                .accessibilityIdentifier("blindIdentityReadDigits")
+            GroupedCardDivider()
+            Button("逐位朗读身份证号") {
+                readIdCardDigitByDigit()
             }
+            .buttonStyle(TextButtonStyle())
+            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+            .accessibilityHint("用读屏把完整号码一位一位念出来，周围的人可能听到，建议戴耳机")
+            .accessibilityIdentifier("blindIdentityReadDigits")
         }
     }
 
@@ -273,6 +272,10 @@ struct BlindIdentityVerificationView: View {
     /// 「重复当前状态」的缓存里，换个页面一按就把身份证号外放出来。
     /// 读屏没开：不念号码，改成临时在屏幕上显示。
     private func readIdCardDigitByDigit() {
+        guard !viewModel.idCardNumber.isEmpty else {
+            speechService.speak("还没有输入身份证号。")
+            return
+        }
         guard UIAccessibility.isVoiceOverRunning else {
             isRevealingNumber = true
             speechService.speak("已在屏幕上临时显示身份证号。")
