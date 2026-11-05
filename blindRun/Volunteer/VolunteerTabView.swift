@@ -275,7 +275,7 @@ struct VolunteerTabView: View {
             respond(request)
         }
         // #368：接单开关 / 自动恢复待命前的位置轨迹同意。挂在容器上而不是首页 tab 上：
-        // 自动恢复那条路发生时他可能在任何一个 tab。全屏而不是对话框，理由见 `ConsentDisclosureView`。
+        // 自动恢复那条路发生时他可能在任何一个 tab。fullScreenCover 只是容器，里面是透明背景上的小弹窗（#769）。
         .fullScreenCover(isPresented: Binding(
             get: { viewModel.trackConsentRequest != nil },
             set: { _ in }
@@ -317,7 +317,7 @@ struct VolunteerTabView: View {
             viewModel.declineTrackConsent()
         }
         .task {
-            speechService.speak(text: purpose.spokenScript)
+            speechService.speak(text: purpose.popupSpokenScript)
         }
     }
 }

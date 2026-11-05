@@ -38,11 +38,11 @@ extension AccessibilityAuditTests {
 
         let skip = app.buttons["volunteerRegistrationSkipButton"].firstMatch
         XCTAssertTrue(skip.waitForExistence(timeout: 8))
+        // 跳过也要先勾单独同意（#769：勾选框在提交按钮上方，默认不勾）。
+        let consent = app.buttons["volunteerIdentityConsentCheckbox"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 8), "跳过也要先勾单独同意")
+        consent.tap()
         skip.tap()
-
-        let agree = app.buttons["volunteerIdentityConsentAgreeButton"].firstMatch
-        XCTAssertTrue(agree.waitForExistence(timeout: 8), "跳过也要先过单独同意")
-        agree.tap()
 
         let declined = app.descendants(matching: .any)["volunteerFaceVerifyDeclined"].firstMatch
         XCTAssertTrue(declined.waitForExistence(timeout: 12), "身份通过后应直接落到「已选择替代认证方式」")
@@ -91,11 +91,10 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(app.buttons["volunteerRegistrationSkipButton"].exists)
         attachScreenshot(app, name: "identity-step2-\(variant)")
         try audit(app)
+        let consent = app.buttons["volunteerIdentityConsentCheckbox"].firstMatch
+        XCTAssertTrue(consent.exists, "\(variant)：提交前要先勾单独同意")
+        consent.tap()
         submit.tap()
-
-        let agree = app.buttons["volunteerIdentityConsentAgreeButton"].firstMatch
-        XCTAssertTrue(agree.waitForExistence(timeout: 8), "\(variant)：提交前要先过单独同意")
-        agree.tap()
 
         let faceStart = app.buttons["volunteerFaceVerifyStartButton"].firstMatch
         XCTAssertTrue(faceStart.waitForExistence(timeout: 12), "\(variant)：第 3 步没出来")

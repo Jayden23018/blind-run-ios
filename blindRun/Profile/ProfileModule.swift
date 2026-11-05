@@ -325,39 +325,34 @@ struct BlindRunnerProfileView: View {
             speechService.speak("请填写个人资料。昵称为必填项。紧急联系人在下方单独管理，至少需要 1 位。")
         }
         .logoutConfirmation(isPresented: $showLogoutConfirm)
-        // 全屏而不是 sheet：每条告知要各自可听、可停、可回头再听。
-        // 理由整段写在 `ConsentDisclosureView` 的文档注释里，别在这里复述。
+        // 小弹窗（#769）：fullScreenCover 只是容器，背景透明，卡片居中。
         .fullScreenCover(isPresented: $showVisionConsent) {
             visionConsentScreen
         }
     }
 
-    /// 视力状况的单独同意页（PIPL 第二十九条）。
+    /// 视力状况的单独同意小弹窗（PIPL 第二十九条）。
     ///
     /// 复用 `ConsentDisclosureView(purpose:)`，文案全部取自 `PrivacyConsentPurpose`——
     /// 那是被单测钉住的合规文本，**不许在 View 里另写一份**。
     private var visionConsentScreen: some View {
-        NavigationStack {
-            ConsentDisclosureView(
-                purpose: .blindVisionProfile,
-                onAgree: {
-                    viewModel.acceptVisionConsent()
-                    visionConsentDeclineNotice = nil
-                    showVisionConsent = false
-                },
-                onDecline: {
-                    // 不劝返、不重试 —— 拒绝是一个完整的答案
-                    // （`docs/research/face-verify-decline-alternative-path-ux-20260908.md`）。
-                    // 反馈同时给屏幕和耳朵：只给一边就有一半用户拿不到。
-                    viewModel.declineVisionConsent()
-                    visionConsentDeclineNotice = PrivacyConsentPurpose.blindVisionProfile.declinedFeedback
-                    showVisionConsent = false
-                    speechService.speak(PrivacyConsentPurpose.blindVisionProfile.declinedFeedback)
-                }
-            )
-            .navigationTitle("视力状况")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        ConsentDisclosureView(
+            purpose: .blindVisionProfile,
+            onAgree: {
+                viewModel.acceptVisionConsent()
+                visionConsentDeclineNotice = nil
+                showVisionConsent = false
+            },
+            onDecline: {
+                // 不劝返、不重试 —— 拒绝是一个完整的答案
+                // （`docs/research/face-verify-decline-alternative-path-ux-20260908.md`）。
+                // 反馈同时给屏幕和耳朵：只给一边就有一半用户拿不到。
+                viewModel.declineVisionConsent()
+                visionConsentDeclineNotice = PrivacyConsentPurpose.blindVisionProfile.declinedFeedback
+                showVisionConsent = false
+                speechService.speak(PrivacyConsentPurpose.blindVisionProfile.declinedFeedback)
+            }
+        )
         .task {
             speechService.speak(text: PrivacyConsentPurpose.blindVisionProfile.spokenScript)
         }

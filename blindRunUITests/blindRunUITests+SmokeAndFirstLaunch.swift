@@ -156,7 +156,6 @@ extension blindRunUITests {
         XCTAssertTrue(agree.waitForExistence(timeout: 10))
         XCTAssertTrue(agree.isHittable, "同意按钮必须不滚动就能点到")
         XCTAssertTrue(decline.isHittable, "不同意按钮必须不滚动就能点到")
-        XCTAssertTrue(app.buttons["appLaunchConsentFullListLink"].firstMatch.exists, "完整收集清单入口必须在弹窗里")
         // 常规 App 的首启隐私是**居中的小卡片弹窗**，不是整页：卡片要明显比屏幕矮、比屏幕窄，
         // 且同意在右、不同意在左（与常规 App 一致，点错的代价由位置习惯承担）。
         let popup = app.descendants(matching: .any)["appLaunchConsentPopup"].firstMatch

@@ -578,7 +578,7 @@ private struct EscortTrackConsentOverlay: ViewModifier {
                     // 读屏的「返回」手势（双指 Z）等同「先不同意」：没有别的出口，不能让它什么都不做。
                     .accessibilityAction(.escape, decline)
                     .task(id: pending) {
-                        speechService.speak(text: pending.spokenScript)
+                        speechService.speak(text: pending.popupSpokenScript)
                     }
                 }
             }

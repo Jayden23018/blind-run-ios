@@ -27,7 +27,7 @@ enum VolunteerRegistrationUITestSteps {
         }
     }
 
-    /// 说明页点「开始」→ 填身份 →「下一步」→ 经历页「下一步」。停在单独同意层弹出之前。
+    /// 说明页点「开始」→ 填身份 →「下一步」→ 经历页勾选同意 →「下一步」。
     static func submitIdentityAndExperience(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let start = app.buttons["volunteerRegistrationIntroStartButton"].firstMatch
         XCTAssertTrue(start.waitForExistence(timeout: 8), "进注册先看到说明页", file: file, line: line)
@@ -47,6 +47,10 @@ enum VolunteerRegistrationUITestSteps {
         let submit = app.buttons["volunteerRegistrationSubmitButton"].firstMatch
         XCTAssertTrue(submit.waitForExistence(timeout: 8), "身份填完进经历那一屏", file: file, line: line)
         XCTAssertTrue(app.buttons["volunteerRegistrationSkipButton"].exists, "经历是选填，要能跳过", file: file, line: line)
+        // 身份证号与人脸的单独同意：提交按钮上方的勾选框，默认不勾（#769）。
+        let consent = app.buttons["volunteerIdentityConsentCheckbox"].firstMatch
+        XCTAssertTrue(consent.exists, "提交前要有单独同意的勾选框", file: file, line: line)
+        consent.tap()
         submit.tap()
     }
 }

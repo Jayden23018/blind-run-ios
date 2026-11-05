@@ -30,10 +30,11 @@ struct BlindBookingTrackConsentGate<Content: View>: View {
                 onDecline: decline
             )
             .navigationBarBackButtonHidden(true)
-            .navigationBarTitleDisplayMode(.inline)
+            // 小弹窗（#769）：导航栏藏起来，压暗背景铺满整屏，看起来才是一个弹窗。
+            .toolbar(.hidden, for: .navigationBar)
             .accessibilityAction(.escape, decline)
             .task {
-                speechService.speak(text: purpose.spokenScript)
+                speechService.speak(text: purpose.popupSpokenScript)
             }
         }
     }
