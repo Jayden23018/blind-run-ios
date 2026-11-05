@@ -34,8 +34,12 @@ extension BlindBookingView {
 
     /// 语音面板在不在屏幕上：向导在跑，或者刚以「取消 / 没听清」结束（后端 #502）。
     /// 后者**不送去表单** —— 全盲用户基本不可能用表单下单；表单只由「改用表单」显式进入。
+    ///
+    /// 从「语音下单」进来、语音同意弹窗还开着时也算：向导要等同意后才启动，不算这一条的话
+    /// 弹窗背后先露出手动表单、同意后才跳回语音页（负责人 2026-11-05 真机反馈）。拒绝后照旧落在表单上。
     var showsVoiceStage: Bool {
         voiceWizard.isRunning || voiceWizard.endedMessage != nil
+            || (showsVoiceConsent && startsWithVoice && !declinedVoiceConsentThisVisit)
     }
 
     var isVoiceSessionEnded: Bool {
