@@ -252,6 +252,32 @@ const cases = [
       return null;
     },
   },
+  {
+    // #715：索引按日期升序追加。旧实现从文件头截 12,000 字符，
+    // 69 行时只剩最旧的 14 行，最新的 55 行全看不到。
+    // 用例数据仿真实形状：69 行、每行约 1,000 字符，足以让旧实现截断。
+    name: '索引很长时注入表头 + 最后 20 行（最新的那批），不注入最旧的行',
+    check: () => {
+      const header = '| 日期 | 问题 | 一句话结论 | 复核触发条件 | 报告 |\n|------|------|-----------|-------------|------|';
+      const day = (i) => new Date(Date.UTC(2026, 0, 1) + i * 86400_000).toISOString().slice(0, 10);
+      const rows = Array.from({ length: 69 }, (_, i) =>
+        `| ${day(i)} | 问题${'很'.repeat(300)} | 结论${'长'.repeat(600)} | 触发条件 | [r.md](./r.md) |`
+      );
+      const index = `# 调研索引\n\n说明文字。\n\n${header}\n${rows.join('\n')}\n`;
+      const ctx = buildPreContext(index, false);
+
+      if (!ctx.includes('复核触发条件')) return '注入内容丢了表头';
+      if (!ctx.includes(day(68))) return `注入内容里没有最后一行的日期 ${day(68)}`;
+      if (ctx.includes(day(0))) return `注入内容里仍有第一行的日期 ${day(0)}`;
+      // 正好 20 行：第 20 行（倒数）在、第 21 行（倒数）不在。只断言「≤ 20」分辨不出只给 5 行的实现。
+      if (!ctx.includes(day(49))) return `倒数第 20 行（${day(49)}）没注入，给的行数少于 20`;
+      if (ctx.includes(day(48))) return `倒数第 21 行（${day(48)}）也注入了，行数超过 20`;
+      const injectedRows = ctx.split('\n').filter((l) => /^\| \d{4}-\d{2}-\d{2} \|/.test(l));
+      if (injectedRows.length !== 20) return `期望注入 20 行数据，实得 ${injectedRows.length}`;
+      if (!ctx.includes('docs/research/INDEX.md')) return '没告诉模型更早的行在哪个文件';
+      return null;
+    },
+  },
 ];
 
 let failed = 0;
