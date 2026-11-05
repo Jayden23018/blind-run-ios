@@ -1,112 +1,16 @@
 import SwiftUI
 
-// MARK: - 一行搭档
-
-/// 固定搭档 / 火花的一行（盲人端）。
-///
-/// **整张卡片是一个 VoiceOver 焦点**，念一句完整的话 —— 姓名、连续周数、进度、
-/// 一起跑过几次、有没有人退出，分开念会让读屏用户为同一个人划四五次。
-/// 卡片里因此**不放任何按钮**：`children: .ignore` 会让按钮拿不到焦点，
-/// 所以收藏、举报、不再匹配是卡片下面的独立一行。
-///
-/// 2026-11-04 起只有盲人端用它：陪跑员端改成「一人一行 + 详情页」（`VolunteerPartnersView`，#697）。
-private struct PartnerRowCard: View {
-    let row: PartnerRow
-    let fallbackName: String
-    /// 盲人侧是「对方已退出固定搭档」，志愿者侧是「你已退出」。
-    let optedOutText: String
-
-    /// 屏幕上那一份：姓名是后端掩码原样（`张*`）。
-    private var displayName: String { row.displayName(fallback: fallbackName) }
-
-    /// 念出来那一份：去掉掩码星号，否则读屏念「张星号」。见 `String.unmaskedForSpeech`。
-    private var spokenName: String { row.spokenName(fallback: fallbackName) }
-
-    private var subtitleParts: [String] {
-        var parts: [String] = []
-        if let together = PartnerStreakCopy.togetherText(row.completedRunsTogether) {
-            parts.append(together)
-        }
-        if let favoritedAt = PartnerStreakCopy.favoritedAtText(row.favoritedAt) {
-            parts.append(favoritedAt)
-        }
-        return parts
-    }
-
-    /// 一句话念完。顺序按信息价值排：谁 → 连续多久 → 距离最好成绩 → 一起跑过几次 → 谁退出了。
-    ///
-    /// 🔴 `row.streak == nil` 时**整段不出现**，不念「连续 0 周」——
-    /// 契约里「未点亮」是 `null` 而不是 0，两者含义不同。
-    private var spokenLabel: String {
-        var parts = [spokenName]
-        if let streak = row.streak {
-            parts.append("已经连续 \(streak.currentWeeks) 周一起跑步")
-            parts.append(streak.progressText)
-        }
-        parts.append(contentsOf: subtitleParts)
-        if row.hasOptedOut {
-            parts.append(optedOutText)
-        }
-        return parts.joined(separator: "，")
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(displayName)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let streak = row.streak {
-                // 传朗读那一份：`partnerName` 只进 `accessibilityLabel`，可见文字里没有名字。
-                StreakStrip(partnerName: spokenName, streak: streak)
-            }
-
-            if !subtitleParts.isEmpty {
-                Text(subtitleParts.joined(separator: " · "))
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if row.hasOptedOut {
-                OptedOutBadge(text: optedOutText)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        // `.ignore` 而不是 `.combine`：里面的 `StreakStrip` 自己已经是一个合成元素，
-        // `.combine` 会把它的整句再拼一遍，念出来是重复的。
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spokenLabel)
-    }
-}
-
-/// 搭档行下面的举报与不再匹配此人。
-///
-/// `.id` 不能省：列表按下标当身份，拉黑后这一行消失，下一行会接手这个组件的「已拉黑」状态。
-@MainActor
-@ViewBuilder
-private func partnerSafetyActions(
-    userId: Int64,
-    spokenName: String,
-    onBlocked: @escaping @MainActor () async -> Void
-) -> some View {
-    if let target = CounterpartSafetyGate.target(userId: userId, orderId: nil) {
-        CounterpartSafetyActions(target: target, spokenName: spokenName, onBlocked: onBlocked)
-            .id(target.userId)
-            .padding(.bottom, 6)
-    }
-}
-
-// MARK: - 盲人端「我的固定搭档」
+// MARK: - 盲人端「固定搭档」
 
 /// 数据源是**两个端点合并**：`GET /api/blind/favorite-volunteers` 与
 /// `GET /api/blind/partners/streaks`。为什么不能只读前者见 `PartnerRowMerge` 顶部。
 ///
-/// 入口放设置页而不是首页 —— 首页按 `blind-ui-visual-benchmark-20260808.md` 做过减法
+/// 2026-11-05 照健康 App「共享」重做（#752，定稿 `docs/ui/mockups/blind-partners-20261105/`）：
+/// 列表只放人，一人一行，整行进搭档详情页（`BlindPartnerDetailView`）；
+/// 取消、设为固定搭档、举报、不再匹配全部挪进详情页 —— 改版前一屏 3 位搭档就有 9 枚按钮。
+/// 分两组：「固定搭档」（收藏关系，含对方已退出的人）、「一起跑过的人」（只有连续记录）。
+///
+/// 入口放「我的」而不是首页 —— 首页按 `blind-ui-visual-benchmark-20260808.md` 做过减法
 /// （主按钮吃掉内容区七成），再塞一个列表入口会把那次结论推翻。
 struct BlindFavoriteVolunteersView: View {
     @EnvironmentObject private var appState: AppState
@@ -117,65 +21,12 @@ struct BlindFavoriteVolunteersView: View {
     @State private var isLoading = true
     @State private var hasLoadedOnce = false
     @State private var actionNotice: String?
-    @State private var busyUserId: Int64?
-    /// 待确认的取消收藏。只有「对方已退出」那一档会走到这里，见
-    /// `PartnerStreakCopy.removeFavoriteConfirmation`。
-    @State private var pendingRemoval: PendingFavoriteRemoval?
-
-    /// 弹窗要用的三样东西：删谁、叫什么、说什么。
-    ///
-    /// 文案在这里**存下来而不是每次重算** —— 弹窗关闭的那一帧 `row` 可能已经被
-    /// `load()` 刷掉了，重算会拿到一个空名字。
-    private struct PendingFavoriteRemoval: Identifiable {
-        let userId: Int64
-        /// 屏幕上那一份，带掩码星号。
-        let name: String
-        /// 播报那一份，不带星号。同上：弹窗关闭那一帧重算会拿到空名字，所以一并存下来。
-        let spokenName: String
-        let confirmation: PartnerStreakCopy.RemoveFavoriteConfirmation
-
-        var id: Int64 { userId }
-    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if hasLoadedOnce {
-                    // 操作结果既要看得见也要听得见 —— 这一屏在盲人端，
-                    // 只把状态画进列表等于对读屏用户什么都没说。
-                    if let actionNotice {
-                        Text(actionNotice)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.success)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("blindFavoriteActionNotice")
-                    }
-
-                    // 列表已经加载出来之后再失败（收藏 / 取消收藏），错误要就地显示 ——
-                    // 下面那个失败态整块只在**首次加载**失败时才出现，
-                    // 光把 errorMessage 赋上而不在这里渲染，用户什么都看不到。
-                    if let errorMessage, actionNotice == nil {
-                        Text(errorMessage)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.destructive)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("blindFavoriteActionError")
-                    }
-
-                    if rows.isEmpty {
-                        Text(PartnerStreakCopy.blindEmpty(
-                            streakEnabled: appState.featureFlags?.partnerStreakEnabled
-                        ))
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("blindFavoriteVolunteersEmpty")
-                    } else {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                            partnerSection(row)
-                            partnerSafety(row)
-                        }
-                    }
+                    loadedContent
                 } else if isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -190,149 +41,168 @@ struct BlindFavoriteVolunteersView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(AppColors.Flow.page.ignoresSafeArea())
         .navigationTitle(PartnerStreakCopy.blindNavigationTitle)
+        .navigationBarTitleDisplayMode(.large)
+        // 二级页不挂标签栏：末行会被标签栏切掉（记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
+        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindFavoriteVolunteersView")
         .task {
             guard !hasLoadedOnce else { return }
             await load()
         }
-        // 🔴 后果写进正文，不是一个「确定 / 取消」弹窗 —— 这个动作影响的是**对方**：
-        // 取消收藏会把志愿者的退出记录一起删掉，而他不会收到任何提示。
-        //
-        // 不额外调 `speechService` 播报：VoiceOver 自己会念 alert，再念一遍是重复
-        // （本仓库盲人端其余的确认弹窗 —— 注销、删除账户、实时分享同意 —— 都是这个写法）。
-        .alert(
-            pendingRemoval?.confirmation.title ?? "",
-            isPresented: Binding(
-                get: { pendingRemoval != nil },
-                set: { if !$0 { pendingRemoval = nil } }
-            ),
-            presenting: pendingRemoval
-        ) { removal in
-            Button(removal.confirmation.confirm, role: .destructive) {
-                pendingRemoval = nil
-                Task {
-                    await setFavorite(
-                        false,
-                        userId: removal.userId,
-                        name: removal.name,
-                        spokenName: removal.spokenName
-                    )
-                }
+    }
+
+    @ViewBuilder
+    private var loadedContent: some View {
+        // 操作结果既要看得见也要听得见 —— 这一屏在盲人端，
+        // 只把状态画进列表等于对读屏用户什么都没说（播报在 `setFavorite` / 拉黑组件里）。
+        if let actionNotice {
+            Text(actionNotice)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.success)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("blindFavoriteActionNotice")
+        }
+
+        // 列表已经加载出来之后再失败（重拉失败），错误要就地显示 ——
+        // 下面那个失败态整块只在**首次加载**失败时才出现。
+        if let errorMessage, actionNotice == nil {
+            Text(errorMessage)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("blindFavoriteActionError")
+        }
+
+        if rows.isEmpty {
+            emptyCard
+        } else {
+            let keyed = KeyedPartnerRow.make(rows)
+            heroCard
+
+            let favorites = keyed.filter { $0.row.isFavorite }
+            if !favorites.isEmpty {
+                section(title: PartnerStreakCopy.blindFavoritesSectionTitle, rows: favorites)
             }
-            Button(removal.confirmation.cancel, role: .cancel) { pendingRemoval = nil }
-        } message: { removal in
-            Text(removal.confirmation.message)
+            let ranTogether = keyed.filter { !$0.row.isFavorite }
+            if !ranTogether.isEmpty {
+                section(title: PartnerStreakCopy.blindRanTogetherSectionTitle, rows: ranTogether)
+            }
         }
     }
 
-    /// 一行搭档 + 它的收藏动作。按钮在卡片**外面**：卡片是 `children: .ignore` 的单焦点，
-    /// 放进去按钮就拿不到焦点了。
-    @ViewBuilder
-    private func partnerSection(_ row: PartnerRow) -> some View {
-        PartnerRowCard(
-            row: row,
-            fallbackName: PartnerStreakCopy.unknownVolunteerName,
-            optedOutText: PartnerStreakCopy.partnerOptedOutSuffix
-        )
+    /// 顶部说明卡：图标 +「N 位固定搭档」+ 派单说明。N 只数没退出的。
+    private var heroCard: some View {
+        let count = rows.filter { $0.isFavorite && !$0.hasOptedOut }.count
+        return GroupedCard {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "person.2.fill")
+                    .font(.title2)
+                    .foregroundColor(AppColors.primary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(PartnerStreakCopy.blindHeroTitle(count))
+                        .font(AppFonts.body().weight(.semibold))
+                        .foregroundColor(AppColors.textPrimary)
+                    Text(PartnerStreakCopy.blindHeroCaption)
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.textSecondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("blindFavoriteHeroCard")
+    }
 
-        if let userId = row.userId {
-            // 两份名字：`name` 上屏（带掩码星号），`spokenName` 进读屏标签与播报。
-            // 按钮标题本身是可见文字，所以留星号；读屏那条走各自的 `accessibilityLabel`。
-            let name = row.displayName(fallback: PartnerStreakCopy.unknownVolunteerName)
-            let spokenName = row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName)
-            if row.isFavorite {
-                // 取消收藏**对没退出过的搭档**是可逆的（再收藏一次即可），那一档不做二次确认 ——
-                // AGENTS.md 的二次确认清单给的是不可逆或高代价的动作，
-                // 给每个可逆动作都加一道弹窗，读屏用户要多听一遍、多点一次。
-                //
-                // 🔴 **但对方已退出的那一档不可逆，而且不可逆的后果落在对方身上**：
-                // 后端 `remove()` 会把整行连同 `volunteer_opted_out_at` 一起硬删，
-                // 再收藏一次就建出一条 `optedOut = null` 的新行，把志愿者的退出无声撤销掉。
-                // 判据与文案在 `PartnerStreakCopy.removeFavoriteConfirmation`，那里写了全部理由。
-                Button(PartnerStreakCopy.removeFavoriteTitle(name)) {
-                    if let confirmation = PartnerStreakCopy.removeFavoriteConfirmation(
-                        name: name,
-                        hasOptedOut: row.hasOptedOut
-                    ) {
-                        pendingRemoval = PendingFavoriteRemoval(
-                            userId: userId,
-                            name: name,
-                            spokenName: spokenName,
-                            confirmation: confirmation
+    /// 空态：图标 + 标题 + 现有三种空态文案之一（按开关）。
+    private var emptyCard: some View {
+        GroupedCard {
+            VStack(spacing: 12) {
+                Image(systemName: "person.2.fill")
+                    .font(.largeTitle)
+                    .foregroundColor(AppColors.primary)
+                    .accessibilityHidden(true)
+                Text(PartnerStreakCopy.blindEmptyTitle)
+                    .font(AppFonts.title())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(PartnerStreakCopy.blindEmpty(
+                    streakEnabled: appState.featureFlags?.partnerStreakEnabled
+                ))
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("blindFavoriteVolunteersEmpty")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 24)
+        }
+    }
+
+    /// 组上灰色小标题 + 白卡一人一行。
+    ///
+    /// 🔴 按 userId 作身份，不按下标：拉黑后这一行从重拉的列表里消失，按下标的话
+    /// 已经推开的详情页会被下一位接手（连同「已不再匹配」的状态）。userId 为 nil（已注销）才退回下标。
+    private func section(title: String, rows keyed: [KeyedPartnerRow]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+                .padding(.top, 8)
+                .accessibilityAddTraits(.isHeader)
+            GroupedCard {
+                ForEach(keyed) { item in
+                    NavigationLink {
+                        BlindPartnerDetailView(
+                            row: item.row,
+                            index: item.index,
+                            setFavorite: { isFavorite in await setFavorite(isFavorite, row: item.row) },
+                            onBlocked: { await blocked() }
                         )
-                    } else {
-                        Task {
-                            await setFavorite(
-                                false,
-                                userId: userId,
-                                name: name,
-                                spokenName: spokenName
-                            )
-                        }
+                    } label: {
+                        BlindPartnerRowLabel(row: item.row, index: item.index)
                     }
-                }
-                .buttonStyle(TextButtonStyle(tint: AppColors.destructive, alignment: .center))
-                .disabled(busyUserId == userId)
-                .padding(.bottom, 6)
-                .accessibilityLabel(PartnerStreakCopy.removeFavoriteTitle(spokenName))
-                .accessibilityIdentifier("blindRemoveFavoriteButton")
-            } else {
-                // 只有火花、还没收藏的一对。
-                //
-                // 🚩 **这不再是唯一的收藏入口**：后端 2026-08-24 给 `OrderDetailResponse`
-                // 补上了 `volunteerId`（契约 PR #199），已完成订单的详情页现在也能收藏
-                // （`BlindOrderStatusView.favoriteVolunteerSection`）。
-                //
-                // 两条路的覆盖面**不重合，且这一条更窄**：能出现在火花列表里的一对必须已经点亮火花，
-                // 而火花开关（`app.incentive.streak.enabled`）后端默认关着 ⇒ 开关打开之前，
-                // 本页这个按钮一次也不会出现。订单详情那条不依赖火花，只依赖「跑完过这一单」。
-                Button(PartnerStreakCopy.addFavoriteTitle(name)) {
-                    Task {
-                        await setFavorite(true, userId: userId, name: name, spokenName: spokenName)
-                    }
-                }
-                .buttonStyle(TextButtonStyle(alignment: .center))
-                .disabled(busyUserId == userId)
-                .accessibilityLabel(PartnerStreakCopy.addFavoriteTitle(spokenName))
-                .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
-                .padding(.bottom, 6)
-                .accessibilityIdentifier("blindAddFavoriteButton")
-            }
-        }
-    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(PartnerStreakCopy.blindRowSpoken(item.row))
+                    .accessibilityHint(PartnerStreakCopy.blindRowHint)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("blindPartnerRow.\(item.index)")
 
-    /// 拉黑后这一行会从重拉的列表里消失，结果挂在页面顶部。
-    @ViewBuilder
-    private func partnerSafety(_ row: PartnerRow) -> some View {
-        if let userId = row.userId {
-            partnerSafetyActions(
-                userId: userId,
-                spokenName: row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName)
-            ) {
-                actionNotice = UserSafetyCopy.blockSucceeded
-                await load()
-                // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。
-                if errorMessage != nil { actionNotice = nil }
+                    if item.id != keyed.last?.id {
+                        GroupedCardDivider(leadingInset: 72)
+                    }
+                }
             }
         }
     }
 
     /// `PUT` / `DELETE /api/blind/favorite-volunteers/{volunteerId}` —— 两个都**幂等、恒 204**，
-    /// 所以不看响应体、也不做本地乐观更新（本地改一份状态就有了第二个真相源），
-    /// 改完直接重新拉一次列表。
+    /// 所以不看响应体、也不做本地乐观更新（本地改一份状态就有了第二个真相源），改完重新拉一次列表。
     ///
-    /// `name` 是屏幕上那一份（带掩码星号）；播报走 `spokenName` —— 同一句话上屏和念出来
-    /// 要拆成两个字符串，见 `String.unmaskedForSpeech`。
-    private func setFavorite(_ isFavorite: Bool, userId: Int64, name: String, spokenName: String) async {
-        busyUserId = userId
-        defer { busyUserId = nil }
+    /// 成功返回 nil（详情页据此关掉自己），失败返回给人看的原因（详情页写在按钮下面）。
+    /// 🚩 **重拉放在返回之后**：这一行会换组或消失，先让详情页关掉，再改列表。
+    ///
+    /// 上屏那份带掩码星号；播报走不带星号那份，见 `String.unmaskedForSpeech`。
+    private func setFavorite(_ isFavorite: Bool, row: PartnerRow) async -> String? {
+        guard let userId = row.userId else { return PartnerStreakCopy.favoriteFailed }
+        let name = row.displayName(fallback: PartnerStreakCopy.unknownVolunteerName)
+        let spokenName = row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName)
         do {
             if isFavorite {
                 try await appState.incentive.addBlindFavoriteVolunteer(volunteerId: userId)
@@ -343,24 +213,29 @@ struct BlindFavoriteVolunteersView: View {
                 ? PartnerStreakCopy.favoriteAdded(name)
                 : PartnerStreakCopy.favoriteRemoved(name)
             errorMessage = nil
-            // 盲人端：结果必须念出来。列表刷新是看得见的反馈，播报是听得见的那一半。
-            // 念的那份不带星号，上屏那份（`actionNotice`）保持原样。
             speechService.announce(
                 isFavorite
                     ? PartnerStreakCopy.favoriteAdded(spokenName)
                     : PartnerStreakCopy.favoriteRemoved(spokenName)
             )
-            await load()
+            Task { await load() }
+            return nil
         } catch let error as APIError {
-            actionNotice = nil
             let message = error.localizedMessage
-            errorMessage = message
             speechService.speakError(message)
+            return message
         } catch {
-            actionNotice = nil
-            errorMessage = PartnerStreakCopy.favoriteFailed
             speechService.speakError(PartnerStreakCopy.favoriteFailed)
+            return PartnerStreakCopy.favoriteFailed
         }
+    }
+
+    /// 拉黑后这一行会从重拉的列表里消失，结果挂在页面顶部。
+    private func blocked() async {
+        actionNotice = UserSafetyCopy.blockSucceeded
+        await load()
+        // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。
+        if errorMessage != nil { actionNotice = nil }
     }
 
     private func load() async {

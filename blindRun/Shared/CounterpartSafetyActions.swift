@@ -50,11 +50,13 @@ struct CounterpartSafetyActions: View {
     var onBlocked: (@MainActor () async -> Void)?
     /// 外观。确认框、文案、读屏标签两种外观完全相同，只有画法不同。
     var presentation: Presentation = .buttons
+    /// `.groupedRows` 每行的最小高度。陪跑员端 56（明眼人）；盲人端搭档详情页传 64（#752）。
+    var groupedRowMinHeight: CGFloat = 56
 
     enum Presentation {
-        /// 两枚整宽描边按钮（订单页、通话页、盲人端固定搭档）。
+        /// 两枚整宽描边按钮（订单页、通话页）。
         case buttons
-        /// 一张白卡里的两行蓝字（陪跑员搭档详情页，照健康 App「共享」的人页，#697）。
+        /// 一张白卡里的两行蓝字（两端搭档详情页，照健康 App「共享」的人页，#697 / #752）。
         case groupedRows
     }
 
@@ -174,8 +176,8 @@ struct CounterpartSafetyActions: View {
             Text(title)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.primary)
-                // 只给陪跑员搭档详情页用（明眼人，Apple 44pt 线）；盲人端走上面的按钮外观。
-                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading) // guard:allow small-touch-target
+                // 默认 56 给陪跑员搭档详情页（明眼人，Apple 44pt 线）；盲人端调用方传 64。
+                .frame(maxWidth: .infinity, minHeight: groupedRowMinHeight, alignment: .leading) // guard:allow small-touch-target
                 .padding(.horizontal, 16)
                 .contentShape(Rectangle())
         }

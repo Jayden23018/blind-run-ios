@@ -15,17 +15,12 @@ final class IncentiveAdoptionPartnerTests: XCTestCase {
     /// `add()` 随后建一条 `optedOut = null` 的新行 —— 那道防线被取消收藏按钮自己绕过了。
     ///
     /// 断言挑的取值能区分四种破法：
-    /// - 「恒不弹窗」（现状）→ 第二组红
-    /// - 「所有取消收藏都弹窗」→ 第一组红（把一个真可逆的动作做成了负担）
+    /// - 「已退出那一档用短文案」→ 后果那几条红
     /// - 「弹了但只写确定/取消」→ 后果那几条红
     /// - 「次要按钮写成『取消』」→ 最后一条红（在讲「取消收藏」的弹窗里有两种读法）
+    /// - 「没退出那一档也塞长文案」→ 下一条用例红
     func testRemovingAnOptedOutPartnerWarnsThatItSilentlyUndoesTheirOptOut() throws {
-        // 没退出过 ⇒ 确实可逆，不该拦。
-        XCTAssertNil(PartnerStreakCopy.removeFavoriteConfirmation(name: "张*", hasOptedOut: false))
-
-        let confirmation = try XCTUnwrap(
-            PartnerStreakCopy.removeFavoriteConfirmation(name: "张*", hasOptedOut: true)
-        )
+        let confirmation = PartnerStreakCopy.removeFavoriteConfirmation(name: "张*", hasOptedOut: true)
         XCTAssertEqual(confirmation.title, "取消收藏张*？")
         // 后果三件事，缺一件这个弹窗就退化成一次无声点击：
         XCTAssertTrue(confirmation.message.contains("已经退出了你们的固定搭档"), "①对方退出过")
@@ -34,6 +29,47 @@ final class IncentiveAdoptionPartnerTests: XCTestCase {
         // 次要按钮不许写「取消」—— 在讲「取消收藏」的弹窗里那两个字有两种读法。
         XCTAssertNotEqual(confirmation.cancel, "取消")
         XCTAssertEqual(confirmation.cancel, "保留收藏")
+    }
+
+    /// 没退出过的搭档也要确认（负责人 2026-11-05 定，#752），但用短文案：
+    /// 那一档可逆，不许借用「他的退出就不作数了」那段警告 —— 那句话对没退出的人是假的。
+    /// 「弹窗确实出现」由 UI 用例 `testBlindPartnerDetailConfirmsEveryRemoval` 守。
+    func testRemovingAPartnerWhoNeverOptedOutStillAsksButWithTheShortCopy() {
+        let confirmation = PartnerStreakCopy.removeFavoriteConfirmation(name: "李*", hasOptedOut: false)
+        XCTAssertEqual(confirmation.title, "取消李*的固定搭档？")
+        XCTAssertTrue(confirmation.message.contains("还可以再设回来"), confirmation.message)
+        XCTAssertFalse(confirmation.message.contains("不作数"), "没退出的人没有退出可撤销")
+        XCTAssertFalse(confirmation.message.contains("优先"), "收藏只是加分，不是承诺")
+        XCTAssertNotEqual(confirmation.cancel, "取消")
+        XCTAssertEqual(confirmation.cancel, "保留固定搭档")
+        XCTAssertEqual(confirmation.confirm, "取消固定搭档")
+    }
+
+    /// 列表一行念一句：连续未点亮（nil）时不念「连续 0 周」；退出了只说退出；只一起跑过的说「还不是固定搭档」。
+    func testBlindPartnerRowSpokenLabelCoversEachKindOfRow() {
+        func row(streak: Int?, together: Int?, optedOut: Bool = false, favorite: Bool = true) -> PartnerRow {
+            PartnerRow(
+                userId: 1,
+                name: "张*",
+                completedRunsTogether: together,
+                favoritedAt: nil,
+                hasOptedOut: optedOut,
+                streak: PartnerStreakDisplay(currentWeeks: streak, bestWeeks: nil),
+                isFavorite: favorite
+            )
+        }
+        XCTAssertEqual(PartnerStreakCopy.blindRowSpoken(row(streak: 3, together: 5)), "张，连续 3 周一起跑步，一起跑完 5 次")
+        XCTAssertEqual(PartnerStreakCopy.blindRowSpoken(row(streak: nil, together: 2)), "张，一起跑完 2 次")
+        XCTAssertEqual(
+            PartnerStreakCopy.blindRowSpoken(row(streak: 3, together: 5, optedOut: true)),
+            "张，对方已退出固定搭档"
+        )
+        XCTAssertEqual(
+            PartnerStreakCopy.blindRowSpoken(row(streak: 2, together: nil, favorite: false)),
+            "张，连续 2 周一起跑步，还不是固定搭档"
+        )
+        XCTAssertEqual(PartnerStreakCopy.blindHeroTitle(2), "2 位固定搭档")
+        XCTAssertFalse(PartnerStreakCopy.blindHeroCaption.contains("优先"))
     }
 
     /// 退出的二次确认必须把后果写进正文 —— 后端点名要求不要只做「确定 / 取消」。

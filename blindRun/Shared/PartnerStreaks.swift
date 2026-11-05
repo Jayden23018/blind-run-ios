@@ -284,7 +284,8 @@ enum PartnerRowMerge {
 // MARK: - 文案
 
 enum PartnerStreakCopy {
-    static let blindNavigationTitle = "我的固定搭档"
+    /// 与「我的」里的方块同名（#752 定稿）。改版前叫「我的固定搭档」。
+    static let blindNavigationTitle = "固定搭档"
     static let volunteerNavigationTitle = "固定搭档"
 
     static let unknownVolunteerName = "这位陪跑员"
@@ -371,7 +372,11 @@ enum PartnerStreakCopy {
         let cancel: String
     }
 
-    /// `nil` = 这个动作确实可逆，**不弹窗**。
+    /// **每次都弹窗**（负责人 2026-11-05 定，#752）。两档文案不同：
+    ///
+    /// 没退出过的那一档确实可逆（再收藏一次即可），短文案只说后果和「还能设回来」。
+    /// 2026-11-05 之前这一档不弹窗，理由是「可逆动作不加负担」；改版后取消挪进了详情页，
+    /// 一次误触就让一位常跑的搭档从派单加分里消失，负责人选了每次都问。
     ///
     /// 🔴 **对方已退出时它不可逆，而且不可逆的后果落在对方身上。**
     ///
@@ -385,15 +390,19 @@ enum PartnerStreakCopy {
     /// 🚩 **警告只能放在取消这一刻，放不到别处。** 行被删之后，「他曾经退出过」这个事实
     /// 在客户端就不存在了 —— 订单详情页那条收藏入口
     /// （`BlindOrderStatusView.favoriteVolunteerSection`）根本拿不到它，无从警告。
-    ///
-    /// ⚠️ **没退出过的那些维持原样、不弹窗**：那种情况取消收藏确实可逆（再收藏一次即可），
-    /// 给每个可逆动作都加一道弹窗，读屏用户要多听一遍、多点一次
-    /// （AGENTS.md 的二次确认清单给的是不可逆或高代价的动作）。
     static func removeFavoriteConfirmation(
         name: String,
         hasOptedOut: Bool
-    ) -> RemoveFavoriteConfirmation? {
-        guard hasOptedOut else { return nil }
+    ) -> RemoveFavoriteConfirmation {
+        guard hasOptedOut else {
+            return RemoveFavoriteConfirmation(
+                title: "取消\(name)的固定搭档？",
+                message: "取消后，派单时不再把\(name)当作你的固定搭档。以后还可以再设回来。",
+                confirm: "取消固定搭档",
+                // 不写「取消」：同下面那一档的「保留收藏」。
+                cancel: "保留固定搭档"
+            )
+        }
         return RemoveFavoriteConfirmation(
             title: "\(removeFavoriteTitle(name))？",
             // 后果必须写进正文、且是读屏能一口气念清楚的一整句 —— 只给「确定 / 取消」
