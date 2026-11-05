@@ -67,7 +67,8 @@ jobs:
         run: |
           node scripts/ci-changed-paths.mjs --self-test
           if [ "$EVENT" = pull_request ]; then
-            git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            # -z：不加 -z 时中文文件名会被加引号转义，判不出是文档（docs/ui/mockups 下有 14 个）。
+            git diff -z --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-paths.txt"
             node scripts/ci-changed-paths.mjs < "$RUNNER_TEMP/changed-paths.txt"
           else
             printf 'docs_only=false\napi_package=true\n' | tee -a "$GITHUB_OUTPUT"

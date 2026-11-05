@@ -44,6 +44,8 @@ export function touchesApiPackage(file) {
 export function classify(files) {
   const list = files.map((f) => f.trim()).filter(Boolean);
   if (list.length === 0) return { docsOnly: false, apiPackage: true };
+  // 以 " 开头 = git 把路径加引号转义了（忘了 -z），真实路径读不出来，当全跑。
+  if (list.some((f) => f.startsWith('"'))) return { docsOnly: false, apiPackage: true };
   return {
     docsOnly: list.every(isDocPath),
     apiPackage: list.some(touchesApiPackage),
@@ -70,6 +72,9 @@ function selfTest() {
     ['md 大写扩展名不当文档（多跑）', ['NOTES.MD'], false, false],
     ['前缀只认整段目录', ['docsx/a.swift', 'Packages/AidRunAPIx/a.swift'], false, false],
     ['空白行忽略', ['docs/a.md', '', '  '], true, false],
+    ['Packages 里的 md 不算文档', ['Packages/AidRunAPI/README.md'], false, true],
+    ['中文文件名（-z 原样输出）算文档', ['docs/ui/mockups/running-state/screens/A-跑者端.png'], true, false],
+    ['带引号的转义路径读不出来，当全跑', ['"docs/ui/\\350\\267\\221.png"'], false, true],
   ];
   let failed = 0;
   for (const [name, files, wantDocs, wantApi] of cases) {
@@ -84,7 +89,8 @@ function selfTest() {
 
 function main() {
   if (process.argv.includes('--self-test')) return selfTest();
-  const files = fs.readFileSync(0, 'utf8').split('\n');
+  // CI 用 `git diff -z`（\0 分隔），手工试用时按行喂也行。
+  const files = fs.readFileSync(0, 'utf8').split(/[\0\n]/);
   const { docsOnly, apiPackage } = classify(files);
   const out = `docs_only=${docsOnly}\napi_package=${apiPackage}\n`;
   process.stdout.write(`改动 ${files.filter((f) => f.trim()).length} 个文件\n${out}`);
