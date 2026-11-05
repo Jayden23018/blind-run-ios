@@ -67,11 +67,16 @@ struct PrimaryButton: View {
 /// - 标签页外面是 `AccentColor`，它没定义颜色时是系统蓝：白字亮色 4.02:1、暗色 3.65:1，正文过不了 4.5:1。
 /// 所以底色与字色在这里成对给出，不读环境 tint。
 ///
-/// 对比度（WCAG 相对亮度公式，`LowVisionChannelTests.testPrimaryButtonStyleKeepsItsLabelReadable` 重算钉住）：
-/// - 白字压 `primary`：亮 `#0058C7` 6.53:1；暗 `#0A84FF` 3.65:1 —— 字是 `title3.bold`（20pt 粗体），
-///   属 WCAG「大字」，门槛 3:1。**所以标签里别再挂常规字重的 `.font`**，那会让暗色档掉到正文门槛以下。
+/// 外形（#749，负责人 2026-11-05 定稿）：实心胶囊，看得见的部分 52pt 高、左右各收 12pt，可点区仍整行 ≥64pt。
+/// 尺寸与理由在 `AppButtonMetrics`。
+///
+/// 对比度（WCAG 相对亮度公式，`PrimaryButtonContrastTests` / `ButtonChromeTests` 重算钉住）：
+/// - 白字压主按钮底色 `ButtonPalette.primaryFill`：亮 `#0058C7` 6.52:1；暗 `#0A6FE0` 4.81:1。
+/// - 危险操作白字压 `destructive`：亮 5.75:1；暗 `#FF453A` 3.41:1 —— 字是 `title3.bold`（20pt 粗体），
+///   属 WCAG「大字」，门槛 3:1。**所以标签里别再挂常规字重的 `.font`**，那会让暗色危险按钮掉到门槛以下。
 /// - 不可用态：`textSecondary` 压 `systemGray5`，亮 5.3:1、暗 6.5:1。原来登录页白字压 `systemGray4` 只有 1.5:1，
 ///   低视力用户读不出这枚按钮是什么，也就不知道「填好手机号它就会亮」。
+/// - 按下：底色加深（白字 8.84 / 6.80）。原来整块变 75% 透明，白字掉到 3.91 / 3.15。
 struct PrimaryButtonStyle: ButtonStyle {
     var isDestructive = false
     /// 提交中：按钮被 `.disabled` 挡住重复点击，但仍按可用态画（转圈压在原色上），
@@ -87,54 +92,70 @@ struct PrimaryButtonStyle: ButtonStyle {
             .foregroundColor(ink)
             .tint(ink)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: AppTouchTarget.blindPrimary)
-            .background(fill(looksDisabled: looksDisabled))
-            .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
-            .contentShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
-            // 换 `ButtonStyle` 会接管掉默认的按下反馈，不补这一行按下去屏幕上什么都不动。
-            .opacity(configuration.isPressed ? 0.75 : 1)
+            // 换 `ButtonStyle` 会接管掉默认的按下反馈：按下态在 `fill` 里，不补按下去屏幕上什么都不动。
+            .capsuleButtonChrome(fill: fill(looksDisabled: looksDisabled, isPressed: configuration.isPressed))
     }
 
-    private func fill(looksDisabled: Bool) -> Color {
-        if looksDisabled { return Color(uiColor: .systemGray5) }
-        return isDestructive ? AppColors.destructive : AppColors.primary
+    private func fill(looksDisabled: Bool, isPressed: Bool) -> Color {
+        if looksDisabled { return AppColors.ButtonPalette.disabledFill }
+        if isDestructive {
+            return isPressed ? AppColors.ButtonPalette.destructiveFillPressed : AppColors.destructive
+        }
+        return isPressed ? AppColors.ButtonPalette.primaryFillPressed : AppColors.ButtonPalette.primaryFill
     }
 }
 
 // MARK: - Outline Secondary Button Style
 
-/// 盲人端的次级按钮：整行、描边、不填充，`minHeight` 同主按钮（64pt）。
+/// 盲人端的次级按钮：浅蓝底 + 同色细描边 + 蓝字，形状与尺寸同主按钮（#749 定稿，照健康「请求他人共享」）。
 ///
-/// 描边而非填充，是为了让同一屏那个实心主操作保持唯一的主次地位；而**始终画出描边**
-/// （不是只在系统「按钮形状」打开时才画）是因为低视力用户靠轮廓认出「这是能按的」——
-/// 只有一行彩色文字时，它和一句说明长得一样。
+/// 浅底而非实心，是为了让同一屏那个实心主操作保持唯一的主次地位；而**始终画出描边**
+/// （苹果原样没有描边）是因为浅底压页面只有约 1.2:1，低视力用户靠轮廓认出「这是能按的」。
 ///
 /// 原是 `BlindBookingView` 的私有 `VoiceStageSecondaryButtonStyle`，2026-10-05 提出来给
 /// 通话确认页共用（真机截图评审：那一页两枚次按钮只是两行字，「重复当前状态」又是实心蓝、
 /// 与拨号大按钮抢主次）。
 struct OutlineSecondaryButtonStyle: ButtonStyle {
-    var tint: Color = AppColors.primary
-    /// false 时按内容收窄，给一排可选短语这类小标签用。可点高度由标签自己的 frame 决定。
+    /// 字色。不传 = 蓝色次按钮（浅蓝底、`secondaryInk` 字与描边，暗色 `#409CFF` 压浅蓝底 5.5:1）。
+    /// 传了（目前只有求助「已发出」页传 `textPrimary`）= 中性操作：灰底、灰描边，同 `NeutralButtonStyle`。
+    var tint: Color?
+    /// false 时按内容收窄，给一排可选短语这类小标签用：只有胶囊底与描边，留白与可点高度由标签自己的 frame 决定。
     var fillsWidth = true
-    /// 提交中被 `.disabled` 时要**看得出**按不了：描边与文字一起淡下去。不读它的话，
+    /// 提交中被 `.disabled` 时要**看得出**按不了：底、描边与文字一起淡下去。不读它的话，
     /// 低视力用户看到的按钮与可用时一模一样，只会以为「按了没反应」。
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        let palette = AppColors.ButtonPalette.self
+        let isAccent = tint == nil
+        let ink = tint ?? palette.secondaryInk
+        let fill: Color = isAccent
+            ? (configuration.isPressed ? palette.secondaryFillPressed : palette.secondaryFill)
+            : (configuration.isPressed ? palette.neutralFillPressed : palette.neutralFill)
         configuration.label
             .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(tint)
+            .foregroundColor(ink)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: fillsWidth ? .infinity : nil)
-            .frame(minHeight: fillsWidth ? AppTouchTarget.blindPrimary : nil)
-            .background(
-                RoundedRectangle(cornerRadius: AppCornerRadius.medium)
-                    .strokeBorder(tint, lineWidth: 2)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
-            // 换 `ButtonStyle` 会接管掉默认的按下反馈，不补这一行按下去屏幕上什么都不动。
-            .opacity(isEnabled ? (configuration.isPressed ? 0.55 : 1) : 0.4)
+            .modifier(SecondaryChrome(fill: fill, stroke: isAccent ? ink : palette.neutralStroke, fillsWidth: fillsWidth))
+            // 按下态在 `fill` 里（底色加深），字不变淡。
+            .opacity(isEnabled ? 1 : 0.4)
+    }
+
+    private struct SecondaryChrome: ViewModifier {
+        let fill: Color
+        let stroke: Color
+        let fillsWidth: Bool
+
+        func body(content: Content) -> some View {
+            if fillsWidth {
+                content.capsuleButtonChrome(fill: fill, stroke: stroke)
+            } else {
+                content
+                    .background(Capsule().fill(fill))
+                    .overlay(Capsule().strokeBorder(stroke, lineWidth: AppButtonMetrics.strokeWidth))
+                    .contentShape(Capsule())
+            }
+        }
     }
 }
 

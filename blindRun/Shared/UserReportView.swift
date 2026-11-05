@@ -155,7 +155,9 @@ struct UserReportView: View {
         .accessibilityIdentifier("userReportSubmit")
 
         // 不放工具栏：系统会把工具栏按钮包成字号固定的玻璃按钮，审计判对比度与字号都不过，也够不到 64pt。
-        FlowActionButton(UserSafetyCopy.close, style: .ghost) { dismiss() }
+        // 灰按钮，与上面的实心主按钮同形状（#749）。原来的 `.ghost` 描边压白底只有 1.52:1。
+        Button(UserSafetyCopy.close) { dismiss() }
+            .buttonStyle(NeutralButtonStyle())
             .accessibilityIdentifier("userReportClose")
     }
 

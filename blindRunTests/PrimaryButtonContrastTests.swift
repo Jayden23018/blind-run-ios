@@ -26,14 +26,15 @@ final class PrimaryButtonContrastTests: XCTestCase {
 
     func testPrimaryButtonStyleKeepsItsLabelReadable() throws {
         let white: UInt32 = 0xFFFFFF
-        let primary = try Self.primaryTone()
+        let fill = AppColors.ButtonPalette.primaryFillTone
         let destructive = try XCTUnwrap(AppColors.tones.first { $0.name == "destructive" }?.tone)
 
-        // 暗色档只过得了大字门槛，所以字号是这条断言成立的前提，一起钉住。
-        XCTAssertEqual(AppFonts.primaryButton(), Font.title3.bold(), "主按钮字号变了，暗色档白字压 primary 只剩 3.65:1，要按正文门槛重判")
+        // 暗色危险按钮只过得了大字门槛，所以字号是这条断言成立的前提，一起钉住。
+        XCTAssertEqual(AppFonts.primaryButton(), Font.title3.bold(), "主按钮字号变了，暗色危险按钮白字压 #FF453A 只剩 3.41:1，要按正文门槛重判")
 
-        XCTAssertGreaterThanOrEqual(Self.contrast(white, primary.light), Self.bodyText)
-        XCTAssertGreaterThanOrEqual(Self.contrast(white, primary.dark), Self.largeText)
+        // #749：主按钮底色换成按钮专用的 `primaryFill`，暗色 `#0A6FE0` 让白字过正文门槛，不再靠大字例外。
+        XCTAssertGreaterThanOrEqual(Self.contrast(white, fill.light), Self.bodyText)
+        XCTAssertGreaterThanOrEqual(Self.contrast(white, fill.dark), Self.bodyText)
         XCTAssertGreaterThanOrEqual(Self.contrast(white, destructive.light), Self.bodyText)
         XCTAssertGreaterThanOrEqual(Self.contrast(white, destructive.dark), Self.largeText)
 
@@ -55,6 +56,71 @@ final class PrimaryButtonContrastTests: XCTestCase {
 
         // 验红：登录页原来的不可用态是白字压 systemGray4（约 1.5:1）。
         XCTAssertLessThan(Self.contrast(0xFFFFFF, Self.rgb(.systemGray4, .light)), Self.largeText)
+    }
+
+    // MARK: - #749 胶囊按钮的尺寸与成套配色
+
+    /// 看得见的胶囊只有 52pt，可点区靠样式里上下各 6pt 的透明边距凑足 64pt。
+    /// 有人把胶囊调高或边距调小时，这一条先红，而不是等真机审计。
+    func testCapsuleButtonKeepsTheBlindTouchTargetAroundASmallerCapsule() {
+        let metrics = AppButtonMetrics.self
+        XCTAssertGreaterThanOrEqual(
+            metrics.visibleHeight + 2 * metrics.verticalInset, AppTouchTarget.blindPrimary,
+            "胶囊高 + 上下透明边距 < 64pt：盲人端可点区不够"
+        )
+        XCTAssertLessThan(metrics.visibleHeight, AppTouchTarget.blindPrimary, "定稿 ② 要求看得见的胶囊比可点区矮")
+        XCTAssertEqual(metrics.cornerRadius, metrics.visibleHeight / 2, "默认高度时应正好是胶囊")
+    }
+
+    func testPressedFillsKeepTheLabelReadable() {
+        let white: UInt32 = 0xFFFFFF
+        let palette = AppColors.ButtonPalette.self
+        for (name, tone) in [("primaryFillPressed", palette.primaryFillPressedTone)] {
+            XCTAssertGreaterThanOrEqual(Self.contrast(white, tone.light), Self.bodyText, "\(name) 亮")
+            XCTAssertGreaterThanOrEqual(Self.contrast(white, tone.dark), Self.bodyText, "\(name) 暗")
+        }
+        XCTAssertGreaterThanOrEqual(Self.contrast(white, palette.destructiveFillPressedTone.light), Self.bodyText)
+        XCTAssertGreaterThanOrEqual(Self.contrast(white, palette.destructiveFillPressedTone.dark), Self.largeText)
+
+        // 验红：原来的按下态是整块 75% 透明。白字压在 75% 的 `#0058C7`（叠在白底上 ≈ `#4082D5`）上
+        // 只有 3.91:1 —— 那是这次改成「底色加深」的理由，公式必须真的拒它。
+        XCTAssertLessThan(Self.contrast(0xFFFFFF, 0x4082D5), Self.bodyText)
+    }
+
+    func testSecondaryAndNeutralButtonsKeepTheirLabelsReadable() {
+        let palette = AppColors.ButtonPalette.self
+        let ink = palette.secondaryInkTone
+        for fill in [palette.secondaryFillTone, palette.secondaryFillPressedTone] {
+            XCTAssertGreaterThanOrEqual(Self.contrast(ink.light, fill.light), Self.bodyText, "次按钮蓝字压浅蓝底（亮）")
+            XCTAssertGreaterThanOrEqual(Self.contrast(ink.dark, fill.dark), Self.bodyText, "次按钮蓝字压浅蓝底（暗）")
+        }
+        let label = (light: Self.rgb(.label, .light), dark: Self.rgb(.label, .dark))
+        for fill in [palette.neutralFillTone, palette.neutralFillPressedTone] {
+            XCTAssertGreaterThanOrEqual(Self.contrast(label.light, fill.light), Self.bodyText, "灰按钮字（亮）")
+            XCTAssertGreaterThanOrEqual(Self.contrast(label.dark, fill.dark), Self.bodyText, "灰按钮字（暗）")
+        }
+
+        // 验红：暗色次按钮的字原来就是 `primary` 的 `#0A84FF`，压暗色浅蓝底过不了正文门槛 —— 这是换 `#409CFF` 的理由。
+        XCTAssertLessThan(Self.contrast(0x0A84FF, palette.secondaryFillPressedTone.dark), Self.bodyText)
+    }
+
+    /// 浅底按钮压页面只有约 1.2:1，低视力用户靠描边认出它是按钮（WCAG 1.4.11 控件边界 3:1）。
+    /// 页面底取两种：亮 白 / 分组灰 `#F2F2F7`，暗 黑 / `#1C1C1E`。
+    func testButtonOutlinesStandOutFromThePage() {
+        let palette = AppColors.ButtonPalette.self
+        let lightPages: [UInt32] = [0xFFFFFF, 0xF2F2F7]
+        let darkPages: [UInt32] = [0x000000, 0x1C1C1E]
+        let boundary = Self.largeText
+        for (name, tone) in [("次按钮描边", palette.secondaryInkTone), ("灰按钮描边", palette.neutralStrokeTone), ("主按钮底色", palette.primaryFillTone)] {
+            for page in lightPages {
+                XCTAssertGreaterThanOrEqual(Self.contrast(tone.light, page), boundary, "\(name) 压亮色页面 #\(String(page, radix: 16))")
+            }
+            for page in darkPages {
+                XCTAssertGreaterThanOrEqual(Self.contrast(tone.dark, page), boundary, "\(name) 压暗色页面 #\(String(page, radix: 16))")
+            }
+        }
+        // 验红：原来「关闭」（`FlowActionButton(.ghost)`）的描边 `#CDD2DC` 压白底只有 1.52:1。
+        XCTAssertLessThan(Self.contrast(AppColors.Flow.ghostStrokeTone.light, 0xFFFFFF), boundary)
     }
 
     // MARK: - 辅助

@@ -174,8 +174,8 @@ struct TrainingBottomBar<Content: View>: View {
 
 /// 通栏胶囊按钮（开始答题 / 提交答案 / 重答 / 完成）。负责人 2026-11-04 选 A 版。
 ///
-/// 配色与字号同 `PrimaryButtonStyle`（白字压 `primary`：亮 6.53:1、暗 3.65:1，`title3.bold` 属大字门槛 3:1；
-/// 不可用 = `textSecondary` 压 `systemGray5`），只把圆角矩形换成胶囊。高度不低于 64pt（交接书易错点 2）。
+/// 2026-11-05（#749）全 App 主按钮都换成了实心胶囊，这里与 `PrimaryButtonStyle` 外形、配色、尺寸一致：
+/// 看得见的胶囊 52pt 高、左右各收 12pt，可点区仍 ≥64pt（交接书易错点 2）。保留这个类型只是为了不动调用处。
 struct TrainingCapsuleButtonStyle: ButtonStyle {
     var isLoading = false
     @Environment(\.isEnabled) private var isEnabled
@@ -183,16 +183,14 @@ struct TrainingCapsuleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let looksDisabled = !isEnabled && !isLoading
         let ink = looksDisabled ? AppColors.textSecondary : Color.white
+        let palette = AppColors.ButtonPalette.self
         configuration.label
             .font(AppFonts.primaryButton())
             .foregroundColor(ink)
             .multilineTextAlignment(.center)
-            .padding(.horizontal, 20)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: AppTouchTarget.blindPrimary)
-            .background(Capsule().fill(looksDisabled ? Color(uiColor: .systemGray5) : AppColors.primary))
-            .contentShape(Capsule())
-            // 换 `ButtonStyle` 会接管掉默认的按下反馈，不补这一行按下去屏幕上什么都不动。
-            .opacity(configuration.isPressed ? 0.75 : 1)
+            .capsuleButtonChrome(
+                fill: looksDisabled ? palette.disabledFill
+                    : (configuration.isPressed ? palette.primaryFillPressed : palette.primaryFill)
+            )
     }
 }

@@ -83,12 +83,16 @@ extension View {
     /// 灰底次级按钮的外观，**挂在 `Button` 的 label 里**（#295 走查 B5）：
     /// 挂在 `Button` 外面只撑大布局、不撑大可点区，可点的只有那几个字。
     func secondaryFillButtonLabel(minWidth: CGFloat? = nil, maxWidth: CGFloat? = nil) -> some View {
+        // #749：灰底 + 灰描边的胶囊，同 `NeutralButtonStyle`。原来的 `secondaryBackground` 压下单页底栏
+        // 只有 1.02:1，「上一步」看起来像一段字。`minWidth` 现在是看得见的胶囊宽度。
         font(AppFonts.body().weight(.semibold))
             .foregroundColor(AppColors.textPrimary)
             .multilineTextAlignment(.center)
-            .frame(minWidth: minWidth, maxWidth: maxWidth, minHeight: AppTouchTarget.blindPrimary)
-            .background(AppColors.secondaryBackground)
-            .cornerRadius(AppCornerRadius.medium)
-            .contentShape(RoundedRectangle(cornerRadius: AppCornerRadius.medium))
+            .capsuleButtonChrome(
+                fill: AppColors.ButtonPalette.neutralFill,
+                stroke: AppColors.ButtonPalette.neutralStroke,
+                fillsWidth: maxWidth == .infinity,
+                minWidth: minWidth
+            )
     }
 }
