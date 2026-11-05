@@ -24,3 +24,5 @@ enum EscortPreciseLocationCopy {
             + "如果弹出提示请选允许，或到系统设置里为助盲跑打开「精确位置」。"
     }
 }
+
+// CI 探针 #714：只验证编译门禁按路径跳过 AidRunAPI 两步，不合并。
