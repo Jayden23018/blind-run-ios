@@ -16,7 +16,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>用于志愿者实人认证的活体检测，以及拍摄资质证书照片。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。</string>
+	<string>助盲跑用你的位置给志愿者派附近的陪跑邀请，并在陪跑中让双方看到彼此的位置、记录这次的路线；陪跑中锁屏后仍会定位，会多耗一些电。</string>
 	<!-- 「精确位置」关闭时临时申请精确定位的用途说明。键名必须与 `PreciseLocationPurpose` 的 rawValue 一致，
 	     传了字典里没有的键系统就不弹（#373）。 -->
 	<key>NSLocationTemporaryUsageDescriptionDictionary</key>

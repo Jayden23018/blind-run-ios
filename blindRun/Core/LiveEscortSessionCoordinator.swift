@@ -186,7 +186,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         return trackConsent.isGranted(purpose)
     }
 
-    /// 同意页上按了「同意共享位置」：记下来，立刻开始这一单的同行定位。
+    /// 说明页上同意了（#776）：记下来，立刻开始这一单的同行定位。
     func agreeTrackConsent() {
         guard let purpose = pendingTrackConsent else { return }
         trackConsent.record(purpose)

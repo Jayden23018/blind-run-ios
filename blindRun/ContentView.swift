@@ -543,7 +543,7 @@ struct CurrentValueReplayGate<Value: Equatable> {
 }
 
 /// 已约好的单进入同行态（出发 / 汇合 / 跑步中）而本机没有这一角色的位置轨迹同意时，
-/// 盖在整个界面上的同意页（#368）。协调器在用户回答之前一个点都不开、不发。
+/// 盖在整个界面上的说明页（#368；#776 起是系统定位框前的说明页）。协调器在用户回答之前一个点都不开、不发。
 ///
 /// 盖在路由根上而不是某一页上：进入同行态时用户可能在任何一个 tab、任何一层栈上，
 /// 而这件事不回答，这一单的位置共享就一直停着。背后那棵树对读屏藏起来，理由同 `SessionLifecycleStatusModifier`。
@@ -562,31 +562,16 @@ private struct EscortTrackConsentOverlay: ViewModifier {
             .background(HostedContainersAccessibilityHider(isHidden: pending != nil))
             .overlay {
                 if let pending {
-                    ConsentDisclosureView(
+                    LocationTrackPreAlertView(
                         purpose: pending,
-                        onAgree: {
-                            speechService.stop()
-                            coordinator.agreeTrackConsent()
-                            // 系统授权框在这一刻弹，不早于告知。已授权时这一行什么都不做。
-                            if locationService.isNotDetermined {
-                                locationService.requestPermission()
-                            }
-                        },
-                        onDecline: decline
+                        locationService: locationService,
+                        speechService: speechService,
+                        onAgree: { coordinator.agreeTrackConsent() },
+                        onDecline: { coordinator.declineTrackConsent() }
                     )
                     .accessibilityAddTraits(.isModal)
-                    // 读屏的「返回」手势（双指 Z）等同「先不同意」：没有别的出口，不能让它什么都不做。
-                    .accessibilityAction(.escape, decline)
-                    .task(id: pending) {
-                        speechService.speak(text: pending.popupSpokenScript)
-                    }
                 }
             }
-    }
-
-    private func decline() {
-        speechService.stop()
-        coordinator.declineTrackConsent()
     }
 }
 

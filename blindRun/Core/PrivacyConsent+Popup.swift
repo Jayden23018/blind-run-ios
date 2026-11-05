@@ -6,7 +6,8 @@ import Foundation
 /// 收在弹窗的「查看详细说明」和勾选框旁的协议页里。所以改这里不需要 +1 `disclosureVersion`；
 /// 改 `disclosures` 才要判。依据见 `docs/research/consent-forms-mainstream-20261105.md`。
 extension PrivacyConsentPurpose {
-    /// 小弹窗的正文。为 nil 的目的不弹这种小弹窗（首启有自己的弹窗；志愿者实名在表单底部勾选）。
+    /// 小弹窗的正文。为 nil 的目的不弹这种小弹窗（首启有自己的弹窗；志愿者实名在表单底部勾选；
+    /// 位置轨迹用系统定位框前的说明页，文案在 `PrivacyConsent+LocationPreAlert.swift`，#776）。
     /// 用 `default` 而不逐个列出：不让这里卡住其他目的的增删。
     var popupSummary: String? {
         switch self {
@@ -14,10 +15,6 @@ extension PrivacyConsentPurpose {
             return "视力状况和是否使用导盲犬属于敏感个人信息，只用来让陪跑员提前做好准备，陪跑员接单前就能看到。不填也能约跑。"
         case .voiceOrderThirdPartyLLM:
             return "你说的话会转成文字，发给阿里云通义千问（第三方大模型），帮助理解你要去哪里、什么时候出发。不同意可以手动填写。"
-        case .blindLocationTrack:
-            return "从陪跑员出发到跑步结束，会持续获取你的位置并显示给此订单的陪跑员，锁屏后仍在定位；轨迹保存 90 天。不同意就不能预约陪跑。"
-        case .volunteerLocationTrack:
-            return "打开接单后，在助盲跑开着时获取你的位置用来派单；接单后从出发到跑完，你的位置会显示给此订单的视障跑者。不同意就不能接单。"
         default:
             return nil
         }

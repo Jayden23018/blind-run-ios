@@ -12,14 +12,14 @@ import SwiftUI
 /// 真正的单独同意在实名认证页和行程分享页。
 ///
 /// **形态（issue #277）**：与常规 App 一致的**居中卡片弹窗** —— 压暗的背景 + 标题 + 一段摘要 +
-/// 隐私政策 / 用户协议两个入口 + 左「不同意」右「同意」。不是整页。
+/// 隐私政策 / 用户协议两个入口 + 上「同意」下「不同意」（#776 起上下排）。不是整页。
 /// 背后只放品牌底板，**不渲染登录页**：手机号是个人信息，同意之前登录页不许出现。
 /// 7 条完整告知原文（`disclosures`）的内容都在隐私政策里；#769 起弹窗不再单列「完整收集清单」。
 ///
 /// 无障碍三处取舍：
-/// - 两个按钮常规字号**左右并排**（左拒右同意，与常规 App 一致）、大小相同；辅助功能字号退回竖排，
-///   否则一行放不下两个按钮的字。不用 `ViewThatFits`（本仓库已知它会让整页被审计判成改不了字号）。
-/// - 所有可点控件 ≥ 64pt（盲人端触达下限）；两个协议入口并排一行。
+/// - 两个按钮上下排、整行铺满、大小相同，同意在上（#776）。两个协议入口常规字号并排一行，辅助功能字号退回竖排；
+///   不用 `ViewThatFits`（本仓库已知它会让整页被审计判成改不了字号）。
+/// - 所有可点控件 ≥ 64pt（盲人端触达下限）。
 /// - 弹窗标 `isModal`，背景对读屏隐藏，焦点只在卡片内。
 struct PrivacyConsentGateView: View {
     @EnvironmentObject private var appState: AppState
@@ -189,43 +189,24 @@ struct PrivacyConsentGateView: View {
 
     // MARK: - Actions
 
-    /// 左「先不同意」右「同意并开始使用」，**同样大**：把拒绝做小是在用视觉权重替用户做决定，
-    /// 而这里的用户看不见视觉权重（理由见 `RunPlanShareConsentView`）。
-    @ViewBuilder
+    /// 上「同意并开始使用」、下「先不同意」，都整行铺满（#776，照系统弹窗与 HIG）。
+    /// 同样宽：把拒绝做小是在用视觉权重替用户做决定，而这里的用户看不见视觉权重（理由见 `RunPlanShareConsentView`）。
     private var actions: some View {
-        if stacksActions {
-            VStack(spacing: 12) { declineButton; agreeButton }
-        } else {
-            HStack(spacing: 12) { declineButton; agreeButton }
-        }
+        VStack(spacing: 0) { agreeButton; declineButton }
     }
 
     private var declineButton: some View {
-        Button(action: decline) {
-            Text(purpose.declineButtonTitle)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: touchHeight)
-                .background(AppColors.secondaryBackground)
-                .cornerRadius(12)
-        }
-        .accessibilityLabel(purpose.declineButtonTitle)
-        .accessibilityIdentifier("appLaunchConsentDeclineButton")
+        Button(purpose.declineButtonTitle, action: decline)
+            .buttonStyle(NeutralButtonStyle())
+            .accessibilityLabel(purpose.declineButtonTitle)
+            .accessibilityIdentifier("appLaunchConsentDeclineButton")
     }
 
     private var agreeButton: some View {
-        Button(action: { appState.acceptPrivacyConsent() }) {
-            Text(purpose.agreeButtonTitle)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: touchHeight)
-                .background(AppColors.primary)
-                .cornerRadius(12)
-        }
-        .accessibilityLabel(purpose.agreeButtonTitle)
-        .accessibilityIdentifier("appLaunchConsentAgreeButton")
+        Button(purpose.agreeButtonTitle) { appState.acceptPrivacyConsent() }
+            .buttonStyle(PrimaryButtonStyle())
+            .accessibilityLabel(purpose.agreeButtonTitle)
+            .accessibilityIdentifier("appLaunchConsentAgreeButton")
     }
 
     private func decline() {

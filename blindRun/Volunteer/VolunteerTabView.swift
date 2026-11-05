@@ -127,7 +127,7 @@ struct VolunteerTabView: View {
         .onAppear {
             // **删地图 ≠ 停定位**：授权是派单的前提，没有位置上报就收不到单。
             // #368：没有位置轨迹同意时不弹系统授权框（告知在前）。
-            // 授权框改在同意页按「同意共享位置」时弹（`agreeTrackConsent` 的回调）。
+            // 授权框改在说明页的「继续」上弹（`LocationTrackPreAlertView`，#776）。
             // 开不开定位不在这里定：跟着接单开关走，由 `AppState.syncRoleLocationIntents` 立和撤（#425）。
             // 此前这里无条件开，关着开关也在定位，而同意文案写的是「暂停接单后不再为派单获取位置」。
             if appState.hasLocationTrackConsent(.volunteerLocationTrack) {
@@ -275,7 +275,7 @@ struct VolunteerTabView: View {
             respond(request)
         }
         // #368：接单开关 / 自动恢复待命前的位置轨迹同意。挂在容器上而不是首页 tab 上：
-        // 自动恢复那条路发生时他可能在任何一个 tab。fullScreenCover 只是容器，里面是透明背景上的小弹窗（#769）。
+        // 自动恢复那条路发生时他可能在任何一个 tab。里面是系统定位框前的说明页（#776）。
         .fullScreenCover(isPresented: Binding(
             get: { viewModel.trackConsentRequest != nil },
             set: { _ in }
@@ -294,31 +294,16 @@ struct VolunteerTabView: View {
     }
 
     private var trackConsentScreen: some View {
-        let purpose = PrivacyConsentPurpose.volunteerLocationTrack
-        return ConsentDisclosureView(
-            purpose: purpose,
-            onAgree: {
-                speechService.stop()
-                viewModel.agreeTrackConsent {
-                    // 系统授权框在这一刻弹，不早于告知。定位随后由打开接单开关立起（#425）。
-                    locationService.requestPermission()
-                }
-            },
-            onDecline: {
-                speechService.stop()
-                viewModel.declineTrackConsent()
-            }
+        LocationTrackPreAlertView(
+            purpose: .volunteerLocationTrack,
+            locationService: locationService,
+            speechService: speechService,
+            // 系统框已在说明页的「继续」上问过（#776），这里不再请求授权。定位随后由打开接单开关立起（#425）。
+            onAgree: { viewModel.agreeTrackConsent() },
+            onDecline: { viewModel.declineTrackConsent() }
         )
         // 系统模态不会把背后的标签栏容器移出读屏树（真机实测），要自己藏，见 `PresenterAccessibilityHider`。
         .background(PresenterAccessibilityHider())
-        // 读屏的「返回」手势（双指 Z）等同「先不同意」：没有别的出口，不能让它什么都不做。
-        .accessibilityAction(.escape) {
-            speechService.stop()
-            viewModel.declineTrackConsent()
-        }
-        .task {
-            speechService.speak(text: purpose.popupSpokenScript)
-        }
     }
 }
 

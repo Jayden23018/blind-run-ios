@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// 单独同意的通用形态：压暗背景上的**居中小弹窗** —— 标题 + 一两句摘要 + 可展开的「详细说明」+
-/// 左「不同意」右「同意」两个等宽按钮。
+/// 上「同意」下「不同意」两个整行铺满的按钮（#776 起上下排，照系统弹窗）。
+///
+/// 位置轨迹的同意不用这个：它排在系统定位框前面，按 HIG 用 `LocationTrackPreAlertView`（#776）。
 ///
 /// 2026-11-05 由整页逐条告知改成小弹窗（#769）。负责人真机体验后的原话是「每做一步就需要同意一次」
 /// 「展示的形式和市面上主流的 app 也不一样」。调研（`docs/research/consent-forms-mainstream-20261105.md`）
@@ -26,11 +28,8 @@ struct ConsentDisclosureView<Footer: View>: View {
     let onDecline: () -> Void
     @ViewBuilder let footer: () -> Footer
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showsDetails = false
     @State private var cardHeight: CGFloat = 320
-
-    private var stacksActions: Bool { dynamicTypeSize.isAccessibilitySize }
 
     var body: some View {
         ZStack {
@@ -136,16 +135,9 @@ struct ConsentDisclosureView<Footer: View>: View {
 
     // MARK: - Actions
 
-    /// 左「不同意」右「同意」，**等宽**：把拒绝做小是在用视觉权重替用户做决定。
-    /// 辅助功能字号下一行放不下两个按钮的字，退回竖排（同意在上）。
-    @ViewBuilder
+    /// 上「同意」下「不同意」，都整行铺满（#776）：一样宽，把拒绝做小是在用视觉权重替用户做决定。
     private var actions: some View {
-        if stacksActions {
-            VStack(spacing: 0) { agreeButton; declineButton }
-        } else {
-            HStack(spacing: 12) { declineButton; agreeButton }
-                .capsuleButtonsInRow()
-        }
+        VStack(spacing: 0) { agreeButton; declineButton }
     }
 
     private var agreeButton: some View {

@@ -570,10 +570,11 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let consent = app.descendants(matching: .any)["blindLocationTrackConsentView"].firstMatch
         XCTAssertTrue(consent.waitForExistence(timeout: 20), "没有先弹出位置轨迹同意页")
-        let agree = app.buttons["blindLocationTrackConsentAgreeButton"].firstMatch
+        // UI 用例强制演示定位 = 系统定位已决定，所以说明页上「继续」与「不同意」都在（#776）。
+        let agree = app.buttons["blindLocationTrackConsentContinueButton"].firstMatch
         let decline = app.buttons["blindLocationTrackConsentDeclineButton"].firstMatch
         XCTAssertTrue(agree.exists && decline.exists)
-        XCTAssertGreaterThanOrEqual(agree.frame.height, 64, "同意按钮低于 64pt")
+        XCTAssertGreaterThanOrEqual(agree.frame.height, 64, "继续按钮低于 64pt")
         XCTAssertGreaterThanOrEqual(decline.frame.height, 64, "不同意按钮低于 64pt")
         XCTAssertFalse(app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
                        "没同意就不该进预约向导")
@@ -588,7 +589,7 @@ final class AccessibilityAuditTests: XCTestCase {
         // 再点一次：仍然要问（拒绝不是同意）；这次同意 → 进向导。
         start.tap()
         XCTAssertTrue(consent.waitForExistence(timeout: 20), "拒绝过的人再点预约，仍要先问")
-        app.buttons["blindLocationTrackConsentAgreeButton"].firstMatch.tap()
+        app.buttons["blindLocationTrackConsentContinueButton"].firstMatch.tap()
         let bookingSurface = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier IN %@", ["blindBookingVoiceOrderButton", "blindBookingFinishSpeakingSurface"]))
             .firstMatch
@@ -631,7 +632,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         slideOpen()
         XCTAssertTrue(consent.waitForExistence(timeout: 20), "拒绝过的人再滑开关，仍要先问")
-        app.buttons["volunteerLocationTrackConsentAgreeButton"].firstMatch.tap()
+        app.buttons["volunteerLocationTrackConsentContinueButton"].firstMatch.tap()
         let hubPill = app.descendants(matching: .any)["volunteerDispatchHubAcceptingPill"].firstMatch
         XCTAssertTrue(hubPill.waitForExistence(timeout: 20), "同意后没有开启并进入接单主页")
     }

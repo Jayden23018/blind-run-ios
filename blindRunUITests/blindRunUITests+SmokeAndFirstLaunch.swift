@@ -157,12 +157,13 @@ extension blindRunUITests {
         XCTAssertTrue(agree.isHittable, "同意按钮必须不滚动就能点到")
         XCTAssertTrue(decline.isHittable, "不同意按钮必须不滚动就能点到")
         // 常规 App 的首启隐私是**居中的小卡片弹窗**，不是整页：卡片要明显比屏幕矮、比屏幕窄，
-        // 且同意在右、不同意在左（与常规 App 一致，点错的代价由位置习惯承担）。
+        // 且两个按钮上下排、同意在上（#776，照系统弹窗与 HIG）。
         let popup = app.descendants(matching: .any)["appLaunchConsentPopup"].firstMatch
         XCTAssertTrue(popup.exists, "首启必须是弹窗卡片，而不是整页")
         XCTAssertLessThan(popup.frame.height, app.frame.height * 0.8, "弹窗不该撑满整个屏幕")
         XCTAssertLessThan(popup.frame.width, app.frame.width, "弹窗左右要留出压暗的背景")
-        XCTAssertLessThan(decline.frame.minX, agree.frame.minX, "左边是不同意，右边是同意")
+        XCTAssertLessThan(agree.frame.minY, decline.frame.minY, "同意在上，不同意在下")
+        XCTAssertEqual(agree.frame.width, decline.frame.width, accuracy: 1, "两个按钮一样宽")
         attachScreenshot(named: "first-launch-consent-default", app: app)
 
         // 最大辅助功能字号：底部栏退回内联（否则按钮占掉大半屏）。只要求都还在，并留图。
