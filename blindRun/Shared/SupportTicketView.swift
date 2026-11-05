@@ -78,23 +78,36 @@ struct SupportTicketView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(SupportTicketCopy.notice)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
+                VStack(alignment: .leading, spacing: 8) {
+                    // 定稿 #755：输入框白卡在上，说明挪到下面当组说明。
                     TextEditor(text: $viewModel.content)
                         .font(AppFonts.body())
+                        .scrollContentBackground(.hidden)
                         .frame(minHeight: 160)
                         .padding(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(AppColors.Flow.ghostStroke, lineWidth: 1)
-                        )
+                        .background(AppColors.Flow.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
+                        .overlay(alignment: .topLeading) {
+                            // 占位字只给看的人；读屏已经从 `accessibilityLabel` 听到同一句。
+                            if viewModel.content.isEmpty {
+                                Text(SupportTicketCopy.prompt)
+                                    .font(AppFonts.body())
+                                    .foregroundColor(AppColors.textSecondary)
+                                    .padding(.horizontal, 13)
+                                    .padding(.vertical, 16)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .focused($isEditorFocused)
                         .accessibilityLabel(SupportTicketCopy.prompt)
                         .accessibilityIdentifier("supportTicketEditor")
+
+                    noticeText
+                        .font(.footnote)
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
 
                     // 剩余字数**只在快写满时出现**：一个一直在变的数字挂在那里，
                     // 读屏用户每次经过都要听一遍，而绝大多数反馈只有两三行。
@@ -106,6 +119,7 @@ struct SupportTicketView: View {
                                     ? AppColors.destructive
                                     : AppColors.textSecondary
                             )
+                            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                             .accessibilityIdentifier("supportTicketRemaining")
                     }
 
@@ -117,12 +131,14 @@ struct SupportTicketView: View {
                             .font(AppFonts.body())
                             .foregroundColor(AppColors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                             .accessibilityIdentifier("supportTicketError")
                     }
                     if viewModel.didSubmit {
                         Label(SupportTicketCopy.submitted, systemImage: "checkmark.circle.fill")
                             .font(AppFonts.body())
                             .foregroundColor(AppColors.success)
+                            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                             .accessibilityIdentifier("supportTicketSubmitted")
                     }
 
@@ -137,20 +153,36 @@ struct SupportTicketView: View {
                             }
                         }
                     }
+                    .padding(.top, 16)
                     .accessibilityIdentifier("supportTicketSubmit")
 
                     // 不放工具栏：系统会把工具栏文字按钮包成字号固定的玻璃按钮，审计判对比度与字号都不过，
                     // 也够不到 64pt（记忆 sheet-toolbar-text-button-fails-audit，举报页 #524 同样处理）。
-                    // 灰按钮，与上面的实心主按钮同形状（#749，举报页同样处理）。
+                    // 定稿 #755：降成一行蓝字，可点区仍是整行 64pt（写在 `TextButtonStyle` 里）。
                     Button(UserSafetyCopy.close) { dismiss() }
-                        .buttonStyle(NeutralButtonStyle())
+                        .buttonStyle(TextButtonStyle(alignment: .center))
                         .accessibilityIdentifier("supportTicketClose")
                 }
-                .padding(20)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 32)
                 .readableContentColumn()
             }
+            .background(AppColors.Flow.page)
             .navigationTitle(SupportTicketCopy.title)
             .navigationBarTitleDisplayMode(.inline)
         }
     }
+
+    /// 说明里「有危险就打 120 / 110」那句加粗。文案仍是 `SupportTicketCopy.notice` 一个常量，
+    /// 这里只按句子拆开上样式；哪天那句改了对不上，就整段照常显示，不丢字。
+    private var noticeText: Text {
+        let notice = SupportTicketCopy.notice
+        guard let range = notice.range(of: Self.dangerSentence) else { return Text(notice) }
+        return Text(notice[..<range.lowerBound])
+            + Text(notice[range]).bold()
+            + Text(notice[range.upperBound...])
+    }
+
+    static let dangerSentence = "如果现在有危险，请直接拨打 120 或 110。"
 }

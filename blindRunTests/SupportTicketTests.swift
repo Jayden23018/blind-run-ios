@@ -91,4 +91,13 @@ final class SupportTicketTests: XCTestCase {
         XCTAssertFalse(SupportTicketCopy.title.contains("求助"))
         XCTAssertFalse(SupportTicketCopy.notice.contains("一键求助"))
     }
+
+    /// 「有危险就打 120 / 110」那句在说明里加粗（#755 定稿）。视图按原句在 `notice` 里找它，
+    /// 找不到就整段照常显示 —— 改了任一边的标点，加粗会静默消失。
+    @MainActor
+    func testDangerSentenceIsFoundInsideTheNoticeSoItCanBeBold() {
+        XCTAssertTrue(SupportTicketCopy.notice.contains(SupportTicketView.dangerSentence))
+        XCTAssertTrue(SupportTicketView.dangerSentence.contains("120"))
+        XCTAssertTrue(SupportTicketView.dangerSentence.contains("110"))
+    }
 }

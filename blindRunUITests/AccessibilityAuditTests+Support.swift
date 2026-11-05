@@ -30,7 +30,10 @@ extension AccessibilityAuditTests {
         )
         attachScreenshot(app, name: "blind-support-ticket-page")
         try audit(app)
-        app.buttons["supportTicketClose"].firstMatch.tap()
+        // #755：「关闭」降成一行蓝字，可点区仍要整行 64pt。
+        let close = app.buttons["supportTicketClose"].firstMatch
+        XCTAssertGreaterThanOrEqual(close.frame.height, 63.5, "「关闭」可点高度不足 64pt：\(close.frame)")
+        close.tap()
 
         revealSupportRow(app, "mySupportTicketsSettingsEntry").tap()
         let row = app.descendants(matching: .any)["mySupportTicketRow"].firstMatch
@@ -38,6 +41,8 @@ extension AccessibilityAuditTests {
         let replied = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@", "客服回复：")).firstMatch
         XCTAssertTrue(replied.exists, "已回复的那条要把客服回复读出来")
+        XCTAssertTrue(row.label.hasPrefix("已回复") || row.label.hasPrefix("已收到"), "状态要在一张工单的最前面念：\(row.label)")
+        XCTAssertFalse(app.tabBars.firstMatch.exists, "我的工单是二级页，要藏标签栏")
         attachScreenshot(app, name: "blind-my-support-tickets")
         try audit(app)
     }

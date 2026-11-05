@@ -211,12 +211,15 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertEqual(object?["role"] as? String, "VOLUNTEER")
     }
 
-    func testInviteCodeCountsCopySwitchesToEmptyWhenNobodyUsedIt() {
-        let none = InviteCodeResponse(inviteCode: "AK37PQR9", invitedCount: 0, rewardedCount: 0)
-        XCTAssertEqual(InviteCodeCopy.countsText(none), InviteCodeCopy.empty)
-
+    /// 人数两行左名右值（#755）：值写成「N 人」，后端给负数或缺字段时按 0 显示。
+    func testInviteCodeCountRowsShowPeopleCountAndClampMissingValues() {
         let some = InviteCodeResponse(inviteCode: "AK37PQR9", invitedCount: 3, rewardedCount: 1)
-        XCTAssertEqual(InviteCodeCopy.countsText(some), "已经有 3 人使用了你的邀请码，其中 1 人已发放奖励。")
+        XCTAssertEqual(InviteCodeCopy.peopleCount(some.resolvedInvitedCount), "3 人")
+        XCTAssertEqual(InviteCodeCopy.peopleCount(some.resolvedRewardedCount), "1 人")
+
+        let missing = InviteCodeResponse(inviteCode: "AK37PQR9", invitedCount: nil, rewardedCount: -2)
+        XCTAssertEqual(InviteCodeCopy.peopleCount(missing.resolvedInvitedCount), "0 人")
+        XCTAssertEqual(InviteCodeCopy.peopleCount(missing.resolvedRewardedCount), "0 人")
     }
 
     /// 展示不改内容，复制拿到的是原样的码 —— 字距靠 `tracking` 给，
@@ -249,10 +252,8 @@ final class IncentiveAdoptionTests: XCTestCase {
             VolunteerPointsCopy.separateFromServiceHours,
             VolunteerPointsCopy.empty,
             VolunteerPointsCopy.loadFailure,
-            InviteCodeCopy.rewardRule,
-            InviteCodeCopy.pointsDisclaimer,
-            InviteCodeCopy.oneShotWarning
-        ]
+            InviteCodeCopy.pointsDisclaimer
+        ] + InviteCodeCopy.rules.flatMap { [$0.title, $0.detail] }
         // 「不能兑换现金」这类**否定式**表述是允许的，被禁的是承诺可兑换。
         let forbidden = ["可兑换", "可提现", "可转让", "转赠", "积分商城已上线", "敬请期待", "折算"]
         for copy in copies {
@@ -269,9 +270,8 @@ final class IncentiveAdoptionTests: XCTestCase {
             VolunteerPointsCopy.disclaimer,
             PartnerStreakCopy.blindNavigationTitle,
             PartnerStreakCopy.volunteerNavigationTitle,
-            InviteCodeCopy.navigationTitle,
-            InviteCodeCopy.rewardRule
-        ]
+            InviteCodeCopy.navigationTitle
+        ] + InviteCodeCopy.rules.flatMap { [$0.title, $0.detail] }
         // 「四个 100」是中宣部/中央文明办/民政部/团中央联合评选的官方称号。
         for copy in copies {
             XCTAssertFalse(copy.contains("最美志愿者"))
@@ -288,10 +288,19 @@ final class IncentiveAdoptionTests: XCTestCase {
 
     /// 🔴 邀请文案必须分角色。写成「邀请好友双方得积分」是错的：
     /// 邀请盲人只记录关系、不发任何积分（后端决策 14）。
+    ///
+    /// #755 起拆成三条、称呼改「陪跑员」：发分只挂在「邀请陪跑员」那条上，「邀请视障跑者」那条写明不发。
+    /// 页名叫「邀请好友」（与「我的」方块同名），但规则本身不许出现不分角色的「好友」。
     func testInviteCopyDistinguishesVolunteerFromBlindRunner() {
-        XCTAssertTrue(InviteCodeCopy.rewardRule.contains("邀请志愿者"))
-        XCTAssertTrue(InviteCodeCopy.rewardRule.contains("不发积分"))
-        XCTAssertFalse(InviteCodeCopy.rewardRule.contains("好友"))
+        XCTAssertEqual(InviteCodeCopy.rules.map(\.title), ["邀请陪跑员", "邀请视障跑者", "注册时就要填"])
+        XCTAssertTrue(InviteCodeCopy.volunteerRuleDetail.contains("20 积分"))
+        XCTAssertTrue(InviteCodeCopy.blindRuleDetail.contains("不发积分"))
+        XCTAssertFalse(InviteCodeCopy.blindRuleDetail.contains("各得"))
+        XCTAssertEqual(InviteCodeCopy.rules.filter(\.isWarning).map(\.detail), [InviteCodeCopy.oneShotWarning])
+        for rule in InviteCodeCopy.rules {
+            XCTAssertFalse(rule.title.contains("好友") || rule.detail.contains("好友"), "规则不分角色：\(rule)")
+            XCTAssertFalse(rule.title.contains("志愿者") || rule.detail.contains("志愿者"), "称呼统一叫陪跑员：\(rule)")
+        }
     }
 
     /// 🔴 填错不会让 `POST /api/user/role` 失败，而且没有任何端点能回查邀请码是否生效

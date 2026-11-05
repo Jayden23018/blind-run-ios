@@ -52,13 +52,15 @@ struct MySupportTicketsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 content
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
             .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(AppColors.Flow.page)
         .navigationTitle(SupportTicketCopy.myTicketsTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar(.hidden, for: .tabBar) // 二级页藏标签栏（记忆 tab-bar-clips-the-last-line-of-secondary-pages）
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mySupportTicketsView")
@@ -94,17 +96,19 @@ struct MySupportTicketsView: View {
         }
     }
 
+    /// 一张工单一张卡（定稿 #755）：左上状态标签、右上日期，「你写的」与「客服回复」之间一条分隔线。
     private func row(_ ticket: SupportTicketSummary) -> some View {
         let time = ticket.createdAt?.nilIfBlank?.displayDateTime
-        return VStack(alignment: .leading, spacing: 8) {
-            // 状态是标签不是装饰：已回复用主色，其余用次要色，但**不靠颜色传达** —— 文字本身就写着。
-            Text(SupportTicketCopy.displayStatus(ticket))
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(ticket.hasReply ? AppColors.primary : AppColors.textPrimary)
-            if let time {
-                Text(time)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
+        return VStack(alignment: .leading, spacing: 10) {
+            AdaptiveHStack(spacing: 8) {
+                statusTag(ticket)
+                Spacer(minLength: 8)
+                if let time {
+                    Text(time)
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if !ticket.content.isEmpty {
                 Text(ticket.content)
@@ -112,10 +116,11 @@ struct MySupportTicketsView: View {
                     .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            GroupedCardDivider(leadingInset: 0)
             if let reply = ticket.csReply {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(SupportTicketCopy.replyLabel)
-                        .font(AppFonts.caption())
+                        .font(.subheadline)
                         .foregroundColor(AppColors.textSecondary)
                     Text(reply)
                         .font(AppFonts.body())
@@ -124,16 +129,33 @@ struct MySupportTicketsView: View {
                 }
             } else {
                 Text(SupportTicketCopy.noReplyYet)
-                    .font(AppFonts.caption())
+                    .font(.subheadline)
                     .foregroundColor(AppColors.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppColors.secondaryBackground))
+        .padding(GroupedCardMetrics.rowHorizontalPadding)
+        .background(AppColors.Flow.surface)
+        .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
         // 一行一个焦点：状态、时间、正文、回复分开念，读屏用户一张工单要划五次。
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(SupportTicketCopy.rowAccessibilityLabel(ticket, time: time))
         .accessibilityIdentifier("mySupportTicketRow")
+    }
+
+    /// 带底色的状态标签，标签里一定有字，颜色不是唯一区分。
+    ///
+    /// 字用主文字色而不用绿字：`success` 绿字压在它自己的浅绿底上亮色只有约 4.1:1，正文字号不达 4.5:1。
+    private func statusTag(_ ticket: SupportTicketSummary) -> some View {
+        Text(SupportTicketCopy.displayStatus(ticket))
+            .font(.footnote.weight(.semibold))
+            .foregroundColor(ticket.hasReply ? AppColors.textPrimary : AppColors.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(ticket.hasReply ? AppColors.success.opacity(0.18) : AppColors.Flow.surfaceSubtle)
+            )
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
