@@ -11,7 +11,7 @@ final class VolunteerHomeColorContrastTests: XCTestCase {
     private let darkCard: UInt32 = 0x1C1C1E
 
     func testCardTitleColorsAreReadableOnBothCardSurfaces() {
-        XCTAssertEqual(AppColors.VolunteerHome.cardTitleTones.count, 3, "三种卡名色都要进这张表")
+        XCTAssertEqual(AppColors.VolunteerHome.cardTitleTones.count, 4, "四种卡名色（含 #710 跑步数据页的里程靛蓝）都要进这张表")
         XCTAssertEqual(AppColors.Flow.surfaceTone.light, lightCard)
         XCTAssertEqual(AppColors.Flow.surfaceTone.dark, darkCard)
         for (name, tone) in AppColors.VolunteerHome.cardTitleTones {
@@ -38,5 +38,21 @@ final class VolunteerHomeColorContrastTests: XCTestCase {
         let rating = AppColors.VolunteerHome.ratingAmberTone
         XCTAssertNotEqual(streak.light, rating.light)
         XCTAssertNotEqual(streak.dark, rating.dark)
+    }
+
+    /// 陪跑日历五档（#710）：跑过的格子（1–4 档）亮色下逐档变深、暗色下逐档变亮，且都和「没跑」那格拉开。
+    /// 顺序一乱，「多」会看起来比「少」还浅 —— 图上没有任何报错。
+    func testCalendarLevelsGetMoreProminentStepByStep() {
+        let tones = AppColors.VolunteerHome.calendarLevelTones
+        XCTAssertEqual(tones.count, 5)
+        let light = tones.map { LowVisionChannelTests.relativeLuminance($0.light) }
+        let dark = tones.map { LowVisionChannelTests.relativeLuminance($0.dark) }
+        for index in 1..<tones.count {
+            XCTAssertLessThan(light[index], light[index - 1], "亮色第 \(index) 档应比第 \(index - 1) 档深")
+            XCTAssertGreaterThan(dark[index], dark[index - 1], "暗色第 \(index) 档应比第 \(index - 1) 档亮")
+        }
+        // 最深一档压白卡、最亮一档压暗卡要过图形 3:1（WCAG 1.4.11）：至少「跑得最多」的那几天一眼看得出。
+        XCTAssertGreaterThanOrEqual(LowVisionChannelTests.contrastRatio(tones[4].light, lightCard), 3)
+        XCTAssertGreaterThanOrEqual(LowVisionChannelTests.contrastRatio(tones[4].dark, darkCard), 3)
     }
 }

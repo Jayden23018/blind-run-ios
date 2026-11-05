@@ -141,6 +141,103 @@ extension MockAPIClient {
         nextOrderId = 10
     }
 
+    /// UI 用例与截图种「连续陪跑」跑步数据页的近半年样例（#710）：`AIDRUN_UI_TEST_SEED_RUN_DATA=1`。
+    ///
+    /// 照定稿 `run-data-final.html` 页内脚本生成（同一个伪随机种子 11）：26 周里有两周中断、
+    /// 每周 1–3 次、每次 2–6.6 公里；第 12–18 周与最后 3 周的第一单都和「李*」跑 ——
+    /// 与 `handleGetPartnerStreaks` 的「李* 连续 3 周、最好 7 周」对得上。
+    /// 数字是写死的样例，不是从轨迹算的；只为截图里看得出图的起伏。
+    func seedRunDataForUITestIfRequested() {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_RUN_DATA"] == "1" else { return }
+        let calendar = Calendar.volunteerRunData
+        let fullNames = ["李*": "李明", "王*": "王芳", "张*": "张伟"]
+        let formatter = DateFormatter.aidRunBackendLocalDateTime
+        orders = Self.mockRunDataSchedule(now: Date(), calendar: calendar)
+            .sorted { $0.day > $1.day }
+            .enumerated()
+            .map { index, run in
+                let orderId = Int64(2_000 + index)
+                let finished = calendar.date(bySettingHour: 6, minute: 30, second: 0, of: run.day) ?? run.day
+                runRecordSamples[orderId] = MockRunRecordSample(
+                    distanceM: Int((run.km * 1_000).rounded()),
+                    serviceMin: Int((run.km * 8.5 + 18).rounded())
+                )
+                return Self.mockCompletedOrder(
+                    orderId: orderId, stamp: formatter.string(from: finished), place: run.place, blindName: fullNames[run.partner]
+                )
+            }
+        nextOrderId = 3_000
+    }
+
+    /// 定稿脚本的那份日程：(哪天, 公里, 搭档掩码名, 地点)。
+    static func mockRunDataSchedule(now: Date, calendar: Calendar) -> [(day: Date, km: Double, partner: String, place: String)] {
+        let thisMonday = VolunteerRunDataSummary.monday(of: now, calendar: calendar)
+        let todayIndex = (calendar.component(.weekday, from: now) + 5) % 7
+        guard let start = calendar.date(byAdding: .weekOfYear, value: -25, to: thisMonday) else { return [] }
+        var seed: UInt64 = 11
+        func random() -> Double {
+            seed = (seed * 16_807) % 2_147_483_647
+            return Double(seed - 1) / 2_147_483_646
+        }
+        let places = ["西湖", "钱塘江边", "运河公园", "西湖"]
+        let pool = [5, 6, 5, 6, 2, 3, 1]
+        var runs: [(day: Date, km: Double, partner: String, place: String)] = []
+        for week in 0..<26 where week != 9 && week != 10 {
+            guard let monday = calendar.date(byAdding: .weekOfYear, value: week, to: start) else { continue }
+            if week == 25 {
+                // 本周一单，落在今天之前（今天是周一就落在今天一早）。
+                runs.append((calendar.date(byAdding: .day, value: min(1, todayIndex), to: monday) ?? monday, 4.2, "李*", "西湖"))
+                continue
+            }
+            let count = random() < 0.3 ? 1 : (random() < 0.75 ? 2 : 3)
+            var used = Set<Int>()
+            for index in 0..<count {
+                var weekday = pool[Int(random() * Double(pool.count))]
+                if used.contains(weekday) { weekday = (weekday + 3) % 7 }
+                used.insert(weekday)
+                let partner = index == 0
+                    ? ((12...18).contains(week) || week >= 23 ? "李*" : "王*")
+                    : (random() < 0.5 ? "张*" : "王*")
+                let km = ((2 + random() * 4.6) * 10).rounded() / 10
+                let place = places[Int(random() * Double(places.count))]
+                if let day = calendar.date(byAdding: .day, value: weekday, to: monday) {
+                    runs.append((day, km, partner, place))
+                }
+            }
+        }
+        return runs
+    }
+
+    /// 一张已完成的样例单。`stamp` 是后端无时区的 `LocalDateTime` 串（`finishedAt` 归月靠它）。
+    static func mockCompletedOrder(orderId: Int64, stamp: String, place: String, blindName: String?) -> OrderDetailResponse {
+        OrderDetailResponse(
+            orderId: orderId,
+            status: .completed,
+            startAddress: place,
+            startLatitude: 30.2590,
+            startLongitude: 120.1480,
+            endAddress: nil,
+            endLatitude: nil,
+            endLongitude: nil,
+            plannedStart: stamp,
+            plannedEnd: stamp,
+            blindName: blindName,
+            blindPhone: "13800001001",
+            volunteerPhone: nil,
+            acceptedAt: nil,
+            createdAt: stamp,
+            expectedDurationMinutes: 60,
+            pacePreference: .moderate,
+            routePreference: .parkTrail,
+            routeNotes: nil,
+            hasGuideDogThisRun: false,
+            specialNotes: nil,
+            visionLevel: "TOTAL_BLIND",
+            tetherPreference: "TETHER_ROPE",
+            chatPreference: "PREFER_CHAT"
+        )
+    }
+
     /// 后端按 `finishedAt` 归月；`OrderDetailResponse` 没有这个字段，Mock 用 `createdAt` 近似。
     func handleGetMyRunRecords(query: [String: String]?) throws -> RunRecordHistoryResponse {
         guard let month = query?["month"],
@@ -155,7 +252,7 @@ extension MockAPIClient {
                 finishedAt: order.createdAt ?? "\(month)-01T08:13:00",
                 place: order.startAddress,
                 partnerName: isBlind ? order.volunteerName : WeChatShareCard.maskedName(order.blindName),
-                distanceM: 1_040,
+                distanceM: runRecordSamples[order.orderId]?.distanceM ?? 1_040,
                 // 缩略图只给陪跑员。一圈 8 个点绕回起点：只给一个点的话，列表里的路线形状
                 // 在 Mock 下永远是一个圆点，界面阶段验不出折线画没画对。
                 thumbnail: isBlind ? nil : order.startLatitude.flatMap { lat in
@@ -172,8 +269,8 @@ extension MockAPIClient {
             month: month,
             monthSummary: RunMonthSummary(
                 runs: items.count,
-                distanceM: items.isEmpty ? nil : items.count * 1_040,
-                serviceMin: isBlind ? nil : Int64(items.count * 13),
+                distanceM: items.isEmpty ? nil : items.compactMap(\.distanceM).reduce(0, +),
+                serviceMin: isBlind ? nil : Int64(completed.map { runRecordSamples[$0.orderId]?.serviceMin ?? 13 }.reduce(0, +)),
                 topPartner: items.first.map { RunTopPartner(name: $0.partnerName, runs: items.count) }
             ),
             items: items
@@ -222,4 +319,10 @@ extension MockAPIClient {
 private struct MockRunRecordMessageBody: Decodable {
     let type: String
     let text: String
+}
+
+/// 跑步数据页样例的一单（#710）。
+struct MockRunRecordSample {
+    let distanceM: Int?
+    let serviceMin: Int
 }

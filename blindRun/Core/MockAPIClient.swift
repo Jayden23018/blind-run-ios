@@ -75,6 +75,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 跑后留言，`GET /api/orders/{id}/run-record` 的 `messages` 回放源。
     var runRecordMessages: [Int64: [RunRecordMessageResponse]] = [:]
 
+    /// 跑步数据页的样例（#710）：按订单号存公里、陪伴分钟。没有条目的单照旧按 1.04 公里。
+    /// 只由 `seedRunDataForUITestIfRequested` 写入。
+    var runRecordSamples: [Int64: MockRunRecordSample] = [:]
+
     /// 志愿者已单方面退出的固定搭档（`DELETE /api/volunteer/favorites/{blindUserId}`）。
     ///
     /// 只记 userId、不删行 —— 与后端一致：退出是**打标记不是删行**，
@@ -153,6 +157,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     init() {
         seedDemoData()
         seedHomeHistoryForUITestIfRequested()
+        seedRunDataForUITestIfRequested()
         // Mock 默认未完成培训，而未完成培训滑不开开关。测开关本身的 UI 用例用它声明前提。
         if ProcessInfo.processInfo.environment["AIDRUN_MOCK_VOLUNTEER_TRAINING_COMPLETED"] == "1" {
             completeAllRequiredTrainingForTesting()

@@ -128,18 +128,35 @@ enum AppColors {
         static let durationTealTone = Tone(light: 0x0A6B72, dark: 0x4FC3CC)
         static let streakOrangeTone = Tone(light: 0xC2410C, dark: 0xFF8A4C)
         static let ratingAmberTone = Tone(light: 0x9A5B00, dark: 0xF0B54A)
+        /// 「连续陪跑」跑步数据页的里程靛蓝（#710 定稿 `run-data-final.html` 原值；暗色 6.7:1）。
+        static let distanceIndigoTone = Tone(light: 0x3D4FB8, dark: 0x8C9BFF)
         static let skyTopTone = Tone(light: 0xCFE3F7, dark: 0x0F2033)
         static let skyMidTone = Tone(light: 0xE7EEF6, dark: 0x0A121C)
 
         static let cardTitleTones: [(name: String, tone: Tone)] = [
             ("durationTeal", durationTealTone),
             ("streakOrange", streakOrangeTone),
-            ("ratingAmber", ratingAmberTone)
+            ("ratingAmber", ratingAmberTone),
+            ("distanceIndigo", distanceIndigoTone)
         ]
 
         static let durationTeal = dynamic(durationTealTone.light, durationTealTone.dark)
         static let streakOrange = dynamic(streakOrangeTone.light, streakOrangeTone.dark)
         static let ratingAmber = dynamic(ratingAmberTone.light, ratingAmberTone.dark)
+        static let distanceIndigo = dynamic(distanceIndigoTone.light, distanceIndigoTone.dark)
+
+        /// 陪跑日历五档：第 0 档是「没跑」，1–4 档按当天公里由浅到深（亮色取定稿原值）。
+        ///
+        /// **只当图形用，不承载唯一信息**：卡上有陪跑天数，读屏摘要与 AX3 以上的按月列表给出每月天数。
+        /// 硬约束只有一条：跑过的格子（1–4 档）**都要比**没跑的格子深（亮色）/ 亮（暗色），
+        /// 且相邻两档明暗单调 —— 不然「多」看起来比「少」还浅。`VolunteerHomeColorContrastTests` 钉住。
+        static let calendarLevelTones: [Tone] = [
+            Tone(light: 0xECE7E2, dark: 0x2C2C2E),
+            Tone(light: 0xF7CDAE, dark: 0x5C2E12),
+            Tone(light: 0xEE9D66, dark: 0x8F4519),
+            Tone(light: 0xD4682B, dark: 0xD2611F),
+            Tone(light: 0x9E3F0D, dark: 0xFF8A4C)
+        ]
         static let skyTop = dynamic(skyTopTone.light, skyTopTone.dark)
         static let skyMid = dynamic(skyMidTone.light, skyMidTone.dark)
     }

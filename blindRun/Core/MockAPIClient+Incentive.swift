@@ -94,6 +94,12 @@ extension MockAPIClient {
 
     /// 契约：**只返回已点亮的**（默认门槛连续 2 周），按 `currentWeeks` 倒序。
     /// 未点亮的一对根本不在数组里 —— 所以这里也不放 `currentWeeks == 1` 的条目。
+    /// 本周的 ISO 周号（`2026-W45`）。只给 Mock 拼 `lastCreditedWeek` 用。
+    static func mockCurrentISOWeek(now: Date = Date()) -> String {
+        let week = ISOWeekKey(containing: now, calendar: .volunteerRunData)
+        return String(format: "%04d-W%02d", week.year, week.week)
+    }
+
     func handleGetPartnerStreaks(asBlind: Bool) -> [PartnerStreakResponse] {
         guard !orders.filter({ $0.status == .completed }).isEmpty else { return [] }
         let blocked = Set(blockedUsers.map(\.userId))
@@ -104,7 +110,8 @@ extension MockAPIClient {
                 partnerName: asBlind ? "张*" : "李*",
                 currentWeeks: 3,
                 bestWeeks: 7,
-                lastCreditedWeek: "2026-W34"
+                // 跑步数据页样例里本周和李*跑过（#710），那时本周就是记上的那一周。
+                lastCreditedWeek: runRecordSamples.isEmpty ? "2026-W34" : Self.mockCurrentISOWeek()
             ),
             PartnerStreakResponse(
                 id: 8002,

@@ -282,7 +282,10 @@ extension MockAPIClient {
         let totalCompleted = orders.filter { $0.status == .completed }.count
         // 每单按 60 分钟计。Mock 里订单没有真实的 IN_PROGRESS → COMPLETED 时间戳，
         // 编一个精确到分钟的数只会让人以为它有意义。
-        let totalServiceMinutes = Int64(totalCompleted) * 60
+        // 跑步数据页样例（#710）在时按样例加总，让「累计陪伴」和每月柱对得上。
+        let totalServiceMinutes = runRecordSamples.isEmpty
+            ? Int64(totalCompleted) * 60
+            : Int64(runRecordSamples.values.map(\.serviceMin).reduce(0, +))
         let avgRating: Double? = totalCompleted > 0 ? 5.0 : nil
         let totalRatings = totalCompleted
 
@@ -312,7 +315,9 @@ extension MockAPIClient {
             totalCompleted: totalCompleted,
             totalServiceMinutes: totalServiceMinutes,
             // 每单按 5 公里计，同上：Mock 没有真实轨迹，编个精确值没有意义，只为走通「公里」那条路径。
-            totalDistanceMeters: Int64(totalCompleted) * 5_000,
+            totalDistanceMeters: runRecordSamples.isEmpty
+                ? Int64(totalCompleted) * 5_000
+                : Int64(runRecordSamples.values.compactMap(\.distanceM).reduce(0, +)),
             avgRating: avgRating,
             totalRatings: totalRatings,
             badges: table.filter(\.unlocked).map { VolunteerBadgeDto(code: $0.code, name: $0.name) },

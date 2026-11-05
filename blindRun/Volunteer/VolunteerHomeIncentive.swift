@@ -34,6 +34,10 @@ struct VolunteerHomeIncentiveSummary: Equatable {
     /// 火花那一对的对方姓名（后端已掩码）。
     let streakPartnerName: String?
 
+    /// 火花那一对最近记上的那一周（ISO 周字符串 `2026-W45`，不是日期）。
+    /// 跑步数据页的「本周记上没有」读它 —— 与首页卡同一条火花，不在数据页重拉（#710）。
+    let streakLastCreditedWeek: String?
+
     /// `GET /api/volunteer/achievements` 的整份响应。
     ///
     /// 🚩 **它和上面的 `nextBadge` 不是重复字段。** `nextBadge` 是这份口径类型原本就有的
@@ -52,12 +56,14 @@ struct VolunteerHomeIncentiveSummary: Equatable {
         nextBadge: VolunteerNextBadgeDto?,
         streak: PartnerStreakDisplay?,
         streakPartnerName: String?,
+        streakLastCreditedWeek: String? = nil,
         achievements: VolunteerAchievementsResponse? = nil
     ) {
         self.favoritedByCount = favoritedByCount
         self.nextBadge = nextBadge
         self.streak = streak
         self.streakPartnerName = streakPartnerName
+        self.streakLastCreditedWeek = streakLastCreditedWeek
         self.achievements = achievements
     }
 
