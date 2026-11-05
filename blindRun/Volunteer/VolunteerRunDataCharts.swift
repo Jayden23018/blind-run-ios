@@ -20,8 +20,16 @@ struct VolunteerRunDataBarChart: View {
     var highlightsLast = true
 
     var body: some View {
+        VStack(spacing: 6) {
+            chart
+            VolunteerRunDataAxisLabels(count: values.count, labels: axisLabels)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var chart: some View {
         let top = max(values.max() ?? 0, average ?? 0, 0.1) * 1.12
-        Chart {
+        return Chart {
             ForEach(Array(values.enumerated()), id: \.offset) { index, value in
                 BarMark(
                     x: .value("段", "\(index)"),
@@ -43,19 +51,51 @@ struct VolunteerRunDataBarChart: View {
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 3]))
             }
         }
-        .chartXAxis {
-            AxisMarks(values: axisLabels.keys.sorted().map { "\($0)" }) { value in
-                AxisValueLabel(centered: true) {
-                    if let key = value.as(String.self), let index = Int(key), let label = axisLabels[index] {
-                        Text(label)
+        // 横轴文字自己画：Charts 把分类轴的标签宽度限在一根柱的宽度里，半年档 26 根柱时
+        // 两端的「5月」「11月」被压成「…」（2026-11-05 真机审计报 Text clipped）。
+        .chartXAxis(.hidden)
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
+/// 柱图下面那行刻度文字：每个标签对准它那根柱的中心，靠边的改成向内对齐，不截断。
+struct VolunteerRunDataAxisLabels: View {
+    let count: Int
+    let labels: [Int: String]
+
+    var body: some View {
+        // 先用一行看不见的字撑出高度（跟字号走），再按柱的位置摆每个标签。
+        Text("1月")
+            .font(.caption)
+            .hidden()
+            .frame(maxWidth: .infinity)
+            .overlay {
+                GeometryReader { proxy in
+                    let band = proxy.size.width / CGFloat(max(1, count))
+                    ForEach(labels.keys.sorted(), id: \.self) { index in
+                        let centre = band * (CGFloat(index) + 0.5)
+                        let alignment: Alignment = centre < band * 2 ? .leading : (centre > proxy.size.width - band * 2 ? .trailing : .center)
+                        Text(labels[index] ?? "")
                             .font(.caption)
                             .foregroundColor(AppColors.textSecondary)
+                            .fixedSize()
+                            .frame(width: Self.slot, alignment: alignment)
+                            .position(x: Self.slotCentre(centre, alignment: alignment, band: band), y: proxy.size.height / 2)
                     }
                 }
             }
+    }
+
+    private static let slot: CGFloat = 64
+
+    /// 靠左的标签左沿对准柱左沿，靠右的右沿对准柱右沿，其余居中。
+    private static func slotCentre(_ centre: CGFloat, alignment: Alignment, band: CGFloat) -> CGFloat {
+        switch alignment {
+        case .leading: return centre - band / 2 + slot / 2
+        case .trailing: return centre + band / 2 - slot / 2
+        default: return centre
         }
-        .frame(height: height)
-        .accessibilityHidden(true)
     }
 }
 

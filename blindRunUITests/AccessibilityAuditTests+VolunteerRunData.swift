@@ -60,7 +60,8 @@ extension AccessibilityAuditTests {
         let app = openVolunteerRunData()
         let chart = app.descendants(matching: .any)["volunteerRunData.mileageChart"].firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 15), "里程图没出来")
-        for _ in 0..<6 where !chart.isHittable { app.swipeUp() }
+        // 把分段切换顶到导航栏下面：切换与整张图同屏，截图才看得到图。
+        scrollRunDataSection(app, "volunteerRunDataRange.week")
         XCTAssertTrue(chart.label.hasPrefix("里程，半年"), "默认应当是半年档：\(chart.label)")
 
         for (range, title) in [("week", "周"), ("month", "月"), ("year", "年"), ("halfYear", "半年")] {
@@ -73,10 +74,46 @@ extension AccessibilityAuditTests {
         }
     }
 
-    /// 默认字号的亮 / 暗逐屏过审计，每屏截一张。
+    /// 页面从上到下的分节锚点。审计会把页面滚回顶部（`.dynamicType` / `.textClipped`，见 `audit`），
+    /// 所以不能「审一屏、滑一下」地往下走，要每次按锚点重新定位。
+    static let runDataSections = [
+        "volunteerRunData.streak",
+        "volunteerRunData.calendar",
+        "volunteerRunDataRange.week",
+        "volunteerRunData.durationChart",
+        "volunteerRunData.comparison",
+        "volunteerRunData.longest",
+        "volunteerRunData.partners",
+        "volunteerRunData.record.0",
+        "volunteerRunData.partnersLink"
+    ]
+
+    /// 把一节的上沿拖到导航栏下沿下面一点（按住再拖，不带惯性）；到页底拖不动了就停。
+    @MainActor
+    @discardableResult
+    func scrollRunDataSection(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
+        let element = app.descendants(matching: .any)[identifier].firstMatch
+        XCTAssertTrue(element.waitForExistence(timeout: 10), "跑步数据页没有「\(identifier)」")
+        let bar = app.navigationBars.firstMatch
+        let target = (bar.exists ? bar.frame.maxY : 120) + 12
+        var previous: CGRect?
+        for _ in 0..<12 {
+            let frame = element.frame
+            if abs(frame.minY - target) < 8 || frame == previous { break }
+            previous = frame
+            let shift = max(-480, min(480, target - frame.minY))
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: shift < 0 ? 0.85 : 0.3))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: shift)))
+        }
+        waitUntilSettled(element)
+        return element
+    }
+
+    /// 默认字号的亮 / 暗逐节过审计，每节截一张。
     /// 陪跑员端不测最大字号（负责人 2026-11-05 定，记忆 `volunteer-side-no-largest-text-tests`）。
     ///
-    /// ⚠️ 审计只看屏幕上的元素：每滚一屏审一次，一直滚到页底的规则说明出现。
+    /// 审计只看屏幕上的元素，所以按 `runDataSections` 逐节滚到导航栏下面再审。
+    /// 滚到导航栏后面的上一节内容由 `audit` 的导航栏遮挡判据放过（几何上看不见）。
     @MainActor
     func testVolunteerRunDataPassesAuditInLightAndDark() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
@@ -86,19 +123,11 @@ extension AccessibilityAuditTests {
             let app = openVolunteerRunData(environment: variant.environment, arguments: variant.arguments)
             let calendar = app.descendants(matching: .any)["volunteerRunData.calendar"].firstMatch
             XCTAssertTrue(calendar.waitForExistence(timeout: 15), "\(variant.name)：陪跑日历没出来")
-            let link = app.descendants(matching: .any)["volunteerRunData.partnersLink"].firstMatch
-            var screen = 1
-            while true {
-                waitUntilSettled(app.descendants(matching: .any)["volunteerRunDataView"].firstMatch)
-                attachScreenshot(app, name: "volunteer-run-data-\(variant.name)-\(screen)")
+            for (index, section) in Self.runDataSections.enumerated() {
+                let element = scrollRunDataSection(app, section)
+                XCTAssertLessThanOrEqual(element.frame.maxY, app.frame.maxY, "\(variant.name)：「\(section)」滚不进屏幕")
+                attachScreenshot(app, name: "volunteer-run-data-\(variant.name)-\(index + 1)")
                 try audit(app)
-                if link.isHittable && link.frame.maxY < app.frame.maxY - 40 { break }
-                guard screen < 14 else {
-                    XCTFail("\(variant.name)：滚了 \(screen) 屏还没到页底")
-                    break
-                }
-                app.swipeUp()
-                screen += 1
             }
             app.terminate()
         }
