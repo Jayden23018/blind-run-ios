@@ -308,7 +308,7 @@ enum ErrorCode: String, Codable, Sendable {
             return "服务器内部错误，请稍后重试。"
         case .idInfoInvalid:
             return "身份信息核验未通过，请检查后重试。"
-        case .idCardAlreadyRegistered: return "这个身份证号已经注册过志愿者，一个身份证只能注册一个志愿者账号。如果不是你本人注册的，请联系客服。"
+        case .idCardAlreadyRegistered: return "这个身份证号已经注册过志愿者，一个身份证只能注册一个志愿者账号。请用原来的账号登录；如果不是你本人注册的，请联系客服。"
         case .orderInProgress:
             // 后端只在「取消受阻」这一处抛该码（`OrderLifecycleService`），文案跟着这个唯一场景走。
             return "陪跑员已出发或服务进行中，如需取消请联系陪跑员。"

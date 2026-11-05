@@ -55,7 +55,7 @@ The iOS client SHALL treat registration as complete only when registration statu
 ## ADDED Requirements
 
 ### Requirement: One ID card registers one volunteer
-When the basic-info submission fails because the ID card number is already used by another volunteer account, the iOS client SHALL stay on the identity page and SHALL show and announce “这个身份证号已经注册过志愿者，一个身份证只能注册一个志愿者账号。如果不是你本人注册的，请联系客服。”. The client MUST NOT tell the volunteer to check the ID card, because the ID card is valid.
+When the basic-info submission fails because the ID card number is already used by another volunteer account, the iOS client SHALL stay on the identity page and SHALL show and announce “这个身份证号已经注册过志愿者，一个身份证只能注册一个志愿者账号。请用原来的账号登录；如果不是你本人注册的，请联系客服。”. The client MUST NOT tell the volunteer to check the ID card, because the ID card is valid.
 
 #### Scenario: ID card already used by another volunteer account
 - **WHEN** `POST /api/volunteer/registration/step1` returns the backend error code for an ID card already used by another volunteer account
