@@ -595,7 +595,7 @@ struct VolunteerCertificateUploadView: View {
         let noun = viewModel.materialNoun
         let hasCamera = VolunteerCertificateCameraPicker.isAvailable
         return VStack(alignment: .leading, spacing: 8) {
-            VolunteerAccountGroup {
+            GroupedCard {
                 if hasCamera {
                     Button {
                         showsCamera = true
@@ -605,7 +605,7 @@ struct VolunteerCertificateUploadView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("拍照")
                     .accessibilityHint("打开相机拍摄\(noun)照片")
-                    VolunteerAccountRowDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
+                    GroupedCardDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
                 }
 
                 PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
@@ -614,7 +614,7 @@ struct VolunteerCertificateUploadView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("从相册选择")
                 .accessibilityHint("从相册中选择一张\(noun)照片")
-                VolunteerAccountRowDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
+                GroupedCardDivider(leadingInset: VolunteerAccountActionRowLabel.dividerInset)
 
                 Button {
                     showsFileImporter = true
@@ -632,7 +632,7 @@ struct VolunteerCertificateUploadView: View {
 
             // 替代路径传的是身份材料，不是一束光的证书，这句对他没有意义。
             if !viewModel.isAlternativeIdentityPath {
-                VolunteerAccountFootnote(text: VolunteerCertificateCopy.noCertificateHelp)
+                GroupedCardFootnote(text: VolunteerCertificateCopy.noCertificateHelp)
                     .accessibilityIdentifier("volunteerCertificateNoCertificateHelp")
             }
         }
@@ -642,7 +642,7 @@ struct VolunteerCertificateUploadView: View {
     @ViewBuilder
     private var selectedFileSection: some View {
         if let file = viewModel.selectedFile {
-            VolunteerAccountGroup {
+            GroupedCard {
                 HStack(spacing: VolunteerAccountMetrics.iconSpacing) {
                     VolunteerAccountIconSquare(systemImage: "doc.badge.plus", tint: AppColors.primary)
 
@@ -666,9 +666,9 @@ struct VolunteerCertificateUploadView: View {
                     .accessibilityLabel("移除已选文件")
                     .accessibilityHint("移除后可以重新选择\(viewModel.materialNoun)")
                 }
-                .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                 .padding(.vertical, 8)
-                .frame(minHeight: VolunteerAccountMetrics.rowMinHeight)
+                .frame(minHeight: GroupedCardMetrics.rowMinHeight)
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("volunteerCertificateSelectedFile")

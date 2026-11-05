@@ -19,7 +19,7 @@ extension blindRunUITests {
         app.launchEnvironment["AIDRUN_MOCK_DELETE_EMERGENCY_BLOCKED"] = "1"
         app.launch()
 
-        openSettings(app)
+        openBlindAccount(app) // 删除账户在账户页（#711）
         let deleteButton = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
         // 先滑到底，否则触点可能落在标签栏上。

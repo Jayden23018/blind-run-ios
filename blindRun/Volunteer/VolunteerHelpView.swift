@@ -153,7 +153,7 @@ struct VolunteerHelpSettingsLink: View {
         NavigationLink {
             VolunteerHelpView(isFirstRun: false)
         } label: {
-            VolunteerSettingsRowLabel(title: "使用帮助")
+            SettingsRowLabel(title: "使用帮助")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("使用帮助")

@@ -10,7 +10,7 @@ extension blindRunUITests {
     @MainActor
     func testBlindProfileGuideDogChoiceIsTallAndSpeaksTheCurrentValue() throws {
         let app = launchBlindContactsApp()
-        openSettings(app)
+        openBlindAccount(app)
         tapNavigationRow(app, labelBeginsWith: "个人资料")
 
         let disclosure = app.buttons["blindProfileVisionConsentDisclosure"].firstMatch

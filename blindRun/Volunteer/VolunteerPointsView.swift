@@ -105,7 +105,7 @@ struct VolunteerPointsView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.Flow.surface)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityIdentifier("volunteerPointsBalance")
@@ -124,7 +124,7 @@ struct VolunteerPointsView: View {
         }
         .font(.footnote)
         .foregroundColor(AppColors.textSecondary)
-        .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+        .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("volunteerPointsDisclaimer")
@@ -147,17 +147,17 @@ struct VolunteerPointsView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .background(AppColors.Flow.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VolunteerAccountMetrics.cardRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("volunteerPointsEmpty")
         } else {
             VolunteerAccountSectionTitle(title: VolunteerPointsCopy.ledgerSectionTitle)
 
             // 后端按时间倒序，原样一行一条，不合并、不过滤。
-            VolunteerAccountGroup {
+            GroupedCard {
                 ForEach(Array(transactions.enumerated()), id: \.offset) { index, transaction in
                     if index > 0 {
-                        VolunteerAccountRowDivider(leadingInset: Self.rowDividerInset)
+                        GroupedCardDivider(leadingInset: Self.rowDividerInset)
                     }
                     row(transaction)
                 }
@@ -180,7 +180,7 @@ struct VolunteerPointsView: View {
     private static let rowIconWidth: CGFloat = 28
     private static let rowIconSpacing: CGFloat = 12
     /// 分隔线从文字起点开始：行内距 + 图标宽 + 图标到文字的间距。
-    private static let rowDividerInset = VolunteerAccountMetrics.rowHorizontalPadding + rowIconWidth + rowIconSpacing
+    private static let rowDividerInset = GroupedCardMetrics.rowHorizontalPadding + rowIconWidth + rowIconSpacing
 
     /// 一行流水：左图标、中间原因与日期、右边加减分（定稿照健康「所有已记录的数据」）。
     ///
@@ -218,9 +218,9 @@ struct VolunteerPointsView: View {
                 .foregroundColor(color(for: transaction.kind))
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, VolunteerAccountMetrics.rowHorizontalPadding)
+        .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: VolunteerAccountMetrics.rowMinHeight, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: GroupedCardMetrics.rowMinHeight, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(transaction.accessibilityLabel)
     }

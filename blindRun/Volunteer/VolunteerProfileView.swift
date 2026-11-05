@@ -106,16 +106,16 @@ struct VolunteerProfileView: View {
                 header(content.displayName)
 
                 if !content.rows.isEmpty {
-                    VolunteerAccountGroup {
+                    GroupedCard {
                         ForEach(Array(content.rows.enumerated()), id: \.element.id) { index, row in
                             if index > 0 {
-                                VolunteerAccountRowDivider()
+                                GroupedCardDivider()
                             }
                             VolunteerAccountValueRow(title: row.title, value: row.value, spokenValue: row.spokenValue)
                                 .accessibilityIdentifier("volunteerAccountProfileRow.\(row.id)")
                         }
                     }
-                    VolunteerAccountFootnote(text: VolunteerAccountProfileCopy.readOnlyNote)
+                    GroupedCardFootnote(text: VolunteerAccountProfileCopy.readOnlyNote)
                         .accessibilityIdentifier("volunteerAccountProfileReadOnlyNote")
                 }
             }

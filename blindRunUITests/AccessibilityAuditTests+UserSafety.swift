@@ -73,9 +73,11 @@ extension AccessibilityAuditTests {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10))
         tabBar.buttons["我的"].tap()
+        XCTAssertTrue(revealButton(app, "supportTicketSettingsEntry").exists, "账号停用提示指向的「联系客服」要在「我的」上")
+        for _ in 0..<6 { app.swipeDown() }
+        app.openBlindAccountPage() // #711 起已拉黑的人在账户页
         let entry = revealButton(app, "blockedUsersSettingsEntry", maxDrags: 24)
         XCTAssertGreaterThanOrEqual(entry.frame.height, 63.5, "设置入口可点高度不足 64pt：\(entry.frame)")
-        XCTAssertTrue(app.buttons["supportTicketSettingsEntry"].exists, "账号停用提示指向的「上报问题」要在这里")
         attachScreenshot(app, name: "blind-settings-safety-rows")
         entry.tap()
 

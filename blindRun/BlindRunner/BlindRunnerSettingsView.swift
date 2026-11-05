@@ -1,172 +1,220 @@
-import Combine
 import SwiftUI
 
-// MARK: - Blind Runner Settings View
+// 盲人端「我的」：底部标签的根页，也是引导页 push 进来的「设置」页。
+// 定稿：`docs/ui/mockups/blind-profile-20261105/`（负责人 2026-11-05：「和陪跑员完全一致」，按 v1 做，#711）。
+//
+// 与陪跑员「我的」同一套版式与组件（`Shared/SettingsTileComponents.swift`）：头像卡 → 账户页；常用入口做成两列方块；其余留在列表。
+// 和陪跑员版只差两处：方块四个；列表行一律 64pt。
+// 没有紧急呼叫行：负责人 2026-11-05「盲人的“我的”界面不需要一个常驻的求助按钮」，整行删掉（#711）。
+// 求助走标签栏容器上的 Magic Tap（`BlindRunnerTabView`）和订单页的「求助与安全」。
+// 现有入口一个不少，`accessibilityIdentifier` 原样保留：UI 用例按它找入口。
+
+enum BlindSettingsCopy {
+    static let tabTitle = "我的"
+    /// 从引导页 push 进来时仍叫「设置」，那条路的用户是来改设置的。
+    static let onboardingTitle = "设置"
+    static let accountCardSubtitle = "个人资料、实名与账户"
+    static let categoriesTitle = "类别"
+    static let unnamed = "未填写"
+}
+
+// MARK: - 方块
+
+/// 「类别」里的四个方块。顺序就是屏幕上的顺序（两列时左右左右）。
+enum BlindSettingsTile: CaseIterable, Identifiable {
+    case partners, invite, help, support
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .partners: return "固定搭档"
+        case .invite: return "邀请好友"
+        case .help: return "使用帮助"
+        case .support: return SupportTicketCopy.title
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .partners: return "person.2.fill"
+        case .invite: return "gift.fill"
+        case .help: return "questionmark.circle.fill"
+        case .support: return "bubble.left.fill"
+        }
+    }
+
+    /// 方块底色（纯色，压白字，亮暗两档同值）。必须过 4.5:1（`BlindSettingsTileTests`）。
+    /// 取陪跑员版已在真机审计里过过的色值：固定搭档、邀请好友同名同色；使用帮助用陪跑培训的绿，联系客服用资质证书的蓝。
+    var rgb: UInt32 {
+        switch self {
+        case .partners: return VolunteerSettingsTile.partners.rgb
+        case .invite: return VolunteerSettingsTile.invite.rgb
+        case .help: return VolunteerSettingsTile.training.rgb
+        case .support: return VolunteerSettingsTile.certificate.rgb
+        }
+    }
+
+    var identifier: String {
+        switch self {
+        case .partners: return "blindFavoriteVolunteersSettingsEntry"
+        case .invite: return "blindInviteCodeSettingsEntry"
+        case .help: return "blindRunnerSettingsHelpLink"
+        case .support: return "supportTicketSettingsEntry"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .partners: return "查看你的固定搭档，以及你们连续一起跑步的周数"
+        case .invite: return "查看你的邀请码和已经邀请的人数"
+        // 首次进首页会自动播一遍，这里是它**唯一**的重听入口 ——
+        // 没有这条，漏听的人就永远拿不回来了（引导正是最容易漏听的那一段）。
+        case .help: return "重新播报怎么约跑、怎么求助、怎么重听当前状态"
+        case .support: return SupportTicketCopy.settingsHint
+        }
+    }
+}
+
+// MARK: - 页面
 
 struct BlindRunnerSettingsView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
-    @StateObject private var deletionViewModel = AccountDeletionViewModel()
-    @State private var showLogoutConfirm = false
-    @State private var showDeletionInitialConfirmation = false
+    @State private var showsSupportTicket = false
 
     /// 底部「我的」标签的根页为 true：标题叫「我的」。本月汇总已移到首页，同一句不放两处。
-    /// 从别处 push 进来（引导页）时仍是「设置」，那条路的用户是来改设置的。
     var isTabRoot = false
-    /// 「我的」标签传入。从引导页 push 进来时为 nil，那条路的用户是来改设置的。
-    var emergencyEntry: BlindSettingsEmergencyEntry?
 
     var body: some View {
-        List {
-            Section {
-                settingsRow("昵称", value: appState.blindProfile?.name ?? "未填写")
-                settingsRow("当前角色", value: "视障跑者")
+        ScrollView {
+            // 声明顺序就是读屏顺序：我的 → 头像卡 → 类别 → 方块 → 列表。
+            VStack(alignment: .leading, spacing: 16) {
+                accountCard
+                SettingsTileGrid(title: BlindSettingsCopy.categoriesTitle, items: BlindSettingsTile.allCases) { tile in
+                    tileEntry(tile)
+                }
+                listGroup
             }
-
-            // 放在列表靠前的位置：默认字号下不滚动就够得到。
-            if let emergencyEntry {
-                Section {
-                    BlindProfileEmergencyRow(mode: emergencyEntry.mode, action: emergencyEntry.action)
-                }
-            }
-
-            Section {
-                // 🗑「我的历史订单」这条入口已删除：2026-09-16 起它是底部标签栏的「记录」tab
-                // （`BlindRunnerTabView`），一个顶级 tab 加一条列表行等于同一个页面两条路。
-                // 对靠位置记忆操作的读屏用户，两条路比一条路更难记 —— 而 tab 那条永远在。
-                //
-                // 原注释「入口放设置而不是首页，因为首页刚做过减法」已作废：那次减法减掉的是
-                // 280pt 主按钮那一版的首页，而现在首页是「问候 + 订单卡 + 预约块」三块，
-                // 历史订单也不在首页上，它在自己的 tab 里。
-
-                NavigationLink("个人资料") {
-                    BlindRunnerProfileView()
-                }
-                .accessibilityLabel("个人资料")
-                .accessibilityHint("编辑盲人跑者资料和紧急联系人")
-
-                // SPEC-E 的两个入口。同样放设置而不是首页，理由与上面「我的历史订单」那条一样。
-                NavigationLink("我的固定搭档") {
-                    BlindFavoriteVolunteersView()
-                }
-                .accessibilityLabel("我的固定搭档")
-                .accessibilityHint("查看你的固定搭档，以及你们连续一起跑步的周数")
-                .accessibilityIdentifier("blindFavoriteVolunteersSettingsEntry")
-
-                NavigationLink("我的邀请码") {
-                    InviteCodeView()
-                }
-                .accessibilityLabel("我的邀请码")
-                .accessibilityHint("查看你的邀请码和已经邀请的人数")
-                .accessibilityIdentifier("blindInviteCodeSettingsEntry")
-
-                AccountSafetySettingsRows()
-
-                // 三项单独同意（语音大模型 / 视力与导盲犬 / 陪跑位置）的撤回放在一处（#393）。
-                NavigationLink(PrivacyAuthorizationCopy.title) {
-                    PrivacyAuthorizationView()
-                }
-                .accessibilityHint("查看并撤回语音下单、视力状况和陪跑位置共享这三项同意")
-                .accessibilityIdentifier("blindPrivacyAuthorizationSettingsEntry")
-
-                // 实名是下单硬门槛（后端 403 IDENTITY_NOT_VERIFIED），引导流里「稍后再说」跳过后
-                // 必须还有一条随时能走回实名页的路，否则未实名用户会被永久挡在预约之外。
-                NavigationLink("实名认证") {
-                    BlindIdentityVerificationView()
-                }
-                .accessibilityLabel("实名认证，当前状态\(appState.blindIdentityStatus.displayName)")
-                .accessibilityHint("提交姓名和身份证号完成实名认证，完成后才能预约跑步")
-
-                #if DEBUG
-                if AppBuildChannel.current.allowsEnvironmentSwitcher {
-                    Picker("API 环境", selection: $appState.currentEnvironment) {
-                        ForEach(AppState.debugTestEnvironments, id: \.self) { environment in
-                            Text(environment.displayName).tag(environment)
-                        }
-                    }
-                    .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
-                }
-                #endif
-
-                // 首次进首页会自动播一遍，这里是它**唯一**的重听入口 ——
-                // 没有这条，漏听的人就永远拿不回来了（引导正是最容易漏听的那一段）。
-                NavigationLink("使用帮助") {
-                    BlindRunnerHelpView(isFirstRun: false)
-                }
-                .accessibilityLabel("使用帮助")
-                .accessibilityHint("重新播报怎么约跑、怎么求助、怎么重听当前状态")
-                .accessibilityIdentifier("blindRunnerSettingsHelpLink")
-
-                NavigationLink("关于") {
-                    AboutAidRunView()
-                }
-            }
-
-            // #521：通知开没开，拒绝过时给去系统设置的入口。
-            Section { NotificationPermissionRow() }
-
-            Section {
-                Button("退出登录", role: .destructive) {
-                    showLogoutConfirm = true
-                }
-                .accessibilityLabel("退出登录")
-                .accessibilityHint("退出后需要重新登录，需要二次确认")
-
-                Button("删除账户", role: .destructive) {
-                    showDeletionInitialConfirmation = true
-                }
-                .disabled(appState.accountDeletionState == .inProgress)
-                .accessibilityLabel("删除账户")
-                .accessibilityHint("永久停用当前账户，需要再次确认")
-            }
-
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
+            .readableContentColumn()
         }
-        .navigationTitle(isTabRoot ? "我的" : "设置")
-        .alert("无法删除账户", isPresented: $deletionViewModel.isShowingPreflightBlock) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(deletionViewModel.preflightMessage ?? "")
-        }
-        .logoutConfirmation(isPresented: $showLogoutConfirm)
-        .alert("确认删除账户", isPresented: $showDeletionInitialConfirmation) {
-            Button("继续删除账户", role: .destructive) {
-                Task {
-                    await deletionViewModel.preflight(
-                        appState: appState,
-                        speechService: speechService
-                    )
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("系统将先检查是否存在进行中的服务。检查通过后仍需再次确认，才会提交账户删除请求。")
-        }
-        .alert("最终确认删除账户", isPresented: $deletionViewModel.showFinalConfirmation) {
-            Button("永久删除账户", role: .destructive) {
-                Task { await appState.deleteCurrentAccount() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(AccountDeletionViewModel.finalConfirmationMessage(for: .blind))
+        .background(AppColors.Flow.page)
+        // 导航栏底色用页面同色，但**不强制常显**（不写 `.toolbarBackground(.visible)`）：
+        // iOS 27 真机上常显的实底会把顶部的大标题「我的」整个盖住（2026-11-05 截图，#711；陪跑员版同写法同问题）。
+        // 上推后系统自己换成带底色的栏，标题对比度由审计用例守着。
+        .toolbarBackground(AppColors.Flow.page, for: .navigationBar)
+        .navigationTitle(isTabRoot ? BlindSettingsCopy.tabTitle : BlindSettingsCopy.onboardingTitle)
+        .sheet(isPresented: $showsSupportTicket) {
+            SupportTicketView(
+                orderID: nil,
+                category: .account,
+                appState: appState,
+                speak: { speechService.speak($0) },
+                speakError: { speechService.speakError($0) }
+            )
         }
     }
 
-    private func settingsRow(_ title: String, value: String) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .foregroundColor(AppColors.textSecondary)
+    private var displayName: String {
+        appState.blindProfile?.name?.nilIfBlank ?? BlindSettingsCopy.unnamed
+    }
+
+    // MARK: 头像卡
+
+    private var accountCard: some View {
+        NavigationLink {
+            BlindAccountView()
+        } label: {
+            ProfileAccountCardLabel(name: displayName, subtitle: BlindSettingsCopy.accountCardSubtitle)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title)：\(value)")
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(displayName)，\(BlindSettingsCopy.accountCardSubtitle)")
+        .accessibilityHint("打开账户页：个人资料、实名认证、隐私、退出登录和删除账户")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("blindAccountCardEntry")
+    }
+
+    // MARK: 类别方块
+
+    @ViewBuilder
+    private func tileEntry(_ tile: BlindSettingsTile) -> some View {
+        let label = SettingsTileLabel(title: tile.title, systemImage: tile.systemImage, rgb: tile.rgb)
+        Group {
+            switch tile {
+            // 联系客服是写字页，弹出来；和改版前一样不带订单。
+            case .support:
+                Button { showsSupportTicket = true } label: { label }
+            case .partners:
+                NavigationLink { BlindFavoriteVolunteersView() } label: { label }
+            case .invite:
+                NavigationLink { InviteCodeView() } label: { label }
+            case .help:
+                NavigationLink { BlindRunnerHelpView(isFirstRun: false) } label: { label }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tile.title)
+        .accessibilityHint(tile.hint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(tile.identifier)
+    }
+
+    // MARK: 列表
+
+    private var listGroup: some View {
+        GroupedCard {
+            // 提交之后唯一能看到回复的地方（`SUPPORT_TICKET_REPLIED` 推送错过了就只剩这里）。
+            NavigationLink {
+                MySupportTicketsView()
+            } label: {
+                SettingsRowLabel(title: SupportTicketCopy.myTicketsTitle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(SupportTicketCopy.myTicketsTitle)
+            .accessibilityHint(SupportTicketCopy.myTicketsHint)
+            .accessibilityIdentifier("mySupportTicketsSettingsEntry")
+
+            GroupedCardDivider()
+            // #521：通知开没开，拒绝过时给去系统设置的入口。
+            NotificationPermissionRow()
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+            GroupedCardDivider()
+
+            NavigationLink {
+                AboutAidRunView()
+            } label: {
+                SettingsRowLabel(title: "关于")
+            }
+            .buttonStyle(.plain)
+
+            #if DEBUG
+            if AppBuildChannel.current.allowsEnvironmentSwitcher {
+                GroupedCardDivider()
+                Picker("API 环境", selection: $appState.currentEnvironment) {
+                    ForEach(AppState.debugTestEnvironments, id: \.self) { environment in
+                        Text(environment.displayName).tag(environment)
+                    }
+                }
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+                .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+                .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
+            }
+            #endif
+        }
     }
 }
 
 #if DEBUG
 #Preview {
     NavigationStack {
-        BlindRunnerSettingsView()
+        BlindRunnerSettingsView(isTabRoot: true)
             .environmentObject(AppState())
             .environmentObject(SpeechService())
     }

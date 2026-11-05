@@ -949,14 +949,13 @@ final class AccessibilityAuditTests: XCTestCase {
             )
         }
 
-        // 紧急入口在「我的」列表里（项目负责人 2026-10-30 拍板，#605）。
-        // **这条断言是那个决定的唯一机器守卫**：入口在任何一个 tab 上都摸不到时，
-        // 表现只是「页面干净了」，没有任何东西会报警。
+        // 「我的」不放紧急入口：#605 放进列表的那一行，负责人 2026-11-05 决定整行删掉（#711）。
+        // 求助走标签栏容器上的 Magic Tap（`testSOSGestureFromAnotherTabReachesTheLockedConfirmation` 守着）。
         tabBar.buttons["我的"].tap()
-        let emergencyRow = app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch
-        XCTAssertTrue(
-            emergencyRow.waitForExistence(timeout: 10),
-            "「我的」没有紧急入口 —— 这是首页之外不开读屏的用户唯一的落点"
+        XCTAssertTrue(app.buttons["blindAccountCardEntry"].firstMatch.waitForExistence(timeout: 10), "「我的」没有加载出来")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindProfileEmergencyRow"].firstMatch.exists,
+            "「我的」又出现了紧急入口 —— 负责人 2026-11-05 决定不放（#711）"
         )
     }
 

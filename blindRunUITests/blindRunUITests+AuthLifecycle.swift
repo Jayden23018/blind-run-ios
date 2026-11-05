@@ -29,7 +29,7 @@ extension blindRunUITests {
             emptyMockOrders: true,
             mockLogoutFailure: true
         )
-        openSettings(app)
+        openBlindAccount(app)
         let logoutButton = app.buttons["退出登录"].firstMatch
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
@@ -90,10 +90,10 @@ extension blindRunUITests {
             emptyMockOrders: true,
             slowSessionEndSeconds: 8
         )
-        openSettings(app)
+        openBlindAccount(app)
         let deleteButton = app.buttons["删除账户"].firstMatch
-        // 它是设置页最后一行，默认一半压在标签栏底下，点中心会被标签栏吃掉 —— 要滚到完全露出。
-        XCTAssertTrue(scrollElementIntoView(deleteButton, app: app), "「删除账户」滚不出标签栏\n\(app.debugDescription)")
+        // #711 起在账户页：页面藏了标签栏、一屏放得下，滚动辅助函数按 112pt 常驻栏判会误报，直接判可点。
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5) && deleteButton.isHittable, "账户页的「删除账户」点不到\n\(app.debugDescription)")
         deleteButton.tap()
         let proceed = app.buttons["继续删除账户"].firstMatch
         XCTAssertTrue(proceed.waitForExistence(timeout: 5), "删除账户应当先弹一次确认\n\(app.debugDescription)")
@@ -116,7 +116,7 @@ extension blindRunUITests {
     /// 不再是「失败弹窗 → 取消 → 回到设置页」—— 收起后要验的是 hider 放开了新挂上的登录页。
     private func assertLogoutOverlayHidesTheScreenBehindIt(_ app: XCUIApplication, throughAccountPage: Bool = false) {
         openSettings(app)
-        if throughAccountPage { app.openVolunteerAccountPage() } // 陪跑员的退出登录在账户页（#700）
+        if throughAccountPage { app.openVolunteerAccountPage() } else { app.openBlindAccountPage() } // 两端的退出登录都在账户页（#700 / #711）
         let logoutButton = app.buttons["退出登录"].firstMatch
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         XCTAssertTrue(scrollElementIntoView(logoutButton, app: app), "「退出登录」滚不出求助条")
@@ -163,7 +163,7 @@ extension blindRunUITests {
         )
         // 盲人侧没有「直接暴露退出登录」的界面：首页和引导流都只放设置入口，
         // 退出登录统一收在 BlindRunnerSettingsView（见 BlindRunnerOnboardingView 的容器注释）。
-        openSettings(blindProfile)
+        openBlindAccount(blindProfile)
         assertLogoutRequiresConfirmation(blindProfile)
 
         // 志愿者资料页（`VolunteerModule` 的 header）是除设置页外唯一直接摆出退出登录的界面，
@@ -199,7 +199,7 @@ extension blindRunUITests {
             preseedBlindProfile: true,
             emptyMockOrders: true
         )
-        openSettings(app)
+        openBlindAccount(app)
         let deleteButton = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
         XCTAssertTrue(deleteButton.isEnabled)

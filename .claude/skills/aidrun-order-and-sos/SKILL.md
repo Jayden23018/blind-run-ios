@@ -122,7 +122,7 @@ REMATCHING → CANCELLED（只能盲人 token）
   跑者端两处共用 `BlindHomeSOSMode.resolve`，陪跑员端那处用 `VolunteerOrderSOSMode.resolve`
   （两者判据都只有 `canBlindRunnerTriggerEmergency` / `canVolunteerTriggerEmergency`）。
   **新增任何求助入口都必须读对应那一端的判定，不许自己判状态**：
-  1. 「我的」列表里的紧急入口（`BlindProfileEmergencyRow`）与标签栏容器上的 Magic Tap；
+  1. 标签栏容器上的 Magic Tap（`BlindRunnerTabView`）。「我的」列表里原有的紧急入口 `BlindProfileEmergencyRow` 已于 2026-11-05 删除（#711，负责人决定），别加回来；
   2. **求助与安全中心底部那条**（`BlindSafetyHubView.emergencyButton`，2026-09-16 起）——
      订单页四步骨架的底部有一枚「求助与安全」，而它覆盖的四态（匹配 / 约好 / 出发 / 汇合）
      一个都不是 `IN_PROGRESS`。

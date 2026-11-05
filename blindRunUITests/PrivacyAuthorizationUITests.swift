@@ -7,7 +7,7 @@ extension blindRunUITests {
     @MainActor
     func testPrivacyAuthorizationRevokeButtonsAreTallAndSayWhatTheyRevoke() throws {
         let app = launchBlindContactsApp()
-        openSettings(app)
+        openBlindAccount(app) // 隐私与授权在账户页（#711）
         tapNavigationRow(app, labelBeginsWith: "隐私与授权")
 
         for (identifier, word) in [("privacyRevokeVoiceOrderConsent", "语音下单"), ("privacyRevokeLocationTrackConsent", "位置")] {
