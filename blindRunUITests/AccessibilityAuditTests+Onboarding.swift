@@ -39,8 +39,9 @@ extension AccessibilityAuditTests {
     /// 角色页与验证码区已修好，改回 `try audit(app)`；剩下三处没修完前不能去掉。
     /// 非严格：修好一处后不会因为「预期的失败没出现」而变红。
     /// 本轮新加的元素另有显式断言守着，不靠这一遍审计。
+    /// 紧急联系人表单的另外两处审计（`AccessibilityAuditTests+TouchTargets.swift`）也用它，所以不是 private。
     @available(iOS 17.0, *)
-    private func auditKnownRedPage(_ app: XCUIApplication) throws {
+    func auditKnownRedPage(_ app: XCUIApplication) throws {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         try XCTExpectFailure("#676：这一页原有控件的审计红灯", options: options) {

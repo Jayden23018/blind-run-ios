@@ -34,6 +34,9 @@ extension blindRunUITests {
 
     /// 关系改成选择页（#746）：点「关系」行，在列表里点预设，选完自动退回表单。
     func chooseContactRelationship(_ app: XCUIApplication, _ relationship: String) {
+        // 手机号框还有焦点时，键盘上方那一栏正好盖在「关系」行上，点下去落在键盘区（#746 第一轮真机）。
+        let dismissKeyboard = app.buttons["收起键盘"].firstMatch
+        if dismissKeyboard.exists { dismissKeyboard.tap() }
         let relationshipRow = app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "与联系人的关系，")
         ).firstMatch

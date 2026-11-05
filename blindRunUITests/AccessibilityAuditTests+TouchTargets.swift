@@ -87,7 +87,9 @@ extension AccessibilityAuditTests {
         manual.tap()
         XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8), "没进新增表单")
         attachScreenshot(app, name: "blind-emergency-contact-form-ax5")
-        try audit(app)
+        // 新增表单里原有的「设为主联系人」开关等控件是 #676 记下的已知红灯，同 `testEmergencyContactFormOffersTheContactsPickerAndPassesAudit`。
+        // 编辑态（没有那个开关）在上一条用例里照常严格审。
+        try auditKnownRedPage(app)
 
         let relationshipRow = app.descendants(matching: .any)["emergencyContactRelationshipRow"].firstMatch
         XCTAssertTrue(swipeUntilHittable(relationshipRow, in: app), "新增表单没有「关系」行")

@@ -360,11 +360,19 @@ struct EmergencyContactsView: View {
                         contactRow(contact)
                     }
                 }
+                // 照医疗急救卡：添加行是联系人这一组的最后几行，不另起一组（也就少一个组标题要念）。
+                addRows
             } header: {
                 Text("紧急联系人（\(viewModel.contactCount) / \(EmergencyContactRules.maxCount)）\u{202F}").foregroundColor(AppColors.textSecondary) // 默认灰只有约 3.3:1；全角「）」后补窄空格防判截断
+            } footer: {
+                if let addBlockedReason = viewModel.addBlockedReason {
+                    Text(addBlockedReason)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(addBlockedReason)
+                }
             }
-
-            addSection
         }
         .listStyle(.insetGrouped)
         .navigationTitle("紧急联系人")
@@ -397,58 +405,47 @@ struct EmergencyContactsView: View {
 
     /// 两行都是整行按钮：「从通讯录添加」在前（能选就别打），「手动输入」在后。
     /// 满 5 位时两行一起禁用，原因写在组脚注里，同时进两行的读屏提示。
-    private var addSection: some View {
-        Section {
-            Button {
-                showContactPicker = true
-            } label: {
-                EmergencyContactActionRowLabel(
-                    title: "从通讯录添加",
-                    systemImage: "plus.circle.fill",
-                    tint: AppColors.success,
-                    isEnabled: canStartAdding
-                )
-            }
-            .disabled(!canStartAdding)
-            .accessibilityLabel("从通讯录添加紧急联系人")
-            .accessibilityHint(
-                viewModel.addBlockedReason
-                    ?? "打开系统通讯录选一位联系人，自动填入姓名和手机号。助盲跑只拿到你选的这一位"
+    @ViewBuilder
+    private var addRows: some View {
+        Button {
+            showContactPicker = true
+        } label: {
+            EmergencyContactActionRowLabel(
+                title: "从通讯录添加",
+                systemImage: "plus.circle.fill",
+                tint: AppColors.success,
+                isEnabled: canStartAdding
             )
-            .accessibilityIdentifier("emergencyContactAddFromContacts")
-            .background(
-                ContactPhonePicker(isPresented: $showContactPicker) { pick in
-                    editingTarget = .picked(pick)
-                }
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-            )
-
-            Button {
-                editingTarget = .new
-            } label: {
-                EmergencyContactActionRowLabel(
-                    title: "手动输入",
-                    systemImage: "keyboard",
-                    tint: AppColors.primary,
-                    isEnabled: canStartAdding
-                )
-            }
-            .disabled(!canStartAdding)
-            .accessibilityLabel("手动输入新增紧急联系人")
-            .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名、手机号和关系后保存")
-            .accessibilityIdentifier("emergencyContactAddManually")
-        } header: {
-            Text("添加联系人").foregroundColor(AppColors.textSecondary)
-        } footer: {
-            if let addBlockedReason = viewModel.addBlockedReason {
-                Text(addBlockedReason)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(addBlockedReason)
-            }
         }
+        .disabled(!canStartAdding)
+        .accessibilityLabel("从通讯录添加紧急联系人")
+        .accessibilityHint(
+            viewModel.addBlockedReason
+                ?? "打开系统通讯录选一位联系人，自动填入姓名和手机号。助盲跑只拿到你选的这一位"
+        )
+        .accessibilityIdentifier("emergencyContactAddFromContacts")
+        .background(
+            ContactPhonePicker(isPresented: $showContactPicker) { pick in
+                editingTarget = .picked(pick)
+            }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        )
+
+        Button {
+            editingTarget = .new
+        } label: {
+            EmergencyContactActionRowLabel(
+                title: "手动输入",
+                systemImage: "keyboard",
+                tint: AppColors.primary,
+                isEnabled: canStartAdding
+            )
+        }
+        .disabled(!canStartAdding)
+        .accessibilityLabel("手动输入新增紧急联系人")
+        .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名、手机号和关系后保存")
+        .accessibilityIdentifier("emergencyContactAddManually")
     }
 
     private var canStartAdding: Bool { viewModel.canAddContact && !viewModel.isMutating }

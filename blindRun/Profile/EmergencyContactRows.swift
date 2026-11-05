@@ -103,35 +103,21 @@ struct EmergencyContactActionRowLabel: View {
 // MARK: - 表单里的标签行
 
 /// 照「健康 › 编辑信息」：左边标签、右边输入。标签对读屏隐藏，输入框自己的标签已经说了是哪一格。
-/// AX 字号下改成标签在上、输入框在下，免得输入框被挤成一字宽。
+/// 用系统的 `LabeledContent`：大字号下它自己改成上下排。手写 HStack / VStack 切换时，
+/// 真机审计把两个标签判成「改不了字号」、AX5 下判「可能被裁」（#746 第一轮）。
 struct EmergencyContactLabelledField<Input: View>: View {
     let title: String
     @ViewBuilder let input: () -> Input
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .body) private var labelWidth: CGFloat = 64
-
     var body: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: AppSpacing.xSmall) {
-                    label
-                    input()
-                }
-            } else {
-                HStack(spacing: AppSpacing.medium) {
-                    label.frame(width: labelWidth, alignment: .leading)
-                    input()
-                }
-            }
+        LabeledContent {
+            input()
+        } label: {
+            Text(title)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityHidden(true)
         }
         .frame(minHeight: AppTouchTarget.blindPrimary)
-    }
-
-    private var label: some View {
-        Text(title)
-            .font(AppFonts.body())
-            .foregroundColor(AppColors.textPrimary)
-            .accessibilityHidden(true)
     }
 }
