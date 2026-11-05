@@ -57,7 +57,16 @@ The iOS blind-runner experience SHALL expose the formal order lifecycle from sys
 - **AND** completion and rating controls SHALL remain reachable through large, clearly labeled VoiceOver-accessible actions
 
 ### Requirement: Blind runner state updates remain status driven
-The iOS blind-runner order screens SHALL update from app-lifetime WebSocket routing and REST polling without exposing backend dispatch rounds.
+The blind-runner order experience SHALL remain driven by canonical order status while presenting the associated volunteer's fresh live location during eligible states and the completed run summary after `COMPLETED`. While the order is still waiting to be matched, the experience SHALL also offer the blind runner a way to extend the waiting window before the backend abandons the order.
+
+#### Scenario: Volunteer is travelling, arrived, or running
+- **WHEN** the order is `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`
+- **THEN** the blind-runner flow MAY present the associated volunteer's fresh map marker from routed WebSocket data
+- **AND** it SHALL keep status, primary action, and repeat-status information accessible ahead of auxiliary map inspection
+
+#### Scenario: Order completes
+- **WHEN** canonical order detail becomes `COMPLETED`
+- **THEN** the blind-runner completion flow SHALL offer the track summary with blind route, distance, duration, and pace
 
 #### Scenario: Volunteer accepts dispatch
 - **WHEN** the coordinator routes `ORDER_STATUS_CHANGED` or polling returns `PENDING_ACCEPT`
@@ -67,6 +76,35 @@ The iOS blind-runner order screens SHALL update from app-lifetime WebSocket rout
 #### Scenario: No volunteer is available
 - **WHEN** WebSocket or polling returns `NO_VOLUNTEER`
 - **THEN** the app SHALL show and announce a no-volunteer terminal state
+- **AND** the app SHALL NOT offer to extend the waiting window from this state, because the backend treats it as terminal and both extension endpoints reject it
+
+#### Scenario: Waiting order offers to keep waiting
+- **WHEN** the order is `PENDING_MATCH` or `REMATCHING`
+- **THEN** the blind-runner order flow SHALL offer a "keep waiting" action that extends the backend waiting window
+- **AND** the action SHALL be reachable by VoiceOver and included in repeat-status speech
+- **AND** the app SHALL NOT require a second confirmation for it, because it is idempotent and preserves the order
+
+#### Scenario: Keep waiting is dispatched by status
+- **WHEN** the blind runner activates "keep waiting"
+- **THEN** the app SHALL call the extension endpoint that matches the current status, and only that one
+- **AND** the app SHALL NOT retry the other extension endpoint after a rejection, because the two accept mutually exclusive states and a rejection means the local status is stale
+- **AND** the app SHALL refresh canonical order detail after a rejection
+
+#### Scenario: Keep waiting succeeds
+- **WHEN** the extension call succeeds
+- **THEN** the app SHALL announce that the request was sent, in progressive rather than completed wording
+- **AND** the announcement SHALL NOT state any concrete extended duration, because the window length is backend configuration the client cannot read
+- **AND** the app SHALL keep the order in its current status, because a successful extension does not change status
+
+#### Scenario: Extension limit is reached
+- **WHEN** the extension call is rejected with the keep-waiting limit error
+- **THEN** the app SHALL announce that the extension limit has been reached and state what remains possible
+- **AND** the app SHALL remove the "keep waiting" action for this order rather than leave a control that can only fail
+
+#### Scenario: Cancellation warning arrives while waiting
+- **WHEN** the coordinator routes the order cancellation warning notification
+- **THEN** the app SHALL announce it
+- **AND** the "keep waiting" action SHALL already be present, because it is driven by order status rather than by the notification
 
 #### Scenario: Volunteer location is available
 - **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and the coordinator routes a fresh `VOLUNTEER_LOCATION_UPDATE` from `/ws/blind`
@@ -349,4 +387,124 @@ In `DRIVER_ARRIVED`, blind-runner status copy SHALL NOT tell the blind runner to
 #### Scenario: Calling the volunteer remains reachable
 - **WHEN** the blind-runner order page renders `DRIVER_ARRIVED`
 - **THEN** the "遇到问题" row SHALL open the safety hub, which offers calling the volunteer
+
+### Requirement: Volunteer service flow presents associated blind-runner location
+The volunteer service flow SHALL present the associated blind runner's fresh location during `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS` without changing lifecycle actions.
+
+#### Scenario: Blind-runner location is fresh
+- **WHEN** a matching `BLIND_LOCATION_UPDATE` is routed during an eligible order state
+- **THEN** the volunteer map SHALL update the blind-runner marker
+- **AND** en-route, arrived, start-service, finish, and cancel permissions SHALL remain based only on canonical order status
+
+### Requirement: Committed role homes render one live AMap without blocking local interaction
+Debug, DemoRelease, and Production SHALL mount one live AMap for the committed blind-runner or volunteer home, and SHALL NOT replace it with a release-only product placeholder.
+
+#### Scenario: A role home is committed
+- **WHEN** root hydration commits the blind-runner or volunteer home
+- **THEN** exactly one home map container SHALL be mounted for that role
+- **AND** refresh, WebSocket recovery, and order-state changes SHALL update map inputs without replacing the map root
+- **AND** scrolling, navigation, speech, dispatch controls, and retry SHALL remain usable while network requests are pending
+
+#### Scenario: Volunteer home top content changes
+- **WHEN** the status block or current-order card changes the volunteer-home top content
+- **THEN** the demand-panel boundary SHALL be derived from stable safe-area and order-presence inputs
+- **AND** child layout measurement SHALL NOT be written back into the same parent layout graph
+- **AND** repeated SwiftUI evaluation SHALL NOT form an AttributeGraph refresh loop
+
+#### Scenario: SwiftUI rebuilds a current-value announcement subscription
+- **WHEN** TTS or another observed service publication causes the root view to rebuild while the same foreground notification or escort-health value remains current
+- **THEN** the reconstructed publisher subscription SHALL NOT announce that same identity again
+- **AND** announcement state SHALL NOT form a render, resubscribe, and TTS feedback loop
+
+#### Scenario: The role home is left
+- **WHEN** the account changes role, logs out, or navigates to another root route
+- **THEN** the prior home map SHALL be unmounted before another role home map is committed
+
+#### Scenario: AMap configuration is unavailable
+- **WHEN** the local AMap Key is missing or a UI test explicitly disables map rendering
+- **THEN** the map region MAY show the configuration-failure fallback
+- **AND** the rest of the home SHALL remain interactive
+
+### Requirement: Volunteer state commands do not wait on authoritative confirmation
+The volunteer service flow SHALL submit each state-changing POST separately from WebSocket or REST confirmation and SHALL keep the rest of the page interactive while confirmation is pending.
+
+#### Scenario: State command succeeds but confirmation query never returns
+- **WHEN** a volunteer transition POST succeeds and all following detail queries remain suspended
+- **THEN** the POST spinner SHALL end and the flow SHALL show `awaitingConfirmation`
+- **AND** a duplicate submission of the same transition SHALL be blocked
+- **AND** map presentation, scrolling, external navigation, cancellation entry, and back navigation SHALL remain usable
+- **AND** after 20 seconds the flow SHALL show `confirmationDelayed` with a read-only status retry that does not repeat the POST
+
+#### Scenario: En-route status is confirmed while location side effects hang
+- **WHEN** a valid associated `DRIVER_EN_ROUTE` event arrives and detail, location, or WebSocket-send work does not return
+- **THEN** the matching volunteer and blind-runner pages SHALL commit the new status within the current UI cycle
+- **AND** escort-session, map, location, and detail work SHALL continue independently
+- **AND** scrolling, back navigation, external navigation, cancellation, and repeat-status SHALL remain usable
+
+#### Scenario: The same status is observed by home and detail flows
+- **WHEN** multiple mounted flows submit the same order and status to the live escort coordinator
+- **THEN** they SHALL share the reconciled status
+- **AND** exactly one escort-session reconcile SHALL be scheduled for that order/status
+
+#### Scenario: State command has an uncertain transport result
+- **WHEN** the POST reaches its application deadline or fails with a transport/decoding error
+- **THEN** the flow SHALL treat the outcome as unconfirmed rather than failed
+- **AND** only WebSocket or bounded REST detail confirmation SHALL commit the target status
+
+#### Scenario: State command is explicitly rejected
+- **WHEN** the backend returns an explicit 4xx or 5xx contract error
+- **THEN** the original action SHALL become retryable and the error SHALL be shown
+- **AND** a 401 response SHALL use the existing session-expiration flow
+
+#### Scenario: Arrival is submitted while confirmation or location work hangs
+- **WHEN** the volunteer submits `/arrived` and its POST result is uncertain, its detail confirmation hangs, or peer-location work remains pending
+- **THEN** only the arrival transition control SHALL show submission or confirmation state
+- **AND** the spinner SHALL end at the existing command deadline
+- **AND** scrolling, back navigation, external navigation, cancellation entry, and the live map SHALL remain usable
+- **AND** a valid `DRIVER_EN_ROUTE` to `DRIVER_ARRIVED` WebSocket event SHALL advance both role UIs without waiting for those side effects
+
+### Requirement: Service completion remains separate from track availability
+`POST /api/orders/{id}/finish` SHALL remain the only volunteer action that moves `IN_PROGRESS` to `COMPLETED`; track fetching and summary rendering SHALL NOT alter that transition.
+
+#### Scenario: Track endpoint is temporarily unavailable after finish
+- **WHEN** order completion succeeds but track loading fails or is delayed
+- **THEN** the order SHALL remain `COMPLETED`
+- **AND** the summary SHALL show retry/unavailable state without retrying finish
+
+### Requirement: The agreed end time is visible and audible to both parties
+Every order carries an agreed end time. The app SHALL surface it to the blind runner and to the volunteer, because the server raises an overdue alert relative to that time and an alert without its reference point cannot be acted on.
+
+#### Scenario: Service is in progress on the blind-runner order screen
+- **WHEN** the order status is `IN_PROGRESS` and an agreed end time is present
+- **THEN** the status card SHALL show the agreed end time in the first screen
+- **AND** the repeat-status announcement SHALL speak it after the status itself
+- **AND** the visible text and the spoken text SHALL come from one source rather than being composed twice
+
+#### Scenario: Service has not started or has finished
+- **WHEN** the order status is anything other than `IN_PROGRESS`
+- **THEN** the status card and the repeat-status announcement SHALL omit the agreed end time, because it is not actionable before the run starts and is not a prediction after it ends
+
+#### Scenario: Volunteer views an order
+- **WHEN** the volunteer opens the service card or the order information card
+- **THEN** the agreed end time SHALL appear alongside the appointment time
+
+#### Scenario: The agreed end time is absent
+- **WHEN** the order carries no agreed end time
+- **THEN** the app SHALL omit the row and the spoken clause
+- **AND** the app SHALL NOT derive a substitute from the appointment time and the expected duration, because those are independently produced and disagreeing values would place three different end times in front of the same run
+
+### Requirement: Order completion is decided by the server, never by the local clock
+The server keeps an order in progress well past its agreed end time before auto-completing it. The app SHALL NOT infer that a run has ended from the agreed end time.
+
+#### Scenario: The agreed end time passes while the order is still in progress
+- **WHEN** the current time passes the agreed end time and the server still reports `IN_PROGRESS`
+- **THEN** the app SHALL keep reporting location, keep its realtime subscription, and keep the in-progress presentation
+- **AND** every end-of-run decision SHALL be driven by the server-reported status
+
+### Requirement: Runner completion page has one filled button
+On the runner's completed order page, the bottom 「完成」 button SHALL be the only filled button. The review section's 「提交评价」 and the post-review 「返回首页」 SHALL be outlined secondary buttons that keep the full width and the 64pt minimum height.
+
+#### Scenario: Runner reaches the completed page
+- **WHEN** the order is `COMPLETED` and the review has not been submitted
+- **THEN** 「提交评价」 SHALL be outlined and 「完成」 SHALL remain the single filled button
 

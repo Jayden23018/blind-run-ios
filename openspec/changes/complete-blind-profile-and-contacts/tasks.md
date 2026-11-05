@@ -62,3 +62,13 @@
   - 2026-07-31 实跑：`[validate-docs] maintained docs passed`；`Change 'complete-blind-profile-and-contacts' is valid`。
 - [ ] 6.5 Run focused unit/UI tests and the required real-device/cloud validation on `111` and `iPad Pro (2)`, with privacy review and backend availability reported separately.
   - **未完成**：双真机验收未做（模拟器因高德无 arm64-sim slice 不可用，真机是唯一 XCTest 通道）。
+
+## 2026-11-05 清账判定（#739）：部分实现，保留不归档
+
+功能代码与 6.1 单测都在 `main`。还差：
+
+- 6.2 UI 用例没写。`blindRun/BlindRunner/BlindRunnerOnboardingView.swift:70`、`:75`、`:78` 埋的三个 `blindOnboarding.*` identifier，在 `blindRunUITests/` 里仍是零引用。
+  现有的部分覆盖：`blindRunUITests/AccessibilityAuditTests+Onboarding.swift:140`（联系人表单审计）、`:180`（身份证号页）、`blindRunUITests/AccessibilityAuditTests+BlindHomeIdle.swift:35`（未实名首页入口）。
+  缺的是：引导落点、实名三态（通过 / 审核中 / 驳回）、联系人全部动作、VoiceOver 顺序、重复当前状态、下单拦截。
+- 6.5 `111` 与 `iPad Pro (2)` 双真机验收没做。
+- 6.3 的备注说探针不在仓库：现在 `scripts/blind-identity-and-contacts-probe.mjs` 已在，备注过期。
