@@ -109,9 +109,13 @@ struct EmergencyContactLabelledField<Input: View>: View {
     let title: String
     @ViewBuilder let input: () -> Input
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         LabeledContent {
+            // 值靠右，同「编辑信息」：标签长短不一时输入框才对得齐。上下排（AX 字号）时回到靠左。
             input()
+                .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
         } label: {
             Text(title)
                 .font(AppFonts.body())

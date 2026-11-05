@@ -1,10 +1,10 @@
 ## 1. Implementation
 
-- [ ] 1.1 Add `EmergencyContactRelationship` presets and the stored-value mapping, with unit tests
-- [ ] 1.2 Add the `.picked` edit target and the pick-to-form mapping, with unit tests
-- [ ] 1.3 Restyle the list page: avatar rows, primary marker, add section with "从通讯录添加" and "手动输入"
-- [ ] 1.4 Restyle the form: labelled rows, relationship picker page, keep SMS notice and confirmations
-- [ ] 1.5 Update UI test helpers for the new add rows and the relationship picker
+- [x] 1.1 Add `EmergencyContactRelationship` presets and the stored-value mapping, with unit tests
+- [x] 1.2 Add the `.picked` edit target and the pick-to-form mapping, with unit tests
+- [x] 1.3 Restyle the list page: avatar rows, primary marker, add section with "从通讯录添加" and "手动输入"
+- [x] 1.4 Restyle the form: labelled rows, relationship picker page, keep SMS notice and confirmations
+- [x] 1.5 Update UI test helpers for the new add rows and the relationship picker
 
 ## 2. Verification
 
