@@ -70,7 +70,7 @@ enum ErrorCode: String, Codable, Sendable {
     case orderPermissionDenied = "ORDER_PERMISSION_DENIED"
     case smsSendLimitExceeded = "SMS_SEND_LIMIT_EXCEEDED"
     // 盲人下单前置门槛，后端 `ErrorCode.java`「盲人下单前置条件类（403）」小节（2026-07-30 新增）。
-    // `OrderCreationService.createOrder` 的判定顺序是**先实名、后紧急联系人**，客户端门槛必须同序。
+    // 2026-11-05 起实名不再是门槛（#767），只剩紧急联系人这一档会拒。
     case identityNotVerified = "IDENTITY_NOT_VERIFIED" // 后端 backend#924 后不再返回；留着与 ErrorCode.java 对撞
     // 取代此前复用的通用 `ORDER_PERMISSION_DENIED`：后者与「非订单参与者」等场景共用一个码，
     // 客户端无法程序化区分，只能猜 message。
