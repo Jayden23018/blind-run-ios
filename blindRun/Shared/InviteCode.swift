@@ -66,7 +66,8 @@ enum InviteCodeFormatting {
 ///
 /// 🔴 同样受积分那三条合规红线约束：不可转让、不可提现、不可兑换现金。
 enum InviteCodeCopy {
-    static let navigationTitle = "我的邀请码"
+    /// 与「我的」里的方块同名（#755，负责人 2026-11-05 批准）。
+    static let navigationTitle = "邀请好友"
 
     static let codeCaption = "我的邀请码"
     static let copyAction = "复制邀请码"
@@ -74,30 +75,51 @@ enum InviteCodeCopy {
 
     static let rulesSectionTitle = "怎么算数"
 
-    /// 🔴 逐字锁定的发奖口径。
-    static let rewardRule = "邀请志愿者加入，等他完成第一次陪跑，你们各得 20 积分。邀请视障跑者只记录关系，不发积分。"
+    // 🔴 发奖口径拆成三条（照健康 · 共享的说明卡），意思不变：
+    // 只有邀请陪跑员且他完成第一次陪跑才发分；邀请视障跑者只记录关系。称呼统一叫「陪跑员」（同 #632）。
+    static let volunteerRuleTitle = "邀请陪跑员"
+    static let volunteerRuleDetail = "等他完成第一次陪跑，你们各得 20 积分。"
+    static let blindRuleTitle = "邀请视障跑者"
+    static let blindRuleDetail = "只记录关系，不发积分。"
 
     /// 🔴 这句给**邀请人**看。抄 Uber 官方帮助页的做法：它把「忘了填就没有了」做成一个
     /// 独立的 "Remember this" 小节，因为忘记填的成本落在邀请人身上
     /// （原文：We cannot offer retrospective referral bonuses if your friend forgets
     /// to use your invite code during sign-up）。
+    static let oneShotWarningTitle = "注册时就要填"
     static let oneShotWarning = "对方必须在选择身份那一步填写你的邀请码，注册完成后无法补填。"
 
+    /// 「怎么算数」三条，页面和用例都从这里取。
+    static let rules: [InviteRule] = [
+        InviteRule(title: volunteerRuleTitle, detail: volunteerRuleDetail, systemImage: "gift.fill", isWarning: false),
+        InviteRule(title: blindRuleTitle, detail: blindRuleDetail, systemImage: "person.2.fill", isWarning: false),
+        InviteRule(title: oneShotWarningTitle, detail: oneShotWarning, systemImage: "exclamationmark.circle.fill", isWarning: true)
+    ]
+
+    /// 🔴 合规句，一字不改。
     static let pointsDisclaimer = "积分不能提现、不能转让、不能兑换现金。"
 
     static let empty = "还没有人使用你的邀请码。"
+
+    static let invitedCountTitle = "用了你的邀请码"
+    static let rewardedCountTitle = "已发放奖励"
+    static func peopleCount(_ count: Int64) -> String { "\(max(0, count)) 人" }
 
     /// UNSET 用户调这个端点会 403。入口本就该放在设完角色之后，这一屏是防御分支。
     static let roleRequired = "需要先选择身份才能拿到邀请码。"
 
     static let loadFailure = "邀请码加载失败，请稍后重试。"
     static let retry = "重新加载"
+}
 
-    static func countsText(_ response: InviteCodeResponse) -> String {
-        let invited = response.resolvedInvitedCount
-        guard invited > 0 else { return empty }
-        return "已经有 \(invited) 人使用了你的邀请码，其中 \(response.resolvedRewardedCount) 人已发放奖励。"
-    }
+/// 「怎么算数」里的一条：图标、粗标题、一句话。警告那条用琥珀色字 + 图标（颜色不是唯一指示）。
+struct InviteRule: Identifiable, Equatable {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let isWarning: Bool
+
+    var id: String { title }
 }
 
 // MARK: - 选身份那一屏的邀请码格

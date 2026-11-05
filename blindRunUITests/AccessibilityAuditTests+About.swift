@@ -32,6 +32,7 @@ extension AccessibilityAuditTests {
         for (role, launch) in [("blind", { self.launchBlindHome() }), ("volunteer", { self.launchVolunteerHome() })] {
             let app = launch()
             let number = openAboutPage(app)
+            XCTAssertFalse(app.tabBars.firstMatch.exists, "\(role)：二级页要藏标签栏（#755）")
 
             XCTAssertEqual(number.label, "App 备案编号：粤ICP备20047259号-4A", "\(role)：读屏没有念完整编号")
 
@@ -99,12 +100,14 @@ extension AccessibilityAuditTests {
             attachScreenshot(app, name: "about-filing-audit-\(variant.name)-0")
             try audit(app)
 
-            // 滑到底才能确认最后一行露在求助条上方（盲人端的求助条不让开二级页内容，#620 踩过）。
+            // 滑到底才能确认最后一行露得出来（#620 时被常驻求助条盖住过）。
             // 这里不再审计：`.dynamicType` 那遍会把页面滚回顶部，边滑边审永远到不了底。
             let lastRow = app.descendants(matching: .any)["用户协议"].firstMatch
-            let sosBar = app.descendants(matching: .any)["blindTabBottomSOSBar"].firstMatch
             func isLastRowVisible() -> Bool {
-                let bottomLimit = sosBar.exists ? sosBar.frame.minY : app.tabBars.firstMatch.frame.minY
+                // 常驻求助条已删（#605）；#755 起这一页藏标签栏。栏不在就以窗口底边为界，
+                // 不去读一个不存在元素的 frame。
+                let tabBar = app.tabBars.firstMatch
+                let bottomLimit = tabBar.exists ? tabBar.frame.minY : app.windows.firstMatch.frame.maxY
                 return lastRow.exists && lastRow.frame.maxY <= bottomLimit
             }
             var screen = 0

@@ -84,7 +84,9 @@ extension AccessibilityAuditTests {
         let unblock = app.buttons["blockedUserUnblockButton"].firstMatch
         XCTAssertTrue(unblock.waitForExistence(timeout: 10), "刚拉黑的人要出现在列表里")
         XCTAssertGreaterThanOrEqual(unblock.frame.height, 63.5)
+        XCTAssertGreaterThanOrEqual(unblock.frame.width, 63.5, "行尾「解除」可点宽度不足 64pt：\(unblock.frame)")
         XCTAssertFalse(unblock.label.contains("*"), "读屏不念掩码星号：\(unblock.label)")
+        XCTAssertFalse(app.tabBars.firstMatch.exists, "已拉黑的人是二级页，要藏标签栏")
         attachScreenshot(app, name: "blind-blocked-list")
         try audit(app)
 
@@ -94,6 +96,7 @@ extension AccessibilityAuditTests {
         alert.buttons["确认解除"].tap()
         let empty = app.descendants(matching: .any)["blockedUsersEmpty"].firstMatch
         XCTAssertTrue(empty.waitForExistence(timeout: 10), "解除后列表要空")
+        XCTAssertTrue(empty.label.contains("没有拉黑的人"), "空态卡要先念标题：\(empty.label)")
         attachScreenshot(app, name: "blind-blocked-list-empty")
     }
 

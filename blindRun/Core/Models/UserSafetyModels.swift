@@ -180,7 +180,10 @@ enum UserSafetyCopy {
 
     static let blockedListTitle = "已拉黑的人"
     static let blockedListHint = "查看你选择不再匹配的人，可以解除"
-    static let blockedListEmpty = "你还没有拉黑任何人。在订单或跑步记录里选「不再匹配此人」，对方就会出现在这里。"
+    /// 空态卡：标题 + 一句说明（#755 定稿）。
+    static let blockedListEmptyTitle = "没有拉黑的人"
+    static let blockedListEmptyDetail = "在订单或跑步记录里选「不再匹配此人」，对方就会出现在这里。"
+    static let blockedListFootnote = "拉黑后不会再和对方匹配。解除前会再问你一次。"
     static let blockedListLoading = "正在加载已拉黑的人"
     static let blockedListFailed = "已拉黑的人加载失败，请检查网络后重试。"
     static let retry = "重试"

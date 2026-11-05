@@ -63,6 +63,8 @@ struct BlockedUsersView: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = BlockedUsersViewModel()
     @State private var pendingUnblock: BlockedUserResponse?
+    /// 与 `BlindPartnerAvatar` 行头像同一个缩放基准，分隔线起点跟着字号走。
+    @ScaledMetric(relativeTo: .body) private var avatarSide: CGFloat = 44
 
     var body: some View {
         ScrollView {
@@ -75,13 +77,15 @@ struct BlockedUsersView: View {
                 }
                 content
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
             .readableContentColumn()
         }
-        .background(AppColors.background)
+        .background(AppColors.Flow.page)
         .navigationTitle(UserSafetyCopy.blockedListTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar(.hidden, for: .tabBar) // 二级页藏标签栏（记忆 tab-bar-clips-the-last-line-of-secondary-pages）
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blockedUsersView")
@@ -129,47 +133,99 @@ struct BlockedUsersView: View {
             }
             .accessibilityIdentifier("blockedUsersRetry")
         case .loaded(let users) where users.isEmpty:
-            Text(UserSafetyCopy.blockedListEmpty)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("blockedUsersEmpty")
+            emptyCard
         case .loaded(let users):
-            ForEach(users) { row($0) }
+            // 一人一行，同一张分组卡（定稿 #755，照屏蔽的联系人）。
+            GroupedCard {
+                ForEach(Array(users.enumerated()), id: \.element.id) { index, user in
+                    if index > 0 {
+                        GroupedCardDivider(leadingInset: rowDividerInset)
+                    }
+                    row(user)
+                }
+            }
+            GroupedCardFootnote(text: UserSafetyCopy.blockedListFootnote)
         }
     }
 
+    /// 空态卡：图标、标题、说明，读屏合成一个焦点。
+    private var emptyCard: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "xmark")
+                .font(.title2.weight(.semibold))
+                .foregroundColor(AppColors.textSecondary)
+                .padding(14)
+                .background(Circle().fill(AppColors.Flow.surfaceSubtle))
+                .accessibilityHidden(true)
+            Text(UserSafetyCopy.blockedListEmptyTitle)
+                .font(.headline)
+                .foregroundColor(AppColors.textPrimary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(UserSafetyCopy.blockedListEmptyDetail)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 28)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity)
+        .background(AppColors.Flow.surface)
+        .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("blockedUsersEmpty")
+    }
+
+    /// 分隔线从名字起点开始：行内距 + 头像（随字号放大）+ 间距。
+    private var rowDividerInset: CGFloat {
+        GroupedCardMetrics.rowHorizontalPadding + avatarSide + 12
+    }
+
+    /// 灰色首字头像、名字、拉黑时间，右侧一个看得见的「解除」。
+    ///
+    /// 苹果「屏蔽的联系人」要先点「编辑」才能解除，读屏用户难找，所以每行留一个常驻的按钮（定稿 #755）。
     private func row(_ user: BlockedUserResponse) -> some View {
         let time = user.blockedAt?.nilIfBlank?.displayDateTime
-        return VStack(alignment: .leading, spacing: 10) {
-            // 姓名和时间合成一个焦点，分开念等于为同一个人划两次。
-            VStack(alignment: .leading, spacing: 4) {
-                Text(user.displayName)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                if let time {
-                    Text(UserSafetyCopy.blockedAt(time))
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
+        return AdaptiveHStack(spacing: 12) {
+            // 头像、姓名和时间合成一个焦点，分开念等于为同一个人划两次。
+            HStack(spacing: 12) {
+                BlindPartnerAvatar(name: user.displayName, tint: AppColors.textSecondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(user.displayName)
+                        .font(AppFonts.body().weight(.semibold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let time {
+                        Text(UserSafetyCopy.blockedAt(time))
+                            .font(.subheadline)
+                            .foregroundColor(AppColors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel([user.spokenName, time.map(UserSafetyCopy.blockedAt)].compactMap { $0 }.joined(separator: "，"))
 
-            FlowActionButton(
-                UserSafetyCopy.unblockTitle,
-                style: .ghost,
-                isEnabled: viewModel.busyUserId == nil,
-                accessibilityLabel: UserSafetyCopy.unblockLabel(user.spokenName),
-                accessibilityHint: UserSafetyCopy.unblockHint
-            ) {
+            // 可点区 64×64 起：最小宽高写在标签里，`TextButtonStyle` 的 `contentShape` 撑满它。
+            Button {
                 pendingUnblock = user
+            } label: {
+                Text(UserSafetyCopy.unblockTitle)
+                    .padding(.horizontal, 8)
+                    .frame(minWidth: AppTouchTarget.blindPrimary)
             }
+            .buttonStyle(TextButtonStyle(alignment: .center))
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(viewModel.busyUserId != nil)
+            .accessibilityLabel(UserSafetyCopy.unblockLabel(user.spokenName))
+            .accessibilityHint(UserSafetyCopy.unblockHint)
             .accessibilityIdentifier("blockedUserUnblockButton")
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppColors.secondaryBackground))
+        .padding(.leading, GroupedCardMetrics.rowHorizontalPadding)
+        .padding(.trailing, 4)
+        .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
     }
 
     private func resultLine(_ text: String, color: Color, identifier: String) -> some View {
