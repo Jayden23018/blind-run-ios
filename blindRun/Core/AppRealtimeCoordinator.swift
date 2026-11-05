@@ -1,420 +1,31 @@
 import Combine
 import Foundation
 
-struct RealtimeOrderStatusUpdate: Equatable, Sendable {
-    let messageId: String?
-    let orderId: Int64
-    let fromStatus: RunOrderStatus
-    let toStatus: RunOrderStatus
-    let receivedAt: Date
-
-    init(
-        messageId: String? = nil,
-        orderId: Int64,
-        fromStatus: RunOrderStatus,
-        toStatus: RunOrderStatus,
-        receivedAt: Date
-    ) {
-        self.messageId = messageId
-        self.orderId = orderId
-        self.fromStatus = fromStatus
-        self.toStatus = toStatus
-        self.receivedAt = receivedAt
-    }
-}
-
-struct OrderStatusRequestToken: Equatable, Sendable {
-    let orderID: Int64
-    fileprivate let generation: UInt64
-}
-
-enum OrderStatusReconciliationResult: Equatable, Sendable {
-    case applied(RunOrderStatus)
-    case duplicate(RunOrderStatus)
-    case rejectedStale(current: RunOrderStatus, candidate: RunOrderStatus)
-    case rejectedInvalid(current: RunOrderStatus?, candidate: RunOrderStatus)
-
-    var resolvedStatus: RunOrderStatus? {
-        switch self {
-        case .applied(let status), .duplicate(let status):
-            return status
-        case .rejectedStale(let current, _):
-            return current
-        case .rejectedInvalid(let current, _):
-            return current
-        }
-    }
-}
-
-/// Serial, in-memory authority for status candidates from REST and WebSocket.
-/// It prevents a request that started before a realtime transition from
-/// overwriting the newer state when its response arrives late.
-struct OrderStatusReconciler {
-    private struct Entry {
-        var status: RunOrderStatus
-        var generation: UInt64
-    }
-
-    private var entries: [Int64: Entry] = [:]
-
-    mutating func register(orderID: Int64, status: RunOrderStatus) {
-        guard let current = entries[orderID] else {
-            entries[orderID] = Entry(status: status, generation: 0)
-            return
-        }
-        if current.status == status { return }
-        if current.status.canReach(status) {
-            entries[orderID] = Entry(status: status, generation: current.generation &+ 1)
-        }
-    }
-
-    mutating func unregister(orderID: Int64) {
-        entries.removeValue(forKey: orderID)
-    }
-
-    mutating func removeAll() {
-        entries.removeAll(keepingCapacity: false)
-    }
-
-    func requestToken(orderID: Int64) -> OrderStatusRequestToken {
-        OrderStatusRequestToken(
-            orderID: orderID,
-            generation: entries[orderID]?.generation ?? 0
-        )
-    }
-
-    func currentStatus(orderID: Int64) -> RunOrderStatus? {
-        entries[orderID]?.status
-    }
-
-    func isCurrent(_ token: OrderStatusRequestToken) -> Bool {
-        (entries[token.orderID]?.generation ?? 0) == token.generation
-    }
-
-    mutating func reconcileRealtime(
-        orderID: Int64,
-        fromStatus: RunOrderStatus,
-        toStatus: RunOrderStatus
-    ) -> OrderStatusReconciliationResult {
-        let current = entries[orderID]?.status
-        guard current == nil || current == fromStatus else {
-            if current == toStatus { return .duplicate(toStatus) }
-            return current.map {
-                $0.canReach(fromStatus)
-                    ? .rejectedInvalid(current: $0, candidate: toStatus)
-                    : .rejectedStale(current: $0, candidate: toStatus)
-            } ?? .rejectedInvalid(current: nil, candidate: toStatus)
-        }
-        guard fromStatus.isDirectlyFollowed(by: toStatus) else {
-            return .rejectedInvalid(current: current, candidate: toStatus)
-        }
-
-        let nextGeneration = (entries[orderID]?.generation ?? 0) &+ 1
-        entries[orderID] = Entry(status: toStatus, generation: nextGeneration)
-        return .applied(toStatus)
-    }
-
-    mutating func reconcileREST(
-        orderID: Int64,
-        candidate: RunOrderStatus,
-        token: OrderStatusRequestToken
-    ) -> OrderStatusReconciliationResult {
-        guard token.orderID == orderID else {
-            return .rejectedInvalid(current: entries[orderID]?.status, candidate: candidate)
-        }
-        guard let current = entries[orderID] else {
-            entries[orderID] = Entry(status: candidate, generation: 0)
-            return .applied(candidate)
-        }
-        if candidate == current.status { return .duplicate(candidate) }
-        // 后端返回了客户端不认识的新状态（#329，安卓 #106 同源）。它没有档位、也没有迁移表可查，
-        // 下面的档位闸会把它当成「倒退」丢掉，订单页就停在旧状态、旧按钮还亮着。
-        // 令牌没落后、当前不是终态 ⇒ 采纳，落到只读的「状态未知」页；迟到的响应或终态之后照旧拒。
-        // 下一个认识的状态会把页面救回来（`.unknown` 的后继一律放行，见 `isDirectlyFollowed`）。
-        if candidate == .unknown {
-            guard token.generation >= current.generation, !current.status.isTerminal else {
-                return .rejectedStale(current: current.status, candidate: candidate)
-            }
-            entries[orderID] = Entry(status: candidate, generation: current.generation &+ 1)
-            return .applied(candidate)
-        }
-        if current.status.lifecycleRank > candidate.lifecycleRank,
-           !candidate.isTerminal,
-           candidate != .rematching {
-            return .rejectedStale(current: current.status, candidate: candidate)
-        }
-
-        if current.status.canReach(candidate) {
-            entries[orderID] = Entry(status: candidate, generation: current.generation &+ 1)
-            return .applied(candidate)
-        }
-        if candidate.canReach(current.status) || token.generation < current.generation {
-            return .rejectedStale(current: current.status, candidate: candidate)
-        }
-        return .rejectedInvalid(current: current.status, candidate: candidate)
-    }
-}
-
-private extension RunOrderStatus {
-    var lifecycleRank: Int {
-        switch self {
-        // `.pendingIntroCall` 与 `.pendingMatch` **同档**，这不是偷懒。
-        // 这一档只被 `reconcileREST` 用来拒绝「倒退的」REST 结果，而这两态之间的倒退是真的：
-        // 本轮没聊成时后端把订单退回 `PENDING_MATCH`（`IntroCallService.releaseToQueue`，
-        // 刻意不是 `REMATCHING`）。给通话态排更高的档，那条真实迁移会被判成陈旧丢掉，
-        // 盲人的页面就永远停在「等待通话确认」。
-        case .pendingMatch, .pendingIntroCall: return 0
-        // 🚩 `.scheduledConfirmed` 与 `.pendingAccept` **同档 1，不能给 0**。
-        // `REMATCHING → SCHEDULED_CONFIRMED` 是真实迁移（重新派单后被一张远期单接走，
-        // 后端 `OrderStatus.canTransitionTo` 明写），而 `.rematching` 是 1 ——
-        // 给 0 会让这条真实迁移被判成「倒退的陈旧结果」丢掉，订单页永远停在「重新匹配中」。
-        // 这就是上面那段 `.pendingIntroCall` 注释说的同一个坑，换了个状态而已。
-        //
-        // 同档的已知代价（与 `.pendingAccept` / `.rematching` 之间那对完全一样，是本设计的既有边界）：
-        // 一条陈旧的 REST 结果可以把 `PENDING_ACCEPT` 拉回 `SCHEDULED_CONFIRMED`。
-        // 后果只是多显示一次确认按钮，按下去后端返 409，不是不可逆操作。
-        case .scheduledConfirmed, .pendingAccept, .rematching: return 1
-        case .driverEnRoute: return 2
-        case .driverArrived: return 3
-        case .inProgress: return 4
-        case .completed, .cancelled, .noVolunteer: return 5
-        // 排在所有真实状态之前，这样「当前是未知态」永远不会把一个真实状态判成陈旧。
-        case .unknown: return -1
-        }
-    }
-
-    func isDirectlyFollowed(by candidate: RunOrderStatus) -> Bool {
-        switch self {
-        case .pendingMatch:
-            return [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
-        // 后端 `OrderStatus.java` 的通话磨合分支：双方认可 → PENDING_ACCEPT；
-        // 任一方不认可 / 没接到 / 窗口超时 → **退回进通话之前那个状态**；
-        // 轮次达上限 → NO_VOLUNTEER；盲人取消 → CANCELLED。
-        //
-        // ⚠️ 「退回之前那个状态」是 2026-08-26 后端修 P0（N105）时改的，此前写死 `PENDING_MATCH`。
-        // 所以 `REMATCHING`（志愿者接过单又中途取消、正在重新找人，期间又有人表示有意向）
-        // 现在也是一个合法的后继 —— 那条边此前不会出现。
-        case .pendingIntroCall:
-            return [.scheduledConfirmed, .pendingAccept, .pendingMatch, .rematching,
-                    .cancelled, .noVolunteer].contains(candidate)
-        // 跨天预约（后端迁移 `0041`）：距开跑超过 240 分钟时被接单的订单落这一态。
-        // 出边三条，逐字取自后端 `OrderStatus.canTransitionTo`：临期确认 → `PENDING_ACCEPT`；
-        // 闸门到点未确认 / 志愿者取消 → `REMATCHING`；盲人取消 → `CANCELLED`。
-        // ⚠️ **没有 `→ NO_VOLUNTEER`** —— 人已经定了，「无人接单」在这一态不是可能的结局。
-        case .scheduledConfirmed:
-            return [.pendingAccept, .rematching, .cancelled].contains(candidate)
-        case .pendingAccept:
-            return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
-        // 汇合与陪跑三态的出边逐字取自后端 `OrderStatus.canTransitionTo`（#465）：
-        // `→ COMPLETED` 是 `autoCompleteOrder` 超时自动完成（在路上 / 已到达也会发生），
-        // `→ CANCELLED` 是陪跑员「结束等待」（后端 #362）、跑者到达后取消（后端 #682）、
-        // 重匹达上限与 `forceTerminateStuckOrder` 兜底。
-        // ⚠️ 这几条边此前不在表里，但 `canReach` 能经 `REMATCHING` / `IN_PROGRESS` 多跳到达，
-        // 所以 REST 路径一直是对的、只有 `reconcileRealtime`（只认直接后继）把推送判成非法 ——
-        // 首页因此收不到这条推送，陪跑员站在集合点听不到「已取消、可以离开」。
-        case .driverEnRoute:
-            return [.driverArrived, .completed, .rematching, .cancelled].contains(candidate)
-        case .driverArrived:
-            return [.inProgress, .completed, .rematching, .cancelled].contains(candidate)
-        case .inProgress:
-            return [.completed, .rematching, .cancelled].contains(candidate)
-        // `REMATCHING` 与 `PENDING_MATCH` 在后端 `isDispatchable()` 下行为一致，
-        // 所以它同样能被一个候选人「有意向」拽进通话磨合。
-        case .rematching:
-            return [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
-        case .completed, .cancelled, .noVolunteer:
-            return false
-        // 未知态没有任何可信的后继约束，一律放行，让下一个认识的状态把界面救回来。
-        // 反方向：`.unknown` 不在 `allCases` 里，`canReach` 的遍历永远到不了它 ——
-        // 「已知 → 未知」不走这张表，由 `reconcileREST` 开头那条专门的分支判（#329）。
-        case .unknown:
-            return true
-        }
-    }
-
-    func canReach(_ candidate: RunOrderStatus) -> Bool {
-        if self == candidate { return true }
-        var visited: Set<RunOrderStatus> = [self]
-        var pending = [self]
-        while let status = pending.popLast() {
-            for next in RunOrderStatus.allCases where status.isDirectlyFollowed(by: next) {
-                if next == candidate { return true }
-                if visited.insert(next).inserted {
-                    pending.append(next)
-                }
-            }
-        }
-        return false
-    }
-}
 import SwiftUI
-
-enum RealtimePriority: Int, Codable, Comparable, Sendable {
-    case normal = 0
-    case high = 1
-
-    init(rawValue: String?) {
-        self = rawValue?.uppercased() == "HIGH" ? .high : .normal
-    }
-
-    static func < (lhs: RealtimePriority, rhs: RealtimePriority) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
-
-enum RealtimePeerRole: String, Sendable {
-    case blind
-    case volunteer
-}
-
-struct RealtimePeerLocationSample: Sendable {
-    let orderId: Int64
-    let ownerRole: RealtimePeerRole
-    let latitude: Double
-    let longitude: Double
-    let timestampMilliseconds: Int64
-    /// 定位精度（米）。目前只有 `BLIND_LOCATION_UPDATE` 带（`accuracyM`，可缺省）。
-    var accuracyMeters: Double?
-
-    var isValid: Bool {
-        (-90...90).contains(latitude) && (-180...180).contains(longitude)
-    }
-}
-
-/// 陪跑员订单页 v2 的两条实时推送。都**不落通知日志**，重连后以订单详情为准，
-/// 所以消费方只把它们就地合进手上那份订单，不当权威。
-enum RealtimeOrderLiveUpdate: Sendable {
-    case eta(orderId: Int64, EtaView)
-    case meet(orderId: Int64, MeetView)
-
-    var orderId: Int64 {
-        switch self {
-        case .eta(let orderId, _), .meet(let orderId, _): return orderId
-        }
-    }
-}
-
-extension OrderDetailResponse {
-    /// 把一条实时推送合进这份订单。订单号对不上时原样返回。
-    func merging(_ update: RealtimeOrderLiveUpdate) -> OrderDetailResponse {
-        guard update.orderId == orderId else { return self }
-        var merged = self
-        switch update {
-        case .eta(_, let eta): merged.eta = eta
-        case .meet(_, let meet): merged.meet = meet
-        }
-        return merged
-    }
-}
-
-struct RealtimeOrderRefreshRequest: Sendable {
-    enum Reason: Sendable { case statusChanged, reconnected }
-    let orderId: Int64
-    let reason: Reason
-}
-
-struct RealtimeDispatchPrompt: Sendable {
-    let order: WSNewOrder
-    let receivedAt: Date
-    let expiresAt: Date
-
-    func remainingSeconds(at date: Date = Date()) -> Int {
-        max(0, Int(ceil(expiresAt.timeIntervalSince(date))))
-    }
-}
-
-struct RealtimeSeparationAlert: Sendable {
-    let eventID: String
-    let orderID: Int64
-    let eventType: String
-    let distanceMeters: Double?
-    let displayText: String
-    let speechText: String
-    let timestamp: String?
-}
-
-struct RealtimeSafetyEvent: Sendable {
-    enum Kind: String, Sendable {
-        case emergencyVolunteerAlert
-        case emergencyResolved
-        case emergencyContactNotified
-        // The ones below reach iOS as `APP_NOTIFICATION` envelopes carrying an `eventType`, not as
-        // top-level WebSocket types (`NotificationService.sendNotification`, :93-99).
-        case emergencyTriggered
-        case emergencyNoContact
-        case emergencyVolunteerTimeout
-        // 2026-07-31 batch (handoff.md): volunteer-initiated SOS, SMS delivery receipts, and the
-        // close-out events that previously left the blind runner with zero notification.
-        case emergencyTriggeredByVolunteer
-        case emergencyContactSmsDelivered
-        case emergencyContactNotifyFailed
-        case emergencyVolunteerAck
-        case emergencyClosedResolved
-        case emergencyClosedFalseAlarm
-
-        /// Kinds that mean "an emergency involving this user is open right now". Used to decide
-        /// whether an event arriving with no local state is worth a recovery fetch — close-out and
-        /// observer events are not, so a resolved event never resurrects itself.
-        var impliesLiveEmergency: Bool {
-            switch self {
-            case .emergencyTriggered, .emergencyTriggeredByVolunteer, .emergencyContactNotified,
-                 .emergencyContactSmsDelivered, .emergencyContactNotifyFailed, .emergencyNoContact,
-                 .emergencyVolunteerTimeout, .emergencyVolunteerAck:
-                return true
-            case .emergencyResolved, .emergencyClosedResolved, .emergencyClosedFalseAlarm,
-                 .emergencyVolunteerAlert:
-                return false
-            }
-        }
-    }
-
-    let eventID: String
-    let orderID: Int64?
-    let kind: Kind
-    let displayText: String
-    let speechText: String
-    let timestamp: String?
-    /// 受助者触发求助那一刻的位置。**只有 `EMERGENCY_VOLUNTEER_ALERT` 带得出来**
-    /// （`websocket-protocol.md:546` 的 `gpsLat`/`gpsLng`，可为 null），其余
-    /// `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封，连 `eventId` 都没有。
-    ///
-    /// 已经过 `BackendCoordinateNormalizer` 归一 —— 后端给的是 GCJ-02，
-    /// 而本仓库只允许坐标在**单一边界**上转换一次（`AGENTS.md` §3）。
-    /// 这里不转的话，志愿者端算出来的「距他多远」会带上几百米的坐标系偏移。
-    let coordinate: LocatedCoordinate?
-    /// 服务端算的两人距离，只在档位可用时才有（`WSEmergencyVolunteerAlert.fallbackDistanceMeters`）。
-    /// 本机 GPS 还冷着时的兜底，见 `VolunteerEmergencyAlert.distanceText(from:)`。
-    var serverDistanceMeters: Double? = nil
-}
-
-struct RealtimeRecoverySignal: Sendable {
-    let role: WSRole
-    let connectedAt: Date
-}
 
 /// App-lifetime owner for decoded realtime routing. Feature ViewModels retain authoritative REST state.
 @MainActor
 final class AppRealtimeCoordinator: ObservableObject {
-    private struct OrderStatusEventFingerprint: Equatable {
+    struct OrderStatusEventFingerprint: Equatable {
         let orderID: Int64
         let fromStatus: String?
         let toStatus: String
     }
 
-    private enum RetainedOrderStatusIdentity: Equatable {
+    enum RetainedOrderStatusIdentity: Equatable {
         case fingerprint(OrderStatusEventFingerprint)
         case collision
     }
 
-    private enum OrderStatusIdentityDecision {
+    enum OrderStatusIdentityDecision {
         case process(messageID: String?)
         case duplicate
         case collision
     }
 
-    @Published private(set) var connectionState: WSConnectionState = .disconnected
-    @Published private(set) var pendingOrderRefreshIDs: Set<Int64> = []
-    @Published private(set) var pendingOrderRefreshRequests: [Int64: RealtimeOrderRefreshRequest] = [:]
+    @Published var connectionState: WSConnectionState = .disconnected
+    @Published var pendingOrderRefreshIDs: Set<Int64> = []
+    @Published var pendingOrderRefreshRequests: [Int64: RealtimeOrderRefreshRequest] = [:]
     /// 当前还没被回复、也还没过期的派单，**按回复期限升序**（设计交付 v3 §4.4.2）。
     ///
     /// 🔴 **这里从「一条」改成「一队」是在修一个真缺陷，不是为了设计稿的分页点。**
@@ -422,34 +33,34 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 自己写着「接单锁是 per-order 的…拦不到同一个志愿者接两单」「候选池过滤是尽力而为的优化，
     /// 拦不住两条派单链路同时把他选中」。而这里原先一句 `guard pendingDispatch == nil`
     /// 把第二条**静默丢掉**：志愿者丢单、盲人白等一轮 30 秒，而没有任何东西会报警。
-    @Published private(set) var pendingDispatches: [RealtimeDispatchPrompt] = []
+    @Published var pendingDispatches: [RealtimeDispatchPrompt] = []
 
     /// 队列里最靠前的那一条。保留它是因为「只有一条派单」仍然是绝大多数情况，
     /// 而六处既有断言读的就是这个语义。
     var pendingDispatch: RealtimeDispatchPrompt? { pendingDispatches.first }
 
-    @Published private(set) var dispatchDiagnostic: WSDispatchDiagnostic?
-    @Published private(set) var currentNotification: RealtimeForegroundNotification?
+    @Published var dispatchDiagnostic: WSDispatchDiagnostic?
+    @Published var currentNotification: RealtimeForegroundNotification?
     /// 陪跑员按了「让 TA 的手机响起来」。盲人端 `BlindRunnerTabView` 据此响铃，响完调 `dismissRunnerRing`。
-    @Published private(set) var runnerRing: RunnerRingRequest?
-    @Published private(set) var latestSeparationAlert: RealtimeSeparationAlert?
-    @Published private(set) var latestSafetyEvent: RealtimeSafetyEvent?
+    @Published var runnerRing: RunnerRingRequest?
+    @Published var latestSeparationAlert: RealtimeSeparationAlert?
+    @Published var latestSafetyEvent: RealtimeSafetyEvent?
 
     /// 最近一次（实时推送或重连补读）看到的通知 ISO-8601 timestamp。
     /// 作为 `GET /api/notifications/since?after=` 的游标，由 `AppState` 持久化。
-    private(set) var lastObservedNotificationTimestamp: String?
+    var lastObservedNotificationTimestamp: String?
 
-    private let peerLocationSubject = PassthroughSubject<RealtimePeerLocationSample, Never>()
-    private let recoverySubject = PassthroughSubject<RealtimeRecoverySignal, Never>()
-    private let statusUpdateSubject = PassthroughSubject<RealtimeOrderStatusUpdate, Never>()
-    private let orderLiveUpdateSubject = PassthroughSubject<RealtimeOrderLiveUpdate, Never>()
+    let peerLocationSubject = PassthroughSubject<RealtimePeerLocationSample, Never>()
+    let recoverySubject = PassthroughSubject<RealtimeRecoverySignal, Never>()
+    let statusUpdateSubject = PassthroughSubject<RealtimeOrderStatusUpdate, Never>()
+    let orderLiveUpdateSubject = PassthroughSubject<RealtimeOrderLiveUpdate, Never>()
     var orderLiveUpdatePublisher: AnyPublisher<RealtimeOrderLiveUpdate, Never> {
         orderLiveUpdateSubject.eraseToAnyPublisher()
     }
     /// 盲人点了「可以开始」（后端 #307 ①）。**不带订单号**：该事件的信封里没有 `orderId`
     /// （`websocket-protocol.md`，早于 orderId 约定），消费方自己判「当前是不是汇合态」。
     /// 通知本身照常入队播报，这条只是让页面把「等待对方确认」收回去。
-    private let blindStartConfirmedSubject = PassthroughSubject<Void, Never>()
+    let blindStartConfirmedSubject = PassthroughSubject<Void, Never>()
     var blindStartConfirmedPublisher: AnyPublisher<Void, Never> {
         blindStartConfirmedSubject.eraseToAnyPublisher()
     }
@@ -473,7 +84,7 @@ final class AppRealtimeCoordinator: ObservableObject {
     static let volunteerLostEventType = "ORDER_VOLUNTEER_LOST"
 
     /// 跑者也会收到同名事件（文案不同），那一端没有可放下的订单页。未绑定角色（单测直接喂事件）时照发。
-    private func publishVolunteerLostIfNeeded(eventType: String) {
+    func publishVolunteerLostIfNeeded(eventType: String) {
         guard eventType == Self.volunteerLostEventType,
               attachedRole == nil || attachedRole == .volunteer else { return }
         volunteerLostSubject.send()
@@ -507,16 +118,16 @@ final class AppRealtimeCoordinator: ObservableObject {
     }
 
     private weak var attachedService: WebSocketService?
-    private var attachedRole: WSRole?
+    var attachedRole: WSRole?
     private var eventCancellable: AnyCancellable?
     private var connectionCancellable: AnyCancellable?
     private var dispatchDiagnosticCancellable: AnyCancellable?
-    private var notificationTask: Task<Void, Never>?
+    var notificationTask: Task<Void, Never>?
     /// 每条派单各自的到期任务。**按 orderId 分开存**：一个共享的 task 只能跟住最后一条，
     /// 其余的到期之后会永远留在队列里（而它们已经被后端转给别人了）。
-    private var dispatchExpiryTasks: [Int64: Task<Void, Never>] = [:]
+    var dispatchExpiryTasks: [Int64: Task<Void, Never>] = [:]
     /// 本地已经了结的邀请，记到它原本的回复期限为止。为什么要记见 `RetiredInviteLedger`。
-    private var retiredInvites = RetiredInviteLedger()
+    var retiredInvites = RetiredInviteLedger()
     /// 已送达的邀请通知该收掉时调（撤回 / 回复 / 对账，#338）。默认什么都不做 —— 单测不碰系统通知中心，
     /// 真的那一半由 `PushNotificationsManager.configure` 接上。
     var pruneDeliveredInviteNotifications: @MainActor (InviteNotificationPrune) -> Void = { _ in }
@@ -530,27 +141,27 @@ final class AppRealtimeCoordinator: ObservableObject {
     private(set) var lockScreenInviteActionAt: Date?
     /// 按下时登录的账号（冷启动时可能还没恢复，是 `nil`）。首页对不上当前账号就丢掉。
     private(set) var lockScreenInviteActionUserID: Int64?
-    private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
-    private var orderRefreshRetryCounts: [Int64: Int] = [:]
-    private var queuedNotifications: [RealtimeForegroundNotification] = []
-    private var deduplicationDates: [String: Date] = [:]
-    private var activeOrderIDs: Set<Int64> = []
-    private var activeOrderStatuses: [Int64: RunOrderStatus] = [:]
-    private var orderStatusReconciler = OrderStatusReconciler()
-    private var retainedOrderStatusIdentities: [String: RetainedOrderStatusIdentity] = [:]
-    private var retainedOrderStatusIdentityOrder: [String] = []
-    private var recentLifecycleStatusDates: [RunOrderStatus: Date] = [:]
-    private var latestPeerSamples: [String: RealtimePeerLocationSample] = [:]
-    private var peerPublishTasks: [String: Task<Void, Never>] = [:]
-    private var hasConnectedOnce = false
-    private let now: () -> Date
-    private let notificationDuration: TimeInterval
-    private let deduplicationWindow: TimeInterval
-    private let orderRefreshRetryDelays: [TimeInterval]
-    private let maximumQueuedNotifications: Int
-    private let maximumDeduplicationEntries = 128
-    private let maximumOrderStatusIdentities = 256
-    private let lifecycleNotificationSuppressionWindow: TimeInterval = 30
+    var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
+    var orderRefreshRetryCounts: [Int64: Int] = [:]
+    var queuedNotifications: [RealtimeForegroundNotification] = []
+    var deduplicationDates: [String: Date] = [:]
+    var activeOrderIDs: Set<Int64> = []
+    var activeOrderStatuses: [Int64: RunOrderStatus] = [:]
+    var orderStatusReconciler = OrderStatusReconciler()
+    var retainedOrderStatusIdentities: [String: RetainedOrderStatusIdentity] = [:]
+    var retainedOrderStatusIdentityOrder: [String] = []
+    var recentLifecycleStatusDates: [RunOrderStatus: Date] = [:]
+    var latestPeerSamples: [String: RealtimePeerLocationSample] = [:]
+    var peerPublishTasks: [String: Task<Void, Never>] = [:]
+    var hasConnectedOnce = false
+    let now: () -> Date
+    let notificationDuration: TimeInterval
+    let deduplicationWindow: TimeInterval
+    let orderRefreshRetryDelays: [TimeInterval]
+    let maximumQueuedNotifications: Int
+    let maximumDeduplicationEntries = 128
+    let maximumOrderStatusIdentities = 256
+    let lifecycleNotificationSuppressionWindow: TimeInterval = 30
 
     #if DEBUG
     private(set) var attachmentCount = 0
@@ -611,753 +222,6 @@ final class AppRealtimeCoordinator: ObservableObject {
         hasConnectedOnce = false
         connectionState = .disconnected
         if clearSessionState { clearInMemoryState() }
-    }
-
-    func registerActiveOrder(_ orderID: Int64) {
-        activeOrderIDs.insert(orderID)
-    }
-
-    func registerActiveOrder(_ orderID: Int64, status: RunOrderStatus) {
-        activeOrderIDs.insert(orderID)
-        orderStatusReconciler.register(orderID: orderID, status: status)
-        activeOrderStatuses[orderID] = orderStatusReconciler.currentStatus(orderID: orderID) ?? status
-    }
-
-    func unregisterActiveOrder(_ orderID: Int64) {
-        activeOrderIDs.remove(orderID)
-        orderStatusReconciler.unregister(orderID: orderID)
-        activeOrderStatuses.removeValue(forKey: orderID)
-        for role in [RealtimePeerRole.blind, .volunteer] {
-            let key = peerKey(orderID: orderID, ownerRole: role)
-            peerPublishTasks.removeValue(forKey: key)?.cancel()
-            latestPeerSamples.removeValue(forKey: key)
-        }
-    }
-
-    func beginOrderStatusRequest(orderID: Int64) -> OrderStatusRequestToken {
-        orderStatusReconciler.requestToken(orderID: orderID)
-    }
-
-    func isOrderStatusRequestCurrent(_ token: OrderStatusRequestToken) -> Bool {
-        orderStatusReconciler.isCurrent(token)
-    }
-
-    /// Returns nil only when the response is associated with the wrong request.
-    /// Stale status values are replaced with the already accepted newer status,
-    /// while every other decoded detail field remains available to the caller.
-    func reconcileOrderDetail(
-        _ candidate: OrderDetailResponse,
-        requestToken: OrderStatusRequestToken
-    ) -> OrderDetailResponse? {
-        guard candidate.orderId == requestToken.orderID else {
-            ClientFlowDiagnostics.record(event: "wrong_order_rejected", operation: "order-status-rest")
-            return nil
-        }
-        let result = orderStatusReconciler.reconcileREST(
-            orderID: candidate.orderId,
-            candidate: candidate.status,
-            token: requestToken
-        )
-        guard let resolved = result.resolvedStatus else {
-            ClientFlowDiagnostics.record(event: "invalid_rejected", operation: "order-status-rest")
-            return nil
-        }
-        activeOrderStatuses[candidate.orderId] = resolved
-        switch result {
-        case .rejectedStale:
-            ClientFlowDiagnostics.record(event: "late_response_discarded", operation: "order-status-rest")
-        case .rejectedInvalid:
-            ClientFlowDiagnostics.record(event: "invalid_rejected", operation: "order-status-rest")
-        case .applied:
-            ClientFlowDiagnostics.record(event: "applied", operation: "order-status-rest")
-        case .duplicate:
-            break
-        }
-        return candidate.status == resolved
-            ? candidate
-            : candidate.replacingStatus(with: resolved)
-    }
-
-    func completeOrderRefresh(_ orderID: Int64) {
-        orderRefreshRetryTasks.removeValue(forKey: orderID)?.cancel()
-        orderRefreshRetryCounts.removeValue(forKey: orderID)
-        pendingOrderRefreshIDs.remove(orderID)
-        pendingOrderRefreshRequests.removeValue(forKey: orderID)
-    }
-
-    func failOrderRefresh(_ orderID: Int64) {
-        guard pendingOrderRefreshRequests[orderID] != nil,
-              orderRefreshRetryTasks[orderID] == nil else { return }
-
-        pendingOrderRefreshIDs.remove(orderID)
-        let retryCount = orderRefreshRetryCounts[orderID, default: 0]
-        guard retryCount < orderRefreshRetryDelays.count else {
-            completeOrderRefresh(orderID)
-            return
-        }
-
-        orderRefreshRetryCounts[orderID] = retryCount + 1
-        let delay = orderRefreshRetryDelays[retryCount]
-        orderRefreshRetryTasks[orderID] = Task { [weak self] in
-            let nanos = UInt64(max(0, delay) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-            guard !Task.isCancelled, let self,
-                  self.pendingOrderRefreshRequests[orderID] != nil else { return }
-            self.orderRefreshRetryTasks.removeValue(forKey: orderID)
-            self.pendingOrderRefreshIDs.insert(orderID)
-        }
-    }
-
-    func markDispatchPresented(orderID: Int64) {
-        guard let diagnostic = dispatchDiagnostic,
-              diagnostic.orderID == orderID,
-              diagnostic.stage == .retained || diagnostic.stage == .received else { return }
-        dispatchDiagnostic = diagnostic.advancing(to: .presented, recordedAt: now())
-    }
-
-    func latestPeerLocation(orderID: Int64, ownerRole: RealtimePeerRole) -> RealtimePeerLocationSample? {
-        latestPeerSamples[peerKey(orderID: orderID, ownerRole: ownerRole)]
-    }
-
-    func dismissRunnerRing() {
-        runnerRing = nil
-    }
-
-    func dismissCurrentNotification() {
-        notificationTask?.cancel()
-        notificationTask = nil
-        currentNotification = nil
-        presentNextNotificationIfNeeded()
-    }
-
-    private func route(_ event: WSIncomingEvent) {
-        switch event {
-        case .orderStatusChanged(let message):
-            switch retainOrderStatusIdentity(for: message) {
-            case .duplicate:
-                ClientFlowDiagnostics.record(event: "duplicate_dropped", operation: "order-status-event")
-                return
-            case .collision:
-                ClientFlowDiagnostics.record(event: "identity_collision", operation: "order-status-event")
-                requestOrderRefresh(message.orderId, reason: .statusChanged)
-                return
-            case .process(let messageID):
-                if activeOrderIDs.contains(message.orderId),
-                   let rawFromStatus = message.fromStatus,
-                   let fromStatus = RunOrderStatus(rawValue: rawFromStatus),
-                   let toStatus = RunOrderStatus(rawValue: message.toStatus),
-                   fromStatus != toStatus {
-                    let result = orderStatusReconciler.reconcileRealtime(
-                        orderID: message.orderId,
-                        fromStatus: fromStatus,
-                        toStatus: toStatus
-                    )
-                    guard case .applied = result else {
-                        ClientFlowDiagnostics.record(event: "rejected", operation: "order-status-event")
-                        requestOrderRefresh(message.orderId, reason: .statusChanged)
-                        return
-                    }
-                    let update = RealtimeOrderStatusUpdate(
-                        messageId: messageID,
-                        orderId: message.orderId,
-                        fromStatus: fromStatus,
-                        toStatus: toStatus,
-                        receivedAt: now()
-                    )
-                    activeOrderStatuses[message.orderId] = toStatus
-                    recentLifecycleStatusDates[toStatus] = update.receivedAt
-                    ClientFlowDiagnostics.record(event: "applied", operation: "order-status-event")
-                    statusUpdateSubject.send(update)
-                }
-                requestOrderRefresh(message.orderId, reason: .statusChanged)
-            }
-        case .newOrder, .inviteWithdrawn:
-            routeInviteEvent(event)
-        case .volunteerLocation(let message):
-            routePeerLocation(
-                RealtimePeerLocationSample(
-                    orderId: message.orderId,
-                    ownerRole: .volunteer,
-                    latitude: message.lat,
-                    longitude: message.lng,
-                    timestampMilliseconds: message.timestamp
-                ),
-                expectedReceiver: .blind
-            )
-        case .blindLocation(let message):
-            routePeerLocation(
-                RealtimePeerLocationSample(
-                    orderId: message.orderId,
-                    ownerRole: .blind,
-                    latitude: message.lat,
-                    longitude: message.lng,
-                    timestampMilliseconds: message.timestamp,
-                    accuracyMeters: message.accuracyM
-                ),
-                expectedReceiver: .volunteer
-            )
-        case .notification(let message):
-            routeNotification(message)
-        case .emergencyResolved(let message):
-            routeSafety(
-                eventID: String(message.eventId),
-                orderID: nil,
-                kind: .emergencyResolved,
-                displayText: message.message ?? "紧急事件已由陪跑员确认",
-                speechText: message.ttsText ?? message.message ?? "紧急事件已由陪跑员确认",
-                timestamp: message.timestamp
-            )
-        case .emergencyAlert(let message):
-            routeSafety(
-                eventID: String(message.eventId),
-                orderID: message.orderId,
-                kind: .emergencyVolunteerAlert,
-                displayText: message.message ?? "关联服务出现安全事件",
-                speechText: message.ttsText ?? message.message ?? "关联服务出现安全事件",
-                timestamp: message.timestamp,
-                // 两个字段任一为 null 就整体没有坐标 —— 只有纬度的「位置」是个陷阱，
-                // 而这条链路的下游会拿它算「距你多远」。契约里它们各自可空。
-                coordinate: message.gpsLat.flatMap { lat in
-                    message.gpsLng.flatMap { BackendCoordinateNormalizer.backend(latitude: lat, longitude: $0) }
-                },
-                serverDistanceMeters: message.fallbackDistanceMeters
-            )
-        case .orderEtaUpdated(let message):
-            orderLiveUpdateSubject.send(.eta(orderId: message.orderId, message.eta))
-        case .meetDistanceBucket(let message):
-            orderLiveUpdateSubject.send(.meet(orderId: message.orderId, message.meet))
-        case .pong, .unknown:
-            break
-        }
-    }
-
-    private func requestOrderRefresh(_ orderID: Int64, reason: RealtimeOrderRefreshRequest.Reason) {
-        orderRefreshRetryTasks.removeValue(forKey: orderID)?.cancel()
-        guard !pendingOrderRefreshIDs.contains(orderID) else { return }
-        pendingOrderRefreshIDs.insert(orderID)
-        pendingOrderRefreshRequests[orderID] = RealtimeOrderRefreshRequest(orderId: orderID, reason: reason)
-    }
-
-    /// 队列上限。**防的是异常堆积，不是产品规则** —— 后端没有「一次最多派几单给一个人」这回事。
-    /// 超了就丢最新的那条：队列按期限升序，先到期的更紧急，留着它们比留一条刚来的更有用。
-    private static let maxPendingDispatches = 5
-
-    private func retainDispatch(_ message: WSNewOrder) {
-        guard attachedRole == nil || attachedRole == .volunteer else { return }
-        guard !retiredInvites.contains(message, now: now()) else { return }
-        // 同一张邀请重发（后端重试 / 快照与推送都带着它）不进第二条。判据是邀请身份而不是整条消息相等：
-        // 重发的 `timestamp` 会变，按值去重等于去不掉。
-        // 🚩 **身份是 `inviteId`**（后端 #371）：同一张单撤回后可能发来**新的**一张邀请，
-        // 那时旧的那条（若还在）让位给新的，而不是把新的当重复丢掉。
-        if let index = pendingDispatches.firstIndex(where: { $0.order.orderId == message.orderId }) {
-            guard Self.isDifferentInvite(pendingDispatches[index].order, message) else { return }
-            dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
-            pendingDispatches.remove(at: index)
-        }
-        guard pendingDispatches.count < Self.maxPendingDispatches else { return }
-        let receivedAt = now()
-        let expiresAt = Self.dispatchExpiry(message, receivedAt: receivedAt)
-        guard expiresAt > receivedAt else {
-            // 到手时就已过期：后端的期限比本机时钟早（时钟误差、或推送在路上太久）。不静默 —— 留一条诊断。
-            ClientFlowDiagnostics.record(event: "dropped-expired", operation: "dispatch-retain")
-            return
-        }
-        pendingDispatches.append(
-            RealtimeDispatchPrompt(order: message, receivedAt: receivedAt, expiresAt: expiresAt)
-        )
-        // 按回复期限升序（设计交付 v3 §4.4.2「多个邀请：按回复期限升序」）。
-        // 设计稿还有一句「同等期限下一起跑过的跑者优先」—— `NEW_ORDER` 里没有这个字段，
-        // **不编一个出来**，已投 handoff。
-        pendingDispatches.sort { $0.expiresAt < $1.expiresAt }
-        if let diagnostic = dispatchDiagnostic,
-           diagnostic.orderID == message.orderId,
-           diagnostic.stage == .received {
-            dispatchDiagnostic = diagnostic.advancing(to: .retained, recordedAt: receivedAt)
-        }
-        dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
-        let inviteID = message.inviteId
-        dispatchExpiryTasks[message.orderId] = Task { [weak self] in
-            let nanos = UInt64(max(0, expiresAt.timeIntervalSince(receivedAt)) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-            guard !Task.isCancelled, let self else { return }
-            self.dispatchExpiryTasks.removeValue(forKey: message.orderId)
-            self.pendingDispatches.removeAll { $0.order.orderId == message.orderId && $0.order.inviteId == inviteID }
-        }
-    }
-
-    /// REST 兜底拿到的对方位置。**只入库，不发布。**
-    ///
-    /// 存在的理由：`LiveEscortSessionCoordinator.freshPeerCoordinate` 只读这个存量
-    /// （`latestPeerLocation`）—— 也就是说陪跑途中 WebSocket 一断，走散检测就没有输入了。
-    /// 而后端**恰好**在 `IN_PROGRESS` 提供 `GET /api/blind/volunteer-location`
-    /// （`sharesLiveLocation()` 的三态之一）：数据一直在，从前只是没人把它接过来。
-    ///
-    /// 🚩 **刻意不走 `routePeerLocation` 的发布那一半。** 发布会回流到
-    /// `BlindOrderStatusViewModel.handleVolunteerLocationUpdate`，把 `latestVolunteerWebSocketDate`
-    /// 也一并推新 —— 而那个字段正是「WebSocket 还在给我样本吗」这个判断的依据，
-    /// 拿 REST 的结果去喂它，下一轮兜底就会被自己刚写进去的值劝退。
-    /// 入库这一半共用 `retainPeerLocation`，所以「只进不退」那条守卫两条路一模一样。
-    ///
-    /// ⚠️ 调用方必须传**真实采样时刻**（后端的 `updatedAt`），不许拿「现在」凑：
-    /// 那会让一个 29 秒前的坐标伪装成刚采的，直接削弱走散检测。
-    func ingestFallbackPeerLocation(_ sample: RealtimePeerLocationSample) {
-        _ = retainPeerLocation(sample, expectedReceiver: .blind)
-    }
-
-    /// 入库并回答「这条样本是不是新的」。抽出来只为一件事：REST 兜底与 WebSocket
-    /// 共用同一条「只进不退」的守卫，不各写一份。
-    private func retainPeerLocation(
-        _ sample: RealtimePeerLocationSample,
-        expectedReceiver: WSRole
-    ) -> Bool {
-        guard (attachedRole == nil || attachedRole == expectedReceiver), sample.isValid else { return false }
-        guard activeOrderIDs.contains(sample.orderId) else { return false }
-        let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
-        if let previous = latestPeerSamples[key],
-           previous.timestampMilliseconds >= sample.timestampMilliseconds {
-            return false
-        }
-        latestPeerSamples[key] = sample
-        return true
-    }
-
-    private func routePeerLocation(_ sample: RealtimePeerLocationSample, expectedReceiver: WSRole) {
-        guard retainPeerLocation(sample, expectedReceiver: expectedReceiver) else { return }
-        let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
-        guard peerPublishTasks[key] == nil else {
-            ClientFlowDiagnostics.record(event: "coalesced", operation: "peer-location-event")
-            return
-        }
-        peerPublishTasks[key] = Task { [weak self] in
-            await Task.yield()
-            guard !Task.isCancelled, let self, let latest = self.latestPeerSamples[key] else { return }
-            self.peerLocationSubject.send(latest)
-            self.peerPublishTasks.removeValue(forKey: key)
-        }
-    }
-
-    private func routeNotification(_ message: WSAppNotification) {
-        // 记录最近一次通知的 ISO-8601 timestamp，供重连补读作为 `after` 参数
-        // （与后端 `notification_logs.sent_at` 同格式）。escort 分支同样要推进，
-        // 否则重连后会把已经播报过的告警再补读一遍。
-        recordObservedNotificationTimestamp(message.timestamp)
-        let eventType = message.eventType.uppercased()
-        if Self.orderRefreshingEventTypes.contains(eventType), let orderId = message.orderId {
-            requestOrderRefresh(orderId, reason: .statusChanged)
-        }
-        if Self.refreshOnlyEventTypes.contains(eventType) { return }
-        if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
-        publishVolunteerLostIfNeeded(eventType: eventType)
-        // `backendTimestamp` 而不是 `parseISO8601`：WS 信封的 timestamp 是无时区的 LocalDateTime，
-        // ISO8601DateFormatter 解不出来，会让重连补读来的旧提醒一律当成「刚刚」。
-        if eventType == Self.introCallIncomingEventType, routeIntroCallIncoming(sentAt: message.timestamp) { return }
-        if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
-            routeEscortAlert(message, eventType: eventType)
-            return
-        }
-        if RunnerRingRequest.Kind(eventType: eventType) != nil, routeRunnerRing(message) { return }
-        if let kind = Self.emergencyKind(forEventType: eventType) {
-            routeEmergencyNotification(message, kind: kind)
-            return
-        }
-        guard !message.body.trimmed.isEmpty else { return }
-        // 排在抑制之前：普通 `REMATCHING` 有活跃订单时不播，但它说明这次不算半路退出。
-        // 模板通知不带 `orderId` 时，只有一张活跃订单才认得出是哪一单（同 `routeEscortAlert`）。
-        BlindMidRunDepartureRecord.shared.note(
-            eventType: eventType, orderID: message.orderId ?? (activeOrderIDs.count == 1 ? activeOrderIDs.first : nil)
-        )
-        if shouldSuppressLifecycleNotification(eventType: eventType) { return }
-        let body = overriddenBody(forEventType: eventType) ?? message.body
-        // 覆盖时**两条通道一起换**。只换屏幕上那行、让 `ttsText` 照念后端原文，
-        // 等于让读屏用户听到的仍是「点击继续等待」——而这条覆盖存在的全部理由就是那句话。
-        let speechText = overriddenBody(forEventType: eventType)
-            ?? message.ttsText?.nilIfBlank
-            ?? message.body
-        let notification = RealtimeForegroundNotification(
-            stableEventID: message.messageId ?? message.eventId.map(String.init),
-            title: message.title,
-            displayText: body,
-            speechText: speechText,
-            priority: Self.clientPriority(forEventType: eventType, serverPriority: message.priority),
-            timestamp: message.timestamp,
-            isSafetyEvent: Self.isSafetyEventType(eventType)
-        )
-        enqueue(notification, type: message.type)
-    }
-
-    /// `RUNNER_RING` / `RUNNER_RING_LOST` 走响铃，不进横幅（响铃遮罩自己会念那一句，进横幅就念两遍）。
-    /// 返回 `false` = 这一条响不了（非盲人端、缺 `until`、已过点），调用方按普通通知念一次。
-    /// 同一条重复投递按 `messageId` 丢掉，复用横幅那套去重窗口。
-    private func routeRunnerRing(_ message: WSAppNotification) -> Bool {
-        guard attachedRole == nil || attachedRole == .blind,
-              let ring = RunnerRingRequest.make(from: message, receivedAt: now()) else { return false }
-        guard shouldPresent(deduplicationKey: "RUNNER_RING:\(ring.id)") else { return true }
-        runnerRing = ring
-        return true
-    }
-
-    /// 后端正文指向一个**客户端已经没有的控件**时的替代正文；`nil` = 照播后端原文。
-    ///
-    /// 盲人端 `ORDER_OVERDUE` 见 `BlindRunnerFinishCopy.overdueOverride`。下面说的是另一条：`ORDER_CANCELLATION_WARNING` 的模板正文逐字带着「点击继续等待可延长」，
-    /// 而同一个 eventType 覆盖 `PENDING_MATCH` 与 `REMATCHING` 两态，前者那个按钮已删
-    /// （`RunOrderStatus.offersBlindRunnerKeepWaitingControl`）。
-    ///
-    /// 🔴 **判据是「此刻有没有那个按钮」，不是 eventType 本身。** `REMATCHING` 那一侧按钮
-    /// 还在，而且那一按是真延长 —— 在那一态改文案会把一条准确且可执行的提示，换成一句
-    /// 「去取消订单重新预约」，而重新下单要求 ≥30 分钟提前量。两个方向各有代价，
-    /// 所以必须看状态。
-    ///
-    /// 🚩 **`WSAppNotification` 里没有 `orderId`**（`WebSocketModels.swift` 的字段只有
-    /// type / eventId / messageId / eventType / title / body / ttsText / priority / timestamp），
-    /// 所以判不出这条预警说的是哪一张单 —— 这是契约的盲区，不是这里的疏漏。
-    ///
-    /// 已登记的订单可能**同时有两张**：首页登记它那一张、订单详情页登记它那一张，
-    /// 而详情页的 `onDisappear` 只 `stopPolling()`、**不 unregister**，所以退出之后那张还在。
-    ///
-    /// ⇒ 判据取**保守的那一侧**：候选单（`offersKeepWaiting`，也就是这个 eventType 唯一
-    /// 可能指向的两态）**全都**有按钮才照播原文；只要有一张没有、或者一张候选都看不到，
-    /// 就换成不提按钮的说法。
-    ///
-    /// **两个方向的代价不对称，所以不能取 `contains`**：多覆盖一次，`REMATCHING` 的用户
-    /// 少听到一句「可以点继续等待」（按钮还在屏幕上，他能看见/摸到）；少覆盖一次，
-    /// `PENDING_MATCH` 的盲人被明确指去按一个不存在的控件，而他无从判断是自己没找到
-    /// 还是它根本不在。后者更贵。
-    ///
-    /// ⛔ **不许改成匹配正文里的中文片段。** 那正是
-    /// `testSuppressionFollowsEventTypeNotBodyText` 钉住的旧实现：后端改一个字，
-    /// iOS 的播报行为就静默变一次。
-    private func overriddenBody(forEventType eventType: String) -> String? {
-        guard eventType == "ORDER_CANCELLATION_WARNING" else { return BlindRunnerFinishCopy.overdueOverride(eventType: eventType, role: attachedRole) }
-        // 只看这条预警可能指向的那两态，别把 `DRIVER_EN_ROUTE` 这类无关订单算进来 ——
-        // 它们既不是候选，也永远没有那个按钮，算进来等于恒定覆盖。
-        let candidates = activeOrderStatuses.values.filter(\.offersKeepWaiting)
-        let everyCandidateHasTheControl = !candidates.isEmpty
-            && candidates.allSatisfy(\.offersBlindRunnerKeepWaitingControl)
-        return everyCandidateHasTheControl
-            ? nil
-            : KeepWaitingCopy.cancellationWarningWithoutControl
-    }
-
-    private func retainOrderStatusIdentity(
-        for message: WSOrderStatusChanged
-    ) -> OrderStatusIdentityDecision {
-        guard let rawMessageID = message.messageId?.nilIfBlank else {
-            ClientFlowDiagnostics.record(event: "missing_id", operation: "order-status-contract")
-            return .process(messageID: nil)
-        }
-        guard let uuid = UUID(uuidString: rawMessageID) else {
-            ClientFlowDiagnostics.record(event: "invalid_id", operation: "order-status-contract")
-            return .process(messageID: nil)
-        }
-
-        let key = uuid.uuidString
-        let fingerprint = OrderStatusEventFingerprint(
-            orderID: message.orderId,
-            fromStatus: message.fromStatus,
-            toStatus: message.toStatus
-        )
-        if let retained = retainedOrderStatusIdentities[key] {
-            switch retained {
-            case .fingerprint(let previous) where previous == fingerprint:
-                return .duplicate
-            case .fingerprint:
-                retainedOrderStatusIdentities[key] = .collision
-                return .collision
-            case .collision:
-                return .duplicate
-            }
-        }
-
-        retainedOrderStatusIdentities[key] = .fingerprint(fingerprint)
-        retainedOrderStatusIdentityOrder.append(key)
-        while retainedOrderStatusIdentityOrder.count > maximumOrderStatusIdentities {
-            let expired = retainedOrderStatusIdentityOrder.removeFirst()
-            retainedOrderStatusIdentities.removeValue(forKey: expired)
-        }
-        return .process(messageID: rawMessageID)
-    }
-
-    /// 订单页自己会播状态变化，所以「跟状态变化说同一件事」的那几条通知不再重复播一遍。
-    ///
-    /// **判据是 `eventType`，不是正文文案。** 2026-08-09 之前这里匹配的是一张中文片段表
-    /// （「已接单」「重新匹配」……），代价是后端改任何一条模板的正文都会**静默**改变 iOS 的播报行为。
-    /// 它已经咬过一次：后端新增的 `REMATCH_ACCEPTED`（正文「已为您**重新匹配**志愿者{name}」）
-    /// 命中片段「重新匹配」被整条吞掉，而重匹配成功时用户必然有活跃订单 ——
-    /// 于是「换了个志愿者」这件事在 iOS 上一个字都没播出去。
-    ///
-    /// 顺带修掉的另一处：`ORDER_ACCEPTED` 的正文含「正在确认行程」，旧表把它同时算成
-    /// `.pendingAccept` 和 `.rematching` 两个状态。
-    ///
-    /// ⚠️ **未知 `eventType` 一律不抑制**（`lifecycleStatus` 返回 nil），这是有意的默认方向：
-    /// 后端加了新通知而这张表没跟上时，盲人**多听一遍**好过**一个字都听不到**。
-    private func shouldSuppressLifecycleNotification(eventType: String) -> Bool {
-        guard let status = Self.lifecycleStatus(forEventType: eventType) else { return false }
-        if !activeOrderIDs.isEmpty { return true }
-
-        let cutoff = now().addingTimeInterval(-lifecycleNotificationSuppressionWindow)
-        recentLifecycleStatusDates = recentLifecycleStatusDates.filter { $0.value >= cutoff }
-        return recentLifecycleStatusDates[status] != nil
-    }
-
-    private func routeEmergencyNotification(_ message: WSAppNotification, kind: RealtimeSafetyEvent.Kind) {
-        // `APP_NOTIFICATION` carries no `eventId`; `messageId` is the only stable identity the
-        // backend provides here (`buildEnvelope`), and it is what escort alerts already dedupe on.
-        let eventID = message.messageId?.nilIfBlank
-            ?? message.eventId.map(String.init)
-            ?? message.timestamp
-            ?? kind.rawValue
-        let copy = Self.emergencyCopy(for: kind) ?? message.body
-        routeSafety(
-            eventID: eventID,
-            orderID: nil,
-            kind: kind,
-            displayText: copy,
-            speechText: copy,
-            timestamp: message.timestamp
-        )
-    }
-
-    private func routeEscortAlert(_ message: WSAppNotification, eventType: String) {
-        guard message.priority?.uppercased() == "HIGH",
-              let messageID = message.messageId?.nilIfBlank,
-              UUID(uuidString: messageID) != nil else { return }
-        let inProgress = activeOrderStatuses.compactMap { key, value in
-            value == .inProgress ? key : nil
-        }
-        guard inProgress.count == 1, let orderID = inProgress.first else { return }
-
-        let event = RealtimeSeparationAlert(
-            eventID: messageID,
-            orderID: orderID,
-            eventType: eventType,
-            distanceMeters: nil,
-            displayText: message.body,
-            speechText: message.ttsText ?? message.body,
-            timestamp: message.timestamp
-        )
-        latestSeparationAlert = event
-        enqueue(
-            RealtimeForegroundNotification(
-                stableEventID: "escort:\(messageID)",
-                title: message.title?.nilIfBlank ?? "安全提醒",
-                displayText: event.displayText,
-                speechText: event.speechText,
-                priority: .high,
-                timestamp: event.timestamp,
-                isSafetyEvent: true
-            ),
-            type: eventType
-        )
-    }
-
-    /// 游标只前进不后退：补读结果乱序或后端补发旧记录时，不能把 `after` 推回过去。
-    private func recordObservedNotificationTimestamp(_ timestamp: String?) {
-        guard let timestamp = timestamp?.nilIfBlank else { return }
-        guard let current = lastObservedNotificationTimestamp else {
-            lastObservedNotificationTimestamp = timestamp
-            return
-        }
-        if timestamp > current { lastObservedNotificationTimestamp = timestamp }
-    }
-
-    /// 重连补读：把 `/api/notifications/since` 返回的遗漏通知按时间正序喂回前台队列，
-    /// 复用既有的优先级排队与去重逻辑（去重键用数据库主键，和实时推送的 messageId 不会互撞）。
-    ///
-    /// 注意：后端只保证 24h/50 条窗口，重复投递同一条时 id 相同，因此 `missed:<id>` 足够防重。
-    func ingestCatchUp(_ notifications: [MissedNotificationResponse]) {
-        let sorted = notifications.sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
-        for missed in sorted {
-            recordObservedNotificationTimestamp(missed.sentAt)
-            // 补读的 `ORDER_VOLUNTEER_LOST` 不发失联通道（#476）：不带 `orderId`，可能放错另一单。真被转走的那一单
-            // 由重连时 `handleConnectionState` 发起的重拉判定（详情 403 → 订单页离开；首页靠摘要刷新）。
-            guard !missed.body.trimmed.isEmpty else { continue }
-            // 补读走**同一条**正文覆盖。漏掉这里的后果只在断线重连那条路径上出现
-            // （最容易漏测、也最难在真机上复现）：屏幕上那行字是替代文案、补读念的却是
-            // 后端原文「点击继续等待可延长」。
-            let eventType = (missed.eventType ?? "").uppercased()
-            if eventType == Self.introCallIncomingEventType, routeIntroCallIncoming(sentAt: missed.sentAt) { continue }
-            // 补读不退回「唯一活跃订单」：窗口有 24 小时，不带订单号的旧通知可能属于上一单。
-            BlindMidRunDepartureRecord.shared.note(eventType: eventType, orderID: missed.orderId)
-            let override = overriddenBody(forEventType: eventType)
-            let speechText = override ?? missed.ttsText?.nilIfBlank ?? missed.body
-            enqueue(
-                RealtimeForegroundNotification(
-                    stableEventID: "missed:\(missed.id)",
-                    title: nil,
-                    displayText: override ?? missed.body,
-                    speechText: speechText,
-                    // 补读走同一条抬优先级的规则。断线期间错过的 `ORDER_OVERDUE` 恰恰是最该
-                    // 被听见的那条 —— 重连时它已经迟了，再排在派单进度后面就更迟。
-                    priority: Self.clientPriority(
-                        forEventType: eventType,
-                        serverPriority: missed.priority
-                    ),
-                    timestamp: missed.sentAt,
-                    // 补读同样按类型判呈现强度。断线期间错过的 `REMATCHING_MID_RUN` 是这批里
-                    // 最该被听见的一条 —— 它意味着盲人当时已经独自在户外，而他到现在都不知道。
-                    isSafetyEvent: Self.isSafetyEventType(eventType)
-                ),
-                type: WSMessageType.appNotification.rawValue
-            )
-        }
-    }
-
-    private func routeSafety(
-        eventID: String,
-        orderID: Int64?,
-        kind: RealtimeSafetyEvent.Kind,
-        displayText: String,
-        speechText: String,
-        timestamp: String?,
-        coordinate: LocatedCoordinate? = nil,
-        serverDistanceMeters: Double? = nil
-    ) {
-        let event = RealtimeSafetyEvent(
-            eventID: eventID,
-            orderID: orderID,
-            kind: kind,
-            displayText: displayText,
-            speechText: speechText,
-            timestamp: timestamp,
-            coordinate: coordinate,
-            serverDistanceMeters: serverDistanceMeters
-        )
-        latestSafetyEvent = event
-        enqueue(
-            RealtimeForegroundNotification(
-                stableEventID: "\(kind.rawValue):\(eventID)",
-                title: "安全提醒",
-                displayText: displayText,
-                speechText: speechText,
-                priority: .high,
-                timestamp: timestamp,
-                isSafetyEvent: true
-            ),
-            type: kind.rawValue
-        )
-    }
-
-    private func enqueue(_ notification: RealtimeForegroundNotification, type: String) {
-        let key = notification.stableEventID ?? Self.fallbackDeduplicationKey(
-            type: type,
-            text: notification.displayText,
-            timestamp: notification.timestamp
-        )
-        guard shouldPresent(deduplicationKey: key) else { return }
-
-        if notification.priority == .high, currentNotification?.priority == .normal {
-            if let currentNotification { queuedNotifications.insert(currentNotification, at: 0) }
-            trimNotificationQueueIfNeeded()
-            notificationTask?.cancel()
-            currentNotification = notification
-            scheduleNotificationDismissal()
-            return
-        }
-        if notification.priority == .high,
-           let firstNormalIndex = queuedNotifications.firstIndex(where: { $0.priority == .normal }) {
-            queuedNotifications.insert(notification, at: firstNormalIndex)
-        } else {
-            queuedNotifications.append(notification)
-        }
-        trimNotificationQueueIfNeeded()
-        presentNextNotificationIfNeeded()
-    }
-
-    private func trimNotificationQueueIfNeeded() {
-        while queuedNotifications.count > maximumQueuedNotifications {
-            if let normalIndex = queuedNotifications.firstIndex(where: { $0.priority == .normal }) {
-                queuedNotifications.remove(at: normalIndex)
-            } else if let nonSafetyIndex = queuedNotifications.firstIndex(where: { !$0.isSafetyEvent }) {
-                queuedNotifications.remove(at: nonSafetyIndex)
-            } else {
-                queuedNotifications.removeFirst()
-            }
-        }
-    }
-
-    private func shouldPresent(deduplicationKey: String) -> Bool {
-        let date = now()
-        deduplicationDates = deduplicationDates.filter { date.timeIntervalSince($0.value) <= deduplicationWindow }
-        if deduplicationDates[deduplicationKey] != nil { return false }
-        deduplicationDates[deduplicationKey] = date
-        if deduplicationDates.count > maximumDeduplicationEntries,
-           let oldest = deduplicationDates.min(by: { $0.value < $1.value })?.key {
-            deduplicationDates.removeValue(forKey: oldest)
-        }
-        return true
-    }
-
-    private func presentNextNotificationIfNeeded() {
-        guard currentNotification == nil, !queuedNotifications.isEmpty else { return }
-        currentNotification = queuedNotifications.removeFirst()
-        scheduleNotificationDismissal()
-    }
-
-    private func scheduleNotificationDismissal() {
-        notificationTask?.cancel()
-        notificationTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(max(0, self?.notificationDuration ?? 0) * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.dismissCurrentNotification()
-        }
-    }
-
-    private func handleConnectionState(_ state: WSConnectionState) {
-        let wasConnected = connectionState == .connected
-        connectionState = state
-        guard state == .connected else { return }
-        if hasConnectedOnce && !wasConnected, let attachedRole {
-            for orderID in activeOrderIDs { requestOrderRefresh(orderID, reason: .reconnected) }
-            recoverySubject.send(RealtimeRecoverySignal(role: attachedRole, connectedAt: now()))
-        }
-        hasConnectedOnce = true
-    }
-
-    private func clearInMemoryState() {
-        notificationTask?.cancel()
-        for task in dispatchExpiryTasks.values { task.cancel() }
-        for task in orderRefreshRetryTasks.values { task.cancel() }
-        for task in peerPublishTasks.values { task.cancel() }
-        notificationTask = nil
-        dispatchExpiryTasks = [:]
-        retiredInvites = RetiredInviteLedger()
-        orderRefreshRetryTasks = [:]
-        orderRefreshRetryCounts = [:]
-        pendingOrderRefreshIDs = []
-        pendingOrderRefreshRequests = [:]
-        pendingDispatches = []
-        dispatchDiagnostic = nil
-        currentNotification = nil
-        latestSeparationAlert = nil
-        latestSafetyEvent = nil
-        // 换账号/登出后不能把上一个用户的补读游标带过去。
-        lastObservedNotificationTimestamp = nil
-        queuedNotifications = []
-        deduplicationDates = [:]
-        activeOrderIDs = []
-        activeOrderStatuses = [:]
-        orderStatusReconciler.removeAll()
-        retainedOrderStatusIdentities = [:]
-        retainedOrderStatusIdentityOrder = []
-        recentLifecycleStatusDates = [:]
-        latestPeerSamples = [:]
-        peerPublishTasks = [:]
-    }
-
-    private func peerKey(orderID: Int64, ownerRole: RealtimePeerRole) -> String {
-        "\(orderID):\(ownerRole.rawValue)"
-    }
-
-    private static func fallbackDeduplicationKey(type: String, text: String, timestamp: String?) -> String {
-        let normalized = text.lowercased().split(whereSeparator: { $0.isWhitespace }).joined()
-        let timeBucket = parseISO8601(timestamp).map { String(Int($0.timeIntervalSince1970 / 60)) } ?? "no-time"
-        return "\(type)|\(normalized)|\(timeBucket)"
-    }
-
-    static func parseISO8601(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        return formatter.date(from: value) ?? ISO8601DateFormatter.withoutFractionalSeconds.date(from: value)
     }
 }
 
@@ -1453,7 +317,7 @@ extension AppRealtimeCoordinator {
     /// 通话页开着时由页面自己显示并念一次；页面不在时，**过了 2 分钟的不进横幅、不念**（#448）——
     /// 离线 10 分钟后重连补读来的「跑者正在打给你」会让人以为跑者此刻在打电话。
     /// 时效判据与通话页同一条（`IntroCallCopy.incomingCallDisplayUntil`）；时刻解不出时按「刚刚」算（与通话页一致）。
-    private func routeIntroCallIncoming(sentAt raw: String?) -> Bool {
+    func routeIntroCallIncoming(sentAt raw: String?) -> Bool {
         let sentAt = raw?.nilIfBlank?.backendTimestamp ?? now()
         introCallIncomingSubject.send(sentAt)
         return isIntroCallPageShowingIncomingCalls || IntroCallCopy.incomingCallDisplayUntil(sentAt: sentAt, now: now()) == nil
@@ -1474,7 +338,7 @@ extension AppRealtimeCoordinator {
     }
 
     /// 邀请类事件：新邀请进队，撤回从队里移走同一张。从 `route` 分出来，那个 switch 只许变短。
-    private func routeInviteEvent(_ event: WSIncomingEvent) {
+    func routeInviteEvent(_ event: WSIncomingEvent) {
         switch event {
         case .newOrder(let message):
             retainDispatch(message)
@@ -1483,51 +347,5 @@ extension AppRealtimeCoordinator {
         default:
             break
         }
-    }
-}
-
-private extension ISO8601DateFormatter {
-    static let withoutFractionalSeconds: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-}
-
-struct RealtimeForegroundNotificationBanner: View {
-    let notification: RealtimeForegroundNotification
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: notification.priority == .high ? "exclamationmark.triangle.fill" : "bell.fill")
-                .foregroundColor(notification.priority == .high ? AppColors.destructive : AppColors.primary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                if let title = notification.title?.nilIfBlank {
-                    Text(title).font(AppFonts.body().weight(.bold))
-                }
-                Text(notification.displayText).font(AppFonts.body())
-            }
-            Spacer(minLength: 8)
-            // `TextButtonStyle` 自带 `maxWidth: .infinity`：不收住宽度会和上面的 Spacer 对半分这一行，把通知文字挤窄。
-            Button(action: onDismiss) {
-                Text("关闭").frame(minWidth: AppTouchTarget.blindPrimary)
-            }
-            .buttonStyle(TextButtonStyle(alignment: .center))
-            .fixedSize(horizontal: true, vertical: false)
-            .accessibilityHint("关闭当前通知并显示下一条通知")
-        }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(notification.priority == .high ? AppColors.destructive : AppColors.primary, lineWidth: 2)
-        }
-        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(notification.speechText)
-        .accessibilityAddTraits(notification.priority == .high ? .isHeader : [])
-        .accessibilityIdentifier("realtimeForegroundNotification")
     }
 }
