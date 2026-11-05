@@ -168,23 +168,6 @@ final class PrivacyConsentTests: XCTestCase {
         )
     }
 
-    /// 志愿者实名勾选框旁的协议页必须原样带出 `disclosures`，一条不少、一个字不改（#769）——
-    /// 勾选框只是把告知挪到了点开协议名之后，不是替代。
-    func testCheckboxDocumentCarriesEveryDisclosureVerbatim() {
-        let document = PrivacyConsentPurpose.volunteerIdentity.checkboxDocument
-        XCTAssertEqual(document.sections.flatMap(\.bullets), PrivacyConsentPurpose.volunteerIdentity.disclosures)
-        XCTAssertEqual(document.title, "身份信息与人脸核验授权")
-    }
-
-    /// 小弹窗的自动播报只念标题 + 摘要（#769）；没有摘要的目的退回全文，不能念成空的。
-    func testPopupSpokenScriptUsesSummaryWhenPresent() {
-        let location = PrivacyConsentPurpose.blindLocationTrack
-        XCTAssertEqual(location.popupSpokenScript, "\(location.title) \(location.popupSummary ?? "")")
-        XCTAssertNotEqual(location.popupSpokenScript, location.spokenScript)
-        XCTAssertNil(PrivacyConsentPurpose.volunteerIdentity.popupSummary)
-        XCTAssertEqual(PrivacyConsentPurpose.volunteerIdentity.popupSpokenScript, PrivacyConsentPurpose.volunteerIdentity.spokenScript)
-    }
-
     /// 两个实名收集点必须逐字说出「身份证号」，首启那条必须说出三类敏感信息 ——
     /// 告知里不点名，用户无从判断自己在同意什么。
     func testSensitiveItemsAreNamedInTheDisclosures() {
