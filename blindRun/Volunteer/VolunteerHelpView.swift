@@ -147,12 +147,15 @@ struct VolunteerHelpView: View {
 
 // MARK: - 挂载
 
-/// 设置页的入口行。单独成一个视图：`VolunteerOrderFlowViews.swift` 已经超出 SwiftLint 基线，不再往里加行。
+/// 「我的」列表里的入口行（`VolunteerSettingsView`）。
 struct VolunteerHelpSettingsLink: View {
     var body: some View {
-        NavigationLink("使用帮助") {
+        NavigationLink {
             VolunteerHelpView(isFirstRun: false)
+        } label: {
+            VolunteerSettingsRowLabel(title: "使用帮助")
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("使用帮助")
         .accessibilityHint("一单怎么走完，遇到事找哪里")
         .accessibilityIdentifier("volunteerSettingsHelpLink")

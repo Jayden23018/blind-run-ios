@@ -41,7 +41,12 @@ extension AccessibilityAuditTests {
         XCUIDevice.shared.orientation = .portrait
         for variant in privacyAuditVariants {
             let app = launchVolunteerHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
-            openPrivacyAuthorization(app, entryIdentifier: "volunteerPrivacyAuthorizationSettingsEntry", variant: variant.name)
+            openPrivacyAuthorization(
+                app,
+                entryIdentifier: "volunteerPrivacyAuthorizationSettingsEntry",
+                variant: variant.name,
+                throughAccountPage: true
+            )
             let revoke = app.buttons["volunteerPrivacyRevokeLocationTrackConsent"].firstMatch
             XCTAssertTrue(revoke.waitForExistence(timeout: 10), "\(variant.name)：没有撤回位置共享的按钮")
             // 63.5 而不是 64：真机浮点噪声，口径同 `testPrivacyAuthorizationRevokeButtonsAreTallAndSayWhatTheyRevoke`。
@@ -57,12 +62,13 @@ extension AccessibilityAuditTests {
         }
     }
 
-    /// 「我的」→ 设置页里的「隐私与授权」入口。
+    /// 「我的」→ 设置页里的「隐私与授权」入口。陪跑员的在账户页（「我的」→ 头像卡，#700）。
     @MainActor
-    func openPrivacyAuthorization(_ app: XCUIApplication, entryIdentifier: String, variant: String) {
+    func openPrivacyAuthorization(_ app: XCUIApplication, entryIdentifier: String, variant: String, throughAccountPage: Bool = false) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "\(variant)：底部标签栏不在")
         tabBar.buttons["我的"].tap()
+        if throughAccountPage { app.openVolunteerAccountPage() }
         let entry = app.descendants(matching: .any)[entryIdentifier].firstMatch
         // 先拖再断言：最大字号下入口在列表很下面，`List` 不渲染屏幕外的行，不拖就永远等不到（2026-10-28 真机 ax5 红过一次）。
         _ = entry.waitForExistence(timeout: 5)

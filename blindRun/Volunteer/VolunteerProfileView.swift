@@ -62,7 +62,8 @@ struct VolunteerAccountProfileContent: Equatable {
     }
 
     /// 身份证二要素核验的状态。没有或认不出就不画这一行（不猜）。
-    private static func identityStatusText(_ status: String?) -> String? {
+    /// 账户页（`VolunteerAccountView`）的「实名认证」行也用这一份，两页说法一致。
+    static func identityStatusText(_ status: String?) -> String? {
         switch status {
         case "APPROVED": return "已认证"
         case "PENDING": return "审核中"
