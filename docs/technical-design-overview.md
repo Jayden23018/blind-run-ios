@@ -521,10 +521,10 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 | 测试文件 | 规模 | 覆盖 |
 |---|---|---|
 | `blindRunTests/` 下 33 个按主题的类 + 3 个共享 helper 文件（`BlindRunTestSupport.swift` 等；原 `blindRunTests.swift`，#717 拆分） | 共 277 KB | 主干单元测试 |
-| `VoiceOrderWizardTests.swift` | 135 KB | 语音下单状态机 |
+| `blindRunTests/` 下 13 个 `VoiceOrderWizard*Tests` 类 + `VoiceOrderWizardTestSupport.swift`（原 `VoiceOrderWizardTests.swift`，#721 拆分） | 共 164 KB | 语音下单状态机 |
 | `blindRunUITests.swift` | 78 KB | UI 端到端 |
 | `LiveEscortTrackTests.swift` | 32 KB | 位置共享与路线 |
-| `EmergencySOSTests.swift` | 31 KB | 求助逐状态验证 |
+| `blindRunTests/` 下 8 个 `EmergencySOS*Tests` 类 + `EmergencySOSTestSupport.swift`（原 `EmergencySOSTests.swift`，#721 拆分） | 共 96 KB | 求助逐状态验证 |
 | `AppRealtimeCoordinatorTests.swift` | 46 KB | 实时事件分发 |
 | `VoiceStatusQueryTests.swift` | 19 KB | 语音状态查询 |
 | `EmergencyContactsViewModelTests.swift` | 16 KB | 紧急联系人规则 |
@@ -705,7 +705,7 @@ xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
 scripts/device-test.sh
 
 # 只跑受影响的 suite（推荐，全量约 10 分钟会超时）
-scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests
+scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardConfirmTests
 
 # 契约与规格校验
 openspec validate --all --strict --no-interactive

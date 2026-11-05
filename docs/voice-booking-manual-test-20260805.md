@@ -99,7 +99,7 @@ POST /api/orders/voice/parse
 
 **订正二：现在有信号了。** `parseFreeform` 已从 `try?` 改为 `do/catch`，解析失败时在读回**之前**先说一句
 `VoiceOrderWizard.parseFailureNotice`（「这次没能把你说的话转成预约内容，下面念的是默认值。」），
-不重问、不打回表单。守卫用例 `VoiceOrderWizardTests.testFreeformAnnouncesThatParsingFailedBeforeReadingBackDefaults`。
+不重问、不打回表单。守卫用例 `VoiceOrderWizardFreeformTests.testFreeformAnnouncesThatParsingFailedBeforeReadingBackDefaults`。
 
 > 因此案例 B（一句话成单）现在跑出来的是「默认值链路 + 失败提示」——**这本身就是一条要验的行为**：
 > 听到那句提示才算通过，静默念默认值算失败。C（长句尾静音）、D（确认词）、F 仍需 `/parse` 部署后才能真正验。

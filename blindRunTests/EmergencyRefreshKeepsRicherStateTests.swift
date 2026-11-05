@@ -12,7 +12,7 @@ import XCTest
 @MainActor
 final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
     override func tearDown() async throws {
-        await MainActor.run { EmergencySOSTests.teardownAlarmObservers() }
+        await MainActor.run { EmergencySOSFixtures.teardownAlarmObservers() }
         try await super.tearDown()
     }
 
@@ -33,8 +33,8 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 950, status: "PENDING"))
         safety.activeEmergencyResult = .success(try Self.openEvent(id: 950, status: "PENDING"))
         coordinator.beginCountdown(
-            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
-            locate: { EmergencySOSTests.coordinate(latitude: 39.916, longitude: 116.404) }
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { EmergencySOSFixtures.coordinate(latitude: 39.916, longitude: 116.404) }
         )
         try await Self.waitUntil(seconds: 3) { coordinator.state == .mergedIntoOpenEvent(.pending) }
 
@@ -133,7 +133,7 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
     // MARK: - Helpers
 
     private static func makeRecoverableFixture() -> (EmergencyCoordinator, FakeSafetyService) {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
         // `refreshActiveEvent` 只在装了 provider 时才会去问。
         coordinator.observe(AppRealtimeCoordinator(notificationDuration: 60)) { safety }
         return (coordinator, safety)
@@ -145,8 +145,8 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
         useCountdown: Bool = false
     ) async -> EmergencyCoordinator.TriggerOutcome {
         await coordinator.trigger(
-            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
-            locate: { EmergencySOSTests.coordinate(latitude: 39.915, longitude: 116.404) },
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { EmergencySOSFixtures.coordinate(latitude: 39.915, longitude: 116.404) },
             useCountdown: useCountdown
         )
     }
@@ -165,7 +165,7 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
         }
     }
 
-    /// 用解码造 fixture，理由见 `EmergencySOSTests.openEventEnvelope`。
+    /// 用解码造 fixture，理由见 `EmergencySOSReconciliationTests.openEventEnvelope`。
     private static func openEvent(id: Int64, status: String) throws -> EmergencyActiveEnvelope {
         let json = """
         {"success":true,"code":200,"data":{

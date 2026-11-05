@@ -160,7 +160,7 @@ final class VolunteerEmergencyRecoveryTests: XCTestCase {
         )
     }
 
-    /// 解码造 fixture，理由见 `EmergencySOSTests.openEventEnvelope`。形状取自
+    /// 解码造 fixture，理由见 `EmergencySOSReconciliationTests.openEventEnvelope`。形状取自
     /// `EmergencyEventResponse.forVolunteer`：坐标恒 null，csNotes 恒 null。
     private static func envelope(
         id: Int64,

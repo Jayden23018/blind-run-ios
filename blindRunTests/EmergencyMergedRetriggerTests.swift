@@ -20,8 +20,8 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
         useCountdown: Bool = false
     ) async -> EmergencyCoordinator.TriggerOutcome {
         await coordinator.trigger(
-            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
-            locate: { EmergencySOSTests.coordinate(latitude: latitude, longitude: 116.404) },
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress), role: .blind, userID: 7, safety: safety,
+            locate: { EmergencySOSFixtures.coordinate(latitude: latitude, longitude: 116.404) },
             useCountdown: useCountdown
         )
     }
@@ -40,13 +40,13 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        await MainActor.run { EmergencySOSTests.teardownAlarmObservers() }
+        await MainActor.run { EmergencySOSFixtures.teardownAlarmObservers() }
         try await super.tearDown()
     }
 
     /// 🔴 合并时不许念得和「新求助」一模一样 —— 听的人会以为又发出了一条、家属又收到一条短信。
     func testRetriggerMergedIntoTheOpenEventSaysNoNewRequestWasCreated() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
 
         let outcome = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
 
@@ -70,7 +70,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
 
     /// 合并回来的 `countdownEndsAt` 非空但已过去、状态已发出 —— 只认状态，不许进倒计时、不许给「取消」。
     func testMergedResponseWithAStaleCountdownDeadlineDoesNotCountDown() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
 
         let outcome = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
 
@@ -82,7 +82,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
     /// 对照组：换了 `eventId` 就是一条新求助，照状态文案说，不算合并。
     /// 没有这一条，「每次触发都念合并文案」的实现也能让上面那条变绿。
     func testRetriggerWithANewEventIdIsANewRequestNotAMerge() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
         safety.triggerEmergencyResult = .success(
             EmergencyTriggerResponse(success: true, eventId: 830, status: "CS_HANDLING")
         )
@@ -100,7 +100,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
     /// 屏 3b 靠 `eventID` 变化拉起来，合并时 id 不变 —— 每一次合并都要给出一个「再拉一次」的信号。
     /// 第一次按下（新事件）不算，否则第一次也会被拉两遍。
     func testEachMergedRetriggerAsksForTheSentScreenAgain() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
 
         _ = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
         XCTAssertEqual(coordinator.mergedRetriggerCount, 1)
@@ -116,7 +116,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
 
     /// 计数器只增不减：`reset()`（退出登录、换账号）清回 0 本身就是一次变化，会把屏 3b 弹出来。
     func testResetDoesNotRewindTheMergedRetriggerCount() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
         _ = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
 
         coordinator.reset()

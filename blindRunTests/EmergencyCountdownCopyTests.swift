@@ -19,7 +19,7 @@ final class EmergencyCountdownCopyTests: XCTestCase {
         }
     }
 
-    /// 与 `EmergencySOSTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 同一张禁用词表：
+    /// 与 `EmergencySOSTruthfulnessTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 同一张禁用词表：
     /// 那条扫了 `countdownPendingEffects`，没扫新加的第一句和整句读屏标签。
     func testCountdownCopyNeverClaimsDelivery() {
         let forbidden = ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人", "短信已送达"]

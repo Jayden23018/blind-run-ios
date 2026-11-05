@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// 黄金语料对齐检查：后端 `demo/docs/voice-golden-corpus.json` vs 前端 `blindRunTests/VoiceGoldenCorpusMirror.swift` 里的镜像清单（断言在 `VoiceOrderWizardTests`）。
+// 黄金语料对齐检查：后端 `demo/docs/voice-golden-corpus.json` vs 前端 `blindRunTests/VoiceGoldenCorpusMirror.swift` 里的镜像清单（断言在 `VoiceOrderWizardGoldenCorpusTests`）。
 //
 // 存在理由：那份清单是**人工誊抄**进 Swift 的。后端改一条语料，前端的抄件不会自己变，
 // 而 Swift 测试照样全绿 —— 它测的是抄件，不是语料。

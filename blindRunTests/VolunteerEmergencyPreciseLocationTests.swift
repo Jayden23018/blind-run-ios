@@ -13,8 +13,8 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
     func testPreciseLocationOffAsksOnceThenSendsNothing() async {
         let location = Self.locationService()
         location.simulatePreciseLocationOffForTesting()
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 1, status: "PENDING"))
 
         let outcome = await trigger(coordinator, safety: safety, location: location, answerTimeout: 0.3)
@@ -32,8 +32,8 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
     func testAllowingTemporaryPrecisionDuringTheWaitSendsTheCoordinate() async {
         let location = Self.locationService()
         location.simulatePreciseLocationOffForTesting()
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "CONTACT_NOTIFIED"))
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -51,8 +51,8 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
     func testPreciseLocationOnSendsWithoutAsking() async {
         let location = Self.locationService()
         location.simulatePreciseLocationOffForTesting(false)
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "PENDING"))
 
         _ = await trigger(coordinator, safety: safety, location: location, answerTimeout: 5)
@@ -65,8 +65,8 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
     func testWithoutSharingConsentItNeitherAsksNorSends() async {
         let location = Self.locationService()
         location.simulatePreciseLocationOffForTesting()
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
 
         let outcome = await trigger(coordinator, safety: safety, location: location, answerTimeout: 5, sharingBlocked: true)
 
@@ -103,7 +103,7 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         let appState = AppState(safety: safety, orders: FakeOrderService())
         appState.activeRole = .volunteer
         let viewModel = VolunteerInServiceViewModel()
-        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: EmergencySOSTests.makeOrder(status: .inProgress))
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: EmergencySOSFixtures.makeOrder(status: .inProgress))
 
         await viewModel.enterEmergency(locate: { nil }, locationFailureReason: { .preciseLocationOff })
 
@@ -119,7 +119,7 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         let appState = AppState(safety: safety, orders: FakeOrderService())
         appState.activeRole = .volunteer
         let viewModel = VolunteerInServiceViewModel()
-        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: EmergencySOSTests.makeOrder(status: .inProgress))
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: EmergencySOSFixtures.makeOrder(status: .inProgress))
         let sample = Self.locationService().latestBackendSample()
 
         await viewModel.enterEmergency(locate: { sample })
@@ -133,13 +133,13 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
 
     /// 等的时候退出登录 / 换账号（`reset()`）：取不消那个任务，也一个字节都不能发 —— 否则旧订单的求助带着新会话的 token 出去。
     func testSessionResetWhileLocatingSendsNothing() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "PENDING"))
         let sample = Self.locationService().latestBackendSample()
 
         _ = await coordinator.trigger(
-            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .volunteer, userID: 8, safety: safety,
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress), role: .volunteer, userID: 8, safety: safety,
             locate: {
                 coordinator.reset()
                 return sample
@@ -153,12 +153,12 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
 
     /// 等的时候登录过期：与开头那道同一个结论，不发、说「登录已过期」。
     func testSessionExpiryWhileLocatingSendsNothing() async {
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         let sample = Self.locationService().latestBackendSample()
 
         let outcome = await coordinator.trigger(
-            order: EmergencySOSTests.makeOrder(status: .inProgress), role: .volunteer, userID: 8, safety: safety,
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress), role: .volunteer, userID: 8, safety: safety,
             locate: {
                 coordinator.blockCloudSOSForExpiredSession()
                 return sample
@@ -176,8 +176,8 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
     func testKeepingPreciseLocationOffReturnsAtOnceInsteadOfWaitingOutTheTimeout() async {
         let location = Self.locationService()
         location.simulatePreciseLocationOffForTesting()
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         Self.answer(location, allowed: false, afterNanoseconds: 300_000_000)
 
         let started = Date()
@@ -198,8 +198,8 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         let region = CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737)
         let precise = CLLocationCoordinate2D(latitude: 31.3304, longitude: 121.5737)
         let location = Self.reducedAccuracyLocationService(region: region)
-        let (coordinator, safety) = EmergencySOSTests.makeCountdownFixture()
-        defer { EmergencySOSTests.teardownAlarmObservers() }
+        let (coordinator, safety) = EmergencySOSFixtures.makeCountdownFixture()
+        defer { EmergencySOSFixtures.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "CONTACT_NOTIFIED"))
         Self.answer(location, allowed: true, afterNanoseconds: 300_000_000) {
             // 允许之后 CoreLocation 才送来精确样本；早于同步送到的会被当成区域代表点一起清掉。
@@ -297,7 +297,7 @@ final class VolunteerEmergencyPreciseLocationTests: XCTestCase {
         sharingBlocked: Bool = false
     ) async -> EmergencyCoordinator.TriggerOutcome {
         await coordinator.trigger(
-            order: EmergencySOSTests.makeOrder(status: .inProgress),
+            order: EmergencySOSFixtures.makeOrder(status: .inProgress),
             role: .volunteer,
             userID: 8,
             safety: safety,

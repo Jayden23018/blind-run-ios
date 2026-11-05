@@ -135,7 +135,20 @@ xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
 
 # 真机（唯一 XCTest 通道）——先按符号搜出范围，只跑命中的 suite，不要裸跑全量
-scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests
+scripts/device-test.sh \
+  -only-testing:blindRunTests/VoiceOrderWizardAddressShortTests \
+  -only-testing:blindRunTests/VoiceOrderWizardCandidateTests \
+  -only-testing:blindRunTests/VoiceOrderWizardConfirmTests \
+  -only-testing:blindRunTests/VoiceOrderWizardCorrectionTests \
+  -only-testing:blindRunTests/VoiceOrderWizardEndPlaceTests \
+  -only-testing:blindRunTests/VoiceOrderWizardFallbackTests \
+  -only-testing:blindRunTests/VoiceOrderWizardFreeformTests \
+  -only-testing:blindRunTests/VoiceOrderWizardGoldenCorpusTests \
+  -only-testing:blindRunTests/VoiceOrderWizardIntentTests \
+  -only-testing:blindRunTests/VoiceOrderWizardMockCandidateTests \
+  -only-testing:blindRunTests/VoiceOrderWizardPartialStartTimeTests \
+  -only-testing:blindRunTests/VoiceOrderWizardStartGateTests \
+  -only-testing:blindRunTests/VoiceOrderWizardStartTimeTests
 
 node scripts/validate-guard.mjs
 node scripts/validate-docs.mjs
