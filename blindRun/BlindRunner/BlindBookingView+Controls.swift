@@ -109,8 +109,9 @@ extension BlindBookingView {
                         viewModel.moveToNextStep()
                     }
                 }
+                // 不再额外压透明度：按钮样式在 `.disabled` 时已换成不可用配色（灰底灰字 5.3:1），
+                // 再乘 0.45 会让低视力用户读不出这枚按钮是什么（#749 审查 B1）。
                 .disabled(primaryActionDisabled)
-                .opacity(primaryActionDisabled ? 0.45 : 1)
                 .accessibilityLabel(viewModel.currentStep.nextActionTitle)
                 .accessibilityHint(primaryActionHint)
             }

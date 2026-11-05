@@ -583,10 +583,9 @@ struct RunnerRunRecordView: View {
                 audio.activeControlIdentifier = Self.soundRouteID
                 audio.toggleRoute(sonification)
             } label: {
+                // 可点区（整行、≥64pt）由 `OutlineSecondaryButtonStyle` 给（#749），标签里不再挂 frame。
                 Label(title, systemImage: audio.state == .playing(.route) ? "stop.fill" : "play.fill")
                     .font(AppFonts.body().weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
-                    .contentShape(Rectangle())
             }
             .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel(audio.state == .idle ? "播放声音路线，大约 \(seconds) 秒" : "\(title)声音路线")
@@ -630,8 +629,6 @@ struct RunnerRunRecordView: View {
             } label: {
                 Label(title, systemImage: reading ? "stop.fill" : "play.fill")
                     .font(AppFonts.body().weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
-                    .contentShape(Rectangle())
             }
             .buttonStyle(OutlineSecondaryButtonStyle())
             .accessibilityLabel(title)

@@ -150,10 +150,13 @@ struct OutlineSecondaryButtonStyle: ButtonStyle {
             if fillsWidth {
                 content.capsuleButtonChrome(fill: fill, stroke: stroke)
             } else {
+                // 固定圆角而不是 `Capsule()`：大字号下短语折成多行时，半径随高度变大的胶囊两端弧线会压到字。
+                // 单行时 SwiftUI 把圆角夹到高度的一半，看起来仍是胶囊。
+                let shape = RoundedRectangle(cornerRadius: AppButtonMetrics.cornerRadius, style: .continuous)
                 content
-                    .background(Capsule().fill(fill))
-                    .overlay(Capsule().strokeBorder(stroke, lineWidth: AppButtonMetrics.strokeWidth))
-                    .contentShape(Capsule())
+                    .background(shape.fill(fill))
+                    .overlay(shape.strokeBorder(stroke, lineWidth: AppButtonMetrics.strokeWidth))
+                    .contentShape(shape)
             }
         }
     }

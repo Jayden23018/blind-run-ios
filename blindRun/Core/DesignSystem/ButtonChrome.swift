@@ -12,7 +12,7 @@ import UIKit
 /// 🔴 可点区靠的是 `chromeInset` 那两圈**挂在样式里面**的透明边距，加上 `contentShape(Rectangle())`。
 /// 别把边距挪到 `Button` 外面：外面那层只撑大布局，撑不大可点区
 /// （记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
-/// `ButtonChromeTests` 钉住「胶囊高 + 上下边距 ≥ 64」。
+/// `PrimaryButtonContrastTests` 钉住「胶囊高 + 上下边距 ≥ 64」。
 enum AppButtonMetrics {
     /// 看得见的胶囊最小高度。字放大后胶囊跟着文字长高，这里只是下限。
     static let visibleHeight: CGFloat = 52
@@ -36,7 +36,7 @@ extension AppColors {
     /// 按钮专用的底色与字色，**只给按钮用**，不进 `tones`、不当全局语义色。
     ///
     /// 都是不透明色：半透明底压在不同页面底上会算出不同的对比度，用例就钉不住了。
-    /// 对比度由 `ButtonChromeTests` 逐对、亮暗各算一次（WCAG 相对亮度公式）。
+    /// 对比度由 `PrimaryButtonContrastTests` 逐对、亮暗各算一次（WCAG 相对亮度公式）。
     enum ButtonPalette {
         /// 主按钮底色。暗色不用 `primary` 的 `#0A84FF`（白字 3.65:1，只靠「20pt 粗体算大字」过线），
         /// 换深一档的 `#0A6FE0`：白字 4.81:1，压黑底仍有 4.36:1 的外形（负责人 2026-11-05 认可）。
