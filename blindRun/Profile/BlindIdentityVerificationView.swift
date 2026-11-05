@@ -123,6 +123,11 @@ struct BlindIdentityVerificationView: View {
         }
         viewModel.submit()
     }
+}
+
+// 各区块放在同文件的扩展里：结构体正文超过 SwiftLint `type_body_length` 250 行上限（#751）。
+// 同一文件内的扩展能读到上面的 private 状态。
+extension BlindIdentityVerificationView {
 
     // MARK: - Header
 
