@@ -26,3 +26,4 @@ enum EscortPreciseLocationCopy {
 }
 
 // CI 探针 #714：只验证编译门禁按路径跳过 AidRunAPI 两步，不合并。
+// 重跑：用 #726 最终版判据
