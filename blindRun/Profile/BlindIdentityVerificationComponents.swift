@@ -120,17 +120,30 @@ struct BlindIdentityFieldRow: View {
                     .frame(width: stacksVertically ? nil : labelWidth, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityHidden(true)
-                field
-                    .keyboardType(keyboardType)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel(accessibilityLabel)
-                    .accessibilityValue(accessibilityValue)
-                    .accessibilityHint(accessibilityHint)
+                ZStack(alignment: .leading) {
+                    // 占位文字自己画、可折行：输入框自带的占位只能单行，AX5 下「18 位，最后一位可以是 X」放不下，
+                    // 真机审计四种外观都报 Text clipped（2026-11-05，#751）。读屏不念它：字段的提示里已经说了同样的事。
+                    if text.isEmpty {
+                        Text(placeholder)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.vertical, 12)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                    field
+                        .keyboardType(keyboardType)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textPrimary)
+                        .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .accessibilityLabel(accessibilityLabel)
+                        .accessibilityValue(accessibilityValue)
+                        .accessibilityHint(accessibilityHint)
+                }
             }
 
             if let errorMessage {
@@ -149,9 +162,9 @@ struct BlindIdentityFieldRow: View {
     @ViewBuilder
     private var field: some View {
         if isSecure {
-            SecureField(placeholder, text: $text)
+            SecureField("", text: $text)
         } else {
-            TextField(placeholder, text: $text)
+            TextField("", text: $text)
         }
     }
 }

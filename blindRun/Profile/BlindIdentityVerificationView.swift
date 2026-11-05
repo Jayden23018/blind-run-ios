@@ -332,6 +332,10 @@ struct BlindIdentityVerificationView: View {
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .background(AppColors.Flow.page)
+        // 审计按这个标识认出底栏：滚到栏后面的状态卡文字不算对比度失败（AX5 实测，#751）。
+        // `.contain` 保住按钮与灰字自己的标识（记忆 `accessibility-identifier-overwrites-children`）。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("blindIdentitySubmitBar")
     }
 
     // MARK: - Helpers
