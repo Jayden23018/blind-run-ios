@@ -19,7 +19,8 @@ struct EmergencyContactRowLabel: View {
             // AX 字号下头像会把名字挤成一字一行，那一档不画（纯装饰，读屏本来就不念）。
             if !dynamicTypeSize.isAccessibilitySize {
                 FlowAvatar(
-                    name: name,
+                    // 传原始姓名：没名字时走占位字「联」，而不是兜底文案的第一个字「未」。
+                    name: contact.name,
                     diameter: avatarSide,
                     background: AppColors.primary.opacity(0.12),
                     foreground: AppColors.primary,
@@ -61,8 +62,9 @@ struct EmergencyContactRowLabel: View {
 /// 「主联系人」标记。放在名字下面单独一行，不和名字挤一行：长名字和大字号下不会把它挤成「主…」。
 struct EmergencyContactPrimaryBadge: View {
     var body: some View {
+        // 用正文字号：低视力用户靠它分辨谁是主联系人，caption 是全页最小的字（design-direction §7）。
         Label("主联系人", systemImage: "star.fill")
-            .font(AppFonts.caption().weight(.semibold))
+            .font(AppFonts.body().weight(.semibold))
             .foregroundColor(AppColors.primary)
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, AppSpacing.small)
@@ -74,8 +76,8 @@ struct EmergencyContactPrimaryBadge: View {
 
 // MARK: - 添加区的行
 
-/// 「从通讯录添加」「手动输入」两行共用：左边一枚实心圆图标，右边一句动词。
-struct EmergencyContactAddRowLabel: View {
+/// 页内一行一个动作（「从通讯录添加」「手动输入」「重复当前状态」「从通讯录选择」）：左边一枚系统图标，右边一句动词。
+struct EmergencyContactActionRowLabel: View {
     let title: String
     let systemImage: String
     let tint: Color

@@ -22,7 +22,18 @@ extension blindRunUITests {
         tapWhenHittableOrByCoordinate(phoneField, app: app)
         phoneField.typeText(phone)
 
-        // 关系改成选择页（#746）：点「关系」行，在列表里点预设，选完自动退回表单。
+        chooseContactRelationship(app, relationship)
+
+        // 「保存」在导航栏，不会被键盘挡住，所以不需要先收键盘。
+        tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)
+        XCTAssertTrue(
+            waitForElementToDisappear(app.navigationBars["新增紧急联系人"], timeout: 15),
+            "保存成功后新增表单应自动关闭"
+        )
+    }
+
+    /// 关系改成选择页（#746）：点「关系」行，在列表里点预设，选完自动退回表单。
+    func chooseContactRelationship(_ app: XCUIApplication, _ relationship: String) {
         let relationshipRow = app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "与联系人的关系，")
         ).firstMatch
@@ -35,13 +46,6 @@ extension blindRunUITests {
         XCTAssertTrue(
             app.buttons["与联系人的关系，\(relationship)"].firstMatch.waitForExistence(timeout: 8),
             "选完关系应回到表单，并显示「\(relationship)」"
-        )
-
-        // 「保存」在导航栏，不会被键盘挡住，所以不需要先收键盘。
-        tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)
-        XCTAssertTrue(
-            waitForElementToDisappear(app.navigationBars["新增紧急联系人"], timeout: 15),
-            "保存成功后新增表单应自动关闭"
         )
     }
 

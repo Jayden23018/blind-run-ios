@@ -34,6 +34,8 @@ struct EmergencyContactFormView: View {
     @State private var pickNotice: String?
     /// 输入框之间的焦点。数字键盘没有回车键，原来填完号码只能自己摸去下一格（#657 B-10）。
     @FocusState private var focusedField: Field?
+    /// 从「关系」选择页退回来时 `onAppear` 会再跑一次，不挡的话会把改到一半的值重置回去（#746）。
+    @State private var hasLoaded = false
 
     private var isEditing: Bool { contact != nil }
 
@@ -55,7 +57,7 @@ struct EmergencyContactFormView: View {
                     focusedField = nil
                     showContactPicker = true
                 } label: {
-                    EmergencyContactAddRowLabel(
+                    EmergencyContactActionRowLabel(
                         title: pickButtonTitle,
                         systemImage: "person.crop.circle.fill",
                         tint: AppColors.primary,
@@ -169,6 +171,8 @@ struct EmergencyContactFormView: View {
             }
         }
         .onAppear {
+            guard !hasLoaded else { return }
+            hasLoaded = true
             if let contact {
                 name = contact.name ?? ""
                 // 后端 v1.5.0 起返回明文，直接明文回填。
@@ -278,10 +282,9 @@ extension EmergencyContactFormView {
             }
             .frame(minHeight: AppTouchTarget.blindPrimary)
         }
-        .accessibilityElement(children: .ignore)
+        // 标签直接挂在 NavigationLink 上：它本身就是一个按钮元素，再套一层 `.ignore` 有吞掉读屏双击的风险。
         .accessibilityLabel("与联系人的关系，\(value)")
         .accessibilityHint("选填。打开列表选择关系")
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("emergencyContactRelationshipRow")
     }
 

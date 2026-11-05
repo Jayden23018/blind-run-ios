@@ -337,7 +337,7 @@ struct EmergencyContactsView: View {
                 Button {
                     viewModel.repeatStatus()
                 } label: {
-                    EmergencyContactAddRowLabel(
+                    EmergencyContactActionRowLabel(
                         title: "重复当前状态",
                         systemImage: "speaker.wave.2.fill",
                         tint: AppColors.primary,
@@ -402,7 +402,7 @@ struct EmergencyContactsView: View {
             Button {
                 showContactPicker = true
             } label: {
-                EmergencyContactAddRowLabel(
+                EmergencyContactActionRowLabel(
                     title: "从通讯录添加",
                     systemImage: "plus.circle.fill",
                     tint: AppColors.success,
@@ -427,7 +427,7 @@ struct EmergencyContactsView: View {
             Button {
                 editingTarget = .new
             } label: {
-                EmergencyContactAddRowLabel(
+                EmergencyContactActionRowLabel(
                     title: "手动输入",
                     systemImage: "keyboard",
                     tint: AppColors.primary,
