@@ -59,7 +59,7 @@ enum VoiceSlotField: String, Codable, Sendable {
 /// 两个方向合并成一个枚举，迟早有人把 `ADDRESS` 发去 `parse-slot`。
 ///
 /// 未知值退化成 `.unknown` 而不是抛 —— 后端往这个枚举加值时不该让整条响应解不出来（与
-/// `RunOrderStatus` / `BlindVerifyStatus` 同一套写法）。
+/// `RunOrderStatus` 同一套写法）。
 enum VoiceOrderMissingSlot: String, Codable, Sendable, Equatable {
     case address = "ADDRESS"
     case startTime = "START_TIME"

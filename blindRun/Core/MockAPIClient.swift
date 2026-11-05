@@ -15,9 +15,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     var isAccountDeleted = false
 
     var blindProfile: BlindProfileResponse?
-    /// 实名状态独立于资料本体保存：`AIDRUN_MOCK_BLIND_VERIFY_STATUS` 控制初始值，
-    /// `AIDRUN_MOCK_BLIND_VERIFY_RESULT` 控制提交实名后的结果（均只接受 NOT_VERIFIED/VERIFIED/FAILED）。
-    var blindVerifyStatus: String = BlindVerifyStatus.verified.rawValue
     var volunteerProfile: VolunteerProfileResponse?
     /// 资质证书审核状态，取值与后端 `VerificationStatus` 完全一致（NONE/PENDING/APPROVED/REJECTED）。
     /// `AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS` 可覆盖初始值，用于驱动四态 UI。
@@ -165,15 +162,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     }
 
     #if DEBUG
-    /// 单测钩子。Mock 的初始实名状态与联系人只能由环境变量决定，而 `ProcessInfo.environment`
-    /// 在进程启动后就固定了，单测无法逐条覆盖；播种的那 1 个联系人又受删除接口
-    /// `CONTACT_MINIMUM_REQUIRED` 下限保护删不掉。下单前置的两条 403
-    /// （`IDENTITY_NOT_VERIFIED` / `EMERGENCY_CONTACT_REQUIRED`）只能从这里到达。
-    func overrideBookingPrerequisitesForTesting(
-        verifyStatus: BlindVerifyStatus,
-        emergencyContacts: [EmergencyContactResponse]
-    ) {
-        blindVerifyStatus = verifyStatus.rawValue
+    /// 单测钩子。播种的那 1 个联系人受删除接口 `CONTACT_MINIMUM_REQUIRED` 下限保护删不掉，
+    /// 下单前置的 403 `EMERGENCY_CONTACT_REQUIRED` 只能从这里到达。
+    func overrideBookingPrerequisitesForTesting(emergencyContacts: [EmergencyContactResponse]) {
         self.emergencyContacts = emergencyContacts
     }
 

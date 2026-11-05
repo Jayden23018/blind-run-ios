@@ -194,7 +194,7 @@ extension VoiceOrderWizard {
         return notice
     }
 
-    // `isEndpointMissing` / `isIdentityRejection` 与时长换算在 `VoiceOrderWizard+ServerReplies.swift`；
+    // `isEndpointMissing` 与时长换算在 `VoiceOrderWizard+ServerReplies.swift`；
     // 读回前的提示文案（`parseFailureNotice` 等）在 `VoiceOrderWizard+SpokenCopy.swift`。
 
     /// - Parameter notice: 需要先说一句再读回的话（例如时长被取整）。**必须和读回拼成同一段**，

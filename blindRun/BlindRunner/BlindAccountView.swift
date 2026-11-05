@@ -11,7 +11,6 @@ enum BlindAccountCopy {
     static let navigationTitle = "账户"
     static let roleLine = "视障跑者"
     static let profileTitle = "个人资料"
-    static let identityTitle = "实名认证"
     static let privacyGroupTitle = "隐私"
     static let logout = "退出登录"
     static let deleteAccount = "删除账户"
@@ -89,21 +88,6 @@ struct BlindAccountView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(BlindAccountCopy.profileTitle)
             .accessibilityHint("编辑盲人跑者资料和紧急联系人")
-
-            GroupedCardDivider()
-
-            // 实名是下单硬门槛（后端 403 IDENTITY_NOT_VERIFIED），引导流里「稍后再说」跳过后
-            // 必须还有一条随时能走回实名页的路，否则未实名用户会被永久挡在预约之外。
-            NavigationLink {
-                BlindIdentityVerificationView()
-            } label: {
-                SettingsRowLabel(title: BlindAccountCopy.identityTitle, value: appState.blindIdentityStatus.displayName)
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(BlindAccountCopy.identityTitle)，当前状态\(appState.blindIdentityStatus.displayName)")
-            .accessibilityHint("提交姓名和身份证号完成实名认证，完成后才能预约跑步")
-            .accessibilityAddTraits(.isButton)
         }
     }
 

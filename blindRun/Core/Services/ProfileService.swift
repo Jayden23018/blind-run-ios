@@ -20,10 +20,9 @@ import Foundation
 /// `blindProfile` 与 `updateBlindProfile` 路径相同、方法不同，所以是两个 case ——
 /// 端点的身份是「方法 + 路径」，不是路径。
 enum ProfileEndpoint {
-    // 盲人资料与实名
+    // 盲人资料
     case blindProfile
     case updateBlindProfile
-    case verifyBlindIdentity
 
     // 紧急联系人
     case emergencyContacts(userId: Int64)
@@ -54,8 +53,6 @@ enum ProfileEndpoint {
             return EndpointRequest(.get, "/api/blind/profile")
         case .updateBlindProfile:
             return EndpointRequest(.put, "/api/blind/profile")
-        case .verifyBlindIdentity:
-            return EndpointRequest(.post, "/api/blind/verify-identity")
         case .emergencyContacts(let userId):
             return EndpointRequest(.get, "/api/users/\(userId)/emergency-contacts")
         case .createEmergencyContact(let userId):
@@ -94,8 +91,8 @@ enum ProfileEndpoint {
 
 /// 档案片对外的全部能力。
 ///
-/// **每个方法都必须有生产调用点**（18 个方法 / 25 个调用点：ContentView 4 ·
-/// EmergencyContactsView 5 · BlindIdentityVerificationView 2 · ProfileModule 1 ·
+/// **每个方法都必须有生产调用点**（17 个方法 / 23 个调用点：ContentView 4 ·
+/// EmergencyContactsView 5 · ProfileModule 1 ·
 /// VolunteerModule 2 · VolunteerCertificateUploadView 2 · VolunteerRegistrationFlowView 9）。
 /// 没有调用点的方法当场删 —— service 层的价值是收敛调用点，不是先摆一层空壳。
 ///
@@ -106,10 +103,9 @@ enum ProfileEndpoint {
 /// 联系人手机号上屏与进 `accessibilityLabel` 一律走 `EmergencyContactResponse.maskPhone`，
 /// 全号只进 `tel:`（VoiceOver 是外放的，念全号等于把号码广播给周围所有人）。见 AGENTS.md §8。
 protocol ProfileServing: Sendable {
-    // 盲人资料与实名
+    // 盲人资料
     func blindProfile() async throws -> BlindProfileResponse
     func updateBlindProfile(_ request: BlindProfileUpdateRequest) async throws -> BlindProfileResponse
-    func verifyBlindIdentity(_ request: BlindVerifyRequest) async throws -> BlindVerifySubmitResponse
 
     // 紧急联系人
     func emergencyContacts(userId: Int64) async throws -> [EmergencyContactResponse]
@@ -161,10 +157,6 @@ struct ProfileService: ProfileServing {
 
     func updateBlindProfile(_ request: BlindProfileUpdateRequest) async throws -> BlindProfileResponse {
         try await transport.send(ProfileEndpoint.updateBlindProfile.request, body: request)
-    }
-
-    func verifyBlindIdentity(_ request: BlindVerifyRequest) async throws -> BlindVerifySubmitResponse {
-        try await transport.send(ProfileEndpoint.verifyBlindIdentity.request, body: request)
     }
 
     func emergencyContacts(userId: Int64) async throws -> [EmergencyContactResponse] {

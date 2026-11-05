@@ -35,8 +35,8 @@ extension AccessibilityAuditTests {
         app.descendants(matching: .any)[identifier].firstMatch
     }
 
-    /// 实名页、联系人表单、资料页这三处的**原有**控件还有审计红灯（#676，2026-11-04 首次整页审计报出）。
-    /// 角色页与验证码区已修好，改回 `try audit(app)`；剩下三处没修完前不能去掉。
+    /// 联系人表单、资料页这两处的**原有**控件还有审计红灯（#676，2026-11-04 首次整页审计报出）。
+    /// 角色页与验证码区已修好，改回 `try audit(app)`；实名页 2026-11-05 已删（#767）；剩下两处没修完前不能去掉。
     /// 非严格：修好一处后不会因为「预期的失败没出现」而变红。
     /// 本轮新加的元素另有显式断言守着，不靠这一遍审计。
     /// 紧急联系人表单的另外两处审计（`AccessibilityAuditTests+TouchTargets.swift`）也用它，所以不是 private。
@@ -174,62 +174,5 @@ extension AccessibilityAuditTests {
         pick.tap()
         sleep(2)
         keepOnboardingScreenshot("onboarding-contact-picker")
-    }
-
-    /// B-11：身份证号框用数字键盘，键盘上方有「输入 X」，第 17 位之后按它补 X；有「逐位朗读」。
-    func testIdentityPageOffersTrailingXAndDigitReadback() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
-        let app = launchBlindHome(extraEnvironment: ["AIDRUN_MOCK_BLIND_VERIFY_STATUS": "NOT_VERIFIED"])
-        let later = app.buttons["稍后再说"]
-        XCTAssertTrue(later.waitForExistence(timeout: 20))
-        later.tap()
-        let row = anyElement(app, "blindHomeVerifyIdentityRow")
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
-        row.tap()
-        XCTAssertTrue(app.navigationBars["实名认证"].waitForExistence(timeout: 10))
-        try auditKnownRedPage(app)
-
-        let idField = app.secureTextFields["身份证号，必填，18位"].firstMatch
-        XCTAssertTrue(idField.waitForExistence(timeout: 5))
-        idField.tap()
-        let xKey = app.buttons["输入字母 X"].firstMatch
-        XCTAssertTrue(xKey.waitForExistence(timeout: 5), "身份证号键盘上方没有「输入 X」")
-        idField.typeText("11010119900307123")
-        xKey.tap()
-        XCTAssertTrue(
-            (idField.value as? String)?.contains("末四位123X") == true,
-            "按「输入 X」后末位不是 X：\(String(describing: idField.value))"
-        )
-        XCTAssertTrue(anyElement(app, "blindIdentityReadDigits").waitForExistence(timeout: 5), "没有「逐位朗读身份证号」")
-        keepOnboardingScreenshot("onboarding-identity-x")
-        app.buttons["收起键盘"].firstMatch.tap()
-        let readDigits = anyElement(app, "blindIdentityReadDigits")
-        XCTAssertTrue(readDigits.isHittable, "「逐位朗读身份证号」点不到")
-        XCTAssertFalse(readDigits.label.isEmpty)
-        try auditKnownRedPage(app)
-
-        // 首次提交先弹全屏同意页。同意页盖上来会触发底下页面的 onDisappear，
-        // 不能借此把刚填的内容清掉，否则同意之后发出去的是空表单。
-        let name = app.textFields["真实姓名，必填"].firstMatch
-        name.tap()
-        name.typeText("张三")
-        if app.buttons["收起键盘"].firstMatch.exists { app.buttons["收起键盘"].firstMatch.tap() }
-        let submit = app.buttons["提交核验"].firstMatch  // #751 改名，原「提交实名信息」
-        XCTAssertTrue(submit.waitForExistence(timeout: 5))
-        submit.tap()
-        let agree = app.buttons.matching(NSPredicate(format: "identifier ENDSWITH %@", "AgreeButton")).firstMatch
-        XCTAssertTrue(agree.waitForExistence(timeout: 10), "首次提交没有弹出单独同意页")
-        agree.tap()
-        // 正向判据：提交真的发出去并通过了 —— 本页出现「实名认证已完成」，或首页的实名入口随状态消失
-        // （实名通过后首页这一行不再渲染，推进来的本页也跟着被收回）。只断言「没报姓名错误」太弱。
-        let done = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "实名认证已完成")).firstMatch
-        let deadline = Date().addingTimeInterval(10)
-        var submitted = false
-        while Date() < deadline {
-            if done.exists || (!app.navigationBars["实名认证"].exists && !row.exists) { submitted = true; break }
-            usleep(200_000)
-        }
-        keepOnboardingScreenshot("onboarding-identity-after-consent")
-        XCTAssertTrue(submitted, "同意之后实名没有提交成功：输入很可能在同意页盖上来时被清空了")
     }
 }

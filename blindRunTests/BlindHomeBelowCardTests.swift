@@ -9,7 +9,6 @@ final class BlindHomeBelowCardTests: XCTestCase {
     )
 
     private func resolve(
-        verified: Bool = true,
         summary: BlindHomeRunSummary? = nil,
         hasRunBefore: Bool = false,
         favorites: Int = 0,
@@ -17,7 +16,6 @@ final class BlindHomeBelowCardTests: XCTestCase {
         locationUnavailable: Bool = false
     ) -> BlindHomeBelowCard {
         BlindHomeBelowCard.resolve(
-            isIdentityVerified: verified,
             runSummary: summary,
             hasRunBefore: hasRunBefore,
             favoriteCount: favorites,
@@ -26,15 +24,7 @@ final class BlindHomeBelowCardTests: XCTestCase {
         )
     }
 
-    func testUnverifiedRunnerOnlySeesIdentityRowEvenWithHistory() {
-        let content = resolve(verified: false, summary: summary, hasRunBefore: true)
-
-        XCTAssertTrue(content.showsIdentityRow)
-        XCTAssertNil(content.runSummary)
-        XCTAssertNil(content.startRowTitle)
-    }
-
-    func testVerifiedNewRunnerHasNothingBelowTheCard() {
+    func testNewRunnerHasNothingBelowTheCard() {
         XCTAssertTrue(resolve().isEmpty)
     }
 

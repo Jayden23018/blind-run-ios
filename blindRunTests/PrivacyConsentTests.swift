@@ -32,21 +32,20 @@ final class PrivacyConsentTests: XCTestCase {
 
         store.recordConsent(to: .appLaunch, scope: .device)
 
-        XCTAssertFalse(store.hasConsented(to: .blindIdentity, scope: .user("42")))
         XCTAssertFalse(store.hasConsented(to: .volunteerIdentity, scope: .user("42")))
     }
 
-    /// 实名那两条按**人**记。同一台手机换人用不是罕见场景，视障用户的设备常由家人协助设置。
+    /// 实名按**人**记。同一台手机换人用不是罕见场景，视障用户的设备常由家人协助设置。
     func testIdentityConsentDoesNotCarryOverToAnotherAccount() {
         let persistence = AppStatePersistenceFactory.makeIsolatedTest()
         defer { persistence.reset() }
         let store = PrivacyConsentStore(persistence: persistence)
 
-        store.recordConsent(to: .blindIdentity, scope: .user("42"))
+        store.recordConsent(to: .volunteerIdentity, scope: .user("42"))
 
-        XCTAssertTrue(store.hasConsented(to: .blindIdentity, scope: .user("42")))
-        XCTAssertFalse(store.hasConsented(to: .blindIdentity, scope: .user("43")), "另一个账号不该继承同意")
-        XCTAssertFalse(store.hasConsented(to: .blindIdentity, scope: .device))
+        XCTAssertTrue(store.hasConsented(to: .volunteerIdentity, scope: .user("42")))
+        XCTAssertFalse(store.hasConsented(to: .volunteerIdentity, scope: .user("43")), "另一个账号不该继承同意")
+        XCTAssertFalse(store.hasConsented(to: .volunteerIdentity, scope: .device))
     }
 
     /// 告知内容一改，旧同意就没有覆盖到新内容，必须重新征得。版本号进 key，旧记录自然失效。
@@ -178,7 +177,6 @@ final class PrivacyConsentTests: XCTestCase {
             XCTAssertTrue(launch.contains(keyword), "首启告知漏了「\(keyword)」")
         }
 
-        XCTAssertTrue(PrivacyConsentPurpose.blindIdentity.disclosures.joined().contains("身份证号"))
         let volunteer = PrivacyConsentPurpose.volunteerIdentity.disclosures.joined()
         XCTAssertTrue(volunteer.contains("身份证号"))
         XCTAssertTrue(volunteer.contains("人脸"), "志愿者下一步就是活体认证，必须在这一屏说清")
@@ -334,16 +332,17 @@ final class PrivacyConsentTests: XCTestCase {
             // 2026-10-10 指纹变了**且版本号 3 → 4**，「行为变了」那一档：新的接收方阿里云通义千问（#374）——
             // 语音下单的转写文字由后端交给它理解。#365 的 v3 未随任何构建发布，所以 +1 不拦任何真实老用户。
             // 2026-10-31 指纹变了而版本号不动：称呼改成「此订单」「陪跑员」（#558），收集范围、用途、
-            // 接收方、保存期限都没变，属「同一行为换个说法」。同日改的还有下面 blindIdentity、
-            // blindVisionProfile、blindLocationTrack、volunteerLocationTrack 四行，判断相同。
-            .appLaunch: (4, 486_377_034),
+            // 接收方、保存期限都没变，属「同一行为换个说法」。同日改的还有下面
+            // blindVisionProfile、blindLocationTrack、volunteerLocationTrack 三行，判断相同。
+            // 2026-11-05 指纹变了而版本号不动（#767）：视障跑者不再实名，第 1 条改成只有志愿者实名。
+            // 只是少收集（视障跑者不再交姓名和身份证号），不是新收集、换用途、换接收方或改保留规则。
+            .appLaunch: (4, 976_468_007),
             // 2026-09-10 指纹又变了而版本号仍不动，同样是**有意的**：
             // 第 4 条里把「视力状况」加进敏感信息那一句。这两个字段的收集、用途、接收方、
             // 保留规则一个字节都没改（iOS 侧此前压根没有采集入口，值来自后端建档默认值），
             // 变的只是我们把它的**分类**说准了 —— PIPL 第二十八条「特定身份」，
             // 依据链见 `docs/research/vision-level-collection-ui-20260910.md`。
             // 属「同一行为换个说法」，不属「行为变了」。
-            .blindIdentity: (1, 525_013_232),
             .volunteerIdentity: (1, 57_319_275),
             .blindVisionProfile: (1, 72_001_287),
             .voiceOrderThirdPartyLLM: (1, 90_249_455),

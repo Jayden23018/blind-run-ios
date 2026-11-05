@@ -45,7 +45,6 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         "EMERGENCY_VOLUNTEER_CANNOT_DISMISS",
         "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED",
         "FAVORITE_VOLUNTEER_NOT_ELIGIBLE",
-        "IDENTITY_NOT_VERIFIED",
         "ID_INFO_INVALID",
         "INTRO_CALL_NOT_ACTIVE",
         "INVALID_TIMESTAMP",
@@ -91,9 +90,9 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
 
     /// 客户端固定文案：不回显后端 message，并且要指出下一步动作（盲人靠 TTS 听）。
     func testBookingPrerequisiteMessagesAreClientOwnedAndActionable() {
+        // 2026-11-05 起视障跑者不再实名（#767）：万一收到这个码，不能再把人指向已删除的实名页。
         let identity = ErrorCode.identityNotVerified.localizedMessage
-        XCTAssertTrue(identity.contains("实名认证"))
-        XCTAssertTrue(identity.contains("设置"), "要告诉用户去哪儿做，不能只说不行")
+        XCTAssertFalse(identity.contains("实名"), identity)
         XCTAssertEqual(ErrorCode.identityNotVerified.ttsMessage, identity)
 
         let contacts = ErrorCode.emergencyContactRequired.localizedMessage
@@ -176,19 +175,5 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         XCTAssertTrue(unavailable.contains("稍后重试"), "重试是唯一有意义的动作")
         XCTAssertFalse(unavailable.contains("核对"), "他的证件没问题，引导核对是在浪费他的时间")
         XCTAssertNotEqual(unavailable, ErrorCode.idInfoInvalid.localizedMessage)
-
-        // 盲人提交页有自己的一层固定文案（不回显后端 message），同一条区分要在那儿也成立 ——
-        // 否则它会落到 `genericMessage`，和「提交失败」这类真·未知错误说同一句话。
-        let blindCopy = BlindIdentityVerificationFailure.message(
-            for: .serverError(ErrorResponse(code: "ID_VERIFY_UNAVAILABLE", message: "身份认证服务暂时不可用"))
-        )
-        XCTAssertNotEqual(blindCopy, BlindIdentityVerificationFailure.genericMessage)
-        XCTAssertFalse(blindCopy.contains("核对"))
-        XCTAssertNotEqual(
-            blindCopy,
-            BlindIdentityVerificationFailure.message(
-                for: .serverError(ErrorResponse(code: "ID_INFO_INVALID", message: "身份信息核验未通过"))
-            )
-        )
     }
 }

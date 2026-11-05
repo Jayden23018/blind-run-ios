@@ -17,7 +17,7 @@ checklist 作者与模型先后中招两次。同义词错开不是记性问题�
 | 陪跑 | escort、陪跑中、实时位置、轨迹、走散告警 | `LiveEscortSessionCoordinator` · `OrderTrackResponse` · `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST`（WS 事件名） | `Core/LiveEscortSessionCoordinator.swift` · `Core/Models/OrderTrackModels.swift` · `Core/AppRealtimeCoordinator.swift`（WS 事件） |
 | 激励 | 积分、成就、勋章、固定搭档、邀请码、incentive | `VolunteerPointsResponse` · `VolunteerAchievementsResponse` · `PartnerStreakResponse` · `InviteCodeResponse` | `Volunteer/VolunteerPoints.swift` · `Volunteer/VolunteerAchievements.swift` · `Shared/PartnerStreaks.swift` · `Shared/InviteCode.swift` |
 | 认证（登录） | auth、登录、验证码、会话、JWT、token | `AuthServing` · `AuthService` · `AuthEndpoint` · `LoginViewModel` · `AppState.restoreSession` | `Core/Services/AuthService.swift` · `Auth/LoginViewModel.swift` · `Core/AppState.swift` |
-| 认证（实名） | 实名、身份核验、identity、人脸、活体 | `BlindIdentityVerificationViewModel` · `BlindVerifyStatus` · `FaceVerifyInitRequest` | `Profile/BlindIdentityVerificationView.swift` |
+| 认证（实名） | 实名、身份核验、identity、人脸、活体 | `FaceVerifyInitRequest`（只有志愿者实名；视障跑者实名 2026-11-05 取消，#767） | `Volunteer/VolunteerRegistrationFlowView.swift` |
 | 认证（资质） | 资质、证书、审核、verification、注册流程 | `VolunteerCertificateStatus` · `VolunteerRegistrationStatus` · `VolunteerVerificationStatusResponse` | `Volunteer/VolunteerCertificateUploadView.swift` · `Volunteer/VolunteerRegistrationFlowView.swift` |
 | 注销账号 | 删除账户、销户、deleteAccount、closeAccount | `deleteCurrentAccount` · `DeleteAccountResponse` · `AccountDeletionViewModel` | `Core/AppState.swift` |
 | 退出登录 | 登出、logout、signOut | `AppState.logout` · `LogoutResponse` · `confirmLocalOnlySignOut` | `Core/AppState.swift` |

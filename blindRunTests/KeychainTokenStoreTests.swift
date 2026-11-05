@@ -242,7 +242,6 @@ final class KeychainTokenStoreTests: XCTestCase {
         appState.updateEmergencyContacts([
             EmergencyContactResponse(id: 1, name: "联系人", phone: "13800000000", relationship: "朋友", isPrimary: true)
         ])
-        appState.dismissBlindIdentityPrompt()
         appState.liveEscortCoordinator.updateOwnedOrder(orderID: 8_801, status: .driverEnRoute)
         XCTAssertEqual(appState.liveEscortCoordinator.activeOrderID, 8_801)
         XCTAssertEqual(appState.sessionRestorationState, .authenticated)
@@ -262,7 +261,6 @@ final class KeychainTokenStoreTests: XCTestCase {
         XCTAssertNil(appState.currentUser)
         XCTAssertNil(appState.blindProfile)
         XCTAssertTrue(appState.emergencyContacts.isEmpty)
-        XCTAssertFalse(appState.didDismissBlindIdentityPrompt)
         XCTAssertNil(appState.liveEscortCoordinator.activeOrderID, "订单 ID 不得跨后端残留")
         XCTAssertNil(appState.liveEscortCoordinator.activeStatus)
         XCTAssertFalse(appState.realtimeCoordinator.pendingOrderRefreshIDs.contains(8_801))

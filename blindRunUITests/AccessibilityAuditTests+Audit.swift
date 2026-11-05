@@ -37,8 +37,7 @@ extension AccessibilityAuditTests {
             // 盲人通话页（#434）同一条底栏组件：B3 的安排单在「求助与安全」后面滚动。
             // 陪跑员首页底部的接单滑块（滑块后面压着徽章与「最近陪跑」，#515）。
             // 陪跑培训正文 / 答题 / 结果页的通栏胶囊栏（#698）。盲人资料页的保存栏（#711：从账户页进入时标签栏藏起来，栏贴底）。
-            // 盲人实名认证页的提交栏（#751：AX5 下状态卡文字滚到栏后面，元素截图里一半是栏底色）。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "blindBookingBottomBar", "volunteerTrainingBottomBar", "blindProfileSubmitBar", "blindIdentitySubmitBar"] {
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "blindBookingBottomBar", "volunteerTrainingBottomBar", "blindProfileSubmitBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
                 // 栏自己的子元素（按钮、滑块）是看得见的，照常审计；只有压在栏后面的页面内容才算被遮挡。
                 if bar.exists { return OccludingBar(top: bar.frame.minY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame)) }

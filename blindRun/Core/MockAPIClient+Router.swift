@@ -59,9 +59,6 @@ extension MockAPIClient {
         if path == "/api/blind/profile" && method == .put {
             return try handleUpdateBlindProfile(body: body)
         }
-        if path == "/api/blind/verify-identity" && method == .post {
-            return try handleVerifyIdentity(body: body)
-        }
         // Volunteer profile
         if path == "/api/volunteer/profile" && method == .get {
             return handleGetVolunteerProfile()

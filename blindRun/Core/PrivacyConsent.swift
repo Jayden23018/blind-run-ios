@@ -16,8 +16,6 @@ import Foundation
 enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     /// 首次启动的整体告知。按**设备**记 —— 同意发生在登录之前，那时还没有账号。
     case appLaunch
-    /// 视障跑者实名认证：姓名 + 身份证号。
-    case blindIdentity
     /// 志愿者实名认证：姓名 + 身份证号，下一步还有人脸活体与证件照。
     case volunteerIdentity
     /// 视障跑者的**视力状况**与**是否使用导盲犬**。
@@ -88,7 +86,6 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var disclosureVersion: Int {
         switch self {
         case .appLaunch: return 4
-        case .blindIdentity: return 1
         case .volunteerIdentity: return 1
         case .blindVisionProfile: return 1
         case .voiceOrderThirdPartyLLM: return 1
@@ -101,8 +98,6 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         switch self {
         case .appLaunch:
             return "开始前，先说清楚我们会收集什么"
-        case .blindIdentity:
-            return "提交实名信息前，请先确认"
         case .volunteerIdentity:
             return "提交实名信息前，请先确认"
         case .blindVisionProfile:
@@ -121,7 +116,9 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         switch self {
         case .appLaunch:
             return [
-                "登录用你的手机号。视障跑者预约前要先实名认证，会收集姓名和身份证号；志愿者还要提供证件照并做一次人脸核验。",
+                // 2026-11-05 视障跑者不再实名（#767）。**不 +1 `disclosureVersion`**：只是少收集了（视障跑者不再提交姓名和身份证号），
+                // 不是新收集、换用途、换接收方或改保留规则；同 `volunteerLocationTrack` 那条「实际收集比原文说的少」的先例。
+                "登录用你的手机号。志愿者接单前要先实名认证，会收集姓名和身份证号，还要提供证件照并做一次人脸核验。",
                 "陪跑服务进行中会持续获取你的位置，用来把双方位置显示给对方、记录这次的路线；锁屏后仍在定位。",
                 // 2026-10-10 补上第三方大模型（#374）。**+1 `disclosureVersion`（3 → 4）**：新的接收方 ——
                 // 此前只说「只用于识别这一单」，而转写文字实际由后端交给阿里云通义千问理解
@@ -147,12 +144,6 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 // 「不卖给第三方」→「不出售给任何人」：上一条刚说第三方 SDK 会收集，原措辞读起来像自相矛盾；承诺的实质不变。
                 "这些信息只用于完成陪跑服务，不做广告、不出售给任何人。你随时可以在设置里删除账户：实名资料、紧急联系人、运动轨迹和跑步记录会被删除。",
                 "订单、评价和求助记录会保留用于纠纷复核。里面仍有每次陪跑的起终点位置、你填写的备注和求助时的位置，但没有你的姓名、身份证号和紧急联系人。"
-            ]
-        case .blindIdentity:
-            return [
-                "提交后，你的姓名和身份证号会发给助盲跑的服务器做实名核验。",
-                "身份证号属于敏感个人信息，只用于核验身份和判断预约资格，不会展示给陪跑员。",
-                "身份证号不会保存在这台手机上。删除账户时，实名资料会一并删除。"
             ]
         case .volunteerIdentity:
             return [
@@ -210,7 +201,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var agreeButtonTitle: String {
         switch self {
         case .appLaunch: return "同意并开始使用"
-        case .blindIdentity, .volunteerIdentity: return "同意并提交"
+        case .volunteerIdentity: return "同意并提交"
         case .blindVisionProfile: return "同意并填写"
         case .voiceOrderThirdPartyLLM: return "同意并使用语音下单"
         case .blindLocationTrack, .volunteerLocationTrack: return "同意共享位置"
@@ -222,7 +213,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var declineButtonTitle: String {
         switch self {
         case .appLaunch: return "先不同意"
-        case .blindIdentity, .volunteerIdentity: return "先不提交"
+        case .volunteerIdentity: return "先不提交"
         case .blindVisionProfile: return "不填这一项"
         case .voiceOrderThirdPartyLLM: return "不同意，手动填写"
         case .blindLocationTrack, .volunteerLocationTrack: return "先不同意"
@@ -235,7 +226,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         switch self {
         case .appLaunch:
             return "没有同意就无法使用助盲跑的服务。你可以先看隐私政策全文，想好了再按同意。"
-        case .blindIdentity, .volunteerIdentity:
+        case .volunteerIdentity:
             return "没有提交。你可以随时回到这一页再提交。"
         case .blindVisionProfile:
             // **不劝返**（`docs/research/face-verify-decline-alternative-path-ux-20260908.md`：
@@ -277,7 +268,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             return "没有共享位置。此订单中对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以给陪跑员打电话。"
         case .volunteerLocationTrack:
             return "没有共享位置。此订单中对方看不到你的位置，走散提醒和求助定位也用不了；需要的话可以在订单页取消这次陪跑。"
-        case .appLaunch, .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM:
+        case .appLaunch, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM:
             return nil
         }
     }
@@ -296,11 +287,11 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var launchSummary: String? {
         switch self {
         case .appLaunch:
-            return "助盲跑会收集你的手机号、位置、语音和运动数据；实名认证时还会收集身份证号，志愿者另需人脸核验。"
+            return "助盲跑会收集你的手机号、位置、语音和运动数据；志愿者实名认证时还会收集身份证号并做人脸核验。"
                 + "地图、定位和地址搜索由高德开放平台 SDK 提供，语音下单的文字会发给阿里云通义千问理解。"
                 + "这些信息只用于陪跑服务，不做广告、不出售给任何人。"
                 + "身份证号、人脸、位置轨迹和视力状况属于敏感个人信息，收集前会再单独问你。"
-        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM,
+        case .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM,
              .blindLocationTrack, .volunteerLocationTrack:
             return nil
         }
@@ -311,7 +302,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var launchTitle: String? {
         switch self {
         case .appLaunch: return "个人信息保护提示"
-        case .blindIdentity, .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM,
+        case .volunteerIdentity, .blindVisionProfile, .voiceOrderThirdPartyLLM,
              .blindLocationTrack, .volunteerLocationTrack: return nil
         }
     }

@@ -6,6 +6,7 @@ struct BlindProfileResponse: Codable, Sendable {
     let name: String?
     let runningPace: String?
     let specialNeeds: String?
+    /// 实名状态。2026-11-05 起视障跑者不再实名（#767），App 不读它；留着只为照契约解码。
     let verifyStatus: String?
     let visionLevel: String?
     /// 旧字段：只有 `guideDog = YES` 时为 true，**未提供也是 false**。读导盲犬请走 `guideDogStatus`。
@@ -96,137 +97,6 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
         case tetherPreference
         case chatPreference
         case defaultPace
-    }
-}
-
-// MARK: - Identity Verification
-
-/// `POST /api/blind/verify-identity` 的请求体。
-/// 身份证号只在提交这一刻存在于 ViewModel 内存里，禁止写入 AppState、日志或任何持久化。
-struct BlindVerifyRequest: Codable, Sendable {
-    let idCardName: String
-    let idCardNumber: String
-}
-
-/// `POST /api/blind/verify-identity` 的响应 `data`。
-///
-/// 2026-07-30 起后端在成功分支直接返回 `{"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
-/// （`BlindController.verifyIdentity`），省掉一次 `GET /api/blind/profile` 往返。
-/// 字段全部可选是刻意的：老后端（生产尚未部署该版本）只回 `message`，
-/// 此时 `verifyStatus` 为 nil，调用方必须回退到 `GET /api/blind/profile` 读权威状态。
-struct BlindVerifySubmitResponse: Codable, Sendable {
-    let success: Bool?
-    let message: String?
-    let verifyStatus: String?
-
-    init(success: Bool? = nil, message: String? = nil, verifyStatus: String? = nil) {
-        self.success = success
-        self.message = message
-        self.verifyStatus = verifyStatus
-    }
-
-    /// 响应体里带回的权威状态；缺失或不认识的值一律返回 nil，交给调用方回退重查。
-    var resolvedStatus: BlindVerifyStatus? {
-        guard let verifyStatus else { return nil }
-        let parsed = BlindVerifyStatus.parse(verifyStatus)
-        return parsed == .unknown ? nil : parsed
-    }
-}
-
-/// `BlindProfileResponse.verifyStatus` 的三态。后端**没有 PENDING 态**。
-/// 未知取值解码为 `.unknown` 而不是抛错，避免后端新增枚举值时整个资料接口解析失败。
-enum BlindVerifyStatus: String, Codable, Sendable {
-    case notVerified = "NOT_VERIFIED"
-    case verified = "VERIFIED"
-    case failed = "FAILED"
-    /// 后端未返回该字段或返回了本客户端不认识的值。
-    case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode(String.self)
-        self = BlindVerifyStatus.parse(raw)
-    }
-
-    static func parse(_ rawValue: String?) -> BlindVerifyStatus {
-        guard let normalized = rawValue?.trimmed.uppercased(), !normalized.isEmpty else {
-            return .unknown
-        }
-        return BlindVerifyStatus(rawValue: normalized) ?? .unknown
-    }
-
-    var isVerified: Bool { self == .verified }
-
-    /// 未通过实名就下不了单（后端 403 `IDENTITY_NOT_VERIFIED`），所以非 `VERIFIED` 一律提示。
-    var shouldPromptVerification: Bool { !isVerified }
-
-    var displayName: String {
-        switch self {
-        case .notVerified: return "未实名认证"
-        case .verified: return "已实名认证"
-        case .failed: return "实名认证未通过"
-        case .unknown: return "实名状态未知"
-        }
-    }
-
-    /// 展示与 TTS 共用的下一步引导文案。
-    var guidanceMessage: String {
-        switch self {
-        case .notVerified: return "尚未实名认证。完成实名认证后才能预约跑步，请填写姓名和身份证号提交。"
-        case .verified: return "已完成实名认证，可以正常预约跑步。"
-        case .failed: return "实名认证未通过，暂时不能预约跑步。请核对姓名和身份证号后重新提交。"
-        case .unknown: return "暂时无法获取实名状态。实名通过后才能预约跑步，请稍后在设置里的实名认证页面重试。"
-        }
-    }
-}
-
-extension BlindProfileResponse {
-    /// 类型化的实名状态。既用于展示与引导，也是下单硬门槛（后端 403 `IDENTITY_NOT_VERIFIED`）。
-    var identityStatus: BlindVerifyStatus {
-        BlindVerifyStatus.parse(verifyStatus)
-    }
-}
-
-/// 实名认证提交失败的稳定文案映射。
-/// 只返回固定文案或客户端自己生成的描述，**绝不回显后端 message**，
-/// 避免后端把提交的身份证号原样带回来后被展示或朗读出去。
-enum BlindIdentityVerificationFailure {
-    static let genericMessage = "实名认证提交失败，请稍后重试。"
-
-    static func message(for error: APIError) -> String {
-        switch error {
-        case .serverError(let response):
-            switch response.errorCode {
-            case .idInfoInvalid:
-                return "身份信息核验未通过，请核对姓名和身份证号后重试。"
-            // 与上一条相反：核验**服务**挂了，用户填的东西没有任何问题。
-            // 不加这句反赔的话，`BlindIdentityVerificationView` 会在后面接上
-            // 「请重新输入姓名和身份证号后重试。」（提交失败一律 `clearSensitiveFields()`，
-            // 字段确实被清空了），听起来就成了「你填错了」。
-            case .idVerifyUnavailable:
-                return "身份认证服务暂时不可用，请稍后重试。"
-            case .validationFailed, .badRequest:
-                return "身份信息格式不正确，请检查后重试。"
-            case .tooManyRequests:
-                return "提交过于频繁，请稍后重试。"
-            case .userNotFound:
-                return "账户信息异常，请重新登录后重试。"
-            case .unauthorized:
-                return "登录已过期，请重新登录。"
-            default:
-                return genericMessage
-            }
-        case .rateLimited:
-            return "提交过于频繁，请稍后重试。"
-        case .unauthorized:
-            return "登录已过期，请重新登录。"
-        case .missingCredentials:
-            // 与上一条分开：那条是服务端说"你的会话没了"，这条是本地压根没拿出凭据。
-            return "本地登录信息缺失，请退出后重新登录。"
-        case .networkError(let underlying):
-            return APIError.networkFailureMessage(underlying) // 断网 / 连不上服务器 / 超时各说各的（#672）
-        case .decodingError, .invalidURL, .unknown:
-            return genericMessage
-        }
     }
 }
 

@@ -1,9 +1,8 @@
 import XCTest
 @testable import blindRun
 
-/// AppState 盲人完成度拆分：基础资料 / 实名状态 / 紧急联系人三者互相独立地判定，
-/// 但三者都进 `isBlindBookingReady`——2026-07-30 起实名是服务端硬门槛
-/// （`OrderCreationService` → 403 `IDENTITY_NOT_VERIFIED`）。
+/// AppState 盲人完成度拆分：基础资料 / 紧急联系人互相独立地判定，两者都进 `isBlindBookingReady`。
+/// 2026-11-05 起视障跑者不再实名（#767），实名状态不参与。
 @MainActor
 final class BlindReadinessAppStateTests: XCTestCase {
 
@@ -15,7 +14,7 @@ final class BlindReadinessAppStateTests: XCTestCase {
         AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
     }
 
-    func testBasicProfileIsIndependentOfContactsAndIdentity() {
+    func testBasicProfileIsIndependentOfContacts() {
         let appState = makeAppState()
         XCTAssertFalse(appState.isBlindBasicProfileComplete)
 
@@ -27,29 +26,16 @@ final class BlindReadinessAppStateTests: XCTestCase {
         XCTAssertEqual(appState.emergencyContactCount, 0)
     }
 
-    /// 后端 `OrderCreationService` 要求 `verifyStatus == VERIFIED`，
-    /// 其余三态（含字段缺失导致的 unknown）都会被 403 挡回来，客户端必须同样判定为未就绪。
-    func testIdentityStatusBlocksBookingUnlessVerified() {
-        for status in ["FAILED", "NOT_VERIFIED"] {
+    /// 后端还会照旧下发 `verifyStatus`，不管它是什么值都不能再挡下单。
+    func testIdentityStatusNoLongerAffectsBooking() {
+        for status in ["FAILED", "NOT_VERIFIED", "VERIFIED", nil] {
             let appState = makeAppState()
             appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: status))
             appState.updateEmergencyContacts([contact(1, primary: true)])
 
-            XCTAssertFalse(appState.isBlindIdentityVerified, "\(status) 不是 VERIFIED")
-            XCTAssertFalse(appState.isBlindBookingReady, "\(status) 必须阻塞下单")
+            XCTAssertTrue(appState.isBlindBookingReady, "\(status ?? "nil") 不应阻塞下单")
+            XCTAssertNil(appState.blindOnboardingStep, "\(status ?? "nil") 不应停在引导页")
         }
-
-        // 后端没返回 verifyStatus 时按未通过处理，不猜测放行。
-        let unknownState = makeAppState()
-        unknownState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
-        unknownState.updateEmergencyContacts([contact(1, primary: true)])
-        XCTAssertEqual(unknownState.blindIdentityStatus, .unknown)
-        XCTAssertFalse(unknownState.isBlindBookingReady)
-
-        let verified = makeAppState()
-        verified.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
-        verified.updateEmergencyContacts([contact(1, primary: true)])
-        XCTAssertTrue(verified.isBlindBookingReady)
     }
 
     func testBookingReadinessRequiresExactlyOnePrimaryContact() {
@@ -80,37 +66,7 @@ final class BlindReadinessAppStateTests: XCTestCase {
         XCTAssertEqual(appState.blindOnboardingStep, .emergencyContacts)
 
         appState.updateEmergencyContacts([contact(1, primary: true)])
-        XCTAssertFalse(appState.isBlindBookingReady, "未实名不得视为可下单")
-        XCTAssertEqual(appState.blindOnboardingStep, .identityPrompt)
-
-        appState.dismissBlindIdentityPrompt()
-        XCTAssertNil(appState.blindOnboardingStep, "「稍后再说」放行进首页")
-        XCTAssertFalse(
-            appState.isBlindBookingReady,
-            "跳过引导只是进首页，绝不能顺带把下单门槛也放过"
-        )
-    }
-
-    func testVerifiedIdentityNeedsNoPromptStep() {
-        let appState = makeAppState()
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
-        appState.updateEmergencyContacts([contact(1, primary: true)])
-
-        XCTAssertFalse(appState.didDismissBlindIdentityPrompt)
-        XCTAssertNil(appState.blindOnboardingStep)
-    }
-
-    /// 「稍后再说」是按账号记的：退出登录后换账号必须重新提示一次。
-    func testDismissedPromptIsPersistedAndClearedOnSignOut() {
-        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
-        let appState = AppState(persistence: persistence)
-        appState.dismissBlindIdentityPrompt()
-
-        let restored = AppState(persistence: persistence)
-        XCTAssertTrue(restored.didDismissBlindIdentityPrompt, "跳过标记必须跨启动保留")
-
-        appState.clearSession()
-        XCTAssertFalse(appState.didDismissBlindIdentityPrompt)
-        XCTAssertFalse(AppState(persistence: persistence).didDismissBlindIdentityPrompt)
+        XCTAssertNil(appState.blindOnboardingStep, "资料和联系人齐了就进首页，没有实名这一步")
+        XCTAssertTrue(appState.isBlindBookingReady)
     }
 }

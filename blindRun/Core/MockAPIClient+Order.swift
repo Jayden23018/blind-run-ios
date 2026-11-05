@@ -18,8 +18,8 @@ extension MockAPIClient {
         }
 
         // 校验顺序与后端 `OrderCreationService.createOrder` 严格一致：
-        // 提前量（422 APPOINTMENT_TOO_SOON）→ 实名（403 IDENTITY_NOT_VERIFIED）
-        // → 紧急联系人（403 EMERGENCY_CONTACT_REQUIRED）。
+        // 提前量（422 APPOINTMENT_TOO_SOON）→ 紧急联系人（403 EMERGENCY_CONTACT_REQUIRED）。
+        // 2026-11-05 起后端不再校验实名（blind-run-backend#924），Mock 跟着去掉。
         // 顺序错了会让 Mock 引导用户先补一个后端根本不会先拒的项。
         // 注意：后端**不校验** `BlindProfile.name`，Mock 也不能比后端严；
         // 之前那条 `PROFILE_INCOMPLETE` 是真实后端永不返回的死码，已删除。
@@ -29,8 +29,7 @@ extension MockAPIClient {
         // （整段落进 `[22:00, 05:00)`）。前者客户端到不了 —— 表单选择器最大 120 分钟、
         // 语音被 `VoiceOrderWizard.acceptedDurationMinutes` 夹在 10–300，Mock 加了也是死分支。
         // 后者会把整个测试套件变成看墙钟的：本仓多条用例按 `Date() + 45 分钟` 下单
-        // （`blindRunTests.swift:1220`、`OrderReviewAndStatusLogDecodingTests.swift:152`、
-        // `BlindIdentityAndContactModelTests.swift:347`），镜像之后它们白天全绿、
+        // （`blindRunTests.swift:1220`、`OrderReviewAndStatusLogDecodingTests.swift:152`），镜像之后它们白天全绿、
         // 晚上 8 点后集体变红 —— 提交时验不出来的红是最贵的那种。
         // 两个码的**客户端映射与 TTS 文案照常有**（`ErrorCode.appointmentTooLong` /
         // `.appointmentInNightWindow`），真实后端拒绝时盲人听到的是能照着改的那句话。
@@ -43,11 +42,6 @@ extension MockAPIClient {
                 throw APIError.serverError(ErrorResponse(
                     code: "APPOINTMENT_TOO_SOON", message: "预约时间至少需要在 30 分钟后"))
             }
-        }
-
-        guard BlindVerifyStatus.parse(blindVerifyStatus) == .verified else {
-            throw APIError.serverError(ErrorResponse(
-                code: "IDENTITY_NOT_VERIFIED", message: "请先完成实名认证再下单"))
         }
 
         guard !emergencyContacts.isEmpty else {

@@ -172,7 +172,6 @@ extension AppState {
         volunteerRegistrationStatus = nil
         emergencyContacts = []
         resetRuleParams()
-        didDismissBlindIdentityPrompt = false
         sessionExpirationMessage = nil
         logoutState = .idle
         accountDeletionState = .idle
@@ -183,8 +182,6 @@ extension AppState {
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
-        // 实名引导页的「稍后再说」是按账号记的：换账号后应重新提示一次。
-        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
         // 补读游标同样是按账号的：留着会让新账号补读到上一个账号的时间窗。
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
         // 「这个 device token 已经报给这个账号了」这份记忆也是按账号的。留着会让下一个账号的

@@ -78,7 +78,6 @@ extension BlindBookingViewModel {
     var firstMissingGate: BlindBookingGate? {
         BlindBookingGate.firstMissing(
             isBasicProfileComplete: appState?.isBlindBasicProfileComplete ?? true,
-            isIdentityVerified: appState?.isBlindIdentityVerified ?? true,
             hasValidEmergencyContacts: appState?.hasValidEmergencyContacts ?? true,
             hasStartPoint: resolvedStartPlace != nil,
             isAppointmentTimeValid: isAppointmentTimeValid

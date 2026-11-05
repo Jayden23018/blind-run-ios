@@ -54,7 +54,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// （`OrderDetailResponse` / `OrderResponse` / `OrderTrackResponse` /
     /// `VolunteerLocationData` / `VolunteerDispatchSummary*` 全部走这个枚举）。
     /// 后端往订单状态机里加一个值就够让订单主干页面整页空白，所以在枚举层一次兜住，
-    /// 而不是逐个字段改成 `String` + 映射。与 `BlindVerifyStatus`、
+    /// 而不是逐个字段改成 `String` + 映射。与
     /// `VolunteerDispatchNotAvailableReason` 是同一套写法。
     init(from decoder: Decoder) throws {
         let rawValue = try decoder.singleValueContainer().decode(String.self)

@@ -32,22 +32,6 @@ extension AccessibilityAuditTests {
         keepScreenshot(app, "idle-new-runner")
     }
 
-    func testBlindHomeUnverifiedRunnerGetsIdentityEntry() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
-        let app = launchBlindHome(extraEnvironment: ["AIDRUN_MOCK_BLIND_VERIFY_STATUS": "NOT_VERIFIED"])
-        let later = app.buttons["稍后再说"]
-        XCTAssertTrue(later.waitForExistence(timeout: 20))
-        later.tap()
-        let row = element(app, "blindHomeVerifyIdentityRow")
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
-        keepScreenshot(app, "idle-unverified")
-        try audit(app)
-
-        row.tap()
-
-        XCTAssertTrue(app.navigationBars["实名认证"].waitForExistence(timeout: 10))
-    }
-
     func testBlindHomeReturningRunnerSeesRunsAndStartRow() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         let app = launchReturningRunner()

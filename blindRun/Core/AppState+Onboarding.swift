@@ -11,23 +11,10 @@ extension AppState {
 
     // MARK: 盲人完成度（拆成互相独立、可单独测试的判断）
 
-    /// 基础资料：目前只要求昵称非空。与紧急联系人、实名状态无关。
+    /// 基础资料：目前只要求昵称非空。与紧急联系人无关。
     var isBlindBasicProfileComplete: Bool {
         guard let name = blindProfile?.name else { return false }
         return !name.trimmed.isEmpty
-    }
-
-    /// 实名状态。2026-07-30 起后端 `OrderCreationService` 在服务端硬校验
-    /// `verifyStatus == VERIFIED`（否则 403 `IDENTITY_NOT_VERIFIED`），
-    /// 所以这里既用于展示与语音引导，也参与下单门槛。
-    var blindIdentityStatus: BlindVerifyStatus {
-        blindProfile?.identityStatus ?? .unknown
-    }
-
-    /// 实名侧的下单硬门槛。状态未知（后端没返回 / 返回了不认识的值）时按未通过处理：
-    /// 服务端会拒，客户端提前引导比让用户白填一遍订单再被 403 更可用。
-    var isBlindIdentityVerified: Bool {
-        blindIdentityStatus.isVerified
     }
 
     var emergencyContactCount: Int {
@@ -48,33 +35,18 @@ extension AppState {
         emergencyContactCount >= EmergencyContactRules.minCount && hasExactlyOnePrimaryEmergencyContact
     }
 
-    /// 下单硬门槛：基础资料 + 实名认证通过 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。
-    /// 实名这一档与后端 `OrderCreationService` 的 403 `IDENTITY_NOT_VERIFIED` 对齐，
-    /// 且与服务端同序（实名在紧急联系人之前）。
+    /// 下单硬门槛：基础资料 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。
+    /// 2026-11-05 起不再要求实名（#767，后端 blind-run-backend#924 同时去掉 403 `IDENTITY_NOT_VERIFIED`）。
     var isBlindBookingReady: Bool {
-        isBlindBasicProfileComplete && isBlindIdentityVerified && hasValidEmergencyContacts
+        isBlindBasicProfileComplete && hasValidEmergencyContacts
     }
 
     /// 盲人引导流当前该停在哪一步；nil 表示可以直接进首页。
     var blindOnboardingStep: BlindOnboardingStep? {
         BlindOnboardingStep.first(
             isBasicProfileComplete: isBlindBasicProfileComplete,
-            hasValidEmergencyContacts: hasValidEmergencyContacts,
-            shouldPromptIdentity: blindIdentityStatus.shouldPromptVerification,
-            didDismissIdentityPrompt: didDismissBlindIdentityPrompt
+            hasValidEmergencyContacts: hasValidEmergencyContacts
         )
-    }
-
-    /// 「稍后再说」：跳过实名引导页进首页。**不等于可以下单**——
-    /// 未实名仍会被 `BlindBookingGate.identityVerification` 拦住（后端 403 `IDENTITY_NOT_VERIFIED`）。
-    ///
-    /// ⚠️ 这句话原本写的是「进首页**看历史订单**和设置」，而盲人端长期**没有任何历史入口** ——
-    /// 跳过实名的用户进来只有一个必定失败的「开始约跑」。注释在描述一个不存在的能力。
-    /// 入口现在有了：设置页 →「我的历史订单」（`BlindRunHistoryView`），
-    /// 收全部终态、点进去是订单详情，补评价也在那里。
-    func dismissBlindIdentityPrompt() {
-        didDismissBlindIdentityPrompt = true
-        persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
     }
 
     /// 首次引导看完（按了「知道了」）。**只有这一个写入点** ——

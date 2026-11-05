@@ -51,7 +51,7 @@ refresh token（#391）存同一个 Keychain service 的 `refreshSession` 条目
 `OrderCreationService` 的真实前置只有 **「盲人至少有一个紧急联系人」**。
 
 - `EMERGENCY_CONTACT_REQUIRED`（403）是这条的报错。**必须在 UI 里硬拦**。
-- `IDENTITY_NOT_VERIFIED`（403）排在它之前，但**实名认证在当前版本只是引导，不是硬门禁** —— `OrderCreationService` 从不读 `verifyStatus`，前端单方面拦是假门禁，任何非 iOS 调用方都能绕过。要播报、要提示，但不要阻断下单。
+- `IDENTITY_NOT_VERIFIED`（403）：**视障跑者 2026-11-05 起不再实名**（#767，后端 blind-run-backend#924 去掉门槛）。iOS 没有实名页、不拦下单；`ErrorCode.identityNotVerified` 只剩一句通用失败文案，别再加任何导向实名的分支。
 - `PROFILE_INCOMPLETE` 是历史条目，后端 `ErrorCode.java` 里根本没有这个码，真实后端永不返回。
 
 紧急联系人本身的规则见 `AGENTS.md` 第 10 节：1~5 个，恰好一个 primary，删最后一个会被后端拒绝且 UI 也要拦。后端自 v1.5.0 起返回**明文**手机号（`EmergencyContactResponse.phone`），掩码是 iOS 展示层的责任，`phone` 字段可直接用于拨号。

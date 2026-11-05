@@ -11,13 +11,12 @@ extension MockAPIClient {
 
     // MARK: - Profile Handlers
 
-    /// 实名状态是 Mock 里的独立字段：资料更新不会覆盖它，提交实名后重新 GET 才拿到权威值。
     func handleGetBlindProfile() -> BlindProfileResponse {
         return BlindProfileResponse(
             name: blindProfile?.name,
             runningPace: blindProfile?.runningPace,
             specialNeeds: blindProfile?.specialNeeds,
-            verifyStatus: blindVerifyStatus,
+            verifyStatus: blindProfile?.verifyStatus,
             visionLevel: blindProfile?.visionLevel,
             hasGuideDog: blindProfile?.hasGuideDog,
             guideDog: blindProfile?.guideDog,
@@ -26,44 +25,6 @@ extension MockAPIClient {
             defaultPace: blindProfile?.defaultPace,
             guidePreferenceText: blindProfile?.guidePreferenceText
         )
-    }
-
-    /// `POST /api/blind/verify-identity`：后端成功分支返回
-    /// `data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`（`BlindController.verifyIdentity`），
-    /// Mock 只造这两个后端真会返回的字段。核验不通过时后端走 400 分支，这里对应抛 `ID_INFO_INVALID`。
-    /// Mock **不保存身份证号**，只落一个状态位。
-    func handleVerifyIdentity(body: (any Encodable & Sendable)?) throws -> BlindVerifySubmitResponse {
-        guard let data = try? JSONEncoder().encode(MockAnyEncodable(body)),
-              let request = try? JSONDecoder().decode(BlindVerifyRequest.self, from: data) else {
-            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
-        }
-        let idCardName = request.idCardName.trimmed
-        guard idCardName.count >= 2, idCardName.count <= 50 else {
-            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "姓名需为 2 到 50 个字符"))
-        }
-        guard request.idCardNumber.trimmed.range(of: #"^\d{17}[\dXx]$"#, options: .regularExpression) != nil else {
-            throw APIError.serverError(ErrorResponse(code: "ID_INFO_INVALID", message: "身份信息核验未通过"))
-        }
-        blindVerifyStatus = Self.environmentVerifyStatus(
-            key: "AIDRUN_MOCK_BLIND_VERIFY_RESULT",
-            default: BlindVerifyStatus.verified.rawValue
-        )
-        // 后端 200 分支的 message 是固定的「身份认证通过」；FAILED/NOT_VERIFIED 只出现在
-        // UI 测试通过环境变量强制的场景里，此时不带那句成功文案。
-        return BlindVerifySubmitResponse(
-            message: blindVerifyStatus == BlindVerifyStatus.verified.rawValue ? "身份认证通过" : nil,
-            verifyStatus: blindVerifyStatus
-        )
-    }
-
-    /// 只接受三个合法状态，避免 UI 测试写错环境变量后拿到无声失败。
-    static func environmentVerifyStatus(key: String, default defaultValue: String) -> String {
-        guard let raw = ProcessInfo.processInfo.environment[key]?.uppercased(),
-              BlindVerifyStatus(rawValue: raw) != nil,
-              raw != BlindVerifyStatus.unknown.rawValue else {
-            return defaultValue
-        }
-        return raw
     }
 
     func handleUpdateBlindProfile(body: (any Encodable & Sendable)?) throws -> BlindProfileResponse {
@@ -75,7 +36,7 @@ extension MockAPIClient {
             name: request.name ?? blindProfile?.name,
             runningPace: request.runningPace ?? blindProfile?.runningPace,
             specialNeeds: request.specialNeeds ?? blindProfile?.specialNeeds,
-            verifyStatus: blindVerifyStatus,
+            verifyStatus: blindProfile?.verifyStatus,
             visionLevel: request.visionLevel ?? blindProfile?.visionLevel,
             // 与后端 #800 同义：旧字段只有 `YES` 时为 true，「不说」也给 false；没带 `guideDog` 就保留原值。
             hasGuideDog: request.guideDog.map { $0 == GuideDogStatus.yes.rawValue } ?? blindProfile?.hasGuideDog,

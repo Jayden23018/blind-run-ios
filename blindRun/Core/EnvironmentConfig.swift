@@ -83,7 +83,6 @@ enum AppConstants {
         static let accessToken = "com.aidrun.mvp.accessToken"
         static let activeRole = "com.aidrun.mvp.activeRole"
         static let apiEnvironment = "com.aidrun.mvp.apiEnvironment"
-        static let blindIdentityPromptDismissed = "com.aidrun.mvp.blindIdentityPromptDismissed"
         static let blindHomeRunSnapshot = "com.aidrun.mvp.blindHomeRunSnapshot"
         /// 首次使用引导是否已经看过。
         ///
