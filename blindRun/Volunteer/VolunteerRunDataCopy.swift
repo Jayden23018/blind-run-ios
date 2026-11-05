@@ -87,7 +87,9 @@ enum VolunteerRunDataCopy {
     static let dayUnit = "天"
     static let weekUnit = "周"
     static let legendLess = "少"
-    static let legendMore = "多（按当天公里）"
+    /// 末尾补窄空格 `\u{202F}`：以全角「）」收尾的字，真机审计报 Text clipped（字完整，记忆 `text-clipped-audit-trailing-fullwidth-paren`）。
+    /// 图例对读屏隐藏，所以只有上屏这一份。
+    static let legendMore = "多（按当天公里）\u{202F}"
 
     static func monthTitle(_ month: RunRecordMonth, current: RunRecordMonth) -> String {
         month.title(relativeTo: current)
