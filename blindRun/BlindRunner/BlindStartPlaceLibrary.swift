@@ -114,6 +114,8 @@ struct BlindStartPlaceCircleButton: View {
     let accessibilityLabel: String
     var accessibilityHint: String?
     let identifier: String
+    /// 选中时圆下那行主色小字。默认出发地点页写「默认」，约跑页写「这次从这里」（#821）。
+    var selectedTag: String = BlindStartPlaceCopy.defaultTag
     let action: () -> Void
 
     var body: some View {
@@ -137,7 +139,7 @@ struct BlindStartPlaceCircleButton: View {
                     .frame(maxWidth: 80)
                     .padding(.top, 13)
                 if isSelected {
-                    Text(BlindStartPlaceCopy.defaultTag)
+                    Text(selectedTag)
                         .font(.footnote.weight(.semibold))
                         .foregroundColor(AppColors.primary)
                         .padding(.top, 1)
