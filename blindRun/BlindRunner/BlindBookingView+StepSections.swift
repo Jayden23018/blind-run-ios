@@ -72,12 +72,12 @@ extension BlindBookingView {
             BlindMenuPicker(
                 title: "配速偏好",
                 selection: $viewModel.pacePreference,
-                valueText: viewModel.pacePreference.displayName,
+                valueText: viewModel.paceOptionTitle(viewModel.pacePreference),
                 accessibilityLabel: "配速偏好，选填",
                 accessibilityHint: "选择走跑结合、轻松、中等或快速"
             ) {
                 ForEach(PacePreference.allCases, id: \.self) { option in
-                    Text(option.displayName).tag(option)
+                    Text(viewModel.paceOptionTitle(option)).tag(option)
                 }
             }
 

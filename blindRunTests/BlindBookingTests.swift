@@ -191,6 +191,46 @@ final class BlindBookingTests: XCTestCase, BlindRunTestSupport {
         XCTAssertFalse(speechService.lastSpokenText?.contains("路线偏好") == true)
     }
 
+    /// #797：资料有默认配速、这次没选时，表单要显示它并说明来源，但下单请求仍不带配速。
+    ///
+    /// 请求那条断言是分辨用的：把默认值抄进 `pacePreference` 的实现，显示照样对，
+    /// 但请求里会多出 `EASY` —— 这里会红。
+    func testProfileDefaultPaceIsShownWithSourceButNotSent() throws {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", defaultPace: .easy))
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), appState: appState)
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
+            latitude: 31.2304, longitude: 121.4737, source: .manual
+        )
+
+        XCTAssertEqual(viewModel.pacePreference, .noPreference, "默认值不许抄进这次的选择")
+        XCTAssertEqual(viewModel.paceOptionTitle(.noPreference), "资料里的默认：轻松")
+        XCTAssertEqual(viewModel.paceOptionTitle(.moderate), "中等")
+        let paceItem = try XCTUnwrap(viewModel.optionalReviewItems.first { $0.id == "pace" })
+        XCTAssertEqual(paceItem.value, "轻松，资料里的默认")
+        XCTAssertTrue(viewModel.optionalNeedsSpeechSummary.contains("配速偏好：轻松，资料里的默认"))
+        XCTAssertNil(try XCTUnwrap(viewModel.makeCreateOrderRequest()).pacePreference,
+                     "没选配速时不传，由后端回落资料默认值")
+
+        viewModel.pacePreference = .moderate
+
+        XCTAssertEqual(viewModel.optionalReviewItems.first { $0.id == "pace" }?.value, "中等")
+        XCTAssertEqual(try XCTUnwrap(viewModel.makeCreateOrderRequest()).pacePreference, .moderate)
+    }
+
+    func testNoProfileDefaultPaceKeepsNoPreferenceTitleAndNoReviewItem() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", defaultPace: .noPreference))
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), appState: appState)
+
+        XCTAssertNil(viewModel.profileDefaultPace)
+        XCTAssertEqual(viewModel.paceOptionTitle(.noPreference), "无偏好")
+        XCTAssertFalse(viewModel.optionalReviewItems.contains { $0.id == "pace" })
+    }
+
     func testBlindBookingCreateOrderRequestKeepsPayloadFieldsThroughGuidedFlow() throws {
         let viewModel = BlindBookingViewModel()
         viewModel.selectedStartPlace = ResolvedPlace(
