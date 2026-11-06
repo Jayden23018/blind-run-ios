@@ -6,11 +6,8 @@ import Foundation
 
 @MainActor
 final class BlindBookingViewModel: ObservableObject {
-    @Published var currentStep: BlindBookingGuidedStep = .startPoint
     /// 用户设的默认出发地点。语音重说时用它恢复起点。
     var defaultStartPlace: ResolvedPlace?
-    @Published var placeSearchKeyword = ""
-    @Published var placeSearchResults: [ResolvedPlace] = []
     @Published var selectedStartPlace: ResolvedPlace?
     @Published var currentResolvedPlace: ResolvedPlace?
     /// `currentResolvedPlace` 那次解析所用定位样本的精度，只在差于 50 米时有值（#373）。
@@ -34,7 +31,8 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var startLocationDescription = ""
     @Published var appointmentTime = Date()
     @Published var routeNotes = ""
-    /// 表单那个选择器的绑定。**它只是 UI**，真正下单用的分钟数看 `resolvedDurationMinutes`。
+    /// 原是旧表单时长选择器的绑定（表单界面 #810 已删，现在只有 `resetVoiceFilledSlots` 写它）。
+    /// 真正下单用的分钟数看 `resolvedDurationMinutes`。
     @Published var duration: BookingDurationOption = .none {
         didSet {
             // 手动改了选择器就以选择器为准 —— 用户刚在屏幕上做的动作，优先级高于上一轮语音。
@@ -64,12 +62,7 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var specialNotes = ""
     @Published var isSubmitting = false
     @Published var isResolvingStartLocation = false
-    @Published var isSearchingPlaces = false
     @Published var errorMessage: String?
-    @Published var placeMessage: String?
-    @Published var searchResultFocusID: String?
-    @Published var auxiliaryMapCenter: CLLocationCoordinate2D?
-    @Published var auxiliaryMapPlace: ResolvedPlace?
     /// 约跑「先匹配后商量」（#806）选中的时段。非 `nil` 时下单发时段单：时间取这一段、`timeFlexible = true`，
     /// 跑步需求一律不发（后端按跑者资料，陪跑员通话后在安排单里改）。
     @Published var flexibleSlot: BookingFlexibleSlot?
@@ -78,7 +71,6 @@ final class BlindBookingViewModel: ObservableObject {
     private(set) weak var locationService: LocationService?
     weak var placeSearchProvider: (any PlaceSearchProviding)?
     private(set) var speechService: SpeechService?
-    static let auxiliaryMapMarkerRefreshDistanceMeters: CLLocationDistance = 30
 
     func configure(
         appState: AppState,

@@ -10,7 +10,7 @@ checklist 作者与模型先后中招两次。同义词错开不是记性问题�
 
 | 领域词 | 别名 / 易搜错的写法 | 代码里的名字（类型 · 方法） | 主要文件 |
 |---|---|---|---|
-| 订单 | order、预约、下单、行程 | `RunOrderStatus` · `OrderDetailResponse` · `PagedOrderResponse` · `CreateOrderRequest` | `Core/Models/OrderModels.swift` · `BlindRunner/BlindBookingView.swift` · `BlindRunner/BlindOrderStatusView.swift` · `Volunteer/VolunteerOrderFlowViews.swift` |
+| 订单 | order、预约、下单、行程 | `RunOrderStatus` · `OrderDetailResponse` · `PagedOrderResponse` · `CreateOrderRequest` | `Core/Models/OrderModels.swift` · `BlindRunner/BlindMatchFirstBookingView.swift` · `BlindRunner/BlindOrderStatusView.swift` · `Volunteer/VolunteerOrderFlowViews.swift` |
 | 派单 | dispatch、接单推送、抢单、`NEW_ORDER` | `VolunteerDispatchSummaryResponse` · `DispatchStatusRequest` · `VolunteerDispatchNotAvailableReason` · `respondToDispatch` | `Core/Models/VolunteerDispatchSummaryModels.swift` · `Volunteer/VolunteerHomeView.swift` |
 | 通话磨合 | intro call、接单前通话、先聊聊、`PENDING_INTRO_CALL` | `IntroCallDecision` · `IntroCallView`（后端响应模型，不是 SwiftUI View） · `RunOrderStatus.pendingIntroCall` | `Core/Models/IntroCallModels.swift` · `Volunteer/VolunteerIntroCallView.swift` |
 | 求助 | SOS、紧急、emergency、报警、一键求助 | `EmergencyCoordinator` · `EmergencyTriggerRequest` · `BlindHomeSOSMode` · `EmergencyDialer` | `Safety/SafetyModule.swift` · `Safety/EmergencyCoordinator.swift`（倒计时 / 发送 / 实时跟进 / 取定位在同目录 `EmergencyCoordinator+*.swift`，状态枚举在 `EmergencySOSState.swift`） |

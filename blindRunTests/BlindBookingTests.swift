@@ -55,62 +55,6 @@ final class BlindBookingTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(viewModel.resolvedStartLocationDescription, "上海市黄浦区人民广场；补充：我在地铁口外侧")
     }
 
-    func testBlindBookingSpeechCompletionAutoSearchesStartPlaceAndAllowsRepeatedKeywordRetry() async {
-        let place = ResolvedPlace(
-            id: "poi-1",
-            title: "大观楼",
-            addressText: "大观楼，西山区 大观路284号",
-            latitude: 25.024196,
-            longitude: 102.673887,
-            source: .manual
-        )
-        let provider = FakePlaceSearchProvider(results: [
-            place
-        ])
-        let speechService = SpeechService()
-        let viewModel = BlindBookingViewModel()
-        viewModel.configureForTesting(placeSearchProvider: provider, speechService: speechService)
-
-        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
-            field: .startPlaceSearch,
-            recognizedText: "大观",
-            reason: .silenceTimeout(hadDetectedSound: true)
-        ))
-        viewModel.selectPlace(place)
-        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
-            field: .startPlaceSearch,
-            recognizedText: " 大观 ",
-            reason: .finalResult
-        ))
-
-        XCTAssertEqual(provider.searchKeywords, ["大观", "大观"])
-        XCTAssertEqual(viewModel.placeSearchKeyword, "大观")
-        XCTAssertEqual(viewModel.placeSearchResults.map(\.title), ["大观楼"])
-        XCTAssertEqual(viewModel.searchResultFocusID, "poi-1")
-        XCTAssertEqual(speechService.lastVoiceOverAnnouncement, "已找到 1 个地点，第一个是 大观楼。")
-    }
-
-    func testBlindBookingSpeechCompletionSkipsErrorAndNoSpeechTimeout() async {
-        let provider = FakePlaceSearchProvider(results: [])
-        let speechService = SpeechService()
-        let viewModel = BlindBookingViewModel()
-        viewModel.configureForTesting(placeSearchProvider: provider, speechService: speechService)
-
-        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
-            field: .startPlaceSearch,
-            recognizedText: "大观",
-            reason: .silenceTimeout(hadDetectedSound: false)
-        ))
-        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
-            field: .startPlaceSearch,
-            recognizedText: "大观",
-            reason: .error
-        ))
-
-        XCTAssertTrue(provider.searchKeywords.isEmpty)
-        XCTAssertTrue(viewModel.placeSearchResults.isEmpty)
-    }
-
     func testResolvedPlaceBookingSearchAccessibilityLabelDoesNotExposeCoordinates() {
         let place = ResolvedPlace(
             id: "poi-1",
@@ -142,39 +86,10 @@ final class BlindBookingTests: XCTestCase, BlindRunTestSupport {
         XCTAssertTrue(viewModel.isAppointmentTimeValid)
     }
 
-    func testBlindBookingGuidedStepValidationBlocksInvalidAppointmentAndSpeaksReason() {
-        let speechService = SpeechService()
+    /// 语音向导读回里的选填需求那一段：只念填了的项。
+    func testOptionalNeedsSummaryOmitsEmptyItems() {
         let viewModel = BlindBookingViewModel()
-        // 不传 placeSearchProvider：它在 view model 里是 weak，原先传的临时对象当场就释放，
-        // 等于没传；这两条用例也确实不搜地点。
-        viewModel.configureForTesting(speechService: speechService)
-        viewModel.currentStep = .appointmentTime
-        viewModel.appointmentTime = Date().addingTimeInterval(10 * 60)
-
-        viewModel.moveToNextStep()
-
-        XCTAssertEqual(viewModel.currentStep, .appointmentTime)
-        // 🚩 断言打在 `BookingTimeProblem.tooSoon.message` 上而不是抄一句字面量：
-        // 那个数字来自 `AppConstants.Timing.minimumBookingLeadMinutes`，抄进用例就等于
-        // 再造一份会漂的副本 —— 这条用例上一次红，红的正是「实现改从常量取、用例还抄着 30」。
-        XCTAssertEqual(viewModel.errorMessage, BookingTimeProblem.tooSoon.message)
-        XCTAssertEqual(speechService.lastSpokenText, BookingTimeProblem.tooSoon.message)
-        // 与常量同源这件事本身也要钉住，否则上面两条在文案退回硬编码时照样绿。
-        XCTAssertTrue(
-            BookingTimeProblem.tooSoon.message
-                .contains("\(AppConstants.Timing.minimumBookingLeadMinutes)"),
-            "提前量必须从常量取，写死会在后端调整窗口时变成假话"
-        )
-        XCTAssertFalse(viewModel.canAdvanceFromCurrentStep)
-    }
-
-    func testBlindBookingGuidedStepSummariesOmitEmptyOptionalNeeds() {
-        let speechService = SpeechService()
-        let viewModel = BlindBookingViewModel()
-        // 不传 placeSearchProvider：它在 view model 里是 weak，原先传的临时对象当场就释放，
-        // 等于没传；这两条用例也确实不搜地点。
-        viewModel.configureForTesting(speechService: speechService)
-        viewModel.currentStep = .runningNeeds
+        viewModel.configureForTesting(speechService: SpeechService())
 
         XCTAssertTrue(viewModel.optionalReviewItems.isEmpty)
         XCTAssertEqual(viewModel.optionalNeedsSpeechSummary, "没有填写选填跑步需求。")
@@ -182,16 +97,16 @@ final class BlindBookingTests: XCTestCase, BlindRunTestSupport {
         viewModel.routeNotes = "沿公园慢跑一圈"
         viewModel.pacePreference = .easy
         viewModel.specialNotes = "我会带导盲杖"
-        viewModel.repeatCurrentStepStatus()
 
+        let summary = viewModel.optionalNeedsSpeechSummary
         XCTAssertEqual(viewModel.optionalReviewItems.map(\.title), ["路线备注", "配速偏好", "特殊说明"])
-        XCTAssertTrue(speechService.lastSpokenText?.contains("路线备注：沿公园慢跑一圈") == true)
-        XCTAssertTrue(speechService.lastSpokenText?.contains("配速偏好：轻松") == true)
-        XCTAssertFalse(speechService.lastSpokenText?.contains("预计时长") == true)
-        XCTAssertFalse(speechService.lastSpokenText?.contains("路线偏好") == true)
+        XCTAssertTrue(summary.contains("路线备注：沿公园慢跑一圈"))
+        XCTAssertTrue(summary.contains("配速偏好：轻松"))
+        XCTAssertFalse(summary.contains("预计时长"))
+        XCTAssertFalse(summary.contains("路线偏好"))
     }
 
-    /// #797：资料有默认配速、这次没选时，表单要显示它并说明来源，但下单请求仍不带配速。
+    /// #797：资料有默认配速、这次没选时，读回要说出它并说明来源，但下单请求仍不带配速。
     ///
     /// 请求那条断言是分辨用的：把默认值抄进 `pacePreference` 的实现，显示照样对，
     /// 但请求里会多出 `EASY` —— 这里会红。
@@ -206,8 +121,6 @@ final class BlindBookingTests: XCTestCase, BlindRunTestSupport {
         )
 
         XCTAssertEqual(viewModel.pacePreference, .noPreference, "默认值不许抄进这次的选择")
-        XCTAssertEqual(viewModel.paceOptionTitle(.noPreference), "资料里的默认：轻松")
-        XCTAssertEqual(viewModel.paceOptionTitle(.moderate), "中等")
         let paceItem = try XCTUnwrap(viewModel.optionalReviewItems.first { $0.id == "pace" })
         XCTAssertEqual(paceItem.value, "轻松，资料里的默认")
         XCTAssertTrue(viewModel.optionalNeedsSpeechSummary.contains("配速偏好：轻松，资料里的默认"))
@@ -220,14 +133,13 @@ final class BlindBookingTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(try XCTUnwrap(viewModel.makeCreateOrderRequest()).pacePreference, .moderate)
     }
 
-    func testNoProfileDefaultPaceKeepsNoPreferenceTitleAndNoReviewItem() {
+    func testNoProfileDefaultPaceAddsNoReviewItem() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
         appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", defaultPace: .noPreference))
         let viewModel = BlindBookingViewModel()
         viewModel.configureForTesting(speechService: SpeechService(), appState: appState)
 
         XCTAssertNil(viewModel.profileDefaultPace)
-        XCTAssertEqual(viewModel.paceOptionTitle(.noPreference), "无偏好")
         XCTAssertFalse(viewModel.optionalReviewItems.contains { $0.id == "pace" })
     }
 

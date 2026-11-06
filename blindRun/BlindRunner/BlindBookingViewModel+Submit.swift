@@ -1,7 +1,6 @@
 import Foundation
 
-/// 下单提交。从 `BlindBookingView.swift` 搬出（那个文件超长，SwiftLint 棘轮只许变短）。
-/// 表单按钮（`submitAnnouncingProgress`）、零输入下单、语音向导的「确认」都走这一个出口。
+/// 下单提交。约跑页（`BlindMatchFirstBookingView`）和语音向导的「确认」都走这一个出口。
 extension BlindBookingViewModel {
     func submit() async -> OrderResponse? {
         guard let appState, locationService != nil else { return nil }
@@ -36,12 +35,11 @@ extension BlindBookingViewModel {
         }
     }
 
-    /// 后端拒绝下单。**表单内容一概不动**，用户只改被拒的那一项。
+    /// 后端拒绝下单。**已选的内容一概不动**，用户只改被拒的那一项。
     ///
-    /// 受控公开的三个码（#667）念后端原话（`prefersServerMessage`，里面有开放城市 / 可预约时段），并回到该改的那一步：
-    /// - 起跑点不在开放范围 → 回「出发地点」；开跑时刻不在值守时段 → 回「预约时间」。换步会把读屏焦点搬到那一步的标题上。
-    /// - 暂不接受预约 → 换什么都没用。入口闸门（`BlindBookingLaunchScopeGate`）当场换成告知页并念这句，
-    ///   这里不念：告知页出现时的播报会把它切断（记忆 later-speak-silently-cuts-the-earlier-one）。
+    /// 受控公开的三个码（#667）念后端原话（`prefersServerMessage`，里面有开放城市 / 可预约时段）。
+    /// 暂不接受预约 → 换什么都没用。入口闸门（`BlindBookingLaunchScopeGate`）当场换成告知页并念这句，
+    /// 这里不念：告知页出现时的播报会把它切断（记忆 later-speak-silently-cuts-the-earlier-one）。
     private func reject(_ error: APIError, appState: AppState) -> OrderResponse? {
         let message = error.localizedMessage
         switch error.errorCode {
@@ -49,14 +47,9 @@ extension BlindBookingViewModel {
             errorMessage = message
             appState.noteBookingServiceNotOpen(message: message)
             return nil
-        case .orderOutsideOpenArea:
-            currentStep = .startPoint
-        case .appointmentOutsideDutyHours:
-            currentStep = .appointmentTime
         default:
-            break
+            return fail(message)
         }
-        return fail(message)
     }
 
     private func fail(_ message: String) -> OrderResponse? {

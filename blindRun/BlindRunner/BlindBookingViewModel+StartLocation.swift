@@ -2,7 +2,7 @@ import CoreLocation
 import Foundation
 
 extension BlindBookingViewModel {
-    func refreshCurrentLocation(lockMapCenterIfNeeded: Bool = true) async {
+    func refreshCurrentLocation() async {
         guard let locationService else { return }
         guard !locationService.isDenied else {
             // **这里什么都不写。** 降级告知由 `locationDegradationNotice` 在同一个区块的顶部
@@ -11,7 +11,6 @@ extension BlindBookingViewModel {
             //
             // 2026-09-08 之前这里写着那句短的，注释也已经写着「由降级告知统一承担」——
             // 代码没跟上注释。
-            placeMessage = nil
             return
         }
         guard !locationService.isPreciseLocationOff else {
@@ -21,7 +20,6 @@ extension BlindBookingViewModel {
             // （`onAppear` 里与本方法并发），系统框会抢走读屏焦点、打断向导 —— 与求助路径不自动弹是同一个理由。
             currentResolvedPlace = nil
             currentLocationAccuracyMeters = nil
-            placeMessage = nil
             return
         }
 
@@ -41,24 +39,13 @@ extension BlindBookingViewModel {
 
         guard let placeSearchProvider, !locationService.isUsingDemoFallback else {
             currentResolvedPlace = fallbackPlace
-            updateAuxiliaryMapPlaceIfNeeded(to: fallbackPlace, lockMapCenterIfNeeded: lockMapCenterIfNeeded)
-            if lockMapCenterIfNeeded {
-                lockInitialAuxiliaryMapCenter(to: fallbackPlace.coordinate)
-            }
-            placeMessage = locationService.isUsingDemoFallback ? "定位暂不可用，正在使用演示坐标。" : nil
             return
         }
 
         isResolvingStartLocation = true
         let resolvedPlace = await placeSearchProvider.reverseGeocode(coordinate: coordinate)
-        let finalPlace = resolvedPlace ?? fallbackPlace
-        currentResolvedPlace = finalPlace
-        updateAuxiliaryMapPlaceIfNeeded(to: finalPlace, lockMapCenterIfNeeded: lockMapCenterIfNeeded)
-        if lockMapCenterIfNeeded {
-            lockInitialAuxiliaryMapCenter(to: finalPlace.coordinate)
-        }
+        currentResolvedPlace = resolvedPlace ?? fallbackPlace
         isResolvingStartLocation = false
-        placeMessage = resolvedPlace == nil ? placeSearchProvider.lastErrorMessage : nil
     }
 
     /// 降级告知里「临时开启精确位置」按钮。这是申请临时精确位置的唯一入口（不在进页时自动弹）。
@@ -80,62 +67,18 @@ extension BlindBookingViewModel {
     func refreshCurrentLocationIfNeeded() async {
         guard selectedStartPlace == nil,
               !isResolvingStartLocation else { return }
-        await refreshCurrentLocation(lockMapCenterIfNeeded: false)
-    }
-
-    func searchPlaces(triggeredBySpeech: Bool = false) async {
-        guard let placeSearchProvider else { return }
-        let keyword = placeSearchKeyword.trimmed
-        guard !keyword.isEmpty else {
-            placeSearchResults = []
-            placeMessage = "请输入要搜索的地点。"
-            speechService?.announce(placeMessage ?? "")
-            return
-        }
-
-        isSearchingPlaces = true
-        placeMessage = nil
-        let results = await placeSearchProvider.searchPlaces(
-            keyword: keyword,
-            near: resolvedStartPlace?.coordinate
-        )
-        placeSearchResults = results
-        isSearchingPlaces = false
-        if results.isEmpty {
-            placeMessage = placeSearchProvider.lastErrorMessage ?? "未搜索到相关地点。"
-            searchResultFocusID = nil
-            speechService?.announce(placeMessage ?? "")
-        } else {
-            let firstPlace = results[0]
-            searchResultFocusID = firstPlace.id
-            speechService?.announce("已找到 \(results.count) 个地点，第一个是 \(firstPlace.title)。")
-        }
-    }
-
-    func handlePlaceSearchSpeechCompletion(_ completion: SpeechInputCompletion) async {
-        guard completion.field == .startPlaceSearch,
-              completion.reason.shouldTriggerSearchWithRecognizedText else { return }
-        let recognizedText = completion.recognizedText.trimmed
-        guard !recognizedText.isEmpty else { return }
-        placeSearchKeyword = recognizedText
-        await searchPlaces(triggeredBySpeech: true)
+        await refreshCurrentLocation()
     }
 
     /// - Parameter announce: 语音向导会自己播报后端返回的确认文案，这时把这里的播报关掉，
     ///   否则同一件事被念两遍 —— 对语速调到 14 字/秒的读屏用户，重复播报是最伤的干扰。
     func selectPlace(_ place: ResolvedPlace, announce: Bool = true) {
         // 起点换人了，上一轮语音的朗读形态立刻作废。
-        // 不清的话，用户从表单搜索里挑了别的地点，读回念的还是上一句语音抽到的 POI 名 ——
+        // 不清的话，用户在约跑页换了常用地点，读回念的还是上一句语音抽到的 POI 名 ——
         // 屏幕上显示 A、耳朵里听到 B，而看不见屏幕的人只有耳朵那一路。
         // `applyVoiceResolvedStartPlace` 在调用本方法**之后**再写入自己的那一份。
         voiceStartAddressShort = nil
         selectedStartPlace = place
-        auxiliaryMapPlace = place
-        auxiliaryMapCenter = place.coordinate
-        placeSearchKeyword = place.title
-        placeSearchResults = []
-        searchResultFocusID = nil
-        placeMessage = "已选择出发地点：\(place.title)。"
         if announce {
             speechService?.speak("已选择出发地点，\(place.title)。")
         }
@@ -190,36 +133,5 @@ extension BlindBookingViewModel {
         pacePreference = .noPreference
         routePreference = .noPreference
         hasGuideDogThisRun = nil
-    }
-
-    private func updateAuxiliaryMapPlaceIfNeeded(
-        to place: ResolvedPlace,
-        lockMapCenterIfNeeded: Bool
-    ) {
-        guard selectedStartPlace == nil else { return }
-        guard let currentMapPlace = auxiliaryMapPlace else {
-            auxiliaryMapPlace = place
-            if lockMapCenterIfNeeded {
-                lockInitialAuxiliaryMapCenter(to: place.coordinate)
-            }
-            return
-        }
-
-        if currentMapPlace.source == .demoDefault && place.source != .demoDefault {
-            auxiliaryMapPlace = place
-            auxiliaryMapCenter = place.coordinate
-            return
-        }
-
-        let distance = CLLocation(latitude: currentMapPlace.latitude, longitude: currentMapPlace.longitude)
-            .distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
-        if distance >= Self.auxiliaryMapMarkerRefreshDistanceMeters {
-            auxiliaryMapPlace = place
-        }
-    }
-
-    private func lockInitialAuxiliaryMapCenter(to coordinate: CLLocationCoordinate2D) {
-        guard auxiliaryMapCenter == nil else { return }
-        auxiliaryMapCenter = coordinate
     }
 }

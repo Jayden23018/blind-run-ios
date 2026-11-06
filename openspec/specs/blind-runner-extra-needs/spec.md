@@ -85,16 +85,15 @@ Guide-dog carriage and pace preference SHALL remain visible to candidate volunte
 - **AND** a field with an open value space SHALL default to being hidden until acceptance
 
 ### Requirement: The booking form shows the profile default pace with its source
-When the runner has not picked a pace for this run and the profile has a default pace, the booking form SHALL show that default and SHALL say it comes from the profile. The create-order request SHALL still omit the pace, so the backend fallback stays the only source of the effective value.
+When the runner has not picked a pace for this run and the profile has a default pace, the booking review items (read back by voice booking) SHALL include that default and SHALL say it comes from the profile. The create-order request SHALL still omit the pace, so the backend fallback stays the only source of the effective value.
 
 #### Scenario: Profile has a default pace and none is picked
 - **WHEN** the profile default pace is "EASY" and the runner has not picked a pace
-- **THEN** the pace picker's unset option SHALL be titled "资料里的默认：轻松"
-- **AND** the review list SHALL include "配速偏好" with the value "轻松，资料里的默认"
+- **THEN** the review list SHALL include "配速偏好" with the value "轻松，资料里的默认"
 - **AND** the create-order request SHALL NOT carry `pacePreference`
 
 #### Scenario: The runner picks a pace
-- **WHEN** the runner picks "MODERATE" for this run
+- **WHEN** the pace for this run is "MODERATE"
 - **THEN** the review list SHALL show "中等" without the profile label
 - **AND** the create-order request SHALL carry `MODERATE`
 

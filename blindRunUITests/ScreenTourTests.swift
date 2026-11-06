@@ -53,22 +53,13 @@ final class ScreenTourTests: XCTestCase {
         shoot(app, "B05-home-empty", anchor: "blindRunnerHomeStartBookingButton")
     }
 
-    @MainActor func testTour_B06_BookingForm() {
+    @MainActor func testTour_B06_Booking() {
         let app = launchBlind()
         guard tapIfAppears(app, "blindRunnerHomeStartBookingButton") else {
             return shoot(app, "B06-booking", anchor: "blindRunnerHomeStartBookingButton")
         }
         dismissSystemAlerts()
-        shoot(app, "B06-booking", anchor: anyOf(app, ["blindBookingVoiceOrderButton", "blindBookingFinishSpeakingSurface"]), scroll: true)
-    }
-
-    @MainActor func testTour_B07_BookingVoice() {
-        let app = launchBlind(env: ["AIDRUN_UI_TEST_FORCE_VOICE_STAGE": "1"])
-        guard tapIfAppears(app, "blindRunnerHomeStartBookingButton") else {
-            return shoot(app, "B07-booking-voice", anchor: "blindRunnerHomeStartBookingButton")
-        }
-        dismissSystemAlerts()
-        shoot(app, "B07-booking-voice", anchor: "blindBookingFinishSpeakingSurface")
+        shoot(app, "B06-booking", anchor: "matchFirstBookingPage", scroll: true)
     }
 
     @MainActor func testTour_B08_HomeWithOrder() {

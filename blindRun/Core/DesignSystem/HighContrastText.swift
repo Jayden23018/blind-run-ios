@@ -117,41 +117,6 @@ private struct ButtonShapeOutline<Content: View>: View {
     }
 }
 
-// MARK: - Step Progress Dot
-
-/// 分步向导的进度点。走过的实心、没走过的空心（只在「不使用颜色区分」开启时）。
-///
-/// 抽成组件是因为它有**两个**调用点（盲人端预约向导、志愿者注册向导），
-/// 而两处此前各写各的、都只靠填充色。写两遍就会漂，其中一处漏改的表现是
-/// 「某些页面的进度条对色觉障碍用户还是六个一样的点」，而那种漏没人会发现。
-struct StepProgressDot: View {
-    let isReached: Bool
-    let differentiateWithoutColor: Bool
-    /// 盲人端预约向导用 12（纯圆点），志愿者注册向导用 28（圆里带序号）。
-    var diameter: CGFloat = 12
-    /// 圆里的序号；`nil` 表示不画。
-    var stepNumber: Int?
-
-    private var isHollow: Bool { differentiateWithoutColor && !isReached }
-
-    var body: some View {
-        ZStack {
-            if isHollow {
-                Circle().strokeBorder(AppColors.textSecondary, lineWidth: 2)
-            } else {
-                Circle().fill(isReached ? AppColors.primary : AppColors.textSecondary.opacity(0.3))
-            }
-            if let stepNumber {
-                Text("\(stepNumber)")
-                    .font(.caption.bold())
-                    // 空心圈上的白字看不见。
-                    .foregroundColor(isHollow ? AppColors.textSecondary : .white)
-            }
-        }
-        .frame(width: diameter, height: diameter)
-    }
-}
-
 #Preview {
     VStack(alignment: .leading, spacing: 12) {
         HighContrastText("标题文字", style: .title)

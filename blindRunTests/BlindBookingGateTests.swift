@@ -133,11 +133,6 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertNil(viewModel.firstMissingGate, "定位被拒不再是下单门槛")
         XCTAssertTrue(viewModel.canSubmit, "手动选了起点就必须能提交")
         XCTAssertNotNil(viewModel.makeCreateOrderRequest(), "请求体用的是手动地点的坐标")
-
-        // 起点这一步也不许被挡住 —— 挡住等于分步向导走不到第二步。
-        viewModel.currentStep = .startPoint
-        XCTAssertNil(viewModel.blockingReasonForCurrentStep)
-        XCTAssertTrue(viewModel.canAdvanceFromCurrentStep)
     }
 
     /// 不拦截**不等于**不告知：降级告知必须同时说清「还能怎么下单」和「关着会失去什么」。
@@ -145,9 +140,7 @@ final class BlindBookingGateTests: XCTestCase {
     /// 只说前半句会把一次真实的安全降级说成无关紧要 —— 陪跑过程中志愿者看不到位置、
     /// 云端求助可能发不出去，两件事都发生在盲人当场问不了任何人的时候。
     ///
-    /// 断的是 `locationDegradationNotice(isDenied:)` 本身，因为**视图渲染与朗读走的就是它**
-    /// （`BlindBookingView.locationSection` 的分支条件 + `locationDegradationView(notice:)` 的入参）。
-    /// 2026-09-08 之前它是个实例属性、没有任何 View 消费，这条用例断的是一条不出货的分支。
+    /// 断的是 `locationDegradationNotice(isDenied:)` 本身：约跑页接上告知时（#813）渲染与朗读都该走它。
     @MainActor
     func testLocationDeniedNoticeStatesBothTheWorkaroundAndTheSafetyCost() {
         let location = LocationService()
@@ -166,20 +159,20 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertTrue(BlindBookingViewModel.locationDeniedNotice.contains("搜索"), "要说还能手动搜地点")
         XCTAssertTrue(BlindBookingViewModel.locationDeniedNotice.contains("求助"), "要说求助会受影响")
 
-        // 权限正常时不该出现这段告知 —— 视图那边走的是 `currentLocationCard` 分支。
+        // 权限正常时不该出现这段告知。
         let authorized = LocationService()
         authorized.simulateMissingDeviceLocationForTesting()
         XCTAssertFalse(authorized.isDenied)
         XCTAssertNil(BlindBookingViewModel.locationDegradationNotice(isDenied: authorized.isDenied))
     }
 
-    /// 审阅步的提示语必须覆盖全部五道门槛。
+    /// 提交被拦时念的那句必须覆盖要去别的页面补的门槛。
     ///
-    /// 按钮禁用状态走的是 `canSubmit`（五道全查）。提示语若只查后两道，
-    /// 缺实名或紧急联系人时用户听到的是「提交后系统将为你派单」配一个按不动的按钮 ——
+    /// 按钮禁用状态走的是 `canSubmit`（门槛全查）。说法若只查本页的槽位，
+    /// 缺紧急联系人时用户听到的是一个按不动的按钮却没有原因 ——
     /// 看不见屏幕的人只会当成「点了没反应」。
     @MainActor
-    func testReviewStepBlockingReasonCoversGatesFixedOnOtherPages() {
+    func testSubmitGateMessageCoversGatesFixedOnOtherPages() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
         appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
         // 紧急联系人故意留空 —— 这道门槛只能去别的页面补。
@@ -192,23 +185,22 @@ final class BlindBookingGateTests: XCTestCase {
         // 固定白天时刻而不是 `minimumAppointmentTime + 10 分钟`：后者落进夜间窗口
         // `[22:00, 05:00)` 时不合法，会让用例白天绿、夜里红（见 `BookingTimeFixture`）。
         viewModel.appointmentTime = BookingTimeFixture.daytime()
-        viewModel.currentStep = .review
 
         XCTAssertFalse(viewModel.canSubmit, "前提：按钮此时是禁用的")
         XCTAssertEqual(
-            viewModel.blockingReasonForCurrentStep,
+            viewModel.firstMissingGate.map(viewModel.message(for:)),
             BlindBookingGate.emergencyContacts.message,
             "禁用了就必须说得出原因"
         )
     }
 
-    /// 审阅步在「时间不合法」时要说出**真实原因**，不能一律念「至少 30 分钟后」（#424）。
+    /// 「时间不合法」时要说出**真实原因**，不能一律念「至少 30 分钟后」（#424）。
     ///
     /// 三个取值各落在不同的问题上：晚上 23:00（在 30 分钟之后，但撞夜间窗口）、8 天后的白天、一分钟后。
     /// 若实现退回手抄的「至少 30 分钟」，前两条会拿到 `.tooSoon` 的说法而变红；
     /// 若三种原因被塌成同一句，下面的互不相等断言也会抓到。
     @MainActor
-    func testReviewStepNamesTheActualAppointmentTimeProblem() {
+    func testGateMessageNamesTheActualAppointmentTimeProblem() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
         appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
         appState.updateEmergencyContacts([contact(1, primary: true)])
@@ -218,7 +210,6 @@ final class BlindBookingGateTests: XCTestCase {
             id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
             latitude: 31.2304, longitude: 121.4737, source: .manual
         )
-        viewModel.currentStep = .review
 
         // 夜间窗口按北京时间判（`Calendar.aidRunBackend`），所以用同一个日历造 23:00。
         let backend = Calendar.aidRunBackend
@@ -236,53 +227,12 @@ final class BlindBookingGateTests: XCTestCase {
             viewModel.appointmentTime = time
             XCTAssertEqual(viewModel.appointmentTimeProblem, problem, "前提：这个时间确实卡在 \(problem)")
             XCTAssertEqual(viewModel.firstMissingGate, .appointmentTime)
-            XCTAssertEqual(viewModel.blockingReasonForCurrentStep, problem.message, "审阅步要说出真实原因")
-            XCTAssertEqual(viewModel.message(for: .appointmentTime), problem.message, "提交被拦时念的是同一句")
-            spoken.append(viewModel.blockingReasonForCurrentStep ?? "")
+            XCTAssertEqual(viewModel.message(for: .appointmentTime), problem.message, "提交被拦时要说出真实原因")
+            spoken.append(viewModel.message(for: .appointmentTime))
         }
         XCTAssertEqual(Set(spoken).count, 3, "三种原因必须说成三句不同的话")
 
         // 非时间门槛的说法不受影响。
         XCTAssertEqual(viewModel.message(for: .emergencyContacts), BlindBookingGate.emergencyContacts.message)
-    }
-
-    /// 进页面就播报「本页填不了」的门槛，别等用户走到审阅步。
-    /// 起点和时间是本页的槽位，缺了不播 —— 分步流程自己会管。
-    @MainActor
-    func testEntryAnnouncementCoversOnlyGatesFixedElsewhere() {
-        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
-        // 没昵称、没紧急联系人：只念紧急联系人那句，昵称不是门槛（#789）。
-        let viewModel = makeBookingViewModel(appState: appState)
-        viewModel.announceEntryGateIfNeeded()
-        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.emergencyContacts.message)
-
-        // 紧急联系人齐了、昵称仍空、只差本页的起点时，进页面不该播报。
-        appState.updateEmergencyContacts([contact(1, primary: true)])
-        XCTAssertNil(appState.blindProfile?.name, "前提：这个账号没有昵称")
-        // 起点缺失只能用 `locationService: nil` 表达：这个 appState 是 Mock 环境，
-        // 而 Mock 通道本来就放行演示坐标当起点（`allowsDemoFallbackAsStartPoint`），
-        // 挂任何一个活着的 LocationService 都会让 `.startPoint` 直接通过。
-        let onPageOnly = makeBookingViewModel(locationService: nil, appState: appState)
-        XCTAssertEqual(onPageOnly.firstMissingGate, .startPoint, "前提：只差本页槽位")
-        onPageOnly.announceEntryGateIfNeeded()
-        XCTAssertNil(onPageOnly.errorMessage)
-    }
-
-    /// 从「约跑前还差 N 项」补完回到约跑页（页面重新出现）时，上次那句「还要设好紧急联系人」要撤掉（#781）。
-    /// 别的错误（比如提交失败）不归这里管，留着。
-    @MainActor
-    func testEntryAnnouncementClearsSetupMessageOnceFilledIn() {
-        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
-        let viewModel = makeBookingViewModel(locationService: nil, appState: appState)
-        viewModel.announceEntryGateIfNeeded()
-        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.emergencyContacts.message, "前提：缺紧急联系人时念过")
-
-        appState.updateEmergencyContacts([contact(1, primary: true)])
-        viewModel.announceEntryGateIfNeeded()
-        XCTAssertNil(viewModel.errorMessage, "都补齐了，屏幕上不能还留着「还差」那句")
-
-        viewModel.errorMessage = "订单提交失败"
-        viewModel.announceEntryGateIfNeeded()
-        XCTAssertEqual(viewModel.errorMessage, "订单提交失败", "别的错误不归这里清")
     }
 }

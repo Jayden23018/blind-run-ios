@@ -76,8 +76,6 @@ extension AccessibilityAuditTests {
 
         element(app, "blindRunnerHomeStartBookingButton").tap()
         XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
-        let stopVoice = element(app, "blindBookingStopVoiceButton")
-        if stopVoice.waitForExistence(timeout: 5) { stopVoice.tap() }
 
         let place = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "家附近操场")).firstMatch
         XCTAssertTrue(place.waitForExistence(timeout: 10), "预约页没有带上默认出发地点")

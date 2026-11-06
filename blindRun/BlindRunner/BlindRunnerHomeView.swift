@@ -5,12 +5,11 @@ import SwiftUI
 // MARK: - Blind Runner Route
 
 enum BlindRunnerRoute: Hashable {
-    /// 预约页，进去就自动开语音向导。首页只有这一个下单入口 —— 原来的纯表单入口 `.booking`
-    /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
-    /// 表单没有消失，在预约页里按「改用表单」即可。
-    case voiceBooking
+    /// 约跑页「选日期 + 时段」（#806）。首页只有这一个约跑入口。
+    /// 旧的四步表单与语音预约界面已删（#810，原路由名 `.voiceBooking`）。
+    case booking
     case startPlacePicker
-    /// 添加常用地点。搜索和收藏都在预约表单里，这里直接进表单。
+    /// 添加常用地点：只搜地点、收藏，不经过约跑页（`BlindFavoritePlaceAddPage`）。
     case addFavoritePlace
     case orderStatus(Int64)
     /// 首次使用引导。首次进首页自动推入一次，也可从「我的」进入。
@@ -781,7 +780,7 @@ struct BlindRunnerHomeView: View {
     private func startBooking() {
         if viewModel.canStartNewBooking {
             viewModel.clearBookingTrackConsentDeclinedNotice()
-            path.append(.voiceBooking)
+            path.append(.booking)
         } else {
             viewModel.explainBookingUnavailable()
         }
@@ -916,7 +915,7 @@ struct BlindRunnerHomeView: View {
 
 private extension BlindRunnerHomeView {
     /// 约跑路由过闸：最外层先看开放范围（#667，暂不接受预约就只告知），再要位置轨迹的单独同意（#368）。
-    /// 里面是 #806 的约跑页；旧的四步表单 `BlindBookingView` 已无入口，#810 删除。
+    /// 里面是 #806 的约跑页。
     func matchFirstBooking() -> some View {
         BlindBookingLaunchScopeGate(onLeave: { path.removeAll() }) {
             BlindBookingTrackConsentGate(onDecline: {
@@ -936,9 +935,8 @@ private extension BlindRunnerHomeView {
     @ViewBuilder
     func destination(for route: BlindRunnerRoute) -> some View {
         switch route {
-        case .voiceBooking:
-            // #806：首页唯一的约跑入口改走「选日期 + 时段」一页（模拟图 v4）。旧的四步表单与语音预约
-            // 不再从这里进。路由名留着，删旧代码时（#810）一起改。
+        case .booking:
+            // #806：首页唯一的约跑入口走「选日期 + 时段」一页（模拟图 v4）。
             matchFirstBooking()
         case .addFavoritePlace: BlindFavoritePlaceAddRoute(favoritePlaces: favoritePlaces, path: $path)
         case .startPlacePicker: BlindHomeStartPlaceRoute(favoritePlaces: favoritePlaces, path: $path)

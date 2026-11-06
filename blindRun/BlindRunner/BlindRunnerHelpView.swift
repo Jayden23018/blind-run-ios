@@ -172,7 +172,7 @@ struct BlindRunnerHelpView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { actions }
         .navigationTitle(BlindFirstRunHelp.heading)
         .navigationBarTitleDisplayMode(.large)
-        // 二级页藏标签栏（同 `BlindBookingView`，记忆 tab-bar-clips-the-last-line-of-secondary-pages）：
+        // 二级页藏标签栏（同约跑页 `BlindMatchFirstBookingView`，记忆 tab-bar-clips-the-last-line-of-secondary-pages）：
         // 首次自动进来时，悬浮标签栏正好压在「知道了」上，点下去落到「星火」「记录」，
         // 引导没记「已看过」就被带走了（2026-10-05 真机截图）。返回箭头始终在，不丢出口。
         .toolbar(.hidden, for: .tabBar)
