@@ -41,8 +41,7 @@ struct BlindFavoritePlaceAddPage: View {
                         BlindFavoritePlaceRowLabel(
                             title: BlindFavoritePlaceAddCopy.currentLocationTitle,
                             subtitle: currentLocationSubtitle,
-                            systemImage: "location.fill",
-                            rgb: AppColors.voiceStageSurfaceTone.light,
+                            icon: .currentLocation,
                             isSelected: isUsingCurrentLocation
                         )
                     }
@@ -91,13 +90,13 @@ struct BlindFavoritePlaceAddPage: View {
                 if !results.isEmpty {
                     placeGroup(
                         title: BlindFavoritePlaceAddCopy.resultsHeader(count: results.count),
-                        rows: results.map { (place: $0, subtitle: $0.addressText.nilIfBlank, systemImage: "mappin", rgb: AppColors.voiceStageSurfaceTone.light) },
+                        rows: results.map { (place: $0, subtitle: $0.addressText.nilIfBlank, icon: BlindStartPlaceIcon.searchResult) },
                         identifier: "blindFavoritePlaceResults"
                     )
                 } else if !recentPlaces.isEmpty {
                     placeGroup(
                         title: BlindFavoritePlaceAddCopy.recentHeader,
-                        rows: recentPlaces.map { (place: $0.place, subtitle: $0.usedOnText, systemImage: "clock.fill", rgb: AppColors.VolunteerHome.durationTealTone.light) },
+                        rows: recentPlaces.map { (place: $0.place, subtitle: $0.usedOnText, icon: BlindStartPlaceIcon.recent) },
                         identifier: "blindFavoritePlaceRecent"
                     )
                 }
@@ -132,7 +131,7 @@ struct BlindFavoritePlaceAddPage: View {
 
     private func placeGroup(
         title: String,
-        rows: [(place: ResolvedPlace, subtitle: String?, systemImage: String, rgb: UInt32)],
+        rows: [(place: ResolvedPlace, subtitle: String?, icon: BlindStartPlaceIcon)],
         identifier: String
     ) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.small) {
@@ -151,8 +150,7 @@ struct BlindFavoritePlaceAddPage: View {
                         BlindFavoritePlaceRowLabel(
                             title: row.place.title,
                             subtitle: row.subtitle,
-                            systemImage: row.systemImage,
-                            rgb: row.rgb,
+                            icon: row.icon,
                             isSelected: false
                         )
                     }
@@ -198,26 +196,60 @@ struct BlindFavoritePlaceAddPage: View {
 // MARK: - 首页路由外壳
 
 /// 首页「默认出发地点」页的路由外壳：选中后写默认、朗读、回首页。
-/// #807 从 `BlindRunnerHomeView.swift` 挪来（那个文件超了 SwiftLint 的 1000 行上限），逻辑原样。
+/// #807 从 `BlindRunnerHomeView.swift` 挪来（那个文件超了 SwiftLint 的 1000 行上限）。
+/// #817 起页面照苹果地图「资料库」：多了「全部 N 个常用地点 ›」和「最近跑过的地点」两个入口。
 struct BlindHomeStartPlaceRoute: View {
     @ObservedObject var favoritePlaces: FavoritePlaceStore
     @Binding var path: [BlindRunnerRoute]
     @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var locationService: LocationService
+
+    private var isLocationUnavailable: Bool { locationService.isDenied || locationService.isPreciseLocationOff }
 
     var body: some View {
         BlindHomeStartPlacePage(
             places: favoritePlaces.places,
             selectedID: favoritePlaces.defaultPlace?.id,
+            // 拿不到可信定位时不写「离你 X 公里」（定稿：拿不到定位不写）。
+            deviceLocation: isLocationUnavailable ? nil : locationService.currentLocation,
+            isCurrentLocationUnavailable: isLocationUnavailable,
             onSelect: { place in
                 let didSave = favoritePlaces.setDefaultPlace(place)
-                speechService.speak(didSave ? "默认出发地点已改为\(place?.title ?? "当前定位")。" : "默认出发地点没有保存成功，请再试一次。")
+                speechService.speak(didSave ? BlindStartPlaceCopy.changed(to: place?.title ?? BlindStartPlaceCopy.currentLocation) : BlindStartPlaceCopy.saveFailed)
                 path.removeAll()
             },
             onAddFavorite: {
                 // 开场白由新页自己念（#807），这里不再说「请搜索出发地点，然后收藏它」。
                 path = [.addFavoritePlace]
+            },
+            onShowAllFavorites: { path.append(.favoritePlaceList) },
+            onPickRecent: { place in
+                // 和「添加常用地点」页点最近一行同一个动作：收藏并设为默认（定稿 ①A 说明）。
+                if BlindFavoritePlaceAdoption.collectAndSetDefault(place, store: favoritePlaces, speech: speechService) {
+                    path.removeAll()
+                }
             }
         )
+    }
+}
+
+/// 「收藏这个地点并设为默认出发地点」。添加页的搜索结果 / 最近一行、默认出发地点页的最近一行共用。
+enum BlindFavoritePlaceAdoption {
+    /// - Returns: 收藏并设默认都成了吗。成了调用方回首页；没成已经朗读了原因，留在原页。
+    @MainActor
+    static func collectAndSetDefault(_ place: ResolvedPlace, store: FavoritePlaceStore, speech: SpeechService) -> Bool {
+        store.add(place)
+        guard let stored = store.storedPlace(matching: place) else {
+            speech.speakError("没能收藏\(place.title)，请换一个地点再试。")
+            return false
+        }
+        guard store.setDefaultPlace(stored) else {
+            // 收藏已经存下了，只是没设成默认：照实说，别让人以为没收藏上。
+            speech.speakError("已收藏\(stored.title)，但没能设为默认出发地点，请在默认出发地点里再选一次。")
+            return false
+        }
+        speech.speak("已收藏\(stored.title)，之后默认从这里出发。")
+        return true
     }
 }
 
@@ -241,7 +273,7 @@ struct BlindFavoritePlaceAddRoute: View {
 
     private func useCurrentLocation() {
         guard favoritePlaces.setDefaultPlace(nil) else {
-            speechService.speakError("默认出发地点没有保存成功，请再试一次。")
+            speechService.speakError(BlindStartPlaceCopy.saveFailed)
             return
         }
         speechService.speak(
@@ -253,69 +285,9 @@ struct BlindFavoritePlaceAddRoute: View {
     }
 
     private func pick(_ place: ResolvedPlace) {
-        favoritePlaces.add(place)
-        guard let stored = favoritePlaces.storedPlace(matching: place) else {
-            speechService.speakError("没能收藏\(place.title)，请换一个地点再试。")
-            return
+        if BlindFavoritePlaceAdoption.collectAndSetDefault(place, store: favoritePlaces, speech: speechService) {
+            path.removeAll()
         }
-        guard favoritePlaces.setDefaultPlace(stored) else {
-            // 收藏已经存下了，只是没设成默认：照实说，别让人以为没收藏上。
-            speechService.speakError("已收藏\(stored.title)，但没能设为默认出发地点，请在默认出发地点里再选一次。")
-            return
-        }
-        speechService.speak("已收藏\(stored.title)，之后默认从这里出发。")
-        path.removeAll()
-    }
-}
-
-// MARK: - 行
-
-/// 图标方块 + 名称 + 灰字副标题，和「隐私与授权」「我的」页的方块同一套（负责人 11-06：配图标，别单调）。
-/// 图标只是装饰，读屏不念。可点区由 `contentShape` 撑满整行，高度不低于 64pt。
-struct BlindFavoritePlaceRowLabel: View {
-    /// 图标 32 + 间距 12 + 左边距 16：分隔线从文字起点画。
-    static let dividerInset: CGFloat = 60
-
-    let title: String
-    let subtitle: String?
-    let systemImage: String
-    let rgb: UInt32
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 32, height: 32)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(uiColor: UIColor(rgb: rgb)))
-                )
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(AppColors.primary)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
-        .contentShape(Rectangle())
     }
 }
 

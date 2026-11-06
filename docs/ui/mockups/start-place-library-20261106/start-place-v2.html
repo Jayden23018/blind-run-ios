@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>默认出发地点 v2（照苹果地图·资料库）</title>
+<style>
+:root{--bg:#F2F2F7;--card:#fff;--sec:#6C6C70;--sep:#E5E5EA;--blue:#0058C7}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","SF Pro Text",sans-serif;background:#E9E9EE;color:#1c1c1e;padding:28px 32px 40px;width:1500px}
+h1{font-size:28px;margin-bottom:6px}
+.lead{font-size:15.5px;color:#3a3a3c;margin-bottom:18px;line-height:1.55}
+.row{display:flex;gap:40px;align-items:flex-start;margin-bottom:10px}
+.col{width:390px;flex:none}
+.lbl{font-size:18px;font-weight:700;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.tag{font-size:13px;font-weight:600;padding:3px 9px;border-radius:7px;color:#fff}
+.t-ref{background:#636366}.t-now{background:#9A5B00}.t-new{background:#1F7A3A}
+.cap{font-size:14px;color:#3a3a3c;margin-top:10px;line-height:1.55}
+.cap b{color:#000}
+.shot{width:390px;border-radius:34px;display:block;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+/* phone */
+.phone{width:390px;height:844px;background:var(--bg);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.status{height:50px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 6px;font-weight:600;font-size:16px}
+.nav{height:52px;display:flex;align-items:center;padding:0 16px;position:relative}
+.navbtn{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.navtitle{position:absolute;left:0;right:0;text-align:center;font-weight:600;font-size:17px;pointer-events:none}
+.sh{display:flex;justify-content:space-between;align-items:baseline;margin:22px 16px 9px;font-size:15px;font-weight:600;color:var(--sec)}
+.sh:first-of-type{margin-top:10px}
+.card{background:var(--card);border-radius:22px;margin:0 16px;overflow:hidden}
+/* 资料库 */
+.lib{display:grid;grid-template-columns:repeat(4,1fr);padding:16px 6px 6px;row-gap:14px}
+.it{display:flex;flex-direction:column;align-items:center;text-align:center;min-height:104px}
+.circ{width:60px;height:60px;border-radius:30px;display:flex;align-items:center;justify-content:center;flex:none}
+.circ svg{width:29px;height:29px}
+.it.sel .circ{box-shadow:0 0 0 3px #fff,0 0 0 6px var(--blue)}
+.nm{font-size:15px;line-height:19px;margin-top:13px;max-width:80px;color:#000;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sb{font-size:13px;line-height:16px;color:var(--sec);margin-top:1px}
+.it.sel .sb{color:var(--blue);font-weight:600}
+.foot{display:flex;align-items:center;min-height:56px;margin-left:16px;padding-right:18px;border-top:.5px solid #ECECF0;font-size:17px}
+.foot span{flex:1}
+/* 行 */
+.rw{display:flex;align-items:center;min-height:72px;padding:10px 16px 10px 0;margin-left:16px;position:relative}
+.rw+.rw{border-top:.5px solid var(--sep)}
+.ri{width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;margin-right:13px;flex:none}
+.ri svg{width:17px;height:17px}
+.rt{flex:1;min-width:0}
+.rt b{display:block;font-size:17px;font-weight:600;color:#000;line-height:22px}
+.rt i{display:block;font-style:normal;font-size:15px;color:var(--sec);line-height:20px}
+.chev{width:8px;height:14px;flex:none}
+/* 标签栏 */
+.tabbar{position:absolute;left:24px;right:24px;bottom:22px;height:64px;border-radius:32px;background:rgba(255,255,255,.94);box-shadow:0 2px 12px rgba(0,0,0,.12);display:flex;justify-content:space-around;align-items:center;font-size:11px;color:#333}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;width:78px;padding:7px 0}
+.tab.on{background:#E6E6EB;border-radius:26px;color:#0A2A5C}
+.tab svg{width:24px;height:24px}
+/* 标注 */
+.ann{position:absolute;background:#1F7A3A;color:#fff;font-size:12px;padding:4px 8px;border-radius:8px;line-height:1.35;z-index:3}
+.vo{font-size:13.5px;line-height:1.6;color:#1c1c1e;background:#fff;border-radius:14px;padding:12px 14px;margin-top:10px}
+.vo ol{padding-left:20px}
+.notes{display:flex;gap:24px;margin-top:26px}
+.note{background:#fff;border-radius:16px;padding:16px 18px;font-size:14.5px;line-height:1.65;flex:1}
+.note h3{font-size:16px;margin-bottom:6px}
+.note table{border-collapse:collapse;width:100%;font-size:13.5px}
+.note td,.note th{border-bottom:.5px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}
+/* 最大字号 */
+.ax .sh{font-size:30px;margin:18px 16px 10px}
+.ax .rw{min-height:96px}
+.ax .ri{width:52px;height:52px;border-radius:26px;margin-right:14px}
+.ax .ri svg{width:28px;height:28px}
+.ax .rt b{font-size:34px;line-height:40px}
+.ax .rt i{font-size:28px;line-height:34px}
+.ax .navtitle{font-size:17px}
+.ax .selrow{box-shadow:inset 4px 0 0 var(--blue)}
+.pill{font-size:13px;font-weight:600;padding:3px 9px;border-radius:9px;background:#E6EEFA;color:#0A4FA6;margin-left:8px;flex:none}
+.swipe{overflow:hidden;border-top:.5px solid var(--sep);border-bottom:.5px solid var(--sep)}
+.sw-in{display:flex;width:calc(100% + 96px);transform:translateX(-96px)}
+.sw-in .rw{flex:1;border-top:none}
+.del{flex:none;width:96px;background:#C4281C;color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center}
+.swipe+.rw{border-top:none}
+.ftnote{font-size:13px;color:var(--sec);margin:8px 32px 0;line-height:1.5}
+.search{display:flex;align-items:center;background:#fff;border-radius:22px;margin:16px 16px 0;min-height:64px;padding:0 8px 0 16px;font-size:17px;color:#AEAEB2}
+.search span{flex:1}
+.mic{width:48px;height:48px;border-radius:24px;background:var(--blue);display:flex;align-items:center;justify-content:center}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute">
+ <defs>
+  <symbol id="loc" viewBox="0 0 24 24"><path fill="#fff" d="M20.6 3.4 3.9 10.5c-.9.4-.8 1.6.1 1.8l6.5 1.2 1.2 6.5c.2.9 1.4 1 1.8.1z"/></symbol>
+  <symbol id="cap" viewBox="0 0 24 24"><path fill="#fff" d="M12 3.5 1 8.8l11 5.3 9-4.3v5.7h1.6V8.8z"/><path fill="#fff" d="M5.5 12.6v3.6c0 1.9 2.9 3.4 6.5 3.4s6.5-1.5 6.5-3.4v-3.6L12 15.7z"/></symbol>
+  <symbol id="tree" viewBox="0 0 24 24"><path fill="#fff" d="M12 1.5 7.4 7.6h2.2L5.8 12.6h2.4L4 18.2h6.6V22h2.8v-3.8H20l-4.2-5.6h2.4l-3.8-5h2.2z"/></symbol>
+  <symbol id="tram" viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M7.5 2.5h9A3.5 3.5 0 0 1 20 6v9a3.5 3.5 0 0 1-3.5 3.5h-9A3.5 3.5 0 0 1 4 15V6a3.5 3.5 0 0 1 3.5-3.5zM6.8 6.2v4.6h10.4V6.2zM8 13.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm8 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/><path fill="#fff" d="M8.2 19.2 6.3 22h2.3l1.8-2.8zm7.6 0 1.9 2.8h-2.3l-1.8-2.8z"/></symbol>
+  <symbol id="house" viewBox="0 0 24 24"><path fill="#fff" d="M12 2.8 1.6 11.6l1.2 1.4 1.7-1.4V21h5.7v-6h3.6v6h5.7v-9.4l1.7 1.4 1.2-1.4z"/></symbol>
+  <symbol id="track" viewBox="0 0 24 24"><rect x="2.6" y="6" width="18.8" height="12" rx="6" fill="none" stroke="#fff" stroke-width="2.4"/><rect x="7.2" y="9.6" width="9.6" height="4.8" rx="2.4" fill="#fff"/></symbol>
+  <symbol id="pin" viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M12 1.8a6.6 6.6 0 0 0-6.6 6.6c0 4.9 6.6 13.8 6.6 13.8s6.6-8.9 6.6-13.8A6.6 6.6 0 0 0 12 1.8zm0 9.1a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 3.5v17M3.5 12h17" stroke="#0058C7" stroke-width="3.2" stroke-linecap="round"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" fill="none" stroke="#fff" stroke-width="2.4"/><path d="M12 7v5.4l3.4 2" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="chev" viewBox="0 0 8 14"><path d="M1.2 1.2 6.8 7l-5.6 5.8" fill="none" stroke="#C4C4C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="mic" viewBox="0 0 24 24"><rect x="8.5" y="2.5" width="7" height="12" rx="3.5" fill="#fff"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="back" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="t-home" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5 1.8 11.2l1.3 1.5L4.6 11.4V21h5.6v-5.8h3.6V21h5.6v-9.6l1.5 1.3 1.3-1.5z"/></symbol>
+  <symbol id="t-spark" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c.7 5.2 3.8 8.3 9 9-5.2.7-8.3 3.8-9 9-.7-5.2-3.8-8.3-9-9 5.2-.7 8.3-3.8 9-9z"/></symbol>
+  <symbol id="t-list" viewBox="0 0 24 24"><path d="M8.5 5.5H21M8.5 12H21M8.5 18.5H21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="3.8" cy="5.5" r="1.5" fill="currentColor"/><circle cx="3.8" cy="12" r="1.5" fill="currentColor"/><circle cx="3.8" cy="18.5" r="1.5" fill="currentColor"/></symbol>
+  <symbol id="t-me" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4.6" fill="currentColor"/><path fill="currentColor" d="M2.8 21.5c.6-5 4.4-8.2 9.2-8.2s8.6 3.2 9.2 8.2z"/></symbol>
+ </defs>
+</svg>
+
+<h1>默认出发地点 · 改版稿 v2（照苹果地图「资料库」）</h1>
+<p class="lead">（入库副本：去掉了苹果地图参考截图那一列，示例地名换成通用名；原稿在负责人本机设计存档。）<br>版式照苹果地图搜索面板：<b>灰色分组标题 + 白卡</b>；中间一张「资料库」式卡片，一排圆形彩色图标、下面两行字，卡底一行「全部 › 」；下面一张「最近」式列表卡。
+尺寸来自对参考图的实测（屏宽 393pt，1.71 px/pt）：圆 60pt、圆心间距约 85pt、卡片左右边距 16pt、圆下名称 15pt、副标题 13pt、列表行高 72pt、列表图标 30pt。
+<b>绿色标注</b>是为盲人和低视力用户加的、苹果原图没有的东西。</p>
+
+<!-- 第一排 -->
+<div class="row">
+ <div class="col">
+  <div class="lbl"><span class="tag t-now">现状</span>三行一样的白条</div>
+  <img class="shot" src="current.png">
+  <p class="cap">没有图标、没有分组，看不出哪行是「当前定位」、哪行是收藏、哪行是按钮；勾是唯一的「已选」线索。</p>
+ </div>
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ①A（推荐）</span>有 2 个收藏，默认是书院</div>
+  <div class="phone">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">默认出发地点</div></div>
+
+   <div class="sh"><span>现在默认从这里出发</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div>
+     <div class="rt"><b>城南书院</b><i>示例区示例街道</i></div></div>
+   </div>
+
+   <div class="sh"><span>常用地点</span></div>
+   <div class="card">
+    <div class="lib">
+     <div class="it"><div class="circ" style="background:#0058C7"><svg><use href="#loc"/></svg></div><div class="nm">当前定位</div><div class="sb">跟着你走</div></div>
+     <div class="it sel"><div class="circ" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div><div class="nm">城南书院</div><div class="sb">默认</div></div>
+     <div class="it"><div class="circ" style="background:#1F7A3A"><svg><use href="#tree"/></svg></div><div class="nm">滨海公园南门</div><div class="sb">3.1 公里</div></div>
+     <div class="it"><div class="circ" style="background:#EAEAEA"><svg><use href="#plus"/></svg></div><div class="nm">添加</div></div>
+    </div>
+    <div class="foot"><span>全部 2 个常用地点</span><svg class="chev"><use href="#chev"/></svg></div>
+   </div>
+
+   <div class="sh"><span>最近跑过的地点</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>河畔绿道 入口</b><i>10月27日跑过</i></div></div>
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>中心地铁站 A 口</b><i>10月20日跑过</i></div></div>
+   </div>
+
+   <div class="ann" style="right:16px;top:118px">新增：进页先听到现在用哪里</div>
+   <div class="ann" style="right:16px;top:262px">新增：选中的圆外加一圈蓝环 + 蓝字「默认」</div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap"><b>点圆 = 设为默认</b>，朗读「默认出发地点已改为 X」并回首页（和现在一样）。<b>点「添加」</b>进已有的「添加常用地点」页。<b>点最近的一行</b> = 收藏并设为默认（与添加页同一个动作）。没跑过的人不出现「最近」这一组。</p>
+ </div>
+</div>
+
+<!-- 第二排 -->
+<div class="row" style="margin-top:26px">
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ①B</span>对照：不要顶部「现在默认」卡</div>
+  <div class="phone">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">默认出发地点</div></div>
+
+
+   <div class="sh"><span>常用地点</span></div>
+   <div class="card">
+    <div class="lib">
+     <div class="it"><div class="circ" style="background:#0058C7"><svg><use href="#loc"/></svg></div><div class="nm">当前定位</div><div class="sb">跟着你走</div></div>
+     <div class="it sel"><div class="circ" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div><div class="nm">城南书院</div><div class="sb">默认</div></div>
+     <div class="it"><div class="circ" style="background:#1F7A3A"><svg><use href="#tree"/></svg></div><div class="nm">滨海公园南门</div><div class="sb">3.1 公里</div></div>
+     <div class="it"><div class="circ" style="background:#EAEAEA"><svg><use href="#plus"/></svg></div><div class="nm">添加</div></div>
+    </div>
+    <div class="foot"><span>全部 2 个常用地点</span><svg class="chev"><use href="#chev"/></svg></div>
+   </div>
+
+   <div class="sh"><span>最近跑过的地点</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>河畔绿道 入口</b><i>10月27日跑过</i></div></div>
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>中心地铁站 A 口</b><i>10月20日跑过</i></div></div>
+   </div>
+
+   <div class="ann" style="right:16px;top:132px">新增：选中的圆外加一圈蓝环 + 蓝字「默认」</div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap">少一张卡，页面更像苹果原图；代价是读屏用户要逐个听到「已选定」那一个才知道现在用的是哪里（最多可能听 11 个）。</p>
+ </div>
+
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ②</span>新用户：没收藏、没跑过</div>
+  <div class="phone">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">默认出发地点</div></div>
+   <div class="sh"><span>现在默认从这里出发</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#0058C7"><svg><use href="#loc"/></svg></div>
+     <div class="rt"><b>当前定位</b><i>每次从你所在的位置出发</i></div></div>
+   </div>
+   <div class="sh"><span>常用地点</span></div>
+   <div class="card">
+    <div class="lib">
+     <div class="it sel"><div class="circ" style="background:#0058C7"><svg><use href="#loc"/></svg></div><div class="nm">当前定位</div><div class="sb">默认</div></div>
+     <div class="it"><div class="circ" style="background:#EAEAEA"><svg><use href="#plus"/></svg></div><div class="nm">添加</div></div>
+    </div>
+   </div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap">只有两个圆，靠左排（苹果也是靠左）。没有收藏时不出「全部」行；没跑过时不出「最近」组。</p>
+ </div>
+
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ③</span>收藏多（6 个）：换行，不横滑</div>
+  <div class="phone">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">默认出发地点</div></div>
+   <div class="sh"><span>现在默认从这里出发</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div>
+     <div class="rt"><b>城南书院</b><i>示例区示例街道</i></div></div>
+   </div>
+   <div class="sh"><span>常用地点</span></div>
+   <div class="card">
+    <div class="lib">
+     <div class="it"><div class="circ" style="background:#0058C7"><svg><use href="#loc"/></svg></div><div class="nm">当前定位</div><div class="sb">跟着你走</div></div>
+     <div class="it sel"><div class="circ" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div><div class="nm">城南书院</div><div class="sb">默认</div></div>
+     <div class="it"><div class="circ" style="background:#1F7A3A"><svg><use href="#tree"/></svg></div><div class="nm">滨海公园南门</div><div class="sb">3.1 公里</div></div>
+     <div class="it"><div class="circ" style="background:#3D4FB8"><svg><use href="#tram"/></svg></div><div class="nm">中心地铁站 A 口</div><div class="sb">1.8 公里</div></div>
+     <div class="it"><div class="circ" style="background:#1F7A3A"><svg><use href="#tree"/></svg></div><div class="nm">河畔绿道入口</div><div class="sb">2.4 公里</div></div>
+     <div class="it"><div class="circ" style="background:#C2410C"><svg><use href="#track"/></svg></div><div class="nm">家附近操场</div><div class="sb">0.6 公里</div></div>
+     <div class="it"><div class="circ" style="background:#C4281C"><svg><use href="#pin"/></svg></div><div class="nm">市民中心</div><div class="sb">4.2 公里</div></div>
+     <div class="it"><div class="circ" style="background:#EAEAEA"><svg><use href="#plus"/></svg></div><div class="nm">添加</div></div>
+    </div>
+    <div class="foot"><span>全部 6 个常用地点</span><svg class="chev"><use href="#chev"/></svg></div>
+   </div>
+   <div class="ann" style="left:24px;right:24px;top:660px;background:#9A5B00">和苹果不同：苹果超过 4 个是横着滑；这里换行，屏幕外不藏东西</div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap">最多 10 个收藏（`FavoritePlaceStore.capacity`），加上「当前定位」和「添加」最多 3 排。图标按地名自动配：公园 / 绿道 → 树，地铁 / 站 → 列车，操场 / 体育 → 跑道，学校 / 书院 → 学士帽，其余 → 红色图钉。名字最多两行，超出用「…」，读屏念全名。</p>
+ </div>
+</div>
+
+<!-- 第三排 -->
+<div class="row" style="margin-top:26px">
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ④</span>最大字号（AX5）：圆排改成列表</div>
+  <div class="phone ax">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">默认出发地点</div></div>
+   <div class="sh"><span>现在默认从这里出发</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div>
+     <div class="rt"><b>城南书院</b></div></div>
+   </div>
+   <div class="sh"><span>常用地点</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#0058C7"><svg><use href="#loc"/></svg></div><div class="rt"><b>当前定位</b><i>跟着你走</i></div></div>
+    <div class="rw selrow"><div class="ri" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div><div class="rt"><b>城南书院</b><i style="color:#0058C7;font-weight:600">默认</i></div></div>
+   </div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap">字号到「辅助功能大字」档时，一排四个圆放不下，改成一行一个（圆缩成 52pt，名字整行显示不截断）。按 `dynamicTypeSize.isAccessibilitySize` 切换，<b>不用 `ViewThatFits`</b>（之前在两页上让字号审计误判过）。</p>
+ </div>
+
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ⑤</span>点「全部 6 个常用地点 ›」进来</div>
+  <div class="phone"><div class="status"><span>9:41</span><span>5G ▮</span></div><div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">常用地点</div></div>
+   <div class="sh"><span>6 个，最多 10 个</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#7E3FB8"><svg><use href="#cap"/></svg></div><div class="rt"><b>城南书院</b><i>示例区示例街道</i></div><span class="pill">默认</span></div>
+    <div class="rw"><div class="ri" style="background:#1F7A3A"><svg><use href="#tree"/></svg></div><div class="rt"><b>滨海公园南门</b><i>示例区滨海路</i></div></div>
+    <div class="swipe"><div class="sw-in"><div class="rw"><div class="ri" style="background:#3D4FB8"><svg><use href="#tram"/></svg></div><div class="rt"><b>中心地铁站 A 口</b><i>示例区中心路</i></div></div><div class="del">删除</div></div></div>
+    <div class="rw"><div class="ri" style="background:#1F7A3A"><svg><use href="#tree"/></svg></div><div class="rt"><b>河畔绿道入口</b><i></i></div></div>
+    <div class="rw"><div class="ri" style="background:#C2410C"><svg><use href="#track"/></svg></div><div class="rt"><b>家附近操场</b><i>示例区</i></div></div>
+    <div class="rw"><div class="ri" style="background:#C4281C"><svg><use href="#pin"/></svg></div><div class="rt"><b>市民中心</b><i>示例区市民路</i></div></div>
+   </div>
+   <p class="ftnote">点一行 = 设为默认出发地点。向左滑可以删除；读屏用户上下轻扫选「删除」操作。删掉的是默认地点时，自动改回当前定位并朗读。</p>
+   <div class="ann" style="right:16px;top:112px">演示：第三行左滑露出「删除」</div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap">照苹果「9 Places ›」点进去的列表：行和「最近」同一套（30pt 圆 + 粗标题 + 灰副标题，72pt 行高）。副标题是收藏时存的地址，没有地址的（从「最近跑过」收藏的）只显示名字。<b>删除不弹二次确认</b>（iOS 左滑删除的惯例；删错了重新收藏一次即可，代价小）。</p>
+ </div>
+ <div class="col">
+  <div class="lbl"><span class="tag t-new">改后 ⑥</span>「添加常用地点」页：方块 → 圆形</div>
+  <div class="phone"><div class="status"><span>9:41</span><span>5G ▮</span></div><div class="nav"><div class="navbtn"><svg width="12" height="20"><use href="#back"/></svg></div><div class="navtitle">添加常用地点</div></div>
+   <div class="card" style="margin-top:12px"><div class="rw"><div class="ri" style="background:#0058C7"><svg><use href="#loc"/></svg></div><div class="rt"><b>使用当前定位</b><i>每次从你所在的位置出发，不用添加</i></div></div></div>
+   <div class="search"><span>说出或输入地点名称</span><div class="mic"><svg width="22" height="22"><use href="#mic"/></svg></div></div>
+   <div class="sh"><span>最近跑过的地点</span></div>
+   <div class="card">
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>滨海公园 南门</b><i>11月3日跑过</i></div></div>
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>河畔绿道 入口</b><i>10月27日跑过</i></div></div>
+    <div class="rw"><div class="ri" style="background:#0A6B72"><svg><use href="#clock"/></svg></div><div class="rt"><b>中心地铁站 A 口</b><i>10月20日跑过</i></div></div>
+   </div>
+   <div class="tabbar"><div class="tab on"><svg><use href="#t-home"/></svg>首页</div><div class="tab"><svg><use href="#t-spark"/></svg>星火</div><div class="tab"><svg><use href="#t-list"/></svg>记录</div><div class="tab"><svg><use href="#t-me"/></svg>我的</div></div>
+  </div>
+  <p class="cap">只换图标形状（32pt 圆角方块 → 30pt 圆），版式、文案、行为都不动。分隔线照苹果从图标左缘画起（现在是从文字起点）。</p>
+ </div>
+</div>
+
+<div class="notes">
+ <div class="note">
+  <h3>读屏（VoiceOver）顺序与朗读</h3>
+  <ol style="padding-left:20px">
+   <li>「默认出发地点，标题」</li>
+   <li>「现在默认从这里出发：城南书院，示例区示例街道」（一整块，不是按钮）</li>
+   <li>「常用地点，标题」</li>
+   <li>「当前定位，跟着你走，按钮。轻点两下设为默认出发地点」</li>
+   <li>「已选定，城南书院，默认出发地点，按钮」</li>
+   <li>「滨海公园南门，离你 3.1 公里，按钮」……</li>
+   <li>「添加常用地点，按钮」</li>
+   <li>「全部 2 个常用地点，按钮」</li>
+   <li>「最近跑过的地点，标题」→「河畔绿道 入口，10月27日跑过，按钮。轻点两下收藏并设为默认出发地点」</li>
+  </ol>
+  <p style="margin-top:6px">图标只是装饰，读屏不念。每个圆连同下面两行字是一个按钮，可点区约 85 × 104pt（≥ 64pt）。</p>
+ </div>
+ <div class="note">
+  <h3>和苹果原图不一样的地方（都是为盲人 / 低视力加的）</h3>
+  <table>
+   <tr><th>苹果</th><th>这里</th><th>为什么</th></tr>
+   <tr><td>没有「当前选中」</td><td>顶部「现在默认从这里出发」卡；选中的圆加蓝环 + 蓝字「默认」</td><td>读屏用户进页第一句就知道现在用的是哪里，不用逐个听到打勾那一个；低视力靠环和字两条线索，不只靠颜色</td></tr>
+   <tr><td>圆超过 4 个横着滑</td><td>换行</td><td>横滑会把收藏藏到屏幕外，低视力用户发现不了</td></tr>
+   <tr><td>卡片圆角约 12pt</td><td>22pt</td><td>和本 App 所有白卡（`GroupedCardMetrics.cardRadius`）一致</td></tr>
+   <tr><td>浅青 / 浅绿 / 棕</td><td>深一档的本 App 色</td><td>白色图标压在圆上要看得清；颜色取 App 已有的深色调，白图标对比度都 ≥ 4.5:1</td></tr>
+   <tr><td>副标题是开车时间</td><td>离你几公里；「当前定位」写「跟着你走」</td><td>我们没有开车时间；拿不到定位时不写距离</td></tr>
+   <tr><td>底行 44pt</td><td>56pt 可见、64pt 可点</td><td>盲人端可点区下限 64pt</td></tr>
+  </table>
+ </div>
+</div>
+</body></html>

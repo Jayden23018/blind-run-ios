@@ -63,7 +63,8 @@ extension AccessibilityAuditTests {
         let row = element(app, "blindHomeStartPlaceRow")
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         row.tap()
-        let favorite = app.buttons["家附近操场"]
+        // #817：收藏是资料库里的圆，读屏标签带「离你 X 公里」，按 identifier 找。
+        let favorite = element(app, "blindStartPlaceFavorite_0")
         XCTAssertTrue(favorite.waitForExistence(timeout: 10))
         keepScreenshot(app, "idle-start-place-page")
         try audit(app)
@@ -102,6 +103,30 @@ extension AccessibilityAuditTests {
         // 用当前定位：不添加任何地点，直接回首页。
         element(app, "blindFavoritePlaceUseCurrentLocation").tap()
         XCTAssertTrue(element(app, "blindHomeStartPlaceRow").waitForExistence(timeout: 10), "选完没回首页")
+    }
+
+    /// #817：「全部 N 个常用地点 ›」进列表页，点一行设为默认并回首页。
+    func testBlindHomeAllFavoritesListSetsTheDefault() {
+        let app = launchReturningRunner(favorite: true)
+        let row = element(app, "blindHomeStartPlaceRow")
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        let all = element(app, "blindStartPlaceAllFavorites")
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "有收藏时没有「全部 N 个常用地点」")
+        XCTAssertEqual(all.label, "全部 1 个常用地点")
+
+        all.tap()
+
+        XCTAssertTrue(app.navigationBars["常用地点"].waitForExistence(timeout: 10), "没进常用地点列表页")
+        let favorite = element(app, "blindFavoritePlaceListRow_0")
+        XCTAssertTrue(favorite.waitForExistence(timeout: 5))
+        XCTAssertTrue(favorite.label.hasPrefix("家附近操场"), favorite.label)
+        keepScreenshot(app, "favorite-place-list")
+
+        favorite.tap()
+
+        XCTAssertTrue(element(app, "blindHomeStartPlaceRow").waitForExistence(timeout: 10), "选完没回首页")
+        XCTAssertEqual(element(app, "blindHomeStartPlaceRow").label, "从家附近操场出发")
     }
 
     func testBlindHomeIdleRowsReachableAtLargestText() {
