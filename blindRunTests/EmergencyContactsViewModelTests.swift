@@ -154,18 +154,6 @@ final class EmergencyContactsViewModelTests: XCTestCase {
         XCTAssertEqual(appState.primaryEmergencyContact?.id, 1)
     }
 
-    /// #807 审查：列表没从服务端拿到时，空的 `contacts` 不能当成「一位都没有」——
-    /// 否则新增会带 `isPrimary: true`，把服务端原来的主联系人顶掉。
-    func testEmptyLocalListIsNotTreatedAsNoContactsUntilLoaded() async {
-        let (viewModel, _, _) = makeViewModel(contacts: [])
-
-        XCTAssertFalse(viewModel.isKnownToHaveNoContacts, "还没加载过，不能断定一位都没有")
-
-        await viewModel.load()
-
-        XCTAssertTrue(viewModel.isKnownToHaveNoContacts, "服务端确认为空后，新增的这位才是主联系人")
-    }
-
     func testListRefreshFailureAfterMutationKeepsThePreviousCompleteList() async {
         let existing = [
             makeContact(id: 1, name: "主联系人", isPrimary: true),
@@ -309,7 +297,7 @@ final class EmergencyContactsViewModelTests: XCTestCase {
 
 // MARK: - Test Doubles
 
-private final class ContactsAPIClientStub: APIClientProtocol, @unchecked Sendable {
+final class ContactsAPIClientStub: APIClientProtocol, @unchecked Sendable {
     struct RecordedRequest {
         let method: HTTPMethod
         let path: String
@@ -425,7 +413,7 @@ private final class ContactsAPIClientStub: APIClientProtocol, @unchecked Sendabl
     }
 }
 
-private final class ContactsInMemoryTokenStore: TokenStoring {
+final class ContactsInMemoryTokenStore: TokenStoring {
     private var token: String?
 
     func save(_ token: String) { self.token = token }

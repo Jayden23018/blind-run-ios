@@ -195,6 +195,79 @@ struct BlindFavoritePlaceAddPage: View {
     }
 }
 
+// MARK: - 首页路由外壳
+
+/// 首页「默认出发地点」页的路由外壳：选中后写默认、朗读、回首页。
+/// #807 从 `BlindRunnerHomeView.swift` 挪来（那个文件超了 SwiftLint 的 1000 行上限），逻辑原样。
+struct BlindHomeStartPlaceRoute: View {
+    @ObservedObject var favoritePlaces: FavoritePlaceStore
+    @Binding var path: [BlindRunnerRoute]
+    @EnvironmentObject private var speechService: SpeechService
+
+    var body: some View {
+        BlindHomeStartPlacePage(
+            places: favoritePlaces.places,
+            selectedID: favoritePlaces.defaultPlace?.id,
+            onSelect: { place in
+                let didSave = favoritePlaces.setDefaultPlace(place)
+                speechService.speak(didSave ? "默认出发地点已改为\(place?.title ?? "当前定位")。" : "默认出发地点没有保存成功，请再试一次。")
+                path.removeAll()
+            },
+            onAddFavorite: {
+                // 开场白由新页自己念（#807），这里不再说「请搜索出发地点，然后收藏它」。
+                path = [.addFavoritePlace]
+            }
+        )
+    }
+}
+
+/// 「添加常用地点」页的路由外壳（#807）：不再进约跑表单。选完在这里写收藏、设默认、朗读并回首页。
+struct BlindFavoritePlaceAddRoute: View {
+    @ObservedObject var favoritePlaces: FavoritePlaceStore
+    @Binding var path: [BlindRunnerRoute]
+    @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var locationService: LocationService
+
+    private var isLocationUnavailable: Bool { locationService.isDenied || locationService.isPreciseLocationOff }
+
+    var body: some View {
+        BlindFavoritePlaceAddPage(
+            isUsingCurrentLocation: favoritePlaces.defaultPlace == nil,
+            isCurrentLocationUnavailable: isLocationUnavailable,
+            onUseCurrentLocation: useCurrentLocation,
+            onPick: pick
+        )
+    }
+
+    private func useCurrentLocation() {
+        guard favoritePlaces.setDefaultPlace(nil) else {
+            speechService.speakError("默认出发地点没有保存成功，请再试一次。")
+            return
+        }
+        speechService.speak(
+            isLocationUnavailable
+                ? "默认出发地点已改为当前定位。现在拿不到定位，打开定位后才能用。"
+                : "默认出发地点已改为当前定位。"
+        )
+        path.removeAll()
+    }
+
+    private func pick(_ place: ResolvedPlace) {
+        favoritePlaces.add(place)
+        guard let stored = favoritePlaces.storedPlace(matching: place) else {
+            speechService.speakError("没能收藏\(place.title)，请换一个地点再试。")
+            return
+        }
+        guard favoritePlaces.setDefaultPlace(stored) else {
+            // 收藏已经存下了，只是没设成默认：照实说，别让人以为没收藏上。
+            speechService.speakError("已收藏\(stored.title)，但没能设为默认出发地点，请在默认出发地点里再选一次。")
+            return
+        }
+        speechService.speak("已收藏\(stored.title)，之后默认从这里出发。")
+        path.removeAll()
+    }
+}
+
 // MARK: - 行
 
 /// 图标方块 + 名称 + 灰字副标题，和「隐私与授权」「我的」页的方块同一套（负责人 11-06：配图标，别单调）。

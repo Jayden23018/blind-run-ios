@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - Blind Runner Route
 
-private enum BlindRunnerRoute: Hashable {
+enum BlindRunnerRoute: Hashable {
     /// 预约页，进去就自动开语音向导。首页只有这一个下单入口 —— 原来的纯表单入口 `.booking`
     /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
     /// 表单没有消失，在预约页里按「改用表单」即可。
@@ -958,67 +958,13 @@ private extension BlindRunnerHomeView {
         }
     }
 
-    var startPlacePicker: some View {
-        BlindHomeStartPlacePage(
-            places: favoritePlaces.places,
-            selectedID: favoritePlaces.defaultPlace?.id,
-            onSelect: { place in
-                let didSave = favoritePlaces.setDefaultPlace(place)
-                speechService.speak(didSave ? "默认出发地点已改为\(place?.title ?? "当前定位")。" : "默认出发地点没有保存成功，请再试一次。")
-                path.removeAll()
-            },
-            onAddFavorite: {
-                // 开场白由新页自己念（#807），这里不再说「请搜索出发地点，然后收藏它」。
-                path = [.addFavoritePlace]
-            }
-        )
-    }
-
-    /// 「添加常用地点」页（#807）：不再进约跑表单。选完在这里写收藏、设默认、朗读并回首页。
-    var favoritePlaceAddPage: some View {
-        BlindFavoritePlaceAddPage(
-            isUsingCurrentLocation: favoritePlaces.defaultPlace == nil,
-            isCurrentLocationUnavailable: locationService.isDenied || locationService.isPreciseLocationOff,
-            onUseCurrentLocation: {
-                let didSave = favoritePlaces.setDefaultPlace(nil)
-                guard didSave else {
-                    speechService.speakError("默认出发地点没有保存成功，请再试一次。")
-                    return
-                }
-                let unavailable = locationService.isDenied || locationService.isPreciseLocationOff
-                speechService.speak(
-                    unavailable
-                        ? "默认出发地点已改为当前定位。现在拿不到定位，打开定位后才能用。"
-                        : "默认出发地点已改为当前定位。"
-                )
-                path.removeAll()
-            },
-            onPick: { place in
-                favoritePlaces.add(place)
-                guard let stored = favoritePlaces.storedPlace(matching: place) else {
-                    speechService.speakError("没能收藏\(place.title)，请换一个地点再试。")
-                    return
-                }
-                guard favoritePlaces.setDefaultPlace(stored) else {
-                    // 收藏已经存下了，只是没设成默认：照实说，别让人以为没收藏上。
-                    speechService.speakError("已收藏\(stored.title)，但没能设为默认出发地点，请在默认出发地点里再选一次。")
-                    return
-                }
-                speechService.speak("已收藏\(stored.title)，之后默认从这里出发。")
-                path.removeAll()
-            }
-        )
-    }
-
     @ViewBuilder
     func destination(for route: BlindRunnerRoute) -> some View {
         switch route {
         case .voiceBooking:
             booking(startsWithVoice: true, startPlace: favoritePlaces.defaultPlace)
-        case .addFavoritePlace:
-            favoritePlaceAddPage
-        case .startPlacePicker:
-            startPlacePicker
+        case .addFavoritePlace: BlindFavoritePlaceAddRoute(favoritePlaces: favoritePlaces, path: $path)
+        case .startPlacePicker: BlindHomeStartPlaceRoute(favoritePlaces: favoritePlaces, path: $path)
         case .orderStatus(let orderId):
             BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
                 viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
