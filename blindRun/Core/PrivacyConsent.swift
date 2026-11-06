@@ -232,7 +232,8 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             // **不劝返**（`docs/research/face-verify-decline-alternative-path-ux-20260908.md`：
             // GB/T 41819-2022 把「48 小时内提示 >1 次」举为反面做法）。这句只做两件事：
             // 确认拒绝是一个完整的答案，以及把人指向那条**真的还能走**的路。
-            return "没有填。你仍然可以约跑，也可以在上面告诉陪跑员希望怎么被引导。"
+            // #812 起资料页是核对清单，「陪跑方式」卡设置后会挪到下方，不能再说「在上面」。
+            return "没有填。你仍然可以约跑，也可以在「陪跑方式」里告诉陪跑员希望怎么被引导。"
         case .voiceOrderThirdPartyLLM:
             // 不劝返；只确认拒绝是一个完整的答案，并指向那条真能走的路（页面此刻就停在手动表单上）。
             return "没有使用语音下单。你可以直接在这一页手动填写出发地点和时间。"

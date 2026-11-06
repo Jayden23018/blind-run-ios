@@ -1,40 +1,67 @@
 import XCTest
 
 extension blindRunUITests {
-    // MARK: - 资料页导盲犬三选一（#472）
+    // MARK: - 视力卡：先单独同意，再一题一屏（#812）
 
-    /// 同意后导盲犬那一项可点高度 ≥ 64pt，读屏值念出当前选项（种子档案 `guideDog = NO` ⇒「没有」）。
+    /// 视力卡第一屏是单独同意页；同意后进第 1 题「视力状况」：没选时「继续」不可用，选了才可用；
+    /// 第 2 题「是否使用导盲犬」每个选项可点高度 ≥ 64pt，选中项带「已选中」；点「完成」后弹层关掉，
+    /// 卡片读屏值以「已保存：」开头。
     ///
-    /// 守的是两件单测看不见的事：64pt 写在 `Menu` 标签**内部**（挪到外面真机只剩文字高度，
-    /// 记忆 `button-frame-outside-label-does-not-grow-hit-area`），以及 `accessibilityValue` 还在。
+    /// 64pt 写在选项按钮的标签**内部**（挪到外面真机只剩文字高度，记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
     @MainActor
-    func testBlindProfileGuideDogChoiceIsTallAndSpeaksTheCurrentValue() throws {
+    func testBlindProfileVisionCardAsksConsentThenOneQuestionPerScreen() throws {
         let app = launchBlindContactsApp()
         openBlindAccount(app)
         tapNavigationRow(app, labelBeginsWith: "个人资料")
 
-        let disclosure = app.buttons["blindProfileVisionConsentDisclosure"].firstMatch
-        XCTAssertTrue(scrollUntilExists(disclosure, app: app), "资料页没有「填写视力状况」")
-        XCTAssertTrue(scrollElementIntoView(disclosure, app: app), "「填写视力状况」滚不出底栏")
-        tapWhenHittableOrByCoordinate(disclosure, app: app)
+        let card = app.descendants(matching: .any)["blindProfileCard_vision"].firstMatch
+        XCTAssertTrue(scrollUntilExists(card, app: app), "资料页没有「视力状况与导盲犬」卡")
+        XCTAssertTrue(scrollElementIntoView(card, app: app), "视力卡滚不出屏幕底部")
+        tapWhenHittableOrByCoordinate(card, app: app)
 
-        let agree = app.buttons["blindVisionProfileConsentAgreeButton"].firstMatch
-        XCTAssertTrue(agree.waitForExistence(timeout: 8), "同意页没弹出来")
+        let agree = app.buttons["blindProfileVisionConsentAgree"].firstMatch
+        XCTAssertTrue(agree.waitForExistence(timeout: 8), "视力卡第一屏不是同意页")
+        XCTAssertTrue(app.buttons["blindProfileVisionConsentDecline"].firstMatch.exists, "同意页没有「不填这一项」")
         tapWhenHittableOrByCoordinate(agree, app: app)
 
-        let menu = app.descendants(matching: .any)["blindProfileGuideDogMenu"].firstMatch
-        XCTAssertTrue(scrollUntilExists(menu, app: app), "同意后没有导盲犬三选一")
-        XCTAssertTrue(scrollElementIntoView(menu, app: app))
-        // 63.5 而不是 64：真机量出 63.99999999999994（浮点噪声），口径同 `AccessibilityAuditTests` 求助按钮那几条。
-        // 打回成外挂 frame 时只剩文字高度（约 34pt），这个余量不会放过它。
-        XCTAssertGreaterThanOrEqual(menu.frame.height, 63.5, "可点高度不足 64pt：\(menu.frame)")
-        XCTAssertEqual(menu.value as? String, "没有", "读屏没念当前选项")
+        let title = app.descendants(matching: .any)["blindProfileFlowQuestionTitle"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 8), "同意后没进第 1 题")
+        XCTAssertEqual(title.label, "第 1 题，共 2 题，视力状况")
+        let advance = app.buttons["blindProfileFlowContinue"].firstMatch
+        XCTAssertFalse(advance.isEnabled, "没选时「继续」应不可用")
+        let lowVision = app.buttons["blindProfileOption_visionLevel_1"].firstMatch
+        tapWhenHittableOrByCoordinate(lowVision, app: app)
+        XCTAssertTrue(lowVision.isSelected, "选中后读屏没有「已选中」")
+        XCTAssertTrue(advance.isEnabled, "选了之后「继续」仍不可用")
+        tapWhenHittableOrByCoordinate(advance, app: app)
+
+        XCTAssertTrue(waitForLabel(title, equals: "第 2 题，共 2 题，是否使用导盲犬", timeout: 5), "没进第 2 题：\(title.label)")
+        for offset in 0..<3 { // 有 / 没有 / 不说
+            let option = app.buttons["blindProfileOption_guideDog_\(offset)"].firstMatch
+            XCTAssertTrue(option.waitForExistence(timeout: 5))
+            // 63.5 而不是 64：真机量出 63.99999999999994（浮点噪声），口径同 `AccessibilityAuditTests` 求助按钮那几条。
+            XCTAssertGreaterThanOrEqual(option.frame.height, 63.5, "第 \(offset) 项可点高度不足 64pt：\(option.frame)")
+        }
+        tapWhenHittableOrByCoordinate(app.buttons["blindProfileOption_guideDog_0"].firstMatch, app: app)
+        tapWhenHittableOrByCoordinate(advance, app: app)
+
+        XCTAssertTrue(waitForElementToDisappear(title, timeout: 10), "点「完成」后弹层没关")
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue((card.value as? String ?? "").hasPrefix("已保存："), "卡片没念「已保存」：\(String(describing: card.value))")
     }
 
-    // MARK: - 资料查看页改文字（#750）
+    /// 等元素的读屏标签变成指定值（换题后同一个 identifier 的标签会变）。
+    @MainActor
+    private func waitForLabel(_ element: XCUIElement, equals expected: String, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "label == %@", expected)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
 
-    /// 清空昵称按「保存」：留在编辑页、念出并上屏原因，退回查看页仍是旧昵称（没有半截保存）。
-    /// 改成新昵称再保存：回到查看页，那一行和头像下的名字都换成新昵称。
+    // MARK: - 改昵称（#750；#812 起入口是头像下的「修改昵称」）
+
+    /// 清空昵称按「保存」：留在编辑页、念出并上屏原因，退回资料页仍是旧昵称（没有半截保存）。
+    /// 改成新昵称再保存：回到资料页，「修改昵称」的读屏值和头像下的名字都换成新昵称。
     @MainActor
     func testBlindProfileNicknameEditRejectsEmptyAndSavesNewName() throws {
         let app = launchBlindContactsApp()
@@ -42,7 +69,7 @@ extension blindRunUITests {
         tapNavigationRow(app, labelBeginsWith: "个人资料")
 
         let row = app.descendants(matching: .any)["blindProfileNicknameRow"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "查看页没有「昵称」")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "资料页没有「修改昵称」")
         XCTAssertEqual(row.value as? String, "测试盲人")
         tapWhenHittableOrByCoordinate(row, app: app)
 
@@ -65,7 +92,7 @@ extension blindRunUITests {
         XCTAssertTrue(field.waitForExistence(timeout: 8))
         replaceText(in: field, with: "新昵称", app: app)
         tapWhenHittableOrByCoordinate(save, app: app)
-        XCTAssertTrue(app.navigationBars["个人资料"].waitForExistence(timeout: 10), "存上之后没回到查看页")
+        XCTAssertTrue(app.navigationBars["个人资料"].waitForExistence(timeout: 10), "存上之后没回到资料页")
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertEqual(row.value as? String, "新昵称")
         XCTAssertTrue(app.staticTexts["新昵称"].firstMatch.exists, "头像下的名字没跟着换")

@@ -32,7 +32,7 @@ enum PrivacyAuthorizationCopy {
 
     static let visionTitle = "视力状况和导盲犬"
     static let visionPurpose = "这两项属于敏感个人信息，只用来让陪跑员知道该怎么准备。"
-    static let visionNotGrantedHint = "想填可以到「个人资料」里点「填写视力状况」。"
+    static let visionNotGrantedHint = "想填可以到「个人资料」里点「视力状况与导盲犬」。"
     static let visionProfileNotLoaded = "资料还没加载出来，请先打开一次「个人资料」，再回来撤回。"
     static let visionWithdrawalPendingValue = "撤回还没完成"
     static let visionWithdrawalPendingHint = "资料里的视力状况和导盲犬还在。"

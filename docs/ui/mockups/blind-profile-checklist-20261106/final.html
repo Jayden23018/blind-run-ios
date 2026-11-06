@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>盲人端 · 个人资料核对清单 · 定稿（#812）</title>
+<style>
+:root{--bg:#F2F2F7;--card:#fff;--text:#000;--sec:#6C6C70;--sep:#E5E5EA;--blue:#0A5CC2;--red:#C4281C;
+--orange:#C2410C;--green:#1F7A3A;--teal:#0A6B72;--indigo:#3D4FB8;--pink:#B8235A;--gray:#636366}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","SF Pro Text",sans-serif;background:#E9E9EE;color:#1c1c1e;padding:28px 32px 40px;width:1840px}
+h1{font-size:30px;margin-bottom:6px}
+.lead{font-size:16px;color:#3a3a3c;margin-bottom:10px;line-height:1.55;max-width:1720px}
+.rowtitle{font-size:20px;font-weight:700;margin:26px 0 12px;display:flex;align-items:center;gap:10px}
+.tag{font-size:13px;font-weight:600;padding:3px 9px;border-radius:7px;color:#fff;background:#1F7A3A}
+.row{display:flex;gap:26px;align-items:flex-start}
+.col{width:390px;flex:none}
+.cap{font-size:14px;color:#3a3a3c;margin-top:10px;line-height:1.55}
+.cap b{color:#000}
+.arrow{align-self:center;font-size:30px;color:#1F7A3A;width:24px;flex:none;text-align:center;margin:0 -14px}
+/* 手机 */
+.phone{width:390px;height:844px;background:var(--bg);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.status{height:50px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 6px;font-weight:600;font-size:16px}
+.nav{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+.circ{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(0,0,0,.10);border:.5px solid #E5E5EA}
+.circ.g{background:#F2F2F7;box-shadow:none;border:none}
+/* 清单页 */
+.head{text-align:center;padding:4px 20px 6px}
+.avatar{width:80px;height:80px;border-radius:40px;background:#8E8E93;margin:0 auto 10px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden}
+.name{font-size:28px;font-weight:700}
+.role{font-size:15px;color:var(--sec);margin-top:4px}
+.role a{color:var(--blue);font-weight:600;text-decoration:none}
+.lede{font-size:17px;line-height:1.45;color:#1c1c1e;text-align:center;padding:12px 26px 4px}
+.sh{font-size:22px;font-weight:700;padding:18px 22px 10px}
+.card{background:#fff;border-radius:22px;margin:0 16px 12px;padding:16px 16px 0 16px;display:flex;gap:14px}
+.ci{width:44px;height:44px;border-radius:22px;flex:none;display:flex;align-items:center;justify-content:center}
+.cb{flex:1;min-width:0}
+.ct{font-size:17px;font-weight:600;line-height:1.3}
+.cs{font-size:15px;color:var(--sec);margin-top:4px;display:flex;align-items:center;gap:6px;line-height:1.35}
+.dot{width:9px;height:9px;border-radius:5px;background:#AEAEB2;flex:none}
+.dot.on{background:var(--green)}
+.cs.ok{color:var(--green);font-weight:600}
+.cd{font-size:15px;color:var(--sec);margin-top:6px;line-height:1.45}
+.ca{border-top:.5px solid var(--sep);margin-top:12px;height:50px;display:flex;align-items:center;gap:22px;font-size:17px;font-weight:600;color:var(--blue)}
+.ca .r{color:var(--red);font-weight:500}
+/* 流程（弹层） */
+.behind{position:absolute;inset:0;background:#D9D9DE}
+.sheet{position:absolute;left:0;right:0;top:58px;bottom:0;background:#fff;border-radius:38px 38px 0 0}
+.sheet .nav{height:64px;padding:10px 16px 0}
+.prog{font-size:15px;color:var(--sec);padding:6px 28px 0;font-weight:600}
+.qt{font-size:24px;font-weight:700;line-height:1.3;padding:6px 28px 0}
+.qd{font-size:17px;color:var(--sec);line-height:1.45;padding:8px 28px 0}
+.who{display:flex;gap:6px;align-items:flex-start;font-size:15px;color:var(--sec);line-height:1.4;padding:10px 28px 0}
+.grp{background:#F2F2F7;border-radius:20px;margin:20px 20px 0;overflow:hidden}
+.op{display:flex;align-items:center;min-height:64px;padding:10px 18px;font-size:17px;position:relative;line-height:1.35}
+.op+.op:before{content:"";position:absolute;top:0;left:18px;right:18px;border-top:.5px solid #D1D1D6}
+.op span{flex:1}
+.op small{display:block;font-size:14px;color:var(--sec);margin-top:2px}
+.rd{width:26px;height:26px;border-radius:13px;border:1.6px solid #AEAEB2;flex:none;display:flex;align-items:center;justify-content:center}
+.op.sel .rd{border-color:var(--blue);background:var(--blue)}
+.ck{width:26px;height:26px;border-radius:7px;border:1.6px solid #AEAEB2;flex:none;display:flex;align-items:center;justify-content:center}
+.op.sel .ck{border-color:var(--blue);background:var(--blue)}
+.foot{position:absolute;left:0;right:0;bottom:0;padding:10px 0 34px;background:#fff}
+.cap-btn{height:52px;border-radius:26px;margin:0 28px;background:var(--blue);color:#fff;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.cap-btn.dis{background:#E5E5EA;color:#8E8E93}
+.cap-btn.sec{background:#E9F0FA;color:var(--blue)}
+.gap12{height:12px}
+.err{display:flex;gap:8px;align-items:flex-start;color:var(--red);font-size:16px;line-height:1.45;padding:14px 28px 0;font-weight:500}
+.ok{display:flex;gap:8px;align-items:flex-start;color:var(--green);font-size:16px;line-height:1.45;font-weight:600}
+.big-ic{width:120px;height:120px;border-radius:60px;background:#F2F2F7;margin:26px auto 22px;display:flex;align-items:center;justify-content:center}
+.ul{padding:14px 28px 0;font-size:16px;line-height:1.5;color:#1c1c1e}
+.ul p{display:flex;gap:10px;margin-bottom:8px}
+.ul p i{width:6px;height:6px;border-radius:3px;background:#8E8E93;flex:none;margin-top:10px}
+.tbox{margin:20px 20px 0;background:#F2F2F7;border-radius:20px;padding:16px 18px;min-height:132px;font-size:17px;line-height:1.45;position:relative}
+.mic{position:absolute;right:14px;bottom:12px;height:44px;padding:0 16px;border-radius:22px;background:#fff;display:flex;align-items:center;gap:6px;color:var(--blue);font-weight:600;font-size:16px;border:.5px solid #D1D1D6}
+.cnt{font-size:15px;color:var(--sec);padding:8px 28px 0;line-height:1.45}
+.ann{position:absolute;background:#1F7A3A;color:#fff;font-size:12.5px;padding:4px 8px;border-radius:8px;line-height:1.35;z-index:5;max-width:200px}
+.ann.w{background:#9A5B00}
+.notes{display:flex;gap:22px;margin-top:26px}
+.note{background:#fff;border-radius:16px;padding:16px 18px;font-size:14.5px;line-height:1.65;flex:1}
+.note h3{font-size:16px;margin-bottom:6px}
+.note ol,.note ul{padding-left:20px}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+ <defs>
+  <symbol id="chev-l" viewBox="0 0 24 24"><path d="M15 4 7 12l8 8" fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round"/></symbol>
+  <symbol id="tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="tick-g" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#1F7A3A"/><path d="M6.5 12.5l3.8 3.8L17.5 9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#C4281C"/><path d="M12 6.5v7" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1.6" fill="#fff"/></symbol>
+  <symbol id="eye-s" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></symbol>
+  <!-- 两人并跑 -->
+  <symbol id="run" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="8" cy="4.3" r="2.1"/><circle cx="16.5" cy="4.3" r="2.1"/></g><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.6 7.6 6.2 13l3 2.6-.9 5"/><path d="M6.2 13l-2.6 2.9"/><path d="M7.6 7.6l3.4 2.6 1.6-1.4"/><path d="M16.1 7.6 14.7 13l3 2.6-.9 5"/><path d="M14.7 13l-2.6 2.9"/><path d="M16.1 7.6l3.4 2.6"/></g></symbol>
+  <symbol id="eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.4" fill="currentColor"/></symbol>
+  <symbol id="bubble" viewBox="0 0 24 24"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 20 17h-9l-4.5 3.5V17H4a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 4 5.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 10h10M7 13.2h6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="clip" viewBox="0 0 24 24"><rect x="4.5" y="4" width="15" height="17.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="8.5" y="2.5" width="7" height="3.6" rx="1.2" fill="currentColor"/><path d="M8 11h8M8 14.5h8M8 18h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="phone" viewBox="0 0 24 24"><path d="M6.6 3.5h2.8l1.4 4-2 1.5a11 11 0 0 0 6.2 6.2l1.5-2 4 1.4v2.8A1.8 1.8 0 0 1 18.7 19.2 15.6 15.6 0 0 1 4.8 5.3 1.8 1.8 0 0 1 6.6 3.5z" fill="currentColor"/></symbol>
+  <symbol id="mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="person" viewBox="0 0 80 80"><circle cx="40" cy="30" r="15" fill="#fff"/><path d="M12 80c2-18 14-28 28-28s26 10 28 28z" fill="#fff"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+ </defs>
+</svg>
+
+<h1>盲人端 · 个人资料改成「核对清单」式 · 定稿（#812，11-06 负责人批准）</h1>
+<p class="lead">照苹果健康「健康核对清单」：资料页列出 5 张卡片，点「设置 / 修改」后一题一屏地点选，最后一题点「完成」才保存这一张卡。盲人不用打字；需要补充时，「补充说明」一题可以用语音输入。
+在 #784（先看后改）的基础上改：#784 的设置列表查看页换成下面的卡片页，保存逻辑和改昵称页沿用 #784。下面的尺寸都按 iPhone 点（pt）画。</p>
+
+<div class="rowtitle"><span class="tag">流程 1</span>第一次设置「陪跑方式」：清单页 → 第 1 题 → 第 2 题 → 回到清单页</div>
+<div class="row">
+
+ <!-- A1 清单页 -->
+ <div class="col">
+  <div class="phone">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="circ"><svg width="20" height="20"><use href="#chev-l"/></svg></div></div>
+   <div class="head">
+    <div class="avatar"><svg width="80" height="80"><use href="#person"/></svg></div>
+    <div class="name">跑者3721</div>
+    <div class="role">视障跑者 · <a>修改昵称</a></div>
+   </div>
+   <div class="lede">完成以下设置，陪跑员即可了解你的需求。各项均为选择题，可随时修改。</div>
+   <div class="sh">未设置</div>
+   <div class="card">
+    <div class="ci" style="background:#E3F1E7;color:var(--green)"><svg width="26" height="26"><use href="#run"/></svg></div>
+    <div class="cb">
+     <div class="ct">陪跑方式</div>
+     <div class="cs"><i class="dot"></i>尚未设置</div>
+     <div class="cd">包括引导方式与默认配速，共 2 题。派单时向陪跑员展示。</div>
+     <div class="ca">设置</div>
+    </div>
+   </div>
+   <div class="card">
+    <div class="ci" style="background:#E6EEFA;color:var(--blue)"><svg width="26" height="26"><use href="#eye"/></svg></div>
+    <div class="cb">
+     <div class="ct">视力状况与导盲犬</div>
+     <div class="cs"><i class="dot"></i>尚未设置 · 敏感个人信息</div>
+     <div class="cd">属于敏感个人信息，填写前需单独同意。不填写不影响预约陪跑。</div>
+     <div class="ca">设置</div>
+    </div>
+   </div>
+   <div class="card" style="height:90px;overflow:hidden">
+    <div class="ci" style="background:#FBEDE5;color:var(--orange)"><svg width="26" height="26"><use href="#bubble"/></svg></div>
+    <div class="cb"><div class="ct">途中提示</div><div class="cs"><i class="dot"></i>尚未设置</div></div>
+   </div>
+  </div>
+  <div class="cap"><b>清单页</b>（取代 #784 的设置列表）：头像 + 昵称居中，「修改昵称」进 #784 的改文字页。卡片照参考图：左侧圆形图标、标题、状态行（灰点 / 绿点 + 一句话）、一句「谁会看到」，分隔线下是蓝字「设置」。<b>整张卡都能点</b>，读屏念成一个按钮：「陪跑方式，尚未设置，按钮」。往下还有「其他需求」「紧急联系人」两张。</div>
+ </div>
+ <div class="arrow">›</div>
+
+ <!-- A2 第 1 题 未选 -->
+ <div class="col">
+  <div class="phone">
+   <div class="behind"></div>
+   <div class="status" style="position:relative"><span>9:41</span><span>5G ▮</span></div>
+   <div class="sheet">
+    <div class="nav"><span></span><div class="circ"><svg width="20" height="20"><use href="#x"/></svg></div></div>
+    <div class="prog">第 1 题，共 2 题</div>
+    <div class="qt">引导方式</div>
+    <div class="who"><svg width="18" height="18" style="color:var(--sec);flex:none;margin-top:1px"><use href="#eye-s"/></svg>派单时向陪跑员展示，便于提前准备。</div>
+    <div class="grp">
+     <div class="op"><span>牵引绳</span><i class="rd"></i></div>
+     <div class="op"><span>搀扶</span><i class="rd"></i></div>
+     <div class="op"><span>仅语言引导</span><i class="rd"></i></div>
+     <div class="op"><span>暂不确定</span><i class="rd"></i></div>
+    </div>
+    <div class="foot"><div class="cap-btn dis">继续</div></div>
+   </div>
+   <div class="ann" style="left:212px;bottom:96px">没选时灰。读屏念「继续，变暗，请先选择一项」</div>
+  </div>
+  <div class="cap"><b>单选题</b>：从下往上弹出的整页弹层，右上角圆形关闭钮，和参考图一样。题号「第 1 题，共 2 题」写在题目上方，读屏能知道还剩几题。每个选项一整行 <b>64pt</b>（参考图是 52pt，盲人端可点区下限 64pt，所以加高）。右侧空心圆，选中变实心蓝圆加白勾，读屏念「已选中」。</div>
+ </div>
+ <div class="arrow">›</div>
+
+ <!-- A3 第 2 题 已选 最后一题 -->
+ <div class="col">
+  <div class="phone">
+   <div class="behind"></div>
+   <div class="status" style="position:relative"><span>9:41</span><span>5G ▮</span></div>
+   <div class="sheet">
+    <div class="nav"><div class="circ"><svg width="20" height="20"><use href="#chev-l"/></svg></div><div class="circ"><svg width="20" height="20"><use href="#x"/></svg></div></div>
+    <div class="prog">第 2 题，共 2 题</div>
+    <div class="qt">默认配速</div>
+    <div class="who"><svg width="18" height="18" style="color:var(--sec);flex:none;margin-top:1px"><use href="#eye-s"/></svg>预约陪跑时默认采用此配速，下单时可调整。</div>
+    <div class="grp">
+     <div class="op"><span>走跑结合</span><i class="rd"></i></div>
+     <div class="op sel"><span>轻松</span><i class="rd"><svg width="16" height="16"><use href="#tick"/></svg></i></div>
+     <div class="op"><span>中等</span><i class="rd"></i></div>
+     <div class="op"><span>快速</span><i class="rd"></i></div>
+     <div class="op"><span>无偏好</span><i class="rd"></i></div>
+    </div>
+    <div class="foot"><div class="cap-btn">完成</div></div>
+   </div>
+   <div class="ann" style="left:72px;top:96px">左上返回上一题，答案不丢</div>
+  </div>
+  <div class="cap"><b>最后一题</b>按钮叫「完成」，按下才整张卡一起保存（你 11-06 定的）；保存中按钮念「正在保存」。<b>选项数按实际来</b>：配速 5 个、引导方式 4 个，不硬凑两个。改资料时进来，已有答案会先选好，直接点「继续」就能过。<br>选项文字都用代码里的现有叫法（走跑结合 / 轻松 / 中等 / 快速 / 无偏好），和约跑表单一致。</div>
+ </div>
+ <div class="arrow">›</div>
+
+ <!-- A4 保存后 -->
+ <div class="col">
+  <div class="phone">
+   <div class="status"><span>9:41</span><span>5G ▮</span></div>
+   <div class="nav"><div class="circ"><svg width="20" height="20"><use href="#chev-l"/></svg></div></div>
+   <div class="card" style="height:84px;overflow:hidden;margin-top:6px">
+    <div class="ci" style="background:#FBEDE5;color:var(--orange)"><svg width="26" height="26"><use href="#bubble"/></svg></div>
+    <div class="cb"><div class="ct">途中提示</div><div class="cs"><i class="dot"></i>尚未设置</div></div>
+   </div>
+   <div class="card">
+    <div class="ci" style="background:#EEEFF2;color:var(--gray)"><svg width="26" height="26"><use href="#clip"/></svg></div>
+    <div class="cb">
+     <div class="ct">其他需求</div>
+     <div class="cs"><i class="dot"></i>尚未设置</div>
+     <div class="cd">如途中休息、补水提醒等。接单后向陪跑员展示。</div>
+     <div class="ca">设置</div>
+    </div>
+   </div>
+   <div class="sh">已设置</div>
+   <div class="card" style="outline:3px dashed #1F7A3A;outline-offset:2px">
+    <div class="ci" style="background:#E3F1E7;color:var(--green)"><svg width="26" height="26"><use href="#run"/></svg></div>
+    <div class="cb">
+     <div class="ct">陪跑方式</div>
+     <div class="cs ok"><svg width="16" height="16"><use href="#tick-g"/></svg>已保存：牵引绳 · 轻松</div>
+     <div class="cd">派单时向陪跑员展示。</div>
+     <div class="ca">修改</div>
+    </div>
+   </div>
+   <div class="card">
+    <div class="ci" style="background:#FBE6E4;color:var(--red)"><svg width="24" height="24"><use href="#phone"/></svg></div>
+    <div class="cb">
+     <div class="ct">紧急联系人</div>
+     <div class="cs"><i class="dot on"></i>2 位 · 主要联系人：张三</div>
+     <div class="ca">管理</div>
+    </div>
+   </div>
+   <div class="ann" style="right:22px;top:392px">读屏焦点落在这张卡上，并念「已保存：牵引绳，轻松」</div>
+  </div>
+  <div class="cap"><b>保存后</b>弹层关掉，这张卡从「未设置」挪到「已设置」，状态行变成绿勾「已保存：…」并念出来。卡片挪了位置，所以<b>读屏焦点要主动放到这张卡上</b>，不然盲人会找不到刚改的东西。下次进来状态行变回绿点「牵引绳 · 轻松」。紧急联系人卡不是问卷，点「管理」进现有的紧急联系人页。</div>
+ </div>
+</div>
+
+<div class="rowtitle"><span class="tag">流程 2</span>其余题型：敏感信息先同意、多选、补一句（语音）、没存上</div>
+<div class="row">
+
+ <!-- B1 视力 同意页 -->
+ <div class="col">
+  <div class="phone">
+   <div class="behind"></div>
+   <div class="status" style="position:relative"><span>9:41</span><span>5G ▮</span></div>
+   <div class="sheet">
+    <div class="nav"><span></span><div class="circ"><svg width="20" height="20"><use href="#x"/></svg></div></div>
+    <div class="big-ic" style="color:var(--blue);margin-top:4px"><svg width="62" height="62"><use href="#eye"/></svg></div>
+    <div class="qt">填写视力状况前，请先确认</div>
+    <div class="ul">
+     <p><i></i>视力状况和是否使用导盲犬属于敏感个人信息，填不填由你决定。</p>
+     <p><i></i>它只用来让陪跑员知道该怎么准备：你能不能看见他挥手、要不要带牵引绳。它不参与排序打分。</p>
+     <p><i></i>陪跑员在接单前就能看到这两项，包括最后没有接你单的那些人。这是为了让他到场前能做好准备。</p>
+     <p><i></i>不填也能约跑。你可以只告诉陪跑员希望怎么被引导，那一项不需要单独同意。</p>
+    </div>
+    <div class="foot"><div class="cap-btn">同意并填写</div><div class="gap12"></div><div class="cap-btn" style="background:#F2F2F7;color:#1c1c1e;border:1px solid #D1D1D6">不填这一项</div></div>
+   </div>
+  </div>
+  <div class="cap"><b>说明页只有视力这张卡有</b>，它同时就是单独同意页。标题和四句说明逐字取自现有同意文案（`PrivacyConsent.swift:103,154-166`），不压短。参考图只有一个「现在开始」，这里是<b>两个一样大的按钮</b>：现有规定拒绝和同意要一样大、一样铺满（`PrivacyConsent.swift:211`）。同意后进两道题：「视力状况」（完全看不见 / 还有一些视力），「是否使用导盲犬」（有 / 没有 / 不说）。</div>
+ </div>
+ <div class="arrow">›</div>
+
+ <!-- B2 多选 -->
+ <div class="col">
+  <div class="phone">
+   <div class="behind"></div>
+   <div class="status" style="position:relative"><span>9:41</span><span>5G ▮</span></div>
+   <div class="sheet">
+    <div class="nav"><div class="circ"><svg width="20" height="20"><use href="#chev-l"/></svg></div><div class="circ"><svg width="20" height="20"><use href="#x"/></svg></div></div>
+    <div class="prog">第 2 题，共 3 题（可多选）</div>
+    <div class="qt">途中提示（可多选）</div>
+    <div class="who"><svg width="18" height="18" style="color:var(--sec);flex:none;margin-top:1px"><use href="#lock"/></svg>接单后向陪跑员展示。</div>
+    <div class="grp">
+     <div class="op sel"><span>转弯前提前提示</span><i class="ck"><svg width="16" height="16"><use href="#tick"/></svg></i></div>
+     <div class="op sel"><span>台阶、路沿提前提示</span><i class="ck"><svg width="16" height="16"><use href="#tick"/></svg></i></div>
+     <div class="op"><span>说明陪跑员所在的一侧</span><i class="ck"></i></div>
+     <div class="op"><span>递物或肢体接触前先征询</span><i class="ck"></i></div>
+    </div>
+    <div class="foot"><div class="cap-btn">继续</div></div>
+   </div>
+   <div class="ann" style="left:200px;bottom:96px">一个都不选也能继续</div>
+  </div>
+  <div class="cap"><b>多选题</b>：方框打勾，和单选的圆圈区分开，题目后写「（可多选）」。这张卡共 3 题：① 单选「路况播报」（仅播报必要路况 / 详细描述周边环境 / 详略均可）② 这一题 ③ 补充说明。说法来自 11-02 调研里盲人跑者自己说的（`real-guide-running-needs-20261102.md`）。勾选的说法用「；」拼成一句存进「给陪跑员的话」，最多 80 字。</div>
+ </div>
+ <div class="arrow">›</div>
+
+ <!-- B3 补一句 -->
+ <div class="col">
+  <div class="phone">
+   <div class="behind"></div>
+   <div class="status" style="position:relative"><span>9:41</span><span>5G ▮</span></div>
+   <div class="sheet">
+    <div class="nav"><div class="circ"><svg width="20" height="20"><use href="#chev-l"/></svg></div><div class="circ"><svg width="20" height="20"><use href="#x"/></svg></div></div>
+    <div class="prog">第 3 题，共 3 题（选填）</div>
+    <div class="qt">补充说明（选填）</div>
+    <div class="qd">可点按「语音输入」口述，也可直接输入。</div>
+    <div class="tbox">我习惯陪跑员在我左侧
+     <div class="mic"><svg width="18" height="18"><use href="#mic"/></svg>语音输入</div>
+    </div>
+    <div class="cnt">含已选内容，剩余 44 字。</div>
+    <div class="foot"><div class="cap-btn">完成</div></div>
+   </div>
+  </div>
+  <div class="cap"><b>补一句</b>用现成的语音输入框（`VoiceTextField`，苹果自带识别，不送后端大模型）。剩余字数把上一题勾的说法算进去，超了就不让完成并念出原因。空着直接点「完成」也行。老用户以前手写的话，回读时认得的说法自动打勾，认不出的整句放进这一格，<b>不会丢</b>。</div>
+ </div>
+ <div class="arrow">›</div>
+
+ <!-- B4 保存失败 -->
+ <div class="col">
+  <div class="phone">
+   <div class="behind"></div>
+   <div class="status" style="position:relative"><span>9:41</span><span>5G ▮</span></div>
+   <div class="sheet">
+    <div class="nav"><div class="circ"><svg width="20" height="20"><use href="#chev-l"/></svg></div><div class="circ"><svg width="20" height="20"><use href="#x"/></svg></div></div>
+    <div class="prog">第 2 题，共 2 题</div>
+    <div class="qt">默认配速</div>
+    <div class="who"><svg width="18" height="18" style="color:var(--sec);flex:none;margin-top:1px"><use href="#eye-s"/></svg>预约陪跑时默认采用此配速，下单时可调整。</div>
+    <div class="grp">
+     <div class="op"><span>走跑结合</span><i class="rd"></i></div>
+     <div class="op sel"><span>轻松</span><i class="rd"><svg width="16" height="16"><use href="#tick"/></svg></i></div>
+     <div class="op"><span>中等</span><i class="rd"></i></div>
+     <div class="op"><span>快速</span><i class="rd"></i></div>
+     <div class="op"><span>无偏好</span><i class="rd"></i></div>
+    </div>
+    <div class="err"><svg width="20" height="20" style="flex:none;margin-top:2px"><use href="#warn"/></svg>保存失败：网络连接异常。已选内容已保留，请再次点按「完成」。</div>
+    <div class="foot"><div class="cap-btn">完成</div></div>
+   </div>
+  </div>
+  <div class="cap"><b>没存上</b>：留在最后一题，红字说明并念出来，选过的答案都还在，资料保持原样。中途点右上角关闭时，如果这张卡已经选了东西，先问一句「放弃本次修改？」（放弃 / 继续填写），避免一碰就丢。</div>
+ </div>
+</div>
+
+<div class="notes">
+ <div class="note"><h3>和参考图不一样的地方（都是盲人端规定，不是随手改）</h3>
+  <ol>
+   <li>选项行 64pt 高（参考 52pt）；「继续」胶囊看得见的 52pt，左右各距屏 28pt（#749 定稿）。</li>
+   <li>视力同意页两个一样大的按钮（参考只有一个「现在开始」）。</li>
+   <li>只有视力卡有说明页；其余卡点「设置」直接进第 1 题。每多一页，读屏用户就要多划好几下；「谁会看到」已写在每道题下。</li>
+   <li>题号「第 1 题，共 2 题」：参考图没有，读屏用户看不到进度条，需要这句话。</li>
+  </ol></div>
+ <div class="note"><h3>读屏怎么走</h3>
+  <ul>
+   <li>换到下一题，焦点自动放到题目上，先念题号和题目。</li>
+   <li>选项念「牵引绳，已选中，第 1 项，共 4 项」。</li>
+   <li>「继续」灰时念「变暗」，并提示「请先选择一项」。</li>
+   <li>保存后念「已保存：…」，焦点放到那张卡上。</li>
+  </ul></div>
+ <div class="note"><h3>11-06 已定的 3 件事</h3>
+  <ol>
+   <li>卡片图标用彩色，只取全局语义色（绿 / 蓝 / 橙 / 灰 / 红）：草稿里的天青、靛蓝、琥珀是陪跑员首页专用色，实现时换掉。</li>
+   <li>只有视力卡有说明页（同意页）。</li>
+   <li>「其他需求」（可多选，至少选一项）：途中需要休息、跑前需慢走热身、定时提醒补水、尽量选择安静路线、请提高音量、放慢语速、无其他需求（与其他项互斥）。不列疾病，避开敏感健康信息。</li>
+  </ol></div>
+</div>
+</body></html>
