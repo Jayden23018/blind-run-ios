@@ -399,8 +399,8 @@ const cases = [
     },
   },
   {
-    // 三个场景对应三条出路：只改源码 → 报；同时碰了变更 → 不报；只改测试 → 不报。
-    name: 'OpenSpec：改了 App 源码却没碰 openspec/changes/ 才报「无变更记录」',
+    // 三个场景一个都不该报：只改源码、同时碰了变更、只改测试。
+    name: 'OpenSpec：改了 App 源码没碰 openspec/changes/ 不再报「无变更记录」（2026-11-06 改两档）',
     stdin: '{}',
     check: () => {
       const { dir } = scratchRepo();
@@ -420,8 +420,8 @@ const cases = [
           }),
           { AIDRUN_REPO_ROOT: dir }
         ).stderr.includes('**无变更记录**');
-      if (!edits('blindRun/Feature/A.swift')) return '只改了 App 源码却没报';
-      if (edits('blindRun/Feature/A.swift', 'openspec/changes/x/tasks.md')) return '已经碰了变更记录仍在报';
+      if (edits('blindRun/Feature/A.swift')) return '小改动被拦了：只改 App 源码不该再报无变更记录';
+      if (edits('blindRun/Feature/A.swift', 'openspec/changes/x/tasks.md')) return '碰了变更记录反而在报';
       if (edits('blindRunTests/ATests.swift')) return '只改测试也被报了';
       return null;
     },
