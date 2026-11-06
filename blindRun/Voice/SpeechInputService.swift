@@ -317,9 +317,7 @@ enum SpeechInputField: String, CaseIterable, Identifiable {
     // #795：订单页以外的三个自由文字框（`VoiceDictationButton`）。
     case runnerMessage
     case userReportDetail
-    case supportTicketContent
-    /// #812：个人资料核对清单里「途中提示」「其他需求」两张卡的「补充说明」。两张卡不会同时打开，共用一个。
-    case profileSupplement
+    case supportTicketContent, profileSupplement // profileSupplement：#812 资料核对清单两张卡共用的「补充说明」
     // 语音下单向导的槽位。与上面的字段听写共用同一套授权/静音超时/最长时长，
     // 区别只在识别结果不回填输入框，而是交给后端解析端点。
     /// 整句下单：用户一次说完时间与时长（地点待后端支持整句抽取后并入，见 `VoiceOrderWizard`）。

@@ -363,15 +363,19 @@ struct BlindProfileCardStatus: Equatable {
             guard let text = profile?.specialNeeds?.trimmed.nilIfBlank else { return .unset(card) }
             return BlindProfileCardStatus(isSet: true, line: text)
         case .emergencyContacts:
-            guard contactCount > 0 else {
-                return BlindProfileCardStatus(isSet: false, line: "尚未添加，预约陪跑前至少需要 1 位")
-            }
-            // 没有主要联系人时约跑会被拦（`AppState.hasValidEmergencyContacts`），所以仍算「未设置」。
-            guard let primaryContactName else {
-                return BlindProfileCardStatus(isSet: false, line: "\(contactCount) 位 · 尚未设置主要联系人")
-            }
-            return BlindProfileCardStatus(isSet: true, line: "\(contactCount) 位 · 主要联系人：\(primaryContactName)")
+            return contacts(count: contactCount, primaryName: primaryContactName)
         }
+    }
+
+    private static func contacts(count: Int, primaryName: String?) -> BlindProfileCardStatus {
+        guard count > 0 else {
+            return BlindProfileCardStatus(isSet: false, line: "尚未添加，预约陪跑前至少需要 1 位")
+        }
+        // 没有主要联系人时约跑会被拦（`AppState.hasValidEmergencyContacts`），所以仍算「未设置」。
+        guard let primaryName else {
+            return BlindProfileCardStatus(isSet: false, line: "\(count) 位 · 尚未设置主要联系人")
+        }
+        return BlindProfileCardStatus(isSet: true, line: "\(count) 位 · 主要联系人：\(primaryName)")
     }
 
     private static func unset(_ card: BlindProfileCard) -> BlindProfileCardStatus {

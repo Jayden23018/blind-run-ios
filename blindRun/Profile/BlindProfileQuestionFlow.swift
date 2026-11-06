@@ -93,6 +93,9 @@ struct BlindProfileQuestionFlow: View {
         .accessibilityIdentifier("blindProfileFlow_\(card.rawValue)")
     }
 
+}
+
+extension BlindProfileQuestionFlow {
     // MARK: - 顶栏：左上返回上一题、右上关闭
 
     private var topBar: some View {
@@ -213,6 +216,11 @@ struct BlindProfileQuestionFlow: View {
         .padding(.top, 8)
     }
 
+}
+
+// MARK: - 选项、补充说明、底部按钮
+
+extension BlindProfileQuestionFlow {
     private func optionRow(_ option: BlindProfileOption, offset: Int) -> some View {
         let isMulti = question.kind == .multi
         let isSelected = isMulti
@@ -331,6 +339,7 @@ struct BlindProfileQuestionFlow: View {
     }
 
     // MARK: - 动作
+
 
     private func advance() {
         guard draft.canAdvance(from: question), !viewModel.isLoading else { return }
