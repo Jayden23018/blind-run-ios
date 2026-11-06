@@ -27,7 +27,7 @@ die() { printf '[preview-build] ERROR: %s\n' "$*" >&2; exit 1; }
 
 REPO_SLUG="Jayden23018/blind-run-ios"   # gh 默认会打到 upstream，一律显式带 --repo
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-COMMON_DIR="$(cd "$(git -C "$SCRIPT_DIR" rev-parse --git-common-dir)" && pwd)"
+COMMON_DIR="$(git -C "$SCRIPT_DIR" rev-parse --path-format=absolute --git-common-dir)"
 MAIN_CHECKOUT="$(dirname "$COMMON_DIR")"
 PREVIEW_DIR="${AIDRUN_PREVIEW_DIR:-$(dirname "$MAIN_CHECKOUT")/blind-run-ios-preview}"
 LOCK_WAIT="${AIDRUN_PREVIEW_LOCK_WAIT:-1800}"
@@ -60,8 +60,38 @@ for arg in "$@"; do
   esac
 done
 
+# ---------- 锁 ----------
+# 两把锁：预览工作区一把（两次运行同时改同一个目录会把正在编译的源码换掉），
+# 设备一把（与 device-test.sh 同名同目录，装机不打断别人的测试）。
+LOCKS_HELD=()
+release_locks() { local d; for d in ${LOCKS_HELD[@]+"${LOCKS_HELD[@]}"}; do rm -rf "$d"; done; }
+trap release_locks EXIT
+STALE_EMPTY_LOCK_SECONDS=30
+acquire_lock() {   # $1 锁目录  $2 给人看的名字
+  local dir="$1" what="$2" waited=0 owner age
+  while ! mkdir "$dir" 2>/dev/null; do
+    [ -w "$(dirname "$dir")" ] || die "建不了锁目录 ${dir}（所在目录不可写）"
+    if [ ! -d "$dir" ]; then continue; fi        # 刚被释放：马上再抢
+    owner="$(cat "$dir/pid" 2>/dev/null || true)"
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -rf "$dir"; continue                     # 持有者已不在：回收死锁
+    fi
+    if [ -z "$owner" ]; then
+      # 对方刚 mkdir、还没写 pid。空 pid 放久了才当死锁，免得把别人刚拿到的锁删掉。
+      age=$(( $(date +%s) - $(stat -f %m "$dir" 2>/dev/null || date +%s) ))
+      if [ "$age" -gt "$STALE_EMPTY_LOCK_SECONDS" ]; then rm -rf "$dir"; continue; fi
+    fi
+    [ "$waited" = 0 ] && say "${what}正被占用（pid ${owner:-刚建}），排队等…"
+    [ "$waited" -ge "$LOCK_WAIT" ] && die "等${what}超过 ${LOCK_WAIT}s，放弃。"
+    sleep 5; waited=$((waited + 5))
+  done
+  printf '%s\n' "$$" >"$dir/pid"
+  LOCKS_HELD+=("$dir")
+}
+acquire_lock "${TMPDIR:-/tmp}/aidrun-preview-build.lock" "预览工作区"
+
 # ---------- 1. 预览工作区 ----------
-git -C "$MAIN_CHECKOUT" fetch -q origin main
+git -C "$MAIN_CHECKOUT" fetch -q origin main || die "取不到 origin/main（断网或连不上 GitHub）"
 if [ ! -d "$PREVIEW_DIR" ]; then
   say "第一次运行：建预览工作区 $PREVIEW_DIR"
   # post-checkout 钩子会从主 checkout 复制 LocalConfig.xcconfig（scripts/install-git-hooks.sh 装的）。
@@ -75,6 +105,8 @@ cd "$PREVIEW_DIR"
 if [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
   git merge --abort
 fi
+# pod install 可能改写 Podfile.lock；目录归本脚本管，还原它，不当成「有人手改」。
+git checkout -q -- Podfile.lock 2>/dev/null || true
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   die "预览工作区 $PREVIEW_DIR 有人手改过（下面这些文件）。它只该由本脚本管理；确认不要后删掉整个目录重来：
 $(git status --short --untracked-files=no | sed 's/^/     /')"
@@ -87,10 +119,12 @@ BASE_SHA="$(git rev-parse --short origin/main)"
 # 合进来就会在本机执行它的构建阶段脚本，而且带着签名团队。能在本仓库开分支的人都有写权限。
 PRS=()
 if [ "$WANT_ALL_OPEN" = 1 ]; then
-  while IFS= read -r n; do [ -n "$n" ] && PRS+=("$n"); done < <(
-    gh pr list --repo "$REPO_SLUG" --state open --base main --limit 100 \
-      --json number,isDraft -q '[.[] | select(.isDraft | not) | .number] | sort | .[]'
-  )
+  # 先存再判：写成 `< <(gh ...)` 时 gh 失败（没登录、令牌过期、断网）会被吞掉，看着像「没有开着的 PR」。
+  if ! open_list="$(gh pr list --repo "$REPO_SLUG" --state open --base main --limit 100 \
+      --json number,isDraft -q '[.[] | select(.isDraft | not) | .number] | sort | .[]' 2>&1)"; then
+    die "列不出开着的 PR：${open_list}"
+  fi
+  while IFS= read -r n; do [ -n "$n" ] && PRS+=("$n"); done <<<"$open_list"
 elif [ "${#REQUESTED[@]}" -gt 0 ]; then
   PRS=("${REQUESTED[@]}")
 fi
@@ -99,21 +133,39 @@ fi
 MERGED=()
 SKIPPED=()
 for n in ${PRS[@]+"${PRS[@]}"}; do
-  cross="$(gh pr view "$n" --repo "$REPO_SLUG" --json isCrossRepository -q .isCrossRepository 2>/dev/null || echo unknown)"
+  info="$(gh pr view "$n" --repo "$REPO_SLUG" --json isCrossRepository,state,baseRefName \
+    -q '"\(.isCrossRepository) \(.state) \(.baseRefName)"' 2>/dev/null || true)"
+  if [ -z "$info" ]; then
+    SKIPPED+=("#${n}：查不到这个 PR（号写错，或 gh 没登录）"); continue
+  fi
+  read -r cross state base <<<"$info"
   if [ "$cross" != false ]; then
-    SKIPPED+=("#${n}：不是本仓库分支开的 PR（isCrossRepository=${cross}），不在本机编译外部代码")
-    continue
+    SKIPPED+=("#${n}：fork 开的 PR，不在本机编译外部代码"); continue
+  fi
+  if [ "$state" != OPEN ]; then
+    SKIPPED+=("#${n}：状态是 ${state}，不是开着的"); continue
+  fi
+  if [ "$base" != main ]; then
+    SKIPPED+=("#${n}：目标分支是 ${base}，不是 main"); continue
   fi
   if ! git fetch -q origin "pull/$n/head" 2>/dev/null; then
     SKIPPED+=("#${n}：取不到（PR 号写错？）")
     continue
   fi
-  if git merge -q --no-ff --no-edit -m "preview: 合入 #$n" FETCH_HEAD >/dev/null 2>&1; then
+  before="$(git rev-parse HEAD)"
+  if merge_out="$(git merge -q --no-ff --no-edit -m "preview: 合入 #$n" FETCH_HEAD 2>&1)"; then
+    if [ "$(git rev-parse HEAD)" = "$before" ]; then
+      SKIPPED+=("#${n}：改动已经都在 main 里"); continue
+    fi
     MERGED+=("$n")
   else
     conflicts="$(git diff --name-only --diff-filter=U | head -n 5 | tr '\n' ' ')"
     git merge --abort 2>/dev/null || true
-    SKIPPED+=("#${n}：冲突 ${conflicts:-（未列出文件）}")
+    if [ -n "$conflicts" ]; then
+      SKIPPED+=("#${n}：冲突 ${conflicts}")
+    else
+      SKIPPED+=("#${n}：合并失败（不是冲突）：$(printf '%s' "$merge_out" | head -n 1)")
+    fi
   fi
 done
 
@@ -130,31 +182,17 @@ if ! cmp -s Podfile.lock Pods/Manifest.lock 2>/dev/null; then
   LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install >/dev/null
 fi
 
-# ---------- 5. 设备锁（与 device-test.sh 同一把，避免装机打断别人的测试）----------
-LOCK_DIR="${TMPDIR:-/tmp}/aidrun-device-test.lock.${DEVICE_ID}"
-take_lock() {
-  local waited=0 owner
-  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-    if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf "$LOCK_DIR"; continue          # 持有者已不在：回收死锁
-    fi
-    [ "$waited" = 0 ] && say "设备正被 pid $owner 占用（多半在跑测试），排队等…"
-    [ "$waited" -ge "$LOCK_WAIT" ] && die "等设备锁超过 ${LOCK_WAIT}s，放弃。"
-    sleep 5; waited=$((waited + 5))
-  done
-  printf '%s\n' "$$" >"$LOCK_DIR/pid"
-  trap 'rm -rf "$LOCK_DIR"' EXIT
-}
+# ---------- 5. 设备锁（与 device-test.sh 同一把）----------
+DEVICE_LOCK_DIR="${TMPDIR:-/tmp}/aidrun-device-test.lock.${DEVICE_ID}"
 
 # ---------- 6. 编译 ----------
-DERIVED="$PREVIEW_DIR/.build-preview"
+DERIVED="$PREVIEW_DIR/.xcodebuild-derived-preview"   # 名字落在 .gitignore 的 .xcodebuild-derived*/ 里
 LOG="$(mktemp -t aidrun-preview-build)"
 if [ "${AIDRUN_PREVIEW_SKIP_INSTALL:-}" = 1 ]; then
   DESTINATION="generic/platform=iOS"
   BUILD_SIGNING=(CODE_SIGNING_ALLOWED=NO)
 else
-  take_lock
+  acquire_lock "$DEVICE_LOCK_DIR" "设备 ${DEVICE_ID} "
   DESTINATION="platform=iOS,id=${DEVICE_ID}"
   BUILD_SIGNING=(-allowProvisioningUpdates "DEVELOPMENT_TEAM=$TEAM" ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"})
 fi
