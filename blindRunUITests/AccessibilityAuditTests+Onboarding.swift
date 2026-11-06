@@ -137,8 +137,8 @@ extension AccessibilityAuditTests {
         try auditKnownRedPage(app)
     }
 
-    /// B-10：新增联系人页有「从通讯录选择」，姓名框键盘上方有「下一项」。
-    func testEmergencyContactFormOffersTheContactsPickerAndPassesAudit() throws {
+    /// B-10：姓名框键盘上方有「下一项」。#807 起手动新增页只剩姓名、手机号，「从通讯录选择」在列表页，不在这里。
+    func testManualEmergencyContactFormHasOnlyNameAndPhoneAndPassesAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         let app = launchBlindHome()
         app.tabBars.firstMatch.buttons["我的"].tap(); app.openBlindAccountPage() // 个人资料在账户页（#711）
@@ -154,11 +154,15 @@ extension AccessibilityAuditTests {
         add.tap()
         XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8))
 
-        let pick = anyElement(app, "emergencyContactPickFromContacts")
-        XCTAssertTrue(pick.waitForExistence(timeout: 5), "没有「从通讯录选择」")
-        XCTAssertGreaterThanOrEqual(pick.frame.height + 0.5, 64, "「从通讯录选择」只有 \(pick.frame.height)pt")
-        XCTAssertTrue(pick.isHittable, "「从通讯录选择」点不到")
+        // #807：通讯录选人和手动输入分开，这一页不再有选人按钮、关系行和主联系人开关。
+        XCTAssertFalse(anyElement(app, "emergencyContactPickFromContacts").exists, "手动新增页不该再有「从通讯录选择」")
+        XCTAssertFalse(anyElement(app, "emergencyContactRelationshipRow").exists, "手动新增页不该再有「关系」")
+        XCTAssertFalse(app.switches["设为主联系人"].exists, "手动新增页不该再有主联系人开关")
+        let addButton = anyElement(app, "emergencyContactFormSave")
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5), "手动新增页底部没有「添加」")
+        XCTAssertGreaterThanOrEqual(addButton.frame.height + 0.5, 64, "「添加」只有 \(addButton.frame.height)pt")
         keepOnboardingScreenshot("onboarding-contact-form")
+        // 沿用原来的已知红灯口径（#676）：去掉主联系人开关后是否全绿，要真机跑过才知道，没跑前不改成严格审计。
         try auditKnownRedPage(app)
 
         let nameField = app.textFields["联系人姓名，必填"].firstMatch
@@ -169,10 +173,5 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(app.buttons["收起键盘"].firstMatch.waitForExistence(timeout: 5), "号码框键盘上方没有「收起键盘」")
         keepOnboardingScreenshot("onboarding-contact-form-next")
         app.buttons["收起键盘"].firstMatch.tap()
-
-        // 系统选择器在进程外，内容随手机通讯录而变，这里只留一张图给人看它起来了。
-        pick.tap()
-        sleep(2)
-        keepOnboardingScreenshot("onboarding-contact-picker")
     }
 }

@@ -297,7 +297,7 @@ final class EmergencyContactsViewModelTests: XCTestCase {
 
 // MARK: - Test Doubles
 
-private final class ContactsAPIClientStub: APIClientProtocol, @unchecked Sendable {
+final class ContactsAPIClientStub: APIClientProtocol, @unchecked Sendable {
     struct RecordedRequest {
         let method: HTTPMethod
         let path: String
@@ -413,7 +413,7 @@ private final class ContactsAPIClientStub: APIClientProtocol, @unchecked Sendabl
     }
 }
 
-private final class ContactsInMemoryTokenStore: TokenStoring {
+final class ContactsInMemoryTokenStore: TokenStoring {
     private var token: String?
 
     func save(_ token: String) { self.token = token }

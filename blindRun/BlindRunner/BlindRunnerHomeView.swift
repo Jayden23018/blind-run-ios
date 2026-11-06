@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - Blind Runner Route
 
-private enum BlindRunnerRoute: Hashable {
+enum BlindRunnerRoute: Hashable {
     /// 预约页，进去就自动开语音向导。首页只有这一个下单入口 —— 原来的纯表单入口 `.booking`
     /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
     /// 表单没有消失，在预约页里按「改用表单」即可。
@@ -541,7 +541,6 @@ struct BlindRunnerHomeView: View {
     /// 没有订单时预约卡下方的数据。
     @StateObject private var idleModel = BlindHomeIdleModel()
     @StateObject private var favoritePlaces = FavoritePlaceStore.forHome()
-    @State private var favoriteCountBeforeAdding: Int?
 
     /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
     /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
@@ -667,14 +666,10 @@ struct BlindRunnerHomeView: View {
                 }
                 await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
             }
-            // 从预约页回来时可能多了新收藏。从「添加常用地点」进去新收藏的，直接设为默认。
+            // 从预约页回来时可能多了新收藏。「添加常用地点」页选完已当场设为默认（#807），这里只重新读盘。
             .onChange(of: path.isEmpty) { isEmpty in
                 guard isEmpty else { return }
                 favoritePlaces.reload()
-                if let favoriteCountBeforeAdding {
-                    favoritePlaces.adoptNewestPlace(ifCountExceeds: favoriteCountBeforeAdding)
-                }
-                favoriteCountBeforeAdding = nil
             }
             // 订单走完回到首页时要刷新本月次数，所以跟着订单号走。`.task` 切回本 tab 也会重跑，
             // 这里没有播报，重跑只是多拿一次最新数据。有订单时这些数据不显示，不用请求。
@@ -963,32 +958,13 @@ private extension BlindRunnerHomeView {
         }
     }
 
-    var startPlacePicker: some View {
-        BlindHomeStartPlacePage(
-            places: favoritePlaces.places,
-            selectedID: favoritePlaces.defaultPlace?.id,
-            onSelect: { place in
-                let didSave = favoritePlaces.setDefaultPlace(place)
-                speechService.speak(didSave ? "默认出发地点已改为\(place?.title ?? "当前定位")。" : "默认出发地点没有保存成功，请再试一次。")
-                path.removeAll()
-            },
-            onAddFavorite: {
-                favoriteCountBeforeAdding = favoritePlaces.places.count
-                speechService.speak("请搜索出发地点，然后收藏它。返回首页后，它会成为默认出发地点。")
-                path = [.addFavoritePlace]
-            }
-        )
-    }
-
     @ViewBuilder
     func destination(for route: BlindRunnerRoute) -> some View {
         switch route {
         case .voiceBooking:
             booking(startsWithVoice: true, startPlace: favoritePlaces.defaultPlace)
-        case .addFavoritePlace:
-            booking(startsWithVoice: false, startPlace: nil)
-        case .startPlacePicker:
-            startPlacePicker
+        case .addFavoritePlace: BlindFavoritePlaceAddRoute(favoritePlaces: favoritePlaces, path: $path)
+        case .startPlacePicker: BlindHomeStartPlaceRoute(favoritePlaces: favoritePlaces, path: $path)
         case .orderStatus(let orderId):
             BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
                 viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil

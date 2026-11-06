@@ -89,12 +89,19 @@ extension AccessibilityAuditTests {
         manual.tap()
         XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8), "没进新增表单")
         attachScreenshot(app, name: "blind-emergency-contact-form-ax5")
-        // 新增表单里原有的「设为主联系人」开关等控件是 #676 记下的已知红灯，同 `testEmergencyContactFormOffersTheContactsPickerAndPassesAudit`。
-        // 编辑态（没有那个开关）在上一条用例里照常严格审。
+        // 新增表单里原有的「设为主联系人」开关等控件是 #676 记下的已知红灯，同 `testManualEmergencyContactFormHasOnlyNameAndPhoneAndPassesAudit`。
+        // #807 去掉了那个开关；没真机跑过前沿用原口径。
         try auditKnownRedPage(app)
 
+        // #807：关系只在编辑页。退回列表，进张三的编辑页再点「关系」。
+        app.navigationBars["新增紧急联系人"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["紧急联系人"].waitForExistence(timeout: 8), "没退回列表")
+        let contactRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "张三，")).firstMatch
+        XCTAssertTrue(swipeUntilHittable(contactRow, in: app), "列表没有张三这一行")
+        contactRow.tap()
+        XCTAssertTrue(app.navigationBars["编辑紧急联系人"].waitForExistence(timeout: 8), "没进编辑页")
         let relationshipRow = app.descendants(matching: .any)["emergencyContactRelationshipRow"].firstMatch
-        XCTAssertTrue(swipeUntilHittable(relationshipRow, in: app), "新增表单没有「关系」行")
+        XCTAssertTrue(swipeUntilHittable(relationshipRow, in: app), "编辑页没有「关系」行")
         relationshipRow.tap()
         XCTAssertTrue(app.navigationBars["关系"].waitForExistence(timeout: 8), "没进关系选择页")
         attachScreenshot(app, name: "blind-emergency-contact-relationship-ax5")

@@ -3,6 +3,9 @@ import Foundation
 // 紧急联系人表单的文案与纯函数（#746 从 `EmergencyContactFormView.swift` 挪出：那个文件超了 400 行）。
 // 这里只放不碰表单私有状态的东西，单测直接调。
 extension EmergencyContactFormView {
+    /// 新增页的标题。通讯录选人后的确认页（`EmergencyContactAddConfirmPage`）与手动输入页共用。
+    static let addTitle = "新增紧急联系人"
+
     /// 新增联系人有**外部副作用**：后端 `EmergencyContactService.addContact` 保存后会给这个第三方号码
     /// 发一条告知短信。盲人在按下「保存」之前有权知道这件事。
     ///
@@ -33,7 +36,7 @@ extension EmergencyContactFormView {
         guard AppState.isValidMainlandPhone(phone) else {
             return "已选择\(who)，但这个号码不是 11 位手机号，请换一个号码，或者手动输入。"
         }
-        return "已选择\(who)，手机号尾号 \(phone.suffix(4))。请确认后保存。"
+        return "已选择\(who)，手机号尾号 \(phone.suffix(4))。请确认后添加。"
     }
 
     /// 选中联系人后表单里要填的值。纯函数，单测钉着（#746：列表页直接选人后表单一打开就是这些值）。
