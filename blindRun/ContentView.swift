@@ -239,8 +239,11 @@ struct ContentView: View {
     @EnvironmentObject private var speechService: SpeechService
     @State private var showLogoutConfirmation = false
     #if DEBUG
-    // 只给下面那条 Mock 横幅用：横屏时顶部安全区为 0，没有能放它的地方。
+    // 只给下面那枚调试标记用：横屏时顶部安全区为 0，没有能放它的地方。
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    // 只给下面那枚调试标记用：无障碍字号下它会长到导航栏上，那时不显示。
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let debugBuildStamp = DebugBuildStamp.current
     #endif
     @StateObject private var rootRouter = ContentRootRouter()
     @State private var notificationAnnouncementGate = CurrentValueReplayGate<UUID>()
@@ -386,13 +389,19 @@ struct ContentView: View {
         // 落在屏幕圆角之内。横屏（`verticalSizeClass == .compact`）顶部安全区为 0，
         // 没有可落脚的地方，直接不挂 —— 与其盖住返回按钮，不如没有。
         //
-        // ponytail 天花板：状态栏只有 59pt 高，而字号必须可缩放（上面那条），所以 AX4/AX5
-        // 下这枚胶囊仍会长到导航栏上。没管，因为它 `#if DEBUG` + Mock 专属、不会发布，
-        // 且没有任何自动用例跑在 AX 档（UI 测试一律默认字号）。真要管：把 `dynamicTypeSize`
-        // 也加进上面那个 `if`，代价是审计放大字号时元素会消失，得重新验一轮审计。
+        // 无障碍字号（AX1–AX5）下不显示（2026-11-06 负责人定）：状态栏只有 59pt 高，而字号必须
+        // 可缩放（上面那条），AX 档下它会长到导航栏上挡住标题；审计十余条用例跑在 AX5，
+        // 负责人看到的截图因此每张都被它挡着。代价：AX 档的审计里不再有这个元素，
+        // `AccessibilityAuditTests+Audit.swift` 的 `mockBannerFrame` 本来就按「可能不存在」写。
+        //
+        // 文字（2026-11-06 起）：Mock 时「Mock」，`scripts/preview-build.sh` 装的预览包再加
+        // 「#784」或「3 个 PR」，规则在 `DebugBuildStamp`。云端环境、又不是预览包时不显示。
         .overlay(alignment: .topLeading) {
-            if appState.currentEnvironment == .mock, verticalSizeClass != .compact {
-                Label("Mock 本地模拟", systemImage: "exclamationmark.triangle.fill")
+            if let stampLabel = DebugBuildStamp.label(
+                isMock: appState.currentEnvironment == .mock,
+                contents: debugBuildStamp
+            ), verticalSizeClass != .compact, !dynamicTypeSize.isAccessibilitySize {
+                Label(stampLabel, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout.bold())
                     .foregroundColor(.black)
                     .padding(.horizontal, 12)
@@ -404,7 +413,10 @@ struct ContentView: View {
                     // 这个系统手势吃掉。
                     .allowsHitTesting(false)
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("警告：Mock 本地模拟，不连接云端")
+                    .accessibilityLabel(DebugBuildStamp.accessibilityLabel(
+                        isMock: appState.currentEnvironment == .mock,
+                        contents: debugBuildStamp
+                    ))
                     .accessibilityIdentifier("mockEnvironmentBanner")
                     .ignoresSafeArea(edges: .top)
             }
