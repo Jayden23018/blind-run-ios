@@ -95,8 +95,7 @@ final class BlindBookingViewModel: ObservableObject {
     /// UI 测试用的开跑时间：北京时间「明天 10:00」，与运行时刻无关（#418）。
     ///
     /// 默认值「现在 + 31 分钟」在北京时间约 20:30 之后跑，整段行程会撞上夜间窗口，
-    /// 下单冒烟因此「白天绿、半夜红」。真机上语音向导会把页面直接切到审阅步，
-    /// 绕过时间那一步的逐步检查，于是用例看到的是一枚亮不起来的「提交预约」。
+    /// 下单冒烟因此「白天绿、半夜红」（当时是旧四步表单，#810 已删；语音向导仍读这个时间）。
     /// 明天 10:00 距现在落在 (10, 34] 小时，过得了提前量、7 天上限和夜间窗口三道。
     nonisolated static func uiTestDaytimeAppointment(now: Date, calendar: Calendar = .aidRunBackend) -> Date {
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now

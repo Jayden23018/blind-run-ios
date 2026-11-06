@@ -42,14 +42,10 @@ extension BlindBookingViewModel {
     /// 这里不念：告知页出现时的播报会把它切断（记忆 later-speak-silently-cuts-the-earlier-one）。
     private func reject(_ error: APIError, appState: AppState) -> OrderResponse? {
         let message = error.localizedMessage
-        switch error.errorCode {
-        case .orderServiceNotOpen:
-            errorMessage = message
-            appState.noteBookingServiceNotOpen(message: message)
-            return nil
-        default:
-            return fail(message)
-        }
+        guard error.errorCode == .orderServiceNotOpen else { return fail(message) }
+        errorMessage = message
+        appState.noteBookingServiceNotOpen(message: message)
+        return nil
     }
 
     private func fail(_ message: String) -> OrderResponse? {

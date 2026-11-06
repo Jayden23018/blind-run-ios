@@ -44,7 +44,8 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(submit.isEnabled, "提交按钮灰着：没有默认选中的时段")
         submit.tap()
 
-        let error = app.staticTexts[message].firstMatch
+        // 按 label 找，不用下标：下标按 identifier 匹配，而根视图的 identifier 盖掉了子元素的（#814）。
+        let error = app.staticTexts.matching(NSPredicate(format: "label == %@", message)).firstMatch
         XCTAssertTrue(error.waitForExistence(timeout: 10), "读屏读不到后端那整句 message")
         XCTAssertTrue(waitForBookingScreen(app, timeout: 2), "被拒后离开了约跑页")
         attachScreenshot(app, name: "B-booking-outside-area-rejected")
