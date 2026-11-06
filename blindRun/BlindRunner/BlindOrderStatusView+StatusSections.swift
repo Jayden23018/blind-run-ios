@@ -133,27 +133,7 @@ extension BlindOrderStatusView {
                     .foregroundColor(AppColors.textSecondary)
                     .accessibilityLabel("感谢反馈，可以返回首页")
             } else {
-                RunExperienceRatingPicker(rating: $viewModel.reviewRating) // 默认不选，见 `RunExperienceRating.swift`
-
-                TextEditor(text: $viewModel.reviewComment)
-                    .frame(minHeight: 96)
-                    .padding(8)
-                    .background(AppColors.background)
-                    .cornerRadius(8)
-                    .accessibilityLabel("评价内容，选填")
-
-                // 描边次按钮：底部「完成」是这一屏唯一的实心主按钮（设计稿 ④；2026-10-05 评审第 2 条）。提交中淡下去并换文案。
-                Button(viewModel.isSubmittingReview ? "正在提交…" : "提交评价") { Task { await viewModel.submitReview() } }
-                    .buttonStyle(OutlineSecondaryButtonStyle()).disabled(viewModel.isSubmittingReview)
-                .accessibilityLabel(viewModel.isSubmittingReview ? "正在提交评价" : "提交评价")
-                .accessibilityHint("提交本次服务评分和评价")
-
-                Button("跳过评价") {
-                    viewModel.skipReview()
-                    dismiss()
-                }
-                .buttonStyle(TextButtonStyle(tint: AppColors.textSecondary, alignment: .center))
-                .accessibilityLabel("跳过评价")
+                reviewInputSection
             }
 
             favoriteVolunteerSection(order)
@@ -167,6 +147,44 @@ extension BlindOrderStatusView {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+    }
+
+    /// 还没提交评价时的打分、评价内容和两个按钮。从 `completionRatingSection` 拆出来（#795 加语音按钮后超长）。
+    @ViewBuilder
+    private var reviewInputSection: some View {
+        RunExperienceRatingPicker(rating: $viewModel.reviewRating) // 默认不选，见 `RunExperienceRating.swift`
+
+        TextEditor(text: $viewModel.reviewComment)
+            .frame(minHeight: 96)
+            .padding(8)
+            .background(AppColors.background)
+            .cornerRadius(8)
+            .accessibilityLabel("评价内容，选填")
+
+        VoiceDictationButton(
+            fieldTitle: "评价内容",
+            text: $viewModel.reviewComment,
+            speechInputService: speechInputService,
+            speechService: speechService,
+            speechField: .ratingFeedback
+        )
+        .disabled(viewModel.isSubmittingReview)
+
+        // 描边次按钮：底部「完成」是这一屏唯一的实心主按钮（设计稿 ④；2026-10-05 评审第 2 条）。提交中淡下去并换文案。
+        Button(viewModel.isSubmittingReview ? "正在提交…" : "提交评价") {
+            VoiceDictationButton.stopRecording(.ratingFeedback, on: speechInputService)
+            Task { await viewModel.submitReview() }
+        }
+            .buttonStyle(OutlineSecondaryButtonStyle()).disabled(viewModel.isSubmittingReview)
+        .accessibilityLabel(viewModel.isSubmittingReview ? "正在提交评价" : "提交评价")
+        .accessibilityHint("提交本次服务评分和评价")
+
+        Button("跳过评价") {
+            viewModel.skipReview()
+            dismiss()
+        }
+        .buttonStyle(TextButtonStyle(tint: AppColors.textSecondary, alignment: .center))
+        .accessibilityLabel("跳过评价")
     }
 
     /// 「把这一单的志愿者设为固定搭档」。

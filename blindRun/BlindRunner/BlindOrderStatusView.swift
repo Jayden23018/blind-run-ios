@@ -287,7 +287,8 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
-    @EnvironmentObject private var speechInputService: SpeechInputService
+    /// 不是 `private`：评价框的语音输入在 `+StatusSections.swift` 里用它（#795）。
+    @EnvironmentObject var speechInputService: SpeechInputService
     /// 求助中心的「播报我的位置」要逆地理。取 `@EnvironmentObject` 而不是就地 new 一个：
     /// view model 那一侧是 `weak` 持有，临时对象传进去等于传 nil（守卫 `weak-temporary`）。
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService

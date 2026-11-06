@@ -432,7 +432,7 @@ confirm（确认轮）
 | 音频会话 | `.playAndRecord` + `.duckOthers` + `.defaultToSpeaker` |
 | 录音起止提示音 | 程序合成的双音符 WAV（起始 660→990 Hz，结束 880→587 Hz，每段 0.11 秒） |
 | 停止原因 | `manual` / `finalResult` / `silenceTimeout(是否检测到声音)` / `maxDuration` / `error` |
-| 输入场景 | 13 个具名场景（`SpeechInputField`），各自独立的超时与提示策略 |
+| 输入场景 | 16 个具名场景（`SpeechInputField`），各自独立的超时与提示策略 |
 
 **为什么用合成音而非音频文件**：起止提示音是唯一告诉用户"现在开始录了 / 已经停了"的信号。程序合成保证音色一致、不受资源丢失影响，且能精确控制时长。
 

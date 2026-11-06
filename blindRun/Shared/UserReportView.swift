@@ -59,6 +59,9 @@ struct UserReportView: View {
     let speakError: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// 只给详情框的语音输入用（#795）。根视图注入，弹层继承。
+    @EnvironmentObject private var speechInputService: SpeechInputService
+    @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = UserReportViewModel()
     @FocusState private var isEditorFocused: Bool
 
@@ -126,6 +129,15 @@ struct UserReportView: View {
             .accessibilityLabel(UserSafetyCopy.detailPrompt)
             .accessibilityIdentifier("userReportDetail")
 
+        VoiceDictationButton(
+            fieldTitle: "补充说明",
+            text: $viewModel.detail,
+            speechInputService: speechInputService,
+            speechService: speechService,
+            speechField: .userReportDetail
+        )
+        .disabled(viewModel.isSubmitting)
+
         if viewModel.remainingCharacters <= 100 {
             Text(UserSafetyCopy.remaining(max(viewModel.remainingCharacters, 0)))
                 .font(AppFonts.caption())
@@ -145,6 +157,7 @@ struct UserReportView: View {
         PrimaryButton(UserSafetyCopy.submitReport, isLoading: viewModel.isSubmitting) {
             Task {
                 isEditorFocused = false
+                VoiceDictationButton.stopRecording(.userReportDetail, on: speechInputService)
                 if await viewModel.submit(target: target, appState: appState) {
                     if let message = viewModel.submittedMessage { speak(message) }
                 } else if let message = viewModel.errorMessage {

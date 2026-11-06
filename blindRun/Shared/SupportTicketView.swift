@@ -72,6 +72,9 @@ struct SupportTicketView: View {
     let speakError: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// 只给输入框的语音输入用（#795）。根视图注入，弹层继承。
+    @EnvironmentObject private var speechInputService: SpeechInputService
+    @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = SupportTicketViewModel()
     @FocusState private var isEditorFocused: Bool
 
@@ -102,6 +105,15 @@ struct SupportTicketView: View {
                         .focused($isEditorFocused)
                         .accessibilityLabel(SupportTicketCopy.prompt)
                         .accessibilityIdentifier("supportTicketEditor")
+
+                    VoiceDictationButton(
+                        fieldTitle: "问题描述",
+                        text: $viewModel.content,
+                        speechInputService: speechInputService,
+                        speechService: speechService,
+                        speechField: .supportTicketContent
+                    )
+                    .disabled(viewModel.isSubmitting)
 
                     noticeText
                         .font(.footnote)
@@ -145,6 +157,7 @@ struct SupportTicketView: View {
                     PrimaryButton(SupportTicketCopy.submit, isLoading: viewModel.isSubmitting) {
                         Task {
                             isEditorFocused = false
+                            VoiceDictationButton.stopRecording(.supportTicketContent, on: speechInputService)
                             if await viewModel.submit(orderID: orderID, category: category, appState: appState) {
                                 speak(SupportTicketCopy.submitted)
                                 dismiss()
