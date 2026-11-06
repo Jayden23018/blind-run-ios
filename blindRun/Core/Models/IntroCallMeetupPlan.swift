@@ -80,6 +80,9 @@ nonisolated struct IntroCallOriginalArrangement: Sendable, Equatable {
     let startAddress: String?
     let startLatitude: Double?
     let startLongitude: Double?
+    /// 原约的配速与导盲犬（后端 #932 在 `IntroCallView` 顶层带出）。`nil` = 不知道 ⇒ 确认页只念新值、不念「原来是」。
+    var pacePreference: PacePreference? = nil
+    var hasGuideDogThisRun: Bool? = nil
 }
 
 nonisolated struct IntroCallMeetupChanges: Sendable, Equatable {
@@ -334,10 +337,12 @@ enum IntroCallMeetupCopy {
         }
         // 时段单（#806）陪跑员通话后填的跑步需求，顺序固定：配速 → 导盲犬 → 备注。没填的那项不念。
         if let pace = plan.pacePreference, pace != .unknown, pace != .noPreference {
-            items.append("\(paceItemPrefix)\(pace.displayName)。")
+            let was = original.pacePreference.flatMap { $0 == pace ? nil : $0 }
+            items.append("\(paceItemPrefix)\(pace.displayName)" + (was.map { "，陪跑员改过，原来是\($0.displayName)" } ?? "") + "。")
         }
         if let dog = plan.hasGuideDogThisRun {
-            items.append("\(guideDogItemPrefix)\(dog ? "带" : "不带")。")
+            let was = original.hasGuideDogThisRun.flatMap { $0 == dog ? nil : $0 }
+            items.append("\(guideDogItemPrefix)\(dog ? "带" : "不带")" + (was.map { "，陪跑员改过，原来是\($0 ? "带" : "不带")" } ?? "") + "。")
         }
         if let notes = plan.specialNotes?.nilIfBlank {
             items.append("\(notesItemPrefix)\(notes)。")
@@ -610,7 +615,9 @@ extension IntroCallView {
             plannedEndTime: plannedEndTime?.nilIfBlank?.backendTimestamp,
             startAddress: startAddress?.nilIfBlank,
             startLatitude: startLatitude,
-            startLongitude: startLongitude
+            startLongitude: startLongitude,
+            pacePreference: pacePreference == .unknown || pacePreference == .noPreference ? nil : pacePreference,
+            hasGuideDogThisRun: hasGuideDogThisRun
         )
     }
 

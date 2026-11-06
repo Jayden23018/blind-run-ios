@@ -87,6 +87,9 @@ nonisolated struct IntroCallView: Decodable, Sendable, Equatable {
     var timeFlexible: Bool? = nil
     /// 跑者想几点左右开始，安排单的开跑时间用它预填。
     var preferredStartTime: String? = nil
+    /// 原约的配速与导盲犬（后端 #932）。安排单改过的新值在 `plan` 里；盲人确认页据此念「原来是中等」。
+    var pacePreference: PacePreference? = nil
+    var hasGuideDogThisRun: Bool? = nil
 
     /// 对方的用户 id（backend#916）。**只传给举报和拉黑**，判定走 `CounterpartSafetyGate`。
     /// 陪跑员通话期间读不到订单详情，这里是他唯一能拿到对方 id 的地方，所以入口放在通话页。
