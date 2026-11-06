@@ -18,5 +18,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `build-for-testing` compiles (owner 2026-11-05: compile only, no test run)
-- [ ] 4.2 Spec coverage script passes against backend origin/main after #932 merges
+- [x] 4.1 `build-for-testing` compiles (owner 2026-11-05: compile only, no test run)
+- [x] 4.2 Spec coverage script passes against backend origin/main after #932 merges
