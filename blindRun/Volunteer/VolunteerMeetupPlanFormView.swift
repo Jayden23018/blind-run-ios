@@ -36,9 +36,7 @@ struct VolunteerMeetupPlanFormView: View {
 
     /// 时段单（#806）时跑者选的时段，「明天 6:00–11:00 之间」。`nil` = 准点单。
     let flexibleWindowText: String?
-    /// 开跑时间最远能改到几天后（后端 `maxLeadDays`，#821 起约跑可到 30 天）。写死 7 天时，
-    /// 8 天以后的时段单陪跑员填不了安排单。
-    let maxLeadDays: Int
+    let maxLeadDays: Int // 开跑时间最远几天后（后端 `maxLeadDays`，#821）：写死 7 天时 8 天后的时段单填不了安排单
 
     /// - Parameter timeFlexible: 时段单（`IntroCallView.timeFlexible`）。是时段单时开跑时间必填，并出现跑步需求四块。
     init(
@@ -47,13 +45,10 @@ struct VolunteerMeetupPlanFormView: View {
         windowEndsAt: Date?,
         timeFlexible: Bool = false,
         preferredStart: Date? = nil,
-        flexibleWindowText: String? = nil,
-        maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays,
+        flexibleWindowText: String? = nil, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays,
         onSubmit: @escaping @MainActor (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
     ) {
-        self.windowEndsAt = windowEndsAt
-        self.maxLeadDays = maxLeadDays
-        self.onSubmit = onSubmit
+        (self.windowEndsAt, self.maxLeadDays, self.onSubmit) = (windowEndsAt, maxLeadDays, onSubmit)
         self.flexibleWindowText = timeFlexible ? flexibleWindowText : nil
         var draft = VolunteerMeetupPlanDraft(original: original, editing: plan)
         if timeFlexible {

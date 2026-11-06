@@ -52,7 +52,13 @@ struct BlindMatchFirstBookingView: View {
                     BookingDateStrip(now: now, rules: rules, selectedDay: selectedDay) { day in selectDay(day) }
                 }
                 sectionTitle("大概什么时候？")
-                GroupedCard { slotCard }
+                GroupedCard {
+                    BookingSlotSection(
+                        now: now, rules: rules, selectedDay: selectedDay, selectedSlot: selectedSlot,
+                        preferredStart: preferredStart, dutyHoursHint: dutyHoursHint,
+                        onSelectSlot: selectSlot, onTogglePreferredStart: togglePreferredStart
+                    )
+                }
                 if let message = viewModel.errorMessage {
                     Text(message)
                         .font(AppFonts.body().bold())
@@ -107,96 +113,10 @@ struct BlindMatchFirstBookingView: View {
         return viewModel.isResolvingStartLocation ? "正在获取当前位置…" : "还没拿到当前位置"
     }
 
-    // MARK: 大概什么时候
-
-    private var slotCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let hint = dutyHoursHint {
-                Label {
-                    Text(hint).fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "clock").accessibilityHidden(true)
-                }
-                .font(.footnote)
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .padding(.bottom, 8)
-                .accessibilityIdentifier("matchFirstDutyHoursHint")
-            }
-            HStack(spacing: 10) {
-                ForEach(BookingDaySlot.allCases) { slot in slotPill(slot) }
-            }
-            Rectangle()
-                .fill(AppColors.Flow.separator)
-                .frame(height: 1)
-                .padding(.vertical, 8)
-                .accessibilityHidden(true)
-            startTimeSection
-        }
-        .padding(16)
-    }
-
     /// 值守时段那句由后端拼好，原样显示（`LaunchScopeResponse.dutyHoursHint`）。没有限制时不显示。
     private var dutyHoursHint: String? {
         guard let scope = appState.ruleParamsResponse?.launchScope, scope.dutyHoursRestricted else { return nil }
         return scope.dutyHoursHint
-    }
-
-    private func slotPill(_ slot: BookingDaySlot) -> some View {
-        let range = selectedDay.flatMap { BookingSlotPlanner.window(day: $0, slot: slot, now: now, rules: rules) }
-        let reason = selectedDay.flatMap { BookingSlotPlanner.unavailableReason(day: $0, slot: slot, now: now, rules: rules) }
-        let rangeText = range.map { "\(BookingSlotText.clock($0.start))–\(BookingSlotText.clock($0.end))" }
-        return BookingChoicePill(
-            title: slot.title,
-            subtitle: rangeText ?? reason?.text,
-            isSelected: selectedSlot == slot,
-            height: 52,
-            isEnabled: range != nil,
-            fillsWidth: true
-        ) { selectSlot(slot) }
-        .accessibilityLabel(
-            range.map { "\(slot.title)，\(BookingSlotText.clock($0.start))到\(BookingSlotText.clock($0.end))之间" }
-                ?? "\(slot.title)，\(reason?.text ?? BookingSlotUnavailableReason.passed.text)"
-        )
-        .accessibilityIdentifier("matchFirstSlot_\(slot.rawValue)")
-    }
-
-    // MARK: 想几点开始（可不选）
-
-    private var startTimeSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(startTimeHint)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                alignment: .leading,
-                spacing: 0
-            ) {
-                ForEach(startTimes, id: \.self) { time in
-                    BookingChoicePill(
-                        title: BookingSlotText.clock(time), isSelected: preferredStart == time, height: 44, fillsWidth: true,
-                        singleLine: true
-                    ) {
-                        togglePreferredStart(time)
-                    }
-                    .accessibilityHint("可以不选，电话里再定")
-                }
-            }
-        }
-    }
-
-    private var startTimes: [Date] {
-        guard let selectedDay, let selectedSlot else { return [] }
-        return BookingSlotPlanner.startTimes(day: selectedDay, slot: selectedSlot, now: now, rules: rules)
-    }
-
-    private var startTimeHint: String {
-        guard let selectedDay, let selectedSlot,
-              BookingSlotPlanner.window(day: selectedDay, slot: selectedSlot, now: now, rules: rules) != nil else {
-            return "先选一个时段"
-        }
-        return "具体几点可以不选，电话里再定"
     }
 
     // MARK: 主按钮

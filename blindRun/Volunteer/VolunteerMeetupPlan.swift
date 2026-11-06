@@ -186,9 +186,7 @@ struct VolunteerMeetupPlanDraft: Equatable {
 
     /// 时间那一块的就地错误。选择器已经挡住了「太早 / 太远」，这里再兜一次（窗口在走，几分钟前合法的值现在可能已经太早），
     /// 并补上选择器挡不住的夜间窗口（判据是整段，与下单页同一个函数）。
-    func timeError(
-        now: Date, windowEndsAt: Date?, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays
-    ) -> String? {
+    func timeError(now: Date, windowEndsAt: Date?, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays) -> String? {
         if isTimeFlexible, plannedStart == nil { return VolunteerMeetupPlanCopy.flexibleStartRequired }
         guard timeChanged, let start = plannedStart else { return nil }
         if start < Self.earliestStart(now: now, windowEndsAt: windowEndsAt) - TimeInterval(Self.minuteInterval * 60) {

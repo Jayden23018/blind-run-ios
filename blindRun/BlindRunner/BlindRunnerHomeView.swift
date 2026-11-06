@@ -949,11 +949,7 @@ private extension BlindRunnerHomeView {
                 path.removeAll()
                 viewModel.noteBookingTrackConsentDeclined()
             }) {
-                BlindMatchFirstBookingView(
-                    favoritePlaces: favoritePlaces,
-                    // 叠在约跑页上面进添加页；添加页存完退回约跑页（见 `BlindFavoritePlaceAddRoute.finish`）。
-                    onAddFavorite: { path.append(.addFavoritePlace) }
-                ) { response in
+                BlindMatchFirstBookingView(favoritePlaces: favoritePlaces, onAddFavorite: { path.append(.addFavoritePlace) }) { response in
                     viewModel.handleOrderCreated(response)
                     if let orderId = response.id {
                         path = [.orderStatus(orderId)]

@@ -440,8 +440,7 @@ struct VolunteerIntroCallView: View {
                 windowEndsAt: introCall.windowEndsAt?.nilIfBlank?.backendTimestamp,
                 timeFlexible: introCall.timeFlexible == true,
                 preferredStart: introCall.preferredStartTime?.nilIfBlank?.backendTimestamp,
-                flexibleWindowText: RunPlanFormat.flexibleWindow(start: introCall.plannedStartTime, end: introCall.plannedEndTime),
-                maxLeadDays: appState.ruleParams.maxLeadDays
+                flexibleWindowText: RunPlanFormat.flexibleWindow(start: introCall.plannedStartTime, end: introCall.plannedEndTime), maxLeadDays: appState.ruleParams.maxLeadDays
             ) { request, distance in
                 await viewModel.submitPlan(request, distanceFromOriginal: distance)
             }
