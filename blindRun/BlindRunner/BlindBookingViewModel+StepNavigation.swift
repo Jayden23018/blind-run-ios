@@ -37,14 +37,14 @@ extension BlindBookingViewModel {
     /// 进页面就把第一个「本页填不了」的门槛播出来。
     ///
     /// 起点和时间是这一页自己的槽位，缺了不算进不来，向导和分步提示各自会管。
-    /// 剩下三道都得去别的页面补（资料 / 紧急联系人），
-    /// 越早说越好：审阅步的按钮禁用状态走的是全部五道门槛，用户填完四步撞上一个灰按钮时，
+    /// 剩下的紧急联系人得去别的页面补，
+    /// 越早说越好：审阅步的按钮禁用状态走的是全部门槛，用户填完四步撞上一个灰按钮时，
     /// 看不见屏幕的人只会当成「点了没反应」。
     ///
     /// 语音路径不走这里 —— `VoiceOrderWizard.start()` 在启动前用同一套门槛自己播过一次了。
     ///
     /// 从约跑页顶部的「约跑前还差 N 项」补完回来时也走这里（页面重新出现，#781）：
-    /// 补上了的那项不再念，上一次留在屏幕上的那句撤掉，否则屏幕还在说「还要填昵称」。
+    /// 补上了的那项不再念，上一次留在屏幕上的那句撤掉，否则屏幕还在说「还要设好紧急联系人」。
     func announceEntryGateIfNeeded() {
         guard let gate = firstMissingGate, gate != .startPoint, gate != .appointmentTime else {
             if let errorMessage, BlindBookingGate.isSetupMessage(errorMessage) {

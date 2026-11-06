@@ -2,7 +2,7 @@ import CoreLocation
 import XCTest
 @testable import blindRun
 
-/// 下单硬门槛与盲人引导流的顺序判定。两者都是纯函数，直接驱动。
+/// 下单硬门槛的顺序判定（纯函数，直接驱动）与它在 ViewModel 上的接线。
 final class BlindBookingGateTests: XCTestCase {
 
     // MARK: - 下单门槛
@@ -10,7 +10,6 @@ final class BlindBookingGateTests: XCTestCase {
     func testAllSatisfiedReturnsNoGate() {
         XCTAssertNil(
             BlindBookingGate.firstMissing(
-                isBasicProfileComplete: true,
                 hasValidEmergencyContacts: true,
                 hasStartPoint: true,
                 isAppointmentTimeValid: true
@@ -21,34 +20,31 @@ final class BlindBookingGateTests: XCTestCase {
     func testFirstMissingFollowsDeclaredOrder() {
         // 全部缺失时只报第一个可操作项，逐个补齐后依次推进。
         let expectedSequence: [BlindBookingGate] = [
-            .basicProfile, .emergencyContacts, .startPoint, .appointmentTime
+            .emergencyContacts, .startPoint, .appointmentTime
         ]
-        // profile, contacts, startPoint, timeValid
-        var flags = [false, false, false, false]
+        // contacts, startPoint, timeValid
+        var flags = [false, false, false]
 
         for expected in expectedSequence {
             let gate = BlindBookingGate.firstMissing(
-                isBasicProfileComplete: flags[0],
-                hasValidEmergencyContacts: flags[1],
-                hasStartPoint: flags[2],
-                isAppointmentTimeValid: flags[3]
+                hasValidEmergencyContacts: flags[0],
+                hasStartPoint: flags[1],
+                isAppointmentTimeValid: flags[2]
             )
             XCTAssertEqual(gate, expected)
 
             switch expected {
-            case .basicProfile: flags[0] = true
-            case .emergencyContacts: flags[1] = true
-            case .startPoint: flags[2] = true
-            case .appointmentTime: flags[3] = true
+            case .emergencyContacts: flags[0] = true
+            case .startPoint: flags[1] = true
+            case .appointmentTime: flags[2] = true
             }
         }
 
         XCTAssertNil(
             BlindBookingGate.firstMissing(
-                isBasicProfileComplete: flags[0],
-                hasValidEmergencyContacts: flags[1],
-                hasStartPoint: flags[2],
-                isAppointmentTimeValid: flags[3]
+                hasValidEmergencyContacts: flags[0],
+                hasStartPoint: flags[1],
+                isAppointmentTimeValid: flags[2]
             )
         )
     }
@@ -255,14 +251,14 @@ final class BlindBookingGateTests: XCTestCase {
     @MainActor
     func testEntryAnnouncementCoversOnlyGatesFixedElsewhere() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
-        // 昵称未填 ⇒ basicProfile 缺失。
+        // 没昵称、没紧急联系人：只念紧急联系人那句，昵称不是门槛（#789）。
         let viewModel = makeBookingViewModel(appState: appState)
         viewModel.announceEntryGateIfNeeded()
-        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.basicProfile.message)
+        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.emergencyContacts.message)
 
-        // 前四道都过、只差本页的起点时，进页面不该播报。
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        // 紧急联系人齐了、昵称仍空、只差本页的起点时，进页面不该播报。
         appState.updateEmergencyContacts([contact(1, primary: true)])
+        XCTAssertNil(appState.blindProfile?.name, "前提：这个账号没有昵称")
         // 起点缺失只能用 `locationService: nil` 表达：这个 appState 是 Mock 环境，
         // 而 Mock 通道本来就放行演示坐标当起点（`allowsDemoFallbackAsStartPoint`），
         // 挂任何一个活着的 LocationService 都会让 `.startPoint` 直接通过。
@@ -272,18 +268,14 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertNil(onPageOnly.errorMessage)
     }
 
-    /// 从「约跑前还差 N 项」补完回到约跑页（页面重新出现）时，上次那句「还要填昵称」要撤掉（#781）。
+    /// 从「约跑前还差 N 项」补完回到约跑页（页面重新出现）时，上次那句「还要设好紧急联系人」要撤掉（#781）。
     /// 别的错误（比如提交失败）不归这里管，留着。
     @MainActor
     func testEntryAnnouncementClearsSetupMessageOnceFilledIn() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
         let viewModel = makeBookingViewModel(locationService: nil, appState: appState)
         viewModel.announceEntryGateIfNeeded()
-        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.basicProfile.message, "前提：缺昵称时念过")
-
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
-        viewModel.announceEntryGateIfNeeded()
-        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.emergencyContacts.message, "补了昵称，改念还差的那一项")
+        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.emergencyContacts.message, "前提：缺紧急联系人时念过")
 
         appState.updateEmergencyContacts([contact(1, primary: true)])
         viewModel.announceEntryGateIfNeeded()

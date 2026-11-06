@@ -43,34 +43,31 @@ final class VoiceOrderWizardStartGateTests: XCTestCase, VoiceOrderWizardTestSupp
     // 它真的被接上。（openspec tasks 3.4 / 3.5）
 
 
-    /// 四道「本页填不了」的门槛缺任意一道，`start()` 都不得开麦，并且必须把原因说出来。
+    /// 「本页填不了」的门槛（现在只剩紧急联系人）缺了，`start()` 都不得开麦，并且必须把原因说出来。
     ///
     /// 门槛的唯一真源是后端 `OrderCreationService.createOrder`，客户端这份只是把同样的顺序提前。
     /// 让盲人说完一整句才被服务端 403 拒掉是最坏的顺序。
     func testStartIsBlockedByGatesThatVoiceCannotFill() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
-        // 昵称未填 ⇒ basicProfile 缺失，这一道只能去个人资料页补。
+        // 没有紧急联系人 ⇒ 只能去紧急联系人页补。昵称也没填，但它不是门槛（#789）。
         let viewModel = BlindBookingViewModel()
         viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
         let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
 
         XCTAssertFalse(wizard.start(), "门槛没过就不该起步")
         XCTAssertFalse(wizard.isRunning)
-        XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.basicProfile.message, "拦住了就必须说得出原因")
+        XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.emergencyContacts.message, "拦住了就必须说得出原因")
     }
 
     /// 从「约跑前还差 N 项」补完回来（#781）：顶上那句改成还差的下一项，都齐了就撤掉，且不开麦。
-    /// 撤不掉的话，屏幕在卡片消失后还说「还要填昵称」，零输入下单的大按钮也会被它误放出来。
+    /// 撤不掉的话，屏幕在卡片消失后还说「还要设好紧急联系人」，零输入下单的大按钮也会被它误放出来。
     func testRefreshAfterFillingSetupItemsUpdatesThenClearsTheFallback() {
         let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
         let viewModel = BlindBookingViewModel()
         viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
         let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
-        XCTAssertFalse(wizard.start(), "前提：缺昵称被拦下")
-
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
-        wizard.refreshSetupGateFallback()
-        XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.emergencyContacts.message, "补了昵称，改说还差的那一项")
+        XCTAssertFalse(wizard.start(), "前提：缺紧急联系人被拦下")
+        XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.emergencyContacts.message)
 
         appState.updateEmergencyContacts([
             EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
