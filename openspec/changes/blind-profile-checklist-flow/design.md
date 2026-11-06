@@ -14,7 +14,7 @@
 - **Phrase join and read-back is a pure function** (`BlindProfilePhrases`). The single-choice phrase comes first, then the multi-choice phrases in a fixed order, then the supplement. All parts are joined with "；". On read-back, the app splits on "；". Segments that match a phrase exactly are selected. All other segments are joined back with "；" in their original order and become the supplement. This keeps old text, and unit tests can cover it without UI.
 - **"Set" status comes from stored data, not from local flags.** For this reason, every option on the 路况播报 question stores a phrase ("详略均可" is also stored), and 其他需求 has the exclusive option "无其他需求". Without this, a saved card can still show "尚未设置".
 - **Consent screen inside the sheet** uses `PrivacyConsentPurpose.blindVisionProfile.title`, `.disclosures`, `.agreeButtonTitle` and `.declineButtonTitle` directly. It does not copy their text.
-- **Decline saves at once.** This makes the card show as answered ("未提供"). It uses the same `NOT_SPECIFIED` request that #784 sends after a decline.
+- **Decline saves at once.** It uses the same `NOT_SPECIFIED` request that #784 sends after a decline, and speaks the existing decline feedback. The card stays under "未设置": existing profiles were all back-filled with `NOT_SPECIFIED`, so that value cannot tell "declined" from "never asked".
 
 ## Risks / Trade-offs
 

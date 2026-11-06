@@ -112,8 +112,8 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(blindCard.waitForNonExistence(timeout: 10), "按了确认还停在角色页，角色没有提交")
     }
 
-    /// B-6：保存成功要上屏一句。#750 起资料页从账户页进来是查看页，没有底部「保存」：
-    /// 在选择页点一项就当场保存，结果写在选项列表正下方（绿字「已保存：xx」），对勾移到新选项。
+    /// B-6：保存成功要上屏一句。#812 起资料页是核对清单：点卡片弹出一题一屏，最后一题点「完成」整张卡保存，
+    /// 那张卡的状态行换成绿字「已保存：xx」并成为读屏值。
     func testBlindProfileSaveShowsSavedNotice() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
         let app = launchBlindHome()
@@ -122,30 +122,27 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(profileLink.waitForExistence(timeout: 10))
         profileLink.tap()
 
-        XCTAssertFalse(app.buttons["保存，保存资料"].firstMatch.waitForExistence(timeout: 3), "查看页不该再有底部「保存」")
-        let tetherRow = anyElement(app, "blindProfileTetherPreferencePicker")
-        XCTAssertTrue(tetherRow.waitForExistence(timeout: 10), "查看页没有「希望怎么被引导」")
-        XCTAssertEqual(tetherRow.value as? String, "牵引绳", "种子档案是牵引绳")
-        tetherRow.tap()
-        XCTAssertTrue(app.navigationBars["希望怎么被引导"].waitForExistence(timeout: 8), "没进引导方式选择页")
-        XCTAssertTrue(app.buttons["牵引绳"].firstMatch.isSelected, "选择页没把当前值标成已选")
+        XCTAssertFalse(app.buttons["保存，保存资料"].firstMatch.waitForExistence(timeout: 3), "清单页不该有底部「保存」")
+        let card = anyElement(app, "blindProfileCard_escort")
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "清单页没有「陪跑方式」")
+        XCTAssertTrue((card.value as? String ?? "").hasPrefix("牵引绳"), "种子档案是牵引绳：\(String(describing: card.value))")
+        card.tap()
+        let rope = app.buttons["blindProfileOption_tether_0"].firstMatch
+        XCTAssertTrue(rope.waitForExistence(timeout: 8), "没弹出「引导方式」")
+        XCTAssertTrue(rope.isSelected, "弹层没把当前值标成已选")
 
-        let armHold = app.buttons["搀扶"].firstMatch
+        let armHold = app.buttons["blindProfileOption_tether_1"].firstMatch
         armHold.tap()
-        let saved = anyElement(app, "blindProfileSavedNotice")
+        let advance = app.buttons["blindProfileFlowContinue"].firstMatch
+        advance.tap()
+        advance.tap() // 第 2 题配速已预选，直接「完成」
+        XCTAssertTrue(advance.waitForNonExistence(timeout: 10), "点「完成」后弹层没关")
+        let saved = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "已保存：搀扶")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 10), "保存成功后屏幕上没有任何反馈")
-        XCTAssertEqual(saved.label, "已保存：搀扶")
-        XCTAssertTrue(saved.isHittable, "「已保存：搀扶」被挡住了")
-        XCTAssertTrue(armHold.isSelected, "存上之后对勾没移到「搀扶」")
-        XCTAssertFalse(app.buttons["牵引绳"].firstMatch.isSelected, "旧选项还标着已选")
-        let lastChoice = app.buttons["仅语言引导"].firstMatch
-        XCTAssertLessThanOrEqual(lastChoice.frame.maxY, saved.frame.minY + 0.5, "提示没在选项列表下面")
+        XCTAssertTrue(card.isHittable, "存上的那张卡被挡住了")
+        XCTAssertTrue((card.value as? String ?? "").hasPrefix("已保存：搀扶"), "卡片读屏值没换成「已保存」")
         keepOnboardingScreenshot("profile-choice-saved")
         try audit(app)
-
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(tetherRow.waitForExistence(timeout: 8))
-        XCTAssertEqual(tetherRow.value as? String, "搀扶", "回到查看页那一行没跟着变")
     }
 
     /// B-10：姓名框键盘上方有「下一项」。#807 起手动新增页只剩姓名、手机号，「从通讯录选择」在列表页，不在这里。

@@ -1,7 +1,7 @@
 import XCTest
 
-/// 盲人端个人资料重做（#750，定稿 `docs/ui/mockups/blind-profile-edit-20261105/`）：
-/// 查看页、选择页、文字编辑页，各在亮 / 暗 / 最大字号下截图并整页审计。盲人端要测最大字号。
+/// 盲人端个人资料核对清单（#812，定稿 `docs/ui/mockups/blind-profile-checklist-20261106/`）：
+/// 清单页、一题一屏的弹层（单选、多选、补充说明），各在亮 / 暗 / 最大字号下截图并整页审计。盲人端要测最大字号。
 private let blindProfileVariants: [(name: String, environment: [String: String], arguments: [String])] = [
     ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
     ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
@@ -9,12 +9,12 @@ private let blindProfileVariants: [(name: String, environment: [String: String],
      ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
 ]
 
-private let guideNoteSample = "我习惯你在我左边，转弯前提前说一声"
+private let supplementSample = "我习惯陪跑员在我左侧"
 
 extension AccessibilityAuditTests {
 
-    /// 账户页进来的查看页：组标题按「陪跑员什么时候看得到」写、没有底部「保存」、每行 64pt；
-    /// 改「给陪跑员的话」走编辑页，存上后回到查看页那一行显示原文；改引导方式走选择页，当场保存。
+    /// 账户页进来的清单页：分「未设置 / 已设置」两组、没有底部「保存」、卡片与昵称入口 64pt；
+    /// 「途中提示」走三题弹层，存上后卡片念「已保存」；「陪跑方式」预选现有答案，改一项后整张卡保存。
     @MainActor
     func testBlindProfileOverviewChoiceAndEditPagesPassAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
@@ -23,9 +23,9 @@ extension AccessibilityAuditTests {
         for variant in blindProfileVariants {
             let app = launchBlindHome(extraEnvironment: variant.environment, extraArguments: variant.arguments)
             openProfileOverview(app, variant: variant.name)
-            try checkGuideNoteEditPage(app, variant: variant.name)
+            try checkGuideNoteFlow(app, variant: variant.name)
             try checkProfileOverview(app, variant: variant.name)
-            try checkTetherChoicePage(app, variant: variant.name)
+            try checkEscortFlow(app, variant: variant.name)
             app.terminate()
         }
     }
@@ -45,86 +45,119 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(app.navigationBars["个人资料"].waitForExistence(timeout: 10), "\(variant)：没进到个人资料")
     }
 
+    /// 「途中提示」三题：单选没选时「继续」不可用；多选可不选；补充说明的剩余字数把已选说法算进去。
     @available(iOS 17.0, *)
     @MainActor
-    private func checkGuideNoteEditPage(_ app: XCUIApplication, variant: String) throws {
-        let row = app.descendants(matching: .any)["blindProfileGuideNoteRow"].firstMatch
-        XCTAssertTrue(scrollUntilVisible(row, in: app), "\(variant)：查看页没有「给陪跑员的话」")
-        XCTAssertEqual(row.value as? String, "未填写", "\(variant)：种子档案没写这段，应念「未填写」")
-        row.tap()
-        XCTAssertTrue(app.navigationBars["给陪跑员的话"].waitForExistence(timeout: 8), "\(variant)：没进编辑页")
-        let field = app.descendants(matching: .any)["blindProfileTextEditField"].firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 5), "\(variant)：编辑页没有输入框")
-        field.tap()
-        field.typeText(guideNoteSample)
-        // 剩余字数跟着草稿走：17 个字 ⇒ 还能写 63 个字（定稿上的那句）。
-        let footnote = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "最多 80 个字，还能写 63 个字")).firstMatch
-        XCTAssertTrue(footnote.waitForExistence(timeout: 5), "\(variant)：剩余字数没跟着输入变")
-        let save = app.buttons["blindProfileTextEditSave"].firstMatch
-        XCTAssertGreaterThanOrEqual(save.frame.height, 63.5, "\(variant)：「保存」不足 64pt：\(save.frame)")
-        // 截图前收起键盘：键盘不是本页的东西，盖住一半也审不到底部按钮。
-        app.navigationBars["给陪跑员的话"].tap()
-        attachScreenshot(app, name: "blind-profile-edit-\(variant)")
+    private func checkGuideNoteFlow(_ app: XCUIApplication, variant: String) throws {
+        let card = app.descendants(matching: .any)["blindProfileCard_guideNote"].firstMatch
+        XCTAssertTrue(scrollUntilVisible(card, in: app), "\(variant)：清单页没有「途中提示」")
+        XCTAssertEqual(card.value as? String, "尚未设置", "\(variant)：种子档案没写这段，应念「尚未设置」")
+        XCTAssertGreaterThanOrEqual(card.frame.height, 63.5, "\(variant)：卡片不足 64pt：\(card.frame)")
+        card.tap()
+
+        let title = app.descendants(matching: .any)["blindProfileFlowQuestionTitle"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 8), "\(variant)：没弹出第 1 题")
+        XCTAssertEqual(title.label, "第 1 题，共 3 题，路况播报")
+        let advance = app.buttons["blindProfileFlowContinue"].firstMatch
+        XCTAssertFalse(advance.isEnabled, "\(variant)：没选时「继续」应不可用")
+        XCTAssertGreaterThanOrEqual(advance.frame.height, 63.5, "\(variant)：「继续」不足 64pt：\(advance.frame)")
+        attachScreenshot(app, name: "blind-profile-single-\(variant)")
         try audit(app)
 
-        save.tap()
-        XCTAssertTrue(app.navigationBars["个人资料"].waitForExistence(timeout: 10), "\(variant)：存上之后没回到查看页")
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        XCTAssertEqual(row.value as? String, guideNoteSample, "\(variant)：查看页那一行没显示刚存的原文")
+        app.buttons["blindProfileOption_guideDetail_0"].firstMatch.tap()
+        advance.tap()
+        let firstCue = app.buttons["blindProfileOption_guideCues_0"].firstMatch
+        XCTAssertTrue(firstCue.waitForExistence(timeout: 5), "\(variant)：没进第 2 题")
+        XCTAssertTrue(advance.isEnabled, "\(variant)：多选题一项不选也应能继续")
+        firstCue.tap()
+        XCTAssertTrue(firstCue.isSelected, "\(variant)：勾选后读屏没有「已选中」")
+        attachScreenshot(app, name: "blind-profile-multi-\(variant)")
+        try audit(app)
+        advance.tap()
+
+        let field = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "\(variant)：没进补充说明")
+        field.tap()
+        field.typeText(supplementSample)
+        // 「仅播报必要路况；转弯前提前提示；我习惯陪跑员在我左侧」26 个字 ⇒ 剩余 54 字。
+        let remaining = app.descendants(matching: .any)["blindProfileFlowRemaining"].firstMatch
+        XCTAssertTrue(remaining.waitForExistence(timeout: 5))
+        XCTAssertEqual(remaining.label, "含已选内容，剩余 54 字。", "\(variant)：剩余字数没把已选说法算进去")
+        // 截图前收起键盘：键盘不是本页的东西，盖住一半也审不到底部按钮。
+        title.tap()
+        attachScreenshot(app, name: "blind-profile-supplement-\(variant)")
+        try audit(app)
+
+        advance.tap()
+        XCTAssertTrue(waitUntilGone(title, timeout: 10), "\(variant)：点「完成」后弹层没关")
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertEqual(card.value as? String, "已保存：途中提示", "\(variant)：卡片没念「已保存」")
     }
 
     @available(iOS 17.0, *)
     @MainActor
     private func checkProfileOverview(_ app: XCUIApplication, variant: String) throws {
         for _ in 0..<6 { app.swipeDown() }
-        XCTAssertFalse(app.buttons["保存，保存资料"].firstMatch.exists, "\(variant)：查看页不该有底部「保存」")
+        XCTAssertFalse(app.buttons["保存，保存资料"].firstMatch.exists, "\(variant)：清单页不该有底部「保存」")
         let nickname = app.descendants(matching: .any)["blindProfileNicknameRow"].firstMatch
-        XCTAssertTrue(nickname.waitForExistence(timeout: 5), "\(variant)：查看页没有「昵称」")
+        XCTAssertTrue(nickname.waitForExistence(timeout: 5), "\(variant)：清单页没有「修改昵称」")
         XCTAssertEqual(nickname.value as? String, "测试盲人")
-        XCTAssertGreaterThanOrEqual(nickname.frame.height, 63.5, "\(variant)：昵称行不足 64pt：\(nickname.frame)")
-        for title in ["派单时，陪跑员就会看到", "接单后，陪跑员才看到"] {
+        XCTAssertGreaterThanOrEqual(nickname.frame.height, 63.5, "\(variant)：「修改昵称」不足 64pt：\(nickname.frame)")
+        for title in ["未设置", "已设置"] {
             XCTAssertTrue(scrollUntilVisible(app.staticTexts[title].firstMatch, in: app), "\(variant)：没有组标题「\(title)」")
         }
         for _ in 0..<6 { app.swipeDown() }
         attachScreenshot(app, name: "blind-profile-overview-\(variant)")
         try audit(app)
 
-        let contactsRow = app.descendants(matching: .any)["blindProfileEmergencyContactsRow"].firstMatch
-        XCTAssertTrue(scrollUntilVisible(contactsRow, in: app), "\(variant)：查看页没有紧急联系人那一行")
-        XCTAssertEqual(contactsRow.label, "管理紧急联系人")
-        XCTAssertEqual(contactsRow.value as? String, "1 位，主联系人是张三", "\(variant)：紧急联系人摘要不对")
-        XCTAssertGreaterThanOrEqual(contactsRow.frame.height, 63.5, "\(variant)：紧急联系人行不足 64pt")
+        let contactsCard = app.descendants(matching: .any)["blindProfileCard_emergencyContacts"].firstMatch
+        XCTAssertTrue(scrollUntilVisible(contactsCard, in: app), "\(variant)：清单页没有紧急联系人卡")
+        XCTAssertEqual(contactsCard.label, "管理紧急联系人")
+        XCTAssertEqual(contactsCard.value as? String, "1 位，主要联系人：张三", "\(variant)：紧急联系人摘要不对")
+        XCTAssertGreaterThanOrEqual(contactsCard.frame.height, 63.5, "\(variant)：紧急联系人卡不足 64pt")
         attachScreenshot(app, name: "blind-profile-overview-bottom-\(variant)")
         try audit(app)
         for _ in 0..<6 { app.swipeDown() }
     }
 
+    /// 「陪跑方式」：种子档案是牵引绳，打开就预选好；改成「搀扶」再走完两题，卡片念「已保存：搀扶，…」。
     @available(iOS 17.0, *)
     @MainActor
-    private func checkTetherChoicePage(_ app: XCUIApplication, variant: String) throws {
-        let tetherRow = app.descendants(matching: .any)["blindProfileTetherPreferencePicker"].firstMatch
-        XCTAssertTrue(scrollUntilVisible(tetherRow, in: app), "\(variant)：查看页没有「希望怎么被引导」")
-        tetherRow.tap()
-        XCTAssertTrue(app.navigationBars["希望怎么被引导"].waitForExistence(timeout: 8), "\(variant)：没进选择页")
-        for title in ["还没决定", "牵引绳", "搀扶", "仅语言引导"] {
-            let choice = app.buttons[title].firstMatch
-            XCTAssertTrue(scrollUntilVisible(choice, in: app), "\(variant)：选择页没有「\(title)」")
-            XCTAssertGreaterThanOrEqual(choice.frame.height, 63.5, "\(variant)：「\(title)」不足 64pt：\(choice.frame)")
+    private func checkEscortFlow(_ app: XCUIApplication, variant: String) throws {
+        let card = app.descendants(matching: .any)["blindProfileCard_escort"].firstMatch
+        XCTAssertTrue(scrollUntilVisible(card, in: app), "\(variant)：清单页没有「陪跑方式」")
+        card.tap()
+        let rope = app.buttons["blindProfileOption_tether_0"].firstMatch
+        XCTAssertTrue(rope.waitForExistence(timeout: 8), "\(variant)：没弹出「引导方式」")
+        XCTAssertTrue(rope.isSelected, "\(variant)：现有答案（牵引绳）没预选")
+        for offset in 0..<4 {
+            let option = app.buttons["blindProfileOption_tether_\(offset)"].firstMatch
+            XCTAssertTrue(scrollUntilVisible(option, in: app), "\(variant)：没有第 \(offset) 项")
+            XCTAssertGreaterThanOrEqual(option.frame.height, 63.5, "\(variant)：第 \(offset) 项不足 64pt：\(option.frame)")
         }
-        for _ in 0..<4 { app.swipeDown() }
-        app.buttons["牵引绳"].firstMatch.tap() // 种子档案已是牵引绳：只念「现在就是」，不发请求
-        XCTAssertFalse(
-            app.descendants(matching: .any)["blindProfileSavedNotice"].firstMatch.waitForExistence(timeout: 2),
-            "\(variant)：点已选中的那项不该保存"
-        )
-        let armHold = app.buttons["搀扶"].firstMatch
+        let armHold = app.buttons["blindProfileOption_tether_1"].firstMatch
         armHold.tap()
-        let saved = app.descendants(matching: .any)["blindProfileSavedNotice"].firstMatch
-        XCTAssertTrue(scrollUntilVisible(saved, in: app), "\(variant)：选完没出「已保存」")
-        XCTAssertEqual(saved.label, "已保存：搀扶")
         XCTAssertTrue(armHold.isSelected, "\(variant)：对勾没移到「搀扶」")
+        XCTAssertFalse(rope.isSelected, "\(variant)：旧选项还标着已选")
         attachScreenshot(app, name: "blind-profile-choice-\(variant)")
         try audit(app)
+
+        let advance = app.buttons["blindProfileFlowContinue"].firstMatch
+        advance.tap()
+        XCTAssertTrue(app.buttons["blindProfileFlowBack"].firstMatch.waitForExistence(timeout: 5), "\(variant)：第 2 题没有返回钮")
+        advance.tap()
+        XCTAssertTrue(waitUntilGone(advance, timeout: 10), "\(variant)：点「完成」后弹层没关")
+        XCTAssertTrue(
+            (card.value as? String ?? "").hasPrefix("已保存：搀扶"),
+            "\(variant)：卡片没念「已保存：搀扶」：\(String(describing: card.value))"
+        )
+    }
+
+    /// 等元素消失（弹层关掉）。`blindRunUITests` 那份同名工具不在这个类上。
+    @MainActor
+    private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     /// 滚到元素出现在窗口里（`List` / `ScrollView` 不渲染屏外的行，断言前先滚）。最多上划 8 次。

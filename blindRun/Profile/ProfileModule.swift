@@ -258,7 +258,12 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// `revert` 在主线程上同步调用，不存起来（记忆 `unannotated-async-closure-property-crashes-on-device`）。
     /// `requiresNickname`：昵称编辑页传 true，空昵称不许存；别的行昵称可以空着。
     @discardableResult
-    func saveChange(savedLabel: String, requiresNickname: Bool = false, revert: () -> Void) async -> Bool {
+    func saveChange(
+        savedLabel: String,
+        requiresNickname: Bool = false,
+        failureText: ((String) -> String)? = nil,
+        revert: () -> Void
+    ) async -> Bool {
         guard let appState, !isLoading else {
             revert()
             return false
@@ -271,11 +276,45 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             speechService?.speakError(validationError)
             return false
         }
-        let saved = await saveProfile(appState: appState, savedText: Self.savedChangeText(savedLabel))
+        let saved = await saveProfile(appState: appState, savedText: Self.savedChangeText(savedLabel), failureText: failureText)
         if !saved {
             revert()
         }
         return saved
+    }
+
+    /// 核对清单的一张卡（#812）：`apply` 把弹层里的答案写进本对象，再整份保存一次。
+    /// 没存上 ⇒ 这张卡涉及的字段全部改回打开前的值（弹层里的答案由调用方留着），返回 false。
+    @discardableResult
+    func saveCard(savedLabel: String, apply: (BlindRunnerProfileViewModel) -> Void) async -> Bool {
+        let snapshot = CardFieldsSnapshot(of: self)
+        apply(self)
+        return await saveChange(savedLabel: savedLabel, failureText: Self.cardSaveFailureText) {
+            snapshot.restore(to: self)
+        }
+    }
+
+    /// 卡片没存上时的那句（负责人 11-06 批准的书面说法）。原因去掉句末标点再拼，免得出现「。。」。
+    static func cardSaveFailureText(_ reason: String) -> String {
+        let trimmed = reason.trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "。，,."))
+        return "保存失败：\(trimmed)。已选内容已保留，请再次点按「完成」。"
+    }
+
+    /// 视力卡同意页点「不填这一项」：记下拒绝并**立即**整份保存（两项显式发 `NOT_SPECIFIED`）。
+    /// 成功后念的是拒绝反馈本身（`declinedFeedback`），不另念「已保存」，免得后到的那句切断它。
+    @discardableResult
+    func declineVisionConsentAndSave() async -> Bool {
+        declineVisionConsent()
+        guard let appState, !isLoading else { return false }
+        if let validationError = profileValidationError {
+            errorMessage = validationError
+            speechService?.speakError(validationError)
+            return false
+        }
+        return await saveProfile(
+            appState: appState,
+            savedText: PrivacyConsentPurpose.blindVisionProfile.declinedFeedback
+        )
     }
 
     static func savedChangeText(_ label: String) -> String {
@@ -289,7 +328,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
 
     @discardableResult
-    private func saveProfile(appState: AppState, savedText: String = savedNoticeText) async -> Bool {
+    private func saveProfile(
+        appState: AppState,
+        savedText: String = savedNoticeText,
+        failureText: ((String) -> String)? = nil
+    ) async -> Bool {
         isLoading = true
         errorMessage = nil
         savedNotice = nil
@@ -321,11 +364,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             if appState.handleAuthenticatedAPIError(error) {
                 return false
             }
-            reportSaveFailure(error.localizedMessage, withdrawing: withdrawing)
+            reportSaveFailure(failureText?(error.localizedMessage) ?? error.localizedMessage, withdrawing: withdrawing)
             return false
         } catch {
             isLoading = false
-            reportSaveFailure("保存失败，请重试", withdrawing: withdrawing)
+            reportSaveFailure(failureText?("网络连接异常") ?? "保存失败，请重试", withdrawing: withdrawing)
             return false
         }
     }
@@ -340,25 +383,72 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
 }
 
+/// `saveCard` 没存上时用来改回去的那几项。只装卡片会改到的字段：昵称、同意状态不在其中。
+@MainActor
+private struct CardFieldsSnapshot {
+    let tetherPreference: TetherPreference?
+    let defaultPace: PacePreference
+    let visionLevel: VisionLevel?
+    let guideDog: GuideDogStatus
+    let guidePreferenceText: String
+    let specialNeeds: String
+
+    init(of viewModel: BlindRunnerProfileViewModel) {
+        tetherPreference = viewModel.tetherPreference
+        defaultPace = viewModel.defaultPace
+        visionLevel = viewModel.visionLevel
+        guideDog = viewModel.guideDog
+        guidePreferenceText = viewModel.guidePreferenceText
+        specialNeeds = viewModel.specialNeeds
+    }
+
+    func restore(to viewModel: BlindRunnerProfileViewModel) {
+        viewModel.tetherPreference = tetherPreference
+        viewModel.defaultPace = defaultPace
+        viewModel.visionLevel = visionLevel
+        viewModel.guideDog = guideDog
+        viewModel.guidePreferenceText = guidePreferenceText
+        viewModel.specialNeeds = specialNeeds
+    }
+}
+
 // MARK: - Blind Runner Profile View
 
-/// 个人资料（#750，负责人 2026-11-05「按推荐开工」）：先看后改。点哪一行改哪一行，改完当场整份保存
-/// （选项类推入 `BlindProfileChoicePage`，文字类推入 `BlindProfileTextEditPage`）。
+/// 个人资料（#812，负责人 2026-11-06 批准，定稿 `docs/ui/mockups/blind-profile-checklist-20261106/`）：
+/// 照健康「健康核对清单」，5 张卡分「未设置 / 已设置」两组。点卡片弹出一题一屏的弹层
+/// （`BlindProfileQuestionFlow`），整张卡答完点「完成」才保存；紧急联系人卡进 `EmergencyContactsView`。
 ///
-/// 只有这一种排法：#781 起新用户登录后直接进首页，不再有「首次建档一次填完」的表单，
-/// 约跑页缺资料时也是推入本页（负责人 2026-11-05 批准）。
+/// 只有这一种排法：#781 起新用户登录后直接进首页，约跑页缺资料时也推入本页。
 struct BlindRunnerProfileView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = BlindRunnerProfileViewModel()
-    @State private var showVisionConsent = false
-    @State private var visionConsentDeclineNotice: String?
     @State private var hasConfigured = false
+    /// 正在打开的那张卡（弹层）。初始答案在点卡片那一刻定下：弹层开着时 view model 会变
+    /// （同意视力授权、保存），重绘时现算会让「改没改过」的判断跟着漂。
+    @State private var activeSession: CardSession?
+    /// 刚保存的那张卡：状态行改成绿字「已保存：…」，读屏焦点放到它上面。
+    @State private var savedCard: BlindProfileCard?
+    @AccessibilityFocusState private var focusedCard: BlindProfileCard?
+
+    static let lede = "完成以下设置，陪跑员即可了解你的需求。各项均为选择题，可随时修改。"
+    static let unsetGroupTitle = "未设置"
+    static let setGroupTitle = "已设置"
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                sections
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                Text(Self.lede)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
+                cardGroup(Self.unsetGroupTitle, cards: cards(isSet: false))
+                cardGroup(Self.setGroupTitle, cards: cards(isSet: true))
+                pageNotices
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -372,274 +462,273 @@ struct BlindRunnerProfileView: View {
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             guard !hasConfigured else {
-                // 从选择页 / 编辑页退回来：那一页的保存结果已经念过，这里不再说话，
-                // 否则后到的播报会把「已保存：xx」切断（记忆 `later-speak-silently-cuts-the-earlier-one`）。
+                // 从改昵称页 / 紧急联系人页退回来：那一页的结果已经念过，这里不再说话，
+                // 否则后到的播报会把它切断（记忆 `later-speak-silently-cuts-the-earlier-one`）。
                 viewModel.clearTransientNotices()
+                savedCard = nil
                 return
             }
             hasConfigured = true
             viewModel.configure(with: appState, speechService: speechService)
-            // 本页没有「保存」按钮，撤回没存上时让用户再点撤回那一行（同隐私与授权页，#393）。
+            // 撤回没存上时，失败文案让用户再点视力卡上的「撤回同意」（同隐私与授权页，#393）。
             viewModel.withdrawalRetryButtonTitle = BlindProfileCopy.withdrawRowTitle
-            speechService.speak("个人资料。点哪一项就改哪一项，改完当场保存。")
+            speechService.speak("个人资料。共 \(BlindProfileCard.allCases.count) 项设置，点按任一项即可设置或修改。")
         }
-        // 小弹窗（#769）：fullScreenCover 只是容器，背景透明，卡片居中。
-        .fullScreenCover(isPresented: $showVisionConsent) {
-            visionConsentScreen
+        .sheet(item: $activeSession, onDismiss: {
+            // 没存上就关掉（放弃或下滑）：弹层里那句「请再次点按完成」不能留在清单页上。
+            if savedCard == nil { viewModel.clearTransientNotices() }
+        }) { session in
+            BlindProfileQuestionFlow(
+                card: session.card,
+                viewModel: viewModel,
+                initialDraft: session.initialDraft,
+                startsWithConsent: session.startsWithConsent,
+                onFinished: { finish(session.card) }
+            )
         }
     }
 
-    /// 视力状况的单独同意小弹窗（PIPL 第二十九条）。
-    ///
-    /// 复用 `ConsentDisclosureView(purpose:)`，文案全部取自 `PrivacyConsentPurpose`——
-    /// 那是被单测钉住的合规文本，**不许在 View 里另写一份**。
-    private var visionConsentScreen: some View {
-        ConsentDisclosureView(
-            purpose: .blindVisionProfile,
-            onAgree: {
-                viewModel.acceptVisionConsent()
-                visionConsentDeclineNotice = nil
-                showVisionConsent = false
-            },
-            onDecline: {
-                // 不劝返、不重试 —— 拒绝是一个完整的答案
-                // （`docs/research/face-verify-decline-alternative-path-ux-20260908.md`）。
-                // 反馈同时给屏幕和耳朵：只给一边就有一半用户拿不到。
-                viewModel.declineVisionConsent()
-                visionConsentDeclineNotice = PrivacyConsentPurpose.blindVisionProfile.declinedFeedback
-                showVisionConsent = false
-                speechService.speak(PrivacyConsentPurpose.blindVisionProfile.declinedFeedback)
+    // MARK: - 头部：头像、昵称、修改昵称
+
+    private var header: some View {
+        VStack(spacing: 0) {
+            ProfileAccountHeader(
+                name: viewModel.name.nilIfBlank ?? BlindProfileCopy.unfilled,
+                roleLine: BlindProfileCopy.roleLine
+            )
+            NavigationLink {
+                BlindProfileTextEditPage(viewModel: viewModel, text: $viewModel.name)
+            } label: {
+                Text("修改昵称")
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+                    .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary)
+                    .contentShape(Rectangle())
             }
-        )
-        .task {
-            speechService.speak(text: PrivacyConsentPurpose.blindVisionProfile.spokenScript)
+            .buttonStyle(.plain)
+            .disabled(viewModel.isLoading)
+            .accessibilityLabel("修改昵称")
+            .accessibilityValue(viewModel.name.nilIfBlank ?? BlindProfileCopy.unfilled)
+            .accessibilityIdentifier("blindProfileNicknameRow")
         }
     }
 
-    // MARK: - 各组
+    // MARK: - 两组卡片
+
+    private func cards(isSet: Bool) -> [BlindProfileCard] {
+        BlindProfileCard.allCases.filter { status($0).isSet == isSet }
+    }
+
+    private func status(_ card: BlindProfileCard) -> BlindProfileCardStatus {
+        BlindProfileCardStatus.resolve(
+            card,
+            viewModel: viewModel,
+            profile: appState.blindProfile,
+            contactCount: appState.emergencyContactCount,
+            primaryContactName: appState.primaryEmergencyContact.map { $0.name?.nilIfBlank ?? "未命名" }
+        )
+    }
 
     @ViewBuilder
-    private var sections: some View {
-        ProfileAccountHeader(
-            name: viewModel.name.nilIfBlank ?? BlindProfileCopy.unfilled,
-            roleLine: BlindProfileCopy.roleLine
-        )
-
-        BlindProfileGroup {
-            row(
-                title: BlindProfileCopy.nickname,
-                value: viewModel.name.nilIfBlank ?? BlindProfileCopy.unfilled,
-                accessibilityLabel: "昵称，必填",
-                identifier: "blindProfileNicknameRow"
-            ) {
-                BlindProfileTextEditPage(viewModel: viewModel, field: .nickname, text: $viewModel.name)
+    private func cardGroup(_ title: String, cards: [BlindProfileCard]) -> some View {
+        if !cards.isEmpty {
+            Text(title)
+                .font(.title2.weight(.bold))
+                .foregroundColor(AppColors.textPrimary)
+                .padding(.top, 12)
+                .padding(.horizontal, 4)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(cards) { card in
+                cardView(card)
             }
         }
+    }
 
-        BlindProfileGroup(title: BlindProfileCopy.dispatchGroupTitle) {
-            // 引导方式**排在视力状况前面**、且**不在单独同意门后面**：它是偏好不是身份信息，
-            // 拒绝了敏感项的人仍能告诉陪跑员该递绳还是该挽手臂（依据见 `BlindEscortPreferencesTests` 文件头）。
-            row(
-                title: BlindProfileCopy.tether,
-                value: viewModel.tetherPreference?.displayName ?? BlindProfileCopy.tetherUndecided,
-                accessibilityLabel: "希望怎么被引导，选填",
-                identifier: "blindProfileTetherPreferencePicker"
-            ) {
-                BlindProfileChoicePage(
-                    viewModel: viewModel,
-                    title: BlindProfileCopy.tether,
-                    choices: BlindProfileChoices.tether,
-                    selection: $viewModel.tetherPreference,
-                    footnote: BlindProfileCopy.tetherChoiceFootnote
-                )
+    private func cardView(_ card: BlindProfileCard) -> some View {
+        let status = status(card)
+        let notice = savedCard == card ? viewModel.savedNotice : nil
+        return VStack(alignment: .leading, spacing: 0) {
+            if card == .emergencyContacts {
+                NavigationLink {
+                    EmergencyContactsView()
+                } label: {
+                    cardLabel(card, status: status, notice: nil, action: "管理")
+                }
+                .buttonStyle(.plain)
+                .modifier(CardAccessibility(card: card, label: "管理紧急联系人", value: status.line, hint: "添加、编辑、删除紧急联系人，或切换主联系人"))
+            } else {
+                Button {
+                    viewModel.clearTransientNotices()
+                    savedCard = nil
+                    activeSession = CardSession(
+                        card: card,
+                        initialDraft: .initial(for: card, viewModel: viewModel, isSet: status.isSet),
+                        startsWithConsent: card == .vision && !viewModel.hasVisionConsent
+                    )
+                } label: {
+                    cardLabel(card, status: status, notice: notice, action: status.isSet ? "修改" : "设置")
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isLoading)
+                .modifier(CardAccessibility(
+                    card: card,
+                    label: card.title,
+                    value: notice ?? status.line,
+                    hint: [card.detail, status.isSet ? "点按修改" : "点按设置"].compactMap { $0 }.joined(separator: "")
+                ))
             }
+            if card == .vision {
+                visionExtras
+            }
+        }
+        .background(AppColors.Flow.surface)
+        .clipShape(RoundedRectangle(cornerRadius: GroupedCardMetrics.cardRadius, style: .continuous))
+        .accessibilityFocused($focusedCard, equals: card)
+    }
+
+    private func cardLabel(_ card: BlindProfileCard, status: BlindProfileCardStatus, notice: String?, action: String) -> some View {
+        // 视力卡拒绝后的反馈不是「已保存」，用灰字；其余卡刚存上的那句用绿勾。
+        let isSuccessNotice = notice != nil && !(card == .vision && !viewModel.hasVisionConsent)
+        return HStack(alignment: .top, spacing: 14) {
+            Image(systemName: card.systemImage)
+                .font(.title3)
+                .foregroundColor(card.tint)
+                .frame(width: 44, height: 44) // guard:allow small-touch-target 装饰图标，不是触达目标
+                .background(Circle().fill(card.tint.opacity(0.14)))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(card.title)
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
+                if let notice {
+                    Label(notice, systemImage: isSuccessNotice ? "checkmark.circle.fill" : "info.circle")
+                        .font(.subheadline.weight(isSuccessNotice ? .semibold : .regular))
+                        .foregroundColor(isSuccessNotice ? AppColors.success : AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Circle()
+                            .fill(status.isSet ? AppColors.success : AppColors.Flow.decorMutedInk)
+                            .frame(width: 8, height: 8) // guard:allow small-touch-target 状态圆点，装饰
+                        Text(status.line)
+                            .font(.subheadline)
+                            .foregroundColor(AppColors.textSecondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let detail = card.detail, !status.isSet || card == .vision {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Divider()
+                    .padding(.top, 4)
+                Text(action)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading) // guard:allow small-touch-target 整张卡才是触达目标
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, 16)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - 视力卡：撤回同意与撤回结果
+
+    /// 同意要能撤回（PIPL 第十五条），按下立刻保存（#352）。撤回已按下还没存上时也留着，让用户重试。
+    @ViewBuilder
+    private var visionExtras: some View {
+        if viewModel.hasVisionConsent || viewModel.isVisionConsentWithdrawalPending {
             GroupedCardDivider()
-            row(
-                title: BlindProfileCopy.pace,
-                value: viewModel.defaultPace.displayName,
-                accessibilityLabel: "默认配速偏好，选填",
-                identifier: "blindProfilePaceRow"
-            ) {
-                BlindProfileChoicePage(
-                    viewModel: viewModel,
-                    title: BlindProfileCopy.pace,
-                    choices: BlindProfileChoices.pace,
-                    selection: $viewModel.defaultPace,
-                    footnote: BlindProfileCopy.paceChoiceFootnote
-                )
+            Button {
+                savedCard = nil
+                if viewModel.isVisionConsentWithdrawalPending {
+                    viewModel.submit()
+                } else {
+                    viewModel.withdrawVisionConsent()
+                }
+            } label: {
+                Text(BlindProfileCopy.withdrawRowTitle)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                    .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isLoading)
+            .accessibilityLabel(VisionConsentWithdrawalCopy.accessibilityLabel)
+            .accessibilityIdentifier("blindProfileVisionConsentWithdraw")
         }
-
-        BlindProfileGroup(title: BlindProfileCopy.acceptedGroupTitle) {
-            textRow(.guideNote, text: $viewModel.guidePreferenceText, identifier: "blindProfileGuideNoteRow")
-            GroupedCardDivider()
-            textRow(.specialNeeds, text: $viewModel.specialNeeds, identifier: "blindProfileSpecialNeedsRow")
+        if let notice = viewModel.visionConsentWithdrawnNotice {
+            // 必须上屏，不能只播报（记忆 `claimed-fallback-may-not-exist-in-release`）。
+            Text(notice)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .accessibilityIdentifier("blindProfileVisionConsentWithdrawnNotice")
         }
+    }
 
-        visionGroup
-
-        BlindProfileEmergencyContactsGroup()
-
-        if let errorMessage = viewModel.errorMessage {
+    /// 页面级的错误（撤回没存上等）。卡片弹层里的错误在弹层里显示。
+    @ViewBuilder
+    private var pageNotices: some View {
+        if activeSession == nil, let errorMessage = viewModel.errorMessage {
             Text(errorMessage)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.destructive)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                 .accessibilityLabel(errorMessage)
+                .accessibilityIdentifier("blindProfilePageError")
         }
     }
 
-    /// 一行：名称在左、值在右、带箭头，点了推入选择页或编辑页。
-    /// 读屏念「名称 + 值」，标签沿用改版前控件的说法，标识沿用改版前控件的 id（UI 用例按它找元素）。
-    private func row<Destination: View>(
-        title: String,
-        value: String,
-        accessibilityLabel: String,
-        identifier: String,
-        @ViewBuilder destination: @escaping () -> Destination
-    ) -> some View {
-        NavigationLink(destination: destination) {
-            SettingsRowLabel(title: title, value: value)
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(value)
-        .accessibilityHint("点开修改，改完当场保存")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(identifier)
-    }
+    // MARK: - 保存之后
 
-    /// 两段自由文本：有内容时名称下面露原文，没填写时右侧写「未填写」。
-    private func textRow(
-        _ field: BlindProfileTextField,
-        text: Binding<String>,
-        identifier: String
-    ) -> some View {
-        let value = text.wrappedValue.nilIfBlank ?? BlindProfileCopy.unfilled
-        return NavigationLink {
-            BlindProfileTextEditPage(viewModel: viewModel, field: field, text: text)
-        } label: {
-            BlindProfileDetailRowLabel(title: field.title, detail: text.wrappedValue)
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(field.accessibilityLabel)
-        .accessibilityValue(value)
-        .accessibilityHint("点开修改，改完按保存")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(identifier)
-    }
-
-    // MARK: - 视力状况（敏感，走单独同意）
-
-    /// 视力状况与导盲犬。
-    ///
-    /// 未同意时这一组**只有一行**而不是两个摊开的选项：读屏用户一次划动就跳过
-    /// （与 `RoleSelectionView.inviteCodeSection` 折叠成按钮同一条理由），
-    /// 而且摊开的选项本身就意味着「已经可以填了」—— 那与「收集前取得单独同意」相反。
-    @ViewBuilder
-    private var visionGroup: some View {
-        if viewModel.hasVisionConsent {
-            BlindProfileGroup(title: BlindProfileCopy.visionGroupTitle, footnote: BlindProfileCopy.visionConsentedFootnote) {
-                row(
-                    title: BlindProfileCopy.vision,
-                    value: BlindProfileCopy.visionLevelTitle(viewModel.visionLevel),
-                    accessibilityLabel: "视力状况，选填",
-                    identifier: "blindProfileVisionLevelPicker"
-                ) {
-                    BlindProfileChoicePage(
-                        viewModel: viewModel,
-                        title: BlindProfileCopy.vision,
-                        choices: BlindProfileChoices.vision,
-                        selection: $viewModel.visionLevel,
-                        footnote: BlindProfileCopy.visionChoiceFootnote
-                    )
-                }
-                GroupedCardDivider()
-                row(
-                    title: BlindProfileCopy.guideDog,
-                    value: viewModel.guideDog.profileOptionTitle,
-                    accessibilityLabel: "平时使用导盲犬，选填",
-                    identifier: "blindProfileGuideDogMenu"
-                ) {
-                    BlindProfileChoicePage(
-                        viewModel: viewModel,
-                        title: BlindProfileCopy.guideDog,
-                        choices: BlindProfileChoices.guideDog,
-                        selection: $viewModel.guideDog,
-                        footnote: BlindProfileCopy.guideDogChoiceFootnote
-                    )
-                }
-                GroupedCardDivider()
-                // 同意要能撤回（PIPL 第十五条）。按下立刻保存（#352）。
-                withdrawRow {
-                    visionConsentDeclineNotice = nil
-                    viewModel.withdrawVisionConsent()
-                }
-            }
-        } else {
-            BlindProfileGroup(title: BlindProfileCopy.visionGroupTitle, footnote: BlindProfileCopy.visionPendingFootnote) {
-                if viewModel.isVisionConsentWithdrawalPending {
-                    // 撤回已按下、还没存上：两项已经收起，撤回行要留着让用户重试，
-                    // 失败文案说的就是「再点一次『撤回这两项的同意』」（同隐私与授权页的 `withdrawalPending`）。
-                    withdrawRow {
-                        viewModel.submit()
-                    }
-                    GroupedCardDivider()
-                }
-                Button {
-                    showVisionConsent = true
-                } label: {
-                    SettingsRowLabel(title: BlindProfileCopy.fillVisionRowTitle, titleColor: AppColors.primary)
-                }
-                .buttonStyle(.plain)
-                // 撤回正在保存时不许重新打开同意页：结果回来前重新同意，最终状态取决于两件事谁先完成。
-                .disabled(viewModel.isLoading)
-                .accessibilityLabel("填写视力状况")
-                .accessibilityHint("视力状况和导盲犬属于敏感个人信息，点开后会先告知再由你决定填不填")
-                .accessibilityIdentifier("blindProfileVisionConsentDisclosure")
-            }
-        }
-
-        if let notice = viewModel.visionConsentWithdrawnNotice {
-            // 同拒绝那一句：必须上屏，不能只播报。
-            noticeLine(notice, identifier: "blindProfileVisionConsentWithdrawnNotice")
-        }
-
-        if let notice = visionConsentDeclineNotice {
-            // 🚩 拒绝的反馈必须**上屏**，不能只 `speak`。只播报的话，明眼陪同者与
-            // 低视力用户按下「不填这一项」之后屏幕上一个字都不多，看起来就是按钮坏了
-            // （记忆 `claimed-fallback-may-not-exist-in-release` 的同一形状）。
-            noticeLine(notice, identifier: "blindProfileVisionConsentDeclineNotice")
+    /// 弹层存上了：关掉弹层，这张卡显示「已保存：…」，读屏焦点放过去（卡片可能已挪到「已设置」组，
+    /// 不主动放的话盲人找不到刚改的东西）。等弹层收起再放，否则焦点落在正在消失的弹层上。
+    private func finish(_ card: BlindProfileCard) {
+        savedCard = card
+        activeSession = nil
+        Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            focusedCard = card
         }
     }
+}
 
-    private func withdrawRow(action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            SettingsRowLabel(
-                title: BlindProfileCopy.withdrawRowTitle,
-                titleColor: AppColors.destructive,
-                showsChevron: false
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
-        .accessibilityLabel(VisionConsentWithdrawalCopy.accessibilityLabel)
-        .accessibilityIdentifier("blindProfileVisionConsentWithdraw")
-    }
+/// 一次打开的弹层：哪张卡、打开时的答案、要不要先过同意页。
+private struct CardSession: Identifiable {
+    let card: BlindProfileCard
+    let initialDraft: BlindProfileCardDraft
+    let startsWithConsent: Bool
+    var id: String { card.rawValue }
+}
 
-    private func noticeLine(_ notice: String, identifier: String) -> some View {
-        Text(notice)
-            .font(AppFonts.body())
-            .foregroundColor(AppColors.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
-            .accessibilityLabel(notice)
-            .accessibilityIdentifier(identifier)
+/// 一张卡读屏念成一个按钮：标题、状态、怎么操作。标识是 `blindProfileCard_<rawValue>`。
+private struct CardAccessibility: ViewModifier {
+    let card: BlindProfileCard
+    let label: String
+    let value: String
+    let hint: String
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue(value.replacingOccurrences(of: " · ", with: "，"))
+            .accessibilityHint(hint)
+            .accessibilityAddTraits(.isButton)
+            // 写成字面量（不调 `card.identifier`）：守卫 `stale-ui-test-identifier` 只认字面量里的 id。
+            .accessibilityIdentifier("blindProfileCard_\(card.rawValue)")
     }
 }
 

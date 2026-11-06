@@ -14,10 +14,10 @@ extension AccessibilityAuditTests {
         let app = launchBlindHome()
         openBlindProfile(app)
 
-        let tether = app.descendants(matching: .any)["blindProfileTetherPreferencePicker"].firstMatch
-        XCTAssertTrue(swipeUntilHittable(tether, in: app), "资料页没有「希望怎么被引导」")
-        assertBlindTouchTarget(tether, name: "希望怎么被引导")
-        XCTAssertFalse((tether.value as? String ?? "").isEmpty, "读屏没念当前选项")
+        let escort = app.descendants(matching: .any)["blindProfileCard_escort"].firstMatch
+        XCTAssertTrue(swipeUntilHittable(escort, in: app), "资料页没有「陪跑方式」卡")
+        assertBlindTouchTarget(escort, name: "陪跑方式")
+        XCTAssertFalse((escort.value as? String ?? "").isEmpty, "读屏没念卡片状态")
         attachScreenshot(app, name: "blind-profile-tether")
         try audit(app)
 
