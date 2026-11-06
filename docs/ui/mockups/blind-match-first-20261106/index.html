@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>约跑先匹配后商量 · 模拟图 v1（待确认）</title><style>
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>约跑先匹配后商量 · 模拟图 v2（待确认）</title><style>
 /* 颜色取自 FlowPalette 与 ButtonChrome.ButtonPalette 亮色档，沿用 intro-call-meetup-plan-20261015 的取值，不新增颜色。 */
 :root{
   --page:#F2F3F6; --matching:#46506A; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --ink3:#8A91A2; --sep:#EEF0F4;
@@ -12,7 +12,7 @@ h1{font-size:32px;font-weight:800}
 .lede{font-size:17px;color:var(--ink2);margin-top:8px;max-width:1300px;line-height:1.55}
 h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 .h2sub{font-size:15px;color:var(--ink2);margin-bottom:22px;max-width:1300px;line-height:1.55}
-.row{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+.row{display:flex;gap:40px;align-items:flex-start;flex-wrap:nowrap}
 .col{width:402px}
 .cap{font-size:16px;font-weight:700;text-align:center;margin-top:16px}
 .cap small{display:block;font-weight:500;color:var(--ink2);margin-top:4px;font-size:14px;line-height:1.45}
@@ -66,8 +66,25 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 .inv .meta{font-size:16px;color:var(--ink2);margin-top:10px;line-height:1.55}
 .ask{background:#fff;border-radius:16px;padding:16px 20px;margin-top:36px;max-width:1300px;font-size:16px;line-height:1.7}
 .ask h3{font-size:18px;margin-bottom:6px}
+.loc{font-size:16px;color:var(--ink2);padding:2px 20px 0;line-height:1.5}
+.loc b{color:var(--ink);font-weight:700}
+.loc span{display:block;font-size:14px;color:var(--ink3)}
+.grp{font-size:18px;font-weight:800;padding:16px 20px 8px}
+.days{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 16px}
+.day,.ts{min-height:64px;display:flex}
+.day div,.ts div{width:100%;min-height:64px;border-radius:18px;background:#fff;border:1.5px solid var(--grayStroke);display:flex;flex-direction:column;justify-content:center;align-items:center;color:var(--ink)}
+.day b{font-size:18px;font-weight:800}.day span{font-size:13px;color:var(--ink2);margin-top:2px}
+.day.off div{border-style:dashed;color:var(--ink3);background:transparent}.day.off span{color:var(--ink3)}
+.day.on div,.ts.on div{background:var(--btn2bg);border:3px solid var(--btn);color:var(--btn)}
+.day.on span,.ts.on span{color:var(--btn)}
+.tslots{display:flex;flex-direction:column;gap:8px;padding:0 16px}
+.ts div{flex-direction:row;justify-content:space-between;padding:0 20px;border-radius:26px}
+.ts b{font-size:19px;font-weight:800}.ts span{font-size:16px;font-weight:600;color:var(--ink2)}
+.why{width:360px;background:#fff;border-radius:22px;padding:22px 24px;font-size:15.5px;line-height:1.65}
+.why h3{font-size:18px;margin-bottom:10px;line-height:1.4}
+.why p{margin-top:8px}
 </style></head><body>
-<h1>约跑先匹配后商量 · 模拟图 v1（待确认）</h1>
+<h1>约跑先匹配后商量 · 模拟图 v2（待确认）</h1>
 <p class="lede">Jayden23018/blind-run-ios#806。负责人 2026-11-06 定：盲人点一个大概时段就开始匹配；匹配到的陪跑员先和盲人通电话，再在见面安排单里填准点、见面点和跑步需求；盲人听完确认才成单。熟人搭档也要先通话。订单状态不加新值。后端契约见 Jayden23018/blind-run-backend#932。<br>只画亮色、默认字号、竖屏。紫色框是读屏（VoiceOver）念的原话。</p>
 
 <h2>盲人端</h2>
@@ -76,39 +93,60 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 
 <div class="col">
 <div class="phone">
-  <div class="sb"><span>9:41</span><span>5G 100%</span></div>
+  <div class="sb"><span>21:10</span><span>5G 100%</span></div>
   <div class="nav"><div class="circ">‹</div><div class="t">预约陪跑</div></div>
-  <div class="title">什么时候想跑？</div>
-  <div class="sub">点一个时段，马上帮你找附近的陪跑员。具体几点、在哪见，接通电话后和陪跑员商量。</div>
-  <div class="card">
-    <div class="lbl">从这里附近出发</div>
-    <div class="val">当前位置 · 人民公园东门附近</div>
-    <div class="hint">见面点可以在电话里改，3 公里以内都行。</div>
+  <div class="loc">从<b>当前位置 · 人民公园东门附近</b>出发 <span>见面点电话里再定</span></div>
+  <div class="grp">哪天跑</div>
+  <div class="days">
+    <div class="day off"><div><b>今天</b><span>已过</span></div></div>
+    <div class="day on"><div><b>✓ 明天</b><span>7日 周五</span></div></div>
+    <div class="day"><div><b>后天</b><span>8日 周六</span></div></div>
+    <div class="day"><div><b>9日</b><span>周日</span></div></div>
+    <div class="day"><div><b>10日</b><span>周一</span></div></div>
+    <div class="day"><div><b>11日</b><span>周二</span></div></div>
+    <div class="day"><div><b>12日</b><span>周三</span></div></div>
   </div>
-  <div class="slots">
-    <div class="slot"><div><b>今天稍后</b><span>今天 10:15–15:15 之间，最早约 50 分钟后开跑</span></div></div>
-    <div class="slot"><div><b>明天早上</b><span>明天 6:00–10:00 之间</span></div></div>
-    <div class="slot"><div><b>明天傍晚</b><span>明天 17:00–21:00 之间</span></div></div>
+  <div class="grp">大概什么时候</div>
+  <div class="tslots">
+    <div class="ts on"><div><b>✓ 上午</b><span>6:00–11:00 之间</span></div></div>
+    <div class="ts"><div><b>下午</b><span>13:00–17:00 之间</span></div></div>
+    <div class="ts"><div><b>傍晚</b><span>17:00–21:00 之间</span></div></div>
   </div>
-  <div class="bottom"><div class="textbtn">指定准确时间和地点</div></div>
+  <div class="bottom" style="padding-top:8px;gap:0">
+    <div class="b1"><div>开始找陪跑员</div></div>
+    <div class="textbtn" style="min-height:52px">指定准确时间和地点</div>
+  </div>
   <div class="hi"></div>
 </div>
-<div class="cap">B1 约跑页（新）<small>三个时段按钮同级，都用次按钮，不设实心主按钮。点一下就提交。「今天稍后」不够 1 小时就不出现；时段按值守时间裁剪。</small></div>
-<div class="speak"><b>进页播报</b>什么时候想跑？从当前位置附近出发。有三个时段可选：今天稍后、明天早上、明天傍晚。点一个就开始找陪跑员。</div>
-<div class="speak"><b>聚焦「明天早上」</b>明天早上，6 点到 10 点之间。按钮。点两下开始找陪跑员。</div>
+<div class="cap">B1 约跑页 v2（照负责人给的两张参考图：先选日期，再选时段，不选具体几点）<small>日期 7 个（后端最远只能约 7 天），排成两行、不横向滑；时段 3 个竖排。选中项加粗边框和「✓」，不只靠颜色。默认选中「最近一个还来得及的时段」，所以多数时候直接点「开始找陪跑员」就行。今天已过或剩不到 1 小时的时段不可点；时段全过完时「今天」整格不可点（图中是晚上 21:10，所以默认落在明天上午）。</small></div>
+<div class="speak"><b>进页播报</b>预约陪跑。从当前位置附近出发。已选明天上午，6 点到 11 点之间。可以直接点「开始找陪跑员」，也可以先改日期和时段。</div>
+<div class="speak"><b>聚焦日期</b>明天，7 日，周五。已选中。按钮。第 2 项，共 7 项。</div>
+<div class="speak"><b>聚焦主按钮</b>开始找陪跑员，明天上午 6 点到 11 点。按钮。</div>
+</div>
+
+<div class="col" style="width:360px">
+<div class="why">
+<h3>日期用哪种：选参考图 2 的「一排日期」，不选图 1 的月历</h3>
+<p><b>1. 能约的只有 7 天。</b>后端最远只收 7 天内的预约。月历一屏 30 多格，四分之三是灰的不能点，低视力用户要在一堆灰格里找那几格亮的。</p>
+<p><b>2. 读屏走月历很慢。</b>读屏是一格一格往右划，月历要先划过星期表头、上月空格、已过的日子，才到今天；一排 7 个日期，划 1 下就是明天。</p>
+<p><b>3. 月历格子太小。</b>一行 7 格，每格约 48 点宽，低于我们盲人端 64 点的可点下限。</p>
+<p><b>但不照抄图 2 的横向滑动。</b>滑出屏幕的日期低视力用户看不到、读屏也常漏掉。7 天直接排成两行大按钮（4 + 3），字号放到最大时自动换成更多行。</p>
+<p><b>时段照两张图都有的「上午 / 下午 / 晚上」。</b>不要图里下面那排 9:00、9:30……具体时刻，这一步您说了盲人不用选。「晚上」改叫「傍晚」并止于 21:00，因为 22:00 以后不能跑。</p>
+<p><b>和 v1 比：</b>v1 是三个「今天稍后 / 明天早上 / 明天傍晚」点了就发；v2 能约 7 天内任意一天，多了一个主按钮，代价是至少点两下（默认值合适时一下）。</p>
+</div>
 </div>
 
 <div class="col">
 <div class="phone">
-  <div class="sb"><span>9:43</span><span>5G 100%</span></div>
+  <div class="sb"><span>21:12</span><span>5G 100%</span></div>
   <div class="nav"><div class="circ">‹</div><div class="t">我的预约</div></div>
   <div class="hero">
     <div class="eb">正在匹配</div>
     <div class="say">正在找附近的陪跑员</div>
-    <div class="ss">明天早上 6:00–10:00 之间。有人愿意后，会先请你们通个电话，具体几点电话里定。</div>
+    <div class="ss">明天上午 6:00–11:00 之间。有人愿意后，会先请你们通个电话，具体几点电话里定。</div>
   </div>
   <div class="card">
-    <div class="kv"><span>想跑的时段</span><span>明天 6:00–10:00</span></div>
+    <div class="kv"><span>想跑的时段</span><span>明天 6:00–11:00</span></div>
     <div class="kv"><span>从哪附近出发</span><span>人民公园东门附近</span></div>
     <div class="kv"><span>配速、导盲犬</span><span>按你的资料</span></div>
   </div>
@@ -116,12 +154,12 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
   <div class="hi"></div>
 </div>
 <div class="cap">B2 等待匹配（改文案）<small>沿用现有匹配页，只把「几点开始」换成时段，并说清下一步是通电话。取消入口不变。</small></div>
-<div class="speak"><b>提交后播报</b>已开始找陪跑员。时段是明天早上 6 点到 10 点。有人愿意后，会先请你们通个电话。</div>
+<div class="speak"><b>提交后播报</b>已开始找陪跑员。时段是明天上午 6 点到 11 点。有人愿意后，会先请你们通个电话。</div>
 </div>
 
 <div class="col">
 <div class="phone">
-  <div class="sb"><span>9:58</span><span>5G 100%</span></div>
+  <div class="sb"><span>21:31</span><span>5G 100%</span></div>
   <div class="nav"><div class="circ">‹</div><div class="t">确认见面安排</div></div>
   <div class="sub" style="padding-top:0">陪跑员和你通过电话后填了下面这些，听一遍，没问题就确认。</div>
   <div class="card plan" style="padding:4px 0">
@@ -149,10 +187,10 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 
 <div class="col">
 <div class="phone">
-  <div class="sb"><span>9:44</span><span>5G 100%</span></div>
+  <div class="sb"><span>21:13</span><span>5G 100%</span></div>
   <div class="nav"><div class="circ">‹</div><div class="t">新的陪跑邀请</div></div>
   <div class="inv">
-    <div class="when">明天 6:00–10:00 之间</div>
+    <div class="when">明天 6:00–11:00 之间</div>
     <div class="tbd">具体时间和跑者电话里定</div>
     <div class="meta">起点在人民公园东门附近 · 距你 1.2 公里<br>配速：中等（跑者资料）<br>导盲犬：不确定，电话里问</div>
   </div>
@@ -163,15 +201,15 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
   <div class="hi"></div>
 </div>
 <div class="cap">V1 邀请（时段单）<small>时间写成时段并加「电话里定」标签；需求只显示资料里的封闭取值（配速档、导盲犬），自由文本接单后才给（AGENTS.md §8）。</small></div>
-<div class="speak"><b>锁屏推送</b>明天 6:00–10:00 之间，时间电话里定 · 距你 1.2 公里</div>
+<div class="speak"><b>锁屏推送</b>明天 6:00–11:00 之间，时间电话里定 · 距你 1.2 公里</div>
 </div>
 
 <div class="col">
 <div class="phone">
-  <div class="sb"><span>9:57</span><span>5G 100%</span></div>
+  <div class="sb"><span>21:29</span><span>5G 100%</span></div>
   <div class="nav"><div class="circ">‹</div><div class="t">填见面安排</div></div>
   <div class="scroll">
-  <div class="sec"><h4>开跑时间 <span class="req">必填</span></h4><div class="now"><span>请选择（明天 6:00–10:00 之间）</span><span class="chg">选择</span></div></div>
+  <div class="sec"><h4>开跑时间 <span class="req">必填</span></h4><div class="now"><span>请选择（明天 6:00–11:00 之间）</span><span class="chg">选择</span></div></div>
   <div class="sec"><h4>跑多久</h4><div class="now"><span>1 小时</span><span class="chg">改</span></div></div>
   <div class="sec"><h4>在哪见 <span class="from">离原起点 3 公里内</span></h4><div class="now"><span>人民公园东门</span><span class="chg">改</span></div></div>
   <div class="sec"><h4>具体在哪儿见</h4><div class="now"><span style="color:var(--ink3);font-weight:500">如「南门保安亭左边」</span></div></div>
@@ -188,10 +226,11 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 </div>
 
 <div class="ask">
-<h3>请负责人确认这几处</h3>
-1. B1 点时段<b>直接提交</b>，不再弹「确认预约」。点错了在 B2 点「取消这次预约」。可以吗？<br>
-2. 时段先定三个：今天稍后、明天早上 6–10 点、明天傍晚 17–21 点。要不要加「后天」或「周末」？<br>
-3. B1 不放「换地点」按钮，见面点在电话里改（3 公里内）。要换远处起点的人走「指定准确时间和地点」。可以吗？<br>
-4. V1 邀请卡给陪跑员看跑者资料里的配速和导盲犬（都是固定选项，不含自由文字）。可以吗？
+<h3>v2 改了什么、还请负责人确认</h3>
+v2 只改 B1（约跑页），按负责人 11-06 给的两张参考图改成「先选日期、再选时段」，不选具体几点。B2、B3、V1、V2 只把示例时段同步成「明天上午 6:00–11:00」。<br>
+1. 日期用「两行 7 个日期」，不用月历（理由见 B1 右侧）。可以吗？<br>
+2. 时段三个：上午 6–11 点、下午 13–17 点、傍晚 17–21 点。中午 11–13 点不给，是否合适？<br>
+3. 默认选中最近一个来得及的时段，多数时候点一下「开始找陪跑员」即可。可以吗？<br>
+4. V1 邀请卡给陪跑员看跑者资料里的配速档和导盲犬（固定选项，不含自由文字）。可以吗？
 </div>
 </body></html>
