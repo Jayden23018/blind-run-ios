@@ -166,9 +166,9 @@ struct VolunteerMeetupPlanDraft: Equatable {
         return roundedUp(raw, calendar: calendar)
     }
 
-    /// 最晚可选：现在 + 7 天（镜像 `app.order.max-lead-days`）。
-    static func latestStart(now: Date) -> Date {
-        now.addingTimeInterval(TimeInterval(AppConstants.Timing.maximumBookingLeadDays * 24 * 3600))
+    /// 最晚可选：现在 + `maxLeadDays` 天（镜像 `app.order.max-lead-days`，后端经 `/api/config/rules` 下发，缺省 7）。
+    static func latestStart(now: Date, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays) -> Date {
+        now.addingTimeInterval(TimeInterval(maxLeadDays * 24 * 3600))
     }
 
     /// 向上取到 `minuteInterval` 一档、秒归零。选择器只能停在整档上，初值不对齐会让绑定值与显示值不一致。
@@ -186,13 +186,13 @@ struct VolunteerMeetupPlanDraft: Equatable {
 
     /// 时间那一块的就地错误。选择器已经挡住了「太早 / 太远」，这里再兜一次（窗口在走，几分钟前合法的值现在可能已经太早），
     /// 并补上选择器挡不住的夜间窗口（判据是整段，与下单页同一个函数）。
-    func timeError(now: Date, windowEndsAt: Date?) -> String? {
+    func timeError(now: Date, windowEndsAt: Date?, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays) -> String? {
         if isTimeFlexible, plannedStart == nil { return VolunteerMeetupPlanCopy.flexibleStartRequired }
         guard timeChanged, let start = plannedStart else { return nil }
         if start < Self.earliestStart(now: now, windowEndsAt: windowEndsAt) - TimeInterval(Self.minuteInterval * 60) {
             return IntroCallMeetupCopy.planStartTooSoon
         }
-        if start > Self.latestStart(now: now) {
+        if start > Self.latestStart(now: now, maxLeadDays: maxLeadDays) {
             return VolunteerMeetupPlanCopy.tooFarAhead
         }
         if let end = effectiveEnd, BlindBookingViewModel.overlapsNightWindow(start: start, end: end) {

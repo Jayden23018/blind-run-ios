@@ -1,12 +1,14 @@
 import SwiftUI
 
-// MARK: - 约跑「先匹配后商量」（#806）
+// MARK: - 约跑「先匹配后商量」（#806，v5 #821）
 //
-// 视觉照模拟图 v4（`docs/ui/mockups/blind-match-first-20261106/`，负责人 2026-11-06「同意 v4」），
-// 版式取自负责人给的参考图逐像素实测。两处负责人批准的有意偏离：
-// - 未选中的选项描边用灰按钮描边色（`ButtonPalette.neutralStroke`，过 3:1），不用参考图的极浅灰；
-// - 每个选项的可点区撑到 ≥64pt 高（看得见的胶囊仍是 48 / 45 / 44），盲人端可点下限。
-// 行为见 OpenSpec `booking-match-first`：只选日期 + 时段，具体几点可不选；下单发时段单。
+// v4（负责人 2026-11-06「同意 v4」）照参考图 2 逐像素画。v5（负责人 2026-11-07 批）改三处：
+// - 「从哪出发？」换成「默认出发地点」页同一套彩色圆排（`BookingStartPlacePicker`），全部常用地点都能选；
+// - 日期改成真实日历（`BookingDateStrip`）：可约天数读后端 `maxLeadDays`（backend#935，放宽到 30 天），
+//   能翻周、月份可点；
+// - 时段与后端值守时段取交集，不在值守里的段灰掉并写原因，后端那句提示原样显示。
+// 三个问题标题加大，各自一张白卡，页面灰底（与资料库页、「我的」同一套分组卡）。
+// 行为见 OpenSpec `blind-booking-match-first`：只选日期 + 时段，具体几点可不选；下单发时段单。
 
 struct BlindMatchFirstBookingView: View {
     @EnvironmentObject private var appState: AppState
@@ -14,8 +16,9 @@ struct BlindMatchFirstBookingView: View {
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
 
-    /// 首页设的默认出发地点（常用地点）。没有就点「常用地点」时只告知。
-    let favoritePlace: ResolvedPlace?
+    /// 首页那份常用地点。进页默认选其中的默认出发地点；从添加页回来能看到新收藏。
+    @ObservedObject var favoritePlaces: FavoritePlaceStore
+    let onAddFavorite: () -> Void
     let onOrderCreated: (OrderResponse) -> Void
 
     @StateObject private var viewModel = BlindBookingViewModel()
@@ -23,42 +26,53 @@ struct BlindMatchFirstBookingView: View {
     @State private var selectedDay: Date?
     @State private var selectedSlot: BookingDaySlot?
     @State private var preferredStart: Date?
-    @State private var usesFavorite = false
+    /// 这一单从哪个常用地点出发。`nil` = 当前定位。只管这一单，不改默认出发地点。
+    @State private var selectedFavoriteID: String?
     @State private var hasAppeared = false
 
-    private static let horizontalPadding: CGFloat = 18.5
-    private static let minimumHitHeight: CGFloat = 64
+    private static let horizontalPadding: CGFloat = 16
+
+    private var rules: BookingRules { BookingRules(appState: appState) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                startPointSection
-                BookingDateStrip(now: now, selectedDay: selectedDay) { day in selectDay(day) }
-                    .padding(.top, 24)
-                slotSection
-                    .padding(.top, 28)
-                Rectangle()
-                    .fill(AppColors.Flow.separator)
-                    .frame(height: 1)
-                    .padding(.horizontal, Self.horizontalPadding)
-                    .padding(.top, 12)
-                    .accessibilityHidden(true)
-                startTimeSection
-                    .padding(.top, 12)
+                sectionTitle("从哪出发？")
+                BookingStartPlacePicker(
+                    places: favoritePlaces.places,
+                    selectedPlaceID: selectedFavoriteID,
+                    deviceLocation: isLocationUnavailable ? nil : locationService.currentLocation,
+                    detail: startPointDetail,
+                    onSelectCurrent: useCurrentLocation,
+                    onSelect: useFavorite,
+                    onAdd: onAddFavorite
+                )
+                sectionTitle("哪天跑？")
+                GroupedCard {
+                    BookingDateStrip(now: now, rules: rules, selectedDay: selectedDay) { day in selectDay(day) }
+                }
+                sectionTitle("大概什么时候？")
+                GroupedCard {
+                    BookingSlotSection(
+                        now: now, rules: rules, selectedDay: selectedDay, selectedSlot: selectedSlot,
+                        preferredStart: preferredStart, dutyHoursHint: dutyHoursHint,
+                        onSelectSlot: selectSlot, onTogglePreferredStart: togglePreferredStart
+                    )
+                }
                 if let message = viewModel.errorMessage {
                     Text(message)
                         .font(AppFonts.body().bold())
                         .foregroundColor(AppColors.destructive)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, Self.horizontalPadding)
                         .padding(.top, 16)
                         .accessibilityIdentifier("matchFirstBookingError")
                 }
             }
+            .padding(.horizontal, Self.horizontalPadding)
             .padding(.bottom, 24)
             .readableContentColumn()
         }
-        .background(AppColors.Flow.surface.ignoresSafeArea())
+        .background(AppColors.Flow.page.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) { submitBar }
         .navigationTitle("预约陪跑")
         .navigationBarTitleDisplayMode(.inline)
@@ -71,96 +85,38 @@ struct BlindMatchFirstBookingView: View {
         .onChange(of: locationService.accuracyAuthorization) { _ in
             Task { await viewModel.refreshCurrentLocationIfNeeded() }
         }
+        // 规则晚到（或值守时段变了）时，已选的日子 / 时段可能不再合法：换到最近能约的。
+        .onChange(of: rules) { _ in revalidateSelection() }
+        // 从添加页回来：添加页会把选中的地点（新收藏、已收藏过的、或「使用当前定位」）设成默认出发地点并朗读，
+        // 这一单就跟着从那里出发。看默认 id 不看收藏条数：选已收藏过的地点时条数不变。
+        .onChange(of: favoritePlaces.defaultPlaceID) { _ in
+            if let place = favoritePlaces.defaultPlace {
+                useFavorite(place)
+            } else {
+                useCurrentLocation()
+            }
+        }
         .accessibilityIdentifier("matchFirstBookingPage")
     }
 
     // MARK: 从哪出发
 
-    private var startPointSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionTitle("从哪出发？")
-                .padding(.top, 20)
-            HStack(spacing: 19) {
-                pill("当前位置", isSelected: !usesFavorite, height: 48) { useCurrentLocation() }
-                    .accessibilityIdentifier("matchFirstStartCurrent")
-                pill("常用地点", isSelected: usesFavorite, height: 48) { useFavorite() }
-                    .accessibilityIdentifier("matchFirstStartFavorite")
-            }
-            .padding(.horizontal, Self.horizontalPadding)
-            .padding(.top, 8)
-            Text(startPointDetail)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, Self.horizontalPadding)
-                .accessibilityIdentifier("matchFirstStartDetail")
-        }
+    private var isLocationUnavailable: Bool { locationService.isDenied || locationService.isPreciseLocationOff }
+
+    private var selectedFavorite: ResolvedPlace? {
+        favoritePlaces.places.first { $0.id == selectedFavoriteID }
     }
 
     private var startPointDetail: String {
-        let place = viewModel.resolvedStartPlace?.title.nilIfBlank
-        if usesFavorite { return "\(place ?? "常用地点") · 见面点电话里再定" }
-        if let place { return "\(place)附近 · 见面点电话里再定" }
+        if let selectedFavorite { return "\(selectedFavorite.title) · 见面点电话里再定" }
+        if let place = viewModel.resolvedStartPlace?.title.nilIfBlank { return "\(place)附近 · 见面点电话里再定" }
         return viewModel.isResolvingStartLocation ? "正在获取当前位置…" : "还没拿到当前位置"
     }
 
-    // MARK: 大概什么时候
-
-    private var slotSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionTitle("大概什么时候？")
-            HStack(spacing: 19) {
-                ForEach(BookingDaySlot.allCases) { slot in
-                    let range = selectedDay.flatMap { BookingSlotPlanner.window(day: $0, slot: slot, now: now) }
-                    pill(slot.title, isSelected: selectedSlot == slot, height: 45, isEnabled: range != nil) {
-                        selectSlot(slot)
-                    }
-                    .accessibilityLabel(
-                        range.map { "\(slot.title)，\(BookingSlotText.clock($0.start))到\(BookingSlotText.clock($0.end))之间" } ?? "\(slot.title)，已过"
-                    )
-                }
-            }
-            .padding(.horizontal, Self.horizontalPadding)
-            .padding(.top, 6)
-        }
-    }
-
-    // MARK: 想几点开始（可不选）
-
-    private var startTimeSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(startTimeHint)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, Self.horizontalPadding)
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4),
-                alignment: .leading,
-                spacing: 0
-            ) {
-                ForEach(startTimes, id: \.self) { time in
-                    pill(BookingSlotText.clock(time), isSelected: preferredStart == time, height: 44, fillsWidth: true) {
-                        togglePreferredStart(time)
-                    }
-                    .accessibilityHint("可以不选，电话里再定")
-                }
-            }
-            .padding(.horizontal, Self.horizontalPadding)
-        }
-    }
-
-    private var startTimes: [Date] {
-        guard let selectedDay, let selectedSlot else { return [] }
-        return BookingSlotPlanner.startTimes(day: selectedDay, slot: selectedSlot, now: now)
-    }
-
-    private var startTimeHint: String {
-        guard let selectedDay, let selectedSlot,
-              let range = BookingSlotPlanner.window(day: selectedDay, slot: selectedSlot, now: now) else {
-            return "先选一个时段"
-        }
-        return "\(selectedSlot.title) \(BookingSlotText.clock(range.start))–\(BookingSlotText.clock(range.end)) 之间 · 具体几点可以不选，电话里再定"
+    /// 值守时段那句由后端拼好，原样显示（`LaunchScopeResponse.dutyHoursHint`）。没有限制时不显示。
+    private var dutyHoursHint: String? {
+        guard let scope = appState.ruleParamsResponse?.launchScope, scope.dutyHoursRestricted else { return nil }
+        return scope.dutyHoursHint
     }
 
     // MARK: 主按钮
@@ -174,7 +130,7 @@ struct BlindMatchFirstBookingView: View {
         .accessibilityIdentifier("matchFirstSubmitButton")
         .padding(.horizontal, Self.horizontalPadding)
         .padding(.vertical, 8)
-        .background(AppColors.Flow.surface.ignoresSafeArea())
+        .background(AppColors.Flow.page.ignoresSafeArea())
     }
 
     private var submitSpokenLabel: String {
@@ -186,38 +142,30 @@ struct BlindMatchFirstBookingView: View {
 
     // MARK: 小部件
 
+    /// 三个问题的标题：比 v4 的 `.headline` 大一档（负责人 11-07：「从哪出发」太小、和下面分不开）。
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
-            .font(.headline)
+            .font(.title3.weight(.bold))
             .foregroundColor(AppColors.Flow.navy)
-            .padding(.horizontal, Self.horizontalPadding)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 22)
+            .padding(.bottom, 9)
             .accessibilityAddTraits(.isHeader)
-    }
-
-    private func pill(
-        _ title: String,
-        isSelected: Bool,
-        height: CGFloat,
-        isEnabled: Bool = true,
-        fillsWidth: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        BookingChoicePill(
-            title: title, isSelected: isSelected, height: height, isEnabled: isEnabled, fillsWidth: fillsWidth, action: action
-        )
     }
 
     // MARK: 选择
 
     private var currentSlot: BookingFlexibleSlot? {
         guard let selectedDay, let selectedSlot else { return nil }
-        return BookingSlotPlanner.makeSlot(day: selectedDay, slot: selectedSlot, preferredStart: preferredStart, now: now)
+        return BookingSlotPlanner.makeSlot(
+            day: selectedDay, slot: selectedSlot, preferredStart: preferredStart, now: now, rules: rules
+        )
     }
 
     private func selectDay(_ day: Date) {
         selectedDay = day
-        if let slot = selectedSlot, BookingSlotPlanner.window(day: day, slot: slot, now: now) != nil { return }
-        selectedSlot = BookingDaySlot.allCases.first { BookingSlotPlanner.window(day: day, slot: $0, now: now) != nil }
+        if let slot = selectedSlot, BookingSlotPlanner.window(day: day, slot: slot, now: now, rules: rules) != nil { return }
+        selectedSlot = BookingSlotPlanner.firstAvailableSlot(day: day, now: now, rules: rules)
         preferredStart = nil
     }
 
@@ -231,19 +179,27 @@ struct BlindMatchFirstBookingView: View {
         preferredStart = preferredStart == time ? nil : time
     }
 
+    /// 已选的日子不能约了就换到最早能约的；日子还行但时段不行就换到这天第一个能约的时段。
+    private func revalidateSelection() {
+        guard let day = selectedDay, BookingSlotPlanner.isDayAvailable(day, now: now, rules: rules) else {
+            let initial = BookingSlotPlanner.defaultSelection(now: now, rules: rules)
+            selectedDay = initial?.day
+            selectedSlot = initial?.slot
+            preferredStart = nil
+            return
+        }
+        selectDay(day)
+    }
+
     private func useCurrentLocation() {
-        usesFavorite = false
+        selectedFavoriteID = nil
         viewModel.selectedStartPlace = nil
         Task { await viewModel.refreshCurrentLocation() }
     }
 
-    private func useFavorite() {
-        guard let favoritePlace else {
-            speechService.speak("还没有设默认的常用地点，可以在首页设置。这次先用当前位置。")
-            return
-        }
-        usesFavorite = true
-        viewModel.selectPlace(favoritePlace, announce: false)
+    private func useFavorite(_ place: ResolvedPlace) {
+        selectedFavoriteID = place.id
+        viewModel.selectPlace(place, announce: false)
     }
 
     private func handleAppear() {
@@ -258,9 +214,14 @@ struct BlindMatchFirstBookingView: View {
             amapGeocodingService: amapGeocodingService
         )
         Task { await viewModel.refreshCurrentLocation() }
-        guard !hasAppeared else { return }
+        guard !hasAppeared else {
+            revalidateSelection()
+            return
+        }
         hasAppeared = true
-        if let initial = BookingSlotPlanner.defaultSelection(now: now) {
+        // 首页设了默认常用地点就从那里出发（v4 总是选当前位置，首页的默认设了也不起作用）。
+        if let place = favoritePlaces.defaultPlace { useFavorite(place) }
+        if let initial = BookingSlotPlanner.defaultSelection(now: now, rules: rules) {
             selectedDay = initial.day
             selectedSlot = initial.slot
         }
@@ -268,8 +229,9 @@ struct BlindMatchFirstBookingView: View {
     }
 
     private var entryAnnouncement: String {
-        guard let slot = currentSlot else { return "预约陪跑。现在没有可以约的时段。" }
-        return "预约陪跑。从当前位置出发。已选\(BookingSlotText.spokenDay(slot.day, now: now))\(slot.slot.title)，"
+        let origin = selectedFavorite?.title ?? BlindStartPlaceCopy.currentLocation
+        guard let slot = currentSlot else { return "预约陪跑。从\(origin)出发。现在没有可以约的时段。" }
+        return "预约陪跑。从\(origin)出发。已选\(BookingSlotText.spokenDay(slot.day, now: now))\(slot.slot.title)，"
             + "\(BookingSlotText.clock(slot.start))到\(BookingSlotText.clock(slot.end))之间。具体几点可以不选。点「开始找陪跑员」就开始匹配。"
     }
 

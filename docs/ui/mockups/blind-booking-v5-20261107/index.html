@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>约跑页 v5（#821）</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#E9EAEE;margin:0;padding:24px;color:#151A26}
+h1{font-size:20px;margin:0 0 6px}p.lead{font-size:13px;color:#5B6272;margin:0 0 18px;max-width:1000px;line-height:1.6}
+.ph{width:318px;background:#F2F3F6;border-radius:34px;border:8px solid #1c1c1e;padding:0 0 14px;color:#1B2657;overflow:hidden}
+.sb{display:flex;justify-content:space-between;padding:10px 22px 4px;font-size:12px;font-weight:500;color:#000}
+.nv{display:flex;align-items:center;padding:4px 12px 6px;font-size:14px;font-weight:500;color:#000}
+.h{font-size:19px;font-weight:700;color:#1B2657;margin:14px 16px 7px}
+.cd{background:#fff;border-radius:16px;margin:0 12px;padding:12px}
+.ci{display:flex;justify-content:space-between}
+.it{width:66px;text-align:center;font-size:11px;color:#1c1c1e;line-height:1.3}
+.cr{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:4px auto 6px;color:#fff;font-size:21px}
+.sel{box-shadow:0 0 0 2px #fff,0 0 0 4.5px #0058C7}
+.sub{font-size:10px;color:#6c6c70}.tg{font-size:10px;color:#0058C7;font-weight:600}
+.dt{font-size:11px;color:#6c6c70;display:flex;gap:4px;align-items:center;margin-top:10px;border-top:1px solid #EEF0F4;padding-top:9px}
+.mh{display:flex;justify-content:space-between;align-items:center}
+.ar{width:30px;height:30px;border-radius:50%;background:#E8EEF8;color:#0058C7;display:flex;align-items:center;justify-content:center;font-size:16px}
+.ms{display:flex;gap:8px;margin:9px 0 10px}
+.mc{padding:5px 14px;border-radius:99px;border:1px solid #7C7C80;font-size:12px;color:#1c1c1e}
+.mc.on{border:1.5px solid #0058C7;color:#0058C7;font-weight:600}
+.wk,.dy{display:grid;grid-template-columns:repeat(7,1fr);text-align:center}
+.wk{font-size:10px;color:#6c6c70;margin-bottom:4px}
+.d{width:33px;height:33px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:14px}
+.av{background:#E8EEF8;border:1px solid #7C7C80;color:#1c1c1e}.ps{color:#9a9aa0}.no{border:1px dashed #9a9aa0;color:#9a9aa0}
+.sd{background:#0058C7;color:#fff;font-weight:600}
+.tdy{font-size:9px;color:#0058C7;height:12px}
+.pg{display:flex;justify-content:center;gap:5px;margin-top:8px}.pg i{width:6px;height:6px;border-radius:50%;background:#c7c7cc;display:block}.pg i.on{background:#0058C7}
+.ft{font-size:10.5px;color:#6c6c70;margin-top:8px}
+.sl{display:flex;gap:7px}
+.sp{flex:1;border:1px solid #7C7C80;border-radius:14px;text-align:center;padding:6px 0;font-size:13px;color:#1c1c1e;background:#fff}
+.sp small{display:block;font-size:10px;color:#6c6c70}
+.sp.on{border:1.5px solid #0058C7;color:#0058C7;font-weight:600}.sp.off{background:#F2F3F6;color:#9a9aa0;border-style:dashed}
+.tg4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.tm{border:1px solid #7C7C80;border-radius:99px;text-align:center;font-size:12px;padding:5px 0;color:#1c1c1e}.tm.on{border:1.5px solid #0058C7;color:#0058C7}
+.tl{font-size:11px;color:#6c6c70;margin-top:10px;border-top:1px solid #EEF0F4;padding-top:8px}
+.bt{margin:14px 12px 0;background:#0058C7;color:#fff;border-radius:99px;text-align:center;padding:13px 0;font-size:15px;font-weight:600}
+.nt{font-size:11px;color:#5B6272;padding:0 0 7px;line-height:1.45}
+.cap{font-size:12px;color:#5B6272;margin:8px 4px 0;max-width:318px;line-height:1.5}
+.lbl{font-size:13px;font-weight:600;margin:0 4px 6px}
+</style></head><body>
+<h1>约跑页 v5（#821，负责人 2026-11-07 批）</h1>
+<p class="lead">在 v4（blind-match-first-20261106）上改三块：「从哪出发」换成默认出发地点页同一套彩色圆排；日期改真实日历（年月标题、翻周、月份可点、可约天数读后端 maxLeadDays，后端 #935 放宽到 30 天）；时段与后端值守时段取交集。三个问题标题加大、各自一张白卡、页面灰底。示例「现在」= 2026-11-07（周六）上午，地名是示例。</p>
+<div style="display:flex;flex-wrap:wrap;gap:22px" id="root"></div>
+<script>
+const P={cur:['#0058C7','ti-navigation'],sch:['#7E3FB8','ti-school'],prk:['#1F7A3A','ti-tree'],add:['#EAEAEA','ti-plus']};
+function circles(selIdx,detail){const items=[['cur','当前定位','跟着你走'],['sch','河畔书院','2.1 公里'],['prk','湾畔公园南门','3.1 公里'],['add','添加','']];
+return '<div class="cd"><div class="ci">'+items.map((x,i)=>{const [bg,ic]=P[x[0]];const s=i===selIdx;return `<div class="it"><div class="cr ${s?'sel':''}" style="background:${bg};${x[0]=='add'?'color:#0058C7':''}"><i class="ti ${ic}"></i></div>${x[1]}<br>${s?'<span class="tg">这次从这里</span>':'<span class="sub">'+x[2]+'</span>'}</div>`}).join('')+`</div><div class="dt"><i class="ti ti-map-pin"></i>${detail}</div></div>`;}
+function cal(title,months,mon,days,dots){
+const wk='<div class="wk">'+['一','二','三','四','五','六','日'].map(w=>'<span>'+w+'</span>').join('')+'</div>';
+const dy='<div class="dy">'+days.map(([n,c,t])=>`<div><div class="d ${c}">${n}</div><div class="tdy">${t||''}</div></div>`).join('')+'</div>';
+const pg='<div class="pg">'+Array.from({length:6},(_,i)=>`<i class="${i===dots?'on':''}"></i>`).join('')+'</div>';
+return `<div class="cd"><div class="mh"><span style="font-size:16px;font-weight:600">${title}</span><span style="display:flex;gap:8px"><span class="ar"><i class="ti ti-chevron-left"></i></span><span class="ar"><i class="ti ti-chevron-right"></i></span></span></div><div class="ms">${months.map((m,i)=>`<span class="mc ${i===mon?'on':''}">${m}</span>`).join('')}</div>${wk}${dy}${pg}<div class="ft">最多约 30 天内，最远到 12月7日</div></div>`;}
+function slots(arr,notice){return '<div class="cd">'+(notice||'')+'<div class="sl">'+arr.map(([n,r,c])=>`<div class="sp ${c}">${n}<small>${r}</small></div>`).join('')+'</div>';}
+function times(list,on){return `<div class="tl">具体几点可以不选，电话里再定</div><div class="tg4">${list.map(t=>`<div class="tm ${t===on?'on':''}">${t}</div>`).join('')}</div></div>`;}
+function phone(label,place,detail,calHtml,slotHtml,cap){return `<div><div class="lbl">${label}</div><div class="ph"><div class="sb"><span>9:41</span><span>5G</span></div><div class="nv"><i class="ti ti-chevron-left" style="font-size:20px;color:#0058C7"></i><span style="flex:1;text-align:center;margin-right:20px">预约陪跑</span></div><div class="h">从哪出发？</div>${circles(place,detail)}<div class="h">哪天跑？</div>${calHtml}<div class="h">大概什么时候？</div>${slotHtml}<div class="bt">开始找陪跑员</div></div><div class="cap">${cap}</div></div>`;}
+const w1=[[2,'ps'],[3,'ps'],[4,'ps'],[5,'ps'],[6,'ps'],[7,'sd','今天'],[8,'av']];
+const w2=[[30,'av'],[1,'sd'],[2,'av'],[3,'av'],[4,'av'],[5,'av'],[6,'av']];
+const w3=[[9,'sd'],[10,'av'],[11,'av'],[12,'av'],[13,'av'],[14,'no'],[15,'no']];
+document.getElementById('root').innerHTML=
+phone('① 进页默认',0,'人民公园东门附近 · 见面点电话里再定',cal('2026年11月',['11月','12月'],0,w1,0),slots([['上午','已过','off'],['下午','13:00–17:00','on'],['傍晚','17:00–21:00','']])+times(['13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30'],''),'选中的圆外一圈蓝环，下面写「这次从这里」。今天之前浅灰字，今天下面标「今天」。首页设了默认常用地点时进页选它。')+
+phone('② 点「12月」',1,'河畔书院 · 见面点电话里再定',cal('2026年11月–12月',['11月','12月'],1,w2,4),slots([['上午','6:00–11:00','on'],['下午','13:00–17:00',''],['傍晚','17:00–21:00','']])+times(['6:00','6:30','7:00','7:30','8:00','8:30','9:00','9:30','10:00','10:30'],'8:30'),'点月份跳到那个月第一个能约的日子并选中；左右滑或点箭头一次翻一周；小圆点是第几周。')+
+phone('③ 有值守时段限制',0,'人民公园东门附近 · 见面点电话里再定',cal('2026年11月',['11月','12月'],0,w3,1),slots([['上午','不在值守时间','off'],['下午','不在值守时间','off'],['傍晚','18:00–21:00','on']],'<div class="nt">可预约的开跑时间是周一到周五 18:00 到 21:00。</div>')+times(['18:00','18:30','19:00','19:30','20:00','20:30'],''),'值守时段由后端下发：不在里面的日期画虚线圈、时段变灰写原因，提示句原样用后端的。');
+</script></body></html>

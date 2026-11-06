@@ -13,11 +13,19 @@ struct RuleParamsResponse: Codable, Sendable, Equatable {
     /// 开放城市与值守时段（#667，后端 #896）。旧后端没有它；下发了但读不出来也当作没有 ——
     /// 能不能下单以 `POST /api/orders` 为准，这里只决定提不提前说一句。
     var launchScope: LaunchScopeResponse?
+    /// 最远可约几天（后端 `app.order.max-lead-days`，backend#935 起下发）。旧后端没有它，客户端退回 7。
+    let maxLeadDays: Int?
 
-    init(lateCancelWindowHours: Int?, volunteerOrderAutoOpenLeadMinutes: Int?, launchScope: LaunchScopeResponse? = nil) {
+    init(
+        lateCancelWindowHours: Int?,
+        volunteerOrderAutoOpenLeadMinutes: Int?,
+        launchScope: LaunchScopeResponse? = nil,
+        maxLeadDays: Int? = nil
+    ) {
         self.lateCancelWindowHours = lateCancelWindowHours
         self.volunteerOrderAutoOpenLeadMinutes = volunteerOrderAutoOpenLeadMinutes
         self.launchScope = launchScope
+        self.maxLeadDays = maxLeadDays
     }
 
     init(from decoder: Decoder) throws {
@@ -25,6 +33,7 @@ struct RuleParamsResponse: Codable, Sendable, Equatable {
         lateCancelWindowHours = try? container.decodeIfPresent(Int.self, forKey: .lateCancelWindowHours)
         volunteerOrderAutoOpenLeadMinutes = try? container.decodeIfPresent(Int.self, forKey: .volunteerOrderAutoOpenLeadMinutes)
         launchScope = try? container.decodeIfPresent(LaunchScopeResponse.self, forKey: .launchScope)
+        maxLeadDays = try? container.decodeIfPresent(Int.self, forKey: .maxLeadDays)
     }
 }
 
@@ -118,6 +127,26 @@ struct LaunchScopeResponse: Codable, Sendable, Equatable {
         return admits
     }
 
+    /// 一段值守时段，换算成「星期几（`Calendar.weekday`，周日 = 1）+ 当天第几分钟」。
+    nonisolated struct DutyMinuteRange: Equatable, Sendable {
+        let weekdays: Set<Int>
+        let startMinute: Int
+        let endMinute: Int
+    }
+
+    /// 约跑页用来裁时段（#821）。`nil` = 没有限制，或有一段读不出来 / 跨午夜 —— 这时客户端不裁，
+    /// 只显示后端那句 `dutyHoursHint`，能不能约以 `POST /api/orders` 为准（同 `admitsStart`）。
+    func dutyMinuteRanges() -> [DutyMinuteRange]? {
+        guard dutyHoursRestricted, let dutyWindows else { return nil }
+        var ranges: [DutyMinuteRange] = []
+        for window in dutyWindows {
+            guard let start = Self.minuteOfDay(window.start), let end = Self.minuteOfDay(window.end), start <= end else { return nil }
+            let weekdays = Set(window.days.compactMap { name in Self.weekdayNames.firstIndex(of: name).map { $0 + 1 } })
+            ranges.append(DutyMinuteRange(weekdays: weekdays, startMinute: start, endMinute: end))
+        }
+        return ranges
+    }
+
     /// `Calendar.weekday` 从星期日 = 1 起数。
     private static let weekdayNames = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
 
@@ -137,15 +166,19 @@ struct LaunchScopeResponse: Codable, Sendable, Equatable {
 struct RuleParams: Equatable, Sendable {
     let lateCancelWindowHours: Int
     let volunteerOrderAutoOpenLeadMinutes: Int
+    /// 最远可约几天。旧后端不下发时用 `AppConstants.Timing.maximumBookingLeadDays`（7，与后端旧默认值相同）。
+    let maxLeadDays: Int
 
     static let fallback = RuleParams(
         lateCancelWindowHours: 12,
-        volunteerOrderAutoOpenLeadMinutes: AppConstants.Timing.volunteerOrderAutoOpenLeadMinutes
+        volunteerOrderAutoOpenLeadMinutes: AppConstants.Timing.volunteerOrderAutoOpenLeadMinutes,
+        maxLeadDays: AppConstants.Timing.maximumBookingLeadDays
     )
 
-    init(lateCancelWindowHours: Int, volunteerOrderAutoOpenLeadMinutes: Int) {
+    init(lateCancelWindowHours: Int, volunteerOrderAutoOpenLeadMinutes: Int, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays) {
         self.lateCancelWindowHours = lateCancelWindowHours
         self.volunteerOrderAutoOpenLeadMinutes = volunteerOrderAutoOpenLeadMinutes
+        self.maxLeadDays = maxLeadDays
     }
 
     /// `response == nil` = 还没拉到或拉失败，整份走默认值。
@@ -155,7 +188,8 @@ struct RuleParams: Equatable, Sendable {
             lateCancelWindowHours: Self.positive(response?.lateCancelWindowHours)
                 ?? fallback.lateCancelWindowHours,
             volunteerOrderAutoOpenLeadMinutes: Self.positive(response?.volunteerOrderAutoOpenLeadMinutes)
-                ?? fallback.volunteerOrderAutoOpenLeadMinutes
+                ?? fallback.volunteerOrderAutoOpenLeadMinutes,
+            maxLeadDays: Self.positive(response?.maxLeadDays) ?? fallback.maxLeadDays
         )
     }
 

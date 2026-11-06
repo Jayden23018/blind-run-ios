@@ -281,11 +281,21 @@ struct BlindFavoritePlaceAddRoute: View {
                 ? "默认出发地点已改为当前定位。现在拿不到定位，打开定位后才能用。"
                 : "默认出发地点已改为当前定位。"
         )
-        path.removeAll()
+        finish()
     }
 
     private func pick(_ place: ResolvedPlace) {
         if BlindFavoritePlaceAdoption.collectAndSetDefault(place, store: favoritePlaces, speech: speechService) {
+            finish()
+        }
+    }
+
+    /// 从首页或默认出发地点页进来（栈里只有本页）回首页；叠在约跑页上进来（#821）退回约跑页，
+    /// 别把正在约的那一页一起关掉。
+    private func finish() {
+        if path.count > 1 {
+            path.removeLast()
+        } else {
             path.removeAll()
         }
     }

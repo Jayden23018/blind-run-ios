@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>约跑页日期条第三稿甲（#821）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#E9EAEE;margin:0;padding:24px;color:#151A26}
+h1{font-size:18px;margin:0 0 6px}p.lead{font-size:13px;color:#5B6272;margin:0 0 16px;max-width:900px;line-height:1.6}
+.card{width:330px;background:#fff;border-radius:18px;overflow:hidden;padding:14px 0 12px}
+.h{font-size:19px;font-weight:700;color:#1B2657;margin:0 0 9px}
+.row{display:flex;gap:10px;padding:0 0 0 16px;white-space:nowrap;overflow:hidden}
+.col{width:48px;flex:none;text-align:center}
+.mo{font-size:14px;color:#5B6272;height:22px}.mo.on{font-weight:700;color:#151A26}
+.d{width:44px;height:44px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:18px;background:#E8EEF8;border:1px solid #7C7C80}
+.s{background:#fff;border:1.5px solid #0058C7;color:#1B2657;font-weight:700}
+.w{font-size:11px;color:#5B6272;margin-top:6px}.w.on{color:#1B2657;font-weight:600}
+.ft{font-size:11px;color:#5B6272;padding:10px 16px 0}
+.cap{font-size:12px;color:#5B6272;margin:8px 0 0;max-width:330px;line-height:1.5}
+</style></head><body>
+<h1>约跑页「哪天跑」第三稿甲（负责人 2026-11-07 定）</h1>
+<p class="lead">照参考图 2 的样子补上逻辑：一整排日期从今天排到可约的最后一天，一直能横滑，不按周分页；月份写在当月第一个日子正上方，跟日期一起滑，选中日子所在的月加粗；星期写在圆下，今天写「今天」。取代 index.html 里按周分页 + 月份胶囊的日期卡。</p>
+<div style="display:flex;gap:24px;flex-wrap:wrap">
+<div><div class="h">哪天跑？</div><div class="card">
+<div class="row"><div class="col mo on">11月</div><div class="col mo"></div><div class="col mo"></div><div class="col mo"></div><div class="col mo"></div><div class="col mo"></div></div>
+<div class="row"><div class="col"><div class="d s">7</div><div class="w on">今天</div></div><div class="col"><div class="d">8</div><div class="w">周日</div></div><div class="col"><div class="d">9</div><div class="w">周一</div></div><div class="col"><div class="d">10</div><div class="w">周二</div></div><div class="col"><div class="d">11</div><div class="w">周三</div></div><div class="col"><div class="d">12</div><div class="w">周四</div></div></div>
+<div class="ft">最多约 30 天内，最远到 12月7日 · 左右滑看更多</div></div><p class="cap">进页：今天在最左，「11月」在今天正上方。</p></div>
+<div><div class="h">哪天跑？</div><div class="card">
+<div class="row"><div class="col mo"></div><div class="col mo"></div><div class="col mo"></div><div class="col mo on">12月</div><div class="col mo"></div><div class="col mo"></div></div>
+<div class="row"><div class="col"><div class="d">28</div><div class="w">周六</div></div><div class="col"><div class="d">29</div><div class="w">周日</div></div><div class="col"><div class="d">30</div><div class="w">周一</div></div><div class="col"><div class="d s">1</div><div class="w on">周二</div></div><div class="col"><div class="d">2</div><div class="w">周三</div></div><div class="col"><div class="d">3</div><div class="w">周四</div></div></div>
+<div class="ft">最多约 30 天内，最远到 12月7日 · 左右滑看更多</div></div><p class="cap">滑到月底：「12月」写在 12 月 1 日正上方；选中 1 日后 12月 加粗。</p></div>
+</div></body></html>

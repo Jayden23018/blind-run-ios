@@ -36,6 +36,7 @@ struct VolunteerMeetupPlanFormView: View {
 
     /// 时段单（#806）时跑者选的时段，「明天 6:00–11:00 之间」。`nil` = 准点单。
     let flexibleWindowText: String?
+    let maxLeadDays: Int // 开跑时间最远几天后（后端 `maxLeadDays`，#821）：写死 7 天时 8 天后的时段单填不了安排单
 
     /// - Parameter timeFlexible: 时段单（`IntroCallView.timeFlexible`）。是时段单时开跑时间必填，并出现跑步需求四块。
     init(
@@ -44,11 +45,10 @@ struct VolunteerMeetupPlanFormView: View {
         windowEndsAt: Date?,
         timeFlexible: Bool = false,
         preferredStart: Date? = nil,
-        flexibleWindowText: String? = nil,
+        flexibleWindowText: String? = nil, maxLeadDays: Int = AppConstants.Timing.maximumBookingLeadDays,
         onSubmit: @escaping @MainActor (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
     ) {
-        self.windowEndsAt = windowEndsAt
-        self.onSubmit = onSubmit
+        (self.windowEndsAt, self.maxLeadDays, self.onSubmit) = (windowEndsAt, maxLeadDays, onSubmit)
         self.flexibleWindowText = timeFlexible ? flexibleWindowText : nil
         var draft = VolunteerMeetupPlanDraft(original: original, editing: plan)
         if timeFlexible {
@@ -58,7 +58,7 @@ struct VolunteerMeetupPlanFormView: View {
     }
 
     private var timeError: String? {
-        draft.timeError(now: Date(), windowEndsAt: windowEndsAt) ?? (submitError?.slot == .time ? submitError?.message : nil)
+        draft.timeError(now: Date(), windowEndsAt: windowEndsAt, maxLeadDays: maxLeadDays) ?? (submitError?.slot == .time ? submitError?.message : nil)
     }
 
     private var placeError: String? {
@@ -67,7 +67,7 @@ struct VolunteerMeetupPlanFormView: View {
 
     /// 本地校验没过时主按钮置灰（走 `.disabled`，读屏念「变暗」）—— 错误已经写在对应那一块下面了。
     private var canSubmit: Bool {
-        !isSubmitting && draft.timeError(now: Date(), windowEndsAt: windowEndsAt) == nil && draft.placeError == nil
+        !isSubmitting && draft.timeError(now: Date(), windowEndsAt: windowEndsAt, maxLeadDays: maxLeadDays) == nil && draft.placeError == nil
             && !draft.isMeetSpotNoteTooLong && !draft.isSpecialNotesTooLong
     }
 
@@ -169,7 +169,7 @@ struct VolunteerMeetupPlanFormView: View {
                         set: { draft.plannedStart = $0; clearSubmitError(.time) }
                     ),
                     minimumDate: VolunteerMeetupPlanDraft.earliestStart(now: Date(), windowEndsAt: windowEndsAt),
-                    maximumDate: VolunteerMeetupPlanDraft.latestStart(now: Date())
+                    maximumDate: VolunteerMeetupPlanDraft.latestStart(now: Date(), maxLeadDays: maxLeadDays)
                 )
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("volunteerMeetupPlanTimePicker")
