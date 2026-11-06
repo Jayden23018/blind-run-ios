@@ -58,7 +58,7 @@ final class BlindFirstRunHelpTests: XCTestCase {
 
     /// 两指双击的说明**必须限定页面**。
     ///
-    /// Magic Tap 沿响应链查找，而全仓只在 `BlindRunnerHomeView.swift` 与 `BlindBookingView.swift`
+    /// Magic Tap 沿响应链查找，写这条用例时全仓只在首页与旧下单页（`BlindBookingView.swift`，#810 已删）
     /// 注册过它。订单状态页是 push 上去的，够不到首页那个注册点 —— 陪跑进行中恰恰在那一页，
     /// 所以「屏幕任意位置」这句话在最需要求助的时刻是错的，手势会落到系统默认动作（播放音乐）。
     /// 那一页真正的入口是底部常驻区里的按钮。

@@ -11,15 +11,27 @@ extension BlindBookingViewModel {
         Date().addingTimeInterval(TimeInterval(AppConstants.Timing.maximumBookingLeadDays * 24 * 3600))
     }
 
+    /// 默认预约时间：最早可约时刻再加 1 分钟，免得一设下去就踩线。
+    var seedAppointmentTime: Date {
+        minimumAppointmentTime.addingTimeInterval(60)
+    }
+
+    /// 默认值只比下限多 1 分钟，而合法性按**实时**的 `Date()` 判，停留久了就变成「太近」。
+    /// 进页时（`configure`）过期的值重新取最早可约时刻；用户或语音给的、仍然合法的时间不动。
+    func reseedAppointmentTimeIfExpired() {
+        if appointmentTime < minimumAppointmentTime {
+            appointmentTime = seedAppointmentTime
+        }
+    }
+
     var isAppointmentTimeValid: Bool {
         appointmentTimeProblem == nil
     }
 
     /// 当前这个时间选择过不了哪一道，`nil` = 都过得了。
     ///
-    /// 抽成一个枚举而不是三个 Bool：`appointmentTimeHint` / `blockingReasonForCurrentStep` /
-    /// `appointmentSummary` 三处都要说出**具体哪里不行**，散着写就会像此前那样漂 ——
-    /// 那两处曾经手抄「30 分钟」，而 hint 是从常量取的。
+    /// 抽成一个枚举而不是三个 Bool：`message(for:)` 与 `appointmentSummary` 都要说出**具体哪里不行**，
+    /// 散着写就会漂 —— 旧表单的两处提示曾经手抄「30 分钟」，而另一处是从常量取的。
     ///
     /// 顺序即优先级：太近 → 太远 → 夜间。先说时间点本身的问题，再说整段的问题。
     var appointmentTimeProblem: BookingTimeProblem? {
@@ -61,21 +73,6 @@ extension BlindBookingViewModel {
         return false
     }
 
-    /// 预约时间那行提示。合法时说规则，不合法时说**当前这个选择哪里不行**。
-    ///
-    /// 此前两种状态是同一句话，合法与否只由颜色区分（灰 / 红）。那不只是色觉障碍的问题：
-    /// 读屏用户根本没有颜色这条通道，选了一个过近的时间之后听到的还是那句中性的规则说明，
-    /// 只有提交被拒时才知道。所以改文案而不是加一个 `differentiateWithoutColor` 分支 ——
-    /// 后者只补色觉一条通道，前者对所有人都修好，且顺带让颜色不再是唯一信号。
-    ///
-    /// 两句都带「30 分钟」这个数字：听的人无论落在哪一句，要做的动作都是完整的。
-    /// 分钟数取自 `AppConstants.Timing.minimumBookingLeadMinutes`，与 `minimumAppointmentTime`
-    /// 同源 —— 写死 30 会在后端调整提前量时变成一句骗人的话。
-    var appointmentTimeHint: String {
-        appointmentTimeProblem?.message
-            ?? "预约时间需至少在 \(AppConstants.Timing.minimumBookingLeadMinutes) 分钟后。"
-    }
-
     /// 下单前第一个未通过的门槛；nil 表示全部通过。
     var firstMissingGate: BlindBookingGate? {
         BlindBookingGate.firstMissing(
@@ -89,7 +86,7 @@ extension BlindBookingViewModel {
     ///
     /// `.appointmentTime` 门槛背后有三种原因（太近 / 超过 7 天 / 撞夜间窗口），`BlindBookingGate.message`
     /// 是个无状态枚举，只能说其中一种；所以凡是把门槛念给用户的地方都走这里，
-    /// 时间门槛读 `appointmentTimeProblem`，与时间那一步的阻断语同一句话（#424）。
+    /// 时间门槛读 `appointmentTimeProblem`，说出具体哪里不行（#424）。
     func message(for gate: BlindBookingGate) -> String {
         guard gate == .appointmentTime, let problem = appointmentTimeProblem else { return gate.message }
         return problem.message
@@ -97,15 +94,5 @@ extension BlindBookingViewModel {
 
     var canSubmit: Bool {
         !isSubmitting && firstMissingGate == nil
-    }
-
-    var isFirstStep: Bool {
-        currentStep == BlindBookingGuidedStep.allCases.first
-    }
-
-    var isReviewStep: Bool { currentStep == .review }
-
-    var canAdvanceFromCurrentStep: Bool {
-        blockingReasonForCurrentStep == nil
     }
 }

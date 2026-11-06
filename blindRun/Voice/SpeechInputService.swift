@@ -822,7 +822,7 @@ final class SpeechInputService: ObservableObject {
     /// 首次静音（压根没人说话）从 15 秒降到 8 秒，同理。
     ///
     /// 纯静音兜底在任何取值下都会牺牲一部分人，所以显式结束通道必须一直在：
-    /// 整块内容区可点（`blindBookingFinishSpeakingSurface`）和 Magic Tap 都直接收音。
+    /// 整块内容区可点（原语音预约页的 `blindBookingFinishSpeakingSurface`，界面 #810 已删）和 Magic Tap 都直接收音。
     private var activeInitialSilenceTimeout: TimeInterval {
         activeField == .voiceOrderFreeform ? 8 : Self.initialSilenceTimeout
     }

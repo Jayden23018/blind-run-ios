@@ -57,7 +57,7 @@ enum AppColors {
         return UIColor(rgb: traits.userInterfaceStyle == .dark ? 0xAEAEB2 : 0x5C5C61)
     }
 
-    /// 语音下单那块占满内容区的蓝底（`BlindBookingView.voiceStatusBlock`）。
+    /// 原是语音下单那块占满内容区的蓝底（旧下单页 `BlindBookingView.voiceStatusBlock`，#810 已删），现在常用地点页等处沿用。
     ///
     /// **它是背景色，所以不进 `tones`。** 那张表验的是「这个色当前景压在两种背景上」，
     /// 而这个色从不当前景 —— 硬塞进去只会得到一条方向反了的断言（暗色值压在纯黑上

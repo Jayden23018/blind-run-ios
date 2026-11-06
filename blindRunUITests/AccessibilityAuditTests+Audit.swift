@@ -38,7 +38,7 @@ extension AccessibilityAuditTests {
             // 陪跑员首页底部的接单滑块（滑块后面压着徽章与「最近陪跑」，#515）。
             // 陪跑培训正文 / 答题 / 结果页的通栏胶囊栏（#698）。盲人资料页的保存栏（#711：从账户页进入时标签栏藏起来，栏贴底）。
             // 盲人使用帮助的「再听一遍 / 知道了」栏（#753：四张卡在它后面滚动）。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "blindBookingBottomBar", "volunteerTrainingBottomBar", "blindProfileSubmitBar", "blindRunnerHelpBottomBar"] {
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "volunteerTrainingBottomBar", "blindProfileSubmitBar", "blindRunnerHelpBottomBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
                 // 栏自己的子元素（按钮、滑块）是看得见的，照常审计；只有压在栏后面的页面内容才算被遮挡。
                 if bar.exists { return OccludingBar(top: bar.frame.minY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame)) }
@@ -266,7 +266,7 @@ extension AccessibilityAuditTests {
         //
         // `blindRunnerHomeAuxiliaryMap` 已于 2026-08-14（`30b0770`）随「盲人首页装饰地图对读屏隐藏」
         // 一起删除，不再需要白名单 —— 死条目会让人以为这一项还在被放行。
-        "blindBookingAuxiliaryMap",
+        // `blindBookingAuxiliaryMap` 同理，随旧四步表单删除（#810）。
         "mapPlaceholder"
     ]
 

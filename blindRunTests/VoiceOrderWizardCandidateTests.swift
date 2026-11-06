@@ -236,7 +236,7 @@ final class VoiceOrderWizardCandidateTests: XCTestCase, VoiceOrderWizardTestSupp
         stub.parseOrderResponses = [Self.parseResponse()]
         let wizard = makeWizard(
             stub: stub,
-            // 与 `BlindBookingView` 里那一处逐字相同 —— 测的是那个调用点，不是一个理想化的闭包。
+            // 与旧下单页 `BlindBookingView` 里那一处逐字相同（界面 #810 已删，重新接入语音界面时照抄这一行）。
             currentCoordinate: { locationService.latestBackendSample(freshness: 300) }
         )
 

@@ -46,7 +46,7 @@ enum VolunteerTrainingCopy {
     static func requiredProgress(done: Int, total: Int) -> String { "\(done) / \(total) 门" }
     /// 进度卡的说明。🚩 同 `blockedBanner`：要说清「没学完 → 接不到单」。
     /// 写法同结果页（`VolunteerTrainingQuizView`）。不用「」括课名：被压窄的「」，落在行尾，
-    /// 真机审计判 `Text clipped`，而字是完整的（#698，默认字号与 AX5 都报；同类见 `BookingRecapRow`）。
+    /// 真机审计判 `Text clipped`，而字是完整的（#698，默认字号与 AX5 都报）。
     static func remainingRequired(_ titles: [String]) -> String {
         "还差 \(titles.count) 门必修：\(titles.joined(separator: "、"))。学完才能接单。"
     }
