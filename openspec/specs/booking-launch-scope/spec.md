@@ -1,7 +1,7 @@
 # booking-launch-scope Specification
 
 ## Purpose
-Tell blind runners before they book which cities and duty hours are open, keep them out of the booking flow while booking is closed, and handle the three launch-scope rejections from order creation with the server's own words and the right step to fix.
+Tell blind runners before they book which cities and duty hours are open, keep them out of the booking flow while booking is closed, and handle the three launch-scope rejections from order creation with the server's own words while keeping the runner's choices.
 ## Requirements
 ### Requirement: Launch scope is optional and read per account
 The client SHALL decode `launchScope` from `GET /api/config/rules` as an optional field. A missing or malformed `launchScope` SHALL NOT fail the rest of the response and SHALL be treated as "no information". The client SHALL discard the stored rules when the session ends, SHALL discard a response that arrives after the account changed, and SHALL read the rules again each time the booking entry opens.
