@@ -49,7 +49,7 @@ extension BlindOrderStatusView {
         .accessibilityHint("展开后可以听到预约时间、出发地点等已确认的信息")
     }
 
-    private func orderInfoRows(_ order: OrderDetailResponse) -> some View {
+    func orderInfoRows(_ order: OrderDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
             // 约定的结束时间。取 `plannedEnd`，**不是** `预约时间 + 预计时长` 推的 ——

@@ -138,8 +138,14 @@ extension blindRunUITests {
         XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Cancellation should require confirmation")
         confirmButton.tap()
 
+        // #818：已取消页的头卡是一个合成元素（identifier `blindOrderFlowStatusCard`），念「已取消。本次预约已取消。」，
+        // 不再有单独的「已取消」静态文字。匹配页的头卡 identifier 相同，所以还要认文案。
+        let cancelledCard = app.descendants(matching: .any)
+            .matching(identifier: "blindOrderFlowStatusCard")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "已取消"))
+            .firstMatch
         XCTAssertTrue(
-            app.staticTexts["已取消"].firstMatch.waitForExistence(timeout: 10),
+            cancelledCard.waitForExistence(timeout: 10),
             "Cloud smoke test order should be cancelled after verification"
         )
     }

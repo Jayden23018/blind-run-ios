@@ -354,6 +354,16 @@ struct BlindOrderStatusView: View {
         flowPresentation != nil
     }
 
+    /// 已取消 / 暂无志愿者的终态页（#818）。导航栏与底栏要和骨架一起判，同一个谓词。
+    private var usesTerminalPage: Bool {
+        viewModel.order?.status.usesBlindTerminalPage == true
+    }
+
+    /// 骨架或终态页：标题叫「陪跑订单」、右上角有「重复当前状态」、不挂旧的「问一句」底栏。
+    private var usesFlowChrome: Bool {
+        usesFlowSkeleton || usesTerminalPage
+    }
+
     /// 进倒计时并把屏 3 呈上来。**两条触发路径共用这一个函数** —— 长按直接调，
     /// 轻点经二次确认后调。两处各写一遍的话，迟早只有一处记得打开那个全屏。
     private func startEmergencyCountdown() {
@@ -412,7 +422,7 @@ struct BlindOrderStatusView: View {
         content
         // 骨架自己铺 `AppColors.Flow.page`，这一层只兜住只读退路那条分支。
         .background(AppColors.background)
-        .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
+        .navigationTitle(usesFlowChrome ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
         // 🔄 2026-10-07（方向 A，OpenSpec `redesign-blind-runner-screens-a`）：订单页**每一态都藏标签栏**，
         // 因此**每一态都给返回箭头**，包括跑步中与已完成。
@@ -429,7 +439,7 @@ struct BlindOrderStatusView: View {
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
         // 「三个 64pt 按钮在 6.1" 上吃掉约 26% 屏幕，治了求助够不着换来别的都够不着」。
         .safeAreaInset(edge: .bottom) {
-            if !usesFlowSkeleton {
+            if !usesFlowChrome {
                 standardRepeatStatusArea
             }
         }
@@ -452,7 +462,7 @@ struct BlindOrderStatusView: View {
         // 对看不见屏幕的人只是多一次误触面 —— 而这一条不违反上面那句「不能删」：
         // 功能没有消失，只是换了一个**更大、位置固定**的载体。
         .toolbar {
-            if usesFlowSkeleton && !isRunningPhase {
+            if (usesFlowSkeleton && !isRunningPhase) || usesTerminalPage {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         viewModel.repeatStatus()
