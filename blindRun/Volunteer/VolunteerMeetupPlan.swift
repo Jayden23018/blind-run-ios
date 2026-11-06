@@ -40,6 +40,22 @@ struct VolunteerMeetupPlanDraft: Equatable {
     var volunteerTopColor: MeetupTopColor?
     var runnerTopColor: MeetupTopColor?
 
+    // MARK: 时段单（#806）
+
+    /// 订单是时段单：原约的两个时间是跑者选的**时段**，不是准点。这时开跑时间**必须**由陪跑员定，
+    /// 结束时间按 `runDurationMinutes` 算（原约时段长达 5 小时，不能拿它当跑步时长平移）。
+    var isTimeFlexible = false
+    /// 时段单上跑多久，默认 60 分钟。
+    var runDurationMinutes = Self.defaultRunDurationMinutes
+    /// 通话后陪跑员填的跑步需求。`nil` = 不改，后端按订单原值（跑者资料）。
+    var pacePreference: PacePreference?
+    var hasGuideDogThisRun: Bool?
+    var specialNotes: String = ""
+
+    static let defaultRunDurationMinutes = 60
+    /// 跑多久的可选档位（分钟）。后端上限 300。
+    static let runDurationChoices = [30, 45, 60, 90, 120]
+
     /// 镜像后端 `app.intro-call.plan-max-relocation-meters`（默认 3000，负责人 2026-10-15 拍板）。
     ///
     /// ⚠️ 与 `AppConstants.Timing.minimumBookingLeadMinutes` 同一性质：后端调整时这里要跟；
@@ -68,10 +84,17 @@ struct VolunteerMeetupPlanDraft: Equatable {
 
     // MARK: 生效值
 
-    var effectiveStart: Date? { plannedStart ?? original.plannedStartTime }
+    var effectiveStart: Date? {
+        // 时段单没选准点时**没有**开跑时间：原约是时段起点，拿它显示成「开跑时间」就是编了一个准点。
+        if isTimeFlexible { return plannedStart }
+        return plannedStart ?? original.plannedStartTime
+    }
 
     /// 改了开始时间时**时长默认不变**：结束 = 新开始 + 原时长（与后端「只传开始、按原时长平移」一致）。
     var effectiveEnd: Date? {
+        if isTimeFlexible {
+            return plannedStart?.addingTimeInterval(TimeInterval(runDurationMinutes * 60))
+        }
         guard let plannedStart, let originalStart = original.plannedStartTime, let originalEnd = original.plannedEndTime else {
             return original.plannedEndTime
         }
@@ -84,6 +107,7 @@ struct VolunteerMeetupPlanDraft: Equatable {
 
     var timeChanged: Bool {
         guard let plannedStart else { return false }
+        if isTimeFlexible { return true }
         return plannedStart != original.plannedStartTime
     }
 
@@ -94,8 +118,9 @@ struct VolunteerMeetupPlanDraft: Equatable {
         return (distanceFromOriginal ?? 0) >= 1
     }
 
+    /// 时段单上的准点是陪跑员第一次定，不是「改了原约」，所以不算变更项。
     var changedItems: [ChangedItem] {
-        [timeChanged ? .time : nil, placeChanged ? .place : nil].compactMap { $0 }
+        [timeChanged && !isTimeFlexible ? .time : nil, placeChanged ? .place : nil].compactMap { $0 }
     }
 
     /// 两点都齐才有值。
@@ -110,7 +135,9 @@ struct VolunteerMeetupPlanDraft: Equatable {
     /// 视觉稿 V2：改了东西是「提交跑者确认」+ 下面一行「已变更：开跑时间、集合地点」；
     /// 一项没改是「按原约定提交跑者确认」—— 一个字不改、点一下就能提交是主路径。
     var submitButtonTitle: String {
-        changedItems.isEmpty ? "按原约定提交跑者确认" : "提交跑者确认"
+        // 时段单没有「原约定」可按（模拟图 v4 V2：「提交，请跑者确认」）。
+        if isTimeFlexible { return "提交，请跑者确认" }
+        return changedItems.isEmpty ? "按原约定提交跑者确认" : "提交跑者确认"
     }
 
     var submitButtonCaption: String? {
@@ -160,6 +187,7 @@ struct VolunteerMeetupPlanDraft: Equatable {
     /// 时间那一块的就地错误。选择器已经挡住了「太早 / 太远」，这里再兜一次（窗口在走，几分钟前合法的值现在可能已经太早），
     /// 并补上选择器挡不住的夜间窗口（判据是整段，与下单页同一个函数）。
     func timeError(now: Date, windowEndsAt: Date?) -> String? {
+        if isTimeFlexible, plannedStart == nil { return VolunteerMeetupPlanCopy.flexibleStartRequired }
         guard timeChanged, let start = plannedStart else { return nil }
         if start < Self.earliestStart(now: now, windowEndsAt: windowEndsAt) - TimeInterval(Self.minuteInterval * 60) {
             return IntroCallMeetupCopy.planStartTooSoon
@@ -182,15 +210,44 @@ struct VolunteerMeetupPlanDraft: Equatable {
     // MARK: 请求体
 
     /// 没改的项不发（`nil` = 按原约）。只改开始时间时不发结束时间，后端按原时长平移。
+    /// 时段单：开始与结束**都发**（后端 #932 要求时段单必须给准点），外加跑步需求。
     func request() -> IntroCallPlanRequest {
         IntroCallPlanRequest(
             plannedStart: timeChanged ? plannedStart : nil,
+            plannedEnd: isTimeFlexible ? effectiveEnd : nil,
             place: placeChanged ? place.map { IntroCallPlanRequest.Place(address: $0.address, latitude: $0.latitude, longitude: $0.longitude) } : nil,
             meetSpotNote: meetSpotNote,
             volunteerTopColor: volunteerTopColor,
-            runnerTopColor: runnerTopColor
+            runnerTopColor: runnerTopColor,
+            pacePreference: pacePreference,
+            hasGuideDogThisRun: hasGuideDogThisRun,
+            specialNotes: specialNotes
         )
     }
+
+    /// 时段单的预填：上一版没有准点时，用跑者想要的时间（取整到 5 分钟一档）。上一版的需求原样带回来。
+    mutating func applyTimeFlexible(preferredStart: Date?, editing plan: IntroCallMeetupPlan?) {
+        isTimeFlexible = true
+        if plannedStart == nil, let preferredStart {
+            plannedStart = Self.roundedUp(preferredStart)
+        }
+        if let plan {
+            if let start = plan.plannedStartTime, let end = plan.plannedEndTime {
+                let minutes = Int(end.timeIntervalSince(start) / 60)
+                if minutes > 0 { runDurationMinutes = minutes }
+            }
+            pacePreference = plan.pacePreference
+            hasGuideDogThisRun = plan.hasGuideDogThisRun
+            specialNotes = plan.specialNotes ?? ""
+        }
+    }
+
+    var isSpecialNotesTooLong: Bool {
+        specialNotes.trimmingCharacters(in: .whitespacesAndNewlines).count > Self.specialNotesMaxLength
+    }
+
+    /// 镜像后端 `CreateOrderRequest.MAX_NOTES_LENGTH`。
+    static let specialNotesMaxLength = 200
 }
 
 // MARK: 提交失败落在哪一块
@@ -327,6 +384,20 @@ enum VolunteerMeetupPlanCopy {
 
     /// 视觉稿 ④ 原话。夜间窗口的判据是整段（与下单同一条）。
     static let nightWindow = "行程时段不得与 22:00–05:00 重叠，请调整时间。"
+
+    // 时段单（#806，模拟图 v4 的 V2）
+    static let flexibleStartRequired = "还没选开跑时间。请先和跑者商量好几点开跑。"
+    static func flexibleWindowHint(_ window: String) -> String { "跑者想在\(window)跑，具体几点请和跑者商量。" }
+    static let durationLabel = "跑多久"
+    static let paceLabel = "配速"
+    static let guideDogLabel = "导盲犬"
+    static let notesLabel = "备注"
+    static let notesPlaceholder = "电话里聊到的要求"
+    static let keepProfileValue = "按跑者资料"
+    static let notesTooLong = "备注不能超过 200 个字。"
+    static func durationText(_ minutes: Int) -> String {
+        minutes % 60 == 0 ? "\(minutes / 60) 小时" : (minutes > 60 ? "\(minutes / 60) 小时 \(minutes % 60) 分钟" : "\(minutes) 分钟")
+    }
     /// 不写死「7 天」以外的理由同 `ErrorCode.appointmentTooFar`：选择器已按 7 天挡，这句只在竞态里出现。
     static let tooFarAhead = "这个日期太远了，请改到近一些的日子。"
 

@@ -34,15 +34,27 @@ struct VolunteerMeetupPlanFormView: View {
     @State private var submitError: VolunteerMeetupPlanSubmitError?
     @State private var isSubmitting = false
 
+    /// 时段单（#806）时跑者选的时段，「明天 6:00–11:00 之间」。`nil` = 准点单。
+    let flexibleWindowText: String?
+
+    /// - Parameter timeFlexible: 时段单（`IntroCallView.timeFlexible`）。是时段单时开跑时间必填，并出现跑步需求四块。
     init(
         original: IntroCallOriginalArrangement,
         editing plan: IntroCallMeetupPlan?,
         windowEndsAt: Date?,
+        timeFlexible: Bool = false,
+        preferredStart: Date? = nil,
+        flexibleWindowText: String? = nil,
         onSubmit: @escaping @MainActor (IntroCallPlanRequest, Double?) async -> VolunteerMeetupPlanSubmitOutcome
     ) {
         self.windowEndsAt = windowEndsAt
         self.onSubmit = onSubmit
-        _draft = State(initialValue: VolunteerMeetupPlanDraft(original: original, editing: plan))
+        self.flexibleWindowText = timeFlexible ? flexibleWindowText : nil
+        var draft = VolunteerMeetupPlanDraft(original: original, editing: plan)
+        if timeFlexible {
+            draft.applyTimeFlexible(preferredStart: preferredStart, editing: plan)
+        }
+        _draft = State(initialValue: draft)
     }
 
     private var timeError: String? {
@@ -56,7 +68,7 @@ struct VolunteerMeetupPlanFormView: View {
     /// 本地校验没过时主按钮置灰（走 `.disabled`，读屏念「变暗」）—— 错误已经写在对应那一块下面了。
     private var canSubmit: Bool {
         !isSubmitting && draft.timeError(now: Date(), windowEndsAt: windowEndsAt) == nil && draft.placeError == nil
-            && !draft.isMeetSpotNoteTooLong
+            && !draft.isMeetSpotNoteTooLong && !draft.isSpecialNotesTooLong
     }
 
     var body: some View {
@@ -76,6 +88,9 @@ struct VolunteerMeetupPlanFormView: View {
                     timeCard
                     placeCard
                     meetSpotCard
+                    if draft.isTimeFlexible {
+                        VolunteerMeetupPlanNeedsCards(draft: $draft)
+                    }
                     colorCard(
                         title: VolunteerMeetupPlanCopy.volunteerColorLabel,
                         selection: $draft.volunteerTopColor
@@ -124,7 +139,10 @@ struct VolunteerMeetupPlanFormView: View {
 
     private var timeCard: some View {
         sectionCard {
-            sectionHeader(VolunteerMeetupPlanCopy.timeLabel, changed: draft.timeChanged)
+            sectionHeader(VolunteerMeetupPlanCopy.timeLabel, changed: draft.timeChanged && !draft.isTimeFlexible)
+            if let flexibleWindowText {
+                detailText(VolunteerMeetupPlanCopy.flexibleWindowHint(flexibleWindowText))
+            }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(timeValue)
                     .flowFont(FlowV2Fonts.headline())
@@ -139,7 +157,7 @@ struct VolunteerMeetupPlanFormView: View {
                 .accessibilityIdentifier("volunteerMeetupPlanEditTimeButton")
             }
             .accessibilityElement(children: .contain)
-            if draft.timeChanged, let line = VolunteerMeetupPlanCopy.originalTimeLine(
+            if draft.timeChanged, !draft.isTimeFlexible, let line = VolunteerMeetupPlanCopy.originalTimeLine(
                 start: draft.original.plannedStartTime, end: draft.original.plannedEndTime
             ) {
                 detailText(line)
@@ -155,7 +173,7 @@ struct VolunteerMeetupPlanFormView: View {
                 )
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("volunteerMeetupPlanTimePicker")
-                if draft.timeChanged {
+                if draft.timeChanged, !draft.isTimeFlexible {
                     FlowTextButton(title: VolunteerMeetupPlanCopy.restoreTimeButton, tone: .link) {
                         draft.plannedStart = nil
                         isEditingTime = false
@@ -178,7 +196,7 @@ struct VolunteerMeetupPlanFormView: View {
     }
 
     private var timeValue: String {
-        guard let start = draft.effectiveStart else { return "按原约定" }
+        guard let start = draft.effectiveStart else { return draft.isTimeFlexible ? "请选择" : "按原约定" }
         return VolunteerMeetupPlanCopy.timeRange(start: start, end: draft.effectiveEnd, now: Date())
     }
 

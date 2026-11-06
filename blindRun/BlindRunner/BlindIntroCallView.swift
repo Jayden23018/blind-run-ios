@@ -546,6 +546,9 @@ private struct PlanRowIdentifier: ViewModifier {
         case .place: content.accessibilityIdentifier("blindIntroCallPlanRowPlace")
         case .meetSpot: content.accessibilityIdentifier("blindIntroCallPlanRowMeetSpot")
         case .colors: content.accessibilityIdentifier("blindIntroCallPlanRowColors")
+        case .pace: content.accessibilityIdentifier("blindIntroCallPlanRowPace")
+        case .guideDog: content.accessibilityIdentifier("blindIntroCallPlanRowGuideDog")
+        case .notes: content.accessibilityIdentifier("blindIntroCallPlanRowNotes")
         case .greeting: content.accessibilityIdentifier("blindIntroCallPlanRowGreeting")
         }
     }

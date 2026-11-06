@@ -23,6 +23,8 @@ extension BlindBookingViewModel {
     ///
     /// 顺序即优先级：太近 → 太远 → 夜间。先说时间点本身的问题，再说整段的问题。
     var appointmentTimeProblem: BookingTimeProblem? {
+        // 时段单（#806）：时段由 `BookingSlotPlanner` 只列合法的（已过提前量、不碰夜间），不再用表单那个选择器的值判。
+        if flexibleSlot != nil { return nil }
         if appointmentTime < minimumAppointmentTime { return .tooSoon }
         if appointmentTime > maximumAppointmentTime { return .tooFar }
         if Self.overlapsNightWindow(start: appointmentTime, end: plannedEndDate) { return .nightWindow }

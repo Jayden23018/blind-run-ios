@@ -18,6 +18,9 @@ struct BlindMeetupPlanRow: Equatable, Identifiable {
         case place
         case meetSpot
         case colors
+        case pace
+        case guideDog
+        case notes
         case greeting
     }
 
@@ -66,6 +69,9 @@ enum BlindMeetupPlanLayout {
                     kind: .meetSpot, title: "具体见面位置", isChanged: false,
                     values: [plan.meetSpotNote?.nilIfBlank ?? ""], original: nil, speech: item
                 )
+            }
+            if let need = needRow(plan: plan, original: original, speech: item) {
+                return need
             }
             if item == IntroCallMeetupCopy.fixedGreetingLine {
                 return BlindMeetupPlanRow(
@@ -138,6 +144,33 @@ enum BlindMeetupPlanLayout {
     /// ⚠️ 与视觉稿原文「你：蓝色（通话中确认）」不同：那一行在真机无障碍审计里报
     /// 「Text clipped（放大字号后可能被截断）」（2026-10-16，#434），同屏不带括号的几行都不报。
     /// 拆成值 + 灰字一行，意思不变。读屏念的仍是 `planSpeech` 那一句，不受影响。
+    /// 时段单（#806）的三项跑步需求。认领规则同上：只按 `planSpeech` 的固定前缀认，不自己再判念不念。
+    /// 原值（「原来：中等」）取自 `IntroCallView` 顶层的原约需求（后端 #932）；拿不到就不显示。
+    private static func needRow(
+        plan: IntroCallMeetupPlan, original: IntroCallOriginalArrangement, speech: String
+    ) -> BlindMeetupPlanRow? {
+        if speech.hasPrefix(IntroCallMeetupCopy.paceItemPrefix), let pace = plan.pacePreference {
+            let was = original.pacePreference.flatMap { $0 == pace ? nil : $0 }
+            return BlindMeetupPlanRow(
+                kind: .pace, title: "配速", isChanged: was != nil, values: [pace.displayName],
+                original: was.map { "原来：\($0.displayName)" }, speech: speech
+            )
+        }
+        if speech.hasPrefix(IntroCallMeetupCopy.guideDogItemPrefix), let dog = plan.hasGuideDogThisRun {
+            let was = original.hasGuideDogThisRun.flatMap { $0 == dog ? nil : $0 }
+            return BlindMeetupPlanRow(
+                kind: .guideDog, title: "导盲犬", isChanged: was != nil, values: [dog ? "带" : "不带"],
+                original: was.map { "原来：\($0 ? "带" : "不带")" }, speech: speech
+            )
+        }
+        if speech.hasPrefix(IntroCallMeetupCopy.notesItemPrefix), let notes = plan.specialNotes?.nilIfBlank {
+            return BlindMeetupPlanRow(
+                kind: .notes, title: "备注", isChanged: false, values: [notes], original: nil, speech: speech
+            )
+        }
+        return nil
+    }
+
     private static func colorRow(plan: IntroCallMeetupPlan, speech: String) -> BlindMeetupPlanRow {
         var values: [String] = []
         if let volunteer = plan.volunteerTopColor?.spokenName { values.append("陪跑员：\(volunteer)") }

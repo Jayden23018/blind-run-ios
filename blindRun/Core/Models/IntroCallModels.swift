@@ -82,6 +82,14 @@ nonisolated struct IntroCallView: Decodable, Sendable, Equatable {
     /// 用的时候走 `meetupPlan`（已映射成本地类型）；`plan != nil` 而 `meetupPlan == nil`
     /// 说明这一版读不懂，见 `hasUnreadablePlan`。
     var plan: IntroCallPlanView? = nil
+    /// 时段单（#806，后端 #932）：`true` 时顶层两个时间是跑者选的时段，陪跑员的安排单**必须**给准点。
+    /// 不用 `LenientOptional*` 包装：本类型是 `nonisolated struct`，属性包装在 Swift 6 下不许标 `nonisolated`。
+    var timeFlexible: Bool? = nil
+    /// 跑者想几点左右开始，安排单的开跑时间用它预填。
+    var preferredStartTime: String? = nil
+    /// 原约的配速与导盲犬（后端 #932）。安排单改过的新值在 `plan` 里；盲人确认页据此念「原来是中等」。
+    var pacePreference: PacePreference? = nil
+    var hasGuideDogThisRun: Bool? = nil
 
     /// 对方的用户 id（backend#916）。**只传给举报和拉黑**，判定走 `CounterpartSafetyGate`。
     /// 陪跑员通话期间读不到订单详情，这里是他唯一能拿到对方 id 的地方，所以入口放在通话页。

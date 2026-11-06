@@ -663,6 +663,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
 
         // 跑者称呼在陪跑要求前面。导盲犬来自派单载荷，视力 / 引导方式来自 `available` 补数 —— **两个数据源，一份渲染**。
         rows.append(contentsOf: inviteRunnerRows(dispatch) + escortRows(dispatch.escortNeeds + (supplement?.escortNeeds ?? [])))
+        rows.append(contentsOf: flexibleTimeRows(dispatch))
         rows.append(
             Row(
                 id: "decline",
@@ -684,7 +685,10 @@ struct VolunteerOrderFlowPresentation: Equatable {
         return Self(
             step: .invited,
             visual: .avatar,
-            title: RunPlanFormat.shortStart(dispatch.plannedStart, now: now)
+            title: (dispatch.timeFlexible == true
+                    ? RunPlanFormat.flexibleWindow(start: dispatch.plannedStart, end: dispatch.plannedEnd, now: now)
+                    : nil)
+                ?? RunPlanFormat.shortStart(dispatch.plannedStart, now: now)
                 ?? VolunteerOrderFlowCopy.inviteTitleFallback,
             titleSpoken: nil,
             subtitle: subtitleParts.joined(separator: "　"),
@@ -965,5 +969,25 @@ extension VolunteerOrderFlowPresentation {
             id: "runner", label: VolunteerOrderFlowCopy.runnerLabel, value: name.display, detail: nil, action: nil,
             accessibilityLabel: "\(VolunteerOrderFlowCopy.runnerLabel)\(name.spoken)", accessibilityHint: nil
         )]
+    }
+}
+
+extension VolunteerOrderFlowPresentation {
+    /// 时段单（#806）：大字是时段，这一行说清准点怎么定、跑者想几点。准点单不出这一行。
+    static func flexibleTimeRows(_ dispatch: WSNewOrder) -> [Row] {
+        guard dispatch.timeFlexible == true else { return [] }
+        let preferred = RunPlanFormat.preferredStart(dispatch.preferredStartTime)
+        let value = preferred.map { "跑者想 \($0) 开始，具体时间电话里定" } ?? "具体时间和跑者电话里定"
+        return [
+            Row(
+                id: "flexibleTime",
+                label: "开跑时间",
+                value: value,
+                detail: nil,
+                action: nil,
+                accessibilityLabel: "开跑时间，\(value)",
+                accessibilityHint: nil
+            )
+        ]
     }
 }

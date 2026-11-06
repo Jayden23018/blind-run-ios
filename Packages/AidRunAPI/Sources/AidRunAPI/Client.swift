@@ -2389,7 +2389,7 @@ public struct Client: APIProtocol {
     /// 响应走 `ApiResponse` 信封。
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
-    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
     /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
     ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
