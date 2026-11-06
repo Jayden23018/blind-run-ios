@@ -291,66 +291,6 @@ struct BlindFavoritePlaceAddRoute: View {
     }
 }
 
-// MARK: - 行
-
-/// 彩色圆形图标 + 名称 + 灰字副标题（#817 起照苹果地图「最近」列表：30pt 圆，原来是 32pt 圆角方块）。
-/// 图标只是装饰，读屏不念。可点区由 `contentShape` 撑满整行，高度不低于 64pt。
-///
-/// 「添加常用地点」页用默认参数，版式与改版前一样；「默认出发地点」页与「常用地点」列表页
-/// 传 `prominent`（粗标题、行高 72，稿子 `.rw`）、最大字号时传 `iconDiameter: 52`。
-struct BlindFavoritePlaceRowLabel: View {
-    /// 分隔线照苹果从图标左缘画起（稿子 `.rw+.rw{border-top}`，`margin-left:16px`）。
-    static let dividerInset: CGFloat = GroupedCardMetrics.rowHorizontalPadding
-    /// 稿子 `.rw{min-height:72px}`。
-    static let prominentMinHeight: CGFloat = 72
-
-    let title: String
-    let subtitle: String?
-    let icon: BlindStartPlaceIcon
-    let isSelected: Bool
-    var prominent = false
-    var iconDiameter: CGFloat = 30
-    /// 副标题是「默认」时用主色加粗（最大字号列表里的选中行，稿 ④）。
-    var subtitleIsDefaultTag = false
-    var showsDefaultBadge = false
-
-    var body: some View {
-        // 稿子 `.ri{margin-right:13px}`（最大字号 14）；添加页沿用改版前的 12，版式不动。
-        HStack(spacing: iconDiameter > 30 ? 14 : (prominent ? 13 : 12)) {
-            BlindStartPlaceIconCircle(icon: icon, diameter: iconDiameter)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(prominent ? .headline : AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(subtitleIsDefaultTag ? .subheadline.weight(.semibold) : .subheadline)
-                        .foregroundColor(subtitleIsDefaultTag ? AppColors.primary : AppColors.textSecondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            if showsDefaultBadge {
-                BlindStartPlaceDefaultBadge()
-            }
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(AppColors.primary)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
-        .padding(.vertical, 10)
-        .frame(
-            maxWidth: .infinity,
-            minHeight: prominent ? Self.prominentMinHeight : AppTouchTarget.blindPrimary,
-            alignment: .leading
-        )
-        .contentShape(Rectangle())
-    }
-}
-
 // MARK: - 最近跑过的地点
 
 /// 已完成订单的起点。只取已完成的单：取消了的单从没真的在那儿跑过。
