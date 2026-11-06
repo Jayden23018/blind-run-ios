@@ -14,4 +14,4 @@
 ## 3. 收尾
 
 - [x] 3.1 `xcodebuild build-for-testing` 通过（2026-11-06，`** TEST BUILD SUCCEEDED **`）。负责人 11-05 定不跑测试，单测与 UI 测试只编译、未执行。
-- [ ] 3.2 `docs/ui/mockups/INDEX.md` 那一行写实现落点与偏差。
+- [x] 3.2 `docs/ui/mockups/INDEX.md` 那一行写实现落点与偏差。

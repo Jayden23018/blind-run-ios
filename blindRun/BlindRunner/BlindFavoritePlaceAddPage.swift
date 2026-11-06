@@ -14,6 +14,8 @@ import SwiftUI
 struct BlindFavoritePlaceAddPage: View {
     /// 默认出发地点现在是不是「当前定位」：是的话那一行打勾。
     let isUsingCurrentLocation: Bool
+    /// 定位被拒或精确定位关着：仍可以选（打开定位后就能用），但副标题与朗读要说清现在拿不到。
+    let isCurrentLocationUnavailable: Bool
     let onUseCurrentLocation: () -> Void
     let onPick: (ResolvedPlace) -> Void
 
@@ -38,7 +40,7 @@ struct BlindFavoritePlaceAddPage: View {
                     Button(action: onUseCurrentLocation) {
                         BlindFavoritePlaceRowLabel(
                             title: BlindFavoritePlaceAddCopy.currentLocationTitle,
-                            subtitle: BlindFavoritePlaceAddCopy.currentLocationSubtitle,
+                            subtitle: currentLocationSubtitle,
                             systemImage: "location.fill",
                             rgb: AppColors.voiceStageSurfaceTone.light,
                             isSelected: isUsingCurrentLocation
@@ -46,7 +48,7 @@ struct BlindFavoritePlaceAddPage: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(BlindFavoritePlaceAddCopy.currentLocationTitle)
-                    .accessibilityHint(BlindFavoritePlaceAddCopy.currentLocationSubtitle)
+                    .accessibilityHint(currentLocationSubtitle)
                     .accessibilityAddTraits(isUsingCurrentLocation ? .isSelected : [])
                     .accessibilityIdentifier("blindFavoritePlaceUseCurrentLocation")
                 }
@@ -120,6 +122,12 @@ struct BlindFavoritePlaceAddPage: View {
         .onDisappear {
             VoiceDictationButton.stopRecording(.startPlaceSearch, on: speechInputService)
         }
+    }
+
+    private var currentLocationSubtitle: String {
+        isCurrentLocationUnavailable
+            ? BlindFavoritePlaceAddCopy.currentLocationUnavailableSubtitle
+            : BlindFavoritePlaceAddCopy.currentLocationSubtitle
     }
 
     private func placeGroup(
@@ -295,6 +303,7 @@ enum BlindFavoritePlaceAddCopy {
     static let intro = "添加常用地点。可以使用当前定位，也可以说出或输入地点名称搜索，下面还有最近跑过的地点。"
     static let currentLocationTitle = "使用当前定位"
     static let currentLocationSubtitle = "每次从你所在的位置出发，不用添加"
+    static let currentLocationUnavailableSubtitle = "现在拿不到定位，打开定位后才能用"
     static let searchTitle = "搜索地点"
     static let searchPlaceholder = "说出或输入地点名称"
     static let searching = "正在搜索"

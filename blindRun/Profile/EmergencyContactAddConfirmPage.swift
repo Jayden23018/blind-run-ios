@@ -52,8 +52,8 @@ struct EmergencyContactAddConfirmPage: View {
 
     private var displayName: String { fields.name ?? "这位联系人" }
 
-    /// 后端在新增第一位时强制设为主联系人；这里同口径提前告诉用户。
-    private var willBePrimary: Bool { viewModel.contacts.isEmpty }
+    /// 后端在新增第一位时强制设为主联系人；这里同口径提前告诉用户。列表没从服务端拿到时不说，免得说错。
+    private var willBePrimary: Bool { viewModel.isKnownToHaveNoContacts }
 
     var body: some View {
         ScrollView {
@@ -197,7 +197,7 @@ struct EmergencyContactAddConfirmPage: View {
                 name: fields.name ?? "",
                 phone: fields.phone,
                 relationship: "",
-                makePrimary: viewModel.contacts.isEmpty
+                makePrimary: viewModel.isKnownToHaveNoContacts
             )
             if added { onFinish(true) }
         }

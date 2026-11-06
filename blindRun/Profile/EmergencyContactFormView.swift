@@ -331,7 +331,7 @@ extension EmergencyContactFormView {
                     phone: phone,
                     relationship: "",
                     // 不给开关（#807）：第一位自动是主联系人，后面的人到编辑页自己设。
-                    makePrimary: viewModel.contacts.isEmpty
+                    makePrimary: viewModel.isKnownToHaveNoContacts
                 )
             }
             if success { onFinish() }

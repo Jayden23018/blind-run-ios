@@ -978,20 +978,30 @@ private extension BlindRunnerHomeView {
     var favoritePlaceAddPage: some View {
         BlindFavoritePlaceAddPage(
             isUsingCurrentLocation: favoritePlaces.defaultPlace == nil,
+            isCurrentLocationUnavailable: locationService.isDenied || locationService.isPreciseLocationOff,
             onUseCurrentLocation: {
                 let didSave = favoritePlaces.setDefaultPlace(nil)
                 guard didSave else {
                     speechService.speakError("默认出发地点没有保存成功，请再试一次。")
                     return
                 }
-                speechService.speak("默认出发地点已改为当前定位。")
+                let unavailable = locationService.isDenied || locationService.isPreciseLocationOff
+                speechService.speak(
+                    unavailable
+                        ? "默认出发地点已改为当前定位。现在拿不到定位，打开定位后才能用。"
+                        : "默认出发地点已改为当前定位。"
+                )
                 path.removeAll()
             },
             onPick: { place in
                 favoritePlaces.add(place)
-                guard let stored = favoritePlaces.storedPlace(matching: place),
-                      favoritePlaces.setDefaultPlace(stored) else {
+                guard let stored = favoritePlaces.storedPlace(matching: place) else {
                     speechService.speakError("没能收藏\(place.title)，请换一个地点再试。")
+                    return
+                }
+                guard favoritePlaces.setDefaultPlace(stored) else {
+                    // 收藏已经存下了，只是没设成默认：照实说，别让人以为没收藏上。
+                    speechService.speakError("已收藏\(stored.title)，但没能设为默认出发地点，请在默认出发地点里再选一次。")
                     return
                 }
                 speechService.speak("已收藏\(stored.title)，之后默认从这里出发。")

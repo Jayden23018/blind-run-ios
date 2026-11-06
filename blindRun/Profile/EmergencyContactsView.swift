@@ -20,6 +20,8 @@ final class EmergencyContactsViewModel: ObservableObject {
     @Published var isMutating = false
     @Published var errorMessage: String?
     @Published private(set) var statusMessage: String?
+    /// 这一页从服务端拿到过列表没有。没拿到时 `contacts` 为空不代表真的一位都没有（弱网 load 失败、缓存为空）。
+    @Published private(set) var hasLoadedFromServer = false
 
     /// 失败反馈的弹窗开关。
     ///
@@ -62,6 +64,10 @@ final class EmergencyContactsViewModel: ObservableObject {
             ? nil
             : "已保存 \(EmergencyContactRules.maxCount) 位紧急联系人，达到上限。如需新增，请先删除一位。"
     }
+
+    /// 确认过一位联系人都没有：新增的这位会是主联系人。只看本地 `contacts.isEmpty` 会在列表没加载到时误判，
+    /// 发出 `isPrimary: true` 把服务端原来的主联系人顶掉（#807 审查）。
+    var isKnownToHaveNoContacts: Bool { hasLoadedFromServer && contacts.isEmpty }
 
     var primaryContact: EmergencyContactResponse? {
         EmergencyContactResponse.singlePrimary(in: contacts)
@@ -138,8 +144,8 @@ final class EmergencyContactsViewModel: ObservableObject {
             fail(with: validationMessage)
             return false
         }
-        // 第一位联系人必定是主联系人，后端也会强制。
-        let isPrimary = makePrimary || contacts.isEmpty
+        // 第一位联系人必定是主联系人，后端也会强制。列表没从服务端拿到时不替它判，交给后端。
+        let isPrimary = makePrimary || isKnownToHaveNoContacts
         let request = EmergencyContactRequest(
             name: name.trimmed,
             phone: phone.trimmed,
@@ -244,6 +250,7 @@ final class EmergencyContactsViewModel: ObservableObject {
     private func refreshContacts(appState: AppState, userId: Int64) async throws {
         let latest = try await appState.profile.emergencyContacts(userId: userId)
         contacts = latest
+        hasLoadedFromServer = true
         appState.updateEmergencyContacts(latest)
     }
 
