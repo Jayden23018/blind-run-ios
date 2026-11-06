@@ -434,6 +434,8 @@ struct BlindRunnerProfileView: View {
     static let lede = "完成以下设置，陪跑员即可了解你的需求。各项均为选择题，可随时修改。"
     static let unsetGroupTitle = "未设置"
     static let setGroupTitle = "已设置"
+    /// 弹层收起后等这么久再把读屏焦点放到卡上（弹层下滑动画约 0.5 秒）。
+    private static let savedFocusDelayNanoseconds: UInt64 = 700_000_000
 
     var body: some View {
         ScrollView {
@@ -446,8 +448,9 @@ struct BlindRunnerProfileView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 8)
-                cardGroup(Self.unsetGroupTitle, cards: cards(isSet: false))
-                cardGroup(Self.setGroupTitle, cards: cards(isSet: true))
+                let statuses = Dictionary(uniqueKeysWithValues: BlindProfileCard.allCases.map { ($0, status($0)) })
+                cardGroup(Self.unsetGroupTitle, statuses: statuses, isSet: false)
+                cardGroup(Self.setGroupTitle, statuses: statuses, isSet: true)
                 pageNotices
             }
             .padding(.horizontal, 16)
@@ -515,10 +518,6 @@ struct BlindRunnerProfileView: View {
 
     // MARK: - 两组卡片
 
-    private func cards(isSet: Bool) -> [BlindProfileCard] {
-        BlindProfileCard.allCases.filter { status($0).isSet == isSet }
-    }
-
     private func status(_ card: BlindProfileCard) -> BlindProfileCardStatus {
         BlindProfileCardStatus.resolve(
             card,
@@ -530,7 +529,8 @@ struct BlindRunnerProfileView: View {
     }
 
     @ViewBuilder
-    private func cardGroup(_ title: String, cards: [BlindProfileCard]) -> some View {
+    private func cardGroup(_ title: String, statuses: [BlindProfileCard: BlindProfileCardStatus], isSet: Bool) -> some View {
+        let cards = BlindProfileCard.allCases.filter { statuses[$0]?.isSet == isSet }
         if !cards.isEmpty {
             Text(title)
                 .font(.title2.weight(.bold))
@@ -539,13 +539,14 @@ struct BlindRunnerProfileView: View {
                 .padding(.horizontal, 4)
                 .accessibilityAddTraits(.isHeader)
             ForEach(cards) { card in
-                cardView(card)
+                if let status = statuses[card] {
+                    cardView(card, status: status)
+                }
             }
         }
     }
 
-    private func cardView(_ card: BlindProfileCard) -> some View {
-        let status = status(card)
+    private func cardView(_ card: BlindProfileCard, status: BlindProfileCardStatus) -> some View {
         let notice = savedCard == card ? viewModel.savedNotice : nil
         return VStack(alignment: .leading, spacing: 0) {
             if card == .emergencyContacts {
@@ -699,7 +700,7 @@ struct BlindRunnerProfileView: View {
         savedCard = card
         activeSession = nil
         Task {
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            try? await Task.sleep(nanoseconds: Self.savedFocusDelayNanoseconds)
             focusedCard = card
         }
     }

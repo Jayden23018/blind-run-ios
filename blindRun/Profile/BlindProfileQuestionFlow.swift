@@ -26,6 +26,8 @@ struct BlindProfileQuestionFlow: View {
     private static let consentPurpose = PrivacyConsentPurpose.blindVisionProfile
     /// 顶栏圆钮看得见的直径（照参考图）。可点区另由 `AppTouchTarget.blindPrimary` 撑到 64pt。
     private static let circleDiameter: CGFloat = 44
+    /// 换屏后等这么久再放读屏焦点：同一帧里新视图还没进无障碍树，焦点会落空。
+    private static let focusDelayNanoseconds: UInt64 = 350_000_000
 
     init(
         card: BlindProfileCard,
@@ -382,7 +384,7 @@ struct BlindProfileQuestionFlow: View {
     private func focusTitle() {
         isTitleFocused = false
         Task {
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            try? await Task.sleep(nanoseconds: Self.focusDelayNanoseconds)
             isTitleFocused = true
         }
     }

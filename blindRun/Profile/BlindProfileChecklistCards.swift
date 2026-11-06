@@ -147,12 +147,21 @@ enum BlindProfileQuestion: String, Hashable {
         }
     }
 
-    /// 补充说明题属于哪一组说法。
-    var phraseSet: BlindProfilePhraseSet? {
+    /// 这道题的答案拼进哪张卡的文字（`nil` = 不是常用说法题）。题 → 字段的对应只在这里写一次。
+    var phraseCard: BlindProfileCard? {
         switch self {
         case .guideDetail, .guideCues, .guideSupplement: return .guideNote
-        case .otherNeeds, .otherSupplement: return .specialNeeds
+        case .otherNeeds, .otherSupplement: return .otherNeeds
         case .tether, .pace, .visionLevel, .guideDog: return nil
+        }
+    }
+
+    /// 这道题属于哪一组说法。
+    var phraseSet: BlindProfilePhraseSet? {
+        switch phraseCard {
+        case .guideNote: return .guideNote
+        case .otherNeeds: return .specialNeeds
+        default: return nil
         }
     }
 }
@@ -187,10 +196,10 @@ struct BlindProfileCardDraft: Equatable {
     }
 
     func phraseAnswer(for question: BlindProfileQuestion) -> BlindProfilePhraseAnswer? {
-        switch question {
-        case .guideDetail, .guideCues, .guideSupplement: return guideNote
-        case .otherNeeds, .otherSupplement: return specialNeeds
-        case .tether, .pace, .visionLevel, .guideDog: return nil
+        switch question.phraseCard {
+        case .guideNote: return guideNote
+        case .otherNeeds: return specialNeeds
+        default: return nil
         }
     }
 
@@ -357,8 +366,9 @@ struct BlindProfileCardStatus: Equatable {
             guard contactCount > 0 else {
                 return BlindProfileCardStatus(isSet: false, line: "尚未添加，预约陪跑前至少需要 1 位")
             }
+            // 没有主要联系人时约跑会被拦（`AppState.hasValidEmergencyContacts`），所以仍算「未设置」。
             guard let primaryContactName else {
-                return BlindProfileCardStatus(isSet: true, line: "\(contactCount) 位 · 尚未设置主要联系人")
+                return BlindProfileCardStatus(isSet: false, line: "\(contactCount) 位 · 尚未设置主要联系人")
             }
             return BlindProfileCardStatus(isSet: true, line: "\(contactCount) 位 · 主要联系人：\(primaryContactName)")
         }

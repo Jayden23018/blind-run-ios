@@ -75,7 +75,9 @@ extension AccessibilityAuditTests {
         try audit(app)
         advance.tap()
 
-        let field = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
+        // 按读屏标签找，不按控件类型：多行输入框在 XCUI 里可能是 textField 也可能是 textView，
+        // 而换屏动画没结束时先判类型会选错。
+        let field = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "补充说明，选填")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5), "\(variant)：没进补充说明")
         field.tap()
         field.typeText(supplementSample)
