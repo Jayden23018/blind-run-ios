@@ -403,7 +403,7 @@ public protocol APIProtocol: Sendable {
     /// 响应走 `ApiResponse` 信封。
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
-    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
     /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
     ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
@@ -2016,7 +2016,7 @@ extension APIProtocol {
     /// 响应走 `ApiResponse` 信封。
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
-    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
     /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
     ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
@@ -5350,6 +5350,10 @@ public enum Components {
             public var plannedEnd: Swift.String?
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedStart`.
             public var plannedStart: Swift.String?
+            /// （2026-11-06 新增，#932）跑者想几点左右开始（只在时段单上可能有值）。卡片上念「跑者想 8:30 左右」，并用来预填见面安排单的开跑时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/preferredStartTime`.
+            public var preferredStartTime: Swift.String?
             /// **这一单要不要先通电话磨合**（迁移 `0031`，2026-08-22 新增）。
             ///
             /// 🚨 **客户端必须按它决定 `POST /api/orders/{id}/respond` 发哪个 `action`**：
@@ -5362,6 +5366,7 @@ public enum Components {
             ///
             /// `false` 的三种成因（**客户端不需要区分**）：通话功能整体关闭、
             /// 这两人已经磨合成功过、距开跑时间已不够聊一轮（退化成直接接单）。
+            /// 时段待定的单（`timeFlexible=true`）恒为 `true`，熟人搭档也一样。
             ///
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/requiresIntroCall`.
             public var requiresIntroCall: Swift.Bool?
@@ -5503,6 +5508,11 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload?
+            /// （2026-11-06 新增，#932）**时段待定**。`true` = `plannedStart` / `plannedEnd` 是盲人选的一个时段，
+            /// 准点电话里定：卡片上写「明天 6:00–11:00 之间，时间电话里定」。这样的单 `requiresIntroCall` 恒为 `true`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/timeFlexible`.
+            public var timeFlexible: Swift.Bool
             /// 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
             ///
             /// 用途是志愿者的**行动准备**：对方能不能看见我挥手、见面时该怎么打招呼。
@@ -5604,11 +5614,13 @@ public enum Components {
             ///   - plannedDistanceMeters: 本次计划里程（米），null = 用户没填。2026-08-09 新增。
             ///   - plannedEnd:
             ///   - plannedStart:
+            ///   - preferredStartTime: （2026-11-06 新增，#932）跑者想几点左右开始（只在时段单上可能有值）。卡片上念「跑者想 8:30 左右」，并用来预填见面安排单的开跑时间
             ///   - requiresIntroCall: **这一单要不要先通电话磨合**（迁移 `0031`，2026-08-22 新增）。
             ///   - routePreference: 想跑什么样的路（**本单**的偏好，存在订单上，不是档案上）。**2026-09-18 新增**。
             ///   - startAddress:
             ///   - startToEndDistanceKm: **起点到终点**的直线距离（公里，保留 1 位小数），即「这一单要跑多远」—— 注意与上面的 distanceKm 语义不同，那是志愿者当前位置到起点的距离。 null = 该单没有终点坐标（未指定，或只有地址没坐标）。 接单前刻意只给距离、不给终点地址：起点 + 终点 + 时间三件套 = 可跟踪的行踪信息， 而这份数据会下发给可能最终拒单的志愿者。
             ///   - tetherPreference: 牵引方式偏好。**2026-08-14 新增，接单前即下发**，理由同 `visionLevel` ——
+            ///   - timeFlexible: （2026-11-06 新增，#932）**时段待定**。`true` = `plannedStart` / `plannedEnd` 是盲人选的一个时段，
             ///   - visionLevel: 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
             public init(
                 blindUserPhone: Swift.String? = nil,
@@ -5624,11 +5636,13 @@ public enum Components {
                 plannedDistanceMeters: Swift.Int32? = nil,
                 plannedEnd: Swift.String? = nil,
                 plannedStart: Swift.String? = nil,
+                preferredStartTime: Swift.String? = nil,
                 requiresIntroCall: Swift.Bool? = nil,
                 routePreference: Components.Schemas.AvailableOrderResponse.routePreferencePayload? = nil,
                 startAddress: Swift.String? = nil,
                 startToEndDistanceKm: Swift.Double? = nil,
                 tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload? = nil,
+                timeFlexible: Swift.Bool,
                 visionLevel: Components.Schemas.AvailableOrderResponse.visionLevelPayload? = nil
             ) {
                 self.blindUserPhone = blindUserPhone
@@ -5644,11 +5658,13 @@ public enum Components {
                 self.plannedDistanceMeters = plannedDistanceMeters
                 self.plannedEnd = plannedEnd
                 self.plannedStart = plannedStart
+                self.preferredStartTime = preferredStartTime
                 self.requiresIntroCall = requiresIntroCall
                 self.routePreference = routePreference
                 self.startAddress = startAddress
                 self.startToEndDistanceKm = startToEndDistanceKm
                 self.tetherPreference = tetherPreference
+                self.timeFlexible = timeFlexible
                 self.visionLevel = visionLevel
             }
             public enum CodingKeys: String, CodingKey {
@@ -5665,11 +5681,13 @@ public enum Components {
                 case plannedDistanceMeters
                 case plannedEnd
                 case plannedStart
+                case preferredStartTime
                 case requiresIntroCall
                 case routePreference
                 case startAddress
                 case startToEndDistanceKm
                 case tetherPreference
+                case timeFlexible
                 case visionLevel
             }
         }
@@ -6194,8 +6212,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
+            /// （2026-11-05 起可选，#926）不带这个键或传 `null` = 保留原值；带了必须是 2–50 个字符。 新用户登录后不再强制先填昵称，资料页单行保存时还没填昵称就不带这个键
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/name`.
-            public var name: Swift.String
+            public var name: Swift.String?
             /// ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/runningPace`.
@@ -6237,7 +6257,7 @@ public enum Components {
             ///   - guideDog: （2026-10-19 新增，#773）是否常带导盲犬：`YES` / `NO` / `NOT_SPECIFIED`。 不带这个键 = 保留原值；传 `NOT_SPECIFIED` = 撤回已填的值（例如用户拒绝了视力相关同意）。 与 `hasGuideDog` 同时带时以本字段为准
             ///   - guidePreferenceText: （2026-09-26 新增，陪跑员端订单页 v2）跑者用自己的话写给陪跑员的引导偏好。不带这个键 = 保留原值； 传空串（或全空白）= 清空。首尾空白会去掉。本期只限长度，不做内容审核。 经订单详情 `guidePreferenceText` 给到**已接单**的陪跑员（接单前的候选列表 / `NEW_ORDER` 里没有）
             ///   - hasGuideDog: 旧入参，保留兼容已发版客户端：不带这个键或传 `null` = 保留原值；它表达不了「未提供」。 新客户端请改用 `guideDog`。两个都带时以 `guideDog` 为准
-            ///   - name:
+            ///   - name: （2026-11-05 起可选，#926）不带这个键或传 `null` = 保留原值；带了必须是 2–50 个字符。 新用户登录后不再强制先填昵称，资料页单行保存时还没填昵称就不带这个键
             ///   - runningPace: ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
             ///   - specialNeeds: ⚠️ **整份覆盖，与本请求其余可选字段口径不同**：不带这个键或传 `null` = **清空**。 要保留原值请把 `GET /api/blind/profile` 读到的值原样带回
             ///   - tetherPreference: 不带这个键或传 `null` = 保留原值；可显式传 `NOT_SPECIFIED`（还没决定，#795）。建档时默认 `NOT_SPECIFIED`（2026-10-19 起，此前默认 `TETHER_ROPE`）
@@ -6248,7 +6268,7 @@ public enum Components {
                 guideDog: Components.Schemas.BlindProfileUpdateRequest.guideDogPayload? = nil,
                 guidePreferenceText: Swift.String? = nil,
                 hasGuideDog: Swift.Bool? = nil,
-                name: Swift.String,
+                name: Swift.String? = nil,
                 runningPace: Swift.String? = nil,
                 specialNeeds: Swift.String? = nil,
                 tetherPreference: Components.Schemas.BlindProfileUpdateRequest.tetherPreferencePayload? = nil,
@@ -6506,6 +6526,13 @@ public enum Components {
             public var plannedEndTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/plannedStartTime`.
             public var plannedStartTime: Swift.String
+            /// （2026-11-06 新增，#932）跑者**想几点左右开始**，可选。只能和 `timeFlexible=true` 一起传，否则 400。
+            /// 须满足 `plannedStartTime ≤ preferredStartTime < plannedEndTime`，并过开跑时间那几道门槛（≥30 分钟后、≤7 天、值守时段），
+            /// 任何一条不满足都是 400 `BAD_REQUEST`（时段本身不满足门槛时仍是原来的 422）。
+            /// 不进派单过滤与评分，只随邀请展示给陪跑员（「跑者想 8:30 左右」），并用来预填安排单的开跑时间。
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/preferredStartTime`.
+            public var preferredStartTime: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/routeNotes`.
             public var routeNotes: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/routePreference`.
@@ -6525,6 +6552,14 @@ public enum Components {
             public var startLatitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/startLongitude`.
             public var startLongitude: Swift.Double
+            /// （2026-11-06 新增，#932）**时段待定**。可选，不传或 `false` = 原有的准点单。
+            /// `true` 时 `plannedStartTime` / `plannedEndTime` 表示盲人点的**一个时段**（如明天 06:00–11:00），
+            /// 现有校验照常对整个时段生效（≥30 分钟后开始、≤7 天、≤300 分钟、不碰 22:00–05:00、值守时段、时段冲突）。
+            /// 这样的单陪跑员一律先通话（熟人搭档也要），通话后在见面安排单里填准点开始与结束，盲人确认才成单；
+            /// 成单后订单详情里 `timeFlexible` 变回 `false`，两个时间就是准点。
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/timeFlexible`.
+            public var timeFlexible: Swift.Bool?
             /// Creates a new `CreateOrderRequest`.
             ///
             /// - Parameters:
@@ -6539,12 +6574,14 @@ public enum Components {
             ///   - plannedDistanceMeters: 本次**计划里程**（米），可选。2026-08-09 新增。
             ///   - plannedEndTime:
             ///   - plannedStartTime:
+            ///   - preferredStartTime: （2026-11-06 新增，#932）跑者**想几点左右开始**，可选。只能和 `timeFlexible=true` 一起传，否则 400。
             ///   - routeNotes:
             ///   - routePreference:
             ///   - specialNotes:
             ///   - startAddress:
             ///   - startLatitude:
             ///   - startLongitude:
+            ///   - timeFlexible: （2026-11-06 新增，#932）**时段待定**。可选，不传或 `false` = 原有的准点单。
             public init(
                 endAddress: Swift.String? = nil,
                 endLatitude: Swift.Double? = nil,
@@ -6557,12 +6594,14 @@ public enum Components {
                 plannedDistanceMeters: Swift.Int32? = nil,
                 plannedEndTime: Swift.String,
                 plannedStartTime: Swift.String,
+                preferredStartTime: Swift.String? = nil,
                 routeNotes: Swift.String? = nil,
                 routePreference: Components.Schemas.CreateOrderRequest.routePreferencePayload? = nil,
                 specialNotes: Swift.String? = nil,
                 startAddress: Swift.String,
                 startLatitude: Swift.Double,
-                startLongitude: Swift.Double
+                startLongitude: Swift.Double,
+                timeFlexible: Swift.Bool? = nil
             ) {
                 self.endAddress = endAddress
                 self.endLatitude = endLatitude
@@ -6575,12 +6614,14 @@ public enum Components {
                 self.plannedDistanceMeters = plannedDistanceMeters
                 self.plannedEndTime = plannedEndTime
                 self.plannedStartTime = plannedStartTime
+                self.preferredStartTime = preferredStartTime
                 self.routeNotes = routeNotes
                 self.routePreference = routePreference
                 self.specialNotes = specialNotes
                 self.startAddress = startAddress
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
+                self.timeFlexible = timeFlexible
             }
             public enum CodingKeys: String, CodingKey {
                 case endAddress
@@ -6594,12 +6635,14 @@ public enum Components {
                 case plannedDistanceMeters
                 case plannedEndTime
                 case plannedStartTime
+                case preferredStartTime
                 case routeNotes
                 case routePreference
                 case specialNotes
                 case startAddress
                 case startLatitude
                 case startLongitude
+                case timeFlexible
             }
         }
         /// `rating`（旧五星）与 `level`（三档，#347）**二选一必填**：都不传、都传均返回 400。 三档口径：`GOOD` 按 5 分、`OK` 按 4 分进志愿者均分；`PROBLEM` **不进均分**、 志愿者看不到，进客服复核（`GET /api/cs/reviews?level=PROBLEM`）。
@@ -7900,13 +7943,33 @@ public enum Components {
         }
         /// 见面安排单（#755）。**全部字段可选，不填 = 按原约**；一个都不改也要提交，提交本身就代表陪跑员「合适」。
         /// 时间只传 `plannedStartTime` 时按原时长平移结束时间；地点三项（地址 + 两个坐标）要么一起传、要么都不传。
+        /// 🚩 **时段待定的单（订单 `timeFlexible=true`，#932）例外**：必须同时带 `plannedStartTime` 与 `plannedEndTime`（电话里定的准点），
+        /// 缺任何一个 400；陪跑员只能用本接口表示合适（不看 `plan-required` 开关）。
         ///
         /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest`.
         public struct IntroCallPlanRequest: Codable, Hashable, Sendable {
+            /// （2026-11-06 新增，#932）这次带不带导盲犬。不传 = 按订单原来的。约成时写进订单
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/hasGuideDogThisRun`.
+            public var hasGuideDogThisRun: Swift.Bool?
             /// 具体在哪儿见，≤30 字（如「南门保安亭左边」）。空串或纯空白按没填处理
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/meetSpotNote`.
             public var meetSpotNote: Swift.String?
+            /// （2026-11-06 新增，#932）电话里说定的这次配速档位。不传 = 按订单原来的（下单时的或跑者档案默认）。约成时写进订单
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/pacePreference`.
+            @frozen public enum pacePreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case WALK_RUN = "WALK_RUN"
+                case EASY = "EASY"
+                case MODERATE = "MODERATE"
+                case FAST = "FAST"
+                case NO_PREFERENCE = "NO_PREFERENCE"
+            }
+            /// （2026-11-06 新增，#932）电话里说定的这次配速档位。不传 = 按订单原来的（下单时的或跑者档案默认）。约成时写进订单
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/pacePreference`.
+            public var pacePreference: Components.Schemas.IntroCallPlanRequest.pacePreferencePayload?
             /// 改后的结束时间。不传：若改了开跑时间则按原时长平移，否则按原约
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/plannedEndTime`.
@@ -7934,6 +7997,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/runnerTopColor`.
             public var runnerTopColor: Components.Schemas.IntroCallPlanRequest.runnerTopColorPayload?
+            /// （2026-11-06 新增，#932）这次的备注（跑者的需求，陪跑员在电话里问来），≤200 字，超过返回 400。不传、空串或纯空白 = 按订单原来的。约成时写进订单的 `specialNotes`
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/specialNotes`.
+            public var specialNotes: Swift.String?
             /// 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。最长 255 字，超过返回 400
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/startAddress`.
@@ -7968,38 +8035,50 @@ public enum Components {
             /// Creates a new `IntroCallPlanRequest`.
             ///
             /// - Parameters:
+            ///   - hasGuideDogThisRun: （2026-11-06 新增，#932）这次带不带导盲犬。不传 = 按订单原来的。约成时写进订单
             ///   - meetSpotNote: 具体在哪儿见，≤30 字（如「南门保安亭左边」）。空串或纯空白按没填处理
+            ///   - pacePreference: （2026-11-06 新增，#932）电话里说定的这次配速档位。不传 = 按订单原来的（下单时的或跑者档案默认）。约成时写进订单
             ///   - plannedEndTime: 改后的结束时间。不传：若改了开跑时间则按原时长平移，否则按原约
             ///   - plannedStartTime: 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 7 天、时长 ≤300 分钟、不碰 22:00–05:00）
             ///   - runnerTopColor: 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就不传
+            ///   - specialNotes: （2026-11-06 新增，#932）这次的备注（跑者的需求，陪跑员在电话里问来），≤200 字，超过返回 400。不传、空串或纯空白 = 按订单原来的。约成时写进订单的 `specialNotes`
             ///   - startAddress: 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。最长 255 字，超过返回 400
             ///   - startLatitude: 改后的集合点纬度（GCJ-02）。与原约集合点直线距离不得超过 `app.intro-call.plan-max-relocation-meters`（默认 3000 米）
             ///   - startLongitude: 改后的集合点经度（GCJ-02）
             ///   - volunteerTopColor: 陪跑员当天上衣颜色。不传 = 未确认
             public init(
+                hasGuideDogThisRun: Swift.Bool? = nil,
                 meetSpotNote: Swift.String? = nil,
+                pacePreference: Components.Schemas.IntroCallPlanRequest.pacePreferencePayload? = nil,
                 plannedEndTime: Swift.String? = nil,
                 plannedStartTime: Swift.String? = nil,
                 runnerTopColor: Components.Schemas.IntroCallPlanRequest.runnerTopColorPayload? = nil,
+                specialNotes: Swift.String? = nil,
                 startAddress: Swift.String? = nil,
                 startLatitude: Swift.Double? = nil,
                 startLongitude: Swift.Double? = nil,
                 volunteerTopColor: Components.Schemas.IntroCallPlanRequest.volunteerTopColorPayload? = nil
             ) {
+                self.hasGuideDogThisRun = hasGuideDogThisRun
                 self.meetSpotNote = meetSpotNote
+                self.pacePreference = pacePreference
                 self.plannedEndTime = plannedEndTime
                 self.plannedStartTime = plannedStartTime
                 self.runnerTopColor = runnerTopColor
+                self.specialNotes = specialNotes
                 self.startAddress = startAddress
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
                 self.volunteerTopColor = volunteerTopColor
             }
             public enum CodingKeys: String, CodingKey {
+                case hasGuideDogThisRun
                 case meetSpotNote
+                case pacePreference
                 case plannedEndTime
                 case plannedStartTime
                 case runnerTopColor
+                case specialNotes
                 case startAddress
                 case startLatitude
                 case startLongitude
@@ -8012,10 +8091,75 @@ public enum Components {
         ///
         /// - Remark: Generated from `#/components/schemas/IntroCallPlanView`.
         public struct IntroCallPlanView: Codable, Hashable, Sendable {
+            /// （2026-11-06 新增，#932）这次带不带导盲犬；null = 按订单原来的
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/hasGuideDogThisRun`.
+            public var hasGuideDogThisRun: Swift.Bool?
             /// 具体在哪儿见（陪跑员写，≤30 字）；null = 没填
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/meetSpotNote`.
             public var meetSpotNote: Swift.String?
+            /// （2026-11-06 新增，#932）电话里说定的这次配速档位；null = 按订单原来的
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/pacePreference`.
+            public struct pacePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/pacePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/pacePreference/value1`.
+                public var value1: Components.Schemas.IntroCallPlanView.pacePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/pacePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `pacePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.IntroCallPlanView.pacePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// （2026-11-06 新增，#932）电话里说定的这次配速档位；null = 按订单原来的
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/pacePreference`.
+            public var pacePreference: Components.Schemas.IntroCallPlanView.pacePreferencePayload?
             /// 改后的结束时间；null = 按原约
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/plannedEndTime`.
@@ -8090,6 +8234,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/runnerTopColor`.
             public var runnerTopColor: Components.Schemas.IntroCallPlanView.runnerTopColorPayload?
+            /// （2026-11-06 新增，#932）这次的备注（陪跑员在电话里问来的跑者需求，≤200 字）；null = 按订单原来的。盲人确认前念给他听
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/specialNotes`.
+            public var specialNotes: Swift.String?
             /// 改后的集合点地址；null = 按原约（此时两个坐标也是 null）
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanView/startAddress`.
@@ -8179,10 +8327,13 @@ public enum Components {
             /// Creates a new `IntroCallPlanView`.
             ///
             /// - Parameters:
+            ///   - hasGuideDogThisRun: （2026-11-06 新增，#932）这次带不带导盲犬；null = 按订单原来的
             ///   - meetSpotNote: 具体在哪儿见（陪跑员写，≤30 字）；null = 没填
+            ///   - pacePreference: （2026-11-06 新增，#932）电话里说定的这次配速档位；null = 按订单原来的
             ///   - plannedEndTime: 改后的结束时间；null = 按原约
             ///   - plannedStartTime: 改后的开跑时间；null = 按原约
             ///   - runnerTopColor: 陪跑员记下的跑者上衣颜色；null = 未确认。开放枚举，同上
+            ///   - specialNotes: （2026-11-06 新增，#932）这次的备注（陪跑员在电话里问来的跑者需求，≤200 字）；null = 按订单原来的。盲人确认前念给他听
             ///   - startAddress: 改后的集合点地址；null = 按原约（此时两个坐标也是 null）
             ///   - startLatitude: 改后的集合点纬度（GCJ-02）
             ///   - startLongitude: 改后的集合点经度（GCJ-02）
@@ -8190,10 +8341,13 @@ public enum Components {
             ///   - version: 这一轮内的版本号，从 1 起。盲人 `decision=ACCEPT` 必须带上它，不是最新会 409 `INTRO_CALL_PLAN_STALE`
             ///   - volunteerTopColor: 陪跑员当天上衣颜色；null = 未确认。开放枚举：不认识的值那一行不念，整张单照常
             public init(
+                hasGuideDogThisRun: Swift.Bool? = nil,
                 meetSpotNote: Swift.String? = nil,
+                pacePreference: Components.Schemas.IntroCallPlanView.pacePreferencePayload? = nil,
                 plannedEndTime: Swift.String? = nil,
                 plannedStartTime: Swift.String? = nil,
                 runnerTopColor: Components.Schemas.IntroCallPlanView.runnerTopColorPayload? = nil,
+                specialNotes: Swift.String? = nil,
                 startAddress: Swift.String? = nil,
                 startLatitude: Swift.Double? = nil,
                 startLongitude: Swift.Double? = nil,
@@ -8201,10 +8355,13 @@ public enum Components {
                 version: Swift.Int32? = nil,
                 volunteerTopColor: Components.Schemas.IntroCallPlanView.volunteerTopColorPayload? = nil
             ) {
+                self.hasGuideDogThisRun = hasGuideDogThisRun
                 self.meetSpotNote = meetSpotNote
+                self.pacePreference = pacePreference
                 self.plannedEndTime = plannedEndTime
                 self.plannedStartTime = plannedStartTime
                 self.runnerTopColor = runnerTopColor
+                self.specialNotes = specialNotes
                 self.startAddress = startAddress
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
@@ -8213,10 +8370,13 @@ public enum Components {
                 self.volunteerTopColor = volunteerTopColor
             }
             public enum CodingKeys: String, CodingKey {
+                case hasGuideDogThisRun
                 case meetSpotNote
+                case pacePreference
                 case plannedEndTime
                 case plannedStartTime
                 case runnerTopColor
+                case specialNotes
                 case startAddress
                 case startLatitude
                 case startLongitude
@@ -8248,6 +8408,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/counterpartUserId`.
             public var counterpartUserId: Swift.Int64?
+            /// （2026-11-06 新增，#932）**原约**这次带不带导盲犬；null = 不知道（跑者档案没填）。安排单改过的新值在 `plan.hasGuideDogThisRun`
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/hasGuideDogThisRun`.
+            public var hasGuideDogThisRun: Swift.Bool?
             /// 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision`.
@@ -8306,6 +8470,67 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision`.
             public var myDecision: Components.Schemas.IntroCallView.myDecisionPayload?
+            /// （2026-11-06 新增，#932）**原约**的配速档位（下单时填的，或跑者档案默认）；null = 没有。安排单改过的新值在 `plan.pacePreference`，确认页据此念「配速轻松，原来是中等」。开放枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/pacePreference`.
+            public struct pacePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/IntroCallView/pacePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/IntroCallView/pacePreference/value1`.
+                public var value1: Components.Schemas.IntroCallView.pacePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/IntroCallView/pacePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `pacePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.IntroCallView.pacePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// （2026-11-06 新增，#932）**原约**的配速档位（下单时填的，或跑者档案默认）；null = 没有。安排单改过的新值在 `plan.pacePreference`，确认页据此念「配速轻松，原来是中等」。开放枚举
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/pacePreference`.
+            public var pacePreference: Components.Schemas.IntroCallView.pacePreferencePayload?
             /// - Remark: Generated from `#/components/schemas/IntroCallView/plan`.
             public var plan: Components.Schemas.IntroCallPlanView?
             /// 计划结束时间。⚠️ **不要往这个 DTO 里加盲人写的自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
@@ -8316,6 +8541,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedStartTime`.
             public var plannedStartTime: Swift.String?
+            /// （2026-11-06 新增，#932）跑者想几点左右开始（只在时段单上可能有值），陪跑员端用它预填安排单的开跑时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/preferredStartTime`.
+            public var preferredStartTime: Swift.String?
             /// 起跑点文字地址（**原约**，通话期间不变，#755）。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/startAddress`.
@@ -8328,6 +8557,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/startLongitude`.
             public var startLongitude: Swift.Double?
+            /// （2026-11-06 新增，#932）**时段待定**。`true` = 顶层 `plannedStartTime` / `plannedEndTime` 是盲人选的时段，陪跑员的安排单**必须**带准点开始与结束（缺了 400）。永远有值
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/timeFlexible`.
+            public var timeFlexible: Swift.Bool?
             /// 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/windowEndsAt`.
@@ -8339,39 +8572,51 @@ public enum Components {
             ///   - counterpartPhone: 对方能直接拨通的**明文号**——**仅盲人侧有值，志愿者侧恒为 null**。 ⚠️ 与 `OrderDetailResponse.volunteerPhone` 同一条硬不变量：**要么明文可拨，要么 null， 绝不下发掩码串**。客户端拼 `tel:` 时只取数字位，`138****1234` 会被拨成 `1381234` 打成空号。
             ///   - counterpartPhoneMasked: 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
             ///   - counterpartUserId: （2026-11-02 新增，#911）对方的用户 id，**只用来传给举报和拉黑**，不要拿它拼展示文案或拨号。双方都有。陪跑员通话期间读不到订单详情，这里是他唯一能拿到对方 id 的地方，这一轮结束后这个端点也读不到，所以客户端要在通话页放入口。
+            ///   - hasGuideDogThisRun: （2026-11-06 新增，#932）**原约**这次带不带导盲犬；null = 不知道（跑者档案没填）。安排单改过的新值在 `plan.hasGuideDogThisRun`
             ///   - myDecision: 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
+            ///   - pacePreference: （2026-11-06 新增，#932）**原约**的配速档位（下单时填的，或跑者档案默认）；null = 没有。安排单改过的新值在 `plan.pacePreference`，确认页据此念「配速轻松，原来是中等」。开放枚举
             ///   - plan:
             ///   - plannedEndTime: 计划结束时间。⚠️ **不要往这个 DTO 里加盲人写的自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
             ///   - plannedStartTime: 计划开始时间
+            ///   - preferredStartTime: （2026-11-06 新增，#932）跑者想几点左右开始（只在时段单上可能有值），陪跑员端用它预填安排单的开跑时间
             ///   - startAddress: 起跑点文字地址（**原约**，通话期间不变，#755）。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
             ///   - startLatitude: 起跑点纬度（GCJ-02）
             ///   - startLongitude: 起跑点经度（GCJ-02）
+            ///   - timeFlexible: （2026-11-06 新增，#932）**时段待定**。`true` = 顶层 `plannedStartTime` / `plannedEndTime` 是盲人选的时段，陪跑员的安排单**必须**带准点开始与结束（缺了 400）。永远有值
             ///   - windowEndsAt: 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
             public init(
                 counterpartName: Swift.String? = nil,
                 counterpartPhone: Swift.String? = nil,
                 counterpartPhoneMasked: Swift.String? = nil,
                 counterpartUserId: Swift.Int64? = nil,
+                hasGuideDogThisRun: Swift.Bool? = nil,
                 myDecision: Components.Schemas.IntroCallView.myDecisionPayload? = nil,
+                pacePreference: Components.Schemas.IntroCallView.pacePreferencePayload? = nil,
                 plan: Components.Schemas.IntroCallPlanView? = nil,
                 plannedEndTime: Swift.String? = nil,
                 plannedStartTime: Swift.String? = nil,
+                preferredStartTime: Swift.String? = nil,
                 startAddress: Swift.String? = nil,
                 startLatitude: Swift.Double? = nil,
                 startLongitude: Swift.Double? = nil,
+                timeFlexible: Swift.Bool? = nil,
                 windowEndsAt: Swift.String? = nil
             ) {
                 self.counterpartName = counterpartName
                 self.counterpartPhone = counterpartPhone
                 self.counterpartPhoneMasked = counterpartPhoneMasked
                 self.counterpartUserId = counterpartUserId
+                self.hasGuideDogThisRun = hasGuideDogThisRun
                 self.myDecision = myDecision
+                self.pacePreference = pacePreference
                 self.plan = plan
                 self.plannedEndTime = plannedEndTime
                 self.plannedStartTime = plannedStartTime
+                self.preferredStartTime = preferredStartTime
                 self.startAddress = startAddress
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
+                self.timeFlexible = timeFlexible
                 self.windowEndsAt = windowEndsAt
             }
             public enum CodingKeys: String, CodingKey {
@@ -8379,13 +8624,17 @@ public enum Components {
                 case counterpartPhone
                 case counterpartPhoneMasked
                 case counterpartUserId
+                case hasGuideDogThisRun
                 case myDecision
+                case pacePreference
                 case plan
                 case plannedEndTime
                 case plannedStartTime
+                case preferredStartTime
                 case startAddress
                 case startLatitude
                 case startLongitude
+                case timeFlexible
                 case windowEndsAt
             }
         }
@@ -8821,7 +9070,7 @@ public enum Components {
             public var blindConfirmDeadlineAt: Swift.String?
             /// 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
             /// 与手机号不同：姓名没有「拨得通」这回事，所以这里就是展示值，不存在明文版本。
-            /// 盲人账号注销后 `cascadeDeletePii()` 清空姓名 → null。
+            /// 在册但没填昵称时为 `跑者`（昵称 2026-11-06 起可选）；**`null` 只表示盲人已注销**（#929）。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindName`.
             public var blindName: Swift.String?
@@ -9026,6 +9275,10 @@ public enum Components {
             public var plannedEnd: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedStart`.
             public var plannedStart: Swift.String
+            /// （2026-11-06 新增，#932）跑者想几点左右开始，只在 `timeFlexible=true` 时可能有值，落在时段之内。约成后为 null（准点已写进 `plannedStartTime`）
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/preferredStartTime`.
+            public var preferredStartTime: Swift.String?
             /// 主按钮「我出发了」亮起的时刻 = max(`suggestedDepartAt` − 30 分钟, `plannedStart` − `app.order.en-route-earliest-minutes`)。 取 max 是因为 `POST /api/orders/{id}/en-route` 在后者之前一律 409 `DEPARTURE_TOO_EARLY`。下发条件同 `travelMinutes`
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/primaryActionUnlockAt`.
@@ -9299,6 +9552,10 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload?
+            /// （2026-11-06 新增，#932）**时段待定**。`true` = `plannedStartTime` / `plannedEndTime` 是盲人选的一个时段，准点还没定（电话里定、写进见面安排单）；朗读时说「6:00 到 11:00 之间」而不是「6:00 开始」。约成那一刻变回 `false`，此后两个时间就是准点。永远有值
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/timeFlexible`.
+            public var timeFlexible: Swift.Bool
             /// （2026-09-25 新增，陪跑员端订单页 v2）陪跑员到出发点的估算路上时间（分钟）= 陪跑员**最后已知位置**到 `startLatitude/startLongitude` 的直线距离 × 1.4 ÷ 15 km/h（统一按骑车），向上取整、封顶 120。 🚩 本字段与 `suggestedDepartAt` / `departReminderAt` / `primaryActionUnlockAt` **同进同出**： 只对本单陪跑员、只在 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`、且陪跑员有过位置记录时下发，其余一律 `null`。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/travelMinutes`.
@@ -9366,7 +9623,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerId`.
             public var volunteerId: Swift.Int64?
-            /// 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            /// 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 没填姓名时为 `陪跑员`；未接单或陪跑员已注销时为 null（#929）。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerName`.
             public var volunteerName: Swift.String?
@@ -9506,6 +9763,7 @@ public enum Components {
             ///   - plannedDistanceMeters: 本次计划里程（米），null=用户没填。⚠️ 与 `startToEndDistanceKm`（起终点直线距离）不是一回事
             ///   - plannedEnd:
             ///   - plannedStart:
+            ///   - preferredStartTime: （2026-11-06 新增，#932）跑者想几点左右开始，只在 `timeFlexible=true` 时可能有值，落在时段之内。约成后为 null（准点已写进 `plannedStartTime`）
             ///   - primaryActionUnlockAt: 主按钮「我出发了」亮起的时刻 = max(`suggestedDepartAt` − 30 分钟, `plannedStart` − `app.order.en-route-earliest-minutes`)。 取 max 是因为 `POST /api/orders/{id}/en-route` 在后者之前一律 409 `DEPARTURE_TOO_EARLY`。下发条件同 `travelMinutes`
             ///   - routeNotes:
             ///   - routePreference:
@@ -9521,11 +9779,12 @@ public enum Components {
             ///   - status:
             ///   - suggestedDepartAt: 建议出发时刻 = `plannedStart` − `travelMinutes` − 5 分钟缓冲。下发条件同 `travelMinutes`
             ///   - tetherPreference:
+            ///   - timeFlexible: （2026-11-06 新增，#932）**时段待定**。`true` = `plannedStartTime` / `plannedEndTime` 是盲人选的一个时段，准点还没定（电话里定、写进见面安排单）；朗读时说「6:00 到 11:00 之间」而不是「6:00 开始」。约成那一刻变回 `false`，此后两个时间就是准点。永远有值
             ///   - travelMinutes: （2026-09-25 新增，陪跑员端订单页 v2）陪跑员到出发点的估算路上时间（分钟）= 陪跑员**最后已知位置**到 `startLatitude/startLongitude` 的直线距离 × 1.4 ÷ 15 km/h（统一按骑车），向上取整、封顶 120。 🚩 本字段与 `suggestedDepartAt` / `departReminderAt` / `primaryActionUnlockAt` **同进同出**： 只对本单陪跑员、只在 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT`、且陪跑员有过位置记录时下发，其余一律 `null`。
             ///   - visionLevel:
             ///   - volunteerAvgRating: 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
             ///   - volunteerId: 已接单志愿者的用户 id。**未接单时为 null。** 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者。** 不要拿它拼任何展示文案，也不要拿它做拨号 —— 号码仍然只走 `volunteerPhone` 那条状态门。 ⚠️ 「只在接单后下发」是**结构上成立**的，不是额外判断：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期 `order.volunteer` 本就是 null（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，**刻意不从这里漏出去** —— 接单前给出一个稳定 id 等于给每个候选人一个可长期持有的标识）。
-            ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 没填姓名时为 `陪跑员`；未接单或陪跑员已注销时为 null（#929）。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
             ///   - volunteerPhone: 志愿者手机号，**明文、可直接拨打**（客户端拿它拼 `tel:`）。
             ///   - volunteerSurname: （2026-09-26 新增，陪跑员端订单页 v2）陪跑员**姓氏**，给跑者端用。口径同 `blindSurname`：只在已接单时下发，缺失时客户端改说「陪跑员」
             ///   - volunteerTopColor: （2026-10-15 新增，#755）陪跑员当天上衣颜色（见面安排单）。null = 未确认 / 没有安排单。**换陪跑员（REMATCHING）后清空**——说的是走掉的那位。开放枚举：不认识的值那一行不念
@@ -9567,6 +9826,7 @@ public enum Components {
                 plannedDistanceMeters: Swift.Int32? = nil,
                 plannedEnd: Swift.String,
                 plannedStart: Swift.String,
+                preferredStartTime: Swift.String? = nil,
                 primaryActionUnlockAt: Swift.String? = nil,
                 routeNotes: Swift.String? = nil,
                 routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload? = nil,
@@ -9582,6 +9842,7 @@ public enum Components {
                 status: Components.Schemas.OrderDetailResponse.statusPayload,
                 suggestedDepartAt: Swift.String? = nil,
                 tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload? = nil,
+                timeFlexible: Swift.Bool,
                 travelMinutes: Swift.Int32? = nil,
                 visionLevel: Components.Schemas.OrderDetailResponse.visionLevelPayload? = nil,
                 volunteerAvgRating: Swift.Double? = nil,
@@ -9628,6 +9889,7 @@ public enum Components {
                 self.plannedDistanceMeters = plannedDistanceMeters
                 self.plannedEnd = plannedEnd
                 self.plannedStart = plannedStart
+                self.preferredStartTime = preferredStartTime
                 self.primaryActionUnlockAt = primaryActionUnlockAt
                 self.routeNotes = routeNotes
                 self.routePreference = routePreference
@@ -9643,6 +9905,7 @@ public enum Components {
                 self.status = status
                 self.suggestedDepartAt = suggestedDepartAt
                 self.tetherPreference = tetherPreference
+                self.timeFlexible = timeFlexible
                 self.travelMinutes = travelMinutes
                 self.visionLevel = visionLevel
                 self.volunteerAvgRating = volunteerAvgRating
@@ -9690,6 +9953,7 @@ public enum Components {
                 case plannedDistanceMeters
                 case plannedEnd
                 case plannedStart
+                case preferredStartTime
                 case primaryActionUnlockAt
                 case routeNotes
                 case routePreference
@@ -9705,6 +9969,7 @@ public enum Components {
                 case status
                 case suggestedDepartAt
                 case tetherPreference
+                case timeFlexible
                 case travelMinutes
                 case visionLevel
                 case volunteerAvgRating
@@ -9777,6 +10042,10 @@ public enum Components {
             public var id: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/OrderResponse/message`.
             public var message: Swift.String
+            /// （2026-11-06 新增，#932）跑者想几点左右开始；没填或不是时段单为 null
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderResponse/preferredStartTime`.
+            public var preferredStartTime: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OrderResponse/status`.
             public struct statusPayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/OrderResponse/status/value1`.
@@ -9840,25 +10109,37 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/OrderResponse/status`.
             public var status: Components.Schemas.OrderResponse.statusPayload
+            /// （2026-11-06 新增，#932）这一单是不是时段待定。语义同 `CreateOrderRequest.timeFlexible`
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderResponse/timeFlexible`.
+            public var timeFlexible: Swift.Bool
             /// Creates a new `OrderResponse`.
             ///
             /// - Parameters:
             ///   - id:
             ///   - message:
+            ///   - preferredStartTime: （2026-11-06 新增，#932）跑者想几点左右开始；没填或不是时段单为 null
             ///   - status:
+            ///   - timeFlexible: （2026-11-06 新增，#932）这一单是不是时段待定。语义同 `CreateOrderRequest.timeFlexible`
             public init(
                 id: Swift.Int64,
                 message: Swift.String,
-                status: Components.Schemas.OrderResponse.statusPayload
+                preferredStartTime: Swift.String? = nil,
+                status: Components.Schemas.OrderResponse.statusPayload,
+                timeFlexible: Swift.Bool
             ) {
                 self.id = id
                 self.message = message
+                self.preferredStartTime = preferredStartTime
                 self.status = status
+                self.timeFlexible = timeFlexible
             }
             public enum CodingKeys: String, CodingKey {
                 case id
                 case message
+                case preferredStartTime
                 case status
+                case timeFlexible
             }
         }
         /// - Remark: Generated from `#/components/schemas/OrderStatusLogResponse`.
@@ -11124,7 +11405,7 @@ public enum Components {
         /// 要拨号走接单之后的订单详情。
         ///
         /// **可空的字段（null = 后端没给，不是「没有」）**：与 WS 的「有值才放」口径一致 —— WS 里这些键直接缺席，
-        /// 这里是 `null`。例外：`requiresIntroCall` 与 `completedTogetherCount` 永远有值（缺了客户端不知道该发什么 / 分不清「没一起跑过」和「没给」）。
+        /// 这里是 `null`。例外：`requiresIntroCall`、`completedTogetherCount` 与 `timeFlexible` 永远有值（缺了客户端不知道该发什么 / 分不清「没一起跑过」和「没给」）。
         ///
         /// - Remark: Generated from `#/components/schemas/PendingInviteItem`.
         public struct PendingInviteItem: Codable, Hashable, Sendable {
@@ -11301,6 +11582,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/PendingInviteItem/plannedStart`.
             public var plannedStart: Swift.String
+            /// （2026-11-06 新增，#932）跑者想几点左右开始（只在时段单上可能有值）。卡片上念「跑者想 8:30 左右」，并用来预填见面安排单的开跑时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/preferredStartTime`.
+            public var preferredStartTime: Swift.String?
             /// 恒为 `HIGH`，与 WS `NEW_ORDER` 一致（响应向开放枚举，客户端必须容忍新值）
             ///
             /// - Remark: Generated from `#/components/schemas/PendingInviteItem/priority`.
@@ -11439,6 +11724,12 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/PendingInviteItem/tetherPreference`.
             public var tetherPreference: Components.Schemas.PendingInviteItem.tetherPreferencePayload?
+            /// （2026-11-06 新增，#932）**时段待定**。`true` = `plannedStart` / `plannedEnd` 是盲人选的一个时段，
+            /// 准点电话里定（卡片上写「明天 6:00–11:00 之间，时间电话里定」）；此时 `requiresIntroCall` 恒为 `true`。
+            /// 永远有值（WS 里也无条件下发）。
+            ///
+            /// - Remark: Generated from `#/components/schemas/PendingInviteItem/timeFlexible`.
+            public var timeFlexible: Swift.Bool
             /// 盲人视障程度。盲人档案缺失时为 null，**别脑补成全盲**
             ///
             /// - Remark: Generated from `#/components/schemas/PendingInviteItem/visionLevel`.
@@ -11517,6 +11808,7 @@ public enum Components {
             ///   - plannedDistanceMeters: 计划里程（米）
             ///   - plannedEnd: 计划结束时刻（无时区）
             ///   - plannedStart: 计划开始时刻（无时区）
+            ///   - preferredStartTime: （2026-11-06 新增，#932）跑者想几点左右开始（只在时段单上可能有值）。卡片上念「跑者想 8:30 左右」，并用来预填见面安排单的开跑时间
             ///   - priority: 恒为 `HIGH`，与 WS `NEW_ORDER` 一致（响应向开放枚举，客户端必须容忍新值）
             ///   - requiresIntroCall: 🚨 **这一单要不要先通电话**，客户端按它决定 `/respond` 发哪个 action：
             ///   - routePreference:
@@ -11525,6 +11817,7 @@ public enum Components {
             ///   - startLatitude: 起跑点纬度
             ///   - startLongitude: 起跑点经度
             ///   - tetherPreference:
+            ///   - timeFlexible: （2026-11-06 新增，#932）**时段待定**。`true` = `plannedStart` / `plannedEnd` 是盲人选的一个时段，
             ///   - visionLevel: 盲人视障程度。盲人档案缺失时为 null，**别脑补成全盲**
             public init(
                 blindName: Swift.String? = nil,
@@ -11543,6 +11836,7 @@ public enum Components {
                 plannedDistanceMeters: Swift.Int32? = nil,
                 plannedEnd: Swift.String,
                 plannedStart: Swift.String,
+                preferredStartTime: Swift.String? = nil,
                 priority: Swift.String,
                 requiresIntroCall: Swift.Bool,
                 routePreference: Components.Schemas.PendingInviteItem.routePreferencePayload? = nil,
@@ -11551,6 +11845,7 @@ public enum Components {
                 startLatitude: Swift.Double? = nil,
                 startLongitude: Swift.Double? = nil,
                 tetherPreference: Components.Schemas.PendingInviteItem.tetherPreferencePayload? = nil,
+                timeFlexible: Swift.Bool,
                 visionLevel: Components.Schemas.PendingInviteItem.visionLevelPayload? = nil
             ) {
                 self.blindName = blindName
@@ -11569,6 +11864,7 @@ public enum Components {
                 self.plannedDistanceMeters = plannedDistanceMeters
                 self.plannedEnd = plannedEnd
                 self.plannedStart = plannedStart
+                self.preferredStartTime = preferredStartTime
                 self.priority = priority
                 self.requiresIntroCall = requiresIntroCall
                 self.routePreference = routePreference
@@ -11577,6 +11873,7 @@ public enum Components {
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
                 self.tetherPreference = tetherPreference
+                self.timeFlexible = timeFlexible
                 self.visionLevel = visionLevel
             }
             public enum CodingKeys: String, CodingKey {
@@ -11596,6 +11893,7 @@ public enum Components {
                 case plannedDistanceMeters
                 case plannedEnd
                 case plannedStart
+                case preferredStartTime
                 case priority
                 case requiresIntroCall
                 case routePreference
@@ -11604,6 +11902,7 @@ public enum Components {
                 case startLatitude
                 case startLongitude
                 case tetherPreference
+                case timeFlexible
                 case visionLevel
             }
         }
@@ -12607,6 +12906,8 @@ public enum Components {
             public var finishedAt: Swift.String
             /// - Remark: Generated from `#/components/schemas/RunHistoryItem/orderId`.
             public var orderId: Swift.Int64
+            /// 对方姓名，脱敏（`张*`）。在册但没填名字时为 `跑者` / `陪跑员`；**`null` 只表示对方已注销**（#929）
+            ///
             /// - Remark: Generated from `#/components/schemas/RunHistoryItem/partnerName`.
             public var partnerName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/RunHistoryItem/place`.
@@ -12621,7 +12922,7 @@ public enum Components {
             ///   - distanceM:
             ///   - finishedAt:
             ///   - orderId:
-            ///   - partnerName:
+            ///   - partnerName: 对方姓名，脱敏（`张*`）。在册但没填名字时为 `跑者` / `陪跑员`；**`null` 只表示对方已注销**（#929）
             ///   - place:
             ///   - thumbnail: 仅陪跑员，≤ 64 点，GCJ-02
             public init(
@@ -13013,7 +13314,7 @@ public enum Components {
         ///
         /// - Remark: Generated from `#/components/schemas/RunRecordResponse`.
         public struct RunRecordResponse: Codable, Hashable, Sendable {
-            /// 跑者姓名，脱敏（`张*`），注销为 null
+            /// 跑者姓名，脱敏（`张*`）。在册但没填昵称时为 `跑者`；**`null` 只表示跑者已注销**（#929）
             ///
             /// - Remark: Generated from `#/components/schemas/RunRecordResponse/blindName`.
             public var blindName: Swift.String?
@@ -13182,14 +13483,14 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/RunRecordResponse/viewerRole`.
             public var viewerRole: Components.Schemas.RunRecordResponse.viewerRolePayload
-            /// 陪跑员姓名，同上
+            /// 陪跑员姓名，脱敏。在册但没填姓名时为 `陪跑员`；**`null` 只表示陪跑员已注销**
             ///
             /// - Remark: Generated from `#/components/schemas/RunRecordResponse/volunteerName`.
             public var volunteerName: Swift.String?
             /// Creates a new `RunRecordResponse`.
             ///
             /// - Parameters:
-            ///   - blindName: 跑者姓名，脱敏（`张*`），注销为 null
+            ///   - blindName: 跑者姓名，脱敏（`张*`）。在册但没填昵称时为 `跑者`；**`null` 只表示跑者已注销**（#929）
             ///   - comparison:
             ///   - events: 按时间正序
             ///   - fastestSplitIndex: 最快的一段的 index —— 只在满 1 公里的段之间比，且至少两段满公里才有；否则 null
@@ -13207,7 +13508,7 @@ public enum Components {
             ///   - summary:
             ///   - track:
             ///   - viewerRole: 请求者在这一单里的角色（只会是 BLIND / VOLUNTEER）
-            ///   - volunteerName: 陪跑员姓名，同上
+            ///   - volunteerName: 陪跑员姓名，脱敏。在册但没填姓名时为 `陪跑员`；**`null` 只表示陪跑员已注销**
             public init(
                 blindName: Swift.String? = nil,
                 comparison: Components.Schemas.RunComparison? = nil,
@@ -13493,7 +13794,7 @@ public enum Components {
         }
         /// - Remark: Generated from `#/components/schemas/RunTopPartner`.
         public struct RunTopPartner: Codable, Hashable, Sendable {
-            /// 脱敏，注销为 null
+            /// 脱敏。在册但没填名字时为 `跑者` / `陪跑员`；`null` 只表示已注销
             ///
             /// - Remark: Generated from `#/components/schemas/RunTopPartner/name`.
             public var name: Swift.String?
@@ -13502,7 +13803,7 @@ public enum Components {
             /// Creates a new `RunTopPartner`.
             ///
             /// - Parameters:
-            ///   - name: 脱敏，注销为 null
+            ///   - name: 脱敏。在册但没填名字时为 `跑者` / `陪跑员`；`null` 只表示已注销
             ///   - runs:
             public init(
                 name: Swift.String? = nil,
@@ -21281,7 +21582,7 @@ public enum Operations {
     /// 响应走 `ApiResponse` 信封。
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
-    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`），对方注销为 `null`
+    /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
     /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
     ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
