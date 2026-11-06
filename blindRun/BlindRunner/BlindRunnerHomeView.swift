@@ -15,6 +15,8 @@ enum BlindRunnerRoute: Hashable {
     case orderStatus(Int64)
     /// 首次使用引导。首次进首页自动推入一次，也可从「我的」进入。
     case help
+    /// 默认出发地点页「全部 N 个常用地点 ›」进的列表，可删除（#817）。
+    case favoritePlaceList
     // `.settings` 已移除：设置改成底部标签栏的「我的」，不再是首页右上角的悬浮齿轮，
     // 所以首页这条导航栈里没有它的落点了。入口本身没有消失，见 `BlindRunnerTabView`。
 }
@@ -968,6 +970,7 @@ private extension BlindRunnerHomeView {
             matchFirstBooking(favoritePlace: favoritePlaces.defaultPlace)
         case .addFavoritePlace: BlindFavoritePlaceAddRoute(favoritePlaces: favoritePlaces, path: $path)
         case .startPlacePicker: BlindHomeStartPlaceRoute(favoritePlaces: favoritePlaces, path: $path)
+        case .favoritePlaceList: BlindFavoritePlaceListRoute(favoritePlaces: favoritePlaces, path: $path)
         case .orderStatus(let orderId):
             BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
                 viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil

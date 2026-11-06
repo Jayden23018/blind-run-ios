@@ -161,6 +161,35 @@ final class FavoritePlaceStoreTests: XCTestCase {
         XCTAssertEqual(store.places.count, 1)
     }
 
+    /// #817：删掉的是默认出发地点时改回当前定位。断言打在 `defaultPlaceID` 上而不是 `defaultPlace`——
+    /// 后者在收藏没了之后本来就算出 nil，旧实现（不清默认）也会通过，分辨不出落盘的死 id。
+    func testRemovingTheDefaultPlaceFallsBackToCurrentLocation() {
+        let store = FavoritePlaceStore(directory: directory)
+        store.add(makePlace(title: "人民广场", latitude: 31.2304, longitude: 121.4737))
+        let doomed = try! XCTUnwrap(store.places.first)
+        XCTAssertTrue(store.setDefaultPlace(doomed))
+
+        let wasDefault = store.remove(id: doomed.id)
+
+        XCTAssertTrue(wasDefault)
+        XCTAssertNil(store.defaultPlaceID)
+        XCTAssertNil(FavoritePlaceStore(directory: directory).defaultPlaceID, "默认出发地点的死 id 还留在盘上")
+    }
+
+    func testRemovingAnotherPlaceKeepsTheDefault() {
+        let store = FavoritePlaceStore(directory: directory)
+        store.add(makePlace(title: "人民广场", latitude: 31.2304, longitude: 121.4737))
+        store.add(makePlace(title: "五角场", latitude: 31.2989, longitude: 121.5079))
+        let kept = try! XCTUnwrap(store.places.first { $0.title == "人民广场" })
+        let doomed = try! XCTUnwrap(store.places.first { $0.title == "五角场" })
+        XCTAssertTrue(store.setDefaultPlace(kept))
+
+        let wasDefault = store.remove(id: doomed.id)
+
+        XCTAssertFalse(wasDefault)
+        XCTAssertEqual(store.defaultPlace?.title, "人民广场")
+    }
+
     // MARK: - contains
 
     func testContainsMatchesTheSameSpotRegardlessOfTitle() {

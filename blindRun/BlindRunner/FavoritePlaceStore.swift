@@ -116,10 +116,18 @@ final class FavoritePlaceStore: ObservableObject {
         places.first { $0.id == Self.identifier(for: place) }
     }
 
-    func remove(id: String) {
-        guard places.contains(where: { $0.id == id }) else { return }
+    /// 删掉一条收藏。删的是默认出发地点时，默认一并改回当前定位（#817）——
+    /// 不清的话落盘的默认 id 指向一条已经不存在的收藏，界面虽然退回当前定位，文件里却留着死值。
+    ///
+    /// - Returns: 删掉的是不是默认出发地点。列表页据此决定朗读「已改回当前定位」。
+    @discardableResult
+    func remove(id: String) -> Bool {
+        guard places.contains(where: { $0.id == id }) else { return false }
+        let wasDefault = defaultPlaceID == id
         places.removeAll { $0.id == id }
         persist()
+        if wasDefault { setDefaultPlace(nil) }
+        return wasDefault
     }
 
     // MARK: - Persistence
