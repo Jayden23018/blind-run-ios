@@ -218,7 +218,7 @@ final class VoiceOrderWizard: ObservableObject {
 
     // MARK: Lifecycle
 
-    /// 从「约跑前还差 N 项」补完回到约跑页时调用（#781）。`start()` 被昵称 / 紧急联系人拦下时
+    /// 从「约跑前还差 N 项」补完回到约跑页时调用（#781）。`start()` 被紧急联系人拦下时
     /// 留在屏幕顶上的那句改成还差的下一项，都齐了就撤掉。别的降级原因（语音坏了等）不动。
     /// 不开麦：回来的人可能已经改用表单，要语音就自己按「用语音重新说一次」。
     func refreshSetupGateFallback() {

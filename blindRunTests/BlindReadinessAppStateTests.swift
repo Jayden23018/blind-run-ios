@@ -1,8 +1,8 @@
 import XCTest
 @testable import blindRun
 
-/// AppState 盲人完成度拆分：基础资料 / 紧急联系人互相独立地判定，两者都进 `isBlindBookingReady`。
-/// 2026-11-05 起视障跑者不再实名（#767），实名状态不参与。
+/// AppState 盲人约跑前置：只看紧急联系人。
+/// 2026-11-05 起视障跑者不再实名（#767），2026-11-06 起不再要求昵称（#789），两者都不参与。
 @MainActor
 final class BlindReadinessAppStateTests: XCTestCase {
 
@@ -14,16 +14,16 @@ final class BlindReadinessAppStateTests: XCTestCase {
         AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
     }
 
-    func testBasicProfileIsIndependentOfContacts() {
-        let appState = makeAppState()
-        XCTAssertFalse(appState.isBlindBasicProfileComplete)
+    /// 没有资料、昵称为 nil、昵称全空白三种情形，只要紧急联系人齐了就能约（#789）。
+    func testBookingIsReadyWithoutNickname() {
+        for profile in [nil, BlindProfileResponse(name: nil), BlindProfileResponse(name: "  ")] {
+            let appState = makeAppState()
+            if let profile { appState.updateBlindProfile(profile) }
+            XCTAssertFalse(appState.isBlindBookingReady, "前提：没有紧急联系人时不能约")
 
-        appState.updateBlindProfile(BlindProfileResponse(name: "  "))
-        XCTAssertFalse(appState.isBlindBasicProfileComplete)
-
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
-        XCTAssertTrue(appState.isBlindBasicProfileComplete)
-        XCTAssertEqual(appState.emergencyContactCount, 0)
+            appState.updateEmergencyContacts([contact(1, primary: true)])
+            XCTAssertTrue(appState.isBlindBookingReady, "昵称 \(String(describing: profile?.name)) 不应阻塞约跑")
+        }
     }
 
     /// 后端还会照旧下发 `verifyStatus`，不管它是什么值都不能再挡下单。
@@ -62,19 +62,16 @@ final class BlindReadinessAppStateTests: XCTestCase {
     /// 若实现把后两种塌成同一句，或「齐了」仍出一行，这里会红。
     func testMissingSetupCardListsOnlyWhatIsStillMissing() {
         let appState = makeAppState()
+        // 全程不填昵称：卡片只管紧急联系人（#789）。
         var card = BlindBookingMissingSetupCard(appState: appState)
-        XCTAssertTrue(card.needsNickname)
         XCTAssertEqual(card.emergencyContactsValue, "未添加")
 
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
         appState.updateEmergencyContacts([contact(1, primary: false)])
         card = BlindBookingMissingSetupCard(appState: appState)
-        XCTAssertFalse(card.needsNickname)
         XCTAssertEqual(card.emergencyContactsValue, "未设主联系人")
 
         appState.updateEmergencyContacts([contact(1, primary: true)])
         card = BlindBookingMissingSetupCard(appState: appState)
-        XCTAssertFalse(card.needsNickname)
         XCTAssertNil(card.emergencyContactsValue, "齐了就不再列这一行")
         XCTAssertTrue(appState.isBlindBookingReady)
     }

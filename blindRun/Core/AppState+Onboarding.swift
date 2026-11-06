@@ -9,13 +9,7 @@ extension AppState {
         accessToken != nil
     }
 
-    // MARK: 盲人完成度（拆成互相独立、可单独测试的判断）
-
-    /// 基础资料：目前只要求昵称非空。与紧急联系人无关。
-    var isBlindBasicProfileComplete: Bool {
-        guard let name = blindProfile?.name else { return false }
-        return !name.trimmed.isEmpty
-    }
+    // MARK: 盲人完成度
 
     var emergencyContactCount: Int {
         emergencyContacts.count
@@ -35,10 +29,11 @@ extension AppState {
         emergencyContactCount >= EmergencyContactRules.minCount && hasExactlyOnePrimaryEmergencyContact
     }
 
-    /// 下单硬门槛：基础资料 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。
-    /// 2026-11-05 起不再要求实名（#767，后端 blind-run-backend#924 同时去掉 403 `IDENTITY_NOT_VERIFIED`）。
+    /// 下单硬门槛：至少 1 个紧急联系人 + 恰好 1 个主联系人。
+    /// 2026-11-05 起不再要求实名（#767，后端 blind-run-backend#924 同时去掉 403 `IDENTITY_NOT_VERIFIED`）；
+    /// 2026-11-06 起不再要求昵称（#789，审核指南 5.1.1(x)）。
     var isBlindBookingReady: Bool {
-        isBlindBasicProfileComplete && hasValidEmergencyContacts
+        hasValidEmergencyContacts
     }
 
     /// 首次引导看完（按了「知道了」）。**只有这一个写入点** ——

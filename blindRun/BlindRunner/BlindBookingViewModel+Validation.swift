@@ -77,7 +77,6 @@ extension BlindBookingViewModel {
     /// 下单前第一个未通过的门槛；nil 表示全部通过。
     var firstMissingGate: BlindBookingGate? {
         BlindBookingGate.firstMissing(
-            isBasicProfileComplete: appState?.isBlindBasicProfileComplete ?? true,
             hasValidEmergencyContacts: appState?.hasValidEmergencyContacts ?? true,
             hasStartPoint: resolvedStartPlace != nil,
             isAppointmentTimeValid: isAppointmentTimeValid

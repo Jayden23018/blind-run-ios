@@ -137,7 +137,8 @@ struct BookingReviewItem: Identifiable, Equatable {
 ///
 /// 服务端门槛的唯一真源是 `OrderCreationService.createOrder`：无紧急联系人 → 403 `EMERGENCY_CONTACT_REQUIRED`。
 /// 2026-11-05 起不再校验实名（#767，后端 blind-run-backend#924）。
-/// `basicProfile` 是客户端自有的前置项（后端不校验 `BlindProfile.name`），保持在最前。
+/// 2026-11-06 起昵称不再是门槛（#789）：App Store 审核指南 5.1.1(x) 要求姓名类信息可选、
+/// 功能不以它为条件。没昵称时求助短信与陪跑员端的称呼由后端兜底（blind-run-backend#929）。
 ///
 /// ⚠️ **定位权限被拒不在这里，这是刻意的。** 2026-08-18 之前它是第四道门槛，拒绝定位后
 /// 整个出发地点区块被权限提示顶掉（搜索框、常用地点、语音输入全不渲染），`canSubmit` 恒 false ——
@@ -150,28 +151,25 @@ struct BookingReviewItem: Identifiable, Equatable {
 /// 所以改成**可听可见的降级告知**而不是拦截 —— `BlindBookingViewModel.locationDegradationNotice(isDenied:)`。
 /// 志愿者侧的「无定位不接单」没有动：那一侧的实时位置是服务本体，不是可替代的输入。
 enum BlindBookingGate: Equatable {
-    case basicProfile
     case emergencyContacts
     case startPoint
     case appointmentTime
 
     static func firstMissing(
-        isBasicProfileComplete: Bool,
         hasValidEmergencyContacts: Bool,
         hasStartPoint: Bool,
         isAppointmentTimeValid: Bool
     ) -> BlindBookingGate? {
-        if !isBasicProfileComplete { return .basicProfile }
         if !hasValidEmergencyContacts { return .emergencyContacts }
         if !hasStartPoint { return .startPoint }
         if !isAppointmentTimeValid { return .appointmentTime }
         return nil
     }
 
-    /// 要去别的页面补的两项（昵称 / 紧急联系人）。约跑页顶部的 `BlindBookingMissingSetupCard` 就是补它们的入口。
-    static let setupGates: [BlindBookingGate] = [.basicProfile, .emergencyContacts]
+    /// 要去别的页面补的项（现在只有紧急联系人）。约跑页顶部的 `BlindBookingMissingSetupCard` 就是补它的入口。
+    static let setupGates: [BlindBookingGate] = [.emergencyContacts]
 
-    /// 这句话是不是上面两项之一的缺失说明。补齐回来时据它撤掉留在屏幕上的旧句子。
+    /// 这句话是不是上面某一项的缺失说明。补齐回来时据它撤掉留在屏幕上的旧句子。
     static func isSetupMessage(_ text: String) -> Bool {
         setupGates.contains { $0.message == text }
     }
@@ -179,9 +177,6 @@ enum BlindBookingGate: Equatable {
     /// 展示与朗读共用的缺失说明。
     var message: String {
         switch self {
-        case .basicProfile:
-            // 约跑页最上面就是补这一项的入口（`BlindBookingMissingSetupCard`，#781）。
-            return "约跑前还要填一个昵称。点本页最上面的「昵称」去填。"
         case .emergencyContacts:
             return "约跑前还要设好紧急联系人：至少 1 位，并设其中 1 位为主联系人。点本页最上面的「紧急联系人」去设。"
         case .startPoint:

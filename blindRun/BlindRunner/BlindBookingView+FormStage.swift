@@ -15,7 +15,7 @@ extension BlindBookingView {
                     .accessibilityLabel(fallbackMessage)
             }
 
-            // 缺昵称或紧急联系人时在这里补（#781）。都齐了它不渲染任何东西。
+            // 缺紧急联系人时在这里补（#781；昵称 #789 起不再要求）。都齐了它不渲染任何东西。
             BlindBookingMissingSetupCard(appState: appState)
 
             zeroInputBookingSection
