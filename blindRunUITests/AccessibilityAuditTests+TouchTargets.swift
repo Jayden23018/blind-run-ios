@@ -108,35 +108,6 @@ extension AccessibilityAuditTests {
         try audit(app)
     }
 
-    /// 下单表单第 3 步（需求）的三个选择器：原来菜单 Picker 约 34pt、分段控件约 32pt。
-    @MainActor
-    func testBookingPreferencePickersAreTallEnoughAndPassAudit() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
-        let app = launchBlindHome()
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
-        XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
-        let stopVoice = app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch
-        if stopVoice.exists { stopVoice.tap() }
-
-        // 改用表单后落在最后一步「确认」，退一步就是「需求」。
-        let pace = app.buttons["配速偏好，选填"].firstMatch
-        let previous = app.buttons["上一步"].firstMatch
-        var backs = 0
-        while !pace.waitForExistence(timeout: 3) && previous.exists && backs < 3 {
-            previous.tap()
-            backs += 1
-        }
-        for label in ["预计时长，选填", "配速偏好，选填", "路线偏好，选填"] {
-            let picker = app.buttons[label].firstMatch
-            XCTAssertTrue(swipeUntilHittable(picker, in: app), "第 3 步没有「\(label)」（按了 \(backs) 次上一步）")
-            assertBlindTouchTarget(picker, name: label)
-        }
-        attachScreenshot(app, name: "booking-preference-pickers")
-        try audit(app)
-    }
-
     // MARK: - 辅助
 
     /// 首页 →「我的」→ 头像卡（账户页，#711）→ 个人资料。

@@ -190,8 +190,8 @@ final class FavoritePlaceStore: ObservableObject {
 
     /// 会话结束时清空。由 `AppState.performLocalSessionCleanup` 调用。
     ///
-    /// 做成 static 而不是实例方法：这个 store 是 `BlindBookingView` 的 `@StateObject`
-    /// （`BlindBookingView.swift:889`），`AppState` 手里没有它的引用，而登出时那个页面早已销毁。
+    /// 做成 static 而不是实例方法：这个 store 由页面各自持有（当初是旧下单页 `BlindBookingView` 的 `@StateObject`，
+    /// 该页 #810 已删），`AppState` 手里没有它的引用，而登出时那个页面早已销毁。
     /// 顺带把历史存量那把明文 key 也删掉 —— 只搬家不删除等于把明文副本永远留在设备上。
     static func clearPersistedPlaces(
         directory: URL = FavoritePlaceStore.defaultDirectory,

@@ -55,37 +55,6 @@ extension AccessibilityAuditTests {
         }
     }
 
-    /// 下单页「精确位置关闭」那两枚按钮在暗色下的审计。它们原来是 `.borderedProminent`，
-    /// 下单页在标签页里，暗色档 tint 是纯白 ⇒ 白底白字。
-    @MainActor
-    func testBookingLocationButtonsPassAccessibilityAuditInDarkMode() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
-        let app = launchBlindHome(extraEnvironment: [
-            "AIDRUN_UI_TEST_PRECISE_LOCATION_OFF": "1",
-            "AIDRUN_UI_TEST_COLOR_SCHEME": "dark",
-        ])
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
-        XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
-        let stopVoice = app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch
-        if stopVoice.exists { stopVoice.tap() }
-
-        // 改用表单后落在最后一步，出发地点区块在第 1 步（同 `testBookingWithPreciseLocationOff…`）。
-        let notice = app.descendants(matching: .any)["bookingLocationDegradationNotice"].firstMatch
-        let previous = app.buttons["上一步"].firstMatch
-        var backs = 0
-        while !notice.waitForExistence(timeout: 3) && previous.exists && backs < 4 {
-            previous.tap()
-            backs += 1
-        }
-        let temporary = app.buttons["bookingRequestTemporaryPreciseLocationButton"].firstMatch
-        XCTAssertTrue(temporary.waitForExistence(timeout: 10), "暗色下缺少「临时开启精确位置」")
-        scrollIntoView(temporary, in: app)
-        attachScreenshot(app, name: "booking-precise-location-off-dark")
-        try audit(app)
-    }
-
     // MARK: - 辅助
 
     @MainActor

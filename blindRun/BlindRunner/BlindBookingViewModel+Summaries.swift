@@ -2,7 +2,9 @@ import CoreLocation
 import Foundation
 
 extension BlindBookingViewModel {
-    /// 定位权限被拒时的降级告知。**不是门槛，不进 `blockingReasonForCurrentStep`** ——
+    // 下面几句定位告知原由旧四步表单显示。表单界面已删（#810），规格仍要求约跑页显示，约跑页还没接上（#813）。
+
+    /// 定位权限被拒时的降级告知。**不是门槛** ——
     /// 它不阻止任何一步推进，理由见 `BlindBookingGate` 的注释。
     ///
     /// 两句话都必须留着：第一句说「还能怎么下单」（否则用户不知道有手动搜索这条路），
@@ -48,36 +50,6 @@ extension BlindBookingViewModel {
     static let locationDeniedNotice =
         "定位权限未开启，无法自动获取当前位置。可以直接搜索地点作为出发地点，预约照常提交。"
         + "但陪跑过程中陪跑员看不到你的实时位置，紧急求助也可能因为拿不到位置发不出去，建议在系统设置里开启定位。"
-
-    var blockingReasonForCurrentStep: String? {
-        switch currentStep {
-        case .startPoint:
-            if resolvedStartPlace == nil {
-                return "请选择出发地点。"
-            }
-            return nil
-        case .appointmentTime:
-            // 走 `appointmentTimeProblem` 而不是自己拼一句：此前这里手抄了「30 分钟」，
-            // 而 `appointmentTimeHint` 是从常量取的 —— 两句话对同一件事的说法可以各自漂。
-            return appointmentTimeProblem?.message
-        case .runningNeeds:
-            return nil
-        case .review:
-            // 审阅步的按钮禁用状态走 `canSubmit`，它查的是全部六道门槛。这里必须用同一个源，
-            // 否则缺资料 / 紧急联系人时按钮是灰的、`primaryActionHint` 却回落到
-            // 「提交后系统将为你派单」—— 一个按不动的按钮配一句承诺，对看不见屏幕的人
-            // 就是「点了没反应」，而真正的原因一个字都没播。
-            //
-            // 曾经这里手抄了后三道门槛（定位 / 起点 / 时间），顺序与 `firstMissingGate` 一致，
-            // 少的正是要去别的页面才能补的前三道。
-            return firstMissingGate.map(message(for:))
-        }
-    }
-
-    var stepProgressText: String {
-        let total = BlindBookingGuidedStep.allCases.count
-        return "第 \(currentStep.rawValue + 1) 步，共 \(total) 步"
-    }
 
     var appointmentSummary: String {
         let timeText = DateFormatter.aidRunDisplayDateTime.string(from: appointmentTime)
@@ -206,17 +178,6 @@ extension BlindBookingViewModel {
         return pace
     }
 
-    /// 配速选择器里「不另选」那一项的名字。资料有默认值时它的真实含义就是「按资料默认」，
-    /// 写成「无偏好」反而是错的。
-    var paceUnsetOptionTitle: String {
-        guard let profileDefaultPace else { return PacePreference.noPreference.displayName }
-        return "资料里的默认：\(profileDefaultPace.displayName)"
-    }
-
-    func paceOptionTitle(_ option: PacePreference) -> String {
-        option == .noPreference ? paceUnsetOptionTitle : option.displayName
-    }
-
     var optionalReviewItems: [BookingReviewItem] {
         var items: [BookingReviewItem] = []
         if let routeNotes = routeNotes.nilIfBlank {
@@ -258,52 +219,6 @@ extension BlindBookingViewModel {
             return "没有填写选填跑步需求。"
         }
         return items.map { "\($0.title)：\($0.value)" }.joined(separator: "。") + "。"
-    }
-
-    /// 结束时刻紧跟预约时间念，**不进 `optionalNeedsSpeechSummary`** ——
-    /// 它不是一项「选填需求」，是由开始时间和时长推出来的事实。塞进选填那一段，
-    /// 用户会以为它是自己填过的东西。
-    var reviewSummarySpeech: String {
-        let blockingText = blockingReasonForCurrentStep.map { "当前还不能提交，\($0)" } ?? ""
-        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(plannedEndSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
-    }
-
-    /// 零输入下单那一步要复核的整单。
-    ///
-    /// **必须念绝对时刻，不许说「最早可约时间」。** 走到这条路径的用户语音已经坏了，屏幕他也看不见 ——
-    /// 「最早可约时间」是一个他无法验证的相对说法，而下单是会真实派单的不可逆动作。
-    /// 表单路径靠 `reviewSection` 把整单摆在屏幕上满足 WCAG 3.3.4 的「可复核确认」，
-    /// 零输入路径没有那一屏，这句话就是它的等价物 —— 它同时是确认按钮的 `accessibilityLabel`。
-    ///
-    /// 🚨 **结束时刻必须在这里念。** 这条路径上没有任何别的复核面，而走到这里的用户
-    /// 一定没说过时长（他连语音都用不了）⇒ 结束时刻**一定**是系统补的那个。
-    /// 不念它，这个盲人就会在跑到 1 小时 15 分时收到一条他无从解释的「可能失联」提示，
-    /// 而订单会在 2 小时整被自动结束。多念这半句是这条路径上唯一能让他知情的机会。
-    var zeroInputSummary: String {
-        let place = resolvedStartLocationDescription.nilIfBlank ?? "当前位置"
-        let time = DateFormatter.aidRunDisplayDateTime.string(from: appointmentTime)
-        let end = DateFormatter.aidRunDisplayDateTime.string(from: plannedEndDate)
-        let fallback = Self.durationText(forMinutes: AppConstants.Timing.defaultBookingDurationMinutes)
-        return "从\(place)出发，\(time) 开始，按 \(fallback) 计到 \(end) 结束，直接下单"
-    }
-
-    var currentStepSpeechSummary: String {
-        let blockingText = blockingReasonForCurrentStep.map { "当前阻塞：\($0)" } ?? ""
-        switch currentStep {
-        case .startPoint:
-            return "当前步骤：确认出发地点。\(startPointSummary)\(currentStep.nextSpeechAction)\(blockingText)"
-        case .appointmentTime:
-            return "当前步骤：确认预约时间。\(appointmentSummary)\(currentStep.nextSpeechAction)\(blockingText)"
-        case .runningNeeds:
-            return "当前步骤：跑步需求，全部选填。\(optionalNeedsSpeechSummary)\(currentStep.nextSpeechAction)"
-        case .review:
-            return reviewSummarySpeech
-        }
-    }
-
-    var auxiliaryMapAccessibilityLabel: String {
-        let placeText = resolvedStartLocationDescription.nilIfBlank ?? "出发地点待确认"
-        return "辅助地图，\(startPointSourceText)当前出发地点：\(placeText)"
     }
 
     var resolvedStartLocationDescription: String {

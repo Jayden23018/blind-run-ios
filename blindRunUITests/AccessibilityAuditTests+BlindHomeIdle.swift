@@ -74,12 +74,14 @@ extension AccessibilityAuditTests {
         keepScreenshot(app, "idle-default-favorite")
 
         element(app, "blindRunnerHomeStartBookingButton").tap()
-        XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
-        let stopVoice = element(app, "blindBookingStopVoiceButton")
-        if stopVoice.waitForExistence(timeout: 5) { stopVoice.tap() }
+        XCTAssertTrue(waitForBookingScreen(app), "约跑页没起来")
 
-        let place = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "家附近操场")).firstMatch
-        XCTAssertTrue(place.waitForExistence(timeout: 10), "预约页没有带上默认出发地点")
+        // 约跑页（#806）进来默认是「当前位置」，点「常用地点」才用首页设的默认地点。
+        // 按标签找：根视图的 identifier 盖掉了子元素的（#814）。
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "常用地点")).firstMatch.tap()
+        // 断约跑页上那句「家附近操场 · 见面点电话里再定」，不会被首页那行「从家附近操场出发」误判通过。
+        let place = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "家附近操场 · ")).firstMatch
+        XCTAssertTrue(place.waitForExistence(timeout: 10), "约跑页选「常用地点」后没用上首页设的默认地点")
         keepScreenshot(app, "idle-booking-with-default")
     }
 

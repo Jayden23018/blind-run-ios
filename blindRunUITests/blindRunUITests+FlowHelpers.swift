@@ -85,12 +85,8 @@ extension blindRunUITests {
         dismissSystemAlertsIfPresent(app: app, activateWhenNoAlert: false)
     }
 
-    /// 这个用例验的是**下单链路**，不是分步表单的步数。
-    ///
-    /// 2026-08-08 起预约页是语音态 / 表单态二选一，进来落在哪一步由麦克风授权决定：
-    /// 授权成功时向导把表单同步到确认步（能直接提交），被拒时才停在第 1 步。
-    /// 原来写死「第 1 步 → 第 2 步 → 第 3 步 → 提交」的走法在前一种设备上必挂，
-    /// 而挂的原因和下单链路无关。所以改成：先退出语音，然后一路按主操作走到「提交预约」。
+    /// 这个用例验的是**下单链路**：首页入口 → 约跑页（#806，默认选好日期和时段）→ 提交 → 派单中。
+    /// 旧的四步表单与语音预约界面已删（#810）。
     func createBookingAndAssertMatching(_ app: XCUIApplication) {
         // 2026-09-16 起首页的下单入口是浅蓝「预约新的陪跑」块。identifier 与改版前逐字相同，
         // 所以按 identifier 找而不是按中文标签 —— 标签这一轮就改了，而 guard 的
@@ -99,26 +95,10 @@ extension blindRunUITests {
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
         startButton.tap()
 
-        let stopVoice = app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch
-        if stopVoice.waitForExistence(timeout: 8) {
-            stopVoice.tap()
-        }
-
-        let submitButton = app.buttons["提交预约"].firstMatch
-        let nextActionLabels = ["下一步：预约时间", "下一步：跑步需求", "下一步：确认预约"]
-        let deadline = Date().addingTimeInterval(45)
-        while !submitButton.exists, Date() < deadline {
-            guard let next = nextActionLabels
-                .map({ app.buttons[$0].firstMatch })
-                .first(where: { $0.exists && $0.isEnabled })
-            else {
-                _ = submitButton.waitForExistence(timeout: 2)
-                continue
-            }
-            next.tap()
-        }
-
-        XCTAssertTrue(submitButton.waitForExistence(timeout: 10), "Guided booking should reach the submit step")
+        // 按读屏标签前缀找：约跑页根视图挂了 identifier，会盖掉子元素的 identifier
+        // （记忆 accessibility-identifier-overwrites-children）。
+        let submitButton = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "开始找陪跑员")).firstMatch
+        XCTAssertTrue(submitButton.waitForExistence(timeout: 15), "Booking page should show its submit button")
         XCTAssertTrue(waitForElementToBeEnabled(submitButton, timeout: 10), "Submit booking button should be enabled with demo location")
         submitButton.tap()
         dismissSystemAlertsIfPresent(app: app)
