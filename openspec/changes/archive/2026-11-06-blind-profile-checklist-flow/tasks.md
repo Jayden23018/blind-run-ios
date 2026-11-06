@@ -19,4 +19,4 @@
 ## 4. Close
 
 - [x] 4.1 Replace the draft with the final image; set the INDEX row to Current
-- [ ] 4.2 Archive this change
+- [x] 4.2 Archive this change
