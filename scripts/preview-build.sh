@@ -11,6 +11,7 @@
 #     看不见别人还没合的 PR —— 「已删掉的功能又出现」就是这样来的。
 #   做法照 GitHub merge queue：在临时的合成分支上把几个 PR 叠起来，只是检查换成「装到手机上人眼看」。
 #
+# 只合本仓库分支开的 PR；fork 来的 PR 不合（公开仓库，合了等于在本机执行外人的构建脚本）。
 # 它只动自己的预览工作区（默认在主 checkout 旁边的 blind-run-ios-preview/）：
 # 不改 main、不推送、不碰任何会话的分支。合不进去的 PR 跳过并列出冲突文件，退出码仍为 0。
 #
@@ -53,7 +54,7 @@ REQUESTED=()
 for arg in "$@"; do
   case "$arg" in
     --no-pr) WANT_ALL_OPEN=0 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *[!0-9]*|'') die "参数只能是 PR 号或 --no-pr，收到：$arg" ;;
     *) WANT_ALL_OPEN=0; REQUESTED+=("$arg") ;;
   esac
@@ -82,6 +83,8 @@ git checkout -q --detach origin/main
 BASE_SHA="$(git rev-parse --short origin/main)"
 
 # ---------- 2. 选 PR ----------
+# 🔒 只合本仓库分支开的 PR，fork 来的一律跳过。仓库是公开的，任何人都能从 fork 开 PR；
+# 合进来就会在本机执行它的构建阶段脚本，而且带着签名团队。能在本仓库开分支的人都有写权限。
 PRS=()
 if [ "$WANT_ALL_OPEN" = 1 ]; then
   while IFS= read -r n; do [ -n "$n" ] && PRS+=("$n"); done < <(
@@ -96,8 +99,13 @@ fi
 MERGED=()
 SKIPPED=()
 for n in ${PRS[@]+"${PRS[@]}"}; do
+  cross="$(gh pr view "$n" --repo "$REPO_SLUG" --json isCrossRepository -q .isCrossRepository 2>/dev/null || echo unknown)"
+  if [ "$cross" != false ]; then
+    SKIPPED+=("#${n}：不是本仓库分支开的 PR（isCrossRepository=${cross}），不在本机编译外部代码")
+    continue
+  fi
   if ! git fetch -q origin "pull/$n/head" 2>/dev/null; then
-    SKIPPED+=("#$n：取不到（PR 号写错？）")
+    SKIPPED+=("#${n}：取不到（PR 号写错？）")
     continue
   fi
   if git merge -q --no-ff --no-edit -m "preview: 合入 #$n" FETCH_HEAD >/dev/null 2>&1; then
@@ -105,7 +113,7 @@ for n in ${PRS[@]+"${PRS[@]}"}; do
   else
     conflicts="$(git diff --name-only --diff-filter=U | head -n 5 | tr '\n' ' ')"
     git merge --abort 2>/dev/null || true
-    SKIPPED+=("#$n：冲突 ${conflicts:-（未列出文件）}")
+    SKIPPED+=("#${n}：冲突 ${conflicts:-（未列出文件）}")
   fi
 done
 
@@ -150,7 +158,7 @@ else
   DESTINATION="platform=iOS,id=${DEVICE_ID}"
   BUILD_SIGNING=(-allowProvisioningUpdates "DEVELOPMENT_TEAM=$TEAM" ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"})
 fi
-say "编译（日志：$LOG）…"
+say "编译（日志：${LOG}）…"
 set +e
 xcodebuild build -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Debug \
   -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
@@ -159,7 +167,7 @@ rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
   grep -E 'error:|BUILD FAILED' "$LOG" | head -n 15 >&2 || true
-  die "编译失败（xcodebuild 退出码 $rc）。合进去的 PR：${MERGED[*]:-无}。完整日志：$LOG"
+  die "编译失败（xcodebuild 退出码 ${rc}）。合进去的 PR：${MERGED[*]:-无}。完整日志：$LOG"
 fi
 
 APP="$DERIVED/Build/Products/Debug-iphoneos/$SCHEME.app"
@@ -170,7 +178,7 @@ if [ "${AIDRUN_PREVIEW_SKIP_INSTALL:-}" = 1 ]; then
   say "AIDRUN_PREVIEW_SKIP_INSTALL=1：只编译，不装机。"
 else
   BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
-  say "装到设备 $DEVICE_ID…"
+  say "装到设备 ${DEVICE_ID}…"
   xcrun devicectl device install app --device "$DEVICE_ID" "$APP" >>"$LOG" 2>&1 \
     || die "装机失败（设备没连上或签名问题，按 skill aidrun-device-test 分诊）。日志：$LOG"
   if ! xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing "$BUNDLE_ID" >>"$LOG" 2>&1; then
@@ -186,4 +194,4 @@ else
   say "合进去的 PR：无（只有 main）"
 fi
 for s in ${SKIPPED[@]+"${SKIPPED[@]}"}; do say "⏭ 跳过 $s"; done
-say "包里的标记值：AidRunPreviewPRs=$STAMP（Debug 包顶部显示，规则见 blindRun/Core/DebugBuildStamp.swift）"
+say "包里的标记值：AidRunPreviewPRs=${STAMP}（Debug 包顶部显示，规则见 blindRun/Core/DebugBuildStamp.swift）"
