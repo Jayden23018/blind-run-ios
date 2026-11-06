@@ -273,7 +273,7 @@ struct BlindFavoritePlaceAddRoute: View {
 
     private func useCurrentLocation() {
         guard favoritePlaces.setDefaultPlace(nil) else {
-            speechService.speakError("默认出发地点没有保存成功，请再试一次。")
+            speechService.speakError(BlindStartPlaceCopy.saveFailed)
             return
         }
         speechService.speak(
@@ -315,7 +315,8 @@ struct BlindFavoritePlaceRowLabel: View {
     var showsDefaultBadge = false
 
     var body: some View {
-        HStack(spacing: iconDiameter > 30 ? 14 : 13) {
+        // 稿子 `.ri{margin-right:13px}`（最大字号 14）；添加页沿用改版前的 12，版式不动。
+        HStack(spacing: iconDiameter > 30 ? 14 : (prominent ? 13 : 12)) {
             BlindStartPlaceIconCircle(icon: icon, diameter: iconDiameter)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

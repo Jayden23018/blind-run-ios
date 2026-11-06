@@ -39,6 +39,8 @@ struct BlindFavoritePlaceListPage: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(AppColors.Flow.page)
+        // 容器 identifier 会向下盖掉每行的 identifier，先 `.contain`（记忆 accessibility-identifier-overwrites-children）。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindFavoritePlaceList")
         .navigationTitle(BlindStartPlaceCopy.listTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -61,6 +63,16 @@ struct BlindFavoritePlaceListPage: View {
             )
         }
         .buttonStyle(.plain)
+        // 读屏合并只做在按钮这一层；左滑删除挂在外层的行上，读屏才能把它当「删除」操作带出来。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            ([place.title, address] + [isDefault ? BlindStartPlaceCopy.defaultSpoken : nil])
+                .compactMap { $0 }
+                .joined(separator: "，")
+        )
+        .accessibilityHint(isDefault ? "" : BlindStartPlaceCopy.setDefaultHint)
+        .accessibilityAddTraits(isDefault ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("blindFavoritePlaceListRow_\(index)")
         .listRowInsets(EdgeInsets())
         .listRowBackground(AppColors.Flow.surface)
         // 分隔线照苹果从图标左缘画起，不是从文字起点。
@@ -71,15 +83,6 @@ struct BlindFavoritePlaceListPage: View {
             }
             .tint(Color(uiColor: UIColor(rgb: 0xC4281C)))
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            ([place.title, address] + [isDefault ? BlindStartPlaceCopy.defaultSpoken : nil])
-                .compactMap { $0 }
-                .joined(separator: "，")
-        )
-        .accessibilityHint(isDefault ? "" : BlindStartPlaceCopy.setDefaultHint)
-        .accessibilityAddTraits(isDefault ? [.isButton, .isSelected] : .isButton)
-        .accessibilityIdentifier("blindFavoritePlaceListRow_\(index)")
     }
 }
 

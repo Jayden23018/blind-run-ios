@@ -2,6 +2,7 @@ import XCTest
 @testable import blindRun
 
 /// 「默认出发地点」资料库（#817）：收藏图标按地名自动配、距离副标题的写法。
+@MainActor
 final class BlindStartPlaceLibraryTests: XCTestCase {
 
     // MARK: - 图标按地名配
