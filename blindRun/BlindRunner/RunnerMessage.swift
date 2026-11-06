@@ -23,6 +23,8 @@ struct RunnerMessageSheet: View {
     let onSave: @MainActor (String) async -> String?
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var speechInputService: SpeechInputService
+    @EnvironmentObject private var speechService: SpeechService
     @State private var text: String
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -54,6 +56,15 @@ struct RunnerMessageSheet: View {
                         .accessibilityLabel("给陪跑员的留言")
                         .accessibilityHint("最多 \(RunnerMessageRequest.maxLength) 个字")
                         .accessibilityIdentifier("runnerMessageTextField")
+
+                    VoiceDictationButton(
+                        fieldTitle: "给陪跑员的留言",
+                        text: $text,
+                        speechInputService: speechInputService,
+                        speechService: speechService,
+                        speechField: .runnerMessage
+                    )
+                    .disabled(isSaving)
 
                     Text("\(length)/\(RunnerMessageRequest.maxLength)")
                         .font(AppFonts.caption())
@@ -100,6 +111,7 @@ struct RunnerMessageSheet: View {
     }
 
     private func save(_ value: String) {
+        VoiceDictationButton.stopRecording(.runnerMessage, on: speechInputService)
         isSaving = true
         errorMessage = nil
         Task {

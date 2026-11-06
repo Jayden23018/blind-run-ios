@@ -152,10 +152,53 @@ final class VoiceAndSpeechInputTests: XCTestCase, BlindRunTestSupport {
         XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.remark.rawValue))
         XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.ratingFeedback.rawValue))
         XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.volunteerServiceSummary.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.runnerMessage.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.userReportDetail.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.supportTicketContent.rawValue))
 
         XCTAssertFalse(SpeechInputField.isAllowlisted("appointmentTime"))
         XCTAssertFalse(SpeechInputField.isAllowlisted("estimatedDistance"))
         XCTAssertFalse(SpeechInputField.isAllowlisted("pacePreference"))
+    }
+
+    /// #795：语音结果接在开录前已有的字后面。整框替换（`VoiceTextField` 的做法）会让这条红。
+    func testDictationAppendsToTextTypedBeforeRecording() {
+        XCTAssertEqual(VoiceDictationButton.merged(base: "", recognized: "我穿红色外套"), "我穿红色外套")
+        XCTAssertEqual(VoiceDictationButton.merged(base: "东门见", recognized: "我穿红色外套"), "东门见我穿红色外套")
+        XCTAssertEqual(VoiceDictationButton.merged(base: "东门见", recognized: ""), "东门见", "没识别到字时原文不能丢")
+    }
+
+    /// #795 审查 A1：录音中用户自己改了字，下一版识别结果不许写回（否则整框冲掉他刚改的）。
+    func testDictationStopsWritingOnceTheUserEditsDuringRecording() {
+        XCTAssertEqual(
+            VoiceDictationButton.nextText(current: "东门见我穿", lastWritten: "东门见我穿", base: "东门见", recognized: "我穿红色外套"),
+            "东门见我穿红色外套"
+        )
+        XCTAssertNil(
+            VoiceDictationButton.nextText(current: "西门见我穿", lastWritten: "东门见我穿", base: "东门见", recognized: "我穿红色外套"),
+            "框里的字已经不是上次写进去的那版"
+        )
+        XCTAssertNil(
+            VoiceDictationButton.nextText(current: "", lastWritten: "东门见我穿", base: "东门见", recognized: "我穿红色外套"),
+            "用户清空了框也算改过"
+        )
+    }
+
+    /// #795：识别成功才念「已填入」；失败或没听到声音时，服务已经念过原因，不能被顶掉。
+    func testDictationReadBackOnlyAfterSuccessfulRecognition() {
+        func completion(_ text: String, _ reason: SpeechInputStopReason) -> SpeechInputCompletion {
+            SpeechInputCompletion(field: .runnerMessage, recognizedText: text, reason: reason)
+        }
+
+        XCTAssertEqual(VoiceDictationButton.readBack(for: completion(" 我穿红色外套 ", .finalResult)), "已填入：我穿红色外套")
+        XCTAssertEqual(VoiceDictationButton.readBack(for: completion("我穿红色外套", .manual)), "已填入：我穿红色外套")
+        XCTAssertEqual(
+            VoiceDictationButton.readBack(for: completion("我穿红色外套", .silenceTimeout(hadDetectedSound: true))),
+            "已填入：我穿红色外套"
+        )
+        XCTAssertNil(VoiceDictationButton.readBack(for: completion("我穿红", .error)), "失败时要留住「语音识别失败」那一句")
+        XCTAssertNil(VoiceDictationButton.readBack(for: completion("", .silenceTimeout(hadDetectedSound: false))))
+        XCTAssertNil(VoiceDictationButton.readBack(for: completion("   ", .finalResult)))
     }
 
     func testSpeechInputRejectsNonAllowlistedFieldAndKeepsKeyboardFallback() {
