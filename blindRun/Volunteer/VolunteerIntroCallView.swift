@@ -437,7 +437,10 @@ struct VolunteerIntroCallView: View {
             VolunteerMeetupPlanFormView(
                 original: introCall.originalArrangement,
                 editing: introCall.meetupPlan,
-                windowEndsAt: introCall.windowEndsAt?.nilIfBlank?.backendTimestamp
+                windowEndsAt: introCall.windowEndsAt?.nilIfBlank?.backendTimestamp,
+                timeFlexible: introCall.timeFlexible == true,
+                preferredStart: introCall.preferredStartTime?.nilIfBlank?.backendTimestamp,
+                flexibleWindowText: RunPlanFormat.flexibleWindow(start: introCall.plannedStartTime, end: introCall.plannedEndTime)
             ) { request, distance in
                 await viewModel.submitPlan(request, distanceFromOriginal: distance)
             }

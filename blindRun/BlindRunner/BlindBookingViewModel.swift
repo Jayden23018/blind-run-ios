@@ -70,6 +70,9 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var searchResultFocusID: String?
     @Published var auxiliaryMapCenter: CLLocationCoordinate2D?
     @Published var auxiliaryMapPlace: ResolvedPlace?
+    /// 约跑「先匹配后商量」（#806）选中的时段。非 `nil` 时下单发时段单：时间取这一段、`timeFlexible = true`，
+    /// 跑步需求一律不发（后端按跑者资料，陪跑员通话后在安排单里改）。
+    @Published var flexibleSlot: BookingFlexibleSlot?
 
     private(set) weak var appState: AppState?
     private(set) weak var locationService: LocationService?
@@ -148,6 +151,27 @@ final class BlindBookingViewModel: ObservableObject {
 
     func makeCreateOrderRequest() -> CreateOrderRequest? {
         guard let startPlace = resolvedStartPlace else { return nil }
+        if let flexibleSlot {
+            let formatter = DateFormatter.aidRunBackendLocalDateTime
+            return CreateOrderRequest(
+                startLatitude: startPlace.latitude,
+                startLongitude: startPlace.longitude,
+                startAddress: resolvedStartLocationDescription,
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
+                plannedStartTime: formatter.string(from: flexibleSlot.start),
+                plannedEndTime: formatter.string(from: flexibleSlot.end),
+                expectedDurationMinutes: nil,
+                pacePreference: nil,
+                routePreference: nil,
+                routeNotes: nil,
+                hasGuideDogThisRun: nil,
+                specialNotes: nil,
+                timeFlexible: true,
+                preferredStartTime: flexibleSlot.preferredStart.map(formatter.string(from:))
+            )
+        }
         let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
         let plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: plannedEndDate)
 

@@ -616,7 +616,11 @@ extension OrderDetailResponse {
     }
 
     var plannedStartForAnnouncement: String? {
-        plannedStart?.nilIfBlank?.displayDateTime
+        // 时段单（#806）：念时段，不念时段起点 —— 念成「6:00」就是替跑者定了一个他没定的准点。
+        if timeFlexible == true, let window = RunPlanFormat.flexibleWindow(start: plannedStart, end: plannedEnd) {
+            return window
+        }
+        return plannedStart?.nilIfBlank?.displayDateTime
     }
 
     /// 陪跑员姓名的**朗读版**：去掉掩码星号。
@@ -681,7 +685,28 @@ extension OrderDetailResponse {
     /// `now` 与 `calendar` 走参数是为了能被单测钉住 —— 跨午夜、跨月、跨年这三个边界
     /// 全都只在特定时刻才走得到，靠真机碰运气验不了。
     func blindRunnerShortStartText(now: Date = Date(), calendar: Calendar = .current) -> String? {
-        RunPlanFormat.shortStart(plannedStart, now: now, calendar: calendar)
+        // 时段单（#806）在陪跑员填准点之前一律显示时段，所有吃这个大字的页面（首页卡、订单页、
+        // 陪跑员端订单）因此同一口径；成单后后端把 `timeFlexible` 置回 false，自然退回准点。
+        if timeFlexible == true,
+           let window = RunPlanFormat.flexibleWindow(start: plannedStart, end: plannedEnd, now: now, calendar: calendar) {
+            return window
+        }
+        return RunPlanFormat.shortStart(plannedStart, now: now, calendar: calendar)
+    }
+
+    /// 时段单（#806）等待匹配时那句说明（模拟图 v4 的 B2）：
+    /// 「明天 6:00–11:00 之间，你想 8:30 左右开始。有人愿意后，会先请你们通个电话，准点电话里定。」
+    var flexibleMatchingDescription: String? {
+        guard timeFlexible == true,
+              let window = RunPlanFormat.flexibleWindow(start: plannedStart, end: plannedEnd) else { return nil }
+        let preferred = preferredStartText.map { "，你想 \($0)开始" } ?? ""
+        return "\(window)\(preferred)。有人愿意后，会先请你们通个电话，准点电话里定。"
+    }
+
+    /// 时段单上跑者想几点左右开始：「8:30 左右」。准点单或没填 ⇒ `nil`。
+    var preferredStartText: String? {
+        guard timeFlexible == true else { return nil }
+        return RunPlanFormat.preferredStart(preferredStartTime)
     }
 
     /// 约定的结束时间。
@@ -957,6 +982,24 @@ enum RunPlanFormat {
             // 已结束或异常的单上，而相对日期会让人以为还有事要做。
             return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
         }
+    }
+
+    /// 时段单（#806）的时间写法：「明天 6:00–11:00 之间」。屏幕与读屏同一句。
+    ///
+    /// 只在 `timeFlexible == true` 时用 —— 准点单用 `shortStart`。结束时间取后端的 `plannedEnd`，
+    /// 不自己拿开始加时长（理由同 `plannedEndForAnnouncement`）。任一端解析不出 ⇒ `nil`，调用方退回 `shortStart`。
+    static func flexibleWindow(
+        start: String?, end: String?, now: Date = Date(), calendar: Calendar = .current
+    ) -> String? {
+        guard let startText = shortStart(start, now: now, calendar: calendar),
+              let endDate = end?.nilIfBlank?.backendTimestamp else { return nil }
+        return "\(startText)–\(DateFormatter.aidRunDisplayClock.string(from: endDate)) 之间"
+    }
+
+    /// 时段单上跑者「想几点左右开始」：「8:30 左右」。没填 ⇒ `nil`，那一行不渲染。
+    static func preferredStart(_ preferred: String?) -> String? {
+        guard let date = preferred?.nilIfBlank?.backendTimestamp else { return nil }
+        return "\(DateFormatter.aidRunDisplayClock.string(from: date)) 左右"
     }
 
     /// 「5 公里」/「800 米」。`nil` = 用户没填 ⇒ **整行不渲染**，不写「未填写」。

@@ -28,6 +28,11 @@ nonisolated struct IntroCallMeetupPlan: Sendable, Equatable {
     let volunteerTopColor: MeetupTopColor?
     /// 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就是 `nil`（「未确认」不是一种颜色）。
     let runnerTopColor: MeetupTopColor?
+    /// 时段单（#806）由陪跑员通话后填的跑步需求。`nil` = 这一版没填 ⇒ 不念。加在末尾、带默认值，
+    /// 不动现有构造点。
+    var pacePreference: PacePreference? = nil
+    var hasGuideDogThisRun: Bool? = nil
+    var specialNotes: String? = nil
 
     static let meetSpotNoteMaxLength = 30
 
@@ -327,11 +332,26 @@ enum IntroCallMeetupCopy {
         if let colors = colorItem(plan: plan) {
             items.append(colors)
         }
+        // 时段单（#806）陪跑员通话后填的跑步需求，顺序固定：配速 → 导盲犬 → 备注。没填的那项不念。
+        if let pace = plan.pacePreference, pace != .unknown, pace != .noPreference {
+            items.append("\(paceItemPrefix)\(pace.displayName)。")
+        }
+        if let dog = plan.hasGuideDogThisRun {
+            items.append("\(guideDogItemPrefix)\(dog ? "带" : "不带")。")
+        }
+        if let notes = plan.specialNotes?.nilIfBlank {
+            items.append("\(notesItemPrefix)\(notes)。")
+        }
         items.append(fixedGreetingLine)
         return IntroCallMeetupPlanSpeech(title: title, items: items)
     }
 
     // MARK: 各项
+
+    /// 跑步需求三句的开头。B3 的行靠这三个前缀认领句子（`BlindMeetupPlanLayout.rows`），所以只写一份。
+    static let paceItemPrefix = "配速："
+    static let guideDogItemPrefix = "导盲犬："
+    static let notesItemPrefix = "备注："
 
     private static func timeItem(
         plan: IntroCallMeetupPlan,
@@ -470,6 +490,10 @@ nonisolated struct IntroCallPlanView: Decodable, Sendable, Equatable {
     var volunteerTopColor: MeetupTopColor?
     var runnerTopColor: MeetupTopColor?
     var submittedAt: String?
+    /// 时段单（#806）的跑步需求。读坏了只是那一项不念，不算 `hasMalformedField`（与颜色同理）。
+    var pacePreference: PacePreference?
+    var hasGuideDogThisRun: Bool?
+    var specialNotes: String?
     /// 解码时有字段**在、但形状不对**（或 `plan` 本身不是对象）。这种单不许念：
     /// 时间、地点的 `nil` 表示「按原约」，把一个读坏的字段落成 `nil` 就是把改期念成没改。
     /// 颜色与 `submittedAt` 不算 —— 前者是开放枚举，读坏了只是那一句不念；后者不进朗读和确认。
@@ -502,6 +526,7 @@ nonisolated struct IntroCallPlanView: Decodable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case version, plannedStartTime, plannedEndTime, startAddress, startLatitude, startLongitude
         case meetSpotNote, volunteerTopColor, runnerTopColor, submittedAt
+        case pacePreference, hasGuideDogThisRun, specialNotes
     }
 
     /// 永不抛错：`plan` 连对象都不是时也只是得到一张「读不懂」的单 —— 外层 `IntroCallView`
@@ -531,6 +556,9 @@ nonisolated struct IntroCallPlanView: Decodable, Sendable, Equatable {
         submittedAt = (try? c.decodeIfPresent(String.self, forKey: .submittedAt)) ?? nil
         volunteerTopColor = (try? c.decodeIfPresent(MeetupTopColor.self, forKey: .volunteerTopColor)) ?? nil
         runnerTopColor = (try? c.decodeIfPresent(MeetupTopColor.self, forKey: .runnerTopColor)) ?? nil
+        pacePreference = (try? c.decodeIfPresent(PacePreference.self, forKey: .pacePreference)) ?? nil
+        hasGuideDogThisRun = (try? c.decodeIfPresent(Bool.self, forKey: .hasGuideDogThisRun)) ?? nil
+        specialNotes = (try? c.decodeIfPresent(String.self, forKey: .specialNotes)) ?? nil
         hasMalformedField = malformed
     }
 
@@ -558,7 +586,10 @@ nonisolated struct IntroCallPlanView: Decodable, Sendable, Equatable {
             startLongitude: startLongitude,
             meetSpotNote: meetSpotNote?.nilIfBlank,
             volunteerTopColor: volunteerTopColor,
-            runnerTopColor: runnerTopColor
+            runnerTopColor: runnerTopColor,
+            pacePreference: pacePreference == .unknown || pacePreference == .noPreference ? nil : pacePreference,
+            hasGuideDogThisRun: hasGuideDogThisRun,
+            specialNotes: specialNotes?.nilIfBlank
         )
     }
 
@@ -618,6 +649,10 @@ nonisolated struct IntroCallPlanRequest: Encodable, Sendable, Equatable {
     let meetSpotNote: String?
     let volunteerTopColor: MeetupTopColor?
     let runnerTopColor: MeetupTopColor?
+    /// 时段单（#806）陪跑员通话后填的跑步需求。`nil` = 不改（后端按订单原值）。
+    let pacePreference: PacePreference?
+    let hasGuideDogThisRun: Bool?
+    let specialNotes: String?
 
     /// - Parameter plannedEnd: 只改开始时间时传 `nil`，后端按原时长平移结束时间。
     /// - Parameter meetSpotNote: 去首尾空白，空串按没填。**不在这里截断** —— 超长由界面挡、后端兜，
@@ -628,7 +663,10 @@ nonisolated struct IntroCallPlanRequest: Encodable, Sendable, Equatable {
         place: Place? = nil,
         meetSpotNote: String? = nil,
         volunteerTopColor: MeetupTopColor? = nil,
-        runnerTopColor: MeetupTopColor? = nil
+        runnerTopColor: MeetupTopColor? = nil,
+        pacePreference: PacePreference? = nil,
+        hasGuideDogThisRun: Bool? = nil,
+        specialNotes: String? = nil
     ) {
         let formatter = DateFormatter.aidRunBackendLocalDateTime
         plannedStartTime = plannedStart.map(formatter.string(from:))
@@ -639,11 +677,15 @@ nonisolated struct IntroCallPlanRequest: Encodable, Sendable, Equatable {
         self.meetSpotNote = meetSpotNote?.nilIfBlank
         self.volunteerTopColor = volunteerTopColor == .unknown ? nil : volunteerTopColor
         self.runnerTopColor = runnerTopColor == .unknown ? nil : runnerTopColor
+        self.pacePreference = pacePreference == .unknown || pacePreference == .noPreference ? nil : pacePreference
+        self.hasGuideDogThisRun = hasGuideDogThisRun
+        self.specialNotes = specialNotes?.nilIfBlank
     }
 
     private enum CodingKeys: String, CodingKey {
         case plannedStartTime, plannedEndTime, startAddress, startLatitude, startLongitude
         case meetSpotNote, volunteerTopColor, runnerTopColor
+        case pacePreference, hasGuideDogThisRun, specialNotes
     }
 
     func encode(to encoder: Encoder) throws {
@@ -656,6 +698,9 @@ nonisolated struct IntroCallPlanRequest: Encodable, Sendable, Equatable {
         try c.encodeIfPresent(meetSpotNote, forKey: .meetSpotNote)
         try c.encodeIfPresent(volunteerTopColor, forKey: .volunteerTopColor)
         try c.encodeIfPresent(runnerTopColor, forKey: .runnerTopColor)
+        try c.encodeIfPresent(pacePreference, forKey: .pacePreference)
+        try c.encodeIfPresent(hasGuideDogThisRun, forKey: .hasGuideDogThisRun)
+        try c.encodeIfPresent(specialNotes, forKey: .specialNotes)
     }
 }
 

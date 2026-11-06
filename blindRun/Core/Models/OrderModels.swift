@@ -553,6 +553,12 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// 解码宽容：它只决定一个入口出不出现，类型不对不连累整张订单。
     @LenientOptionalInt64 var counterpartUserId: Int64? = nil
 
+    /// 时段单（#806，后端 #932）：`true` 时 `plannedStart`–`plannedEnd` 是盲人选的**时段**，不是准点；
+    /// 准点由陪跑员通话后在见面安排单里填，成单后后端置回 `false`。缺键 / 类型不对一律当 `false`。
+    @LenientOptionalBool var timeFlexible: Bool? = nil
+    /// 时段单上盲人可选填的「想几点左右开始」。只作展示，不是约定时间。
+    @LenientOptionalString var preferredStartTime: String? = nil
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -668,6 +674,29 @@ extension KeyedDecodingContainer {
 
     nonisolated func decode(_ type: LenientOptionalInt64.Type, forKey key: Key) throws -> LenientOptionalInt64 {
         try decodeIfPresent(type, forKey: key) ?? LenientOptionalInt64(wrappedValue: nil)
+    }
+
+    nonisolated func decode(_ type: LenientOptionalBool.Type, forKey key: Key) throws -> LenientOptionalBool {
+        try decodeIfPresent(type, forKey: key) ?? LenientOptionalBool(wrappedValue: nil)
+    }
+}
+
+/// 可空布尔的宽容解码，规则同 `LenientOptionalString`。
+@propertyWrapper
+nonisolated struct LenientOptionalBool: Codable, Sendable, Equatable {
+    var wrappedValue: Bool?
+
+    init(wrappedValue: Bool?) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        wrappedValue = try? decoder.singleValueContainer().decode(Bool.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
     }
 }
 
@@ -992,6 +1021,10 @@ struct CreateOrderRequest: Codable, Sendable {
     let routeNotes: String?
     let hasGuideDogThisRun: Bool?
     let specialNotes: String?
+    /// 时段单（#806）：`true` = 上面两个时间是盲人选的时段，准点电话里定。`nil` 不发这个键。
+    var timeFlexible: Bool? = nil
+    /// 时段内「想几点左右开始」，可不填。只在 `timeFlexible == true` 时发。
+    var preferredStartTime: String? = nil
 }
 
 struct OrderResponse: Codable, Sendable {

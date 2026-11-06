@@ -98,6 +98,12 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     /// 接单前能给看（`AGENTS.md` §8 的判据）：掩码后只剩一个姓，不是跑者写的自由文本；契约也明说它发给所有候选人。
     /// 别直接上屏或朗读，走 `runnerName`。
     var blindName: String?
+    /// 时段单（#806，后端 #932）：`true` 时 `plannedStart`–`plannedEnd` 是时段，准点通话后定。
+    /// 缺键当 `false`，邀请照常显示，只是按准点写。
+    /// 不用 `LenientOptional*` 包装：本类型是 `nonisolated struct`，属性包装在 Swift 6 下不许标 `nonisolated`。
+    var timeFlexible: Bool?
+    /// 跑者想几点左右开始，可缺。
+    var preferredStartTime: String?
 
     /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
     ///

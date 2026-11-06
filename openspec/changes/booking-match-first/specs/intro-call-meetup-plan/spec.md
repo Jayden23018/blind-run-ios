@@ -10,4 +10,4 @@ On a time-flexible order, the volunteer's meetup plan SHALL require an exact sta
 #### Scenario: Runner hears the needs before confirming
 - **WHEN** the runner reviews a plan that carries pace, guide dog or notes
 - **THEN** those items SHALL be read in the fixed plan order after the meeting details
-- **AND** an item the volunteer changed SHALL be announced together with its previous value
+- **AND** when the original value is available, an item the volunteer changed SHALL be announced together with its previous value

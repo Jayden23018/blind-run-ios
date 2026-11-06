@@ -525,6 +525,8 @@ struct BlindOrderFlowPresentation: Equatable {
         if order.status == .driverArrived {
             description = startRunOpensAt(order: order, now: now).map(BlindRunCopy.metUpLockedSubtitle(opensAt:))
                 ?? BlindRunCopy.metUpSubtitle
+        } else if order.status == .pendingMatch, let window = order.flexibleMatchingDescription {
+            description = window  // 时段单（#806）：说清时段、想几点，以及下一步是先通电话
         } else {
             description = order.blindRunnerFlowDescription  // 约好时多一句带绳提醒（#660 V-8）
         }
