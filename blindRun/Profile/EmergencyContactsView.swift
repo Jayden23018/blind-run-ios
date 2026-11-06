@@ -306,7 +306,7 @@ final class EmergencyContactsViewModel: ObservableObject {
 /// （资料页、设置页、引导流都在 `NavigationStack` 内）。
 ///
 /// 版式照苹果「健康 › 医疗急救卡」的紧急联系人（#746）：概览一组、联系人一组、添加一组。
-/// 添加的主路径是「从通讯录添加」—— 点了直接弹系统通讯录，选完进预填好的表单，只剩选关系、保存
+/// 添加的主路径是「从通讯录添加」—— 点了直接弹系统通讯录，选完进一页确认，按「添加」就存好（#807）
 /// （苹果官方步骤：点「添加紧急联系人」→ 选一位联系人 → 选关系，support.apple.com/105072）。
 struct EmergencyContactsView: View {
     @EnvironmentObject private var appState: AppState
@@ -399,16 +399,10 @@ struct EmergencyContactsView: View {
             speechService.speak("紧急联系人管理。\(viewModel.listSummary)")
             await viewModel.load()
         }
-        .sheet(item: $editingTarget) { target in
-            NavigationStack {
-                EmergencyContactFormView(
-                    viewModel: viewModel,
-                    contact: target.contact,
-                    initialPick: target.pick
-                ) {
-                    editingTarget = nil
-                }
-            }
+        // 新增、编辑都推进一页，不再弹出层（#807）：返回就是取消，页内不必再找「取消」。
+        // iOS 16 没有 `navigationDestination(item:)`，用 isPresented 包一层。
+        .navigationDestination(isPresented: editingBinding) {
+            editingDestination
         }
         .alert("紧急联系人提示", isPresented: failureAlertBinding) {
             Button("知道了", role: .cancel) {}
@@ -440,7 +434,8 @@ struct EmergencyContactsView: View {
         .accessibilityIdentifier("emergencyContactAddFromContacts")
         .background(
             ContactPhonePicker(isPresented: $showContactPicker) { pick in
-                editingTarget = .picked(pick)
+                // 能直接添加的进确认页（一次确认就存好，#807）；号码不是手机号、没有名字的进手动表单，值已填好。
+                editingTarget = EmergencyContactAddConfirmPage.canConfirm(pick) ? .confirm(pick) : .picked(pick)
             }
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
@@ -458,7 +453,7 @@ struct EmergencyContactsView: View {
         }
         .disabled(!canStartAdding)
         .accessibilityLabel("手动输入新增紧急联系人")
-        .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名、手机号和关系后保存")
+        .accessibilityHint(viewModel.addBlockedReason ?? "填写姓名和手机号后添加")
         .accessibilityIdentifier("emergencyContactAddManually")
     }
 
@@ -480,11 +475,40 @@ struct EmergencyContactsView: View {
 
     private var canStartAdding: Bool { viewModel.canAddContact && !viewModel.isMutating }
 
-    /// 表单以 sheet 呈现时不弹：被 sheet 盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
-    /// 而表单自己就把同一条 message 显示在它那张三段式短表里，不会被挤出屏幕。
+    /// 按返回退出新增 / 编辑页时，页内显示过的失败一并清掉，免得回到列表又弹一次。
+    private var editingBinding: Binding<Bool> {
+        Binding(
+            get: { editingTarget != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                editingTarget = nil
+                viewModel.isShowingFailure = false
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var editingDestination: some View {
+        if case .confirm(let pick) = editingTarget {
+            EmergencyContactAddConfirmPage(viewModel: viewModel, pick: pick) { added in
+                if added { editingTarget = nil }
+            }
+        } else if let target = editingTarget {
+            EmergencyContactFormView(
+                viewModel: viewModel,
+                contact: target.contact,
+                initialPick: target.pick
+            ) {
+                editingTarget = nil
+            }
+        }
+    }
+
+    /// 新增 / 编辑页开着时不弹：被推进的页盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
+    /// 而那一页自己就把同一条 message 显示在页内，不会被挤出屏幕。
     ///
     /// 保存成功的回调不清 message：那条路径没有失败可清，白写一次 `@Published`。
-    /// 用户按「取消」时由表单自己清，失败已经显示在表单里了。
+    /// 用户按返回时由 `editingBinding` 清，失败已经显示在那一页里了。
     private var failureAlertBinding: Binding<Bool> {
         Binding(
             get: { editingTarget == nil && viewModel.isShowingFailure },
@@ -510,14 +534,17 @@ struct EmergencyContactsView: View {
 
 enum EmergencyContactEditTarget: Identifiable {
     case new
-    /// 从列表页的「从通讯录添加」选中的人，表单打开时已填好姓名和号码。
+    /// 从列表页的「从通讯录添加」选中、但不能直接添加的人（号码不是手机号、没有名字）：手动表单打开时已填好。
     case picked(ContactPhonePick)
+    /// 从通讯录选中、可以直接添加的人：进 `EmergencyContactAddConfirmPage`（#807）。
+    case confirm(ContactPhonePick)
     case existing(EmergencyContactResponse)
 
     var id: Int64 {
         switch self {
         case .new: return -1
         case .picked: return -2
+        case .confirm: return -3
         case .existing(let contact): return contact.id
         }
     }

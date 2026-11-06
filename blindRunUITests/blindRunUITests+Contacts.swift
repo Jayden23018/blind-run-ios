@@ -22,13 +22,26 @@ extension blindRunUITests {
         tapWhenHittableOrByCoordinate(phoneField, app: app)
         phoneField.typeText(phone)
 
-        chooseContactRelationship(app, relationship)
-
-        // 「保存」在导航栏，不会被键盘挡住，所以不需要先收键盘。
-        tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)
+        // 新增页只剩姓名、手机号（#807），「添加」贴在底部：先收键盘，免得按钮被键盘挡住。
+        let dismissKeyboard = app.buttons["收起键盘"].firstMatch
+        if dismissKeyboard.exists { dismissKeyboard.tap() }
+        let formAddButton = app.descendants(matching: .any)["emergencyContactFormSave"].firstMatch
+        XCTAssertTrue(formAddButton.waitForExistence(timeout: 5), "新增页底部没有「添加」")
+        tapWhenHittableOrByCoordinate(formAddButton, app: app)
         XCTAssertTrue(
             waitForElementToDisappear(app.navigationBars["新增紧急联系人"], timeout: 15),
-            "保存成功后新增表单应自动关闭"
+            "添加成功后新增页应自动退回列表"
+        )
+
+        // 关系不在新增页（#807），添加后到编辑页补。
+        guard !relationship.isEmpty else { return }
+        openContactEditor(app, named: name)
+        chooseContactRelationship(app, relationship)
+        let save = app.descendants(matching: .any)["emergencyContactFormSave"].firstMatch
+        tapWhenHittableOrByCoordinate(save, app: app)
+        XCTAssertTrue(
+            waitForElementToDisappear(app.navigationBars["编辑紧急联系人"], timeout: 15),
+            "保存成功后编辑页应自动退回列表"
         )
     }
 

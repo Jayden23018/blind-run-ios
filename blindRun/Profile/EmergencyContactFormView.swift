@@ -5,6 +5,10 @@ import SwiftUI
 /// 新增/编辑表单。
 /// 后端返回明文手机号，编辑时直接明文回填——不要再用「掩码值等于未修改」那套推断。
 /// 主联系人开关不在这里：改主联系人只走 set-primary 端点。
+///
+/// #807（负责人 2026-11-06）：「从通讯录选择」和手动输入分开。通讯录选人走 `EmergencyContactAddConfirmPage`，
+/// 这里的新增态只剩姓名、手机号两格；关系与「设为主联系人」都到编辑态再改。
+/// 页面由列表页 push 进来，「保存 / 添加」在底部，返回 = 不保存（工具栏文字按钮过不了审计，也够不到 64pt）。
 struct EmergencyContactFormView: View {
     private enum Field: Hashable {
         case name
@@ -13,7 +17,7 @@ struct EmergencyContactFormView: View {
 
     @ObservedObject var viewModel: EmergencyContactsViewModel
     let contact: EmergencyContactResponse?
-    /// 列表页「从通讯录添加」选中的人（#746）。有值时表单一打开就是填好的。
+    /// 通讯录里选中的人不能直接添加（号码不是手机号、没有名字）时，列表页把他带进来，表单一打开就是填好的。
     var initialPick: ContactPhonePick?
     let onFinish: () -> Void
 
@@ -21,16 +25,14 @@ struct EmergencyContactFormView: View {
     @State private var name = ""
     @State private var phone = ""
     @State private var relationship = ""
-    @State private var makePrimary = false
     @State private var localErrorMessage: String?
-    /// 确认弹窗必须挂在表单上：表单是 sheet，挂在被它盖住的列表页上的 alert 会被 SwiftUI 丢掉。
+    /// 确认弹窗必须挂在表单上，挂在被它盖住的列表页上的 alert 不会出来。
     @State private var showDeleteConfirmation = false
     @State private var showPrimaryConfirmation = false
     /// 这两个动作的按钮在表单最下面，错误文字在它上方，大字号时已滚出屏幕，`Form` 不渲染屏幕外的行。
     /// 所以失败要自己弹出来。
     @State private var showActionFailure = false
-    @State private var showContactPicker = false
-    /// 选择器选完之后那一句，同时上屏和朗读（#657 B-10）。
+    /// 带着通讯录选中的人进来时那一句，同时上屏和朗读（#657 B-10）。
     @State private var pickNotice: String?
     /// 输入框之间的焦点。数字键盘没有回车键，原来填完号码只能自己摸去下一格（#657 B-10）。
     @FocusState private var focusedField: Field?
@@ -52,32 +54,6 @@ struct EmergencyContactFormView: View {
     var body: some View {
         Form {
             Section {
-                // 排在输入框前面：手打 11 位是这张表最容易出错的一步，能选就别打（#657 B-10）。
-                Button {
-                    focusedField = nil
-                    showContactPicker = true
-                } label: {
-                    EmergencyContactActionRowLabel(
-                        title: pickButtonTitle,
-                        systemImage: "person.crop.circle.fill",
-                        tint: AppColors.primary,
-                        isEnabled: !viewModel.isMutating,
-                        font: AppFonts.formRow().weight(.semibold)
-                    )
-                }
-                .emergencyFormRow()
-                .disabled(viewModel.isMutating)
-                .accessibilityLabel(pickButtonTitle)
-                .accessibilityHint("打开系统通讯录选一位联系人，自动填入姓名和手机号。助盲跑只拿到你选的这一位")
-                .accessibilityIdentifier("emergencyContactPickFromContacts")
-                .background(
-                    ContactPhonePicker(isPresented: $showContactPicker) { pick in
-                        applyPick(pick)
-                    }
-                    .frame(width: 0, height: 0)
-                    .accessibilityHidden(true)
-                )
-
                 if let pickNotice {
                     Text(pickNotice)
                         .font(AppFonts.formRow())
@@ -112,30 +88,16 @@ struct EmergencyContactFormView: View {
                         }
                 }
 
-                relationshipRow
+                // 关系只在编辑态出现：新增只填必填的两项（#807）。
+                if isEditing {
+                    relationshipRow
+                }
             } footer: {
                 Text(smsNotice)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(smsNotice)
-            }
-
-            if !isEditing {
-                Section {
-                    Toggle(isOn: $makePrimary) {
-                        Text("设为主联系人").font(AppFonts.formRow())
-                    }
-                        .frame(minHeight: AppTouchTarget.blindPrimary)
-                        .emergencyFormRow()
-                        .disabled(viewModel.contacts.isEmpty)
-                        .accessibilityLabel("设为主联系人")
-                        .accessibilityHint(
-                            viewModel.contacts.isEmpty
-                                ? "第一位紧急联系人必定是主联系人"
-                                : "紧急情况下优先联系这一位"
-                        )
-                }
             }
 
             if let message = localErrorMessage ?? viewModel.errorMessage {
@@ -150,23 +112,12 @@ struct EmergencyContactFormView: View {
                 contactActions(contact)
             }
         }
-        .navigationTitle(isEditing ? "编辑紧急联系人" : "新增紧急联系人")
+        .safeAreaInset(edge: .bottom) { saveBar }
+        .navigationTitle(isEditing ? "编辑紧急联系人" : Self.addTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        // 二级页藏标签栏，底部按钮才贴得到屏幕底（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("取消") {
-                    // 这条失败已经显示在表单里了，再回列表页弹一次只会多挡一层。
-                    viewModel.isShowingFailure = false
-                    onFinish()
-                }
-                    .accessibilityLabel("取消")
-                    .accessibilityHint("放弃本次修改并返回")
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("保存") { save() }
-                    .disabled(viewModel.isMutating)
-                    .accessibilityLabel("保存")
-                    .accessibilityHint(Self.saveHint(isEditing: isEditing, validationMessage: validationMessage))
-            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 if focusedField == .name {
@@ -186,8 +137,6 @@ struct EmergencyContactFormView: View {
                 // 后端 v1.5.0 起返回明文，直接明文回填。
                 phone = contact.phone ?? ""
                 relationship = contact.relationship ?? ""
-            } else {
-                makePrimary = viewModel.contacts.isEmpty
             }
             speakIntro()
         }
@@ -212,6 +161,18 @@ struct EmergencyContactFormView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+    }
+
+    /// 贴底的「添加 / 保存」。底色同 `Form` 的分组底，滚到它后面的行不会被半透明栏压成低对比度。
+    private var saveBar: some View {
+        PrimaryButton(isEditing ? "保存" : EmergencyContactAddConfirmPage.addButtonTitle, isLoading: viewModel.isMutating) {
+            save()
+        }
+        .accessibilityHint(Self.saveHint(isEditing: isEditing, validationMessage: validationMessage))
+        .accessibilityIdentifier("emergencyContactFormSave")
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     /// 设为主联系人成功后表单就关了，改到一半的内容不会存下。
@@ -309,24 +270,16 @@ extension EmergencyContactFormView {
         }
     }
 
-    private var pickButtonTitle: String { initialPick == nil ? "从通讯录选择" : "换一位联系人" }
-
     /// 开场只说一句：两次 speak 时后一句会切断前一句（记忆 later-speak-silently-cuts-the-earlier-one）。
-    /// 列表页直接选人进来时，把「选了谁」并进开场白。
+    /// 通讯录选中的人不能直接添加、被带进这里时，把「选了谁、哪里不对」并进开场白。
     private func speakIntro() {
         guard let initialPick else {
-            speechService.speak(
-                "\(isEditing ? "编辑紧急联系人" : "新增紧急联系人")。可以从通讯录选择，也可以手动输入。姓名和手机号必填，关系选填。\(smsNotice)"
-            )
+            let fields = isEditing ? "姓名和手机号必填，关系选填。" : "填写姓名和手机号。"
+            speechService.speak("\(isEditing ? "编辑紧急联系人" : Self.addTitle)。\(fields)\(smsNotice)")
             return
         }
         let picked = fill(from: initialPick)
-        let intro = "新增紧急联系人。\(picked.notice)关系选填。\(smsNotice)"
-        if picked.isValidPhone {
-            speechService.speak(intro)
-        } else {
-            speechService.speakError(intro)
-        }
+        speechService.speakError("\(Self.addTitle)。\(picked.notice)\(smsNotice)")
     }
 
     /// 把选中的人填进表单，返回要说的那一句。这里不朗读，由调用方决定怎么说。
@@ -337,17 +290,12 @@ extension EmergencyContactFormView {
         phone = picked.phone
         pickNotice = picked.notice
         localErrorMessage = nil
-        if !picked.isValidPhone { focusedField = .phone }
-        return picked
-    }
-
-    private func applyPick(_ pick: ContactPhonePick) {
-        let picked = fill(from: pick)
-        if picked.isValidPhone {
-            speechService.speak(picked.notice)
-        } else {
-            speechService.speakError(picked.notice)
+        if !picked.isValidPhone {
+            focusedField = .phone
+        } else if picked.name == nil {
+            focusedField = .name
         }
+        return picked
     }
 
     /// 校验没过时把焦点放到出问题的那一格，免得读屏用户从头找。
@@ -381,8 +329,9 @@ extension EmergencyContactFormView {
                 success = await viewModel.create(
                     name: name,
                     phone: phone,
-                    relationship: relationship,
-                    makePrimary: makePrimary
+                    relationship: "",
+                    // 不给开关（#807）：第一位自动是主联系人，后面的人到编辑页自己设。
+                    makePrimary: viewModel.contacts.isEmpty
                 )
             }
             if success { onFinish() }

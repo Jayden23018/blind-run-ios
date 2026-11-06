@@ -123,7 +123,8 @@ extension blindRunUITests {
         XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
         blocked.buttons["知道了"].tap()
         XCTAssertTrue(waitForElementToDisappear(blocked, timeout: 8))
-        app.buttons["取消"].firstMatch.tap()
+        // 编辑页是推进的一页（#807），返回 = 不保存。
+        app.navigationBars["编辑紧急联系人"].buttons.element(boundBy: 0).tap()
         XCTAssertTrue(waitForElementToDisappear(app.navigationBars["编辑紧急联系人"], timeout: 8))
 
         addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
