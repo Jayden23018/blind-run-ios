@@ -6,7 +6,7 @@ The project owner walked the blind-runner booking flow on 2026-11-06 and asked f
 
 - The blind-runner home booking action opens one new booking page (mockup v4, `docs/ui/mockups/blind-match-first-20261106/`): start point (current location / favourite place), a horizontal row of the next 7 dates, a morning / afternoon / early-evening slot, an optional exact start time, and one primary action.
 - The order is created as a **time-flexible** order: `plannedStartTime`/`plannedEndTime` carry the slot window, `timeFlexible = true`, and `preferredStartTime` carries the optional exact time. Running needs are not sent; the backend falls back to the profile.
-- **BREAKING (behaviour)**: the four-step booking form and voice booking are no longer reachable from the home screen. Their code is removed in a follow-up change.
+- **BREAKING (behaviour)**: the home booking action no longer opens the four-step form or voice booking. The form is still embedded in the "add favourite place" path (start-place picker) until the follow-up change replaces that path and removes the old form and voice code.
 - Waiting-for-match, volunteer invitation and lock-screen copy show the slot window and the preferred time, and say that the exact time is agreed on the phone.
 - The volunteer meetup plan requires an exact start time on a time-flexible order and adds pace, guide dog and notes. The blind runner hears those three items before confirming.
 - No new order status. Fixed partners also go through the intro call; the client keeps reading `requiresIntroCall` only.

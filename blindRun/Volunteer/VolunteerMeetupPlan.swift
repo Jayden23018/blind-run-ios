@@ -118,8 +118,9 @@ struct VolunteerMeetupPlanDraft: Equatable {
         return (distanceFromOriginal ?? 0) >= 1
     }
 
+    /// 时段单上的准点是陪跑员第一次定，不是「改了原约」，所以不算变更项。
     var changedItems: [ChangedItem] {
-        [timeChanged ? .time : nil, placeChanged ? .place : nil].compactMap { $0 }
+        [timeChanged && !isTimeFlexible ? .time : nil, placeChanged ? .place : nil].compactMap { $0 }
     }
 
     /// 两点都齐才有值。
@@ -134,7 +135,9 @@ struct VolunteerMeetupPlanDraft: Equatable {
     /// 视觉稿 V2：改了东西是「提交跑者确认」+ 下面一行「已变更：开跑时间、集合地点」；
     /// 一项没改是「按原约定提交跑者确认」—— 一个字不改、点一下就能提交是主路径。
     var submitButtonTitle: String {
-        changedItems.isEmpty ? "按原约定提交跑者确认" : "提交跑者确认"
+        // 时段单没有「原约定」可按（模拟图 v4 V2：「提交，请跑者确认」）。
+        if isTimeFlexible { return "提交，请跑者确认" }
+        return changedItems.isEmpty ? "按原约定提交跑者确认" : "提交跑者确认"
     }
 
     var submitButtonCaption: String? {

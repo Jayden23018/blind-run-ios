@@ -97,7 +97,11 @@ struct BookingDateStrip: View {
     private func dayBorder(isAvailable: Bool, isSelected: Bool) -> some View {
         if isSelected {
             Circle().strokeBorder(AppColors.ButtonPalette.primaryFill, lineWidth: 1.5)
-        } else if !isAvailable {
+        } else if isAvailable {
+            // 参考图未选中的圆没有描边，但浅蓝填充压浅灰日期带只有约 1.1:1，低视力看不出能点；
+            // 与胶囊同一条有意偏离（负责人 11-06 定）：灰描边过 3:1。
+            Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, lineWidth: 1)
+        } else {
             Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, style: StrokeStyle(lineWidth: 1, dash: [3]))
         }
     }
@@ -112,6 +116,9 @@ struct BookingChoicePill: View {
     var isEnabled = true
     var fillsWidth = false
     let action: () -> Void
+
+    /// 盲人端可点下限（AGENTS.md §8）。看得见的胶囊照参考图更矮，可点区撑到这个高。
+    private static let minimumHitHeight: CGFloat = 64
 
     var body: some View {
         Button(action: action) {
@@ -129,7 +136,7 @@ struct BookingChoicePill: View {
                         lineWidth: isSelected ? 1.5 : 1
                     )
                 )
-                .frame(minHeight: 64)
+                .frame(minHeight: Self.minimumHitHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
