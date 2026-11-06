@@ -48,16 +48,17 @@ Unselected options on the booking page SHALL have a border of at least 3:1 contr
 - **THEN** every unselected option's border SHALL use the neutral button stroke colour
 
 ### Requirement: The date picker is a real calendar
-The date picker SHALL show the real year and month, page by week from Monday to Sunday, and offer both arrow buttons and a horizontal swipe to change the week. Month buttons SHALL list only months that contain a bookable date, and choosing one SHALL select that month's first bookable date. Dates before today, outside the bookable range, or without a bookable slot SHALL stay in place and SHALL NOT be selectable.
+The date picker SHALL show one horizontally scrollable row of dates from today to the last bookable date, with no week paging. A month label SHALL appear above the first date in the row and above the first day of each later month, and SHALL scroll with the dates. The month of the selected date SHALL be shown in bold. Each date SHALL show its weekday, and today SHALL say 今天. Dates without a bookable slot SHALL stay in place and SHALL NOT be selectable.
 
-#### Scenario: Moving to the next month
-- **WHEN** the bookable range covers two months and the runner chooses the second month
-- **THEN** the first bookable date of that month SHALL be selected and its week SHALL be shown
+#### Scenario: Scrolling into the next month
+- **WHEN** the bookable range covers two months and the runner scrolls to the end of the row
+- **THEN** the second month's label SHALL appear above its first day
+- **AND** selecting a date in that month SHALL make its label bold
 
 #### Scenario: VoiceOver changes the date
-- **WHEN** VoiceOver focuses the week
-- **THEN** the week SHALL be one adjustable element whose value is the selected date
-- **AND** swiping up or down SHALL move to the next or previous bookable date, changing the week when needed
+- **WHEN** VoiceOver focuses the date row
+- **THEN** the row SHALL be one adjustable element whose value is the selected date
+- **AND** swiping up or down SHALL move to the next or previous bookable date and scroll it into view
 
 ### Requirement: Slots follow the backend duty hours
 When `launchScope.dutyHoursRestricted` is true and the duty windows can be read, each slot SHALL be limited to the part that falls inside a duty window. A slot with less than 60 minutes inside duty hours SHALL be unavailable and SHALL say it is outside duty hours. The page SHALL show the backend's `dutyHoursHint` unchanged. When the windows cannot be read, the app SHALL NOT limit the slots and the order response remains the final decision.

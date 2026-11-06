@@ -41,28 +41,23 @@ final class BookingCalendarTests: XCTestCase {
         XCTAssertEqual(times.last, date(12, 7, 10))
     }
 
-    // MARK: 周与月
+    // MARK: 月份字
 
-    func test_weeks_startOnMondayOfThisWeek_andCoverTheWholeRange() {
-        let weeks7 = BookingCalendar.weeks(now: now, rules: sevenDays)
-        XCTAssertEqual(weeks7.map(\.id), [date(11, 2), date(11, 9)])
-        let weeks30 = BookingCalendar.weeks(now: now, rules: thirtyDays)
-        XCTAssertEqual(weeks30.count, 6)
-        XCTAssertEqual(weeks30.last?.id, date(12, 7))
-        XCTAssertTrue(weeks30.allSatisfy { $0.days.count == 7 })
+    func test_monthLabel_onFirstDayOfStripAndEachFirstOfMonth_only() {
+        let days = BookingSlotPlanner.days(now: now, rules: thirtyDays)
+        let labels = days.compactMap { day in BookingCalendar.monthLabel(for: day, in: days).map { (day, $0) } }
+        XCTAssertEqual(labels.map(\.0), [date(11, 7), date(12, 1)])
+        XCTAssertEqual(labels.map(\.1), ["11月", "12月"])
+        // 7 天时整条都在 11 月，只有一个月份字：能区分「读了 30 天」和「写死 7 天」。
+        let sevenDayStrip = BookingSlotPlanner.days(now: now, rules: sevenDays)
+        XCTAssertEqual(sevenDayStrip.compactMap { BookingCalendar.monthLabel(for: $0, in: sevenDayStrip) }, ["11月"])
     }
 
-    func test_months_listOnlyMonthsWithBookableDays_andPointAtTheirFirstBookableDay() {
-        let lateNovember = date(11, 20, 10)
-        // 11-20 10:00：上午段被提前量裁到 10:30 只剩 30 分钟，不能选；下午还能约，所以 11 月从 20 日起。
-        XCTAssertEqual(BookingCalendar.months(now: lateNovember, rules: thirtyDays), [date(11, 20), date(12, 1)])
-        XCTAssertEqual(BookingCalendar.months(now: lateNovember, rules: sevenDays), [date(11, 20)])
-    }
-
-    func test_title_namesBothMonthsWhenAWeekCrossesThem() {
-        let week = BookingWeek(days: (0..<7).map { calendar.date(byAdding: .day, value: $0, to: date(11, 30))! })
-        XCTAssertEqual(BookingCalendar.title(for: week), "2026年11月–12月")
-        XCTAssertEqual(BookingCalendar.spokenRange(of: week), "11 月 30 日到12 月 6 日")
+    func test_monthLabel_namesTheYearWhenTheStripCrossesIntoNextYear() {
+        let lateDecember = date(12, 20, 10)
+        let days = BookingSlotPlanner.days(now: lateDecember, rules: thirtyDays)
+        let labels = days.compactMap { BookingCalendar.monthLabel(for: $0, in: days) }
+        XCTAssertEqual(labels, ["12月", "2027年1月"])
     }
 
     func test_pastDays_areMarkedPast() {

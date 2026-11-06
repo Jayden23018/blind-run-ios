@@ -1,13 +1,17 @@
 import SwiftUI
 
-/// 约跑页的「哪天跑」（#821，v5）：真实年月标题 + 翻周箭头 + 月份胶囊 + 周一到周日一周一页。
+/// 约跑页的「哪天跑」（#821，v5 第三稿甲，负责人 2026-11-07 定）。
 ///
-/// v4 只有一排 7 个日期圆，月份那一排是装饰、点不了（负责人 2026-11-07：「仿照了界面，没有仿照逻辑」）。
-/// 现在可约范围读后端 `maxLeadDays`，月份只列范围覆盖的月份，左右滑或点箭头一次翻一周。
+/// v4 只有一排 7 个日期圆，月份那一排是装饰、点不了（负责人：「仿照了界面，没有仿照逻辑」）。
+/// 第三稿照参考图的样子、补上它的逻辑：
+/// - 一整排日期圆从今天排到可约的最后一天（天数读后端 `maxLeadDays`），一直能横滑，不按周分页；
+/// - 月份写在当月第一个日子正上方，跟日期一起滑（负责人选「甲」：月份与下面的日期一一对齐）；
+///   选中的日子在哪个月，那个月加粗；
+/// - 星期写在每个圆下面，今天写「今天」。
 ///
-/// 读屏：一周的格子合成**一个可调整元素**，上下轻扫换一天，只在能约的日子里走，跨周自动翻页
+/// 读屏：整排日期合成**一个可调整元素**，上下轻扫换一天，只在能约的日子里走
 /// （Apple 无障碍示例对横滑列表的做法，调研 `docs/research/booking-date-picker-20261107.md`）。
-/// 辅助功能大字档一周七格放不下，改成一行一天的列表（同「默认出发地点」页的做法）。
+/// 辅助功能大字档一排圆放不下，改成一行一天的列表，先列 7 天，可展开全部。
 struct BookingDateStrip: View {
     let now: Date
     let rules: BookingRules
@@ -16,124 +20,58 @@ struct BookingDateStrip: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var weekIndex = 0
-    @State private var pagesForward = true
+    @State private var showsAllDaysInList = false
 
-    /// 看得见的日期圆。可点区是整列宽、64 高。
-    private static let dayCircleDiameter: CGFloat = 40
+    /// 看得见的日期圆（参考图 48，留出描边与间距用 44）。可点区是整列、≥64 高。
+    private static let dayCircleDiameter: CGFloat = 44
+    private static let columnWidth: CGFloat = 48
+    private static let columnSpacing: CGFloat = 10
     private static let minimumHitHeight: CGFloat = AppTouchTarget.blindPrimary
-    /// 横滑超过这么远才翻周，免得竖着滚页面时误翻。
-    private static let swipeThreshold: CGFloat = 40
-    /// 小圆点最多画几个（30 天约 6 周）。
-    private static let maximumPageDots = 8
+    /// 大字档列表先列几天。
+    private static let collapsedListCount = 7
 
     private var calendar: Calendar { .aidRunBackend }
-    private var weeks: [BookingWeek] { BookingCalendar.weeks(now: now, rules: rules) }
+    private var days: [Date] { BookingSlotPlanner.days(now: now, rules: rules) }
     private var usesList: Bool { dynamicTypeSize.isAccessibilitySize }
 
     var body: some View {
-        let weeks = weeks
-        let index = min(weekIndex, max(weeks.count - 1, 0))
-        return VStack(alignment: .leading, spacing: 12) {
-            if let week = weeks[safe: index] {
-                header(week: week, index: index, count: weeks.count)
-                monthChips
-                Group {
-                    if usesList {
-                        dayList(week)
-                    } else {
-                        dayGrid(week)
-                    }
-                }
-                .id(week.id)
-                .transition(pageTransition)
-                // 后端天数配得很大时周数多，一排小圆点会挤出卡片：超过上限就不画（标题与箭头已经说清在哪一周）。
-                if (2...Self.maximumPageDots).contains(weeks.count) { pageDots(index: index, count: weeks.count) }
+        VStack(alignment: .leading, spacing: 12) {
+            if usesList {
+                dayList
+            } else {
+                strip
             }
-            Text(BookingCalendar.rangeFootnote(now: now, rules: rules))
+            Text(BookingCalendar.rangeFootnote(now: now, rules: rules) + (usesList ? "" : " · 左右滑看更多"))
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.Flow.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
                 .accessibilityIdentifier("bookingDateRangeFootnote")
         }
-        .padding(16)
-        .onAppear { syncWeek(to: selectedDay, animated: false) }
-        .onChange(of: selectedDay) { syncWeek(to: $0, animated: true) }
+        .padding(.vertical, 16)
     }
 
-    // MARK: 标题与翻周
+    // MARK: 一整排
 
-    private func header(week: BookingWeek, index: Int, count: Int) -> some View {
-        HStack(spacing: 0) {
-            Text(BookingCalendar.title(for: week))
-                .font(.title3.weight(.semibold))
-                .foregroundColor(AppColors.Flow.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityAddTraits(.isHeader)
-            weekArrow(systemName: "chevron.left", target: index - 1, count: count, prefix: "上一周")
-            weekArrow(systemName: "chevron.right", target: index + 1, count: count, prefix: "下一周")
-        }
-    }
-
-    private func weekArrow(systemName: String, target: Int, count: Int, prefix: String) -> some View {
-        let isEnabled = (0..<count).contains(target)
-        return Button {
-            goToWeek(target)
-        } label: {
-            Image(systemName: systemName)
-                .font(.body.weight(.semibold))
-                .foregroundColor(isEnabled ? AppColors.ButtonPalette.primaryFill : AppColors.Flow.secondaryText)
-                .frame(width: 36, height: 36) // guard:allow small-touch-target 只是圆底，可点区见下一行 64×64
-                .background(Circle().fill(isEnabled ? AppColors.Flow.blueTint : AppColors.Flow.page))
-                .frame(width: Self.minimumHitHeight, height: Self.minimumHitHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .accessibilityLabel(weeks[safe: target].map { "\(prefix)，\(BookingCalendar.spokenRange(of: $0))" } ?? prefix)
-        .accessibilityIdentifier(target > weekIndex ? "bookingDateNextWeek" : "bookingDatePreviousWeek")
-    }
-
-    // MARK: 月份
-
-    private var monthChips: some View {
-        let months = BookingCalendar.months(now: now, rules: rules)
-        return HStack(spacing: 10) {
-            ForEach(months, id: \.self) { firstDay in
-                let month = calendar.component(.month, from: firstDay)
-                let isSelected = selectedDay.map { calendar.isDate($0, equalTo: firstDay, toGranularity: .month) } ?? false
-                BookingChoicePill(title: "\(month)月", isSelected: isSelected, height: 36, singleLine: true) {
-                    onSelect(firstDay)
+    private var strip: some View {
+        let days = days
+        return ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: Self.columnSpacing) {
+                    ForEach(days, id: \.self) { day in
+                        VStack(spacing: 8) {
+                            monthLabel(for: day, in: days)
+                            dayCell(day)
+                        }
+                        .frame(width: Self.columnWidth)
+                        .id(day)
+                    }
                 }
-                .accessibilityLabel("\(month)月")
-                .accessibilityHint("跳到\(month)月第一个能约的日子")
-                .accessibilityIdentifier("bookingDateMonth_\(month)")
+                .padding(.horizontal, 16)
             }
+            .onAppear { scroll(proxy, to: selectedDay, animated: false) }
+            .onChange(of: selectedDay) { scroll(proxy, to: $0, animated: true) }
         }
-    }
-
-    // MARK: 一周七格
-
-    private func dayGrid(_ week: BookingWeek) -> some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 0) {
-                ForEach(week.days, id: \.self) { day in
-                    Text(BookingSlotText.weekdayShortName(day))
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .accessibilityHidden(true)
-            HStack(spacing: 0) {
-                ForEach(week.days, id: \.self) { day in
-                    dayCell(day)
-                }
-            }
-        }
-        .contentShape(Rectangle())
-        .simultaneousGesture(swipeGesture)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("日期")
         .accessibilityValue(spokenSelection)
@@ -145,129 +83,111 @@ struct BookingDateStrip: View {
             @unknown default: break
             }
         }
-        .accessibilityIdentifier("bookingDateWeek")
+        .accessibilityIdentifier("bookingDateStrip")
+    }
+
+    /// 月份字：只写在当月第一个日子上方，其余列留同样高的空白，让下面的圆对齐。
+    /// 不做成按钮：它就在那个月第一天正上方，点那一天即可；字高不到 64pt，做成按钮就是盲人端够不着的小目标。
+    private func monthLabel(for day: Date, in days: [Date]) -> some View {
+        let text = BookingCalendar.monthLabel(for: day, in: days)
+        let isCurrent = selectedDay.map { calendar.isDate($0, equalTo: day, toGranularity: .month) } ?? false
+        return Text(text ?? " ")
+            .font(.subheadline.weight(isCurrent ? .bold : .regular))
+            .foregroundColor(isCurrent ? AppColors.Flow.primaryText : AppColors.Flow.secondaryText)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(width: Self.columnWidth, alignment: .center)
     }
 
     private func dayCell(_ day: Date) -> some View {
-        let state = BookingCalendar.state(of: day, now: now, rules: rules)
+        let isAvailable = BookingCalendar.state(of: day, now: now, rules: rules) == .available
         let isSelected = selectedDay == day
         let isToday = calendar.isDate(day, inSameDayAs: now)
         return Button {
             onSelect(day)
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 6) {
                 Text("\(calendar.component(.day, from: day))")
-                    .font(.body.weight(isSelected ? .semibold : .regular))
-                    .foregroundColor(dayNumberColor(state: state, isSelected: isSelected))
-                    .frame(width: Self.dayCircleDiameter, height: Self.dayCircleDiameter) // guard:allow small-touch-target 只是圆，可点区是整列宽、64 高
-                    .background(Circle().fill(dayFill(state: state, isSelected: isSelected)))
-                    .overlay(dayBorder(state: state, isSelected: isSelected))
-                Text(isToday ? "今天" : " ")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(AppColors.ButtonPalette.primaryFill)
+                    .font(.title3.weight(isSelected ? .bold : .regular))
+                    .foregroundColor(dayNumberColor(isAvailable: isAvailable, isSelected: isSelected))
+                    .frame(width: Self.dayCircleDiameter, height: Self.dayCircleDiameter) // guard:allow small-touch-target 只是圆，可点区是整列、64 高
+                    .background(Circle().fill(dayFill(isAvailable: isAvailable, isSelected: isSelected)))
+                    .overlay(dayBorder(isAvailable: isAvailable, isSelected: isSelected))
+                Text(isToday ? "今天" : BookingSlotText.weekdayName(day))
+                    .font(AppFonts.caption().weight(isSelected || isToday ? .semibold : .regular))
+                    .foregroundColor(isSelected || isToday ? AppColors.Flow.navy : AppColors.Flow.secondaryText)
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .frame(maxWidth: .infinity, minHeight: Self.minimumHitHeight)
+            .frame(width: Self.columnWidth)
+            .frame(minHeight: Self.minimumHitHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(state != .available)
+        .disabled(!isAvailable)
     }
 
-    private func dayNumberColor(state: BookingDayState, isSelected: Bool) -> Color {
-        if isSelected { return .white }
-        return state == .available ? AppColors.Flow.primaryText : AppColors.Flow.secondaryText
+    private func dayNumberColor(isAvailable: Bool, isSelected: Bool) -> Color {
+        guard isAvailable else { return AppColors.Flow.secondaryText }
+        return isSelected ? AppColors.Flow.navy : AppColors.Flow.primaryText
     }
 
-    private func dayFill(state: BookingDayState, isSelected: Bool) -> Color {
-        if isSelected { return AppColors.ButtonPalette.primaryFill }
-        return state == .available ? AppColors.Flow.blueTint : .clear
+    /// 选中：白底 + 1.5pt 蓝描边（照参考图）；能约：浅蓝底；不能约：不填色。
+    private func dayFill(isAvailable: Bool, isSelected: Bool) -> Color {
+        if isSelected { return AppColors.Flow.surface }
+        return isAvailable ? AppColors.Flow.blueTint : .clear
     }
 
     @ViewBuilder
-    private func dayBorder(state: BookingDayState, isSelected: Bool) -> some View {
-        switch state {
-        case .available where !isSelected:
+    private func dayBorder(isAvailable: Bool, isSelected: Bool) -> some View {
+        if isSelected {
+            Circle().strokeBorder(AppColors.ButtonPalette.primaryFill, lineWidth: 1.5)
+        } else if isAvailable {
             // 浅蓝填充压白卡对比度不够，低视力看不出能点：加灰描边过 3:1（与 v4 同一条有意偏离，负责人 11-06 定）。
             Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, lineWidth: 1)
-        case .unavailable, .beyondRange:
+        } else {
             Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, style: StrokeStyle(lineWidth: 1, dash: [3]))
-        default:
-            EmptyView()
         }
     }
 
     // MARK: 大字档：一行一天
 
-    private func dayList(_ week: BookingWeek) -> some View {
-        VStack(spacing: 8) {
-            ForEach(week.days.filter { $0 >= calendar.startOfDay(for: now) }, id: \.self) { day in
-                let state = BookingCalendar.state(of: day, now: now, rules: rules)
+    private var dayList: some View {
+        let days = days
+        let shown = showsAllDaysInList ? days : Array(days.prefix(Self.collapsedListCount))
+        return VStack(spacing: 8) {
+            ForEach(shown, id: \.self) { day in
+                let isAvailable = BookingCalendar.state(of: day, now: now, rules: rules) == .available
                 BookingChoicePill(
                     title: BookingSlotText.spokenDay(day, now: now),
-                    subtitle: state == .available ? nil : dayStateText(state),
+                    subtitle: isAvailable ? nil : "这天没有能约的时段",
                     isSelected: selectedDay == day,
                     height: Self.minimumHitHeight,
-                    isEnabled: state == .available,
+                    isEnabled: isAvailable,
                     fillsWidth: true
                 ) { onSelect(day) }
             }
-        }
-        .simultaneousGesture(swipeGesture)
-    }
-
-    private func dayStateText(_ state: BookingDayState) -> String {
-        switch state {
-        case .available: return ""
-        case .past: return "已过"
-        case .unavailable: return "这天没有能约的时段"
-        case .beyondRange: return "超出可约范围"
-        }
-    }
-
-    // MARK: 第几周
-
-    private func pageDots(index: Int, count: Int) -> some View {
-        HStack(spacing: 6) {
-            ForEach(0..<count, id: \.self) { dot in
-                Circle()
-                    .fill(dot == index ? AppColors.ButtonPalette.primaryFill : AppColors.ButtonPalette.neutralStroke.opacity(0.45))
-                    .frame(width: 6, height: 6)
+            if days.count > Self.collapsedListCount {
+                BookingChoicePill(
+                    title: showsAllDaysInList ? "收起" : "显示全部 \(days.count) 天",
+                    isSelected: false,
+                    height: Self.minimumHitHeight,
+                    fillsWidth: true
+                ) { showsAllDaysInList.toggle() }
+                .accessibilityIdentifier("bookingDateListToggle")
             }
         }
-        .frame(maxWidth: .infinity)
-        .accessibilityHidden(true)
+        .padding(.horizontal, 16)
     }
 
     // MARK: 行为
 
-    private var pageTransition: AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        return .asymmetric(
-            insertion: .move(edge: pagesForward ? .trailing : .leading).combined(with: .opacity),
-            removal: .move(edge: pagesForward ? .leading : .trailing).combined(with: .opacity)
-        )
-    }
-
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 24).onEnded { value in
-            let width = value.translation.width
-            guard abs(width) > Self.swipeThreshold, abs(width) > abs(value.translation.height) else { return }
-            goToWeek(weekIndex + (width < 0 ? 1 : -1))
-        }
-    }
-
-    private func goToWeek(_ target: Int) {
-        guard weeks.indices.contains(target), target != weekIndex else { return }
-        pagesForward = target > weekIndex
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { weekIndex = target }
-    }
-
-    private func syncWeek(to day: Date?, animated: Bool) {
-        guard let day, let target = BookingCalendar.weekIndex(of: day, in: weeks), target != weekIndex else { return }
+    private func scroll(_ proxy: ScrollViewProxy, to day: Date?, animated: Bool) {
+        guard let day else { return }
         if animated {
-            goToWeek(target)
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(day, anchor: .center) }
         } else {
-            weekIndex = target
+            proxy.scrollTo(day, anchor: .center)
         }
     }
 
@@ -337,11 +257,5 @@ struct BookingChoicePill: View {
     private var textColor: Color {
         guard isEnabled else { return AppColors.Flow.secondaryText }
         return isSelected ? AppColors.Flow.navy : AppColors.Flow.primaryText
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
