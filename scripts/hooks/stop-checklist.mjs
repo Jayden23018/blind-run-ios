@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { isSwiftUIViewEdit } from './design-direction-reminder.mjs';
-import { completedUnarchivedChanges, isOpenSpecChange, isProductionSwift } from './openspec-reminder.mjs';
+import { completedUnarchivedChanges } from './openspec-reminder.mjs';
 import { researchTodo } from './research-log.mjs';
 import { sessionCommands, sessionEditedPaths } from './transcript.mjs';
 
@@ -110,18 +110,10 @@ if (toArchive.length) {
       toArchive.map((n) => `\`openspec archive ${n} -y\``).join('、')
   );
 }
-// 改了 App 源码却没有变更记录：机器分不出新功能和修 bug，所以只拦一次（`stop_hook_active` 兜底）。
-// 拿不到 transcript 时不判 —— 这条是核对不是欠账，宁可漏不可吵。
+// 2026-11-06 起不再因「改了 App 源码没碰 openspec/changes/」拦人：小改动（界面、文案、默认值）不走 OpenSpec，
+// 机器分不出大小档，宁可不拦。仍然硬拦的只有下面这条「待归档」欠账。
 if (mine !== null) {
   const edited = [...mine];
-  const swift = edited.filter(isProductionSwift);
-  if (swift.length && !edited.some(isOpenSpecChange)) {
-    todo.push(
-      `**无变更记录**：本轮改了 ${swift.length} 个 App 源文件（${sample(swift)}），` +
-        '但没碰 `openspec/changes/` —— 行为有变就补提议或勾任务；不改变行为（修 bug / 文案 / 重构）回一句说明再停'
-    );
-  }
-
   // 改了视图却没跑无障碍审计（#494）。审计没有任何机器在执行（#487 核过：CI 只编译、pre-push 只提醒），
   // 只能真机手动跑，于是 skill `aidrun-ship-check` §五 那三步只靠自觉 —— 这条把它落成「该做没做」。
   // 视图判据与设计提醒钩子共用一份；内容读磁盘（停止时文件已写完，删掉的读不到就不算视图）。

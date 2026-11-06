@@ -20,8 +20,8 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
 | `aidrun-device-test` | 真机跑单测 / UI 测试、`device-test.sh` 报错（签名、code 74、证书、免费 App 上限等），或换团队 / Mac / 设备 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
-| `openspec-propose` | 要动的功能**行为会变**，而 `openspec/changes/` 下还没有对应变更时 |
-| `openspec-archive-change` | 某个变更的 `tasks.md` 全打勾了 —— 归档是闭环终点，**别停在最后一步** |
+| `openspec-propose` | 大档改动（见 §10 第 5 步）而 `openspec/changes/` 下还没有对应变更时 |
+| `openspec-archive-change` | 变更的 `tasks.md` 全打勾了 —— **别停在最后一步** |
 | `swiftui-pro` | 写 / 审 SwiftUI 代码时（第三方，`.claude/skills/swiftui-pro/`） |
 | `aidrun-order-and-sos` | 改订单状态流转、取消入口、派单 `respond`、通话磨合（`PENDING_INTRO_CALL`）页，或新增 / 改动任何求助 / SOS 入口与降级拨号 |
 
@@ -258,7 +258,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 **实现中**
 
 4. 一次只实现一个内聚模块
-5. **行为有变时，实现前 `openspec/changes/` 下必须有对应变更**（先 `openspec list` 找，没有就用 `openspec-propose` 建，做完一项勾一项）；修 bug / 文案 / 重构不需要。
+5. **OpenSpec 两档**。大档（SOS、订单状态机、认证实名、隐私权限、契约用法）：先有变更再写。小档（界面、文案、默认值、字段、修 bug、重构）：不建，PR 写改了什么 / 为什么 / 怎么验证。拿不准算大档。
 6. **改任何文件前，自己把要改的那部分读一遍** —— 探索可以外包，编辑不行。≥ 500 行别整读，用 `codegraph node <符号>` 再 `Read` 前后一屏。
 
 <!--
@@ -281,10 +281,10 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 -->
 **收尾：三件事，缺一件都不算做完**
 
-7. 跑测试、更新必要文档，按 `aidrun-ship-check` 输出；**变更任务全打勾就在同一 PR 里 `openspec archive <name> -y`**
+7. 跑测试、更新必要文档，按 `aidrun-ship-check` 输出；**有变更且全勾就在同一 PR 归档**
 8. **交接**走后端 issue：答掉的 `待前端确认` 评论后 close；新问题按 §7 开，一个问题一个，带文件行号或端点。契约变更直接改后端 spec
 9. **commit**：`type: 描述`（feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**
-10. **push**（OpenSpec 闭环与第 9–10 步由钩子强制；用户说「先不提交」时回一句说明再停）
+10. **push**（第 9–10 步由钩子强制；用户说「先不提交」时回一句说明再停）
 
 <!--
 8. **交接**（后端仓库 GitHub Issues，2026-09-24 起替代 `demo/docs/handoff.md`）：
@@ -298,9 +298,7 @@ DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
-> OpenSpec 闭环（2026-09-23 立，项目负责人要求「提议 → 实现 → 归档」每次自动走完）也在同一个钩子里：
-> 任务全打勾却没归档 → 硬拦；本轮改了 App 源码却没碰 `openspec/changes/` → 拦一次，
-> 回一句「不改变行为」即可放行。判据只在 `openspec-reminder.mjs` 一处，本文件不抄。
+> OpenSpec 闭环由同一个钩子管：任务全打勾没归档 → 硬拦；其余不拦。判据只在 `openspec-reminder.mjs`。
 >
 > 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
 > **领先 origin** 时拦住本次停止并列出欠账。一次停止只拦一次，用户说「先不提交」时

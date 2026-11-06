@@ -6,8 +6,8 @@
  * - 本文件自己是 PreToolUse（Edit|Write）的**开工前提醒**：本会话第一次写 App 源码、
  *   而还没碰过 `openspec/changes/` 时，把「行为有变先提议」灌回来。非阻断 —— 修 bug、
  *   改文案本来就不需要提议，机器分不出，所以只提醒不拦。
- * - `stop-checklist.mjs` 引用下面的判据做**收尾核对**：任务全打勾没归档 → 硬拦；
- *   改了 App 源码却没有变更记录 → 拦一次，一句「不改变行为」即可放行。
+ * - `stop-checklist.mjs` 引用下面的判据做**收尾核对**：只有任务全打勾没归档 → 硬拦。
+ *   2026-11-06 起不再拦「改了源码没变更记录」（改成大档 / 小档两档，见 AGENTS.md §10 第 5 步）。
  *
  * 立此钩子的理由（AGENTS.md §1.3）：规则早就在 `AGENTS.md` 的按需加载表里（PR #176），
  * 而 09-23 盘点时有 14 个变更没归档 —— 文档挡不住「忘了走最后一步」。
@@ -55,13 +55,12 @@ export function completedUnarchivedChanges(root) {
 }
 
 export const REMINDER = `【OpenSpec 提醒 —— 本会话只提示这一次】
-你要改 App 源码，而本会话还没碰过 \`openspec/changes/\`。先判一次：
-- **行为会变**（新功能、改流程、改接口用法）→ 先 \`openspec list\` 看有没有现成的变更；
-  有就在它的 \`tasks.md\` 里接着做，没有就用 skill \`openspec-propose\` 建一个再动手。
-  实现中做完一项勾一项；**全部打勾就在同一个 PR 里 \`openspec archive <name> -y\`**。
-- **不改变行为**（修 bug、改文案、重构、加日志）→ 忽略这条。
-收尾时 Stop 钩子会核对：改了 App 源码却没有变更记录会拦一次（回一句「不改变行为」即可放行），
-任务全打勾没归档会一直拦。`;
+你要改 App 源码，而本会话还没碰过 \`openspec/changes/\`。先判一次改动属于哪一档：
+- **大档**：碰求助 / SOS、订单状态机、认证与实名、隐私与权限、后端契约用法 → 先 \`openspec list\` 看有没有现成变更；
+  没有就用 skill \`openspec-propose\` 建一个再动手。做完一项勾一项，**全部打勾就在同一个 PR 里 \`openspec archive <name> -y\`**。
+- **小档**：纯界面、文案、默认值、表单字段、修 bug、重构 → 不建变更。PR 描述写三行：改了什么、为什么、怎么验证。
+  若它改变了 \`openspec/specs/\` 里某条已有规格，直接改那一份。
+收尾时 Stop 钩子只核对「任务全打勾没归档」，这条会一直拦；其余不拦。`;
 
 function main() {
   let payload;
