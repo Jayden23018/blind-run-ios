@@ -111,6 +111,11 @@ final class FavoritePlaceStore: ObservableObject {
         return true
     }
 
+    /// 已收藏的那一条（id 是按坐标算的，和传进来的 `place.id` 不同）。设默认时要用它，不能用传进来的原值。
+    func storedPlace(matching place: ResolvedPlace) -> ResolvedPlace? {
+        places.first { $0.id == Self.identifier(for: place) }
+    }
+
     func remove(id: String) {
         guard places.contains(where: { $0.id == id }) else { return }
         places.removeAll { $0.id == id }

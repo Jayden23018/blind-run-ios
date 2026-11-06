@@ -8,10 +8,10 @@
 
 ## 2. 添加常用地点
 
-- [ ] 2.1 新文件 `BlindFavoritePlaceAddPage.swift`：使用当前定位、搜索（`VoiceTextField` + `PlaceSearchProviding`）、最近跑过的地点（`myOrders` 里已完成订单的起点，去重，最多 5 个）。
-- [ ] 2.2 `BlindRunnerHomeView.swift`：`.addFavoritePlace` 改进新页；选中后回首页并朗读结果。
+- [x] 2.1 新文件 `BlindFavoritePlaceAddPage.swift`：使用当前定位、搜索（`VoiceTextField` + `PlaceSearchProviding`）、最近跑过的地点（`myOrders` 里已完成订单的起点，去重，最多 5 个）。
+- [x] 2.2 `BlindRunnerHomeView.swift`：`.addFavoritePlace` 改进新页；选中后回首页并朗读结果。
 
 ## 3. 收尾
 
-- [ ] 3.1 `xcodebuild build-for-testing` 通过（负责人 11-05 定：不跑测试）。
+- [x] 3.1 `xcodebuild build-for-testing` 通过（2026-11-06，`** TEST BUILD SUCCEEDED **`）。负责人 11-05 定不跑测试，单测与 UI 测试只编译、未执行。
 - [ ] 3.2 `docs/ui/mockups/INDEX.md` 那一行写实现落点与偏差。

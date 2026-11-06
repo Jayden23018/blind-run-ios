@@ -83,7 +83,8 @@ extension AccessibilityAuditTests {
         keepScreenshot(app, "idle-booking-with-default")
     }
 
-    func testBlindHomeAddFavoriteOpensBookingForm() {
+    /// #807：「添加常用地点」不再进约跑表单，进一页「使用当前定位 + 搜索 + 最近跑过的地点」。
+    func testBlindHomeAddFavoriteOpensItsOwnPage() {
         let app = launchReturningRunner(favorite: true)
         let row = element(app, "blindHomeStartPlaceRow")
         XCTAssertTrue(row.waitForExistence(timeout: 20))
@@ -93,7 +94,14 @@ extension AccessibilityAuditTests {
 
         add.tap()
 
-        XCTAssertTrue(waitForBookingScreen(app), "添加常用地点没有进预约表单")
+        XCTAssertTrue(app.navigationBars["添加常用地点"].waitForExistence(timeout: 10), "没进添加常用地点页")
+        XCTAssertTrue(element(app, "blindFavoritePlaceUseCurrentLocation").waitForExistence(timeout: 5), "没有「使用当前定位」")
+        XCTAssertFalse(element(app, "blindRunnerHomeStartBookingButton").exists)
+        keepScreenshot(app, "favorite-place-add")
+
+        // 用当前定位：不添加任何地点，直接回首页。
+        element(app, "blindFavoritePlaceUseCurrentLocation").tap()
+        XCTAssertTrue(element(app, "blindHomeStartPlaceRow").waitForExistence(timeout: 10), "选完没回首页")
     }
 
     func testBlindHomeIdleRowsReachableAtLargestText() {

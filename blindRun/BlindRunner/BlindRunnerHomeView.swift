@@ -541,7 +541,6 @@ struct BlindRunnerHomeView: View {
     /// 没有订单时预约卡下方的数据。
     @StateObject private var idleModel = BlindHomeIdleModel()
     @StateObject private var favoritePlaces = FavoritePlaceStore.forHome()
-    @State private var favoriteCountBeforeAdding: Int?
 
     /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
     /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
@@ -667,14 +666,10 @@ struct BlindRunnerHomeView: View {
                 }
                 await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
             }
-            // 从预约页回来时可能多了新收藏。从「添加常用地点」进去新收藏的，直接设为默认。
+            // 从预约页回来时可能多了新收藏。「添加常用地点」页选完已当场设为默认（#807），这里只重新读盘。
             .onChange(of: path.isEmpty) { isEmpty in
                 guard isEmpty else { return }
                 favoritePlaces.reload()
-                if let favoriteCountBeforeAdding {
-                    favoritePlaces.adoptNewestPlace(ifCountExceeds: favoriteCountBeforeAdding)
-                }
-                favoriteCountBeforeAdding = nil
             }
             // 订单走完回到首页时要刷新本月次数，所以跟着订单号走。`.task` 切回本 tab 也会重跑，
             // 这里没有播报，重跑只是多拿一次最新数据。有订单时这些数据不显示，不用请求。
@@ -973,9 +968,34 @@ private extension BlindRunnerHomeView {
                 path.removeAll()
             },
             onAddFavorite: {
-                favoriteCountBeforeAdding = favoritePlaces.places.count
-                speechService.speak("请搜索出发地点，然后收藏它。返回首页后，它会成为默认出发地点。")
+                // 开场白由新页自己念（#807），这里不再说「请搜索出发地点，然后收藏它」。
                 path = [.addFavoritePlace]
+            }
+        )
+    }
+
+    /// 「添加常用地点」页（#807）：不再进约跑表单。选完在这里写收藏、设默认、朗读并回首页。
+    var favoritePlaceAddPage: some View {
+        BlindFavoritePlaceAddPage(
+            isUsingCurrentLocation: favoritePlaces.defaultPlace == nil,
+            onUseCurrentLocation: {
+                let didSave = favoritePlaces.setDefaultPlace(nil)
+                guard didSave else {
+                    speechService.speakError("默认出发地点没有保存成功，请再试一次。")
+                    return
+                }
+                speechService.speak("默认出发地点已改为当前定位。")
+                path.removeAll()
+            },
+            onPick: { place in
+                favoritePlaces.add(place)
+                guard let stored = favoritePlaces.storedPlace(matching: place),
+                      favoritePlaces.setDefaultPlace(stored) else {
+                    speechService.speakError("没能收藏\(place.title)，请换一个地点再试。")
+                    return
+                }
+                speechService.speak("已收藏\(stored.title)，之后默认从这里出发。")
+                path.removeAll()
             }
         )
     }
@@ -986,7 +1006,7 @@ private extension BlindRunnerHomeView {
         case .voiceBooking:
             booking(startsWithVoice: true, startPlace: favoritePlaces.defaultPlace)
         case .addFavoritePlace:
-            booking(startsWithVoice: false, startPlace: nil)
+            favoritePlaceAddPage
         case .startPlacePicker:
             startPlacePicker
         case .orderStatus(let orderId):
