@@ -68,6 +68,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     private var tetherPreferenceBaseline: TetherPreference?
     /// 档案里的导盲犬取值这个版本认不出。为真且用户没改（仍是「不说」）⇒ 保存时不带 `guideDog`。
     private var isGuideDogBaselineUnreadable = false
+    /// 档案里的配速这个版本认不出（解码成 `.unknown`，界面显示「无偏好」）。为真且用户没改 ⇒ 保存时不带 `defaultPace`。
+    private var isPaceBaselineUnreadable = false
+    /// 旧字段 `runningPace`，界面不展示也不改，但契约规定「不带这个键 = 清空」（backend#926 起写明），
+    /// 所以每次保存把读到的值原样带回，否则逐行保存会一次次把它清掉。
+    private var preservedRunningPace: String?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -77,7 +82,32 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
 
     var canSubmit: Bool {
-        !name.trimmed.isEmpty && !isLoading
+        !isLoading
+    }
+
+    /// 昵称长度，按 UTF-16 数，与后端 `@Size(min = 2, max = 50)` 同口径（契约 `BlindProfileUpdateRequest.name`）。
+    static let nicknameLengthRange = 2...50
+
+    /// 昵称不合格时的提示；`nil` = 没问题。
+    /// `allowBlank`：整份保存别的行时，没填昵称也照样保存（请求体不带 `name`，后端保留原值，backend#926）；
+    /// 昵称编辑页自己保存时不许空着。
+    static func nicknameError(_ name: String, allowBlank: Bool) -> String? {
+        let length = name.trimmed.utf16.count
+        if length == 0 {
+            return allowBlank ? nil : "请填写昵称，\(nicknameLengthRange.lowerBound) 到 \(nicknameLengthRange.upperBound) 个字。"
+        }
+        if length < nicknameLengthRange.lowerBound {
+            return "昵称至少 \(nicknameLengthRange.lowerBound) 个字。"
+        }
+        if length > nicknameLengthRange.upperBound {
+            return "昵称最多 \(nicknameLengthRange.upperBound) 个字，现在是 \(length) 个字。"
+        }
+        return nil
+    }
+
+    /// 整份保存前的校验：昵称（可空）+ 引导偏好长度。`nil` = 可以发请求。
+    var profileValidationError: String? {
+        Self.nicknameError(name, allowBlank: true) ?? guidePreferenceLengthError
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -87,6 +117,8 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         if let profile = appState.blindProfile {
             name = profile.name ?? ""
             defaultPace = profile.defaultPace?.selectable ?? .noPreference
+            isPaceBaselineUnreadable = profile.defaultPace == .unknown
+            preservedRunningPace = profile.runningPace
             specialNeeds = profile.specialNeeds ?? ""
             tetherPreference = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
             tetherPreferenceBaseline = tetherPreference
@@ -133,10 +165,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 保存中不响应（`isLoading`），免得两次请求的先后决定最终结果。
     func withdrawVisionConsent() {
         guard hasVisionConsent, !isLoading else { return }
-        // 撤回靠整表单保存。表单自己过不了校验（昵称空、引导偏好超长）时一个请求都发不出去：
+        // 撤回靠整份保存。资料自己过不了校验（昵称长度不对、引导偏好超长）时一个请求都发不出去：
         // 先收起再被 `submit()` 拦下，界面就在说一件没发生的事，离开再进来两项又回来了。
         // 所以不收起、不记待撤回，只念校验错误；改好后再按一次撤回。
-        guard canSubmit, guidePreferenceLengthError == nil else {
+        guard profileValidationError == nil else {
             submit()
             return
         }
@@ -148,18 +180,6 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         submit()
     }
 
-    #if DEBUG
-    func applyUITestProfilePrefillIfNeeded() {
-        let environment = ProcessInfo.processInfo.environment
-        guard environment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] == "1",
-              appState?.blindProfile == nil else {
-            return
-        }
-
-        name = environment["AIDRUN_UI_TEST_PROFILE_NICKNAME"] ?? "UITestBlind"
-    }
-    #endif
-
     /// 超长时的提示；`nil` = 长度没问题。按 UTF-16 数，与后端 `@Size` 同口径。
     var guidePreferenceLengthError: String? {
         let length = guidePreferenceText.trimmed.utf16.count
@@ -169,16 +189,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
 
     func submit() {
-        guard canSubmit, let appState else {
-            let message = "请填写必填信息"
-            errorMessage = message
-            speechService?.speakError(message)
-            return
-        }
+        guard canSubmit, let appState else { return }
         // 提交前就拦：等后端 400 回来，用户白写一遍还不知道差多少。
-        if let lengthError = guidePreferenceLengthError {
-            errorMessage = lengthError
-            speechService?.speakError(lengthError)
+        if let validationError = profileValidationError {
+            errorMessage = validationError
+            speechService?.speakError(validationError)
             return
         }
 
@@ -193,8 +208,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 形状照抄 `BlindBookingViewModel.makeCreateOrderRequest`。
     func makeProfileUpdateRequest() -> BlindProfileUpdateRequest {
         BlindProfileUpdateRequest(
-            name: name.trimmed,
-            runningPace: nil,
+            // 没填昵称就不带键（后端保留原值，backend#926）：新用户登录后直接进首页（#781），
+            // 可能还没填昵称就来改别的行，带空串会被 400「姓名不能为空」。
+            name: name.trimmed.nilIfBlank,
+            runningPace: preservedRunningPace,
             specialNeeds: specialNeeds.nilIfBlank,
             // 🔴 **没取得单独同意就绝不传「默认值」。**
             // 传 `TOTAL_BLIND` 或 `false` 会把「用户没说」伪造成「用户说了」。
@@ -217,7 +234,9 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             tetherPreference: tetherPreference?.rawValue
                 ?? (tetherPreferenceBaseline == nil ? nil : TetherPreference.notSpecifiedRawValue),
             chatPreference: nil,
-            defaultPace: defaultPace == .noPreference ? nil : defaultPace,
+            // 「无偏好」明确发 `NO_PREFERENCE`（契约枚举有这个值）：查看页逐行保存后会念「已保存：无偏好」，
+            // 不带键的话服务端保留旧配速，那句话就是假的（#750）。只有档案里的值认不出且用户没改时才不带键。
+            defaultPace: isPaceBaselineUnreadable && defaultPace == .noPreference ? nil : defaultPace,
             // 总是带上：空串 = 清空。带 nil 等于「保留原值」，用户删光了却删不掉。
             guidePreferenceText: guidePreferenceText.trimmed
         )
@@ -233,7 +252,44 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         isGuideDogBaselineUnreadable && guideDog == .notSpecified ? nil : guideDog.rawValue
     }
 
-    private func saveProfile(appState: AppState) async {
+    /// 查看页「点哪行改哪行」（#750）：调用方先把新值写进本对象，再调这里整份保存。
+    /// 校验没过或没存上 ⇒ 调 `revert` 把值改回去，并上屏、念出原因；返回是否存上。
+    ///
+    /// `revert` 在主线程上同步调用，不存起来（记忆 `unannotated-async-closure-property-crashes-on-device`）。
+    /// `requiresNickname`：昵称编辑页传 true，空昵称不许存；别的行昵称可以空着。
+    @discardableResult
+    func saveChange(savedLabel: String, requiresNickname: Bool = false, revert: () -> Void) async -> Bool {
+        guard let appState, !isLoading else {
+            revert()
+            return false
+        }
+        let validationError = (requiresNickname ? Self.nicknameError(name, allowBlank: false) : nil)
+            ?? profileValidationError
+        if let validationError {
+            revert()
+            errorMessage = validationError
+            speechService?.speakError(validationError)
+            return false
+        }
+        let saved = await saveProfile(appState: appState, savedText: Self.savedChangeText(savedLabel))
+        if !saved {
+            revert()
+        }
+        return saved
+    }
+
+    static func savedChangeText(_ label: String) -> String {
+        "已保存：\(label)"
+    }
+
+    /// 进选择页 / 编辑页时清掉上一页留下的提示，免得「已保存：牵引绳」出现在配速页上。
+    func clearTransientNotices() {
+        savedNotice = nil
+        errorMessage = nil
+    }
+
+    @discardableResult
+    private func saveProfile(appState: AppState, savedText: String = savedNoticeText) async -> Bool {
         isLoading = true
         errorMessage = nil
         savedNotice = nil
@@ -246,6 +302,8 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             // 基线跟着服务器走：不更新的话，「先选牵引绳保存、再改回还没决定保存」第二次会不带键。
             tetherPreferenceBaseline = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
             isGuideDogBaselineUnreadable = profile.guideDogStatus == nil
+            isPaceBaselineUnreadable = profile.defaultPace == .unknown
+            preservedRunningPace = profile.runningPace
             isLoading = false
             if withdrawing, isVisionConsentWithdrawalPending {
                 consentStore?.revokeConsent(to: .blindVisionProfile, scope: consentScope)
@@ -254,18 +312,21 @@ final class BlindRunnerProfileViewModel: ObservableObject {
                 speechService?.speak(VisionConsentWithdrawalCopy.succeeded)
             } else {
                 // 撤回那次已经有自己的成功句，再说一句会把它从半句切断（后到的 speak 打断先到的）。
-                savedNotice = Self.savedNoticeText
-                speechService?.speak(Self.savedNoticeText)
+                savedNotice = savedText
+                speechService?.speak(savedText)
             }
+            return true
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
-                return
+                return false
             }
             reportSaveFailure(error.localizedMessage, withdrawing: withdrawing)
+            return false
         } catch {
             isLoading = false
             reportSaveFailure("保存失败，请重试", withdrawing: withdrawing)
+            return false
         }
     }
 
@@ -281,50 +342,47 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
 // MARK: - Blind Runner Profile View
 
+/// 个人资料（#750，负责人 2026-11-05「按推荐开工」）：先看后改。点哪一行改哪一行，改完当场整份保存
+/// （选项类推入 `BlindProfileChoicePage`，文字类推入 `BlindProfileTextEditPage`）。
+///
+/// 只有这一种排法：#781 起新用户登录后直接进首页，不再有「首次建档一次填完」的表单，
+/// 约跑页缺资料时也是推入本页（负责人 2026-11-05 批准）。
 struct BlindRunnerProfileView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = BlindRunnerProfileViewModel()
-    @State private var showLogoutConfirm = false
     @State private var showVisionConsent = false
     @State private var visionConsentDeclineNotice: String?
+    @State private var hasConfigured = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    header
-
-                    requiredSection
-
-                    emergencyContactSection
-
-                    optionalSection
-
-                    if let errorMessage = viewModel.errorMessage {
-                        Text(errorMessage)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.destructive)
-                            .accessibilityLabel(errorMessage)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 32)
-                .padding(.bottom, 120)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                sections
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
+            .readableContentColumn()
         }
-        .background(AppColors.background)
-        .safeAreaInset(edge: .bottom) {
-            submitButton
-        }
+        .background(AppColors.Flow.page)
+        .navigationTitle(BlindAccountCopy.profileTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        // 二级页藏标签栏：悬浮的栏会盖住最后一行（记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
+            guard !hasConfigured else {
+                // 从选择页 / 编辑页退回来：那一页的保存结果已经念过，这里不再说话，
+                // 否则后到的播报会把「已保存：xx」切断（记忆 `later-speak-silently-cuts-the-earlier-one`）。
+                viewModel.clearTransientNotices()
+                return
+            }
+            hasConfigured = true
             viewModel.configure(with: appState, speechService: speechService)
-            #if DEBUG
-            viewModel.applyUITestProfilePrefillIfNeeded()
-            #endif
-            speechService.speak("请填写个人资料。昵称为必填项。紧急联系人在下方单独管理，至少需要 1 位。")
+            // 本页没有「保存」按钮，撤回没存上时让用户再点撤回那一行（同隐私与授权页，#393）。
+            viewModel.withdrawalRetryButtonTitle = BlindProfileCopy.withdrawRowTitle
+            speechService.speak("个人资料。点哪一项就改哪一项，改完当场保存。")
         }
-        .logoutConfirmation(isPresented: $showLogoutConfirm)
         // 小弹窗（#769）：fullScreenCover 只是容器，背景透明，卡片居中。
         .fullScreenCover(isPresented: $showVisionConsent) {
             visionConsentScreen
@@ -358,375 +416,230 @@ struct BlindRunnerProfileView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 8) {
-                HighContrastText(viewModel.isEditing ? "编辑资料" : "完善信息", style: .title)
-                    .accessibilityAddTraits(.isHeader)
+    // MARK: - 各组
 
-                Text("昵称为必填项。紧急联系人在下方单独管理。")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel("昵称为必填项。紧急联系人在下方单独管理")
-            }
+    @ViewBuilder
+    private var sections: some View {
+        ProfileAccountHeader(
+            name: viewModel.name.nilIfBlank ?? BlindProfileCopy.unfilled,
+            roleLine: BlindProfileCopy.roleLine
+        )
 
-            Spacer()
-
-            if !viewModel.isEditing {
-                Button {
-                    showLogoutConfirm = true
-                } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.system(size: 18))
-                        .foregroundColor(AppColors.destructive)
-                        .frame(width: AppTouchTarget.blindPrimary, height: AppTouchTarget.blindPrimary)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("退出登录")
-                .accessibilityHint("退出后需要重新登录，需要二次确认")
-            }
-        }
-    }
-
-    private var requiredSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ProfileTextField(
-                title: "昵称",
-                placeholder: "请输入昵称",
-                text: $viewModel.name,
-                isRequired: true,
-                errorMessage: viewModel.name.trimmed.isEmpty ? "请填写必填信息" : nil,
+        BlindProfileGroup {
+            row(
+                title: BlindProfileCopy.nickname,
+                value: viewModel.name.nilIfBlank ?? BlindProfileCopy.unfilled,
                 accessibilityLabel: "昵称，必填",
-                accessibilityHint: "请输入你的昵称"
-            )
-        }
-    }
-
-    /// 资料页只展示主联系人摘要 + 管理入口；增删改和主联系人切换都在 `EmergencyContactsView`。
-    private var emergencyContactSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("紧急联系人")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            Text(emergencyContactSummary)
-                .font(AppFonts.body())
-                .foregroundColor(
-                    appState.hasExactlyOnePrimaryEmergencyContact
-                        ? AppColors.textSecondary
-                        : AppColors.destructive
-                )
-                .accessibilityLabel(emergencyContactSummary)
-
-            NavigationLink {
-                EmergencyContactsView()
-            } label: {
-                Text("管理紧急联系人")
-            }
-            .buttonStyle(OutlineSecondaryButtonStyle())
-            .accessibilityLabel("管理紧急联系人")
-            .accessibilityHint("添加、编辑、删除紧急联系人，或切换主联系人")
-        }
-    }
-
-    private var emergencyContactSummary: String {
-        guard appState.emergencyContactCount > 0 else {
-            return "还没有紧急联系人。下单前至少需要 1 位，最多 \(EmergencyContactRules.maxCount) 位。"
-        }
-        guard let primary = appState.primaryEmergencyContact else {
-            return "共 \(appState.emergencyContactCount) 位紧急联系人，但还没有唯一的主联系人，请进入管理页设置。"
-        }
-        let relationshipText = primary.relationship?.nilIfBlank.map { "，关系\($0)" } ?? ""
-        return "共 \(appState.emergencyContactCount) 位紧急联系人。主联系人：\(primary.name?.nilIfBlank ?? "未命名")，\(primary.maskedPhone ?? "未填写手机号")\(relationshipText)。"
-    }
-
-    private var optionalSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("默认配速偏好")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-
-                Picker("默认配速偏好", selection: $viewModel.defaultPace) {
-                    ForEach(PacePreference.allCases, id: \.self) { pace in
-                        Text(pace.displayName).tag(pace)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("默认配速偏好，选填")
-                .accessibilityHint("选择跑步配速偏好")
-            }
-
-            escortGuidanceSection
-
-            ProfileTextField(
-                title: "给陪跑员的引导偏好",
-                placeholder: "例如：我习惯你在我左边，转弯前提前说一声",
-                text: $viewModel.guidePreferenceText,
-                isRequired: false,
-                errorMessage: viewModel.guidePreferenceLengthError,
-                accessibilityLabel: "给陪跑员的引导偏好，选填",
-                accessibilityHint: "用你自己的话写，最多 \(BlindProfileUpdateRequest.guidePreferenceMaxLength) 个字。陪跑员接单后才看得到"
-            )
-
-            Text("陪跑员接单后才看得到这一段，接单前不会给任何人看。")
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            visionSection
-
-            ProfileTextField(
-                title: "特殊需求",
-                placeholder: "例如：需要语言引导",
-                text: $viewModel.specialNeeds,
-                isRequired: false,
-                errorMessage: nil,
-                accessibilityLabel: "特殊需求，选填",
-                accessibilityHint: "如有特殊需求请填写"
-            )
-        }
-    }
-
-    // MARK: - 陪跑偏好（不敏感的那一半）
-
-    /// 引导方式。**排在视力状况前面**是有意的：一线引导材料（RNIB 官方指南逐字
-    /// 「there are no hard and fast rules… ask them how they like to be guided」）一致主张
-    /// 直接问引导方式，而不是问视力分级再推导 —— 分级到引导方式之间没有稳定映射，
-    /// 同样是低视力，有人用绳有人挽手臂。读屏顺序即优先级，最有用的那一项排前面。
-    ///
-    /// 它**不在单独同意门后面**：引导方式是偏好不是身份信息。
-    private var escortGuidanceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("希望怎么被引导")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            Text("陪跑员到场前会看到这一项，好提前准备。不填也能约跑。")
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-
-            // 用菜单而不是 `.segmented`：四个中文选项在 AX4 / AX5 档会被挤成截断的省略号，
-            // 而那两档正是低视力用户实际会设的（见记忆 `low-vision-visual-channel-unaudited`）。
-            BlindMenuPicker(
-                title: "希望怎么被引导",
-                selection: $viewModel.tetherPreference,
-                valueText: viewModel.tetherPreference?.displayName ?? "还没决定",
-                showsTitle: false,
-                accessibilityLabel: "希望怎么被引导，选填",
-                accessibilityHint: "选择牵引绳、搀扶，或者只用语言引导"
+                identifier: "blindProfileNicknameRow"
             ) {
-                Text("还没决定").tag(TetherPreference?.none)
-                ForEach(TetherPreference.allCases, id: \.self) { preference in
-                    Text(preference.displayName).tag(TetherPreference?.some(preference))
-                }
+                BlindProfileTextEditPage(viewModel: viewModel, field: .nickname, text: $viewModel.name)
             }
-            .accessibilityIdentifier("blindProfileTetherPreferencePicker")
+        }
+
+        BlindProfileGroup(title: BlindProfileCopy.dispatchGroupTitle) {
+            // 引导方式**排在视力状况前面**、且**不在单独同意门后面**：它是偏好不是身份信息，
+            // 拒绝了敏感项的人仍能告诉陪跑员该递绳还是该挽手臂（依据见 `BlindEscortPreferencesTests` 文件头）。
+            row(
+                title: BlindProfileCopy.tether,
+                value: viewModel.tetherPreference?.displayName ?? BlindProfileCopy.tetherUndecided,
+                accessibilityLabel: "希望怎么被引导，选填",
+                identifier: "blindProfileTetherPreferencePicker"
+            ) {
+                BlindProfileChoicePage(
+                    viewModel: viewModel,
+                    title: BlindProfileCopy.tether,
+                    choices: BlindProfileChoices.tether,
+                    selection: $viewModel.tetherPreference,
+                    footnote: BlindProfileCopy.tetherChoiceFootnote
+                )
+            }
+            GroupedCardDivider()
+            row(
+                title: BlindProfileCopy.pace,
+                value: viewModel.defaultPace.displayName,
+                accessibilityLabel: "默认配速偏好，选填",
+                identifier: "blindProfilePaceRow"
+            ) {
+                BlindProfileChoicePage(
+                    viewModel: viewModel,
+                    title: BlindProfileCopy.pace,
+                    choices: BlindProfileChoices.pace,
+                    selection: $viewModel.defaultPace,
+                    footnote: BlindProfileCopy.paceChoiceFootnote
+                )
+            }
+        }
+
+        BlindProfileGroup(title: BlindProfileCopy.acceptedGroupTitle) {
+            textRow(.guideNote, text: $viewModel.guidePreferenceText, identifier: "blindProfileGuideNoteRow")
+            GroupedCardDivider()
+            textRow(.specialNeeds, text: $viewModel.specialNeeds, identifier: "blindProfileSpecialNeedsRow")
+        }
+
+        visionGroup
+
+        BlindProfileEmergencyContactsGroup()
+
+        if let errorMessage = viewModel.errorMessage {
+            Text(errorMessage)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+                .accessibilityLabel(errorMessage)
         }
     }
 
-    // MARK: - 导盲犬三选一（#472）
-
-    /// 「有 / 没有 / 不说」。这一枚是 `BlindMenuPicker` 的原型（#472 先在这里写成 `Menu` 包 `Picker`，#527 提成共享控件）。
-    private var guideDogMenu: some View {
-        BlindMenuPicker(
-            title: "平时使用导盲犬",
-            selection: $viewModel.guideDog,
-            valueText: viewModel.guideDog.profileOptionTitle,
-            accessibilityLabel: "平时使用导盲犬，选填",
-            accessibilityHint: "可以选有、没有或不说。选有之后，只会给你派接受与导盲犬同行的陪跑员"
-        ) {
-            ForEach(GuideDogStatus.allCases, id: \.self) { status in
-                Text(status.profileOptionTitle).tag(status)
-            }
+    /// 一行：名称在左、值在右、带箭头，点了推入选择页或编辑页。
+    /// 读屏念「名称 + 值」，标签沿用改版前控件的说法，标识沿用改版前控件的 id（UI 用例按它找元素）。
+    private func row<Destination: View>(
+        title: String,
+        value: String,
+        accessibilityLabel: String,
+        identifier: String,
+        @ViewBuilder destination: @escaping () -> Destination
+    ) -> some View {
+        NavigationLink(destination: destination) {
+            SettingsRowLabel(title: title, value: value)
         }
-        .accessibilityIdentifier("blindProfileGuideDogMenu")
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLoading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(value)
+        .accessibilityHint("点开修改，改完当场保存")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(identifier)
     }
 
-    private static func visionLevelTitle(_ level: VisionLevel?) -> String {
-        switch level {
-        case .totalBlind: return "完全看不见"
-        case .lowVision: return "还有一些视力"
-        default: return "不填"
+    /// 两段自由文本：有内容时名称下面露原文，没填写时右侧写「未填写」。
+    private func textRow(
+        _ field: BlindProfileTextField,
+        text: Binding<String>,
+        identifier: String
+    ) -> some View {
+        let value = text.wrappedValue.nilIfBlank ?? BlindProfileCopy.unfilled
+        return NavigationLink {
+            BlindProfileTextEditPage(viewModel: viewModel, field: field, text: text)
+        } label: {
+            BlindProfileDetailRowLabel(title: field.title, detail: text.wrappedValue)
         }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLoading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(field.accessibilityLabel)
+        .accessibilityValue(value)
+        .accessibilityHint("点开修改，改完按保存")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - 视力状况（敏感，走单独同意）
 
     /// 视力状况与导盲犬。
     ///
-    /// 未同意时这里是**一个按钮**而不是两个摊开的控件：读屏用户一次划动就跳过
+    /// 未同意时这一组**只有一行**而不是两个摊开的选项：读屏用户一次划动就跳过
     /// （与 `RoleSelectionView.inviteCodeSection` 折叠成按钮同一条理由），
-    /// 而且摊开的控件本身就意味着「已经可以填了」—— 那与「收集前取得单独同意」相反。
+    /// 而且摊开的选项本身就意味着「已经可以填了」—— 那与「收集前取得单独同意」相反。
     @ViewBuilder
-    private var visionSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("视力状况")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            if viewModel.hasVisionConsent {
-                // 文案用**功能性自述**而不是残疾等级：同类产品（United In Stride 的
-                // "How would you characterize your vision?"）与 Washington Group 的
-                // WHO/联合国统计标准都是这个问法。写「一级/二级视力残疾」是医学分级口径，
-                // 用途不对，用户也未必知道自己证上是几级。
-                BlindMenuPicker(
-                    title: "视力状况",
-                    selection: $viewModel.visionLevel,
-                    valueText: Self.visionLevelTitle(viewModel.visionLevel),
-                    showsTitle: false,
+    private var visionGroup: some View {
+        if viewModel.hasVisionConsent {
+            BlindProfileGroup(title: BlindProfileCopy.visionGroupTitle, footnote: BlindProfileCopy.visionConsentedFootnote) {
+                row(
+                    title: BlindProfileCopy.vision,
+                    value: BlindProfileCopy.visionLevelTitle(viewModel.visionLevel),
                     accessibilityLabel: "视力状况，选填",
-                    accessibilityHint: "选择完全看不见，或者还有一些视力"
+                    identifier: "blindProfileVisionLevelPicker"
                 ) {
-                    ForEach([nil, VisionLevel.totalBlind, VisionLevel.lowVision], id: \.self) { level in
-                        Text(Self.visionLevelTitle(level)).tag(level)
-                    }
+                    BlindProfileChoicePage(
+                        viewModel: viewModel,
+                        title: BlindProfileCopy.vision,
+                        choices: BlindProfileChoices.vision,
+                        selection: $viewModel.visionLevel,
+                        footnote: BlindProfileCopy.visionChoiceFootnote
+                    )
                 }
-                .accessibilityIdentifier("blindProfileVisionLevelPicker")
-
-                guideDogMenu
-
-                // 同意要能撤回（PIPL 第十五条）。按下立刻保存，不等底部那枚「保存」（#352）。
-                Button {
+                GroupedCardDivider()
+                row(
+                    title: BlindProfileCopy.guideDog,
+                    value: viewModel.guideDog.profileOptionTitle,
+                    accessibilityLabel: "平时使用导盲犬，选填",
+                    identifier: "blindProfileGuideDogMenu"
+                ) {
+                    BlindProfileChoicePage(
+                        viewModel: viewModel,
+                        title: BlindProfileCopy.guideDog,
+                        choices: BlindProfileChoices.guideDog,
+                        selection: $viewModel.guideDog,
+                        footnote: BlindProfileCopy.guideDogChoiceFootnote
+                    )
+                }
+                GroupedCardDivider()
+                // 同意要能撤回（PIPL 第十五条）。按下立刻保存（#352）。
+                withdrawRow {
                     visionConsentDeclineNotice = nil
                     viewModel.withdrawVisionConsent()
-                } label: {
-                    Text(VisionConsentWithdrawalCopy.buttonTitle)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
-                        .frame(maxWidth: .infinity, minHeight: 64)
-                        .background(AppColors.secondaryBackground)
-                        .cornerRadius(12)
                 }
-                .disabled(viewModel.isLoading)
-                .accessibilityLabel(VisionConsentWithdrawalCopy.accessibilityLabel)
-                .accessibilityIdentifier("blindProfileVisionConsentWithdraw")
-            } else {
-                Text("这两项属于敏感个人信息，填之前我们会先单独问你一次。")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-
+            }
+        } else {
+            BlindProfileGroup(title: BlindProfileCopy.visionGroupTitle, footnote: BlindProfileCopy.visionPendingFootnote) {
+                if viewModel.isVisionConsentWithdrawalPending {
+                    // 撤回已按下、还没存上：两项已经收起，撤回行要留着让用户重试，
+                    // 失败文案说的就是「再点一次『撤回这两项的同意』」（同隐私与授权页的 `withdrawalPending`）。
+                    withdrawRow {
+                        viewModel.submit()
+                    }
+                    GroupedCardDivider()
+                }
                 Button {
                     showVisionConsent = true
                 } label: {
-                    Text("填写视力状况")
+                    SettingsRowLabel(title: BlindProfileCopy.fillVisionRowTitle, titleColor: AppColors.primary)
                 }
-                .buttonStyle(OutlineSecondaryButtonStyle())
+                .buttonStyle(.plain)
                 // 撤回正在保存时不许重新打开同意页：结果回来前重新同意，最终状态取决于两件事谁先完成。
                 .disabled(viewModel.isLoading)
                 .accessibilityLabel("填写视力状况")
                 .accessibilityHint("视力状况和导盲犬属于敏感个人信息，点开后会先告知再由你决定填不填")
                 .accessibilityIdentifier("blindProfileVisionConsentDisclosure")
             }
+        }
 
-            if let notice = viewModel.visionConsentWithdrawnNotice {
-                // 同拒绝那一句：必须上屏，不能只播报。
-                Text(notice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(notice)
-                    .accessibilityIdentifier("blindProfileVisionConsentWithdrawnNotice")
-            }
+        if let notice = viewModel.visionConsentWithdrawnNotice {
+            // 同拒绝那一句：必须上屏，不能只播报。
+            noticeLine(notice, identifier: "blindProfileVisionConsentWithdrawnNotice")
+        }
 
-            if let notice = visionConsentDeclineNotice {
-                // 🚩 拒绝的反馈必须**上屏**，不能只 `speak`。只播报的话，明眼陪同者与
-                // 低视力用户按下「不填这一项」之后屏幕上一个字都不多，看起来就是按钮坏了
-                // （记忆 `claimed-fallback-may-not-exist-in-release` 的同一形状）。
-                Text(notice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(notice)
-                    .accessibilityIdentifier("blindProfileVisionConsentDeclineNotice")
-            }
+        if let notice = visionConsentDeclineNotice {
+            // 🚩 拒绝的反馈必须**上屏**，不能只 `speak`。只播报的话，明眼陪同者与
+            // 低视力用户按下「不填这一项」之后屏幕上一个字都不多，看起来就是按钮坏了
+            // （记忆 `claimed-fallback-may-not-exist-in-release` 的同一形状）。
+            noticeLine(notice, identifier: "blindProfileVisionConsentDeclineNotice")
         }
     }
 
-    private var submitButton: some View {
-        VStack(spacing: 8) {
-            // 放在按钮正上方而不是表单末尾：表单很长，末尾那行在屏幕外，明眼陪同者看不到。
-            if let notice = viewModel.savedNotice {
-                Text(notice)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(notice)
-                    .accessibilityIdentifier("blindProfileSavedNotice")
-            }
-            PrimaryButton(
-                viewModel.isEditing ? "保存" : "完成",
-                isLoading: viewModel.isLoading
-            ) {
-                viewModel.submit()
-            }
-            .disabled(!viewModel.canSubmit)
-            .opacity(viewModel.canSubmit ? 1 : 0.45)
-            .accessibilityLabel(viewModel.isEditing ? "保存，保存资料" : "完成，保存资料")
-            .accessibilityHint(viewModel.canSubmit ? "点击后保存资料" : "请先填写必填资料")
+    private func withdrawRow(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            SettingsRowLabel(
+                title: BlindProfileCopy.withdrawRowTitle,
+                titleColor: AppColors.destructive,
+                showsChevron: false
+            )
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
-        .background(.regularMaterial)
-        // 贴底的保存栏：审计要知道它在哪，滚到它后面的表单行才不会误判对比度（#711 起资料页藏标签栏，栏贴到屏幕底）。
-        // 先 `.contain` 再挂 id，否则会盖掉子元素的 id（记忆 `accessibility-identifier-overwrites-children`）。
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("blindProfileSubmitBar")
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLoading)
+        .accessibilityLabel(VisionConsentWithdrawalCopy.accessibilityLabel)
+        .accessibilityIdentifier("blindProfileVisionConsentWithdraw")
     }
-}
 
-// MARK: - Profile Text Field
-
-private struct ProfileTextField: View {
-    let title: String
-    let placeholder: String
-    @Binding var text: String
-    let isRequired: Bool
-    var keyboardType: UIKeyboardType = .default
-    let errorMessage: String?
-    let accessibilityLabel: String
-    let accessibilityHint: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                if isRequired {
-                    Text("*")
-                        .font(.headline)
-                        .foregroundColor(AppColors.destructive)
-                        .accessibilityHidden(true)
-                }
-            }
-
-            TextField(placeholder, text: $text)
-                .keyboardType(keyboardType)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(AppFonts.body())
-                .padding()
-                .background(AppColors.secondaryBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(errorMessage == nil ? Color.clear : AppColors.destructive, lineWidth: 1)
-                )
-                .cornerRadius(8)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityHint(accessibilityHint)
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel(errorMessage)
-            }
-        }
+    private func noticeLine(_ notice: String, identifier: String) -> some View {
+        Text(notice)
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
+            .accessibilityLabel(notice)
+            .accessibilityIdentifier(identifier)
     }
 }
 

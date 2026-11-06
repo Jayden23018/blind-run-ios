@@ -31,6 +31,46 @@ extension blindRunUITests {
         XCTAssertEqual(menu.value as? String, "没有", "读屏没念当前选项")
     }
 
+    // MARK: - 资料查看页改文字（#750）
+
+    /// 清空昵称按「保存」：留在编辑页、念出并上屏原因，退回查看页仍是旧昵称（没有半截保存）。
+    /// 改成新昵称再保存：回到查看页，那一行和头像下的名字都换成新昵称。
+    @MainActor
+    func testBlindProfileNicknameEditRejectsEmptyAndSavesNewName() throws {
+        let app = launchBlindContactsApp()
+        openBlindAccount(app)
+        tapNavigationRow(app, labelBeginsWith: "个人资料")
+
+        let row = app.descendants(matching: .any)["blindProfileNicknameRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "查看页没有「昵称」")
+        XCTAssertEqual(row.value as? String, "测试盲人")
+        tapWhenHittableOrByCoordinate(row, app: app)
+
+        let field = app.textFields["昵称，必填"].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 8), "没进昵称编辑页")
+        tapWhenHittableOrByCoordinate(field, app: app)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "测试盲人".count))
+        let save = app.buttons["blindProfileTextEditSave"].firstMatch
+        tapWhenHittableOrByCoordinate(save, app: app)
+        let error = app.descendants(matching: .any)["blindProfileSaveError"].firstMatch
+        XCTAssertTrue(error.waitForExistence(timeout: 5), "空昵称没有上屏原因")
+        XCTAssertEqual(error.label, "请填写昵称，2 到 50 个字。")
+        XCTAssertTrue(app.navigationBars["昵称"].exists, "校验没过却离开了编辑页")
+
+        app.navigationBars["昵称"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        XCTAssertEqual(row.value as? String, "测试盲人", "没存上的空昵称不能留在资料里")
+
+        tapWhenHittableOrByCoordinate(row, app: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 8))
+        replaceText(in: field, with: "新昵称", app: app)
+        tapWhenHittableOrByCoordinate(save, app: app)
+        XCTAssertTrue(app.navigationBars["个人资料"].waitForExistence(timeout: 10), "存上之后没回到查看页")
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertEqual(row.value as? String, "新昵称")
+        XCTAssertTrue(app.staticTexts["新昵称"].firstMatch.exists, "头像下的名字没跟着换")
+    }
+
     // MARK: - 紧急联系人无障碍
 
     /// 列表行只播报掩码手机号，且朗读顺序为「概览 → 联系人 → 新增」。

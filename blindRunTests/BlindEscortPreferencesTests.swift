@@ -311,13 +311,13 @@ final class BlindEscortPreferencesTests: XCTestCase {
         XCTAssertEqual(retry.guideDog, "NOT_SPECIFIED")
     }
 
-    /// 表单过不了校验（昵称空）时按撤回：一个请求都发不出去，所以界面不能先收起、也不能记成待撤回，
-    /// 只念校验错误。对照是上面的成功用例 —— 同一个撤回，昵称在时立刻收起并发请求。
+    /// 资料过不了校验（昵称只有 1 个字，后端 `@Size(min = 2)` 会 400）时按撤回：一个请求都发不出去，
+    /// 所以界面不能先收起、也不能记成待撤回，只念校验错误（#750 起空昵称不带 `name` 键、不算不合格，所以用 1 个字）。
     func testWithdrawingWithAnInvalidFormSendsNothingAndKeepsTheConsentShown() async {
         let client = ProfileSaveSpy()
         client.result = .success(BlindProfileResponse(name: "测试昵称", visionLevel: "NOT_SPECIFIED", hasGuideDog: false, guideDog: "NOT_SPECIFIED"))
         let (viewModel, appState) = makeSavingViewModel(client: client)
-        viewModel.name = "  "
+        viewModel.name = "测"
 
         viewModel.withdrawVisionConsent()
         try? await Task.sleep(nanoseconds: 300_000_000)
@@ -327,7 +327,7 @@ final class BlindEscortPreferencesTests: XCTestCase {
         XCTAssertFalse(viewModel.isVisionConsentWithdrawalPending)
         XCTAssertEqual(viewModel.visionLevel, .lowVision, "没撤回成功，用户填的值不能被清掉")
         XCTAssertTrue(hasStoredConsent(appState))
-        XCTAssertEqual(viewModel.errorMessage, "请填写必填信息")
+        XCTAssertEqual(viewModel.errorMessage, "昵称至少 2 个字。")
     }
 
     /// 撤回还没存上时又重新同意 ⇒ 那次撤回作废，保存的是用户这次选的值。
@@ -458,8 +458,8 @@ final class BlindEscortPreferencesTests: XCTestCase {
     }
 }
 
-/// 只接 `PUT /api/blind/profile` 那一下。
-private final class ProfileSaveSpy: APIClientProtocol, @unchecked Sendable {
+/// 只接 `PUT /api/blind/profile` 那一下。`BlindProfileSaveChangeTests` 也用它，所以不是 private。
+final class ProfileSaveSpy: APIClientProtocol, @unchecked Sendable {
     var result: Result<BlindProfileResponse, Error> = .failure(APIError.unknown(statusCode: -1))
     private(set) var lastUpdate: BlindProfileUpdateRequest?
 
