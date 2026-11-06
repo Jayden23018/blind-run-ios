@@ -191,6 +191,32 @@ extension BlindBookingViewModel {
         return "结束地点：\(endPlace.spokenAddress)。"
     }
 
+    /// 不用括号：全角「）」收尾会被真机审计误判为文字被裁（记忆 text-clipped-audit-trailing-fullwidth-paren）。
+    static let profileDefaultPaceSuffix = "，资料里的默认"
+
+    /// 资料里的默认配速（#797）。`nil` = 资料没设，或设的是「无偏好」。
+    ///
+    /// **只用于显示，不写进 `pacePreference`。** 下单不带配速时后端本来就回落到它
+    /// （契约 `CreateOrderRequest.pacePreference`），所以订单不会错；缺的只是用户听不出会用哪个配速。
+    /// 抄进 `pacePreference` 会让确认页和它的播报把它当成「这次选的」，
+    /// 与 `resetVoiceFilledSlots` 防「上一轮残留被当成这次说的」是同一类问题。
+    var profileDefaultPace: PacePreference? {
+        guard let pace = appState?.blindProfile?.defaultPace?.selectable,
+              pace != .noPreference else { return nil }
+        return pace
+    }
+
+    /// 配速选择器里「不另选」那一项的名字。资料有默认值时它的真实含义就是「按资料默认」，
+    /// 写成「无偏好」反而是错的。
+    var paceUnsetOptionTitle: String {
+        guard let profileDefaultPace else { return PacePreference.noPreference.displayName }
+        return "资料里的默认：\(profileDefaultPace.displayName)"
+    }
+
+    func paceOptionTitle(_ option: PacePreference) -> String {
+        option == .noPreference ? paceUnsetOptionTitle : option.displayName
+    }
+
     var optionalReviewItems: [BookingReviewItem] {
         var items: [BookingReviewItem] = []
         if let routeNotes = routeNotes.nilIfBlank {
@@ -201,6 +227,12 @@ extension BlindBookingViewModel {
         }
         if pacePreference != .noPreference {
             items.append(BookingReviewItem(id: "pace", title: "配速偏好", value: pacePreference.displayName))
+        } else if let profileDefaultPace {
+            items.append(BookingReviewItem(
+                id: "pace",
+                title: "配速偏好",
+                value: "\(profileDefaultPace.displayName)\(Self.profileDefaultPaceSuffix)"
+            ))
         }
         if routePreference != .noPreference {
             items.append(BookingReviewItem(id: "route", title: "路线偏好", value: routePreference.displayName))
