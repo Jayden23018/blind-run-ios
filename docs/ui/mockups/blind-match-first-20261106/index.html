@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>约跑先匹配后商量 · 模拟图 v3（待确认）</title><style>
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>约跑先匹配后商量 · 模拟图 v4（待确认）</title><style>
 /* 颜色取自 FlowPalette 与 ButtonChrome.ButtonPalette 亮色档，沿用 intro-call-meetup-plan-20261015 的取值，不新增颜色。 */
 :root{
   --page:#F2F3F6; --matching:#46506A; --surface:#FFFFFF; --ink:#151A26; --ink2:#5B6272; --ink3:#8A91A2; --sep:#EEF0F4;
@@ -107,8 +107,37 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 .times{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 8px;padding:0 20px}
 .tc{height:52px;border-radius:26px;background:#fff;border:1.5px solid var(--grayStroke);display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600}
 .tc.on{border:3px solid var(--btn);background:var(--btn2bg);color:var(--btn);font-weight:800}
+.phone.r2{background:#2A5BD7;display:block}
+.r2>div{position:absolute}
+.r2{font-family:"Avenir Next","PingFang SC",-apple-system,sans-serif}
+.r2-sb{top:0;left:0;right:0;height:50px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 32px 6px 46px;font-size:16px;font-weight:600;color:#fff}
+.r2-plate{left:43.5px;width:325.5px;height:40px;border-radius:31px 31px 0 0;background:#6F8FE3}
+.r2-handle{left:175.5px;width:51.5px;height:4px;border-radius:2px;background:#fff}
+.r2-card{left:0;right:0;bottom:0;background:#fff;border-radius:31px 31px 0 0}
+.r2-back{left:20.5px;display:flex;align-items:center;gap:6px;font-size:14.5px;line-height:14.5px;color:#6E6E6E;font-weight:400}
+.r2-title{left:0;right:0;text-align:center;font-size:18px;line-height:18px;font-weight:600;color:#1B2657}
+.r2-h{left:19.5px;font-size:18px;line-height:18px;font-weight:600;color:#1B2657}
+.r2-pill{display:flex;align-items:center;border-radius:24px;background:#fff;border:1.2px solid #F2F2F2;font-size:14.5px;font-weight:400;color:#363636;white-space:nowrap}
+.r2-pill.on{border:1.5px solid #0058C7;color:#1B2657}
+.r2-sub{left:19.5px;font-size:12px;line-height:12px;color:#6B6B6B}
+.r2-band{left:0;width:402px;height:132px;background:#FDFDFD}
+.r2-mon{font-size:13px;line-height:13px;font-weight:400;white-space:nowrap}
+.r2-mon.r2-cur{font-weight:600}
+.r2-day{width:48px;height:48px;border-radius:24px;background:#EEF3FC;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:400;color:#5D6069}
+.r2-day.on{background:#fff;border:1.5px solid #0058C7;color:#1B2657;font-weight:600}
+.r2-day.past{background:#F4F4F5;color:#B0B0B5}
+.r2-wk{width:40px;text-align:center;font-size:12px;line-height:12px;color:#757575}
+.r2-wk.on{color:#1B2657}
+.r2-wk.past{color:#B0B0B5}
+.r2-div{left:17.5px;width:365.5px;height:1px;background:#F5F5F5}
+.r2-hint{left:18.5px;font-size:12px;line-height:12px;color:#6B6B6B}
+.r2-tc{width:81px;height:40.5px;border-radius:20.25px;background:#fff;border:1.2px solid #F2F2F2;display:flex;align-items:center;justify-content:center;font-size:14.5px;font-weight:400;color:#363636;box-sizing:border-box}
+.r2-tc.on{border:1.5px solid #0058C7;color:#1B2657}
+.r2-btn{left:18.5px;width:365px;height:51.5px;border-radius:26px;background:#0058C7;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600}
+.r2-home{left:138px;width:125.5px;height:4.5px;border-radius:2.25px;background:#ECECEC}
+.r2-pill,.r2-day{box-sizing:border-box}
 </style></head><body>
-<h1>约跑先匹配后商量 · 模拟图 v3（待确认）</h1>
+<h1>约跑先匹配后商量 · 模拟图 v4（待确认）</h1>
 <p class="lede">Jayden23018/blind-run-ios#806。负责人 2026-11-06 定：盲人点一个大概时段就开始匹配；匹配到的陪跑员先和盲人通电话，再在见面安排单里填准点、见面点和跑步需求；盲人听完确认才成单。熟人搭档也要先通话。订单状态不加新值。后端契约见 Jayden23018/blind-run-backend#932。<br>只画亮色、默认字号、竖屏。紫色框是读屏（VoiceOver）念的原话。</p>
 
 <h2>盲人端</h2>
@@ -116,54 +145,77 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 <div class="row">
 
 <div class="col">
-<div class="phone">
-  <div class="sb"><span>21:10</span><span>5G 100%</span></div>
-  <div class="nav3"><span class="back">‹ 返回</span><span class="t3">预约陪跑</span><span style="width:64px"></span></div>
-  <div class="h3t">从哪出发？</div>
-  <div class="pills"><div class="pill on">✓ 当前位置</div><div class="pill">常用地点</div></div>
-  <div class="band">
-    <div class="months"><b>2026 年 11 月</b></div>
-    <div class="circles">
-      <div class="cd off"><i>6</i><span>今天</span></div>
-      <div class="cd on"><i>7</i><span>明天</span></div>
-      <div class="cd"><i>8</i><span>周六</span></div>
-      <div class="cd"><i>9</i><span>周日</span></div>
-      <div class="cd"><i>10</i><span>周一</span></div>
-      <div class="cd"><i>11</i><span>周二</span></div>
-      <div class="cd"><i>12</i><span>周三</span></div>
-    </div>
-  </div>
-  <div class="h3t">大概什么时候？</div>
-  <div class="pills"><div class="pill on">✓ 上午</div><div class="pill">下午</div><div class="pill">傍晚</div></div>
-  <div class="range">上午 6:00–11:00 之间</div>
-  <div class="hr"></div>
-  <div class="h3s">想几点开始？<span>可以不选，电话里再定</span></div>
-  <div class="times">
-    <div class="tc">6:00</div><div class="tc">6:30</div><div class="tc">7:00</div><div class="tc">7:30</div>
-    <div class="tc">8:00</div><div class="tc on">✓ 8:30</div><div class="tc">9:00</div><div class="tc">9:30</div>
-    <div class="tc">10:00</div><div class="tc">10:30</div>
-  </div>
-  <div class="bottom" style="padding-top:6px"><div class="b1"><div>开始找陪跑员</div></div></div>
-  <div class="hi"></div>
+<div class="phone r2">
+<div class="r2-sb"><span>21:10</span><span>5G 100%</span></div>
+<div class="r2-plate" style="top:53.5px"></div>
+<div class="r2-handle" style="top:59.5px"></div>
+<div class="r2-card" style="top:66px"></div>
+<div class="r2-back" style="top:98.5px"><svg viewBox="0 0 14 12" width="13" height="11"><path d="M13 6H1.5M6 1L1 6l5 5" fill="none" stroke="#6E6E6E" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>返回</span></div>
+<div class="r2-title" style="top:97px">预约陪跑</div>
+<div class="r2-h" style="top:150.5px">从哪出发？</div>
+<div class="r2-pill on" style="left:18.5px;top:191px;height:48px;padding:0 15px">当前位置</div>
+<div class="r2-pill" style="left:125.5px;top:191px;height:48px;padding:0 15px">常用地点</div>
+<div class="r2-sub" style="top:248px">人民公园东门附近 · 见面点电话里再定</div>
+<div class="r2-band" style="top:292.0px"></div>
+<div class="r2-mon" style="left:4.5px;top:306.5px;color:#B8B8B8">5月</div>
+<div class="r2-mon" style="left:43px;top:306.5px;color:#AAAAAA">6月</div>
+<div class="r2-mon" style="left:81.5px;top:306.5px;color:#A9A9A9">7月</div>
+<div class="r2-mon" style="left:120px;top:306.5px;color:#8A8A8A">8月</div>
+<div class="r2-mon" style="left:158.5px;top:306.5px;color:#757575">9月</div>
+<div class="r2-mon" style="left:197px;top:306.5px;color:#5C5C5C">10月</div>
+<div class="r2-mon r2-cur" style="left:243px;top:306.5px;color:#363636">11月</div>
+<div class="r2-mon" style="left:290px;top:306.5px;color:#9F9F9F">12月</div>
+<div class="r2-mon" style="left:336px;top:306.5px;color:#BDBDBD">1月</div>
+<div class="r2-mon" style="left:374.5px;top:306.5px;color:#C8C8C8">2月</div>
+<div class="r2-day past" style="left:-3.7px;top:343.5px">5</div>
+<div class="r2-wk past" style="left:0.3px;top:397.0px">周三</div>
+<div class="r2-day past" style="left:56.4px;top:343.5px">6</div>
+<div class="r2-wk past" style="left:60.4px;top:397.0px">周四</div>
+<div class="r2-day on" style="left:116.5px;top:343.5px">7</div>
+<div class="r2-wk on" style="left:120.5px;top:397.0px">周五</div>
+<div class="r2-day " style="left:176.3px;top:343.5px">8</div>
+<div class="r2-wk " style="left:180.3px;top:397.0px">周六</div>
+<div class="r2-day " style="left:236.1px;top:343.5px">9</div>
+<div class="r2-wk " style="left:240.1px;top:397.0px">周日</div>
+<div class="r2-day " style="left:296.2px;top:343.5px">10</div>
+<div class="r2-wk " style="left:300.2px;top:397.0px">周一</div>
+<div class="r2-day " style="left:356.0px;top:343.5px">11</div>
+<div class="r2-wk " style="left:360.0px;top:397.0px">周二</div>
+<div class="r2-h" style="top:455.5px">大概什么时候？</div>
+<div class="r2-pill on" style="left:18.5px;top:494.0px;height:45px;padding:0 14px">上午</div>
+<div class="r2-pill" style="left:94.5px;top:494.0px;height:45px;padding:0 14px">下午</div>
+<div class="r2-pill" style="left:170.5px;top:494.0px;height:45px;padding:0 14px">傍晚</div>
+<div class="r2-div" style="top:554.5px"></div>
+<div class="r2-hint" style="top:566.0px">上午 6:00–11:00 之间 · 具体几点可以不选，电话里再定</div>
+<div class="r2-tc" style="left:18px;top:593.0px">6:00</div>
+<div class="r2-tc" style="left:113px;top:593.0px">6:30</div>
+<div class="r2-tc" style="left:207px;top:593.0px">7:00</div>
+<div class="r2-tc" style="left:302px;top:593.0px">7:30</div>
+<div class="r2-tc" style="left:18px;top:646.0px">8:00</div>
+<div class="r2-tc on" style="left:113px;top:646.0px">8:30</div>
+<div class="r2-tc" style="left:207px;top:646.0px">9:00</div>
+<div class="r2-tc" style="left:302px;top:646.0px">9:30</div>
+<div class="r2-tc" style="left:18px;top:699.0px">10:00</div>
+<div class="r2-tc" style="left:113px;top:699.0px">10:30</div>
+<div class="r2-btn" style="top:789px">开始找陪跑员</div>
+<div class="r2-home" style="top:863px"></div>
 </div>
-<div class="cap">B1 约跑页 v3（版式照负责人给的参考图 2，颜色用我们的）<small>自上而下与参考图 2 一一对应：返回 + 标题 → 一行选项（参考图「Booking for?」换成「从哪出发」）→ 浅色底带里的月份 + 一排圆形日期（横向滑，可约 7 天）→ 时段三选一 → 分隔线 → 具体时刻（每 30 分钟一个，可不选，再点一下取消）→ 底部大按钮。参考图第二行「预约类型」我们没有，按负责人 11-06 决定去掉。选中项加粗边框加「✓」，不只靠颜色。今天时段全过完，所以「6 今天」不可点。</small></div>
-<div class="speak"><b>进页播报</b>预约陪跑。从当前位置出发。已选明天上午，6 点到 11 点之间。具体几点可以不选。点「开始找陪跑员」就开始匹配。</div>
-<div class="speak"><b>聚焦日期</b>明天，11 月 7 日，周五。已选中。按钮。第 2 项，共 7 项。</div>
-<div class="speak"><b>聚焦时刻</b>8 点 30。已选中。按钮。可以不选，电话里再定。再点两下取消。</div>
-<div class="speak"><b>聚焦主按钮</b>开始找陪跑员，明天上午，想 8 点 30 左右开始。按钮。</div>
+<div class="cap">B1 约跑页 v4（按参考图 2 逐像素量出的尺寸重画，颜色换成我们的）<small>版式、尺寸、间距、字号字重都取自参考图实测（底板圆角 31、胶囊 48 / 45 / 40.5 三档高、日期圆 48 节距 60、左右边距 18.5、按钮 365×51.5）。只改了三处：顶部两行换成一行「从哪出发」；时刻按上午 6:00–10:30 共 10 个（参考图 8 个）；加一行小字说明时段范围和「可以不选」。</small></div>
+<div class="speak"><b>进页播报</b>预约陪跑。从当前位置出发。已选 11 月 7 日周五，上午 6 点到 11 点之间。具体几点可以不选。点「开始找陪跑员」就开始匹配。</div>
+<div class="speak"><b>聚焦日期</b>明天，11 月 7 日，周五。已选中。按钮。第 3 项，共 7 项。</div>
+<div class="speak"><b>聚焦时刻</b>8 点 30。已选中。按钮。可以不选，电话里再定。</div>
 </div>
 
 <div class="col" style="width:360px">
 <div class="why">
-<h3>v3 相对 v2 改了什么</h3>
-<p><b>只改约跑页。</b>负责人要求整体版式与参考图 2 一模一样、颜色用我们的。</p>
-<p><b>日期改回横排圆形、可横向滑。</b>圆直径 64 点，守住盲人端 64 点可点下限；一屏放不下 7 个，右边露出半个圆提示还能滑，和参考图一致。读屏照样按顺序念完 7 天并报「第几项共几项」。</p>
-<p><b>⚠️ 一个要知道的代价：</b>放大字号的低视力用户，滑到屏幕外的日期看不到，要自己往左滑。v2 的两行排法没有这个问题。按负责人要求采用 v3。</p>
-<p><b>加回具体时刻，但可以不选。</b>不选 = 只带时段去匹配；选了 = 告诉陪跑员「跑者想几点左右开始」，陪跑员电话后仍可改。后端要多一个可选字段，已补到后端 #932。</p>
-<p><b>时刻只列来得及的。</b>每个时段最后一个时刻留出至少 30 分钟跑步；今天的时刻要在 30 分钟以后。</p>
+<h3>v4 怎么做的</h3>
+<p>派了一个子代理用 PIL 逐像素量参考图 2，拆出 29 个元素的坐标、尺寸、圆角、描边、字号字重和颜色；v4 按这些数字用绝对定位一比一画，颜色换成我们的：主按钮与选中描边用主按钮蓝 #0058C7，标题与选中文字用藏青 #1B2657。</p>
+<h3 style="margin-top:14px">实现前要您拍板的两处（照搬会碰到盲人端规则）</h3>
+<p><b>1. 未选中的边框几乎看不见。</b>参考图未选中胶囊是白底加 #F2F2F2 细边，压白底只有约 1.1:1，低于「控件边界 3:1」；低视力用户看不出哪里能点。建议实现时边框换成我们灰按钮的描边色 #7C7C80（外观会比参考图重一点）。</p>
+<p><b>2. 日期圆和时刻胶囊比 64 点小。</b>参考图圆 48、时刻高 40.5。实现时看得见的大小照参考图，可点区用透明边距撑到 64 高（和我们 52 点胶囊、64 点可点区的做法一样）；日期圆节距只有 60，横向可点区会到 60，略低于 64。</p>
+<p>其余（字重只用 600 / 400、选中只换描边不加粗、月份渐隐、浅色日期带）照参考图。</p>
 </div>
 </div>
-
 
 <div class="col">
 <div class="phone">
@@ -256,9 +308,9 @@ h2{font-size:22px;font-weight:800;margin:52px 0 6px}
 </div>
 
 <div class="ask">
-<h3>v3 请负责人确认</h3>
-v3 只改 B1（约跑页），版式照负责人 11-06 给的参考图 2，颜色用我们的。其余四屏只同步了示例：明天上午，跑者想 8:30 左右开始。<br>
-1. B1 的整体版式和参考图 2 对得上吗？<br>
+<h3>v4 请负责人确认</h3>
+v4 只改 B1（约跑页）：按参考图 2 逐像素实测重画，颜色用我们的。其余四屏只同步了示例：明天上午，跑者想 8:30 左右开始。<br>
+1. B1 和参考图 2 对得上吗？另外 B1 右侧两处无障碍取舍（未选中边框、64 点可点区）请拍板。<br>
 2. 具体时刻每 30 分钟一个，可不选；选了只是「想几点左右」，陪跑员电话后还能改。可以吗？<br>
 3. 时段三个：上午 6–11 点、下午 13–17 点、傍晚 17–21 点，中午 11–13 点不给。可以吗？<br>
 4. V1 邀请卡给陪跑员看跑者资料里的配速档和导盲犬（固定选项，不含自由文字）。可以吗？
