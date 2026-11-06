@@ -350,18 +350,8 @@ struct BlindOrderStatusView: View {
     /// 派生自 `flowPresentation` 而不是另写一套状态判断 —— 两处各判一次的下场是
     /// 骨架渲染出来了而底栏还挂着旧的两个按钮（或者反过来），而那种错位在真机上
     /// 表现为「底部四个按钮」，不会有任何东西报错。
-    private var usesFlowSkeleton: Bool {
+    var usesFlowSkeleton: Bool {
         flowPresentation != nil
-    }
-
-    /// 已取消 / 暂无志愿者的终态页（#818）。导航栏与底栏要和骨架一起判，同一个谓词。
-    private var usesTerminalPage: Bool {
-        viewModel.order?.status.usesBlindTerminalPage == true
-    }
-
-    /// 骨架或终态页：标题叫「陪跑订单」、右上角有「重复当前状态」、不挂旧的「问一句」底栏。
-    private var usesFlowChrome: Bool {
-        usesFlowSkeleton || usesTerminalPage
     }
 
     /// 进倒计时并把屏 3 呈上来。**两条触发路径共用这一个函数** —— 长按直接调，

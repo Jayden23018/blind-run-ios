@@ -20,6 +20,17 @@ extension RunOrderStatus {
 }
 
 extension BlindOrderStatusView {
+    /// 已取消 / 暂无志愿者的终态页。导航栏与底栏要和骨架一起判，同一个谓词。
+    /// 放在这个文件而不是 `BlindOrderStatusView.swift` 里：那个文件已超长，行数棘轮不许再变大。
+    var usesTerminalPage: Bool {
+        viewModel.order?.status.usesBlindTerminalPage == true
+    }
+
+    /// 骨架或终态页：标题叫「陪跑订单」、右上角有「重复当前状态」、不挂旧的「问一句」底栏。
+    var usesFlowChrome: Bool {
+        usesFlowSkeleton || usesTerminalPage
+    }
+
     /// 已取消 / 暂无志愿者。版式与订单页其他状态同一套：灰头卡、白色信息卡、底栏只有一个主按钮。
     ///
     /// 🔴 **没有「求助与安全」**：求助只在 `IN_PROGRESS` 开放（`AGENTS.md` §6）。
