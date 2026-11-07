@@ -168,17 +168,8 @@ extension PointTransactionResponse {
     func dayText(now: Date = Date(), calendar: Calendar = .current) -> String? {
         guard let date = createdAt?.nilIfBlank?.backendTimestamp else { return nil }
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
-        return (sameYear ? DateFormatter.aidRunPointsMonthDay : DateFormatter.aidRunDisplayDay).string(from: date)
+        return (sameYear ? DateFormatter.aidRunDisplayMonthDay : DateFormatter.aidRunDisplayDay).string(from: date)
     }
-}
-
-extension DateFormatter {
-    static let aidRunPointsMonthDay: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
 }
 
 // MARK: - 文案

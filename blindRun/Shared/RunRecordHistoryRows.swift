@@ -84,8 +84,8 @@ struct RunHistoryRowContent: Equatable {
 
     init(item: RunHistoryItem, role: RunRecordHistoryRole) {
         let date = item.finishedAt.backendTimestamp
-        dateText = date.map { Self.dateFormatter.string(from: $0) } ?? item.finishedAt
-        dayText = date.map { Self.dayFormatter.string(from: $0) } ?? item.finishedAt
+        dateText = date.map { DateFormatter.aidRunDisplayMonthDayWeekday.string(from: $0) } ?? item.finishedAt
+        dayText = date.map { DateFormatter.aidRunDisplayMonthDay.string(from: $0) } ?? item.finishedAt
         weekdayText = date.map { Self.weekdayFormatter.string(from: $0) }
         let place = item.place?.trimmingCharacters(in: .whitespaces)
         let shownPlace = place?.isEmpty == false ? place : nil
@@ -99,21 +99,6 @@ struct RunHistoryRowContent: Equatable {
             .joined(separator: "，")
         rotorLabel = dateText
     }
-
-    /// 「9月20日 周六」。
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEE"
-        return formatter
-    }()
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
 
     private static let weekdayFormatter: DateFormatter = {
         let formatter = DateFormatter()

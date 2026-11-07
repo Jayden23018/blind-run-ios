@@ -31,9 +31,9 @@ enum RunRecordFitness {
     /// 「2026年9月24日 05:10–05:32」。没有结束时间就只写开始。
     static func dateRange(start: Date?, end: Date?) -> String? {
         guard let start else { return nil }
-        let head = dayFormatter.string(from: start) + " " + timeFormatter.string(from: start)
+        let head = DateFormatter.aidRunDisplayDay.string(from: start) + " " + DateFormatter.aidRunDisplayClockPadded.string(from: start)
         guard let end, end > start else { return head }
-        return head + "–" + timeFormatter.string(from: end)
+        return head + "–" + DateFormatter.aidRunDisplayClockPadded.string(from: end)
     }
 
     /// 读屏版：「05:10到05:32」。
@@ -85,20 +85,6 @@ enum RunRecordFitness {
             return total
         }
     }
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年M月d日"
-        return formatter
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
 }
 
 enum RunRecordMetricTone: Hashable {

@@ -313,7 +313,7 @@ struct BlindRecentStartPlace: Identifiable, Equatable {
     static let limit = 5
 
     var usedOnText: String? {
-        usedOn.map { "\(Self.dayFormatter.string(from: $0))跑过" }
+        usedOn.map { "\(DateFormatter.aidRunDisplayMonthDay.string(from: $0))跑过" }
     }
 
     /// 新的在前；同一个地名只留最近一次；没有地名或坐标的单跳过。
@@ -342,13 +342,6 @@ struct BlindRecentStartPlace: Identifiable, Equatable {
         }
         return unique
     }
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
 }
 
 // MARK: - 文案

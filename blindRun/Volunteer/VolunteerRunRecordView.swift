@@ -98,8 +98,8 @@ struct VolunteerRunRecordContent {
         // D5：没有「待确认」之类的状态。
         serviceDuration = record.service.durationMin.map { RunRecordHistoryViewModel.serviceDuration(Int64($0)) }
         serviceText = serviceDuration.map { "志愿服务 \($0)" }
-        let serviceStart = record.service.startedAt?.backendTimestamp.map(Self.timeFormatter.string(from:))
-        let serviceEnd = record.service.completedAt?.backendTimestamp.map(Self.timeFormatter.string(from:))
+        let serviceStart = record.service.startedAt?.backendTimestamp.map(DateFormatter.aidRunDisplayClockPadded.string(from:))
+        let serviceEnd = record.service.completedAt?.backendTimestamp.map(DateFormatter.aidRunDisplayClockPadded.string(from:))
         serviceRange = serviceStart.flatMap { s in serviceEnd.map { "\(s)–\($0)" } }
 
         timeline = record.events.map { Self.timelineEntry($0) }
@@ -167,7 +167,7 @@ struct VolunteerRunRecordContent {
     }
 
     private static func timelineEntry(_ event: RunEvent) -> TimelineEntry {
-        let clock = event.at.backendTimestamp.map(timeFormatter.string(from:)) ?? ""
+        let clock = event.at.backendTimestamp.map(DateFormatter.aidRunDisplayClockPadded.string(from:)) ?? ""
         // 由轨迹推算的时刻（REST、RUN_ENDED）标「约」，不冒充订单日志里的真实时刻。
         let time = event.inferred ? "约\(clock)" : clock
         let text: String
@@ -189,13 +189,6 @@ struct VolunteerRunRecordContent {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "M月d日 EEE HH:mm"
-        return formatter
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "HH:mm"
         return formatter
     }()
 }
