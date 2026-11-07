@@ -694,7 +694,7 @@ struct BlindRunnerHomeView: View {
     ///
     /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
     /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
-    /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 顶部的「待进行的预约」里（#660 B-5）。
+    /// （见 `performActiveOrderLoad` 的注释）。其余几张暂时没有入口（「记录」里那一段 11-07 按负责人要求删了，首页多张预约另立 issue）。
     private var contentLayer: some View {
         GeometryReader { proxy in
             ScrollView {

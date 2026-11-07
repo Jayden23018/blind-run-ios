@@ -1244,11 +1244,16 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(listen.exists, "「听这次跑步」不在")
         XCTAssertGreaterThanOrEqual(listen.frame.height, 64, "圆钮可点区至少 64pt")
 
+        // 声音路线 11-07 第二轮整个去掉（音调像防空警报）。
+        XCTAssertFalse(app.buttons["runnerRunRecordSoundRoute"].exists, "声音路线圆钮应已去掉")
+
         listen.tap()
-        let transcript = app.descendants(matching: .any)["runnerRunRecordTranscript"].firstMatch
-        XCTAssertTrue(transcript.waitForExistence(timeout: 5), "点了之后要显示文字稿")
-        XCTAssertTrue(transcript.label.contains("给你留了一句话"), "讲述最后读陪跑员留言：\(transcript.label)")
         XCTAssertEqual(listen.label, "停止讲述")
+        // 讲述只出声，不再显示文字稿（负责人 11-07 第二轮第 1 条）。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["runnerRunRecordTranscript"].firstMatch.waitForExistence(timeout: 2),
+            "点了「听这次跑步」不应再出现文字稿"
+        )
         listen.tap()
         XCTAssertEqual(listen.label, "听这次跑步", "再点一次停止")
 
@@ -1293,19 +1298,6 @@ final class AccessibilityAuditTests: XCTestCase {
             _ = openRunnerRunRecordDetail(app)
             sleep(3) // 等底图瓦片下完。
             attachScreenshot(app, name: "runner-run-record-\(variant.name)-0-top")
-            // 讲述点一次（截文字稿），声音路线放 3 秒（截「第 N 公里」和点亮的竖条），截完都停掉。
-            let listen = app.buttons["runnerRunRecordListen"]
-            for _ in 0..<3 where !listen.isHittable { app.swipeUp() }
-            if listen.isHittable { listen.tap() }
-            let play = app.buttons["runnerRunRecordSoundRoute"]
-            for _ in 0..<6 where !play.isHittable { app.swipeUp() }
-            if play.isHittable {
-                play.tap()
-                sleep(3)
-                attachScreenshot(app, name: "runner-run-record-\(variant.name)-sound")
-                play.tap()
-            }
-            if listen.exists, listen.label == "停止讲述" { listen.tap() }
             let pages = variant.name == "ax-xxxl" ? 12 : 5
             for page in 1...pages {
                 app.swipeUp()

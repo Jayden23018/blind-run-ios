@@ -271,40 +271,41 @@ struct VolunteerRunRecordView: View {
     private func loaded(_ record: RunRecordResponse) -> some View {
         let geometry = record.status == .ready ? record.track.flatMap(RunRouteGeometry.init(track:)) : nil
         let content = VolunteerRunRecordContent(record: record, geometry: geometry, messages: viewModel.messages(of: record))
-        return GeometryReader { proxy in
-            ScrollViewReader { scroll in
+        return ScrollViewReader { scroll in
+            let onSelectSplit: ((Int) -> Void)? = geometry == nil ? nil : { select($0, scroll: scroll) }
+            if let geometry {
+                // 地图固定在页面背后，往上滑渐渐模糊（照健身，负责人 11-07 第二轮第 5 条）。
+                RunRecordMapScrollPage(
+                    geometry: geometry,
+                    record: record,
+                    highlight: highlightedSplit.flatMap { index in content.splits.first { $0.index == index } },
+                    hasTopButtons: false,
+                    mapAccessibilityLabel: content.mapDescription,
+                    topID: Self.topID
+                ) {
+                    header(content)
+                } buttons: {
+                    EmptyView()
+                } content: {
+                    sections(record, content, onSelectSplit: onSelectSplit)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        // 滚到底时最后一行别贴着 Home 条。
+                        .padding(.bottom, 32)
+                }
+            } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if let geometry {
-                            RunRecordMapHero(
-                                geometry: geometry,
-                                record: record,
-                                highlight: highlightedSplit.flatMap { index in content.splits.first { $0.index == index } },
-                                topInset: proxy.safeAreaInsets.top,
-                                screenHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom,
-                                hasTopButtons: false,
-                                mapAccessibilityLabel: content.mapDescription
-                            ) {
-                                header(content)
-                            } buttons: {
-                                EmptyView()
-                            }
-                            .id(Self.topID)
-                        } else {
-                            header(content)
-                                .padding(.horizontal, 20)
-                                .padding(.top, 16)
-                        }
-                        sections(record, content, onSelectSplit: geometry == nil ? nil : { select($0, scroll: scroll) })
+                        header(content)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 16)
+                        sections(record, content, onSelectSplit: onSelectSplit)
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
-                            // 滚到底时最后一行别贴着 Home 条。
                             .padding(.bottom, 32)
                     }
                     .readableContentColumn()
                 }
-                // 地图伸到导航栏下（照健身）；滚动后系统导航栏照常换上底色。
-                .ignoresSafeArea(edges: geometry == nil ? [] : .top)
             }
         }
     }
@@ -699,7 +700,7 @@ private struct DecorativeIconLabelStyle: LabelStyle {
 // MARK: - Route Map
 
 /// 描边 + 配速线 + 公里标记 + 起终点 + 休息点 + 高亮那一公里。整张图对读屏是装饰（描述挂在页面上）。
-/// 两端详情页的顶部通栏地图（`RunRecordMapHero`）与跑者端「路线」一节都用它，跑者端 `highlight` 传 nil。
+/// 两端详情页固定在背后的地图（`RunRecordMapScrollPage`）与跑者端「路线」一节都用它，跑者端 `highlight` 传 nil。
 /// 底图降饱和（#823 第 10 条）；配速图例挪到「配速」卡里（左上角现在是返回键）。
 struct RunRecordRouteMap: View {
     let geometry: RunRouteGeometry

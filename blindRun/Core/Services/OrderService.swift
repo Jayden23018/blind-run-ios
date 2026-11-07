@@ -135,8 +135,8 @@ struct OrderService: OrderServing {
 
     /// 只取第一页，每页 `myOrdersPageSize` 条。后端按 `createdAt` 倒序，契约默认每页 10 条。
     ///
-    /// ponytail: 「记录」的「待进行的预约」（#660 B-5）要靠这一页拿全最多 3 张活跃单。活跃单最多约 7 天前下的，
-    /// 7 天里下满 50 单才会把它挤到第二页。真遇到再改成按 `status` 分别查。
+    /// ponytail: 「记录」底部「未完成的预约」只看这一页：已取消 / 暂无志愿者的单被挤到第二页就不列了。
+    /// 真遇到再改成按 `status` 分别查。
     func myOrders() async throws -> PagedOrderResponse {
         try await transport.send(OrderEndpoint.mine.request, query: ["size": String(Self.myOrdersPageSize)])
     }

@@ -1,16 +1,17 @@
 # blind-pre-run-support Specification
 
 ## Purpose
-Covers what the blind runner hears and can do between booking a run and finishing it: every active booking,
-the waiting status, start reminders, calendar export, start-place privacy, low battery and the run rating.
+Covers what the blind runner hears and can do between booking a run and finishing it: where active bookings
+are shown, the waiting status, start reminders, calendar export, start-place privacy, low battery and the run rating.
 ## Requirements
-### Requirement: Every active booking is reachable
-The runner「记录」tab SHALL list every order whose status is active for the blind runner in a section
-named「待进行的预约」, sorted by planned start, before the monthly records. Each row SHALL open the order page.
+### Requirement: The records tab holds finished runs only
+The runner「记录」tab SHALL NOT list bookings that are still active, and its load announcement SHALL NOT
+count them (owner decision 2026-11-07, #823 round 2). Showing several active bookings on the home page is
+tracked separately; until it ships, only the booking returned by `GET /api/orders/active` is reachable.
 
 #### Scenario: Two active bookings
 - **WHEN** the runner has one booking tomorrow and one the day after
-- **THEN** both appear under「待进行的预约」, tomorrow's first, and the load announcement says there are 2
+- **THEN** neither appears in the「记录」tab and the load announcement does not mention them
 
 ### Requirement: Rating has no default
 The completion rating SHALL start with no option selected. Submitting without a choice SHALL NOT call the

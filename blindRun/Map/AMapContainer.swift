@@ -117,14 +117,12 @@ struct AMapContainer: UIViewRepresentable {
         if nightSky {
             applyNightSky(on: mapView, coordinator: context.coordinator)
         }
-        if mutedBasemap { applyMutedWash(on: mapView, coordinator: context.coordinator) }
-        // MAMapView continuously mutates a large UIKit subview/accessibility tree
-        // while rendering. Exposing those implementation details through a
-        // UIViewRepresentable makes SwiftUI rebuild accessibility attributes on
-        // every map frame. SwiftUI supplies one stable summary element below.
+        // MAMapView keeps changing its subview and accessibility tree while it renders; SwiftUI supplies one stable summary element instead.
         mapView.isAccessibilityElement = false
         mapView.accessibilityElementsHidden = true
-        return AMapHostView(mapView: mapView)
+        let hostView = AMapHostView(mapView: mapView)
+        if mutedBasemap { configureRunRecordMap(hostView, coordinator: context.coordinator) }
+        return hostView
     }
 
     func updateUIView(_ hostView: AMapHostView, context: Context) {
@@ -405,7 +403,7 @@ struct AMapContainer: UIViewRepresentable {
         /// 星火页第一批星加进地图的时刻，点亮延迟从这里起算。
         var sparkEpoch: CFTimeInterval?
         var nightWash: MAPolygon?
-        var mutedWash: MAPolygon?; var lastFittedPadding: UIEdgeInsets? // 跑步记录（#823），见 `AMapContainer+RunRecord.swift`
+        var mutedWash: MAPolygon?; var lastFittedPadding: UIEdgeInsets?; var lastFittedSize = CGSize.zero // 跑步记录（#823），见 `AMapContainer+RunRecord.swift`
 
         func remove(_ entry: PolylineEntry, from mapView: MAMapView) {
             mapView.remove(entry.overlay)
@@ -579,6 +577,7 @@ final class AMapHostView: UIView {
     /// `AMapApprovalNumberTests` 钉着我们没开。叠在高德 logo 正上方，不和它重叠。
     /// 读屏隐藏：这是给看屏幕的人的合规标注，「关于」页有一份能念的。
     let approvalNumberLabel = UILabel()
+    var onLayout: ((MAMapView) -> Void)? // 跑步记录按真实尺寸重新取景（#823 第二轮），见 `AMapContainer+RunRecord.swift`
 
     init(mapView: MAMapView) {
         self.mapView = mapView
@@ -618,6 +617,7 @@ final class AMapHostView: UIView {
             width: min(size.width, max(bounds.width - logoLeft, 0)),
             height: size.height
         )
+        onLayout?(mapView)
     }
 
     @available(*, unavailable)

@@ -330,12 +330,10 @@ struct RunnerRunRecordView: View {
     @StateObject private var audio = RunRecordAudioController()
     @State private var retryTask: Task<Void, Never>?
     @State private var voiceOverRunning = UIAccessibility.isVoiceOverRunning
-    @State private var showsTranscript = false
     @AccessibilityFocusState private var headerFocused: Bool
 
     /// 与圆钮 / 读屏元素的 `accessibilityIdentifier` 字面量一致（焦点移开就暂停靠它认控件）。
     static let listenID = "runnerRunRecordListen"
-    static let soundRouteID = "runnerRunRecordSoundRoute"
     static let readMessagesID = "runnerRunRecordReadMessages"
 
     init(orderId: Int64) {
@@ -392,57 +390,45 @@ struct RunnerRunRecordView: View {
     private func loaded(_ record: RunRecordResponse) -> some View {
         let geometry = record.status == .ready ? record.track.flatMap(RunRouteGeometry.init(track:)) : nil
         let content = RunnerRunRecordContent(record: record, geometry: geometry)
-        let sonification = RunRouteSonification(
-            samples: record.paceSamples, stops: record.stops, totalMetres: record.summary?.distanceM, geometry: geometry
-        )
-        let hasButtons = content.narration != nil || sonification != nil
-        return GeometryReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    // VoiceOver 关着（多半是低视力）：通栏地图在最上面，头部叠在它下沿。
-                    // VoiceOver 开着：地图挪进「路线」一节并隐藏（HANDOFF 6.3），头部直接在页顶。
-                    if !voiceOverRunning, let geometry {
-                        RunRecordMapHero(
-                            geometry: geometry,
-                            record: record,
-                            topInset: proxy.safeAreaInsets.top,
-                            screenHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom,
-                            hasTopButtons: hasButtons
-                        ) {
-                            header(content)
-                        } buttons: {
-                            circleButtons(content.narration, sonification)
-                        }
-                    } else {
-                        if !voiceOverRunning, hasButtons {
-                            circleButtons(content.narration, sonification)
+        // VoiceOver 关着（多半是低视力）：地图固定在页面背后，头部压在它下沿，往上滑地图渐渐模糊（照健身）。
+        // VoiceOver 开着：地图挪进「路线」一节并隐藏（HANDOFF 6.3），头部直接在页顶。
+        return Group {
+            if !voiceOverRunning, let geometry {
+                RunRecordMapScrollPage(geometry: geometry, record: record, hasTopButtons: content.narration != nil) {
+                    header(content)
+                } buttons: {
+                    listenButton(content.narration)
+                } content: {
+                    sections(record, content: content, geometry: geometry)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 32)
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !voiceOverRunning, content.narration != nil {
+                            listenButton(content.narration)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 8)
                         }
                         header(content)
                             .padding(.horizontal, 20)
-                            .padding(.top, voiceOverRunning || !hasButtons ? 16 : 0)
+                            .padding(.top, voiceOverRunning || content.narration == nil ? 16 : 0)
+                        sections(record, content: content, geometry: geometry)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            .padding(.bottom, 32)
                     }
-                    sections(record, content: content, geometry: geometry, sonification: sonification)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 32)
+                    .readableContentColumn()
                 }
-                .readableContentColumn()
             }
-            // 地图伸到导航栏下（照健身）；滚动后系统导航栏照常换上底色。
-            .ignoresSafeArea(edges: voiceOverRunning || geometry == nil ? [] : .top)
         }
     }
 
-    private func sections(
-        _ record: RunRecordResponse,
-        content: RunnerRunRecordContent,
-        geometry: RunRouteGeometry?,
-        sonification: RunRouteSonification?
-    ) -> some View {
+    private func sections(_ record: RunRecordResponse, content: RunnerRunRecordContent, geometry: RunRouteGeometry?) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            listenSections(record, content: content, geometry: geometry, sonification: sonification)
+            listenSections(record, content: content, geometry: geometry)
             dataSections(record, content: content)
             if let messages = content.messages {
                 messagesBlock(messages)
@@ -452,30 +438,11 @@ struct RunnerRunRecordView: View {
     }
 
     /// 读屏元素紧跟头部：进页面焦点在头部，往右划一次就到「听这次跑步」（HANDOFF 第 7 节）。
-    /// 然后是文字稿、声音路线播放卡、无路线提示（在「听」之后，§7 第 2 条）。
+    /// 然后是无路线提示（在「听」之后，§7 第 2 条）。讲述只出声，不显示文字稿（负责人 11-07 第二轮第 1 条）。
     @ViewBuilder
-    private func listenSections(
-        _ record: RunRecordResponse,
-        content: RunnerRunRecordContent,
-        geometry: RunRouteGeometry?,
-        sonification: RunRouteSonification?
-    ) -> some View {
-        if voiceOverRunning {
-            if let narration = content.narration { voiceOverListen(narration) }
-            if let sonification { voiceOverSoundRoute(sonification) }
-        }
-        if showsTranscript, let narration = content.narration {
-            RunRecordCard {
-                Text(narration)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("文字稿：\(narration)")
-                    .accessibilityIdentifier("runnerRunRecordTranscript")
-            }
-        }
-        if let sonification, isRouteActive {
-            soundRouteCard(sonification)
+    private func listenSections(_ record: RunRecordResponse, content: RunnerRunRecordContent, geometry: RunRouteGeometry?) -> some View {
+        if voiceOverRunning, let narration = content.narration {
+            voiceOverListen(narration)
         }
         RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: retry)
     }
@@ -551,14 +518,7 @@ struct RunnerRunRecordView: View {
 
 // 拆出来只是因为结构体正文超过 SwiftLint 上限（棘轮只许变小）；同一个文件，私有成员照常可见。
 extension RunnerRunRecordView {
-    // MARK: 听这次跑步 / 用声音走一遍路线
-
-    private var isRouteActive: Bool {
-        switch audio.state {
-        case .playing(.route), .paused(.route), .preparing(.route): return true
-        default: return false
-        }
-    }
+    // MARK: 听这次跑步
 
     private var listenTitle: String {
         switch audio.state {
@@ -568,106 +528,37 @@ extension RunnerRunRecordView {
         }
     }
 
-    private func routeTitle(seconds: Int) -> String {
-        switch audio.state {
-        case .playing(.route): return "停止声音路线"
-        case .paused(.route): return "继续播放声音路线"
-        case .preparing(.route): return "正在准备声音路线"
-        default: return "播放声音路线，大约 \(seconds) 秒"
-        }
-    }
-
     private func toggleListen(_ narration: String) {
-        showsTranscript = true
         audio.activeControlIdentifier = Self.listenID
         audio.toggleSpeech(narration)
     }
 
-    private func toggleRoute(_ sonification: RunRouteSonification) {
-        audio.activeControlIdentifier = Self.soundRouteID
-        audio.toggleRoute(sonification)
-    }
-
-    /// 地图右上两个圆钮（负责人 11-07 第 3 条：去掉页面里的大按钮）。
+    /// 地图右上的圆钮（负责人 11-07 第 3 条：去掉页面里的大按钮）。
+    /// 第二轮去掉了旁边的「声音路线」圆钮：音调听着像防空警报（负责人 11-07 第二轮第 2 条）。
     @ViewBuilder
-    private func circleButtons(_ narration: String?, _ sonification: RunRouteSonification?) -> some View {
-        HStack(spacing: 0) {
-            if let narration {
-                let seconds = RunnerRunRecordContent.estimatedSeconds(narration)
-                RunRecordMapCircleButton(
-                    systemImage: audio.state == .playing(.narration) ? "stop.fill" : "speaker.wave.2.fill",
-                    accessibilityLabel: listenTitle,
-                    accessibilityHint: "语音讲述这次跑步，大约 \(seconds) 秒",
-                    identifier: Self.listenID,
-                    isActive: audio.state == .playing(.narration)
-                ) { toggleListen(narration) }
-            }
-            if let sonification {
-                RunRecordMapCircleButton(
-                    systemImage: audio.state == .playing(.route) ? "stop.fill" : "waveform",
-                    accessibilityLabel: routeTitle(seconds: Int(sonification.duration.rounded())),
-                    accessibilityHint: Self.soundRouteExplanation,
-                    identifier: Self.soundRouteID,
-                    isActive: audio.state == .playing(.route)
-                ) { toggleRoute(sonification) }
-            }
+    private func listenButton(_ narration: String?) -> some View {
+        if let narration {
+            RunRecordMapCircleButton(
+                systemImage: audio.state == .playing(.narration) ? "stop.fill" : "speaker.wave.2.fill",
+                accessibilityLabel: listenTitle,
+                accessibilityHint: "语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒",
+                identifier: Self.listenID,
+                isActive: audio.state == .playing(.narration)
+            ) { toggleListen(narration) }
         }
     }
 
     /// VoiceOver 开着时紧跟头部的「听这次跑步」：只进无障碍树，看得见的人看不到（负责人 11-07 选「右上圆钮 + 读屏保留」）。
     private func voiceOverListen(_ narration: String) -> some View {
-        voiceOverOnlyButton(
-            label: listenTitle,
-            hint: "语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒",
-            identifier: Self.listenID
-        ) { toggleListen(narration) }
-    }
-
-    private func voiceOverSoundRoute(_ sonification: RunRouteSonification) -> some View {
-        voiceOverOnlyButton(
-            label: routeTitle(seconds: Int(sonification.duration.rounded())),
-            hint: Self.soundRouteExplanation,
-            identifier: Self.soundRouteID
-        ) { toggleRoute(sonification) }
-    }
-
-    private func voiceOverOnlyButton(label: String, hint: String, identifier: String, action: @escaping () -> Void) -> some View {
         Color.clear
             .frame(maxWidth: .infinity)
             .frame(height: 1)
             .accessibilityElement()
-            .accessibilityLabel(label)
-            .accessibilityHint(hint)
+            .accessibilityLabel(listenTitle)
+            .accessibilityHint("语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒")
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction { action() }
-            .accessibilityIdentifier(identifier)
-    }
-
-    /// 声音路线播放中才出现：说明、点亮的竖条、「第 N 公里」字幕。
-    /// 字幕只做屏幕文字，不发 VoiceOver 通告：通告会和提示音叠在一起（HANDOFF 6.3 第 3 条）。
-    private func soundRouteCard(_ sonification: RunRouteSonification) -> some View {
-        let time = audio.routeTime
-        return RunRecordCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("用声音走一遍路线")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                Text(Self.soundRouteExplanation)
-                    .font(.subheadline)
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                RunRouteSoundStrip(sonification: sonification, litIndex: sonification.barIndex(at: time))
-                    .frame(height: 44) // guard:allow small-touch-target（装饰竖条，不是按钮）
-                if let caption = sonification.caption(at: time) {
-                    Text(caption)
-                        .font(AppFonts.title())
-                        .monospacedDigit()
-                        .foregroundColor(AppColors.textPrimary)
-                }
-            }
-            // 说明在圆钮 / 读屏元素的提示里念过，这张卡不再进遍历。
-            .accessibilityHidden(true)
-        }
+            .accessibilityAction { toggleListen(narration) }
+            .accessibilityIdentifier(Self.listenID)
     }
 
     // MARK: X的留言（阶段 6）
@@ -711,8 +602,6 @@ extension RunnerRunRecordView {
         .accessibilityIdentifier("runnerRunRecordMessages")
     }
 
-    static let soundRouteExplanation = "音调越高，跑得越快。声音在左右耳之间移动，跟着路线往东或往西走。每过一公里会响几声，响几声就是第几公里；中途休息时会响一声低音。建议戴耳机。"
-
     // MARK: 其余
 
     private func routeMap(_ geometry: RunRouteGeometry, record: RunRecordResponse, height: CGFloat) -> some View {
@@ -749,33 +638,5 @@ extension RunnerRunRecordView {
         .buttonStyle(.plain)
         .accessibilityHint("查看订单，提交或查看评价")
         .accessibilityIdentifier("runnerRunRecordOrderLink")
-    }
-}
-
-// MARK: - Pieces
-
-/// 每 100 米一根竖条，颜色按配速；播放时已走过的点亮、没走到的变淡。纯装饰（信息在讲述与分段里）。
-private struct RunRouteSoundStrip: View {
-    let sonification: RunRouteSonification
-    let litIndex: Int?
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let bars = sonification.bars
-        GeometryReader { proxy in
-            let width = proxy.size.width / CGFloat(max(bars.count, 1))
-            HStack(alignment: .bottom, spacing: 0) {
-                ForEach(Array(bars.enumerated()), id: \.offset) { offset, bar in
-                    // 音高反推回 0（快）…1（慢），与地图、分段同一套配色。
-                    let fraction = 1 - log2(bar.hz / RunRouteSonification.lowestHz)
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color(uiColor: RunPacePalette.color(fraction: fraction, isDark: colorScheme == .dark)))
-                        .opacity(litIndex.map { offset <= $0 ? 1 : 0.3 } ?? 1)
-                        .frame(width: max(width - 1, 1), height: proxy.size.height * (0.35 + 0.65 * (1 - fraction)))
-                        .frame(width: width)
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .bottom)
-        }
     }
 }
