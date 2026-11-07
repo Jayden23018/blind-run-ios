@@ -423,12 +423,30 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             stage: .response
         )
 
+        return try await decodeResponse(
+            data: data,
+            httpResponse: httpResponse,
+            diagnosticID: diagnosticID,
+            endpointCategory: endpointCategory,
+            startedAt: diagnosticStart
+        )
+    }
+
+    /// 按状态码分类响应，`request` 与 `upload` 共用（#848 D6）。
+    /// 2xx 解码（信封优先、裸解兜底，策略本体在 `APIPayloadDecoder`），解码失败留一条诊断记录；
+    /// 401 只抛 `.unauthorized`；429 走 `rateLimitError`；其余先按字符串 code 的错误体解，再按宽松信封解。
+    private func decodeResponse<T: Decodable>(
+        data: Data,
+        httpResponse: HTTPURLResponse,
+        diagnosticID: String,
+        endpointCategory: String,
+        startedAt diagnosticStart: Date
+    ) async throws -> T {
         switch httpResponse.statusCode {
         case 200...299:
             if T.self == EmptyResponse.self, data.isEmpty {
                 return EmptyResponse() as! T
             }
-            // 信封优先、裸解兜底。策略本体在 `APIPayloadDecoder`，两个调用点共用同一份并由用例锁住。
             do {
                 return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
             } catch {
@@ -468,6 +486,7 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         files: [MultipartFile],
         requiresAuth: Bool = true
     ) async throws -> T {
+        let endpointCategory = Self.endpointCategory(for: path)
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)
 
         if let query, !query.isEmpty {
@@ -506,11 +525,14 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             if let accessToken {
                 request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
             }
-            return try await self.performUploadOnce(request)
+            return try await self.performUploadOnce(request, endpointCategory: endpointCategory)
         }
     }
 
-    private func performUploadOnce<T: Decodable>(_ request: URLRequest) async throws -> T {
+    private func performUploadOnce<T: Decodable>(_ request: URLRequest, endpointCategory: String) async throws -> T {
+        // 上传只在解码失败时留诊断记录（与 `performOnce` 共用 `decodeResponse`）。
+        let diagnosticID = String(UUID().uuidString.prefix(8))
+        let diagnosticStart = Date()
         let data: Data
         let response: URLResponse
         do {
@@ -523,33 +545,13 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.unknown(statusCode: -1)
         }
 
-        switch httpResponse.statusCode {
-        case 200...299:
-            if T.self == EmptyResponse.self, data.isEmpty {
-                return EmptyResponse() as! T
-            }
-            // 与 `request` 共用同一份策略，见 `APIPayloadDecoder`。
-            do {
-                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
-            } catch {
-                throw APIError.decodingError(error)
-            }
-        case 401:
-            throw APIError.unauthorized
-        case 429:
-            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
-        default:
-            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
-            if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
-                throw APIError.serverError(errorResponse)
-            }
-            // Accept the cloud backend's flexible error payload during contract convergence.
-            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
-               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
-                throw APIError.serverError(errorResponse)
-            }
-            throw APIError.unknown(statusCode: httpResponse.statusCode)
-        }
+        return try await decodeResponse(
+            data: data,
+            httpResponse: httpResponse,
+            diagnosticID: diagnosticID,
+            endpointCategory: endpointCategory,
+            startedAt: diagnosticStart
+        )
     }
 
     private static func rateLimitError(
