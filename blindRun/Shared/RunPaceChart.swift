@@ -52,15 +52,17 @@ struct RunPaceChart: View {
         let ceiling = floor - Double((paces.min() ?? 0) - 10)
         let isDark = colorScheme == .dark
         let total = Double(samples.last?.distanceM ?? 0)
+        // 每根竖条占「上一个采样点 → 本采样点」那一段距离：x 是连续的公里数，`BarMark` 的 `.ratio` 宽度在这里没有步长可比。
+        let bars = Self.bars(samples)
         return Chart {
-            ForEach(samples, id: \.distanceM) { sample in
-                BarMark(
-                    x: .value("距离", Double(sample.distanceM) / 1000),
+            ForEach(bars, id: \.sample.distanceM) { bar in
+                RectangleMark(
+                    xStart: .value("起", bar.startKm),
+                    xEnd: .value("止", bar.endKm),
                     yStart: .value("底", 0),
-                    yEnd: .value("配速", floor - Double(sample.paceSecPerKm)),
-                    width: .ratio(0.85)
+                    yEnd: .value("配速", floor - Double(bar.sample.paceSecPerKm))
                 )
-                .foregroundStyle(Color(uiColor: RunPacePalette.color(fraction: scale.fraction(sample.paceSecPerKm), isDark: isDark)))
+                .foregroundStyle(Color(uiColor: RunPacePalette.color(fraction: scale.fraction(bar.sample.paceSecPerKm), isDark: isDark)))
             }
             if let average {
                 RuleMark(y: .value("平均配速", floor - Double(average)))
@@ -92,6 +94,18 @@ struct RunPaceChart: View {
         }
         .chartXAxisLabel("公里", alignment: .trailing)
         .frame(height: dynamicTypeSize.isAccessibilitySize ? 260 : 170)
+    }
+
+    /// 按距离排好序，每个采样点占从上一个点到它的那一段；第一个点从 0 起。条与条之间留 2% 的缝（照健身）。
+    static func bars(_ samples: [RunPaceSample]) -> [(sample: RunPaceSample, startKm: Double, endKm: Double)] {
+        let sorted = samples.sorted { $0.distanceM < $1.distanceM }
+        var previous = 0.0
+        return sorted.map { sample in
+            let end = Double(sample.distanceM) / 1000
+            let start = previous
+            previous = end
+            return (sample, start + (end - start) * 0.02, end)
+        }
     }
 
     private var descriptor: RunPaceChartDescriptor {

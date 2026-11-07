@@ -25,29 +25,12 @@ struct RunRecordMapHero<Header: View, Buttons: View>: View {
 
     @State private var headerHeight: CGFloat = 160
 
-    static var buttonRowHeight: CGFloat { FlowMetrics.actionButtonMinHeight }
-    static var gradientMinHeight: CGFloat { 230 }
-    static var routeSideInset: CGFloat { 28 }
-    static var routeGap: CGFloat { 16 }
-    /// 取景框里至少留给路线的高度。大字号头部变高时地图跟着变高，路线不至于缩成一个点。
-    static var minimumRouteHeight: CGFloat { 200 }
-
     var body: some View {
-        let topPadding = topInset + (hasTopButtons ? Self.buttonRowHeight : 0) + Self.routeGap
-        let mapHeight = max(screenHeight * 0.62, topPadding + Self.minimumRouteHeight + headerHeight + Self.routeGap)
-        let gradientHeight = max(Self.gradientMinHeight, headerHeight + 70)
+        let edgePadding = RunRecordHeroLayout.routeInsets(topInset: topInset, hasTopButtons: hasTopButtons, headerHeight: headerHeight)
+        let mapHeight = max(screenHeight * 0.62, edgePadding.top + RunRecordHeroLayout.minimumRouteHeight + edgePadding.bottom)
+        let gradientHeight = max(RunRecordHeroLayout.gradientMinHeight, headerHeight + 70)
         ZStack(alignment: .bottomLeading) {
-            RunRecordRouteMap(
-                geometry: geometry,
-                record: record,
-                highlight: highlight,
-                edgePadding: UIEdgeInsets(
-                    top: topPadding,
-                    left: Self.routeSideInset,
-                    bottom: headerHeight + Self.routeGap,
-                    right: Self.routeSideInset
-                )
-            )
+            RunRecordRouteMap(geometry: geometry, record: record, highlight: highlight, edgePadding: edgePadding)
             // 地图在滚动视图里：不接手势，上下拖都交给页面滚动。
             .allowsHitTesting(false)
             .frame(height: mapHeight)
@@ -87,6 +70,28 @@ struct RunRecordMapHero<Header: View, Buttons: View>: View {
             // 半个点以内的抖动不重新取景。
             if abs(height - headerHeight) > 0.5 { headerHeight = height }
         }
+    }
+}
+
+/// 通栏地图的尺寸常量与路线取景框（负责人 11-07 第 11 条），抽成纯函数好让用例钉住四边。
+enum RunRecordHeroLayout {
+    static let buttonRowHeight: CGFloat = FlowMetrics.actionButtonMinHeight
+    static let gradientMinHeight: CGFloat = 230
+    static let routeSideInset: CGFloat = 28
+    static let routeGap: CGFloat = 16
+    /// 标注图片以坐标为中心画（公里圆 20pt、休息 / 高亮胶囊约 22pt 高），取景只按折线外框算，四边再让出半个标注。
+    static let annotationMargin: CGFloat = 12
+    /// 取景框里至少留给路线的高度。大字号头部变高时地图跟着变高，路线不至于缩成一个点。
+    static let minimumRouteHeight: CGFloat = 200
+
+    /// 上 = 安全区顶（含导航栏）+ 圆钮那一行（有圆钮时）+ 16；下 = 头部实测高度 + 16；左右 28；四边再加半个标注。
+    static func routeInsets(topInset: CGFloat, hasTopButtons: Bool, headerHeight: CGFloat) -> UIEdgeInsets {
+        UIEdgeInsets(
+            top: topInset + (hasTopButtons ? buttonRowHeight : 0) + routeGap + annotationMargin,
+            left: routeSideInset + annotationMargin,
+            bottom: headerHeight + routeGap + annotationMargin,
+            right: routeSideInset + annotationMargin
+        )
     }
 }
 
