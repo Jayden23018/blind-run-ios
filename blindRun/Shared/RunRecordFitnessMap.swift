@@ -8,8 +8,10 @@ import UIKit
 // MARK: - 顶部通栏地图
 
 /// 详情页照健身（#823 第二轮，负责人 11-07 装机反馈第 5 条）：地图固定在页面背后，内容在它上面滚。
-/// 往上滑，头部和卡片盖上来，地图逐渐模糊、变暗（`RunRecordMapVeil`）；滑过一屏地图高度只剩记录；往回滑地图慢慢显现。
-/// 模糊是盖在地图上的材质层，不对 `MAMapView` 本身做 `.blur`（每帧重绘地图太耗电）。
+/// 往上滑，头部和卡片盖上来，地图逐渐模糊、变暗（`RunRecordMapVeil`）；往回滑地图慢慢显现。
+/// 速度和曲线照苹果健身录屏逐帧量出来的（`RunRecordHeroLayout.veil`）：上滑 70pt 已全糊，150pt 全暗，与地图多高无关。
+/// 模糊是盖在地图上的 `UIVisualEffectView`，半径随滚动连续变大（`RunRecordMapBlur`）；不对 `MAMapView` 本身做 `.blur`（每帧重绘地图太耗电）。
+/// 右上圆钮固定在屏幕顶端、不跟内容滚（照健身）。
 /// 路线只落在「安全框」里，不压返回键、右上圆钮、头部（负责人 11-07 第 8、11 条）：
 /// 上 = 安全区顶（含导航栏）+ 圆钮那一行 + 16，下 = 头部实测高度 + 16，左右各 28。
 struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View {
@@ -42,12 +44,18 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
                 RunRecordRouteMap(geometry: geometry, record: record, highlight: highlight, edgePadding: edgePadding)
                     .allowsHitTesting(false)
                     .frame(height: mapHeight)
-                    .overlay { RunRecordMapVeil(scrolled: scrolled, fadeDistance: mapHeight - topInset) }
+                    .overlay { RunRecordMapVeil(scrolled: scrolled) }
                     .accessibilityHidden(true)
                 ScrollView {
                     column(topInset: topInset, mapHeight: mapHeight)
                 }
                 .coordinateSpace(name: Self.space)
+            }
+            // 右上圆钮固定在屏幕顶端（照健身：往上滑它们不走）。放在滚动视图之后，叠在内容上面、先于它被读屏 / 点到。
+            .overlay(alignment: .topTrailing) {
+                buttons
+                    .padding(.top, topInset)
+                    .padding(.trailing, 8)
             }
             // 地图和内容都伸到导航栏下（照健身）；滚动后系统导航栏照常换上底色。
             .ignoresSafeArea(edges: .top)
@@ -63,7 +71,7 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
 
     private func column(topInset: CGFloat, mapHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // 地图露出来的那块：透明，滑动照常交给滚动视图。读屏描述、右上圆钮挂在这里，跟着内容走。
+            // 地图露出来的那块：透明，滑动照常交给滚动视图。读屏描述挂在这里，跟着内容走。
             Color.clear
                 .frame(height: max(mapHeight - headerHeight, topInset))
                 .background(
@@ -72,11 +80,6 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
                     }
                 )
                 .overlay(alignment: .top) { mapDescription(height: mapHeight - headerHeight - topInset, topInset: topInset) }
-                .overlay(alignment: .topTrailing) {
-                    buttons
-                        .padding(.top, topInset)
-                        .padding(.trailing, 8)
-                }
                 .id(topID)
             header
                 .padding(.horizontal, 20)
@@ -121,23 +124,78 @@ final class RunRecordScrollOffset: ObservableObject {
     @Published var value: CGFloat = 0
 }
 
-/// 盖在固定地图上的那层：先变模糊（材质），再被页底色盖住。「减少透明度」打开时不用材质，只变暗。
+/// 盖在固定地图上的那层：先模糊（半径连续变大），同时被页底色一点点盖住。「减少透明度」打开时不用模糊、只变暗。
 private struct RunRecordMapVeil: View {
     @ObservedObject var scrolled: RunRecordScrollOffset
-    let fadeDistance: CGFloat
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        let veil = RunRecordHeroLayout.veil(scrolled: scrolled.value, fadeDistance: fadeDistance)
+        let veil = RunRecordHeroLayout.veil(scrolled: scrolled.value)
         ZStack {
-            // 页顶（blur 为 0）不放材质层，免得静止看地图时系统也做模糊合成。
+            // 页顶（blur 为 0）不放模糊层，免得静止看地图时系统也做模糊合成。
             if !reduceTransparency, veil.blur > 0 {
-                Rectangle().fill(.ultraThinMaterial).opacity(veil.blur)
+                RunRecordMapBlur(progress: veil.blur)
             }
             AppColors.Flow.page.opacity(veil.dim)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// 真模糊：`UIVisualEffectView` + 暂停的 `UIViewPropertyAnimator`，`fractionComplete` 跟着滚动走，模糊半径从 0 连续变到满。
+/// 不用 SwiftUI 材质的 `.opacity` 渐变：那是「清晰地图 + 半透明磨砂罩」叠着，中间帧能看见清晰的路线透出来，像鬼影；
+/// 苹果健身每一帧都是一整张模糊图（2026-11-07 录屏逐帧对比）。
+private struct RunRecordMapBlur: UIViewRepresentable {
+    let progress: Double
+
+    func makeUIView(context: Context) -> RunRecordBlurView { RunRecordBlurView() }
+
+    func updateUIView(_ view: RunRecordBlurView, context: Context) {
+        view.progress = CGFloat(progress)
+    }
+}
+
+final class RunRecordBlurView: UIVisualEffectView {
+    private var animator: UIViewPropertyAnimator?
+    var progress: CGFloat = 0 {
+        didSet { animator?.fractionComplete = min(max(progress, 0), 1) }
+    }
+
+    init() {
+        super.init(effect: nil)
+        isUserInteractionEnabled = false
+        rebuildAnimator()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// 暂停中的动画在 App 退到后台或视图离开窗口后会被系统结束，回到窗口时按当前进度重建。
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { rebuildAnimator() }
+    }
+
+    private func rebuildAnimator() {
+        tearDownAnimator()
+        effect = nil
+        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
+            self?.effect = UIBlurEffect(style: .systemThinMaterial)
+        }
+        animator.pausesOnCompletion = true
+        animator.fractionComplete = min(max(progress, 0), 1)
+        self.animator = animator
+    }
+
+    private func tearDownAnimator() {
+        guard let animator else { return }
+        animator.stopAnimation(true)
+        self.animator = nil
+    }
+
+    deinit {
+        animator?.stopAnimation(true)
     }
 }
 
@@ -157,12 +215,15 @@ enum RunRecordHeroLayout {
     /// 取景框里至少留给路线的高度。大字号头部变高时地图跟着变高，路线不至于缩成一个点。
     static let minimumRouteHeight: CGFloat = 200
 
-    /// 地图遮罩：滑过 `fadeDistance`（地图高度减安全区顶，即内容顶到导航栏下沿）的一半时已完全模糊；
-    /// 从四分之一处开始变暗，滑满时被页底色完全盖住。往下拉过头（`scrolled` 为负）不加遮罩。
-    static func veil(scrolled: CGFloat, fadeDistance: CGFloat) -> (blur: Double, dim: Double) {
-        guard fadeDistance > 0 else { return (1, 1) }
-        let progress = Double(min(max(scrolled / fadeDistance, 0), 1))
-        return (blur: min(progress * 2, 1), dim: max((progress - 0.25) / 0.75, 0))
+    /// 苹果健身录屏逐帧量出来的曲线（2026-11-07，健身记录.mov，1px = 1pt，量地图区域亮度与清晰度）：
+    /// 上滑 70pt 已全糊（26pt 明显、40pt 重度），150pt 前后全暗；与地图高度无关。
+    /// 往下拉过头（`scrolled` 为负）不加遮罩。页底色在下面的卡片盖上来时接手，所以变暗滑满即 1。
+    static let blurDistance: CGFloat = 70
+    static let dimDistance: CGFloat = 150
+
+    static func veil(scrolled: CGFloat) -> (blur: Double, dim: Double) {
+        let positive = max(scrolled, 0)
+        return (blur: Double(min(positive / blurDistance, 1)), dim: Double(min(positive / dimDistance, 1)))
     }
 
     /// 上 = 安全区顶（含导航栏）+ 圆钮那一行（有圆钮时）+ 16；下 = 头部实测高度 + 16；左右 28；四边再加半个标注。

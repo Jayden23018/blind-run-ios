@@ -25,23 +25,31 @@ final class RunRecordFitnessLayoutTests: XCTestCase {
         XCTAssertEqual(large.bottom - normal.bottom, 240)
     }
 
-    /// 负责人 11-07 第二轮第 5 条：往上滑地图先模糊、再被页底色盖住；回到顶部完全不遮；往下拉过头也不遮。
-    /// 取 0.4（模糊已过半、变暗才开始一点）：把两条曲线写成同一条、或去掉「先模糊后变暗」的实现在这里结果不同。
-    func testMapVeilBlursFirstThenCoversAndClearsAtTheTop() {
-        let top = RunRecordHeroLayout.veil(scrolled: 0, fadeDistance: 500)
+    /// 负责人 11-07 第二轮第 5 条 + 苹果健身录屏逐帧量的曲线：上滑 70pt 全糊、150pt 全暗；回到顶部不遮；往下拉过头也不遮。
+    /// 取 40pt / 70pt：旧曲线按地图高度（约 480pt）算，40pt 时只糊 0.17、70pt 时只糊 0.29，在这两点上和新曲线结果不同。
+    func testMapVeilFollowsAppleFitnessCurveAndClearsAtTheTop() {
+        let top = RunRecordHeroLayout.veil(scrolled: 0)
         XCTAssertEqual(top.blur, 0)
         XCTAssertEqual(top.dim, 0)
 
-        let pulled = RunRecordHeroLayout.veil(scrolled: -80, fadeDistance: 500)
+        let pulled = RunRecordHeroLayout.veil(scrolled: -80)
         XCTAssertEqual(pulled.blur, 0, "往下拉过头不加遮罩")
+        XCTAssertEqual(pulled.dim, 0)
 
-        let partway = RunRecordHeroLayout.veil(scrolled: 200, fadeDistance: 500)
-        XCTAssertEqual(partway.blur, 0.8, accuracy: 0.0001)
-        XCTAssertEqual(partway.dim, 0.2, accuracy: 0.0001)
+        let early = RunRecordHeroLayout.veil(scrolled: 40)
+        XCTAssertEqual(early.blur, 40.0 / 70.0, accuracy: 0.0001, "40pt 时苹果已是重度模糊")
+        XCTAssertEqual(early.dim, 40.0 / 150.0, accuracy: 0.0001)
 
-        let past = RunRecordHeroLayout.veil(scrolled: 900, fadeDistance: 500)
+        let blurred = RunRecordHeroLayout.veil(scrolled: 70)
+        XCTAssertEqual(blurred.blur, 1, accuracy: 0.0001, "70pt 全糊")
+        XCTAssertLessThan(blurred.dim, 1, "全糊时还没全暗：先糊后暗")
+
+        let dark = RunRecordHeroLayout.veil(scrolled: 150)
+        XCTAssertEqual(dark.dim, 1, accuracy: 0.0001, "150pt 全暗")
+
+        let past = RunRecordHeroLayout.veil(scrolled: 900)
         XCTAssertEqual(past.blur, 1)
-        XCTAssertEqual(past.dim, 1, "滑过地图高度时地图被页底色完全盖住")
+        XCTAssertEqual(past.dim, 1)
     }
 
     /// 每根竖条占「上一个采样 → 本采样」那段距离，乱序采样按距离排好；第一根从 0 起。
