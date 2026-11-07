@@ -404,8 +404,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
     /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
-    /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
-    ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
+    /// - `items[].thumbnail`：跑者和陪跑员都有（跑者自 #940 起），Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
+    ///   轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
     /// - `monthSummary.distanceM`：有里程的那几单之和，一单都没有为 `null`
     /// - `monthSummary.topPartner`：本月一起跑得最多的搭档，并列取最近的那位；本月没有记录为 `null`
@@ -2017,8 +2017,8 @@ extension APIProtocol {
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
     /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
-    /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
-    ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
+    /// - `items[].thumbnail`：跑者和陪跑员都有（跑者自 #940 起），Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
+    ///   轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
     /// - `monthSummary.distanceM`：有里程的那几单之和，一单都没有为 `null`
     /// - `monthSummary.topPartner`：本月一起跑得最多的搭档，并列取最近的那位；本月没有记录为 `null`
@@ -12912,7 +12912,7 @@ public enum Components {
             public var partnerName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/RunHistoryItem/place`.
             public var place: Swift.String?
-            /// 仅陪跑员，≤ 64 点，GCJ-02
+            /// 跑者和陪跑员都有，≤ 64 点，GCJ-02
             ///
             /// - Remark: Generated from `#/components/schemas/RunHistoryItem/thumbnail`.
             public var thumbnail: [Components.Schemas.RunLatLng]?
@@ -12924,7 +12924,7 @@ public enum Components {
             ///   - orderId:
             ///   - partnerName: 对方姓名，脱敏（`张*`）。在册但没填名字时为 `跑者` / `陪跑员`；**`null` 只表示对方已注销**（#929）
             ///   - place:
-            ///   - thumbnail: 仅陪跑员，≤ 64 点，GCJ-02
+            ///   - thumbnail: 跑者和陪跑员都有，≤ 64 点，GCJ-02
             public init(
                 distanceM: Swift.Int32? = nil,
                 finishedAt: Swift.String,
@@ -12949,7 +12949,7 @@ public enum Components {
                 case thumbnail
             }
         }
-        /// 仅陪跑员，≤ 64 点，GCJ-02
+        /// 跑者和陪跑员都有，≤ 64 点，GCJ-02
         ///
         /// - Remark: Generated from `#/components/schemas/RunLatLng`.
         public struct RunLatLng: Codable, Hashable, Sendable {
@@ -21583,8 +21583,8 @@ public enum Operations {
     ///
     /// - `items[].distanceM` 与详情页 `summary.distanceM` 是同一个数；记录没有时退回订单完赛快照 `actualDistanceMeters`
     /// - `items[].partnerName`：对方姓名，与订单详情对已完成订单同一口径 —— 始终脱敏（`张*`）；在册但没填名字为 `跑者` / `陪跑员`；`null` 只表示对方已注销（#929）
-    /// - `items[].thumbnail`：**仅陪跑员**，Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
-    ///   跑者、轨迹不足、超过 90 天留存期时为 `null`
+    /// - `items[].thumbnail`：跑者和陪跑员都有（跑者自 #940 起），Douglas-Peucker 简化后的跑者路线（GCJ-02，≤ 64 点）给缩略图用；
+    ///   轨迹不足、超过 90 天留存期时为 `null`
     /// - `monthSummary.serviceMin`：**仅陪跑员**，本月服务分钟数（口径同单条记录的 `service.durationMin`）；跑者为 `null`
     /// - `monthSummary.distanceM`：有里程的那几单之和，一单都没有为 `null`
     /// - `monthSummary.topPartner`：本月一起跑得最多的搭档，并列取最近的那位；本月没有记录为 `null`
