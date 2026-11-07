@@ -19,29 +19,26 @@ struct RunnerRunRecordVolunteerSection: View {
         feedback.volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
     }
 
-    /// 查不到是不是搭档时也能点进去举报：用只有 id 和名字的一行，详情页不给设为 / 取消固定搭档。
-    private var row: PartnerRow? {
-        guard let volunteerId = feedback.volunteerId else { return nil }
-        return feedback.partnerRow ?? PartnerRow(
-            userId: volunteerId, name: feedback.volunteerName, completedRunsTogether: nil, favoritedAt: nil,
-            hasOptedOut: false, streak: nil, isFavorite: false
-        )
+    /// 拉黑之后不再给「设为固定搭档」。
+    private var showsAddButton: Bool {
+        feedback.partnerStatus == .notPartner && !feedback.didBlockVolunteer
     }
 
     var body: some View {
-        if let row {
+        // 查不到是不是搭档时也能点进去举报（`personRow` 退回只有 id 和名字的一行）。
+        if let row = feedback.personRow {
             VStack(alignment: .leading, spacing: 8) {
                 RunRecordSectionTitle(text: "陪跑员").padding(.top, 8)
                 RunRecordCard {
                     VStack(alignment: .leading, spacing: 12) {
                         personLink(row)
-                        if feedback.partnerStatus == .notPartner {
+                        if showsAddButton {
                             addButton
                         }
                         outcomeLines
                     }
                 }
-                if feedback.partnerStatus == .notPartner {
+                if showsAddButton {
                     GroupedCardFootnote(text: PartnerStreakCopy.blindAddFootnote)
                         .padding(.horizontal, 4)
                 }

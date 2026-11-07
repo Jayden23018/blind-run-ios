@@ -45,6 +45,8 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
     @Published private(set) var isUpdatingFavorite = false
     @Published private(set) var favoriteNotice: String?
     @Published private(set) var favoriteErrorMessage: String?
+    /// 在个人页选了「不再匹配此人」。之后卡里不再给「设为固定搭档」。
+    @Published private(set) var didBlockVolunteer = false
 
     private(set) var orderId: Int64?
     private weak var appState: AppState?
@@ -58,7 +60,8 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
 
     /// 订单详情读到后调一次。只认 `COMPLETED`：评价与收藏的门槛都是跑完。
     func load(order: OrderDetailResponse) async {
-        guard order.status == .completed, orderId != order.orderId else { return }
+        // 同一单只查一次；上一次被取消（没查完）时允许重来。
+        guard order.status == .completed, !(orderId == order.orderId && hasLoadedReview) else { return }
         bind(order: order)
         await loadExistingReview()
         await loadPartnerState()
@@ -117,8 +120,9 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
     /// `GET /api/orders/{id}/reviews`：没评过回 200 + `data: null`。
     /// 失败不提示：按没评过显示，重复提交由 `REVIEW_ALREADY_SUBMITTED` 兜住。
     private func loadExistingReview() async {
-        guard let orderId, let appState else { return }
+        // 先挂 defer：拿不到 appState 时也要按「没评过」显示，不能整节一直不出现。
         defer { hasLoadedReview = true }
+        guard let orderId, let appState else { return }
         do {
             let envelope = try await appState.orders.reviews(orderId: orderId)
             if let review = envelope.data {
@@ -131,6 +135,20 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
     }
 
     // MARK: 陪跑员
+
+    /// 进个人页用的那一行。查不到搭档状态时用只有 id 和名字的一行（个人页据 `partnerStatus` 不给设为 / 取消）。
+    var personRow: PartnerRow? {
+        guard let volunteerId else { return nil }
+        return partnerRow ?? Self.bareRow(volunteerId: volunteerId, name: volunteerName)
+    }
+
+    /// 只有 id 和名字，其余留空，不编。
+    static func bareRow(volunteerId: Int64, name: String?) -> PartnerRow {
+        PartnerRow(
+            userId: volunteerId, name: name, completedRunsTogether: nil, favoritedAt: nil,
+            hasOptedOut: false, streak: nil, isFavorite: false
+        )
+    }
 
     /// 固定搭档列表 ⋈ 火花，找这一单的陪跑员。找不到 = 还不是搭档。
     /// 失败一律静默：唯一后果是「陪跑员」一节只剩名字（`PartnerStatus.unknown`）。
@@ -145,10 +163,7 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
                 partnerRow = row
                 partnerStatus = row.hasOptedOut ? .optedOut : .partner
             } else {
-                partnerRow = rows.first { $0.userId == volunteerId } ?? PartnerRow(
-                    userId: volunteerId, name: volunteerName, completedRunsTogether: nil, favoritedAt: nil,
-                    hasOptedOut: false, streak: nil, isFavorite: false
-                )
+                partnerRow = rows.first { $0.userId == volunteerId } ?? Self.bareRow(volunteerId: volunteerId, name: volunteerName)
                 partnerStatus = .notPartner
             }
         } catch let error as APIError {
@@ -203,6 +218,7 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
     func volunteerBlocked() async {
         favoriteErrorMessage = nil
         favoriteNotice = UserSafetyCopy.blockSucceeded
+        didBlockVolunteer = true
         await loadPartnerState()
     }
 }

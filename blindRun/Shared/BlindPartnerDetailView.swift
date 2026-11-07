@@ -116,6 +116,11 @@ struct BlindPartnerDetailView: View {
     @State private var actionError: String?
 
     private var displayName: String { row.displayName(fallback: PartnerStreakCopy.unknownVolunteerName) }
+
+    /// 举报与不再匹配的目标。从跑步详情进来时带那一单的订单号（#831）。
+    static func safetyTarget(row: PartnerRow, reportOrderId: Int64?) -> CounterpartSafetyTarget? {
+        CounterpartSafetyGate.target(userId: row.userId, orderId: reportOrderId)
+    }
     private var spokenName: String { row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName) }
 
     var body: some View {
@@ -143,8 +148,7 @@ struct BlindPartnerDetailView: View {
                     .accessibilityIdentifier("blindPartnerTogetherRow")
                 }
 
-                if let userId = row.userId,
-                   let target = CounterpartSafetyGate.target(userId: userId, orderId: reportOrderId) {
+                if let target = Self.safetyTarget(row: row, reportOrderId: reportOrderId) {
                     CounterpartSafetyActions(
                         target: target,
                         spokenName: spokenName,
