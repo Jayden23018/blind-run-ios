@@ -41,22 +41,11 @@ extension BlindOrderStatusView {
                 footer: {
                     VStack(spacing: 16) {
                         flowFooter(order)
-                        if order.status != .completed { OrderCounterpartSafetySection(order: order) } // 已完成时排在评价之后
-                        // 🔴 已完成那一幕**把改版前那一页的三块原样接回来**（项目负责人
-                        // 2026-09-17 决策）：轨迹总结 + 大图回放 + 评价表单 + 收藏固定搭档
-                        // （`lifecycleSection` → `completionRatingSection`）、本单信息、状态流水。
-                        //
-                        // 设计稿 ④ 的第一屏之下是空白，而那三块是**已经上线的功能**：
-                        // 评价还有后端在催、收藏这条路是全 App 唯一不依赖火花开关的收藏入口
-                        // （另一个在设置页，只能收藏已点亮火花的一对，而那个开关后端默认关着）。
-                        // 照稿删掉等于让两个功能都没有入口 —— ⑤ 首页评价卡还卡在
-                        // 「后端 rating 是 1–5 必填、没有三档枚举」上（待拍板项 D 的决定是推迟）。
-                        if order.status == .completed {
-                            lifecycleSection(order)
-                            OrderCounterpartSafetySection(order: order)
-                            orderInfoSection(order)
-                            statusLogSection
-                        }
+                        // 🔴 已完成那一幕只留绿色卡（负责人 2026-11-07 定，#831）。2026-09-17 「把改版前那一页
+                        // 原样接回来」的决定作废：评价与「设为固定搭档」挪进跑者跑步详情（`RunnerRunRecordFeedbackSections.swift`），
+                        // 举报与不再匹配收进这个人的页面（`BlindPartnerDetailView`）；本单信息与状态流水不再显示。
+                        // 跑完当场停在这一页时不另加去跑步详情的入口，要评价从首页 → 记录进去。
+                        if order.status != .completed { OrderCounterpartSafetySection(order: order) }
                         debugMockControls(order)
                     }
                 }
@@ -208,10 +197,6 @@ extension BlindOrderStatusView {
             viewModel.repeatStatus()
         case .done:
             // 「完成」只是离开这一页（订单早已是 `COMPLETED`，结束权在陪跑员手上）。
-            //
-            // 🚩 **刻意不调 `viewModel.skipReview()`** —— 那个函数的语义是「我不评了」，
-            // 而评价表单还在这一页的滚动区里。把「离开」当成「放弃评价」会让用户
-            // 下次从历史点进来时看到一张已经被自己关掉的表。
             dismiss()
         case .preparing:
             // 倒计时那三秒按钮是 `.disabled()` 的，走不到这里。留一个显式分支而不是
@@ -251,7 +236,6 @@ extension BlindOrderStatusView {
                     runPlanShareSection(order)
                     dispatchAlgorithmNoticeSection(order)
                     peerMapSection(order)
-                    lifecycleSection(order)
                     OrderCounterpartSafetySection(order: order)
                     orderInfoSection(order)
                     statusLogSection

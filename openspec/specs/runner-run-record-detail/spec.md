@@ -4,15 +4,25 @@
 TBD - created by archiving change add-runner-run-record-detail. Update Purpose after archive.
 ## Requirements
 ### Requirement: Runner post-run detail reads the run record
-The runner post-run detail page SHALL load `RunRecordServing.record(orderId:)` (capability `post-run-record`) and SHALL be reachable from the runner records-tab row of a completed run and from the full-screen route link of the completed summary. It SHALL end with a link to the order page, where reviews are submitted.
+The runner post-run detail page SHALL load `RunRecordServing.record(orderId:)` (capability `post-run-record`) and SHALL be reachable from the runner records-tab row of a completed run. It SHALL NOT link to the order page (owner decision 2026-11-07, #831). After "路线" it SHALL end with a "陪跑员" section and a "这次陪跑怎么样" section, where reviews are submitted.
 
 #### Scenario: Records tab row
 - **WHEN** a runner taps a completed run in the records tab
 - **THEN** the app SHALL open the runner post-run detail for that order
 
-#### Scenario: Reaching the review
-- **WHEN** the runner activates "订单详情与评价" on the detail page
-- **THEN** the app SHALL open the existing order page for that order
+### Requirement: Volunteer section on the runner post-run detail
+The "陪跑员" section SHALL show one row with the initial avatar, the masked name and a status line ("还不是固定搭档" / "你的固定搭档" / "对方已退出固定搭档"). The whole row SHALL open the existing partner detail page (`BlindPartnerDetailView`), where "举报" carries this order id and "不再匹配此人" lives. "举报" and "不再匹配此人" SHALL NOT appear on the post-run detail itself. When the volunteer is not a fixed partner yet, the card SHALL show an outlined capsule "设为固定搭档"; success and failure SHALL each add a visible line and be spoken. When the partner state cannot be loaded, the row SHALL show only the name, without the button or the status line, and the partner page SHALL NOT offer to set or remove the fixed partner.
+
+#### Scenario: Report from the partner page
+- **WHEN** the runner opens the volunteer row and reports from the partner page
+- **THEN** the report request SHALL carry this order id
+
+### Requirement: Review section on the runner post-run detail
+"这次陪跑怎么样" SHALL start with no option selected. Only after an option is chosen SHALL the comment field appear, with an icon-only voice input button on the same row (64pt tappable), and below it "提交评价", the only filled button on the page. There SHALL be no "跳过评价". A submitted review SHALL show as a read-only card (level name, comment, review time) read as one VoiceOver element, and SHALL NOT be editable. Until the app knows whether a review exists, the section SHALL NOT appear.
+
+#### Scenario: Already reviewed
+- **WHEN** the runner opens the detail of a run that already has a review
+- **THEN** the section SHALL show the read-only card and no rating options
 
 ### Requirement: One swipe from the header to the narration
 With VoiceOver running, the page SHALL put VoiceOver focus on the header once the record loads, the header SHALL be a single accessibility element, and the next element SHALL be "听这次跑步". This element SHALL exist only in the accessibility tree while VoiceOver runs; with VoiceOver off the same control SHALL be a round button at the top right of the route map, 44pt visible and 64pt tappable, carrying the same accessibility identifier (owner decision 2026-11-07, #823: no large listen buttons on the page).

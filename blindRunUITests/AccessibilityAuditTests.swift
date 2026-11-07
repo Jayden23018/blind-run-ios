@@ -1223,8 +1223,6 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     /// 头部一句话、「听这次跑步」在导航栏里、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
-    /// 审计只在页顶做（理由同陪跑员页）；最后一行进订单页（补评价在那里），订单页的链接再回到本页。
-    /// 头部一句话、「听这次跑步」圆钮够 64pt、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
     /// 审计只在页顶做（理由同陪跑员页）；路线之后是「陪跑员」一节，点进去是搭档详情页，举报在那里（#831）。
     @MainActor
     func testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit() throws {

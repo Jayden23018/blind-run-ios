@@ -31,8 +31,7 @@ extension BlindOrderStatusViewModel {
             // 上限是**这一单**的属性，不是这个 view model 的。换单不清会让新订单
             // 一进来就少一个本来该有的动作。
             keepWaitingLimitReached = false
-            // 同理：评价与状态记录都是按单的，留着就会把上一单的内容展示在这一单下面。
-            existingReview = nil
+            // 同理：状态记录是按单的，留着就会把上一单的内容展示在这一单下面。
             statusLogs = []
             statusLogsErrorMessage = nil
             // 轨迹统计同理，而且更要紧：它是屏幕上最大的那个数字，串单等于显示上一次的里程。

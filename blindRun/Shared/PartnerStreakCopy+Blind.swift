@@ -99,8 +99,8 @@ extension PartnerStreakCopy {
     /// 于是那个被防住的后果，由取消收藏按钮自己提供了入口。
     ///
     /// 🚩 **警告只能放在取消这一刻，放不到别处。** 行被删之后，「他曾经退出过」这个事实
-    /// 在客户端就不存在了 —— 订单详情页那条收藏入口
-    /// （`BlindOrderStatusView.favoriteVolunteerSection`）根本拿不到它，无从警告。
+    /// 在客户端就不存在了 —— 跑步详情「陪跑员」一节的收藏入口
+    /// （`RunnerRunRecordVolunteerSection`）根本拿不到它，无从警告。
     static func removeFavoriteConfirmation(
         name: String,
         hasOptedOut: Bool
