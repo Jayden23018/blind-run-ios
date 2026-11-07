@@ -634,8 +634,9 @@ struct VolunteerRunningHero: Equatable {
     let accessibilityLabel: String
 
     static let title = "陪跑中"
-    /// 跑过目标不足这么多就不说「多跑了」—— 「多跑了 0.00」读起来像出错了。
-    static let overrunThresholdMeters: Double = 10
+    /// 跑过目标不足这么多就不说「多跑了」—— 「多跑了 0」读起来像出错了。
+    /// 公里数是一位小数（#846 D8），门槛取 50 米：再小的话十几米也会写成「多跑了 0.1」。
+    static let overrunThresholdMeters: Double = 50
 
     static func make(
         order: OrderDetailResponse,
@@ -649,18 +650,18 @@ struct VolunteerRunningHero: Equatable {
 
         let goal = order.plannedDistanceMeters.flatMap { planned -> Goal? in
             guard planned > 0 else { return nil }
-            let target = String(format: "%.2f", Double(planned) / 1_000)
+            let target = RunPlanFormat.kilometresValue(Double(planned) / 1_000)
             guard let run = stats?.distanceMeters else {
                 return Goal(progress: 0, text: "目标 \(target) 公里", isReached: false)
             }
             let over = run - Double(planned)
             if over >= 0 {
-                let extra = over >= overrunThresholdMeters ? " · 多跑了 \(String(format: "%.2f", over / 1_000))" : ""
+                let extra = over >= overrunThresholdMeters ? " · 多跑了 \(RunPlanFormat.kilometresValue(over / 1_000))" : ""
                 return Goal(progress: 1, text: "已完成 \(target) 公里目标\(extra)", isReached: true)
             }
             return Goal(
                 progress: run / Double(planned),
-                text: "还剩 \(String(format: "%.2f", -over / 1_000)) 公里 · 目标 \(target)",
+                text: "还剩 \(RunPlanFormat.kilometresValue(-over / 1_000)) 公里 · 目标 \(target)",
                 isReached: false
             )
         }

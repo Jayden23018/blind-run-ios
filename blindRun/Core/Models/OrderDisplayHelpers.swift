@@ -1015,12 +1015,7 @@ enum RunPlanFormat {
     static func plannedDistanceParts(meters: Int?) -> (value: String, unit: String)? {
         guard let meters, meters > 0 else { return nil }
         guard meters >= 1000 else { return ("\(meters)", "米") }
-        let km = Double(meters) / 1000
-        // 整公里不拖一个 `.0`：「5 公里」而不是「5.0 公里」。
-        let rounded = (km * 10).rounded() / 10
-        return rounded == rounded.rounded()
-            ? ("\(Int(rounded))", "公里")
-            : (String(format: "%.1f", rounded), "公里")
+        return (kilometresValue(Double(meters) / 1000), "公里")
     }
 
     /// 「每公里 6 分 30 秒」/「每公里 5 分 30 秒 到 6 分 30 秒」。

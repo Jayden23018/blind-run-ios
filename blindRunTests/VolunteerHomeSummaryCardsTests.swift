@@ -102,7 +102,7 @@ final class VolunteerHomeSummaryCardsTests: XCTestCase {
     func testRecentRunCardShowsDistancePartnerPlaceAndRoute() {
         let content = VolunteerHomeRecentRunContent(item: Self.item())
         XCTAssertEqual(content.dateText, "11月3日")
-        XCTAssertEqual(content.distanceText, "5.00")
+        XCTAssertEqual(content.distanceText, "5")
         XCTAssertEqual(content.detailText, "和王* · 奥林匹克森林公园")
         XCTAssertEqual(content.route, Self.spreadRoute)
         XCTAssertTrue(content.spoken.contains("和王"), content.spoken)

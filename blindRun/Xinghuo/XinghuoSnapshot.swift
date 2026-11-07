@@ -64,7 +64,7 @@ struct XinghuoSnapshot: Equatable {
     }
 
     static func kmText(_ km: Double) -> String {
-        String(format: "%.1f", km)
+        RunPlanFormat.kilometresValue(km)
     }
 
     // MARK: - 片区 → 一簇星（纯视觉）

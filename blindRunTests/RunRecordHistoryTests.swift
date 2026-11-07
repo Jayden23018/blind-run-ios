@@ -82,7 +82,7 @@ final class RunRecordHistoryTests: XCTestCase {
         )
         _ = appState
         await viewModel.load()
-        XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次，一共 22.54 公里。")
+        XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次，一共 22.5 公里。")
         // 汇总卡的彩色数字格（#823）：跑步 N 次 + 距离。
         XCTAssertEqual(viewModel.summaryCells.map(\.label), ["跑步", "距离"])
         XCTAssertEqual(viewModel.summaryCells.map(\.value), ["5", "22.54"])
@@ -212,9 +212,9 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertEqual(full.dateText, "9月20日 周日")
         // #829 卡片左栏两行「9月20日 / 周日」，中间写地点；负责人 11-07：不写和谁一起跑。
         XCTAssertEqual([full.dayText, full.weekdayText, full.placeText], ["9月20日", "周日", "深圳湾公园"])
-        XCTAssertEqual(full.distanceValue, "5.21")
-        XCTAssertEqual(full.distanceText, "5.21 公里")
-        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，5.21 公里")
+        XCTAssertEqual(full.distanceValue, "5.2")
+        XCTAssertEqual(full.distanceText, "5.2 公里")
+        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，5.2 公里")
         XCTAssertEqual(full.rotorLabel, "9月20日 周日")
 
         let sparse = RunHistoryRowContent(
@@ -233,15 +233,17 @@ final class RunRecordHistoryTests: XCTestCase {
             role: .volunteer
         )
         XCTAssertEqual(content.placeText, "深圳湾公园")
-        XCTAssertEqual(content.distanceText, "5.00 公里")
+        XCTAssertEqual(content.distanceText, "5 公里")
         XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，深圳湾公园，5 公里")
     }
 
     func testNumberFormatting() {
-        XCTAssertEqual(RunRecordHistoryViewModel.kilometres(5_000), "5.00")
+        XCTAssertEqual(RunRecordHistoryViewModel.kilometres(5_000), "5")
         XCTAssertEqual(RunRecordHistoryViewModel.kilometres(5_000, spoken: true), "5")
         XCTAssertEqual(RunRecordHistoryViewModel.kilometres(4_800, spoken: true), "4.8")
-        XCTAssertEqual(RunRecordHistoryViewModel.kilometres(10_050, spoken: true), "10.05")
+        XCTAssertEqual(RunRecordHistoryViewModel.kilometres(5_260, spoken: true), "5.3", "四舍五入到一位，不是截断")
+        XCTAssertEqual(RunRecordHistoryViewModel.kilometres(20), "0.1", "大于 0 的距离不写成「0」")
+        XCTAssertEqual(RunRecordHistoryViewModel.kilometres(0), "0")
         XCTAssertEqual(RunRecordHistoryViewModel.serviceDuration(45), "45 分钟")
         XCTAssertEqual(RunRecordHistoryViewModel.serviceDuration(120), "2 小时")
         XCTAssertEqual(RunRecordHistoryViewModel.serviceDuration(220), "3 小时 40 分钟")

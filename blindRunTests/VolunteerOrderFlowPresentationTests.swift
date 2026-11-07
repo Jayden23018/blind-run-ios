@@ -162,8 +162,8 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
                 durationSeconds: duration
             ) ?? ""
         }
-        XCTAssertEqual(summary(distance: 5120, duration: 2360), "和李跑了 5.12 公里，用时 39 分 20 秒")
-        XCTAssertEqual(summary(distance: 5120, duration: nil), "和李跑了 5.12 公里")
+        XCTAssertEqual(summary(distance: 5120, duration: 2360), "和李跑了 5.1 公里，用时 39 分 20 秒")
+        XCTAssertEqual(summary(distance: 5120, duration: nil), "和李跑了 5.1 公里")
         XCTAssertEqual(summary(distance: nil, duration: 2360), "和李跑了 39 分 20 秒")
         XCTAssertEqual(summary(distance: nil, duration: nil), "")
         // 里程为 0 时后端把配速发成 null（除以 0 得不出配速）；里程本身也不该被说成「0.00 公里」。
@@ -179,7 +179,7 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         order.actualDurationSeconds = 2360
         let presentation = VolunteerOrderFlowPresentation.make(order: order, distanceText: nil)
         XCTAssertEqual(presentation?.title, "陪跑完成")
-        XCTAssertEqual(presentation?.subtitle, "和李跑了 5.12 公里，用时 39 分 20 秒")
+        XCTAssertEqual(presentation?.subtitle, "和李跑了 5.1 公里，用时 39 分 20 秒")
 
         // 后端没算出来（轨迹为空的历史单）时，这一行整段消失，不留「-- 公里」。
         var empty = OrderDetailResponse.preview(status: .completed, blindName: "李*")

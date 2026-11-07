@@ -21,7 +21,7 @@ struct TrackStats: Codable, Sendable, Equatable {
     var distanceText: String? {
         guard let distanceMeters else { return nil }
         if distanceMeters >= 1_000 {
-            return String(format: "%.2f 公里", distanceMeters / 1_000)
+            return "\(RunPlanFormat.kilometresValue(distanceMeters / 1_000)) 公里"
         }
         return "\(Int(distanceMeters.rounded())) 米"
     }

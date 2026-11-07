@@ -32,7 +32,7 @@ final class VolunteerRunningHeroTests: XCTestCase {
 
     func testGoalShowsWhatIsLeftBeforeTheTarget() {
         let goal = hero(run: 2_400).goal
-        XCTAssertEqual(goal?.text, "还剩 2.60 公里 · 目标 5.00")
+        XCTAssertEqual(goal?.text, "还剩 2.6 公里 · 目标 5")
         XCTAssertEqual(goal?.progress ?? -1, 0.48, accuracy: 0.0001)
         XCTAssertEqual(goal?.isReached, false)
     }
@@ -41,13 +41,15 @@ final class VolunteerRunningHeroTests: XCTestCase {
     func testReachingTheTargetExactlyCountsAsReached() {
         let goal = hero(run: 5_000).goal
         XCTAssertEqual(goal?.isReached, true)
-        XCTAssertEqual(goal?.text, "已完成 5.00 公里目标")
+        XCTAssertEqual(goal?.text, "已完成 5 公里目标")
         XCTAssertEqual(goal?.progress, 1)
     }
 
     func testOverrunIsOnlyMentionedPastTheThreshold() {
-        XCTAssertEqual(hero(run: 5_005).goal?.text, "已完成 5.00 公里目标", "多跑 5 米不该说「多跑了 0.01」")
-        XCTAssertEqual(hero(run: 5_320).goal?.text, "已完成 5.00 公里目标 · 多跑了 0.32")
+        XCTAssertEqual(hero(run: 5_005).goal?.text, "已完成 5 公里目标", "多跑 5 米不该说「多跑了 0.01」")
+        XCTAssertEqual(hero(run: 5_320).goal?.text, "已完成 5 公里目标 · 多跑了 0.3")
+        XCTAssertEqual(hero(run: 5_040).goal?.text, "已完成 5 公里目标", "一位小数下多跑 40 米会舍成「多跑了 0」")
+        XCTAssertEqual(hero(run: 4_970).goal?.text, "还剩 0.1 公里 · 目标 5", "差 30 米不能说「还剩 0 公里」")
         XCTAssertEqual(hero(run: 5_320).goal?.progress, 1, "跑过目标进度条钳在满格")
     }
 
@@ -60,7 +62,7 @@ final class VolunteerRunningHeroTests: XCTestCase {
     func testMissingStatsShowDashesAndSayFetching() {
         let h = hero(run: nil)
         XCTAssertEqual(h.distance, "--")
-        XCTAssertEqual(h.goal?.text, "目标 5.00 公里")
+        XCTAssertEqual(h.goal?.text, "目标 5 公里")
         XCTAssertEqual(h.goal?.progress, 0)
         XCTAssertTrue(h.accessibilityLabel.contains("已跑，正在获取"), h.accessibilityLabel)
         XCTAssertFalse(h.accessibilityLabel.contains("--"))

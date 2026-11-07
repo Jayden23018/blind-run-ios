@@ -32,7 +32,7 @@ final class BlindRunnerFinishTests: XCTestCase {
         XCTAssertEqual(fixture.viewModel.order?.status, .completed)
         XCTAssertEqual(
             fixture.speech.spokenHistoryForTesting,
-            [BlindRunnerFinishCopy.finishingAnnouncement, "你已结束本次陪跑，共跑 5.20 公里。"],
+            [BlindRunnerFinishCopy.finishingAnnouncement, "你已结束本次陪跑，共跑 5.2 公里。"],
             "跑者自己结束的单，完成句不能说成「张结束了本次陪跑」"
         )
     }
@@ -97,7 +97,7 @@ final class BlindRunnerFinishTests: XCTestCase {
     func testCompletionSentenceDependsOnWhoEndedTheRun() {
         let order = Self.order(status: .completed)
         let byVolunteer = BlindOrderStatusViewModel.completionText(.justFinished, order: order, stats: Self.finalStats)
-        XCTAssertEqual(byVolunteer, "张结束了本次陪跑，共跑 5.20 公里。")
+        XCTAssertEqual(byVolunteer, "张结束了本次陪跑，共跑 5.2 公里。")
 
         BlindRunnerFinishRecord.mark(Self.orderId)
         XCTAssertEqual(
