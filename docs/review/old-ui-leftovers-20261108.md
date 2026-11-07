@@ -29,7 +29,7 @@ Mock、`#Preview`、`#if DEBUG` 调试页不算旧界面。
 | 3 | `IncentiveCard`、`IncentiveHeroCard`（`blindRun/Shared/IncentiveUI.swift:39`、`:65`） | 53 | 只剩注释提到它们；同文件的 `AdaptiveHStack`、`IncentiveFailureSection` 还在用，要保留 | 积分、固定搭档、邀请码三页已按新稿重做 | ffb93c1d（#707）删掉了最后一处调用 |
 | 4 | `FlowStepper`（`blindRun/Core/DesignSystem/FlowComponents.swift:104`） | 91 | 只有组件画廊 `FlowComponentGallery` 和 `FlowDesignSystemTests.swift:516-538` 的 4 条断言在用 | 引导绳 `RopeView` 用读屏标签报「第 N 步」 | 0d0a8e94（#350）删掉了最后一处调用；设计稿 INDEX：「四格进度条去掉」 |
 
-删第 1 组时要连带处理：它的 `VolunteerOrderDetailViewModel`（366 行）在 App 里只被这一页用，但有 3 条单测直接构造它（`VolunteerRematchingAnnouncementTests.swift:71`、`RuleParamsAndLateCancelTests.swift:164`、`:187`）。这几条测的是「重新匹配播报」和「晚取消规则」。已核实：这 3 条都是「详情页也一样」的附带用例。例如 `testDetailPageDoesNotCutTheBannerEither` 的注释原文是「「我的」里的订单详情页（`VolunteerOrderDetailViewModel`）共用同一个判定」。同一个测试文件里另有用例守着首页和订单页的主路径，所以删页面时连 ViewModel 和这 3 条用例一起删就行，规则仍有测试保护。删之前再跑一次 `scripts/device-test.sh` 覆盖这两个测试文件，确认剩下的用例是绿的。
+删第 1 组时要连带处理：它的 `VolunteerOrderDetailViewModel`（366 行）在 App 里只被这一页用，但有 3 条单测直接构造它（`VolunteerRematchingAnnouncementTests.swift:71`、`RuleParamsAndLateCancelTests.swift:164`、`:187`）。这几条测的是「重新匹配播报」和「晚取消规则」。已核实：这 3 条都是「详情页也一样」的附带用例。例如 `testDetailPageDoesNotCutTheBannerEither` 的注释原文是「「我的」里的订单详情页（`VolunteerOrderDetailViewModel`）共用同一个判定」。同一个测试文件里另有用例守着首页和订单页的主路径，所以删页面时连 ViewModel 和这 3 条用例一起删就行，规则仍有测试保护。按 11-05 起的规定只验编译，不跑真机测试。
 
 删第 4 组时，要同时删掉 `FlowDesignSystemTests` 里那 4 条断言，并改正 `VolunteerOrderFlowStep.swift:9` 那条已经不对的注释。
 
