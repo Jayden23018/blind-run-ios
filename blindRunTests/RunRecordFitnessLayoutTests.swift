@@ -25,33 +25,40 @@ final class RunRecordFitnessLayoutTests: XCTestCase {
         XCTAssertEqual(large.bottom - normal.bottom, 240)
     }
 
-    /// 负责人 11-07 第二轮第 5 条 + 苹果健身录屏曲线：地图亮度近似线性掉，170pt 约掉 70%，240pt 才满；
-    /// 回到顶部不遮；往下拉过头也不遮。装机反馈「划一秒钟就全消失」：上一版 150pt 全暗。
-    /// 取 100pt / 170pt：上一版（模糊 70、变暗 150）在 100pt 时变暗 0.67、170pt 时已是 1，新曲线分别是 0.42、0.71。
-    func testMapVeilFollowsAppleFitnessCurveAndClearsAtTheTop() {
-        let top = RunRecordHeroLayout.veil(scrolled: 0)
+    /// 负责人 11-07 装机反馈：地图渐变的终点是「标题滑到导航栏下沿」，不是固定的 pt。
+    /// 标题要走 370pt：走到三分之一（≈123pt）时变暗只有 0.33、还没糊满；走满 370pt 才整个盖住。
+    /// 上一版固定 240pt：同样走 123pt 时变暗已是 0.51，标题没到顶（走 240pt）就全白，这条取值能分辨。
+    func testMapVeilFinishesWhenTheTitleReachesTheTop() {
+        let distance: CGFloat = 370
+        let top = RunRecordHeroLayout.veil(scrolled: 0, fadeDistance: distance)
         XCTAssertEqual(top.blur, 0)
         XCTAssertEqual(top.dim, 0)
 
-        let pulled = RunRecordHeroLayout.veil(scrolled: -80)
+        let pulled = RunRecordHeroLayout.veil(scrolled: -80, fadeDistance: distance)
         XCTAssertEqual(pulled.blur, 0, "往下拉过头不加遮罩")
         XCTAssertEqual(pulled.dim, 0)
 
-        let early = RunRecordHeroLayout.veil(scrolled: 40)
-        XCTAssertEqual(early.blur, 0.4, accuracy: 0.0001)
-        XCTAssertEqual(early.dim, 40.0 / 240.0, accuracy: 0.0001)
+        let third = RunRecordHeroLayout.veil(scrolled: distance / 3, fadeDistance: distance)
+        XCTAssertEqual(third.dim, 1.0 / 3.0, accuracy: 0.0001, "标题走到三分之一，地图还剩三分之二")
+        XCTAssertLessThan(third.blur, 1, "三分之一处还没糊满")
 
-        let blurred = RunRecordHeroLayout.veil(scrolled: 100)
-        XCTAssertEqual(blurred.blur, 1, accuracy: 0.0001, "100pt 全糊")
-        XCTAssertEqual(blurred.dim, 100.0 / 240.0, accuracy: 0.0001, "全糊时地图还剩一半以上亮度，没有消失")
+        let early = RunRecordHeroLayout.veil(scrolled: 240, fadeDistance: distance)
+        XCTAssertLessThan(early.dim, 0.7, "固定 240pt 的旧曲线在这里已经全白，标题还没到顶")
 
-        let apple170 = RunRecordHeroLayout.veil(scrolled: 170)
-        XCTAssertEqual(apple170.dim, 170.0 / 240.0, accuracy: 0.0001, "苹果 170pt 时地图还剩约 37% 亮度")
-        XCTAssertLessThan(apple170.dim, 0.75)
+        let arrived = RunRecordHeroLayout.veil(scrolled: distance, fadeDistance: distance)
+        XCTAssertEqual(arrived.dim, 1, accuracy: 0.0001, "标题到顶时整个盖住")
+        XCTAssertEqual(arrived.blur, 1)
 
-        let past = RunRecordHeroLayout.veil(scrolled: 900)
-        XCTAssertEqual(past.blur, 1)
+        let past = RunRecordHeroLayout.veil(scrolled: 900, fadeDistance: distance)
         XCTAssertEqual(past.dim, 1)
+    }
+
+    /// 大字号头部变高 → 标题离顶更近 → 渐变距离变短；同样滑 100pt，距离短的遮得更多。
+    func testMapVeilScalesWithTheTitleTravelDistance() {
+        let long = RunRecordHeroLayout.veil(scrolled: 100, fadeDistance: 400)
+        let short = RunRecordHeroLayout.veil(scrolled: 100, fadeDistance: 200)
+        XCTAssertEqual(long.dim, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(short.dim, 0.5, accuracy: 0.0001)
     }
 
     /// 装机录屏（2026-11-07 目前实现.mov）量出：旧做法读内容块的 minY，地图前 150pt 纹丝不动。

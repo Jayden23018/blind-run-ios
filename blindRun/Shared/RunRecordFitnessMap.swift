@@ -44,7 +44,10 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
                 RunRecordRouteMap(geometry: geometry, record: record, highlight: highlight, edgePadding: edgePadding)
                     .allowsHitTesting(false)
                     .frame(height: mapHeight)
-                    .overlay { RunRecordMapVeil(scrolled: scrolled) }
+                    .overlay {
+                        // 渐变的终点 = 头部标题滑到导航栏下沿那一刻（负责人 11-07 装机：标题到顶时地图才该整个消失）。
+                        RunRecordMapVeil(scrolled: scrolled, fadeDistance: max(mapHeight - headerHeight, topInset) - topInset)
+                    }
                     .accessibilityHidden(true)
                 ScrollView {
                     column(topInset: topInset, mapHeight: mapHeight)
@@ -121,10 +124,12 @@ final class RunRecordScrollOffset: ObservableObject {
 /// 盖在固定地图上的那层：材质层的透明度跟着滚动量线性变大，同时被页底色一点点盖住。「减少透明度」打开时不用模糊、只变暗。
 private struct RunRecordMapVeil: View {
     @ObservedObject var scrolled: RunRecordScrollOffset
+    /// 头部标题从原位滑到导航栏下沿要走的距离。
+    let fadeDistance: CGFloat
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        let veil = RunRecordHeroLayout.veil(scrolled: scrolled.value)
+        let veil = RunRecordHeroLayout.veil(scrolled: scrolled.value, fadeDistance: fadeDistance)
         ZStack {
             // 页顶（blur 为 0）不放模糊层，免得静止看地图时系统也做模糊合成。
             if !reduceTransparency, veil.blur > 0 {
@@ -189,13 +194,17 @@ enum RunRecordHeroLayout {
     /// 取景框里至少留给路线的高度。大字号头部变高时地图跟着变高，路线不至于缩成一个点。
     static let minimumRouteHeight: CGFloat = 200
 
-    /// 苹果健身录屏逐帧量出来的曲线（2026-11-07，健身记录.mov，1px = 1pt，量地图区域亮度）：
-    /// 地图亮度随上滑近似线性往下掉 —— 26pt 掉 12%、63pt 掉 29%、105pt 掉 46%、142pt 掉 59%、170pt 掉 63%，
-    /// 170pt 之后是下面升上来的卡片把地图盖住，不是地图自己消失。所以变暗按 240pt 线性变满（170pt 时约 0.7）。
-    /// 模糊放缓到 100pt（上一版 70pt + 150pt 全暗，负责人装机说「划一秒钟就全消失」）。
-    /// 往下拉过头（`scrolled` 为负）不加遮罩。
-    static let blurDistance: CGFloat = 100
-    static let dimDistance: CGFloat = 240
+    /// 遮罩跟着「头部标题走到哪了」走，不用固定的 pt（负责人 11-07 装机：标题刚到屏幕三分之一处地图就白了，
+    /// 应该标题到顶时才整个消失；录屏逐帧量苹果只当参考，滑动速度不同不能全信）。
+    /// `progress` = 已滑距离 / 标题从原位到导航栏下沿的距离，0…1。变暗跟着 progress 线性变满；
+    /// 模糊走得略快（progress 0.7 时满），先糊后白。往下拉过头（`scrolled` 为负）不加遮罩。
+    static let blurFullAt: Double = 0.7
+
+    static func veil(scrolled: CGFloat, fadeDistance: CGFloat) -> (blur: Double, dim: Double) {
+        guard fadeDistance > 0 else { return (1, 1) }
+        let progress = Double(min(max(scrolled / fadeDistance, 0), 1))
+        return (blur: min(progress / blurFullAt, 1), dim: progress)
+    }
 
     /// 滚了多远：偏移量加上系统给内容留的顶部边距（有的页面内容缩在导航栏下，静止时偏移是 -边距）。静止在顶部 = 0。
     static func scrolled(contentOffsetY: CGFloat, adjustedTopInset: CGFloat) -> CGFloat {
