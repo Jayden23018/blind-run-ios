@@ -65,7 +65,7 @@ struct RunnerRunRecordContent {
         let end = record.runEndedAt?.backendTimestamp
         let summary = record.summary
 
-        dateLine = start.map { Self.shortDate.string(from: $0) + Self.period(of: $0) }
+        dateLine = start.map { DateFormatter.aidRunDisplayMonthDayWeekday.string(from: $0) + Self.period(of: $0) }
         let spokenDate = start.map { Self.longDate.string(from: $0) + Self.period(of: $0) }
         self.place = place
         title = RunRecordFitness.title
@@ -301,14 +301,6 @@ struct RunnerRunRecordContent {
         let minute = components.minute ?? 0
         return minute == 0 ? "\(hour)点" : "\(hour)点\(minute)分"
     }
-
-    /// 屏幕：「9月20日 周六早上」
-    private static let shortDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEE"
-        return formatter
-    }()
 
     /// 朗读：「9月20日星期六早上」
     private static let longDate: DateFormatter = {

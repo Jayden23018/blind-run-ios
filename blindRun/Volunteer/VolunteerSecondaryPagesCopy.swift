@@ -130,15 +130,8 @@ enum VolunteerSecondaryPagesCopy {
     /// 「11月3日」。
     static func recentDate(_ order: VolunteerDispatchSummaryRecentOrder) -> String? {
         guard let date = (order.completedAt ?? order.plannedStartTime)?.backendTimestamp else { return nil }
-        return monthDay.string(from: date)
+        return DateFormatter.aidRunDisplayMonthDay.string(from: date)
     }
-
-    private static let monthDay: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
 
     // MARK: 徽章页
 

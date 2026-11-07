@@ -138,7 +138,7 @@ struct VolunteerHomeRecentRunContent: Equatable {
     init(item: RunHistoryItem) {
         orderId = item.orderId
         let date = item.finishedAt.backendTimestamp
-        dateText = date.map { Self.dateFormatter.string(from: $0) }
+        dateText = date.map { DateFormatter.aidRunDisplayMonthDay.string(from: $0) }
         distanceText = item.distanceM.map { RunRecordHistoryViewModel.kilometres($0) }
 
         func detail(spoken: Bool) -> String? {
@@ -171,13 +171,6 @@ struct VolunteerHomeRecentRunContent: Equatable {
     static func pick(current: [RunHistoryItem], previous: [RunHistoryItem]?) -> RunHistoryItem? {
         current.first ?? previous?.first
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
 }
 
 /// 最近陪跑卡的数据。**刻意不并进 `VolunteerHomeViewModel`**：那份带着一条 10 秒轮询，
