@@ -39,6 +39,23 @@ enum BlindHomeUpcomingOrders {
     static let othersFailedMessage = "其余的预约没有加载出来，请点重试加载。"
 }
 
+// MARK: - 单张卡与紧凑卡共用的两条文案（判据的注释在 `BlindHomeOrderCard.statusCaption` / `timeText`）
+
+extension BlindHomeOrderCard {
+    static func statusCaption(for order: OrderDetailResponse) -> String {
+        order.status.isUnderwayForBlindRunner
+            ? order.status.displayName
+            : "下一次陪跑，\(order.status.displayName)"
+    }
+
+    static func timeText(for order: OrderDetailResponse) -> String {
+        if order.status.isUnderwayForBlindRunner {
+            return order.status.displayName
+        }
+        return order.blindRunnerShortStartText() ?? order.status.displayName
+    }
+}
+
 // MARK: - 紧凑卡
 
 /// 两张或三张时的一张卡。**整张卡是一个按钮，也是一个读屏元素**，同 `BlindHomeOrderCard`。
