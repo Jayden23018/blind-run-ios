@@ -130,7 +130,8 @@ private struct RunRecordMapVeil: View {
     var body: some View {
         let veil = RunRecordHeroLayout.veil(scrolled: scrolled.value, fadeDistance: fadeDistance)
         ZStack {
-            if !reduceTransparency {
+            // 页顶（blur 为 0）不放材质层，免得静止看地图时系统也做模糊合成。
+            if !reduceTransparency, veil.blur > 0 {
                 Rectangle().fill(.ultraThinMaterial).opacity(veil.blur)
             }
             AppColors.Flow.page.opacity(veil.dim)

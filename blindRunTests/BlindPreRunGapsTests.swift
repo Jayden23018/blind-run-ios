@@ -11,6 +11,24 @@ final class BlindPreRunGapsTests: XCTestCase {
 
     // MARK: - B-5（「记录」里的「待进行的预约」11-07 按负责人要求删了，#823 第二轮）
 
+    /// 两张进行中的预约既不进「未完成的预约」，加载播报也不再提（旧实现以「有 2 张待进行的预约」开头）。
+    /// 首页多张预约另立 #825。
+    func testRunnerRecordsNeitherListNorAnnounceActiveBookings() async {
+        let orders = FakeOrderService()
+        orders.myOrdersResult = .success(Self.page([
+            Self.order(id: 7, status: .scheduledConfirmed, start: "2026-11-06T07:00:00"),
+            Self.order(id: 8, status: .pendingMatch, start: "2026-11-07T07:00:00"),
+        ]))
+        let appState = AppState(orders: orders, tokenStore: PreRunInMemoryTokenStore())
+        let viewModel = RunRecordHistoryViewModel(role: .runner)
+        viewModel.configure(with: appState, speechService: SpeechService(), runRecord: PreRunEmptyRunRecords())
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.unfinished.isEmpty, "进行中的预约不是「未完成的预约」")
+        XCTAssertFalse(viewModel.loadedAnnouncement.contains("待进行的预约"), viewModel.loadedAnnouncement)
+    }
+
     /// 默认每页 10 条时，活跃单可能被后来下又取消的单挤到第二页。
     func testMyOrdersAsksForAPageLargeEnoughForEveryActiveOrder() async throws {
         let transport = RecordingTransport()

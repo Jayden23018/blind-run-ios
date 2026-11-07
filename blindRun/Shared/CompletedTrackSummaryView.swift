@@ -60,7 +60,7 @@ struct CompletedTrackSummaryView: View {
                         .font(AppFonts.body())
                 }
                 .frame(minHeight: 64)
-                .accessibilityHint(role == .runner ? "听这次跑步的讲述和声音路线，查看每一公里" : "查看路线、配速、分段和途中记录")
+                .accessibilityHint(role == .runner ? "听这次跑步的讲述，查看每一公里" : "查看路线、配速、分段和途中记录")
                 .accessibilityIdentifier("completedTrackFullScreenLink")
             }
 

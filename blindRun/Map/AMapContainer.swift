@@ -117,7 +117,7 @@ struct AMapContainer: UIViewRepresentable {
         if nightSky {
             applyNightSky(on: mapView, coordinator: context.coordinator)
         }
-        // MAMapView keeps changing its subview and accessibility tree while it renders; SwiftUI supplies one stable summary element instead.
+        // MAMapView changes its accessibility tree while it renders. SwiftUI supplies one stable summary element instead.
         mapView.isAccessibilityElement = false
         mapView.accessibilityElementsHidden = true
         let hostView = AMapHostView(mapView: mapView)
