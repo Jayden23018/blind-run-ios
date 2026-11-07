@@ -8,7 +8,10 @@ issue #831（母 issue #827 第 2 项）。负责人 2026-11-07 看 v1 稿后定
 4. **「举报」「不再匹配此人」不再露在跑步详情外面**，收进「陪跑员」一节：想设固定搭档就点卡里的「设为固定搭档」；不想的话点进这个人的页面，在里面举报或不再匹配。
    这个人的页面用现有的搭档详情页（`BlindPartnerDetailView`，定稿 `blind-partners-20261105/`），不新画。
 
-定稿图：`draft.html` / `draft.png`（v2）。v1 的甲乙方案、A/B、问题 1/2 已按上面四条收掉。
+5. **评语输入框与语音输入同一行**（负责人 2026-11-07 看 v2 后定）：左边文本框，右边语音输入按钮，不再单独占一行。其余照 v2 定稿。
 
-实现前要先合并的 PR：#819（改 `BlindOrderStatusView+Flow.swift`）、#832（#830 的实现，改 `RunnerRunRecordView.swift`）。
+定稿图：`draft.html` / `draft.png`（v3）。v1 的甲乙方案、A/B、问题 1/2 已按上面四条收掉。
+
+实现前要先合并的 PR：#819（改 `BlindOrderStatusView+Flow.swift`）、#832（#830 的实现，改 `RunnerRunRecordView.swift`，11-07 已合并）。
+现有 `VoiceDictationButton` 是整行按钮，实现时要给它一个只有图标的窄样式（可点区仍 64pt，读屏标签不变）。
 实现时要查的一件事：搭档详情页现在吃的是固定搭档列表的一行数据（`PartnerRow`），从跑步详情进去时要用这一单的陪跑员拼出这一行，举报要带上这一单的订单号。
