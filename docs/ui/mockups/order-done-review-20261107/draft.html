@@ -1,0 +1,252 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>已完成订单页只留绿色卡；评价与设为固定搭档换位置 · 设计稿（2026-11-07 待负责人确认）</title>
+<style>
+body{margin:0;padding:28px;background:#fff;font-family:-apple-system,"PingFang SC",sans-serif;color:#000}
+h1{font-size:22px;font-weight:700;margin:0 0 6px}
+h2{font-size:18px;font-weight:700;margin:40px 0 4px}
+.note{font-size:13px;color:#444;margin:0 0 16px;max-width:1360px;line-height:1.7}
+.grid{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+.col{width:320px}
+.ph{width:320px;height:696px;border-radius:36px;overflow:hidden;position:relative;border:1px solid #C7C7CC;background:#F2F2F7}
+.ph img.full{width:320px;display:block}
+.strip{display:flex;gap:6px}
+.strip img{width:154px;border-radius:18px;border:1px solid #C7C7CC;display:block}
+.cap{font-size:13px;color:#222;margin-top:9px;line-height:1.6}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:9px;margin-right:5px;vertical-align:1px}
+.rec{background:#0A6FE0;color:#fff}.now{background:#8E8E93;color:#fff}.alt{background:#E5E5EA;color:#333}.ask{background:#FFE7B3;color:#7A4A00}
+.scroll{position:absolute;left:0;right:0;top:0;bottom:0;padding:96px 12px 0}
+.topbar{position:absolute;left:0;right:0;top:0;height:88px;background:linear-gradient(#F2F2F7 70%,rgba(242,242,247,0));z-index:2}
+.sb{position:absolute;top:14px;left:26px;right:26px;display:flex;justify-content:space-between;font-size:13px;font-weight:600;z-index:3}
+.glass{position:absolute;top:44px;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.9);box-shadow:0 1px 4px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;font-size:18px;z-index:3}
+.st{font-size:20px;font-weight:700;margin:14px 4px 8px}
+.card{background:#fff;border-radius:14px;padding:13px 14px;margin-bottom:10px}
+.opts{display:flex;gap:5px}
+.opt{flex:1;height:58px;border-radius:11px;border:1px solid #C7C7CC;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:#6C6C70}
+.opt .i{font-size:17px;line-height:1.1}
+.opt.on{border:2px solid #0058C7;background:#E0EBF8;color:#0047A3;font-weight:700}
+.hint{font-size:12.5px;color:#6C6C70;margin-top:9px;line-height:1.5}
+.ta{height:56px;border-radius:10px;background:#F2F2F7;margin-top:11px;padding:9px 11px;font-size:13px;color:#8E8E93}
+.btn2{height:42px;margin:10px 10px 0;border-radius:21px;background:#E0EBF8;border:1px solid #0058C7;color:#0058C7;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.btn1{height:42px;margin:10px 10px 0;border-radius:21px;background:#0A6FE0;color:#fff;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.done{display:flex;gap:11px;align-items:flex-start}
+.badge{width:40px;height:40px;border-radius:50%;background:#E0EBF8;color:#0058C7;display:flex;align-items:center;justify-content:center;font-size:19px;flex:none}
+.big{font-size:17px;font-weight:700}
+.sub{font-size:13px;color:#6C6C70;margin-top:2px;line-height:1.45}
+.av{width:44px;height:44px;border-radius:50%;background:#E3F2E7;color:#155E2C;font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.prow{display:flex;gap:12px;align-items:center}
+.prow .nm{font-size:17px;font-weight:600}
+.chev{margin-left:auto;color:#C7C7CC;font-size:18px}
+.sep{border-top:.5px solid #D1D1D6;margin:12px -14px 0}
+.ok{font-size:13px;color:#1E7A35;margin-top:8px}
+.foot{font-size:12.5px;color:#6C6C70;margin:-2px 6px 12px;line-height:1.5}
+.wbtn{height:46px;border-radius:14px;background:#fff;border:1px solid #D1D1D6;display:flex;align-items:center;justify-content:center;font-size:15px;margin-bottom:9px}
+.lrow{display:flex;align-items:center}
+.lrow .t{font-size:16px}
+.mark{outline:2.5px dashed #0A6FE0;outline-offset:3px;border-radius:14px}
+.gone{position:absolute;left:0;right:0;border:2px dashed #D70015;background:rgba(215,0,21,.06);border-radius:10px}
+.gone span{position:absolute;right:6px;top:4px;font-size:11px;font-weight:700;color:#D70015;background:#fff;padding:1px 5px;border-radius:6px}
+.overlay{position:absolute;left:0;right:0;}
+.qa{background:#FFF7E6;border:1px solid #F0C36D;border-radius:12px;padding:12px 16px;font-size:13px;line-height:1.7;max-width:1330px;margin:6px 0 4px}
+</style></head><body>
+
+<h1>已完成订单页只留绿色卡；评价与「设为固定搭档」换位置、换新样式 · 设计稿</h1>
+<p class="note">issue #831（母 issue #827 第 2 项）。2026-11-07 出稿，<b>待负责人确认，没写代码</b>。
+「现在」一栏全是真机截图（iPhone，Mock 数据，UI 测试构建没有高德 key，所以地图处是「地图服务暂不可用」；Mock 里绿色卡 0.82 公里与详情页 3.20 公里对不上是 Mock 数据本身的问题，不是界面问题）。
+「改后」里的绿色卡与跑步详情页上半截是<b>真机截图原样裁出来的</b>，只有新加的块是画的。按钮照 #749 定稿：胶囊，一屏只有一个实心。</p>
+
+<!-- ============ ① 订单页 ============ -->
+<h2>① 跑步详情 →「订单」打开的已完成订单页：只留绿色卡</h2>
+<p class="note">绿色卡排版完全不动（截图原样）。去掉的是绿色卡下面整串：服务已完成 · 本次路线 · 重复当前状态（导航栏右上的喇叭就是它，功能不丢）· 这次陪跑怎么样 · 语音输入 · 提交评价 · 跳过评价 · 设为固定搭档 · 举报 · 不再匹配此人 · 预约信息 · 状态变更记录。底部「完成」「求助与安全」不动。</p>
+<div class="grid">
+  <div class="col" style="width:640px">
+    <div class="strip">
+      <img src="real/now-03-order-0.png"><img src="real/now-03-order-1.png"><img src="real/now-03-order-2.png"><img src="real/now-03-order-3.png">
+    </div>
+    <div class="cap"><span class="tag now">现在</span>真机，从上往下滑四屏。绿色卡下面一共 12 块，要滑三屏多才到底。</div>
+  </div>
+  <div class="col">
+    <div class="ph"><img class="full" src="real/after-order-green-only.png"></div>
+    <div class="cap"><span class="tag rec">改后 · 推荐 A</span>只留绿色卡，下面留空。和负责人说的一致。</div>
+  </div>
+  <div class="col">
+    <div class="ph"><img class="full" src="real/after-order-green-only.png">
+      <div class="overlay" style="top:384px;padding:0 16px">
+        <div class="card mark" style="padding:12px 14px"><div class="lrow"><span class="t">查看跑后详情与评价</span><span class="chev">›</span></div></div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag alt">改后 · B</span>绿色卡下面多一行链接，进跑步详情。只在<b>首页跑完当场</b>这条路上有用（见下面问题 1）；从跑步详情进来时这一行回到来处，可以不显示。</div>
+  </div>
+</div>
+<div class="qa"><b>问题 1（要负责人定）：</b>已完成订单页有两个入口，①首页跑完当场（跑步中 → 完成，停在这一页）②跑步详情底部那一行。现在评价表在这一页，跑完当场就能评。评价挪进跑步详情后，A 方案下跑完当场这一页<b>没有去跑步详情的路</b>，要回首页 → 记录 → 点这一次才看得到评价。B 在绿色卡下加一行解决这件事，但绿色卡下面就不是全空了。我推荐 A（照原话），如果您在意「跑完当场评」，选 B。</div>
+
+<!-- ============ ② 评价位置 ============ -->
+<h2>② 「这次陪跑怎么样」挪到跑步详情页：两个位置</h2>
+<p class="note">规则不变：没评过的可以补评<b>一次</b>；评过的只显示结果，不能改（后端也不收第二次，重复提交回「已评价过此订单」）。五档仍是「很差 / 较差 / 一般 / 顺利 / 很顺利」，默认一项都不选；读屏念档名，不念分数。</p>
+<div class="grid">
+  <div class="col">
+    <div class="ph"><img class="full" src="real/detail-top-crop.png">
+      <div class="overlay" style="top:518px;padding:0 12px">
+        <div class="st" style="margin-top:4px">这次陪跑怎么样</div>
+        <div class="card mark">
+          <div class="opts">
+            <div class="opt"><span class="i">🏃</span>很差</div><div class="opt"><span class="i">🏃</span>较差</div><div class="opt"><span class="i">🏃</span>一般</div><div class="opt"><span class="i">🏃</span>顺利</div><div class="opt"><span class="i">🏃</span>很顺利</div>
+          </div>
+          <div class="hint">选一项就能提交。只能评一次，提交后不能改。</div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag rec">甲 · 推荐</span>放在头部那两个小数字下面、「详细信息」上面。<b>一进页面就看得见</b>（第一屏露出五个选项），点一下就开始评。</div>
+  </div>
+  <div class="col">
+    <div class="ph">
+      <div class="topbar"></div><div class="sb"><span>22:30</span><span>5G</span></div>
+      <div class="glass" style="left:16px">‹</div><div class="glass" style="right:16px;color:#0A6FE0">🔊</div>
+      <div class="scroll">
+        <div class="st">这次陪跑怎么样</div>
+        <div class="card mark">
+          <div class="opts">
+            <div class="opt"><span class="i">🏃</span>很差</div><div class="opt"><span class="i">🏃</span>较差</div><div class="opt"><span class="i">🏃</span>一般</div><div class="opt on"><span class="i">🏃</span>顺利</div><div class="opt"><span class="i">🏃</span>很顺利</div>
+          </div>
+          <div class="ta">想说的话（选填）</div>
+          <div class="btn2">🎙 语音输入</div>
+          <div class="btn1">提交评价</div>
+          <div class="hint" style="text-align:center">只能评一次，提交后不能改。</div>
+        </div>
+        <div class="st">详细信息</div>
+        <div class="card" style="height:150px;color:#8E8E93;font-size:13px">（下面照旧：详细信息、单段、配速、留言、路线）</div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag rec">甲 · 选了一档</span>选了才展开评语、语音输入、提交。「提交评价」是这一页<b>唯一的实心按钮</b>。不再有「跳过评价」（不想评就不点，不用跳过）。</div>
+  </div>
+  <div class="col">
+    <div class="ph"><img class="full" src="real/detail-top-crop.png">
+      <div class="overlay" style="top:518px;padding:0 12px">
+        <div class="st" style="margin-top:4px">这次陪跑怎么样</div>
+        <div class="card mark">
+          <div class="done"><div class="badge">🏃</div>
+            <div><div class="big">顺利</div>
+              <div class="sub">「节奏很稳，下次还约。」</div>
+              <div class="sub">11月6日 23:10 评价 · 评价后不能修改</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag rec">甲 · 评过了</span>提交成功或以前评过，整块换成一张只读卡：档名、评语（没写就不显示这行）、评价时间。没有按钮。读屏一次念完：「这次陪跑：顺利，评语：……，11月6日 23:10 评价，不能修改」。</div>
+  </div>
+  <div class="col">
+    <div class="ph">
+      <div class="topbar"></div><div class="sb"><span>22:30</span><span>5G</span></div>
+      <div class="glass" style="left:16px">‹</div><div class="glass" style="right:16px;color:#0A6FE0">🔊</div>
+      <div class="scroll">
+        <div class="st">路线</div>
+        <div class="card" style="font-size:14px;line-height:1.55">全程 3.2 公里，起点和终点在同一处，最远跑到起点正东方向约 1 公里处，途中休息1次。</div>
+        <div class="st">这次陪跑怎么样</div>
+        <div class="card mark">
+          <div class="opts">
+            <div class="opt"><span class="i">🏃</span>很差</div><div class="opt"><span class="i">🏃</span>较差</div><div class="opt"><span class="i">🏃</span>一般</div><div class="opt"><span class="i">🏃</span>顺利</div><div class="opt"><span class="i">🏃</span>很顺利</div>
+          </div>
+          <div class="hint">选一项就能提交。只能评一次，提交后不能改。</div>
+        </div>
+        <div class="wbtn" style="margin-top:14px">举报</div>
+        <div class="wbtn">不再匹配此人</div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag alt">乙</span>放在页面最底，原来「订单详情与评价」那一行的位置。比现在少点一次、少进一页，但仍要滑到底（真机约四屏）。</div>
+  </div>
+</div>
+<p class="note">推荐甲的理由：负责人嫌现在「滑到最下面 → 小卡 → 再点」太深；甲进页就看得见、一次点击开始评，评过后只占一小块、不挡后面的数据。读屏顺序：头部 →（听这次跑步）→ 两个小数字 → 这次陪跑怎么样 → 详细信息……，比乙少划几十下。
+加载中：这一块先不出现，拿到「有没有评过」再出现（取不到时按「没评过」显示，重复提交由后端拦，与现在一致）。提交失败：卡片里提交按钮下多一行红字并播报，选的档和评语都保留。</p>
+
+<!-- ============ ③ 固定搭档 ============ -->
+<h2>③ 「设为固定搭档」换成新样式（放跑步详情页下方「陪跑员」一节）</h2>
+<p class="note">样式照已定稿的固定搭档页（<code>blind-partners-20261105/</code>）：圆形首字头像 + 名字 + 一句状态；按钮用 #749 的浅蓝描边胶囊（这一页实心留给「提交评价」）。说明句沿用现有文案「更可能派给他，但不保证」，不写「优先」。</p>
+<div class="grid">
+  <div class="col">
+    <div class="ph"><img class="full" src="real/now-03-order-2.png" style="margin-top:-150px"></div>
+    <div class="cap"><span class="tag now">现在</span>订单页中段一行蓝字「把陈*设为固定搭档」，夹在「跳过评价」和「举报」之间，看不出是个功能。</div>
+  </div>
+  <div class="col">
+    <div class="ph">
+      <div class="topbar"></div><div class="sb"><span>22:30</span><span>5G</span></div>
+      <div class="glass" style="left:16px">‹</div><div class="glass" style="right:16px;color:#0A6FE0">🔊</div>
+      <div class="scroll">
+        <div class="st">路线</div>
+        <div class="card" style="font-size:14px;line-height:1.55">全程 3.2 公里，起点和终点在同一处，最远跑到起点正东方向约 1 公里处，途中休息1次。</div>
+        <div class="st">陪跑员</div>
+        <div class="card mark">
+          <div class="prow"><div class="av">陈</div><div><div class="nm">陈*</div><div class="sub">还不是固定搭档</div></div></div>
+          <div class="btn2" style="margin:12px 6px 2px">设为固定搭档</div>
+        </div>
+        <div class="foot">派单时更可能派给他，但不保证一定是他。</div>
+        <div class="card"><div class="lrow"><span class="t">陪跑订单</span><span class="chev">›</span></div></div>
+        <div class="wbtn" style="margin-top:6px">举报</div>
+        <div class="wbtn">不再匹配此人</div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag rec">改后 · 还不是搭档</span>「陪跑员」一节在路线下面、举报上面。举报 / 不再匹配此人原样留在最下（已有，不动）。</div>
+  </div>
+  <div class="col">
+    <div class="ph">
+      <div class="topbar"></div><div class="sb"><span>22:30</span><span>5G</span></div>
+      <div class="glass" style="left:16px">‹</div><div class="glass" style="right:16px;color:#0A6FE0">🔊</div>
+      <div class="scroll">
+        <div class="st">路线</div>
+        <div class="card" style="font-size:14px;line-height:1.55">全程 3.2 公里，起点和终点在同一处，最远跑到起点正东方向约 1 公里处，途中休息1次。</div>
+        <div class="st">陪跑员</div>
+        <div class="card mark">
+          <div class="prow"><div class="av">陈</div><div><div class="nm">陈*</div><div class="sub">你的固定搭档</div></div><span class="chev">›</span></div>
+        </div>
+        <div class="ok" style="margin:-2px 6px 12px">已把陈*设为固定搭档。</div>
+        <div class="card"><div class="lrow"><span class="t">陪跑订单</span><span class="chev">›</span></div></div>
+        <div class="wbtn" style="margin-top:6px">举报</div>
+        <div class="wbtn">不再匹配此人</div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag rec">改后 · 已是搭档</span>按钮消失，状态改成「你的固定搭档」，整行可点，进这位搭档的详情页（连续几周、一起跑完几次、取消固定搭档都在那里）。刚点完时卡下多一行绿字并播报；以后再进就只有这一行。不在这里放「取消」（同现在）。</div>
+  </div>
+  <div class="col">
+    <div class="cap" style="margin-top:0;font-size:13px;line-height:1.75">
+      <b>其他状态</b><br>
+      · 点了「设为固定搭档」还在提交：按钮淡下去，文案「正在设为固定搭档…」。<br>
+      · 失败：卡下一行红字并播报，文案沿用现有的四条（还不能设 / 数量到上限 / 对方已退出 / 稍后重试）。<br>
+      · 查不到是不是搭档（接口失败）：整个「陪跑员」一节不出现，同现在。<br>
+      · 对方已退出和你的固定搭档：状态写「对方已退出固定搭档」，没有按钮。<br>
+      · 读屏：头像不念；「陈，还不是固定搭档」一个焦点，按钮单独一个焦点，提示念说明句。
+    </div>
+  </div>
+</div>
+
+<!-- ============ ④ 订单那一行 ============ -->
+<h2>④ 跑步详情底部「订单详情与评价」那一行：改名</h2>
+<div class="grid">
+  <div class="col">
+    <div class="ph"><img class="full" src="real/now-02-detail-bottom.png"></div>
+    <div class="cap"><span class="tag now">现在</span>「订单详情与评价 ›」，读屏提示「查看订单，提交或查看评价」。</div>
+  </div>
+  <div class="col">
+    <div class="ph">
+      <div class="topbar"></div><div class="sb"><span>22:30</span><span>5G</span></div>
+      <div class="glass" style="left:16px">‹</div><div class="glass" style="right:16px;color:#0A6FE0">🔊</div>
+      <div class="scroll">
+        <div class="st">陪跑员</div>
+        <div class="card">
+          <div class="prow"><div class="av">陈</div><div><div class="nm">陈*</div><div class="sub">还不是固定搭档</div></div></div>
+          <div class="btn2" style="margin:12px 6px 2px">设为固定搭档</div>
+        </div>
+        <div class="foot">派单时更可能派给他，但不保证一定是他。</div>
+        <div class="card mark"><div class="lrow"><div><div class="t">陪跑订单</div><div class="sub">这一单完成时的成绩卡</div></div><span class="chev">›</span></div></div>
+        <div class="wbtn" style="margin-top:6px">举报</div>
+        <div class="wbtn">不再匹配此人</div>
+      </div>
+    </div>
+    <div class="cap"><span class="tag rec">改后 · 推荐</span>名字改成「陪跑订单」，和那一页导航栏标题同名（同一个东西只用一个名字）；下面一行灰字说明进去是什么。读屏提示改成「打开这一单的订单页」，不再提评价。</div>
+  </div>
+  <div class="col">
+    <div class="cap" style="margin-top:0;font-size:13px;line-height:1.75">
+      <span class="tag ask">问题 2</span>订单页改完只剩一张绿色卡，内容和跑步详情的头部重复（距离、时长、配速）。这一行也可以<b>直接去掉</b>，跑步详情就不再往订单页跳。<br>
+      我推荐<b>留着并改名</b>：绿色卡是「我和陈一起跑完」的那张卡，有人会想回去看；去掉它就是一处单独的删除，可以以后再定。<br><br>
+      <span class="tag alt">不在本稿</span>陪跑员端跑后详情不动（这次只改跑者端）。
+    </div>
+  </div>
+</div>
+
+</body></html>
