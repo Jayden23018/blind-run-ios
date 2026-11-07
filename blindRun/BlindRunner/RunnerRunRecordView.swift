@@ -394,10 +394,8 @@ struct RunnerRunRecordView: View {
         // VoiceOver 开着：地图挪进「路线」一节并隐藏（HANDOFF 6.3），头部直接在页顶。
         return Group {
             if !voiceOverRunning, let geometry {
-                RunRecordMapScrollPage(geometry: geometry, record: record, hasTopButtons: content.narration != nil) {
+                RunRecordMapScrollPage(geometry: geometry, record: record) {
                     header(content)
-                } buttons: {
-                    listenButton(content.narration)
                 } content: {
                     sections(record, content: content, geometry: geometry)
                         .padding(.horizontal, 16)
@@ -407,20 +405,23 @@ struct RunnerRunRecordView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if !voiceOverRunning, content.narration != nil {
-                            listenButton(content.narration)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .padding(.trailing, 8)
-                        }
                         header(content)
                             .padding(.horizontal, 20)
-                            .padding(.top, voiceOverRunning || content.narration == nil ? 16 : 0)
+                            .padding(.top, 16)
                         sections(record, content: content, geometry: geometry)
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
                             .padding(.bottom, 32)
                     }
                     .readableContentColumn()
+                }
+            }
+        }
+        // 有地图、无地图两种都只在导航栏右侧放这一颗，和返回键同一行、同样式（#830）。
+        .toolbar {
+            if !voiceOverRunning, let narration = content.narration {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    listenButton(narration)
                 }
             }
         }
@@ -533,19 +534,18 @@ extension RunnerRunRecordView {
         audio.toggleSpeech(narration)
     }
 
-    /// 地图右上的圆钮（负责人 11-07 第 3 条：去掉页面里的大按钮）。
+    /// 导航栏右侧的声音钮（负责人 11-07 第 3 条：去掉页面里的大按钮）。
     /// 第二轮去掉了旁边的「声音路线」圆钮：音调听着像防空警报（负责人 11-07 第二轮第 2 条）。
-    @ViewBuilder
-    private func listenButton(_ narration: String?) -> some View {
-        if let narration {
-            RunRecordMapCircleButton(
-                systemImage: audio.state == .playing(.narration) ? "stop.fill" : "speaker.wave.2.fill",
-                accessibilityLabel: listenTitle,
-                accessibilityHint: "语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒",
-                identifier: Self.listenID,
-                isActive: audio.state == .playing(.narration)
-            ) { toggleListen(narration) }
+    /// #830：负责人要它和左上返回键同位置、同样式、左右对称，所以交给系统画（iOS 26 起是玻璃圆）。
+    /// 只放图标不放字：iOS 27 工具栏里的文字按钮会被包成玻璃胶囊、审计报对比度（记忆 sheet-toolbar-text-button-fails-audit）。
+    /// 可点区是系统大小（约 44pt），比 64pt 规定小，负责人 2026-11-07 接受。
+    private func listenButton(_ narration: String) -> some View {
+        Button { toggleListen(narration) } label: {
+            Image(systemName: audio.state == .playing(.narration) ? "stop.fill" : "speaker.wave.2.fill")
         }
+        .accessibilityLabel(listenTitle)
+        .accessibilityHint("语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒")
+        .accessibilityIdentifier(Self.listenID)
     }
 
     /// VoiceOver 开着时紧跟头部的「听这次跑步」：只进无障碍树，看得见的人看不到（负责人 11-07 选「右上圆钮 + 读屏保留」）。

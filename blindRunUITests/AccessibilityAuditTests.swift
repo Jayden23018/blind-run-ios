@@ -1222,7 +1222,7 @@ final class AccessibilityAuditTests: XCTestCase {
         return header
     }
 
-    /// 头部一句话、「听这次跑步」圆钮够 64pt、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
+    /// 头部一句话、「听这次跑步」在导航栏里、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
     /// 审计只在页顶做（理由同陪跑员页）；最后一行进订单页（补评价在那里），订单页的链接再回到本页。
     @MainActor
     func testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit() throws {
@@ -1238,11 +1238,11 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(header.label.contains("比上次多跑 0.3 公里"), "comparison 只给跑者：\(header.label)")
         XCTAssertFalse(header.label.contains("*"), "读屏不念掩码星号：\(header.label)")
 
-        // VoiceOver 关着（UI 用例都是关着的）：「听这次跑步」是地图右上的圆钮，可点区 64pt（#823）。
+        // VoiceOver 关着（UI 用例都是关着的）：「听这次跑步」在导航栏右侧，和返回键同一行、同样式（#830）。
+        // 可点区是系统大小（约 44pt），比 64pt 规定小：负责人 2026-11-07 接受，所以这里不再断言 64pt。
         // VoiceOver 开着时它是紧跟头部的读屏元素（§7 头部右划一次到「听」），UI 用例开不了 VoiceOver，靠真机手验。
-        let listen = app.buttons["runnerRunRecordListen"]
-        XCTAssertTrue(listen.exists, "「听这次跑步」不在")
-        XCTAssertGreaterThanOrEqual(listen.frame.height, 64, "圆钮可点区至少 64pt")
+        let listen = app.navigationBars.buttons["runnerRunRecordListen"]
+        XCTAssertTrue(listen.exists, "「听这次跑步」应在导航栏里")
 
         // 声音路线 11-07 第二轮整个去掉（音调像防空警报）。
         XCTAssertFalse(app.buttons["runnerRunRecordSoundRoute"].exists, "声音路线圆钮应已去掉")
