@@ -1224,6 +1224,8 @@ final class AccessibilityAuditTests: XCTestCase {
 
     /// 头部一句话、「听这次跑步」在导航栏里、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
     /// 审计只在页顶做（理由同陪跑员页）；最后一行进订单页（补评价在那里），订单页的链接再回到本页。
+    /// 头部一句话、「听这次跑步」圆钮够 64pt、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
+    /// 审计只在页顶做（理由同陪跑员页）；路线之后是「陪跑员」一节，点进去是搭档详情页，举报在那里（#831）。
     @MainActor
     func testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit() throws {
         guard #available(iOS 17.0, *) else {
@@ -1261,22 +1263,25 @@ final class AccessibilityAuditTests: XCTestCase {
         for _ in 0..<6 where !split.isHittable { app.swipeUp() }
         XCTAssertTrue(split.label.hasPrefix("第2公里，5分48秒，本次最快，步频每分钟167步，累计用时"), split.label)
 
-        let orderLink = app.buttons["runnerRunRecordOrderLink"]
-        for _ in 0..<8 where !orderLink.isHittable { app.swipeUp() }
+        // #831：不再有「订单详情与评价」一行，举报 / 不再匹配不露在这一页，收进这个人的页面。
+        let volunteerRow = app.buttons["runnerRunRecordVolunteerRow"]
+        for _ in 0..<8 where !volunteerRow.isHittable { app.swipeUp() }
         XCTAssertFalse(
             app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "累计陪跑")).firstMatch.exists,
             "D6 的「累计陪跑」11-07 收回（不写和谁一起跑）"
         )
-        orderLink.tap()
-        XCTAssertTrue(app.staticTexts["服务已完成"].waitForExistence(timeout: 15), "「订单详情与评价」没进订单页")
-        let back = app.descendants(matching: .any)["completedTrackFullScreenLink"].firstMatch
-        for _ in 0..<6 where !back.isHittable { app.swipeUp() }
-        XCTAssertTrue(back.isHittable, "订单页里「查看跑后详情」不在")
-        back.tap()
+        XCTAssertFalse(app.buttons["runnerRunRecordOrderLink"].exists, "「订单详情与评价」一行应已去掉")
+        XCTAssertFalse(app.buttons["counterpartBlockButton"].exists, "「不再匹配此人」不该露在跑步详情里")
+        XCTAssertTrue(volunteerRow.isHittable, "「陪跑员」一节不在")
+        XCTAssertFalse(volunteerRow.label.contains("*"), "读屏不念掩码星号：\(volunteerRow.label)")
+        volunteerRow.tap()
         XCTAssertTrue(
-            app.descendants(matching: .any)["runnerRunRecordHeader"].firstMatch.waitForExistence(timeout: 15),
-            "订单页的链接要进跑者跑后详情，不是旧的轨迹回放"
+            app.descendants(matching: .any)["blindPartnerDetailView"].firstMatch.waitForExistence(timeout: 10),
+            "点「陪跑员」那一行要进这个人的页面"
         )
+        let report = app.buttons["counterpartReportButton"]
+        for _ in 0..<4 where !report.isHittable { app.swipeUp() }
+        XCTAssertTrue(report.isHittable, "这个人的页面里要有「举报」")
     }
 
     @MainActor

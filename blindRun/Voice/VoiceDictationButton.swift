@@ -20,6 +20,12 @@ struct VoiceDictationButton: View {
     @ObservedObject var speechInputService: SpeechInputService
     @ObservedObject var speechService: SpeechService
     let speechField: SpeechInputField
+    /// 传了就把输入框画在左边、按钮缩成只有图标的方块放右边同一行（#831 评语框，负责人 11-07 定）。
+    /// 可点区仍是 64pt，读屏标签与整行样式完全相同；「正在聆听」与失败原因照旧在这一行下面整行显示。
+    var besideField: AnyView?
+
+    /// 只有图标的那一档的边长 = 盲人端最小可点区。
+    static let compactSide = AppTouchTarget.blindPrimary
 
     /// 只显示这一枚按钮自己引起的错误。`SpeechInputService` 全 App 共用一个，
     /// 它的 `errorMessage` 可能是别的页面上一次留下的。别的字段开录时复位。
@@ -32,18 +38,14 @@ struct VoiceDictationButton: View {
         let isListening = speechInputService.isListening(for: speechField)
 
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                toggleRecognition(isListening: isListening)
-            } label: {
-                Label(
-                    isListening ? VoiceDictationCopy.stop : VoiceDictationCopy.start,
-                    systemImage: isListening ? "stop.circle" : "mic"
-                )
+            if let besideField {
+                HStack(alignment: .top, spacing: 8) {
+                    besideField
+                    button(isListening: isListening)
+                }
+            } else {
+                button(isListening: isListening)
             }
-            .buttonStyle(OutlineSecondaryButtonStyle())
-            .accessibilityLabel(isListening ? "停止语音输入\(fieldTitle)" : "语音输入\(fieldTitle)")
-            .accessibilityHint(isListening ? VoiceDictationCopy.stopHint : VoiceDictationCopy.startHint)
-            .accessibilityIdentifier("\(speechField.rawValue)DictationButton")
 
             if isListening {
                 HStack(spacing: 6) {
@@ -72,6 +74,28 @@ struct VoiceDictationButton: View {
                 speechInputService.cancelRecognitionForLifecycle()
             }
         }
+    }
+
+    private func button(isListening: Bool) -> some View {
+        Button {
+            toggleRecognition(isListening: isListening)
+        } label: {
+            if besideField == nil {
+                Label(
+                    isListening ? VoiceDictationCopy.stop : VoiceDictationCopy.start,
+                    systemImage: isListening ? "stop.circle" : "mic"
+                )
+            } else {
+                Image(systemName: isListening ? "stop.circle" : "mic")
+                    .font(.title2.weight(.semibold))
+                    .frame(width: Self.compactSide, height: Self.compactSide)
+                    .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(OutlineSecondaryButtonStyle(fillsWidth: besideField == nil))
+        .accessibilityLabel(isListening ? "停止语音输入\(fieldTitle)" : "语音输入\(fieldTitle)")
+        .accessibilityHint(isListening ? VoiceDictationCopy.stopHint : VoiceDictationCopy.startHint)
+        .accessibilityIdentifier("\(speechField.rawValue)DictationButton")
     }
 
     /// 提交、保存之前调用：先停掉这个字段的录音再提交。

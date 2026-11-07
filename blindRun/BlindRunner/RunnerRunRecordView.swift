@@ -6,7 +6,9 @@ import SwiftUI
 //
 // 这一页**任何地方都不出现 `6'15"`**（HANDOFF 5.3）：屏幕与读屏一律「6分15秒」。
 // 11-07 照苹果「健身」重做（#823）：通栏地图 + 头部、指标格、单段表、配速图；「听」两个大按钮换成地图右上两个圆钮，
-// VoiceOver 开着时头部后紧跟两个读屏元素（§7：头部右划一次到「听」）。全页不写和谁一起跑（搭档只在留言标题与订单页出现）。
+// VoiceOver 开着时头部后紧跟两个读屏元素（§7：头部右划一次到「听」）。头部和数据不写和谁一起跑。
+// 11-07 #831：去掉「订单详情与评价」一行和外露的举报 / 不再匹配；路线之后是「陪跑员」一节和「这次陪跑怎么样」
+// （`RunnerRunRecordFeedbackSections.swift`），举报与不再匹配收进这个人的页面。
 // 没做（P1 / 后续阶段）：分享给家人、休息点地名、留言回复。
 
 // MARK: - Content（纯计算，用例直接钉）
@@ -328,6 +330,7 @@ struct RunnerRunRecordView: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel: RunRecordViewModel
     @StateObject private var audio = RunRecordAudioController()
+    @StateObject private var feedback = RunnerRunFeedbackViewModel()
     @State private var retryTask: Task<Void, Never>?
     @State private var voiceOverRunning = UIAccessibility.isVoiceOverRunning
     @AccessibilityFocusState private var headerFocused: Bool
@@ -358,7 +361,12 @@ struct RunnerRunRecordView: View {
             .task {
                 viewModel.configure(with: appState)
                 audio.configure(voice: speechService)
+                feedback.configure(appState: appState, speech: speechService)
                 await viewModel.loadUntilSettled()
+            }
+            // 订单详情读到后再查评价与搭档状态（陪跑员是谁只在订单详情里有）。
+            .task(id: viewModel.order?.orderId) {
+                if let order = viewModel.order { await feedback.load(order: order) }
             }
             // HANDOFF 6.3：VoiceOver 开关变了，地图位置实时跟着换。
             .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
@@ -472,7 +480,7 @@ struct RunnerRunRecordView: View {
         }
     }
 
-    /// 「路线」（VoiceOver 开着时地图在这里）、「订单详情与评价」、举报与拉黑。
+    /// 「路线」（VoiceOver 开着时地图在这里）、「陪跑员」、「这次陪跑怎么样」（#831）。
     @ViewBuilder
     private func tailSections(_ record: RunRecordResponse, content: RunnerRunRecordContent, geometry: RunRouteGeometry?) -> some View {
         if let geometry, let description = content.routeDescription {
@@ -490,11 +498,8 @@ struct RunnerRunRecordView: View {
                     .accessibilityIdentifier("runnerRunRecordRouteDescription")
             }
         }
-        orderLink(record.orderId)
-            .padding(.top, 8)
-        if let target = viewModel.counterpartTarget {
-            CounterpartSafetyActions(target: target)
-        }
+        RunnerRunRecordVolunteerSection(feedback: feedback, orderId: record.orderId)
+        RunnerRunRecordReviewSection(feedback: feedback)
     }
 
     // MARK: 头部
@@ -614,29 +619,5 @@ extension RunnerRunRecordView {
         // 地图不进无障碍树：路线描述另有文字（遍历顺序跟随绘制顺序，只能 hidden，见 skill aidrun-a11y-voice）。
         .accessibilityHidden(true)
         .accessibilityIdentifier("runnerRunRecordMap")
-    }
-
-    private func orderLink(_ orderId: Int64) -> some View {
-        // 补评价仍在订单页（负责人 2026-09-25）。
-        NavigationLink {
-            BlindOrderStatusView(orderId: orderId) { _ in }
-        } label: {
-            RunRecordCard {
-                HStack {
-                    Text("订单详情与评价")
-                        .font(AppFonts.body())
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(AppColors.textSecondary)
-                        .accessibilityHidden(true)
-                }
-                .foregroundColor(AppColors.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight - 32, alignment: .leading)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("查看订单，提交或查看评价")
-        .accessibilityIdentifier("runnerRunRecordOrderLink")
     }
 }

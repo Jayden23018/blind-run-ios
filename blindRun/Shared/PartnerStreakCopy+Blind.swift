@@ -15,6 +15,8 @@ extension PartnerStreakCopy {
     static let blindFavoritesSectionTitle = "固定搭档"
     static let blindRanTogetherSectionTitle = "一起跑过的人"
     static let blindNotFavoriteYet = "还不是固定搭档"
+    /// 跑步详情「陪跑员」一节第二行（#831）。
+    static let blindYourPartner = "你的固定搭档"
     static let blindEmptyTitle = "还没有固定搭档"
     static let blindRowHint = "点击查看这位搭档"
 

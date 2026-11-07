@@ -37,15 +37,19 @@ enum RunExperienceRating: Int, CaseIterable, Identifiable {
 /// （记忆 `viewthatfits-fails-dynamic-type-audit`），用 `AnyLayout` 按字号档直接切。
 struct RunExperienceRatingPicker: View {
     @Binding var rating: Int?
+    /// 跑步详情把标题画在卡片外面当一节的标题（#831），传 `false`。
+    var showsTitle = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(RunExperienceRating.sectionTitle)
-                .flowFont(FlowV2Fonts.title())
-                .foregroundColor(AppColors.Flow.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
+            if showsTitle {
+                Text(RunExperienceRating.sectionTitle)
+                    .flowFont(FlowV2Fonts.title())
+                    .foregroundColor(AppColors.Flow.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+            }
 
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: 8))
