@@ -61,8 +61,11 @@ extension BlindOrderStatusView {
                     }
                 }
             )
+        } else if let order = viewModel.order, order.status.usesBlindTerminalPage {
+            // 已取消 / 暂无志愿者（#818）：与骨架同一套版式，见 `BlindOrderStatusView+Terminal.swift`。
+            terminalContent(order)
         } else {
-            // 只读退路：`.unknown` 与终态（完成 / 取消 / 无人接单）。
+            // 只读退路：`.unknown` 与还没拿到订单的加载态。
             // 这一条**不许删** —— 后端加状态时它是未知态唯一的落点。
             trackingContent
         }
@@ -77,7 +80,7 @@ extension BlindOrderStatusView {
     /// 短信降级按钮同样在这里：`showSMSFallback` 只在实时分享失败后为真，
     /// 而那一刻「把行程告诉家人」这件事仍然做得到 —— 收走入口等于把人支上死路。
     @ViewBuilder
-    private func flowFooter(_ order: OrderDetailResponse) -> some View {
+    func flowFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 10) {
             // 跑步中不再有节奏按钮（2026-10-07 方向 A，负责人：「跑者和陪跑员会直接沟通」）。
             // 跑步中这一屏只剩「听当前状态」与底部求助，跑者基本不需要碰手机。

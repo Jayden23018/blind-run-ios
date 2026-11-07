@@ -304,7 +304,7 @@ extension BlindOrderStatusView {
     }
 
     @ViewBuilder
-    private var statusLogContent: some View {
+    var statusLogContent: some View {
         if viewModel.isLoadingStatusLogs && viewModel.statusLogs.isEmpty {
             ProgressView("正在获取状态变更记录")
                 .tint(AppColors.primary)

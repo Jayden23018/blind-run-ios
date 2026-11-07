@@ -350,7 +350,7 @@ struct BlindOrderStatusView: View {
     /// 派生自 `flowPresentation` 而不是另写一套状态判断 —— 两处各判一次的下场是
     /// 骨架渲染出来了而底栏还挂着旧的两个按钮（或者反过来），而那种错位在真机上
     /// 表现为「底部四个按钮」，不会有任何东西报错。
-    private var usesFlowSkeleton: Bool {
+    var usesFlowSkeleton: Bool {
         flowPresentation != nil
     }
 
@@ -412,7 +412,7 @@ struct BlindOrderStatusView: View {
         content
         // 骨架自己铺 `AppColors.Flow.page`，这一层只兜住只读退路那条分支。
         .background(AppColors.background)
-        .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
+        .navigationTitle(usesFlowChrome ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
         // 🔄 2026-10-07（方向 A，OpenSpec `redesign-blind-runner-screens-a`）：订单页**每一态都藏标签栏**，
         // 因此**每一态都给返回箭头**，包括跑步中与已完成。
@@ -429,7 +429,7 @@ struct BlindOrderStatusView: View {
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
         // 「三个 64pt 按钮在 6.1" 上吃掉约 26% 屏幕，治了求助够不着换来别的都够不着」。
         .safeAreaInset(edge: .bottom) {
-            if !usesFlowSkeleton {
+            if !usesFlowChrome {
                 standardRepeatStatusArea
             }
         }
@@ -452,7 +452,7 @@ struct BlindOrderStatusView: View {
         // 对看不见屏幕的人只是多一次误触面 —— 而这一条不违反上面那句「不能删」：
         // 功能没有消失，只是换了一个**更大、位置固定**的载体。
         .toolbar {
-            if usesFlowSkeleton && !isRunningPhase {
+            if (usesFlowSkeleton && !isRunningPhase) || usesTerminalPage {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         viewModel.repeatStatus()
