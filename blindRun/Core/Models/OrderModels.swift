@@ -296,7 +296,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 /// 新增一个取值，iOS 这边即使自己的选择器里没有，也会在读订单详情时撞上。
 /// 所以未知取值一律落 `.unknown`，且 `.unknown` **编码成 null** —— 决不把一个后端不认识的
 /// 字符串再发回去，也不占用「无偏好」这个有明确语义的真实取值。
-enum PacePreference: String, Codable, CaseIterable, Sendable {
+enum PacePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackEnum {
     case walkRun = "WALK_RUN"
     case easy = "EASY"
     case moderate = "MODERATE"
@@ -307,20 +307,6 @@ enum PacePreference: String, Codable, CaseIterable, Sendable {
     /// 刻意排除 `.unknown`：它不是用户能选的偏好，不该出现在任何选择器里。
     static var allCases: [PacePreference] {
         [.walkRun, .easy, .moderate, .fast, .noPreference]
-    }
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = PacePreference(rawValue: rawValue) ?? .unknown
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        if self == .unknown {
-            try container.encodeNil()
-        } else {
-            try container.encode(rawValue)
-        }
     }
 
     /// 绑定到选择器时用：未知取值回落到「无偏好」，否则 SwiftUI 找不到匹配 tag 会渲染空白选项，
@@ -340,7 +326,7 @@ enum PacePreference: String, Codable, CaseIterable, Sendable {
 }
 
 /// 兜底策略同 `PacePreference`，原因也同：`OrderDetailResponse.routePreference` 在订单主干上。
-enum RoutePreference: String, Codable, CaseIterable, Sendable {
+enum RoutePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackEnum {
     case parkTrail = "PARK_TRAIL"
     case street = "STREET"
     case track = "TRACK"
@@ -349,20 +335,6 @@ enum RoutePreference: String, Codable, CaseIterable, Sendable {
 
     static var allCases: [RoutePreference] {
         [.parkTrail, .street, .track, .noPreference]
-    }
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = RoutePreference(rawValue: rawValue) ?? .unknown
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        if self == .unknown {
-            try container.encodeNil()
-        } else {
-            try container.encode(rawValue)
-        }
     }
 
     var selectable: RoutePreference { self == .unknown ? .noPreference : self }
@@ -1068,16 +1040,11 @@ struct CreateReviewRequest: Codable, Sendable {
 /// 三档评价（后端迁移 0055，契约 `ReviewResponse.level`）。**开放枚举**：契约明写
 /// `anyOf enum | string`、“遇到未知值请按未知档位处理，别让整条响应解不出来”，
 /// 所以未知取值落 `.unknown`，不抛。
-enum ReviewLevel: String, Decodable, Sendable, Equatable {
+enum ReviewLevel: String, Decodable, Sendable, Equatable, UnknownFallbackEnum {
     case good = "GOOD"
     case ok = "OK"
     case problem = "PROBLEM"
     case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = ReviewLevel(rawValue: rawValue) ?? .unknown
-    }
 }
 
 /// `GET /api/orders/{id}/reviews` 的 `data`（后端 `dto/ReviewResponse.java`）。

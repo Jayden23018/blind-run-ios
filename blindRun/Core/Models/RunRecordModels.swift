@@ -14,31 +14,21 @@ import Foundation
 // 与 `OrderTrackModels` 一致，由界面阶段用 `String.backendLocalDate` 解析。
 
 /// 生成状态。含义见契约 `getRunRecord` 的说明。
-nonisolated enum RunRecordStatus: String, Decodable, Sendable {
+nonisolated enum RunRecordStatus: String, Decodable, Sendable, UnknownFallbackEnum {
     case generating = "GENERATING"
     case ready = "READY"
     case failed = "FAILED"
     case insufficientTrack = "INSUFFICIENT_TRACK"
     case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = RunRecordStatus(rawValue: rawValue) ?? .unknown
-    }
 }
 
 /// `viewerRole` / `fromRole` / 列表 `role`。契约枚举里的 `UNSET` 在这几个位置上不会出现，
 /// 与后端新加的值一样落到 `.unknown`。不复用 `UserRole`：它全 App 穷举 switch，
 /// 给它加 `.unknown` 会波及登录与角色选择。
-nonisolated enum RunRecordRole: String, Decodable, Sendable {
+nonisolated enum RunRecordRole: String, Decodable, Sendable, UnknownFallbackEnum {
     case blind = "BLIND"
     case volunteer = "VOLUNTEER"
     case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = RunRecordRole(rawValue: rawValue) ?? .unknown
-    }
 }
 
 /// 途中事件类型。**刻意没有 `.unknown`**：不认识的值让这一条解码失败，
