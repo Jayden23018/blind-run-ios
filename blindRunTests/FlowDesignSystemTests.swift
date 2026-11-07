@@ -507,37 +507,6 @@ final class FlowDesignSystemTests: XCTestCase {
         XCTAssertEqual(FlowMetrics.cardShadowFar.y, 4)
     }
 
-    // MARK: - 进度条读屏标签
-
-    func testStepperAnnouncesThePositionAndTheCurrentStepName() {
-        let titles = ["匹配", "约好", "出发", "汇合"]
-        for (index, name) in titles.enumerated() {
-            XCTAssertEqual(
-                FlowStepper.accessibilityLabel(currentStep: index, titles: titles),
-                "进度，第 \(index + 1) 步，共 4 步，\(name)"
-            )
-        }
-    }
-
-    /// 越界的 step 不该产出「第 0 步」或「第 5 步，共 4 步」这种念出来就是错的标签。
-    /// 后端加状态、映射表漏一条时落到的就是这里。
-    ///
-    /// 取值刻意落在**两种实现之间**：夹不夹会得到不同结果。随手取 `currentStep = 1`
-    /// 那种「明显该通过」的值，夹逻辑被删掉后用例照样绿。
-    func testStepperClampsOutOfRangeStepsInsteadOfAnnouncingNonsense() {
-        let titles = ["匹配", "约好", "出发", "汇合"]
-        XCTAssertEqual(
-            FlowStepper.accessibilityLabel(currentStep: -3, titles: titles),
-            "进度，第 1 步，共 4 步，匹配"
-        )
-        XCTAssertEqual(
-            FlowStepper.accessibilityLabel(currentStep: 99, titles: titles),
-            "进度，第 4 步，共 4 步，汇合"
-        )
-        // 空标题不该崩，也不该念出「共 0 步」。
-        XCTAssertEqual(FlowStepper.accessibilityLabel(currentStep: 0, titles: []), "进度")
-    }
-
     // MARK: - 辅助
 
     private func assertContrast(

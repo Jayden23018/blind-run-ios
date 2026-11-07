@@ -61,20 +61,6 @@ enum FlowMetrics {
     /// 而按下标取（`cardShadow[0]`）会在有人改数组长度时静默越界或错层。
     private static let shadowInk = Color(red: 17 / 255, green: 26 / 255, blue: 46 / 255).opacity(0.04)
 
-    // MARK: 进度条
-
-    static let stepperTopPadding: CGFloat = 16
-    static let stepperHorizontalPadding: CGFloat = 20
-    static let stepperBottomPadding: CGFloat = 14
-    /// 节点直径。**不是触达目标** —— 整条进度条合成一个不可点的无障碍元素。
-    static let stepNodeDiameter: CGFloat = 22
-    /// 当前步骤节点里的实心圆点。
-    static let stepNodeDotDiameter: CGFloat = 9
-    static let stepNodeStrokeWidth: CGFloat = 2
-    static let stepConnectorHeight: CGFloat = 2
-    /// 单个步骤（节点 + 文字）的列宽。
-    static let stepColumnWidth: CGFloat = 48
-
     // MARK: 状态卡视觉区
 
     /// 雷达 / 头像所在的方形区域。
@@ -348,10 +334,6 @@ enum FlowFonts {
     static func rowValueEmphasized() -> (CGFloat, Font.Weight, Font.TextStyle) { (16, .semibold, .callout) }
     /// 陪跑员经验行 13 / Regular。
     static func rowDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .regular, .footnote) }
-    /// 进度条文字 13。当前步骤 Semibold，其余 Regular。
-    static func stepLabel(isCurrent: Bool) -> (CGFloat, Font.Weight, Font.TextStyle) {
-        (13, isCurrent ? .semibold : .regular, .footnote)
-    }
     /// 按钮文字 18 / Semibold。
     static func actionButton() -> (CGFloat, Font.Weight, Font.TextStyle) { (18, .semibold, .body) }
     /// 按钮标题下面那行小字 13 / Regular。目前只有陪跑员端「长按 2 秒 · 松手取消」用。

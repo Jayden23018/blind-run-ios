@@ -151,33 +151,3 @@ struct VolunteerBadgeMedallion: View {
         .accessibilityLabel(spoken)
     }
 }
-
-/// 服务成就页的勋章一排：与首页「我的徽章」同一个组件，用大号实心版 ——
-/// 勋章的视觉分级是 `docs/ui/design-direction.md` §1 允许从跑步 App 抄的三样之一。无障碍字号档由调用方退回逐行。
-struct VolunteerBadgeMedallionRow: View {
-    let badges: [VolunteerBadgeDto]
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach(badges) { badge in
-                VolunteerBadgeMedallion(
-                    symbol: badge.symbolName,
-                    title: badge.displayName,
-                    detail: nil,
-                    isLocked: false,
-                    spoken: VolunteerAchievementsCopy.badgeAccessibilityLabel(badge),
-                    diameter: 64,
-                    prominent: true
-                )
-            }
-            // 不足四枚时补空位，让每枚宽度稳定，不被拉成半屏宽（同首页）。
-            ForEach(badges.count..<VolunteerBadgeWall.previewLimit, id: \.self) { _ in
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.vertical, 8)
-    }
-}
-

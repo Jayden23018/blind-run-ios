@@ -17,7 +17,8 @@ extension VolunteerInServiceViewModel {
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         // 同 `configure`：换单时上面那行会清掉 `didSet` 先写的姓氏。
         appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.blindSurname?.nilIfBlank)
-        // 要念取消那一句时不念通用状态句（理由同 `VolunteerOrderDetailViewModel.apply`）。
+        // 要念取消那一句时不念通用状态句：两句都念的话，后一句同档打断前一句，
+        // 陪跑员听到的是半句盲人端文案加一句取消说明。
         let announcesCancellation = cancelAnnouncement.announcesCancellation(entering: updated.status)
         // 跑者取消：下面终态分支会念「{名}取消了这次陪跑。不算你的取消…」整句。这里再念通用句，
         // 两句同档，后一句切断前一句，陪跑员听到半句加一整句（#333）。

@@ -154,16 +154,15 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
 
     /// 订单页：取消成功、确认拉取回来是 `REMATCHING` ⇒ 只念一句，且带上「已记一次」。
     /// 原来先念盲人端的「正在确认志愿者状态」，再被同档的取消句切断。
-    func testDetailPageSpeaksOneSentenceWithTheNoticeAfterACountedCancel() async {
+    func testOrderPageSpeaksOneSentenceWithTheNoticeAfterACountedCancel() async {
         let service = FakeOrderService()
         service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: true))
         service.orderDetailResult = .success(.preview(orderId: 31, status: .rematching))
         let appState = AppState(orders: service)
         appState.currentEnvironment = .mock
         let speech = SpeechService()
-        let viewModel = VolunteerOrderDetailViewModel()
-        viewModel.configure(with: appState, speechService: speech)
-        viewModel.order = .preview(orderId: 31, status: .pendingAccept)
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speech, initialOrder: .preview(orderId: 31, status: .pendingAccept))
         speech.resetSpokenHistoryForTesting()
 
         await viewModel.cancel()
@@ -177,16 +176,15 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
 
     /// 首页那条状态订阅先念了 `REMATCHING`（两边订阅同一条推送，谁先到没有保证）：
     /// 订单页不再念第二遍，只把「已记一次临时取消」排在后面补上。
-    func testDetailPageOnlyAppendsTheNoticeWhenTheHomeSpokeFirst() async {
+    func testOrderPageOnlyAppendsTheNoticeWhenTheHomeSpokeFirst() async {
         let service = FakeOrderService()
         service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: true))
         service.orderDetailResult = .success(.preview(orderId: 32, status: .rematching))
         let appState = AppState(orders: service)
         appState.currentEnvironment = .mock
         let speech = SpeechService()
-        let viewModel = VolunteerOrderDetailViewModel()
-        viewModel.configure(with: appState, speechService: speech)
-        viewModel.order = .preview(orderId: 32, status: .pendingAccept)
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speech, initialOrder: .preview(orderId: 32, status: .pendingAccept))
         speech.speakStatusChange(.rematching, text: VolunteerCancelAnnouncement.cancelledByVolunteer)
 
         await viewModel.cancel()

@@ -6,8 +6,8 @@ struct VolunteerOrderInfoSection: View {
 
     /// 盲人填的自由文本（路线备注 / 特殊说明）只在**接单后**展示。判据集中在
     /// `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`（穷举 switch，含 `.unknown` 默认关），
-    /// 不在这里就地写 `!= .pendingMatch` —— 这个视图的两个调用点里，
-    /// `VolunteerOrderDetailView:921` 是从「可接订单」列表点进来的，那里的订单任何志愿者都能浏览。
+    /// 不在这里就地写 `!= .pendingMatch` —— 以后若有接单前就能浏览订单的调用点，
+    /// 那里的订单任何志愿者都能看到，就地判断容易漏掉。
     private var showsSensitiveNotes: Bool {
         order.status.disclosesBlindRunnerNotesToVolunteer
     }
