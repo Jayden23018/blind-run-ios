@@ -61,3 +61,17 @@ the app SHALL speak one warning per order that names the level.
 - **WHEN** the level is 15 % and the phone is charging
 - **THEN** no warning is spoken
 
+
+### Requirement: The home page shows every active booking
+The blind home page SHALL show every order whose status is active for the blind runner, earliest planned start first
+(#825, owner decision 2026-11-07). The booking from `GET /api/orders/active` SHALL be first; the others come from
+`GET /api/orders/mine`. With one booking the card is unchanged. With two or three, the cards SHALL share the height
+of the single card equally, and SHALL grow when their content does not fit. Each card SHALL be one VoiceOver element
+whose label starts with the planned time, and SHALL open that order's page. The load announcement SHALL say how many
+bookings there are when there is more than one. When the other bookings fail to load, the page SHALL say so on screen
+and in the announcement, and offer a retry.
+
+#### Scenario: Three active bookings
+- **WHEN** the runner has bookings on 8, 12 and 15 November
+- **THEN** the home page shows three cards in that order, each about a third of the single card's height,
+  and the announcement starts with「你有 3 张预约。最近一张：」

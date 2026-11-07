@@ -24,6 +24,16 @@ enum BlindRunnerRoute: Hashable {
 @MainActor
 final class BlindRunnerHomeViewModel: ObservableObject {
     @Published var activeOrder: OrderDetailResponse?
+    /// 除 `activeOrder` 以外还没走完的预约（#825）。来自 `GET /api/orders/mine`，加载时已去掉 `activeOrder` 那一张。
+    /// 求助判据、实时推送、开跑提醒仍只跟 `activeOrder`（最早那张），这里只管首页显示与点开。
+    @Published private(set) var otherOrders: [OrderDetailResponse] = []
+    /// 第 2、3 张没加载出来。首页显示并念一句，「重试加载」重来一遍。
+    @Published private(set) var otherOrdersFailed = false
+
+    /// 首页显示的全部预约，最早的在前（`activeOrder` 永远是第一张）。
+    var homeOrders: [OrderDetailResponse] {
+        BlindHomeUpcomingOrders.merge(active: activeOrder, mine: otherOrders)
+    }
     /// 陪跑中按了紧急入口，等订单页接走（#605）。由 `BlindRunnerTabView` 写，订单页读完清空。
     @Published var orderSafetyRequest: BlindOrderSafetyRequest?
     @Published private(set) var orderLoadState: AsyncLoadState<OrderDetailResponse?> = .idle
@@ -164,6 +174,45 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         errorMessage = nil
     }
 
+    /// 订单页返回时写回（#825）。点开的可能是第 2、3 张：只有同号时才动 `activeOrder`，
+    /// 否则会把求助判据换成一张还没开始的单。
+    func applyOrderDetail(_ updated: OrderDetailResponse) {
+        if updated.orderId == activeOrder?.orderId {
+            activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
+            return
+        }
+        otherOrders = otherOrders.compactMap { order in
+            guard order.orderId == updated.orderId else { return order }
+            return updated.status.isActiveForBlindRunner ? updated : nil
+        }
+    }
+
+    /// 拉第 2、3 张。只有 `/active` 给了一张时才拉：它是空的，就不会有别的未完成预约。
+    /// 失败不挡首页（最早那张已经在了），但要让人看见、听见：漏掉一张就可能爽约。
+    private func loadOtherOrders(appState: AppState) async {
+        guard let activeOrder else {
+            otherOrders = []
+            otherOrdersFailed = false
+            return
+        }
+        let orders = appState.orders
+        do {
+            let page: PagedOrderResponse = try await HomeLoadCoordinator.run(
+                timeout: loadTimeout,
+                operationName: "blind-other-orders"
+            ) {
+                try await orders.myOrders()
+            }
+            otherOrders = page.content.filter { $0.orderId != activeOrder.orderId && $0.status.isActiveForBlindRunner }
+            otherOrdersFailed = false
+        } catch let error as APIError where appState.handleAuthenticatedAPIError(error) {
+            return
+        } catch {
+            ClientFlowDiagnostics.record(event: "failed", operation: "blind-other-orders")
+            otherOrdersFailed = true
+        }
+    }
+
     /// - Parameter announcesStatus: 首启引导页正压在首页上时传 `false`。
     ///
     ///   两个页面共用同一个 `AVSpeechSynthesizer`，而 `SpeechService.speak` 的第一件事是
@@ -295,6 +344,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             } else {
                 appState.liveEscortCoordinator.clearOwnedOrder()
             }
+            // ponytail: 两个请求先后发，播报多等一次往返；嫌慢时改成与 `/active` 并发。
+            await loadOtherOrders(appState: appState)
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
             orderLoadState = .loaded(activeOrder)
             refreshPhase = .idle
             if announcesStatus {
@@ -372,10 +424,12 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     /// （`AccessibilityAuditTests` 里 `safetyHubLabel` 那段注释记着同一件事）。
     /// 改按钮标签时自己搜一遍播报文案。
     func speakCurrentStatus(locationDescription: String? = nil) {
-        if let activeOrder {
+        // 最早那张刚走完、还没重新加载时，`activeOrder` 为空而其余几张还在屏幕上，念第一张。
+        if let activeOrder = homeOrders.first {
             speechService?.speakBlindRunnerStatusChange(
                 activeOrder,
-                text: homeAnnouncement(for: activeOrder, locationDescription: locationDescription)
+                text: countPrefix + homeAnnouncement(for: activeOrder, locationDescription: locationDescription)
+                    + othersFailedSuffix
             )
         } else {
             let locationText = locationDescription.map { "当前位置：\($0)。" } ?? ""
@@ -415,9 +469,11 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     /// 档位分叉的直接后果是：状态推进（`.counterpartAction`）正在播时，首页这一枚会把它
     /// 从半句切断，而订单页那一枚会规规矩矩排队。用户不可能知道自己按的是哪一种。
     func repeatCurrentStatus(locationDescription: String) {
-        if let activeOrder {
+        // 最早那张刚走完、还没重新加载时，`activeOrder` 为空而其余几张还在屏幕上，念第一张。
+        if let activeOrder = homeOrders.first {
             speechService?.speak(
-                homeAnnouncement(for: activeOrder, locationDescription: locationDescription),
+                countPrefix + homeAnnouncement(for: activeOrder, locationDescription: locationDescription)
+                    + othersFailedSuffix,
                 priority: .onDemand
             )
         } else {
@@ -426,6 +482,15 @@ final class BlindRunnerHomeViewModel: ObservableObject {
                 priority: .onDemand
             )
         }
+    }
+
+    /// 「你有 3 张预约。最近一张：」—— 只有一张时为空，播报与改版前逐字相同（#825）。
+    private var countPrefix: String {
+        BlindHomeUpcomingOrders.countAnnouncement(count: homeOrders.count)
+    }
+
+    private var othersFailedSuffix: String {
+        otherOrdersFailed ? BlindHomeUpcomingOrders.othersFailedMessage : ""
     }
 
     private func homeAnnouncement(for order: OrderDetailResponse, locationDescription: String?) -> String {
@@ -518,7 +583,6 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 /// 用枚举而不是两个 Bool：两块内容互斥（有订单渲染订单卡，没订单渲染约跑按钮），
 /// 两个 Bool 允许「都为 true」这种在页面上不存在的状态。
 private enum BlindHomeFocusTarget: Hashable {
-    case activeOrder
     case newBooking
 }
 
@@ -554,6 +618,8 @@ struct BlindRunnerHomeView: View {
     /// 只在 `activeOrder?.status` 变化时移。首页无订单时它恒为 nil，`onChange` 不触发 ——
     /// 没订单的用户进首页不会被抢焦点。
     @AccessibilityFocusState private var focusedSection: BlindHomeFocusTarget?
+    /// 订单出现时焦点落在第一张预约卡上。几张卡时卡片区是个容器，焦点要挂在卡本身（#825）。
+    @AccessibilityFocusState private var isFirstOrderFocused: Bool
 
     /// 「首页是最前面那一页了，而且它还欠着一次状态播报」。
     /// 做成派生值是为了让下面那个 `onChange` 一条盖住两种到达顺序 —— 详见它的注释。
@@ -627,7 +693,12 @@ struct BlindRunnerHomeView: View {
             // 只是不在最前面。真正离开盲人端（切角色 / 退出登录）时 view model 随
             // `BlindRunnerTabView` 一起释放，`Task` 自然取消。
             .onChange(of: viewModel.activeOrder?.status) { status in
-                focusedSection = status == nil ? .newBooking : .activeOrder
+                // 最早那张走完而其余几张还在时，焦点仍落在卡上（#825）。
+                if status == nil && viewModel.homeOrders.isEmpty {
+                    focusedSection = .newBooking
+                } else {
+                    isFirstOrderFocused = true
+                }
             }
             // 陪跑中按了紧急入口（#605）：最前面不是这一单的订单页就推上去，请求由订单页接走。
             // 比对订单号：可以同时有别的时段的预约，停在那一单的页面上发不出云端求助。
@@ -724,9 +795,8 @@ struct BlindRunnerHomeView: View {
     /// **没有待进行订单时**预约换成深蓝大卡，占满下方内容之外的全部高度。
     /// 外层量一次可用高度，内容至少撑到那么高：装得下时不滚动，大字号装不下时才滚。
     ///
-    /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
-    /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
-    /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 顶部的「待进行的预约」里（#660 B-5）。
+    /// **多个待进行订单时全部显示，平分一张卡的高度**（#825，负责人 2026-11-07）。
+    /// 最早那张来自 `GET /api/orders/active`，其余来自 `GET /api/orders/mine`，见 `BlindHomeOrderStack`。
     private var contentLayer: some View {
         GeometryReader { proxy in
             ScrollView {
@@ -754,12 +824,18 @@ struct BlindRunnerHomeView: View {
                     errorSection(errorMessage)
                 }
 
-                if let order = viewModel.activeOrder {
-                    BlindHomeOrderCard(order: order) {
+                if viewModel.otherOrdersFailed {
+                    errorSection(BlindHomeUpcomingOrders.othersFailedMessage)
+                }
+
+                let orders = viewModel.homeOrders
+                if !orders.isEmpty {
+                    BlindHomeOrderStack(orders: orders, isFirstFocused: $isFirstOrderFocused) { order in
                         path.append(.orderStatus(order.orderId))
                     }
-                    .accessibilityFocused($focusedSection, equals: .activeOrder)
                     .padding(.top, 6)
+                }
+                if let order = viewModel.activeOrder {
                     BlindRunCalendarButton(order: order) // #660 B-18，iOS 17+ 且已有人接下才出现
                 }
 
@@ -771,7 +847,7 @@ struct BlindRunnerHomeView: View {
                         .accessibilityIdentifier("blindBookingTrackConsentDeclinedNotice")
                 }
 
-                if viewModel.activeOrder == nil {
+                if orders.isEmpty {
                     let belowCard = idleModel.content(
                         favorites: favoritePlaces,
                         isCurrentLocationUnavailable: locationService.isDenied || locationService.isPreciseLocationOff
@@ -799,7 +875,7 @@ struct BlindRunnerHomeView: View {
                 }
             }
             .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-            .padding(.bottom, viewModel.activeOrder == nil ? 16 : 28)
+            .padding(.bottom, viewModel.homeOrders.isEmpty ? 16 : 28)
             // 内容列在 iPad / 横屏上不铺满整屏，见 `BlindLayout.readableContentWidth`。
             .readableContentColumn()
     }
@@ -971,7 +1047,7 @@ private extension BlindRunnerHomeView {
         case .favoritePlaceList: BlindFavoritePlaceListRoute(favoritePlaces: favoritePlaces, path: $path)
         case .orderStatus(let orderId):
             BlindOrderStatusView(orderId: orderId, safetyRequest: $viewModel.orderSafetyRequest) { updatedOrder in
-                viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
+                viewModel.applyOrderDetail(updatedOrder)
             }
         case .help: BlindRunnerHelpView(isFirstRun: true)
         }
