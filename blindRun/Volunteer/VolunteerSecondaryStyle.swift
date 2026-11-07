@@ -4,8 +4,7 @@ import SwiftUI
 // 稿子：`docs/ui/mockups/volunteer-secondary-pages-20261104/`（负责人 2026-11-04 批准 v3，#697）。
 //
 // 照首页 v3（#696）的写法：浅灰页底 `Flow.page`、白卡 `Flow.surface`、圆角 22、平的不带阴影、
-// 卡名彩色 + 图标。#696 合并前它的 `VolunteerHomeCard` 在 main 上不存在，所以这里先有一份；
-// ponytail: #696 合并后改用 `VolunteerHomeCard` / `VolunteerHomeCardHeader`，删掉这两个。
+// 卡名彩色 + 图标。首页、接单页也用这里的卡片、卡头与小节标题（#838 合并了首页那份逐行相同的副本）。
 
 // MARK: - 卡名色
 

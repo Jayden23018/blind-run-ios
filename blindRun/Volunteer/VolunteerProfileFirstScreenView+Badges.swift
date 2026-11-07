@@ -33,7 +33,7 @@ extension VolunteerProfileFirstScreen {
             }
 
             // 卡里不画箭头：卡本身不可点（每枚徽章各自是一个读屏元素），去处是标题右边的「全部 N 枚」。
-            VolunteerHomeCard(padding: EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)) {
+            VolunteerSecondaryCard(padding: EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)) {
                 if cells.isEmpty {
                     Text(VolunteerProfileCopy.badgesEmpty)
                         .font(AppFonts.body())

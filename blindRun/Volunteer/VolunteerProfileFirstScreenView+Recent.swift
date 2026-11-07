@@ -63,11 +63,11 @@ extension VolunteerProfileFirstScreen {
     }
 
     private func recentCard(_ content: VolunteerHomeRecentRunContent) -> some View {
-        VolunteerHomeCard {
+        VolunteerSecondaryCard {
             VStack(alignment: .leading, spacing: 12) {
-                VolunteerHomeCardHeader(
+                VolunteerSecondaryCardHeader(
                     title: VolunteerProfileCopy.recentCardTitle,
-                    symbol: "figure.run",
+                    symbol: .system("figure.run"),
                     tint: AppColors.primary,
                     meta: content.dateText,
                     showsChevron: true
@@ -201,7 +201,7 @@ extension VolunteerProfileFirstScreen {
     }
 
     private func recentMessage(_ text: String, identifier: String) -> some View {
-        VolunteerHomeCard {
+        VolunteerSecondaryCard {
             Text(text)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)

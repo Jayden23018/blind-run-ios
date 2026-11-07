@@ -23,7 +23,7 @@ extension VolunteerProfileFirstScreen {
 
         let segments = VolunteerHomePinnedLayout.visibleSegments(pinnedStore.pinned, showsHalfCards: showsHalfCards)
         if let notice = VolunteerHomePinnedLayout.notice(pinned: pinnedStore.pinned, visible: segments) {
-            VolunteerHomeCard {
+            VolunteerSecondaryCard {
                 Text(notice == .nothingPinned ? VolunteerProfileCopy.pinnedHomeEmpty : VolunteerProfileCopy.pinnedHomeWaitingForFirstRun)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)

@@ -12,7 +12,7 @@ extension VolunteerDispatchHubView {
     /// 首页不再出现任何接单状态文字。identifier 沿用：`volunteerDispatchHubAcceptingPill`
     /// （十几条用例拿它判「进了接单页」）、`volunteerDispatchSummaryCard`、`volunteerHomeRefreshButton`。
     var statusCard: some View {
-        VolunteerHomeCard {
+        VolunteerSecondaryCard {
             VStack(alignment: .leading, spacing: 8) {
                 statusHeadline
 

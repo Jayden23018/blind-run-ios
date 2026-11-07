@@ -178,7 +178,7 @@ enum VolunteerDispatchHubCopy {
 /// 派单状态、覆盖范围、定位摘要**只在这一屏**（2026-11-04 从首页底部搬来）。
 /// 两屏都能看到「接单中」——首页靠底部胶囊，这里靠最上面的状态卡。
 ///
-/// 样式与首页同一套白卡（`VolunteerHomeCard`）：状态卡 → 下一次陪跑 → 待回复邀请 →
+/// 样式与首页同一套白卡（`VolunteerSecondaryCard`）：状态卡 → 下一次陪跑 → 待回复邀请 →
 /// 空闲时间 / 之后的陪跑 → 暂停接单。
 ///
 /// **没有黄色主按钮**：没有单是常态，不催促（设计交付 v3 §4.3）。
@@ -323,7 +323,7 @@ struct VolunteerDispatchHubView: View {
     // MARK: 空状态
 
     private var emptyState: some View {
-        VolunteerHomeCard(padding: EdgeInsets()) {
+        VolunteerSecondaryCard(padding: EdgeInsets()) {
             VStack(spacing: 10) {
                 Image(systemName: "bell")
                     .font(.system(size: 30, weight: .regular))
@@ -447,7 +447,7 @@ struct VolunteerDispatchHubView: View {
     ) -> some View {
         Button(action: action) {
             // v3（#694）：与首页同一套白卡，不再是浅蓝底。
-            VolunteerHomeCard {
+            VolunteerSecondaryCard {
                 HStack(spacing: 12) {
                     Image(systemName: systemImage)
                         .font(.body.weight(.semibold))
@@ -488,7 +488,7 @@ struct VolunteerDispatchHubView: View {
     /// 空闲时间 + 之后的陪跑。样例里空闲时间一直在（改版前只在没有约好的单时出现）——
     /// 有约时也常要改「哪些时间有空」，入口不该跟着有没有单消失。
     private var entryRows: some View {
-        VolunteerHomeCard(padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)) {
+        VolunteerSecondaryCard(padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)) {
             VStack(spacing: 0) {
                 scheduleRow
 
@@ -511,7 +511,7 @@ struct VolunteerDispatchHubView: View {
         Button {
             showsPauseConfirm = true
         } label: {
-            VolunteerHomeCard(padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)) {
+            VolunteerSecondaryCard(padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)) {
                 Text(VolunteerDispatchHubCopy.pauseTitle)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.destructive)

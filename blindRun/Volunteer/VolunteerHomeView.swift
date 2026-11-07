@@ -38,9 +38,6 @@ enum VolunteerHomeRadius {
     /// 卡片**内部**的元素：小格子、整行按钮、内嵌地图。
     /// 比外层小是为了套着好看，不是另一套体系。
     static let tile: CGFloat = 12
-
-    /// 首页 v3 与接单页的白色摘要卡（样例 `.card{border-radius:22px}`，#694）。
-    static let summaryCard: CGFloat = 22
 }
 
 // MARK: - Volunteer Home View
