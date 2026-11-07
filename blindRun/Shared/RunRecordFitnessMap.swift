@@ -211,11 +211,6 @@ enum RunRecordHeroLayout {
         contentOffsetY + adjustedTopInset
     }
 
-    static func veil(scrolled: CGFloat) -> (blur: Double, dim: Double) {
-        let positive = max(scrolled, 0)
-        return (blur: Double(min(positive / blurDistance, 1)), dim: Double(min(positive / dimDistance, 1)))
-    }
-
     /// 上 = 安全区顶（含导航栏）+ 圆钮那一行（有圆钮时）+ 16；下 = 头部实测高度 + 16；左右 28；四边再加半个标注。
     static func routeInsets(topInset: CGFloat, hasTopButtons: Bool, headerHeight: CGFloat) -> UIEdgeInsets {
         UIEdgeInsets(
