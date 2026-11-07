@@ -187,19 +187,15 @@ struct VolunteerServiceRecognitionView: View {
         }
     }
 
+    /// 与积分、固定搭档等页同一个失败块：上屏的同时念出来（#527），盲人不会以为「点了没反应」。
     private var errorSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(viewModel.errorMessage ?? "服务成就加载失败。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("重新加载") {
-                Task { await viewModel.load() }
-            }
-            .buttonStyle(TextButtonStyle())
-            .accessibilityIdentifier("volunteerAchievementsRetryButton")
+        IncentiveFailureSection(
+            message: viewModel.errorMessage ?? "服务成就加载失败。",
+            retryTitle: "重新加载",
+            identifier: "volunteerAchievementsRetryButton"
+        ) {
+            Task { await viewModel.load() }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
