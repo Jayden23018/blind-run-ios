@@ -32,25 +32,6 @@ enum ClientFlowDiagnostics {
         )
     }
 
-    nonisolated static func recordDuration(
-        operation: String,
-        result: String,
-        startedAt: ContinuousClock.Instant
-    ) {
-        let duration = startedAt.duration(to: .now)
-        let milliseconds = max(
-            0,
-            Int(duration.components.seconds * 1_000) +
-                Int(duration.components.attoseconds / 1_000_000_000_000_000)
-        )
-        lock.lock()
-        phase = "\(operation).\(result)"
-        lock.unlock()
-        logger.info(
-            "operation=\(operation, privacy: .public) result=\(result, privacy: .public) duration_ms=\(milliseconds, privacy: .public)"
-        )
-    }
-
     nonisolated static var currentPhase: String {
         lock.lock()
         let value = phase

@@ -68,8 +68,6 @@ final class RunRecordHistoryViewModel: ObservableObject {
 
     var monthTitle: String { month.title(relativeTo: currentMonth) }
     var canShowNextMonth: Bool { month != currentMonth }
-    var previousMonthTitle: String { month.previous.title(relativeTo: currentMonth) }
-    var nextMonthTitle: String { month.next.title(relativeTo: currentMonth) }
     /// 月份栏标题，总带年份。
     var monthBarTitle: String { month.fullTitle }
 

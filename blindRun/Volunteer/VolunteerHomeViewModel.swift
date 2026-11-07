@@ -225,13 +225,6 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage ?? dispatchSummaryErrorMessage
     }
 
-    var statusColor: Color {
-        if dispatchSummary?.canDispatch == true {
-            return AppColors.success
-        }
-        return isAvailable ? AppColors.warning : AppColors.textSecondary
-    }
-
     static func activeVolunteerOrder(from orders: [OrderDetailResponse]) -> OrderDetailResponse? {
         orders
             .filter { $0.status.isActiveForVolunteer }

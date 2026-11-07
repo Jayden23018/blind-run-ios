@@ -168,10 +168,6 @@ enum VolunteerHomeIncentiveCopy {
 
     static let retry = "重新加载"
 
-    /// 真的没东西可显示：七枚勋章全解锁 + 没人收藏 + 没有火花。
-    /// 只陈述，不催促（理由见本枚举顶部）。
-    static let empty = "完成陪跑服务后，这里会显示你的记录。"
-
     static func partnersSpoken(_ count: Int) -> String {
         "有 \(count) \(partnersCaption)"
     }
