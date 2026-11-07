@@ -15,6 +15,7 @@ on:
     branches: [main]
   # 每天跑一次，为的是 push 触发天生抓不到的那一类：**你 push 之后后端才改契约**。
   # pre-push 只在你 push 那一刻看一眼，之后代码悄悄过期，没有任何东西会说话。
+  # 例外：「重新生成 API 客户端并比对」不在定时任务上跑，只在 PR 上跑（理由见 build job 里那一步）。
   #
   # 定时任务只在仓库的**默认分支**上跑：
   #   · 主线（Jayden23018）默认分支是 main，配了 BACKEND_REPO_TOKEN → 真跑
@@ -323,10 +324,12 @@ jobs:
 
       # 契约改了却没重新生成，生成代码就成了过期的快照 —— 那比没有它更糟，
       # 因为它看起来还是绿的。这一步让「忘记重新生成」变成红。
-      # PR 上的触发条件同上一步（#714）。后端契约在 PR 期间变了而 PR 没碰这些路径时，
-      # 由合并后 push 到 main 那次和每天的定时任务抓，本地 pre-push 也会拦。
+      # 只在 PR 上跑，且 PR 要碰了 AidRunAPI 包或生成链路（#714）。
+      # push 到 main 和定时任务不跑（负责人 2026-11-08 定）：漂移来自后端改契约，不来自被推的那个提交。
+      # 以前 main 上每合一个 PR 就红一次、发一封邮件，11-05 到 11-07 同一件事报了 33 遍。
+      # 生成代码不进 App 运行时，过期不影响 App。发现漂移靠本地 pre-push：每次推送都重新生成并比对。
       - name: 重新生成 API 客户端并比对
-        if: github.event_name != 'pull_request' || needs.specs.outputs.api_package != 'false'
+        if: github.event_name == 'pull_request' && needs.specs.outputs.api_package != 'false'
         run: |
           set -euo pipefail
           SPEC=.backend/docs/api_spec.yaml
