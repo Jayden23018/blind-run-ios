@@ -634,8 +634,7 @@ struct VolunteerRunningHero: Equatable {
     let accessibilityLabel: String
 
     static let title = "陪跑中"
-    /// 跑过目标不足这么多就不说「多跑了」—— 「多跑了 0」读起来像出错了。
-    /// 公里数是一位小数（#846 D8），门槛取 50 米：再小的话十几米也会写成「多跑了 0.1」。
+    /// 跑过目标不足 50 米不说「多跑了」：公里数是一位小数（#846 D8），十几米会写成「多跑了 0.1」。
     static let overrunThresholdMeters: Double = 50
 
     static func make(
