@@ -83,13 +83,18 @@ final class RunRecordHistoryTests: XCTestCase {
         _ = appState
         await viewModel.load()
         XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次，一共 22.54 公里。")
+        // 汇总卡的彩色数字格（#823）：跑步 N 次 + 距离。
+        XCTAssertEqual(viewModel.summaryCells.map(\.label), ["跑步", "距离"])
+        XCTAssertEqual(viewModel.summaryCells.map(\.value), ["5", "22.54"])
 
         records.result = .success(makeHistory(runs: 5, distanceM: nil))
         await viewModel.load()
         XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次。", "没有数据是整句不说，不是「一共 0.00 公里」")
+        XCTAssertEqual(viewModel.summaryCells.map(\.label), ["跑步"], "没有距离那一格整格不出现")
     }
 
-    func testVolunteerSummaryReadsServiceTimeAndTopPartnerWithoutTheMaskOnSpeech() async {
+    /// 负责人 11-07：列表不写和谁一起跑 —— 汇总句不再说「其中和陈跑了 3 次」。
+    func testVolunteerSummaryReadsServiceTimeButNotThePartner() async {
         let (viewModel, appState, records, _) = makeViewModel(
             role: .volunteer,
             now: date(2026, 9, 24),
@@ -98,8 +103,9 @@ final class RunRecordHistoryTests: XCTestCase {
         _ = appState
         await viewModel.load()
 
-        XCTAssertEqual(viewModel.summaryText(), "9月陪跑 4 次，服务 3 小时 40 分钟。其中和陈*跑了 3 次。")
-        XCTAssertEqual(viewModel.summaryText(spoken: true), "9月陪跑 4 次，服务 3 小时 40 分钟。其中和陈跑了 3 次。")
+        XCTAssertEqual(viewModel.summaryText(), "9月陪跑 4 次，服务 3 小时 40 分钟。")
+        XCTAssertEqual(viewModel.summaryText(spoken: true), "9月陪跑 4 次，服务 3 小时 40 分钟。")
+        XCTAssertEqual(viewModel.summaryCells.map(\.label), ["陪跑", "距离", "服务"])
 
         records.result = .success(makeHistory(runs: 4, distanceM: nil, serviceMin: nil, topPartner: RunTopPartner(name: nil, runs: 3)))
         await viewModel.load()
@@ -204,28 +210,31 @@ final class RunRecordHistoryTests: XCTestCase {
         )
         // 2026-09-20 是周日。原型里的「周六」对应的是 2025 年的样例日期，别照抄。
         XCTAssertEqual(full.dateText, "9月20日 周日")
-        XCTAssertEqual(full.detailText, "深圳湾公园，和林*", "屏幕上保留掩码，免得被当成全名")
+        // 负责人 11-07：不写和谁一起跑，行是「日期 · 地点」。
+        XCTAssertEqual(full.detailText, "9月20日 周日 · 深圳湾公园")
+        XCTAssertEqual(full.distanceValue, "5.21")
         XCTAssertEqual(full.distanceText, "5.21 公里")
-        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，和林，5.21 公里")
+        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，5.21 公里")
         XCTAssertEqual(full.rotorLabel, "9月20日 周日")
 
         let sparse = RunHistoryRowContent(
             item: makeItem(orderId: 1, finishedAt: "2026-09-20T07:15:00.5", place: nil, partner: nil, distanceM: nil),
             role: .runner
         )
-        XCTAssertNil(sparse.detailText)
+        XCTAssertEqual(sparse.detailText, "9月20日 周日", "没有地点只写日期，不留「 · 」")
         XCTAssertNil(sparse.distanceText, "没有距离就不显示，不是「0.00 公里」")
         XCTAssertEqual(sparse.accessibilityLabel, "9月20日 周日")
     }
 
-    func testVolunteerRowPutsThePartnerFirst() {
+    /// 陪跑员端同款：同样不写陪的是谁（负责人 11-07）。
+    func testVolunteerRowDoesNotNameThePartner() {
         let content = RunHistoryRowContent(
             item: makeItem(orderId: 1, finishedAt: "2026-09-06T08:00:00", place: "深圳湾公园", partner: "陈*", distanceM: 5_000),
             role: .volunteer
         )
-        XCTAssertEqual(content.detailText, "陪陈*，深圳湾公园")
+        XCTAssertEqual(content.detailText, "9月6日 周日 · 深圳湾公园")
         XCTAssertEqual(content.distanceText, "5.00 公里")
-        XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，陪陈，深圳湾公园，5 公里")
+        XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，深圳湾公园，5 公里")
     }
 
     func testNumberFormatting() {

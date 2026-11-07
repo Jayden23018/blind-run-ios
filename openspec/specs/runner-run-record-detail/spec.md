@@ -15,11 +15,12 @@ The runner post-run detail page SHALL load `RunRecordServing.record(orderId:)` (
 - **THEN** the app SHALL open the existing order page for that order
 
 ### Requirement: One swipe from the header to the narration
-With VoiceOver running, the page SHALL put VoiceOver focus on the header once the record loads, the header SHALL be a single accessibility element, and the next element SHALL be "听这次跑步".
+With VoiceOver running, the page SHALL put VoiceOver focus on the header once the record loads, the header SHALL be a single accessibility element, and the next element SHALL be "听这次跑步", followed by "听声音路线". These two SHALL exist only in the accessibility tree while VoiceOver runs; with VoiceOver off the same two controls SHALL be round buttons at the top right of the route map, 44pt visible and 64pt tappable, carrying the same accessibility identifiers (owner decision 2026-11-07, #823: no large listen buttons on the page).
 
 #### Scenario: Header sentence
 - **WHEN** VoiceOver reads the header
-- **THEN** it SHALL read date, time of day, partner, place, distance, moving time and average pace as "每公里X分Y秒"
+- **THEN** it SHALL read date, time of day, place, distance, moving time and average pace as "每公里X分Y秒"
+- **AND** it SHALL NOT name the partner (the page title is "户外跑步")
 - **AND** when `comparison` is present it SHALL say how much more or less than last time
 
 #### Scenario: VoiceOver status changes
@@ -32,7 +33,8 @@ No text on the runner page, visible or spoken, SHALL use the `6'15"` notation; p
 
 #### Scenario: Split row
 - **WHEN** a full-kilometre split is shown
-- **THEN** it SHALL read like "第3公里，5分58秒，本次最快，步频每分钟171步。"
+- **THEN** it SHALL read like "第3公里，5分58秒，本次最快，步频每分钟171步，累计用时18分48秒。"
+- **AND** the visible split table SHALL show the cumulative time, the pace as "5分58秒" and the cadence, without a "最快" tag
 - **AND** the cadence clause SHALL be omitted when the split has no cadence
 
 ### Requirement: Narration tells the run in one passage
@@ -73,15 +75,15 @@ The runner page SHALL present loading, generating, insufficient-track, failed, u
 - **WHEN** `steps`, `avgCadence` or `elevationGainM` is null
 - **THEN** that row SHALL be hidden and SHALL NOT show 0
 
-### Requirement: Runner sees the volunteer's cumulative service time
-When `service.volunteerTotalServiceMinutes` is present, "更多数据" SHALL include a row with the volunteer's cumulative service time (D6). It SHALL NOT show a confirmation status (D5).
+### Requirement: Runner page records the run, not the partner
+The header, small stats, "详细信息" grid and split table SHALL NOT name the volunteer (owner decision 2026-11-07, #823, which withdraws D6's cumulative-service row). The partner SHALL appear only in the "X的留言" title and the narration. No value SHALL show a confirmation status (D5).
 
-#### Scenario: Volunteer account deleted
-- **WHEN** `volunteerTotalServiceMinutes` is null
-- **THEN** the row SHALL be hidden
+#### Scenario: Cumulative service time present
+- **WHEN** `service.volunteerTotalServiceMinutes` is present
+- **THEN** the page SHALL NOT show the volunteer's cumulative service time
 
 ### Requirement: Runner reads and hears the volunteer's messages
-When the record has volunteer messages, the page SHALL show a "X的留言" section between "每一公里" and "路线" with every volunteer message as text and a "朗读留言" button. The button SHALL speak the messages through the same player as the narration and the sound route: starting it SHALL stop the other two, activating it again SHALL stop it, and VoiceOver focus leaving it SHALL pause it. The page SHALL NOT offer a reply control in this change.
+When the record has volunteer messages, the page SHALL show a "X的留言" card after the pace chart and before "路线" with every volunteer message as text. Each message SHALL carry a "朗读留言" VoiceOver custom action (no visible button since 2026-11-07, #823). The action SHALL speak the messages through the same player as the narration and the sound route: starting it SHALL stop the other two, activating it again SHALL stop it, and VoiceOver focus leaving it SHALL pause it. The page SHALL NOT offer a reply control in this change.
 
 #### Scenario: No volunteer message
 - **WHEN** the record has no message from the volunteer
@@ -92,11 +94,11 @@ When the record has volunteer messages, the page SHALL show a "X的留言" secti
 - **THEN** that playback SHALL stop and the messages SHALL be spoken
 
 ### Requirement: Pace colour on the route has a legend
-When the map is shown (at the top with VoiceOver off, or in the "路线" section) and the route is coloured by pace, it SHALL show the same "快 ▬ 慢" legend as the volunteer detail, hidden from VoiceOver. This holds until the P1 high-contrast map replaces the pace colouring.
+When the route is coloured by pace, the "配速" card SHALL show the same "快 ▬ 慢" legend as the volunteer detail, in the same colours as the route. The top-left corner of the map holds the back button since 2026-11-07 (#823), so the legend is no longer drawn on the map.
 
-#### Scenario: VoiceOver off
-- **WHEN** VoiceOver is off and the record has pace samples
-- **THEN** the map at the top SHALL show the legend
+#### Scenario: Pace samples present
+- **WHEN** the record has at least two pace samples
+- **THEN** the "配速" card SHALL show the legend under the chart
 
 ### Requirement: Listen is one swipe after the header in every state
 The "听这次跑步" control SHALL directly follow the header in VoiceOver order whenever a narration exists, including when the record has no usable route. The "这次没有记录到完整路线" notice SHALL come after it.

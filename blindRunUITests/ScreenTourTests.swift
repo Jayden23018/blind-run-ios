@@ -143,7 +143,7 @@ final class ScreenTourTests: XCTestCase {
     @MainActor func testTour_B32_RecordDetail() {
         let app = launchBlind(emptyOrders: false, env: ["AIDRUN_UI_TEST_SEED_HISTORY": "1"])
         tapTab(app, "记录")
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "和", "公里")).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "月", "公里")).firstMatch
         if row.waitForExistence(timeout: 15) { row.tap() }
         shoot(app, "B32-record-detail", anchor: "runnerRunRecordHeader", scroll: true)
     }
@@ -220,7 +220,7 @@ final class ScreenTourTests: XCTestCase {
     @MainActor func testTour_V31_RecordDetail() {
         let app = launchVolunteer(env: ["AIDRUN_UI_TEST_SEED_HISTORY": "1"])
         tapTab(app, "记录")
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "陪", "公里")).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "月", "公里")).firstMatch
         if row.waitForExistence(timeout: 15) { row.tap() }
         shoot(app, "V31-record-detail", anchor: "runRecordDistance", scroll: true)
     }
@@ -242,7 +242,7 @@ final class ScreenTourTests: XCTestCase {
     @MainActor func testTour_Z02_RecordDetailWithMap() {
         let app = launchBlind(emptyOrders: false, env: ["AIDRUN_UI_TEST_SEED_HISTORY": "1", "AIDRUN_UI_TEST_DISABLE_MAP": "0"])
         tapTab(app, "记录")
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "和", "公里")).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "月", "公里")).firstMatch
         if row.waitForExistence(timeout: 15) { row.tap() }
         sleep(4)
         shoot(app, "Z02-map-record-detail", anchor: "runnerRunRecordHeader")

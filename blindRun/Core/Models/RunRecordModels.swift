@@ -244,7 +244,7 @@ nonisolated struct RunHistoryItem: Decodable, Sendable, Equatable {
     /// 始终脱敏（`张*`）；对方注销为 nil。
     let partnerName: String?
     let distanceM: Int?
-    /// 仅陪跑员，≤ 64 点，GCJ-02。
+    /// ≤ 64 点，GCJ-02。两个角色都有（blind-run-backend#940 起跑者也返回）；没有轨迹时 nil，列表画跑步图标。
     let thumbnail: [RunLatLng]?
 }
 

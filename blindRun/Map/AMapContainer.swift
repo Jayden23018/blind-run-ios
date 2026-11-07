@@ -23,9 +23,10 @@ enum MapAnnotationKind: Equatable, Sendable {
     case xinghuoSelf(isVolunteer: Bool)
     /// 跑后详情（阶段 4）的自绘标注，图形在 `RunRouteGlyph`。文字就是画在图上的那几个字。
     case runKilometre(Int)
-    case runLabel(String)
     case runRest(String)
     case runBubble(String)
+    /// 跑步记录（#823）的起终点圆点：起点绿、终点红，照健身。`compact` = 列表 88pt 小图上的小号。
+    case runEndpoint(isStart: Bool, compact: Bool)
 }
 
 struct MapAnnotationItem: Identifiable {
@@ -85,7 +86,13 @@ struct AMapContainer: UIViewRepresentable {
     /// 否则足迹加载完、开关一拨，地图就「弹」回原处，拖了等于白拖。
     var snapsBackToCenter: Bool = true
     /// 主路线适配视野时四周留的边。跑后详情用它把路线挤到底部卡片上方。
+    /// 页面打开后边距才量准（头部高度要等布局）：边距一变就按新值重新取景（#823 第 11 条）。
     var fitEdgePadding = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
+    /// 跑步记录（列表小图、详情大图）的低饱和底图：在底图与路线之间铺一层半透明白 / 黑，
+    /// 让彩色路线跳出来（#823 第 10 条）。
+    // ponytail: 高德控制台自定义样式能做得更干净，但开了 `customMapStyleEnabled` 审图号会变空（issue #382，
+    // 见 `AMapHostView.layoutSubviews` 的断言），且样式文件要负责人的控制台账号导出。拿到带审图号的方案再换。
+    var mutedBasemap: Bool = false
 
     func makeUIView(context: Context) -> AMapHostView {
         let mapView = MAMapView(frame: .zero)
@@ -115,6 +122,9 @@ struct AMapContainer: UIViewRepresentable {
         mapView.runLoopMode = .default
         if nightSky {
             applyNightSky(on: mapView, coordinator: context.coordinator)
+        }
+        if mutedBasemap {
+            applyMutedWash(on: mapView, coordinator: context.coordinator)
         }
         // MAMapView continuously mutates a large UIKit subview/accessibility tree
         // while rendering. Exposing those implementation details through a
@@ -148,6 +158,11 @@ struct AMapContainer: UIViewRepresentable {
             for (id, entry) in context.coordinator.polylinesByID where entry.routeStyle != nil {
                 context.coordinator.remove(entry, from: mapView)
                 context.coordinator.polylinesByID.removeValue(forKey: id)
+            }
+            // 降饱和那层的颜色也随明暗换：删掉重加，渲染器按新明暗重取。路线刚被删，下面 syncPolylines 加回时仍在它上面。
+            if let wash = context.coordinator.mutedWash {
+                mapView.remove(wash)
+                mapView.add(wash, level: .aboveLabels)
             }
         }
 
@@ -194,6 +209,7 @@ struct AMapContainer: UIViewRepresentable {
             ClientFlowDiagnostics.record(event: "applied", operation: "map-annotations")
         }
         syncPolylines(on: mapView, coordinator: context.coordinator)
+        refitPrimaryIfPaddingChanged(on: mapView, coordinator: context.coordinator)
     }
 
     static func dismantleUIView(_ hostView: AMapHostView, coordinator: Coordinator) {
@@ -205,6 +221,7 @@ struct AMapContainer: UIViewRepresentable {
         }
         coordinator.polylinesByID.removeAll()
         coordinator.lastFittedPrimarySignature = nil
+        coordinator.lastFittedPadding = nil
     }
 
     func makeCoordinator() -> Coordinator {
@@ -242,6 +259,29 @@ struct AMapContainer: UIViewRepresentable {
         guard let wash = MAPolygon(coordinates: &corners, count: UInt(corners.count)) else { return }
         coordinator.nightWash = wash
         mapView.add(wash, level: .aboveRoads)
+    }
+
+    /// 跑步记录的低饱和底图。覆盖中心 ±1°（约 100 km），一次跑步拖不出这个范围；
+    /// 压在底图文字之上（`aboveLabels`），路线比它后加，所以在它上面。
+    private func applyMutedWash(on mapView: MAMapView, coordinator: Coordinator) {
+        let c = centerCoordinate
+        var corners = [
+            CLLocationCoordinate2D(latitude: c.latitude - 1, longitude: c.longitude - 1),
+            CLLocationCoordinate2D(latitude: c.latitude - 1, longitude: c.longitude + 1),
+            CLLocationCoordinate2D(latitude: c.latitude + 1, longitude: c.longitude + 1),
+            CLLocationCoordinate2D(latitude: c.latitude + 1, longitude: c.longitude - 1),
+        ]
+        guard let wash = MAPolygon(coordinates: &corners, count: UInt(corners.count)) else { return }
+        coordinator.mutedWash = wash
+        mapView.add(wash, level: .aboveLabels)
+    }
+
+    /// 取景边距变了（头部量出实际高度、旋转、字号变化）而路线没变时，按新边距重新取景。
+    private func refitPrimaryIfPaddingChanged(on mapView: MAMapView, coordinator: Coordinator) {
+        guard coordinator.lastFittedPadding != fitEdgePadding,
+              let primary = coordinator.polylinesByID.values.first(where: \.isPrimary) else { return }
+        mapView.setVisibleMapRect(primary.overlay.boundingMapRect, edgePadding: fitEdgePadding, animated: false)
+        coordinator.lastFittedPadding = fitEdgePadding
     }
 
     private func syncAnnotations(on mapView: MAMapView, coordinator: Coordinator) -> Bool {
@@ -334,6 +374,7 @@ struct AMapContainer: UIViewRepresentable {
                     animated: false
                 )
                 coordinator.lastFittedPrimarySignature = item.signature
+                coordinator.lastFittedPadding = fitEdgePadding
             }
         }
     }
@@ -410,6 +451,8 @@ struct AMapContainer: UIViewRepresentable {
         /// 星火页第一批星加进地图的时刻，点亮延迟从这里起算。
         var sparkEpoch: CFTimeInterval?
         var nightWash: MAPolygon?
+        var mutedWash: MAPolygon?
+        var lastFittedPadding: UIEdgeInsets?
 
         func remove(_ entry: PolylineEntry, from mapView: MAMapView) {
             mapView.remove(entry.overlay)
@@ -547,6 +590,15 @@ struct AMapContainer: UIViewRepresentable {
                 renderer?.lineWidth = 0
                 return renderer
             }
+            if let wash = overlay as? MAPolygon, wash === mutedWash {
+                let renderer = MAPolygonRenderer(polygon: wash)
+                // 浅色白 40% / 深色黑 45%（#823 PLAN「退路」原值）。
+                // ponytail: 真机前的起始值 —— 底图还抢眼就往上调，路名看不清就往下调。
+                renderer?.fillColor = isDark ? UIColor.black.withAlphaComponent(0.45) : UIColor.white.withAlphaComponent(0.4)
+                renderer?.strokeColor = .clear
+                renderer?.lineWidth = 0
+                return renderer
+            }
             guard let polyline = overlay as? MAPolyline else { return nil }
             if let style = polylinesByID.values.first(where: { $0.overlay === polyline })?.routeStyle {
                 return RunRouteGlyph.renderer(for: polyline, style: style, contrast: routeContrast)
@@ -653,7 +705,7 @@ private extension MapAnnotationKind {
         case .xinghuoSpark, .xinghuoSelf:
             return .purple
         // 跑后详情的标注走 `RunRouteGlyph` 的自绘图片。
-        case .runKilometre, .runLabel, .runRest, .runBubble:
+        case .runKilometre, .runRest, .runBubble, .runEndpoint:
             return .purple
         }
     }
@@ -1037,6 +1089,8 @@ struct MapViewWrapper: View {
     /// 见 `AMapContainer.nightSky` / `snapsBackToCenter`。只有星火页打开 / 关掉。
     var nightSky: Bool = false
     var snapsBackToCenter: Bool = true
+    /// 见 `AMapContainer.mutedBasemap`。只有跑步记录（列表小图、详情大图）打开。
+    var mutedBasemap: Bool = false
 
     var body: some View {
         #if DEBUG || DEMO
@@ -1057,7 +1111,8 @@ struct MapViewWrapper: View {
                 animatesCenterChanges: animatesCenterChanges,
                 nightSky: nightSky,
                 snapsBackToCenter: snapsBackToCenter,
-                fitEdgePadding: fitEdgePadding
+                fitEdgePadding: fitEdgePadding,
+                mutedBasemap: mutedBasemap
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {
@@ -1079,7 +1134,8 @@ struct MapViewWrapper: View {
                 animatesCenterChanges: animatesCenterChanges,
                 nightSky: nightSky,
                 snapsBackToCenter: snapsBackToCenter,
-                fitEdgePadding: fitEdgePadding
+                fitEdgePadding: fitEdgePadding,
+                mutedBasemap: mutedBasemap
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {

@@ -47,28 +47,29 @@ struct UpcomingBookingRowContent: Equatable {
     }
 }
 
-/// 「待进行的预约」整段。列表为空时整段不渲染（不放「暂无」占位：多一次划动，没有信息）。
+/// 「待进行的预约」整段：节标题 + 每张预约一张卡（#823 与跑步记录同款卡）。
+/// 列表为空时整段不渲染（不放「暂无」占位：多一次划动，没有信息）。
 struct RunRecordUpcomingSection<Destination: View>: View {
     let orders: [OrderDetailResponse]
     @ViewBuilder let destination: (OrderDetailResponse) -> Destination
 
     var body: some View {
         if !orders.isEmpty {
-            Section {
+            VStack(alignment: .leading, spacing: 12) {
+                RunRecordSectionTitle(text: "待进行的预约")
                 ForEach(orders, id: \.orderId) { order in
                     NavigationLink {
                         destination(order)
                     } label: {
                         UpcomingBookingRow(content: UpcomingBookingRowContent(order: order))
                     }
+                    .buttonStyle(.plain)
                     .accessibilityHint("打开这张预约，可以查看进度或取消")
                 }
-            } header: {
-                // 组标题色同「未完成的预约」：系统 `secondaryLabel` 浅色下对比度不够。
-                Text("待进行的预约")
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityAddTraits(.isHeader)
             }
+            .padding(.top, 12)
+            // `children: .contain`：容器上的 identifier 会向下覆盖子元素（记忆 accessibility-identifier-overwrites-children）。
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("runRecordUpcomingSection")
         }
     }
@@ -78,19 +79,22 @@ private struct UpcomingBookingRow: View {
     let content: UpcomingBookingRowContent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(content.timeText)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-            Text(content.statusText)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-            Text(content.placeText)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
+        RunRecordCard {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(content.timeText)
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
+                Text(content.statusText)
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                Text(content.placeText)
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-        .padding(.vertical, 4)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(content.accessibilityLabel)
     }

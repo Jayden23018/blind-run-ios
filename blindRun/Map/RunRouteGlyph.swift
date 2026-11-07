@@ -49,12 +49,13 @@ enum RunRouteGlyph {
         switch kind {
         case .runKilometre(let km):
             return (circle(text: "\(km)"), 1)
-        case .runLabel(let text):
-            return (capsule(text: text, symbol: nil), 2)
         case .runRest(let text):
             return (capsule(text: text, symbol: "pause.fill"), 2)
         case .runBubble(let text):
             return (capsule(text: text, symbol: nil, fontSize: 15), 3)
+        case .runEndpoint(let isStart, let compact):
+            // 终点压在起点上面：起终点重合时两个都看得见一半，红点在上。
+            return (endpoint(isStart: isStart, compact: compact), isStart ? 2 : 3)
         default:
             return nil
         }
@@ -78,6 +79,19 @@ enum RunRouteGlyph {
             path.stroke()
             let size = label.size()
             label.draw(at: CGPoint(x: (side - size.width) / 2, y: (side - size.height) / 2))
+        }
+    }
+
+    /// 白圈彩芯圆点（照健身）。绿 / 红取 `AppColors.success` / `destructive` 的亮色档，亮暗同值：白圈让它压任何底图都清楚。
+    private static func endpoint(isStart: Bool, compact: Bool) -> UIImage {
+        let side: CGFloat = compact ? 10 : 18
+        let ring: CGFloat = compact ? 2 : 3
+        let fill = UIColor(rgb: isStart ? 0x1B7F3B : 0xC81E14)
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            UIColor.white.setFill()
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: side, height: side)).fill()
+            fill.setFill()
+            UIBezierPath(ovalIn: CGRect(x: ring, y: ring, width: side - ring * 2, height: side - ring * 2)).fill()
         }
     }
 

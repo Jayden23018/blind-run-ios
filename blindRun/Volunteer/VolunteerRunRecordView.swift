@@ -1,23 +1,17 @@
 import Combine
-import Charts
 import CoreLocation
 import SwiftUI
 
 // 陪跑员跑后详情（OpenSpec `add-volunteer-run-record-detail`，HANDOFF 6.2 的 P0 部分，DECISIONS D13）。
 // 数据只来自 `RunRecordServing.record(orderId:)`。并发只用 async/await。
 //
-// 没做（P1 / 后续阶段）：轨迹回放、夜跑样式、配速图拖动与地图联动、地图视差与导航栏渐变。
-// 留言输入是阶段 6（OpenSpec `add-run-record-messages`）。
+// 11-07 照苹果「健身」重做（#823），与跑者页同一套组件（`RunRecordFitnessComponents.swift`）：通栏地图 + 头部、
+// 指标格、单段表、配速图；标题「户外跑步」，全页不写和谁一起跑（跑者只在留言里出现）；留言输入区样式不动，只进卡片。
+// 没做（P1 / 后续阶段）：轨迹回放、配速图拖动与地图联动。留言输入是阶段 6（OpenSpec `add-run-record-messages`）。
 
 // MARK: - Content（纯计算，用例直接钉）
 
 struct VolunteerRunRecordContent {
-    struct Stat: Hashable {
-        let label: String
-        let value: String
-        let spoken: String
-    }
-
     struct TimelineEntry: Hashable {
         let time: String
         let text: String
@@ -36,6 +30,8 @@ struct VolunteerRunRecordContent {
         let paceFraction: Double
         let bubbleText: String
         let accessibilityLabel: String
+        /// 单段表（照健身）的一行：灰序号 + 累计用时 + 平均配速 + 步频。
+        let table: RunRecordSplitTableRow
     }
 
     struct Message: Hashable {
@@ -48,14 +44,17 @@ struct VolunteerRunRecordContent {
 
     let title: String
     let spokenTitle: String
-    let runnerInitial: String?
-    let volunteerInitial: String?
-    let subtitle: String?
+    let place: String?
+    /// 「2026年9月24日 05:10–05:32」。
+    let dateRange: String?
+    let spokenDateRange: String?
     let distanceText: String?
     let spokenDistance: String?
-    let primaryStats: [Stat]
-    let secondaryStats: [Stat]
+    /// 「详细信息」两列格（照健身）。取代改版前的两行三列数字。
+    let metrics: [RunRecordMetric]
     let serviceText: String?
+    /// 「23 分钟」：小数据行的值（`serviceText` 去掉「志愿服务」）。
+    let serviceDuration: String?
     let serviceRange: String?
     let timeline: [TimelineEntry]
     let sosLine: String
@@ -79,43 +78,26 @@ struct VolunteerRunRecordContent {
     /// `messages` 传 view model 合并过的（含本页刚发出的），不传就用记录里的。
     init(record: RunRecordResponse, geometry: RunRouteGeometry? = nil, messages allMessages: [RunRecordMessageResponse]? = nil) {
         let name = record.blindName?.trimmingCharacters(in: .whitespaces)
-        if let name, !name.isEmpty {
-            title = "和\(name)一起跑"
-            spokenTitle = "和\(name.unmaskedForSpeech)一起跑"
-        } else {
-            title = "这次陪跑"
-            spokenTitle = title
-        }
-        runnerInitial = name.flatMap(\.first).map(String.init)
-        // 这一页只给陪跑员本人看，自己那枚写「我」（同 `RopeView`）。取 `volunteerName` 首字时，
-        // 后端默认昵称「用户xxxx」与跑者的「用*****」撞成两个「用」（2026-10-03 试用反馈）。
-        volunteerInitial = "我"
+        // 负责人 11-07：不写和谁一起跑（「就只要记录跑步了就可以了」）。跑者的名字只在留言里出现。
+        title = RunRecordFitness.title
+        spokenTitle = title
+        place = record.place?.trimmingCharacters(in: .whitespaces).nilIfEmpty
 
         let start = (record.runStartedAt ?? record.service.startedAt)?.backendTimestamp
-        subtitle = [start.map(Self.dateTimeFormatter.string(from:)), record.place]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
-            .nilIfEmpty
+        let end = record.runEndedAt?.backendTimestamp
+        dateRange = RunRecordFitness.dateRange(start: start, end: end)
+        spokenDateRange = RunRecordFitness.spokenDateRange(start: start, end: end)
 
         let summary = record.summary
         distanceText = summary?.distanceM.map { RunRecordText.kilometres($0) }
         spokenDistance = summary?.distanceM.map { RunRecordText.kilometres($0, spoken: true) }
 
         // 没有数据是 null：对应一格整格不出现，不写 0（HANDOFF 6.4）。
-        primaryStats = [
-            summary?.movingSec.map { Stat(label: "运动时间", value: RunRecordText.clock($0), spoken: "运动时间 \(RunRecordText.spokenDuration($0))") },
-            summary?.avgPaceSecPerKm.map { Stat(label: "平均配速", value: RunRecordText.pace($0), spoken: "平均配速 \(RunRecordText.spokenPace($0))") },
-            summary?.avgCadence.map { Stat(label: "步频", value: "\($0)步/分", spoken: "平均步频 每分钟\($0)步") }
-        ].compactMap { $0 }
-        secondaryStats = [
-            summary?.steps.map { Stat(label: "步数", value: $0.formatted(), spoken: "步数 \($0)步") },
-            summary?.elevationGainM.map { Stat(label: "累计爬升", value: "\($0)米", spoken: "累计爬升 \($0)米") },
-            summary?.restSec.map { Stat(label: "中途休息", value: RunRecordText.clock($0), spoken: "中途休息 \(RunRecordText.spokenDuration($0))") }
-        ].compactMap { $0 }
+        metrics = RunRecordFitness.detailMetrics(summary: summary, apostrophePace: true)
 
         // D5：没有「待确认」之类的状态。
-        serviceText = record.service.durationMin.map { "志愿服务 \(RunRecordHistoryViewModel.serviceDuration(Int64($0)))" }
+        serviceDuration = record.service.durationMin.map { RunRecordHistoryViewModel.serviceDuration(Int64($0)) }
+        serviceText = serviceDuration.map { "志愿服务 \($0)" }
         let serviceStart = record.service.startedAt?.backendTimestamp.map(Self.timeFormatter.string(from:))
         let serviceEnd = record.service.completedAt?.backendTimestamp.map(Self.timeFormatter.string(from:))
         serviceRange = serviceStart.flatMap { s in serviceEnd.map { "\(s)–\($0)" } }
@@ -128,7 +110,8 @@ struct VolunteerRunRecordContent {
 
         let fastestPace = record.splits.map(\.paceSecPerKm).filter { $0 > 0 }.min()
         showsCadenceColumn = record.splits.contains { $0.avgCadence != nil }
-        splits = record.splits.map { split in
+        let cumulative = RunRecordFitness.cumulativeSeconds(record.splits)
+        splits = zip(record.splits, cumulative).map { split, elapsed in
             let isFull = split.distanceM >= 1000
             let kilometre = isFull ? "\(split.index)" : RunRecordText.kilometres(split.distanceM)
             // 小数和单位之间留空格：「0.2公里」会被审计判成标签不可读（阶段 3 同一条）。
@@ -136,7 +119,9 @@ struct VolunteerRunRecordContent {
             let isFastest = split.index == record.fastestSplitIndex
             var label = "\(spokenKilometre)，\(RunRecordText.spokenPace(split.paceSecPerKm))"
             if let cadence = split.avgCadence { label += "，步频每分钟\(cadence)步" }
+            // 「最快」只留在读屏句里（看不见屏幕的人没法「自己看」）；屏幕上不标（负责人 11-07）。
             if isFastest { label += "，最快" }
+            label += "，累计用时\(RunRecordText.spokenDuration(elapsed))"
             return SplitRow(
                 index: split.index,
                 kilometreText: kilometre,
@@ -146,7 +131,12 @@ struct VolunteerRunRecordContent {
                 barFraction: fastestPace.map { split.paceSecPerKm > 0 ? Double($0) / Double(split.paceSecPerKm) : 0 } ?? 0,
                 paceFraction: scale?.fraction(split.paceSecPerKm) ?? 0,
                 bubbleText: "\(isFull ? "第\(split.index)公里" : "最后\(kilometre)公里") \(RunRecordText.pace(split.paceSecPerKm))",
-                accessibilityLabel: label
+                accessibilityLabel: label,
+                table: RunRecordSplitTableRow(
+                    index: split.index, indexText: kilometre, elapsedText: RunRecordFitness.splitClock(elapsed),
+                    paceText: RunRecordText.pace(split.paceSecPerKm), cadenceText: split.avgCadence.map(String.init),
+                    accessibilityLabel: label, identifier: "runRecordSplit-\(split.index)"
+                )
             )
         }
 
@@ -230,8 +220,6 @@ struct VolunteerRunRecordView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let topID = "runRecordTop"
-    /// 卡片压住地图的那一截，地图适配视野时要让开。
-    private static let cardOverlap: CGFloat = 28
 
     init(orderId: Int64) {
         _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId))
@@ -239,9 +227,15 @@ struct VolunteerRunRecordView: View {
 
     var body: some View {
         content
-            .background(AppColors.background)
-            // 屏幕上是「和陈*一起跑」，读屏念「和陈一起跑」，不念「陈星号」（`unmaskedForSpeech` 注释）。
-            .spokenNavigationTitle(navigationTitle.shown, spoken: navigationTitle.spoken)
+            .background(AppColors.Flow.page.ignoresSafeArea())
+            // 标题只给读屏和下一页的返回键；屏幕上不显示，大标题在地图下沿的头部里（照健身）。
+            .navigationTitle(navigationTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("").accessibilityHidden(true)
+                }
+            }
             // 二级页藏标签栏：悬浮胶囊会盖住最后一行（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
             // 这一页是 push 进来的，返回箭头一直在。
             .toolbar(.hidden, for: .tabBar)
@@ -255,18 +249,18 @@ struct VolunteerRunRecordView: View {
             .onDisappear { retryTask?.cancel() }
     }
 
-    private var navigationTitle: (shown: String, spoken: String) {
+    private var navigationTitle: String {
         if case .loaded(let record) = viewModel.phase {
-            return VolunteerRunRecordContent(record: record).navigationTitle
+            return VolunteerRunRecordContent(record: record).navigationTitle.spoken
         }
-        return ("跑后记录", "跑后记录")
+        return "跑后记录"
     }
 
     @ViewBuilder
     private var content: some View {
         switch viewModel.phase {
         case .loading:
-            RunRecordLoadingPlaceholder(title: "和陈*一起跑")
+            RunRecordLoadingPlaceholder(title: RunRecordFitness.title)
         case .failed(let message):
             RunRecordFailedView(message: message, retry: retry)
         case .loaded(let record):
@@ -274,47 +268,43 @@ struct VolunteerRunRecordView: View {
         }
     }
 
-    @ViewBuilder
     private func loaded(_ record: RunRecordResponse) -> some View {
         let geometry = record.status == .ready ? record.track.flatMap(RunRouteGeometry.init(track:)) : nil
         let content = VolunteerRunRecordContent(record: record, geometry: geometry, messages: viewModel.messages(of: record))
-        if let geometry {
-            GeometryReader { proxy in
-                let mapHeight = proxy.size.height * 0.6
-                ZStack(alignment: .top) {
-                    RunRecordRouteMap(
-                        geometry: geometry,
-                        record: record,
-                        highlight: highlightedSplit.flatMap { index in content.splits.first { $0.index == index } },
-                        bottomInset: Self.cardOverlap + 24
-                    )
-                    .frame(height: mapHeight)
-
-                    ScrollViewReader { scroll in
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                // 地图本身不进无障碍树（标记不逐个暴露），它的整体描述挂在正好盖住它的这块透明区上。
-                                Color.clear
-                                    .frame(height: max(mapHeight - Self.cardOverlap, 0))
-                                    .contentShape(Rectangle())
-                                    .accessibilityElement()
-                                    .accessibilityLabel(content.mapDescription)
-                                    .accessibilityIdentifier("runRecordMapDescription")
-                                    .id(Self.topID)
-                                card(record, content, onSelectSplit: { select($0, scroll: scroll) })
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                            .fill(AppColors.background)
-                                            .shadow(color: .black.opacity(0.12), radius: 8, y: -2)
-                                    )
+        return GeometryReader { proxy in
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let geometry {
+                            RunRecordMapHero(
+                                geometry: geometry,
+                                record: record,
+                                highlight: highlightedSplit.flatMap { index in content.splits.first { $0.index == index } },
+                                topInset: proxy.safeAreaInsets.top,
+                                screenHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom,
+                                hasTopButtons: false,
+                                mapAccessibilityLabel: content.mapDescription
+                            ) {
+                                header(content)
+                            } buttons: {
+                                EmptyView()
                             }
+                            .id(Self.topID)
+                        } else {
+                            header(content)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 16)
                         }
+                        sections(record, content, onSelectSplit: geometry == nil ? nil : { select($0, scroll: scroll) })
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            // 滚到底时最后一行别贴着 Home 条。
+                            .padding(.bottom, 32)
                     }
+                    .readableContentColumn()
                 }
-            }
-        } else {
-            ScrollView {
-                card(record, content, onSelectSplit: nil)
+                // 地图伸到导航栏下（照健身）；滚动后系统导航栏照常换上底色。
+                .ignoresSafeArea(edges: geometry == nil ? [] : .top)
             }
         }
     }
@@ -326,82 +316,95 @@ struct VolunteerRunRecordView: View {
         }
     }
 
-    // MARK: Card
+    // MARK: 头部
 
-    private func card(
+    /// 一整句读屏：「户外跑步，3.2 公里，2026年9月24日 05:10到05:32，奥林匹克森林公园」。
+    /// identifier 沿用改版前距离那一格的 `runRecordDistance`（UI 用例按它等页面加载完）。
+    private func header(_ content: VolunteerRunRecordContent) -> some View {
+        RunRecordHeroHeader(place: content.place, distanceText: content.distanceText, dateRange: content.dateRange)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                [content.spokenTitle, content.spokenDistance.map { "\($0) 公里" }, content.spokenDateRange, content.place]
+                    .compactMap { $0 }
+                    .joined(separator: "，")
+            )
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("runRecordDistance")
+    }
+
+    // MARK: Sections
+
+    private func sections(
         _ record: RunRecordResponse,
         _ content: VolunteerRunRecordContent,
         onSelectSplit: ((Int) -> Void)?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            RunRecordHeader(content: content)
+        VStack(alignment: .leading, spacing: 16) {
             RunRecordStatusNotice(status: record.status, hasMap: onSelectSplit != nil, retry: retry)
-            if let distance = content.distanceText, let spoken = content.spokenDistance {
-                RunRecordBigDistance(text: distance, spoken: spoken)
+            if let service = content.serviceText, let duration = content.serviceDuration {
+                serviceRow(service, duration: duration, range: content.serviceRange, stops: record.stops.count)
             }
-            if !content.primaryStats.isEmpty {
-                RunRecordStatsRow(stats: content.primaryStats, prominent: true)
-            }
-            if !content.secondaryStats.isEmpty {
-                RunRecordStatsRow(stats: content.secondaryStats, prominent: false)
-            }
-            if let service = content.serviceText {
-                serviceRow(service, range: content.serviceRange)
-            }
-            if record.paceSamples.count >= 2, let scale = RunPaceScale(samples: record.paceSamples) {
-                section("配速") {
-                    RunPaceChart(samples: record.paceSamples, average: record.summary?.avgPaceSecPerKm, stops: record.stops, fastestKilometre: record.fastestSplitIndex, scale: scale)
-                }
+            if !content.metrics.isEmpty {
+                RunRecordSectionTitle(text: "详细信息").padding(.top, 8)
+                RunRecordMetricGrid(metrics: content.metrics)
             }
             if !content.splits.isEmpty {
-                section("分段") {
-                    RunSplitList(
-                        rows: content.splits,
-                        showsCadence: content.showsCadenceColumn,
-                        selected: highlightedSplit,
-                        onSelect: onSelectSplit
-                    )
-                }
+                RunRecordSectionTitle(text: "单段").padding(.top, 8)
+                RunRecordSplitTable(rows: content.splits.map(\.table), selected: highlightedSplit, onSelect: onSelectSplit)
             }
-            section("途中记录") {
+            if record.paceSamples.count >= 2, let scale = RunPaceScale(samples: record.paceSamples) {
+                RunRecordSectionTitle(text: "配速").padding(.top, 8)
+                RunPaceChart(
+                    samples: record.paceSamples, average: record.summary?.avgPaceSecPerKm, stops: record.stops,
+                    fastestKilometre: record.fastestSplitIndex, scale: scale
+                )
+            }
+            RunRecordSectionTitle(text: "途中记录").padding(.top, 8)
+            RunRecordCard {
                 RunTimeline(entries: content.timeline, sosLine: content.sosLine)
             }
             if !content.messages.isEmpty {
-                section("留言") {
-                    ForEach(content.messages, id: \.self) { message in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(message.header)
-                                .font(AppFonts.caption())
-                                .foregroundColor(AppColors.textSecondary)
-                            Text(message.text)
-                                .font(AppFonts.body())
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(message.accessibilityLabel)
-                        if let target = CounterpartSafetyGate.messageTarget(
-                            messageId: message.id,
-                            fromRole: message.fromRole,
-                            text: message.text,
-                            viewerRole: record.viewerRole,
-                            counterpart: viewModel.counterpartTarget
-                        ) {
-                            MessageReportButton(target: target)
+                RunRecordSectionTitle(text: "留言").padding(.top, 8)
+                RunRecordCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(content.messages, id: \.self) { message in
+                            messageRow(message, viewerRole: record.viewerRole)
                         }
                     }
                 }
             }
-            composer(content)
+            RunRecordCard {
+                composer(content)
+            }
+            .padding(.top, 8)
             if let target = viewModel.counterpartTarget {
                 CounterpartSafetyActions(target: target)
             }
         }
-        .padding(20)
-        // 滚到底时最后一行（求助那句）别贴着 Home 条。
-        .padding(.bottom, 24)
-        .readableContentColumn()
+    }
+
+    @ViewBuilder
+    private func messageRow(_ message: VolunteerRunRecordContent.Message, viewerRole: RunRecordRole) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(message.header)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+            Text(message.text)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(message.accessibilityLabel)
+        if let target = CounterpartSafetyGate.messageTarget(
+            messageId: message.id,
+            fromRole: message.fromRole,
+            text: message.text,
+            viewerRole: viewerRole,
+            counterpart: viewModel.counterpartTarget
+        ) {
+            MessageReportButton(target: target)
+        }
     }
 
     private func retry() {
@@ -540,35 +543,20 @@ struct VolunteerRunRecordView: View {
         }
     }
 
-    private func serviceRow(_ text: String, range: String?) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "clock")
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(text)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                if let range {
-                    Text(range)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
+    /// 头部下面一行小数据（照健身的天气行）：志愿服务时长、中途休息次数。D5：没有「待确认」之类的状态。
+    private func serviceRow(_ text: String, duration: String, range: String?, stops: Int) -> some View {
+        var stats = [RunRecordSmallStat(
+            value: duration,
+            label: "志愿服务",
+            spoken: [text, range.map { $0.replacingOccurrences(of: "–", with: "到") }].compactMap { $0 }.joined(separator: "，")
+        )]
+        if stops > 0 {
+            stats.append(RunRecordSmallStat(value: "\(stops) 次", label: "中途休息", spoken: "中途休息 \(stops) 次"))
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel([text, range.map { $0.replacingOccurrences(of: "–", with: "到") }].compactMap { $0 }.joined(separator: "，"))
-        .accessibilityIdentifier("runRecordServiceRow")
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            content()
-        }
+        return RunRecordSmallStatsRow(stats: stats)
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("runRecordServiceRow")
     }
 }
 
@@ -663,200 +651,6 @@ struct RunRecordRetryButton: View {
     }
 }
 
-private struct RunRecordHeader: View {
-    let content: VolunteerRunRecordContent
-
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        // 辅助字号下头像放上面，标题才有整行宽度。
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
-        layout {
-            // 两个叠放头像（跑者黄底黑字、陪跑员近黑底白字），纯装饰。
-            ZStack(alignment: .topLeading) {
-                avatar(content.runnerInitial, fill: AppColors.tactileYellow, ink: .black)
-                avatar(content.volunteerInitial, fill: Color(uiColor: UIColor(rgb: RunRouteGlyph.outlineRGB)), ink: .white)
-                    .offset(x: 26, y: 12)
-            }
-            .frame(width: 70, height: 56, alignment: .topLeading)
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(content.title)
-                    .font(AppFonts.title())
-                    .foregroundColor(AppColors.textPrimary)
-                if let subtitle = content.subtitle {
-                    Text(subtitle)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel([content.spokenTitle, content.subtitle].compactMap { $0 }.joined(separator: "，"))
-            .accessibilityAddTraits(.isHeader)
-        }
-    }
-
-    private func avatar(_ initial: String?, fill: Color, ink: Color) -> some View {
-        Circle()
-            .fill(fill)
-            .overlay(Circle().stroke(AppColors.background, lineWidth: 2))
-            .overlay {
-                if let initial {
-                    Text(initial).font(.system(size: 18, weight: .bold)).foregroundColor(ink)
-                } else {
-                    Image(systemName: "person.fill").foregroundColor(ink)
-                }
-            }
-            .frame(width: 44, height: 44)
-    }
-}
-
-private struct RunRecordBigDistance: View {
-    let text: String
-    let spoken: String
-    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 60
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        // 辅助字号下「公里」换到下一行，大数字才不会被挤出屏幕。
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
-        layout {
-            Text(text)
-                .font(.system(size: size, weight: .heavy))
-                .monospacedDigit()
-                .foregroundColor(AppColors.textPrimary)
-            Text("公里")
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("距离 \(spoken) 公里")
-        .accessibilityIdentifier("runRecordDistance")
-    }
-}
-
-/// 三列并排；辅助字号下改竖排，不靠缩字（design-direction §7）。语序「标签 值」，理由同 `TrackStatsRow`。
-private struct RunRecordStatsRow: View {
-    let stats: [VolunteerRunRecordContent.Stat]
-    let prominent: Bool
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        let vertical = dynamicTypeSize.isAccessibilitySize
-        let layout = vertical
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
-        layout {
-            ForEach(stats, id: \.label) { stat in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(stat.value)
-                        .font(prominent ? .title2.weight(.bold) : .title3.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundColor(AppColors.textPrimary)
-                    Text(stat.label)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-                .frame(maxWidth: vertical ? nil : .infinity, alignment: .leading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(stat.spoken)
-            }
-        }
-    }
-}
-
-private struct RunSplitList: View {
-    let rows: [VolunteerRunRecordContent.SplitRow]
-    let showsCadence: Bool
-    let selected: Int?
-    /// nil = 没有地图可高亮，行只读。
-    let onSelect: ((Int) -> Void)?
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !dynamicTypeSize.isAccessibilitySize {
-                HStack(spacing: 12) {
-                    Text("公里").frame(minWidth: 36, alignment: .leading)
-                    Text("配速").frame(minWidth: 56, alignment: .leading)
-                    Spacer(minLength: 0)
-                    if showsCadence { Text("步频") }
-                }
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityHidden(true)
-            }
-            ForEach(rows, id: \.index) { row in
-                if let onSelect {
-                    Button { onSelect(row.index) } label: { rowContent(row) }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("在地图上高亮这一段")
-                        .accessibilityAddTraits(selected == row.index ? .isSelected : [])
-                        .accessibilityIdentifier("runRecordSplit-\(row.index)")
-                } else {
-                    rowContent(row)
-                        .accessibilityIdentifier("runRecordSplit-\(row.index)")
-                }
-            }
-        }
-    }
-
-    private func rowContent(_ row: VolunteerRunRecordContent.SplitRow) -> some View {
-        let color = Color(uiColor: RunPacePalette.color(fraction: row.paceFraction, isDark: colorScheme == .dark))
-        let bar = GeometryReader { proxy in
-            Capsule()
-                .fill(color)
-                .frame(width: max(proxy.size.width * row.barFraction, 6))
-                .modifier(RunPaceBarBorder(shape: Capsule()))
-        }
-        .frame(height: 10)
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
-        return layout {
-            Text(row.kilometreText)
-                .font(AppFonts.body().weight(.semibold))
-                .frame(minWidth: 36, alignment: .leading)
-            Text(row.paceText)
-                .font(AppFonts.body())
-                .monospacedDigit()
-                .frame(minWidth: 56, alignment: .leading)
-            bar
-            if showsCadence {
-                Text(row.cadenceText ?? "")
-                    .font(AppFonts.body())
-                    .monospacedDigit()
-                    .frame(minWidth: 36, alignment: .trailing)
-            }
-            if row.isFastest {
-                // 「最快」用文字标签，不只靠颜色（HANDOFF 第 7 节）。
-                Text("最快")
-                    .font(AppFonts.caption().weight(.semibold))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(AppColors.tactileYellow))
-            }
-        }
-        .foregroundColor(AppColors.textPrimary)
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(selected == row.index ? AppColors.secondaryBackground : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(row.accessibilityLabel)
-    }
-}
-
 private struct RunTimeline: View {
     let entries: [VolunteerRunRecordContent.TimelineEntry]
     let sosLine: String
@@ -902,117 +696,17 @@ private struct DecorativeIconLabelStyle: LabelStyle {
     }
 }
 
-// MARK: - Pace Chart
-
-private struct RunPaceChart: View {
-    let samples: [RunPaceSample]
-    let average: Int?
-    let stops: [RunStop]
-    let fastestKilometre: Int?
-    let scale: RunPaceScale
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        // 纵轴画的是「负的配速」：快（数小）在上、慢在下，范围按数据定死。
-        // 用 `.automatic(reversed:)` 时 Charts 会把范围取整到 3'20"–8'20"，曲线只占中间一小截。
-        let paces = samples.map(\.paceSecPerKm)
-        let top = -Double((paces.min() ?? 0) - 10)
-        let bottom = -Double((paces.max() ?? 0) + 20)
-        let gradient = paceGradient
-        Chart {
-            ForEach(samples, id: \.distanceM) { sample in
-                AreaMark(
-                    x: .value("距离", Double(sample.distanceM) / 1000),
-                    yStart: .value("配速", -Double(sample.paceSecPerKm)),
-                    yEnd: .value("底", bottom)
-                )
-                .foregroundStyle(gradient.opacity(0.25))
-                LineMark(
-                    x: .value("距离", Double(sample.distanceM) / 1000),
-                    y: .value("配速", -Double(sample.paceSecPerKm))
-                )
-                .foregroundStyle(gradient)
-                .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-            }
-            if let average {
-                RuleMark(y: .value("平均配速", -Double(average)))
-                    .foregroundStyle(AppColors.textSecondary)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                    .annotation(position: .top, alignment: .trailing) {
-                        Text("平均 \(RunRecordText.pace(average))")
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-            }
-            ForEach(stops, id: \.atDistanceM) { stop in
-                RuleMark(x: .value("休息", Double(stop.atDistanceM) / 1000))
-                    .foregroundStyle(AppColors.textSecondary.opacity(0.6))
-                    .annotation(position: .top) {
-                        Text("休息")
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-            }
-        }
-        .chartYScale(domain: bottom...top)
-        .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let negative = value.as(Double.self) {
-                        Text(RunRecordText.pace(Int(-negative)))
-                    }
-                }
-            }
-        }
-        // 刻度只写数字、单位写一次：每个刻度都带「公里」在大字号下会叠在一起。
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let km = value.as(Double.self) {
-                        Text(km.formatted(.number.precision(.fractionLength(0...1))))
-                    }
-                }
-            }
-        }
-        .chartXAxisLabel("公里", alignment: .trailing)
-        .frame(height: dynamicTypeSize.isAccessibilitySize ? 320 : 200)
-        // 整张图是一个元素，逐点浏览与声音图表交给 AXChartDescriptor（HANDOFF 第 7 节）。
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("配速图")
-        .accessibilityValue(descriptor.summary)
-        .accessibilityChartDescriptor(descriptor)
-        .accessibilityIdentifier("runRecordPaceChart")
-    }
-
-    private var descriptor: RunPaceChartDescriptor {
-        RunPaceChartDescriptor(samples: samples, average: average, stops: stops, fastestKilometre: fastestKilometre)
-    }
-
-    private var paceGradient: LinearGradient {
-        let total = Double(samples.last?.distanceM ?? 0)
-        let isDark = colorScheme == .dark
-        let stops = samples.map { sample in
-            Gradient.Stop(
-                color: Color(uiColor: RunPacePalette.color(fraction: scale.fraction(sample.paceSecPerKm), isDark: isDark)),
-                location: total > 0 ? Double(sample.distanceM) / total : 0
-            )
-        }
-        return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
-    }
-}
-
 // MARK: - Route Map
 
 /// 描边 + 配速线 + 公里标记 + 起终点 + 休息点 + 高亮那一公里。整张图对读屏是装饰（描述挂在页面上）。
-/// 跑者详情（阶段 5）也用它，`highlight` 传 nil。
+/// 两端详情页的顶部通栏地图（`RunRecordMapHero`）与跑者端「路线」一节都用它，跑者端 `highlight` 传 nil。
+/// 底图降饱和（#823 第 10 条）；配速图例挪到「配速」卡里（左上角现在是返回键）。
 struct RunRecordRouteMap: View {
     let geometry: RunRouteGeometry
     let record: RunRecordResponse
     let highlight: VolunteerRunRecordContent.SplitRow?
-    let bottomInset: CGFloat
+    /// 路线的取景框：四边让开返回键、右上圆钮、头部（#823 第 11 条）。
+    let edgePadding: UIEdgeInsets
 
     var body: some View {
         MapViewWrapper(
@@ -1022,18 +716,10 @@ struct RunRecordRouteMap: View {
             polylines: polylines,
             tracksUserLocation: false,
             animatesCenterChanges: false,
-            fitEdgePadding: UIEdgeInsets(top: 40, left: 32, bottom: bottomInset, right: 32),
-            isDecorative: true
+            fitEdgePadding: edgePadding,
+            isDecorative: true,
+            mutedBasemap: true
         )
-        // 颜色表达的信息要有文字冗余（HANDOFF 第 7 节）：路线按配速着色，图例写明两端是快和慢。
-        // 单色路线（没有配速采样）不画图例。读屏从地图描述里听到同一件事，图例不进无障碍树。
-        .overlay(alignment: .topLeading) {
-            if RunPaceScale(samples: record.paceSamples) != nil {
-                RunPaceLegend()
-                    .padding(12)
-                    .accessibilityHidden(true)
-            }
-        }
     }
 
     private var center: CLLocationCoordinate2D {
@@ -1063,13 +749,11 @@ struct RunRecordRouteMap: View {
 
     private var annotations: [MapAnnotationItem] {
         var items: [MapAnnotationItem] = []
+        // 起点绿点、终点红点照健身（#823 第 10 条）；重合时红点压在绿点上，两个都露一半。
+        // 「起点和终点在不在同一处」读屏从地图描述 / 路线描述里听到。
         if let first = geometry.coordinates.first, let last = geometry.coordinates.last {
-            if geometry.startEndCoincide {
-                items.append(MapAnnotationItem(id: "run-start-end", coordinate: first, title: nil, subtitle: nil, kind: .runLabel("起终点")))
-            } else {
-                items.append(MapAnnotationItem(id: "run-start", coordinate: first, title: nil, subtitle: nil, kind: .runLabel("起点")))
-                items.append(MapAnnotationItem(id: "run-end", coordinate: last, title: nil, subtitle: nil, kind: .runLabel("终点")))
-            }
+            items.append(MapAnnotationItem(id: "run-start", coordinate: first, title: nil, subtitle: nil, kind: .runEndpoint(isStart: true, compact: false)))
+            items.append(MapAnnotationItem(id: "run-end", coordinate: last, title: nil, subtitle: nil, kind: .runEndpoint(isStart: false, compact: false)))
         }
         for marker in geometry.kilometreMarkers {
             items.append(MapAnnotationItem(id: "run-km-\(marker.km)", coordinate: marker.coordinate, title: nil, subtitle: nil, kind: .runKilometre(marker.km)))

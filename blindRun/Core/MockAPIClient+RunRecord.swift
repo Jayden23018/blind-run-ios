@@ -257,9 +257,9 @@ extension MockAPIClient {
                 place: order.startAddress,
                 partnerName: isBlind ? order.volunteerName : WeChatShareCard.maskedName(order.blindName),
                 distanceM: runRecordSamples[order.orderId]?.distanceM ?? 1_040,
-                // 缩略图只给陪跑员。一圈 8 个点绕回起点：只给一个点的话，列表里的路线形状
-                // 在 Mock 下永远是一个圆点，界面阶段验不出折线画没画对。
-                thumbnail: isBlind ? nil : order.startLatitude.flatMap { lat in
+                // 两个角色都给缩略图（blind-run-backend#940：跑者也拿自己的路线，列表每行一张 88pt 小地图，#823）。
+                // 一圈 8 个点绕回起点：只给一个点的话，列表里的路线形状在 Mock 下永远是一个圆点，界面阶段验不出折线画没画对。
+                thumbnail: order.startLatitude.flatMap { lat in
                     order.startLongitude.map { lng in
                         [(0, 0), (4, 1), (7, 4), (8, 8), (6, 11), (2, 10), (-1, 6), (0, 0)].map {
                             RunLatLng(lat: lat + Double($0.0) * 0.0005, lng: lng + Double($0.1) * 0.0005)
