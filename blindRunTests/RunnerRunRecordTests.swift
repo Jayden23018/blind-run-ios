@@ -12,11 +12,27 @@ final class RunnerRunRecordTests: XCTestCase {
         let content = RunnerRunRecordContent(record: record())
         XCTAssertEqual(
             content.headerLabel,
-            "9月20日星期日早上，和林在深圳湾公园跑步。5.21 公里，运动时间32分34秒，平均每公里6分15秒，比上次多跑 0.41 公里。"
+            "9月20日星期日早上，在深圳湾公园跑步。5.21 公里，运动时间32分34秒，平均每公里6分15秒，比上次多跑 0.41 公里。"
         )
         XCTAssertEqual(content.dateLine, "9月20日 周日早上")
-        XCTAssertEqual(content.title, "和林*在深圳湾公园", "屏幕上照原样显示掩码")
-        XCTAssertEqual(content.facts, ["用时 32分34秒", "每公里 6分15秒", "比上次多跑 0.41 公里"])
+        XCTAssertEqual(content.title, "户外跑步")
+        XCTAssertEqual(content.place, "深圳湾公园")
+        XCTAssertEqual(content.dateRange, "2026年9月20日 06:42–07:16")
+        XCTAssertEqual(content.smallStats.map(\.value), ["0.41 公里", "1 次"])
+        XCTAssertEqual(content.smallStats.map(\.label), ["比上次多跑", "中途休息"])
+    }
+
+    /// 负责人 11-07：全页不写和谁一起跑（「就只要记录跑步了就可以了」）。陪跑员的名字只在留言标题和讲述里出现。
+    func testHeaderAndCardsNeverNameThePartner() {
+        let content = RunnerRunRecordContent(record: record())
+        var shown: [String] = [content.title, content.place ?? "", content.dateRange ?? "", content.headerLabel]
+        shown += content.smallStats.flatMap { [$0.value, $0.label, $0.spoken] }
+        shown += content.metrics.flatMap { [$0.label, $0.value, $0.spoken] }
+        shown += content.splits.map(\.table).flatMap { [$0.indexText, $0.elapsedText, $0.paceText, $0.accessibilityLabel] }
+        for text in shown {
+            XCTAssertFalse(text.contains("林"), "出现了陪跑员姓名：\(text)")
+        }
+        XCTAssertEqual(content.messages?.title, "林*的留言", "留言标题仍写是谁留的")
     }
 
     func testNarrationCoversTheRunInHandoffOrder() {
@@ -54,8 +70,9 @@ final class RunnerRunRecordTests: XCTestCase {
         let content = RunnerRunRecordContent(record: record(summary: summary, splits: splits))
         let narration = try XCTUnwrap(content.narration)
         XCTAssertFalse(narration.contains("步频"), narration)
-        XCTAssertEqual(content.moreData.map(\.label), ["中途休息", "总时长（含休息）", "林*累计陪跑"])
-        XCTAssertEqual(content.splits[0].accessibilityLabel, "第1公里，6分38秒。")
+        XCTAssertEqual(content.metrics.map(\.label), ["运动时间", "距离", "平均配速", "总时长（含休息）", "中途休息"])
+        XCTAssertEqual(content.splits[0].accessibilityLabel, "第1公里，6分38秒，累计用时6分38秒。")
+        XCTAssertNil(content.splits[0].table.cadenceText, "没有步频时那一格空着，不写 0")
     }
 
     /// HANDOFF 5.3：跑者页屏幕和读屏都不许出现 `6'15"`。用真实生产响应（#131）和手写样例各过一遍。
@@ -64,10 +81,10 @@ final class RunnerRunRecordTests: XCTestCase {
         let production = try APIPayloadDecoder.decodePayload(RunRecordResponse.self, from: data, decoder: JSONDecoder())
         for record in [record(), production] {
             let content = RunnerRunRecordContent(record: record, geometry: record.track.flatMap(RunRouteGeometry.init(track:)))
-            let texts = [content.headerLabel, content.narration ?? "", content.routeDescription ?? "", content.title]
-                + content.facts
-                + content.splits.flatMap { [$0.title, $0.value, $0.detail ?? "", $0.accessibilityLabel] }
-                + content.moreData.flatMap { [$0.label, $0.value, $0.accessibilityLabel] }
+            var texts: [String] = [content.headerLabel, content.narration ?? "", content.routeDescription ?? "", content.title]
+            texts += content.smallStats.flatMap { [$0.value, $0.label, $0.spoken] }
+            texts += content.splits.flatMap { [$0.title, $0.value, $0.detail ?? "", $0.accessibilityLabel, $0.table.paceText] }
+            texts += content.metrics.flatMap { [$0.label, $0.value, $0.spoken] }
             for text in texts {
                 XCTAssertFalse(text.contains("'") || text.contains("\""), "出现了撇号写法：\(text)")
             }
@@ -76,19 +93,28 @@ final class RunnerRunRecordTests: XCTestCase {
 
     func testSplitRowsReadAsOneSentence() {
         let content = RunnerRunRecordContent(record: record())
-        XCTAssertEqual(content.splits[2].accessibilityLabel, "第3公里，5分58秒，本次最快，步频每分钟171步。")
+        XCTAssertEqual(content.splits[2].accessibilityLabel, "第3公里，5分58秒，本次最快，步频每分钟171步，累计用时18分48秒。")
         XCTAssertTrue(content.splits[2].isFastest)
-        XCTAssertEqual(content.splits[5].accessibilityLabel, "最后 0.21 公里，用时1分16秒，折合每公里6分2秒，步频每分钟170步。")
+        XCTAssertEqual(content.splits[5].accessibilityLabel, "最后 0.21 公里，用时1分16秒，折合每公里6分2秒，步频每分钟170步，累计用时32分34秒。")
         XCTAssertEqual(content.splits[5].value, "1分16秒")
     }
 
-    /// D6：跑者看得到陪跑员累计服务时长；陪跑员注销（null）时整行不出现。
-    func testVolunteerCumulativeServiceTimeRow() {
-        let row = RunnerRunRecordContent(record: record()).moreData.last
-        XCTAssertEqual(row?.label, "林*累计陪跑")
-        XCTAssertEqual(row?.accessibilityLabel, "林累计陪跑，21 小时")
-        let deleted = RunnerRunRecordContent(record: record(totalServiceMinutes: nil))
-        XCTAssertFalse(deleted.moreData.contains { $0.label.contains("累计陪跑") })
+    /// 单段表照健身：时间列是**累计**用时（负责人 11-07 选），不是这一段自己的用时。
+    /// 第 3 段自己用了 5:58，累计到它是 6:38 + 6:12 + 5:58 = 18:48 —— 两种实现在这一行上结果不同。
+    func testSplitTableShowsCumulativeTimeAndPaceInChineseUnits() {
+        let rows = RunnerRunRecordContent(record: record()).splits.map(\.table)
+        XCTAssertEqual(rows.map(\.indexText), ["1", "2", "3", "4", "5", "0.21"])
+        XCTAssertEqual(rows[2].elapsedText, "18:48")
+        XCTAssertEqual(rows[5].elapsedText, "32:34")
+        XCTAssertEqual(rows[2].paceText, "5分58秒", "跑者端不用撇号（HANDOFF 5.3）")
+        XCTAssertEqual(rows[2].cadenceText, "171")
+        XCTAssertEqual(rows[2].identifier, "runnerRunRecordSplit-3", "UI 用例按原 identifier 找分段")
+    }
+
+    /// D6 的「陪跑员累计陪跑」11-07 收回：不写和谁一起跑，详细信息里没有这一格。
+    func testVolunteerCumulativeServiceTimeIsNoLongerShown() {
+        let content = RunnerRunRecordContent(record: record())
+        XCTAssertFalse(content.metrics.contains { $0.label.contains("累计陪跑") })
     }
 
     func testGeneratingRecordOffersNoNarration() {

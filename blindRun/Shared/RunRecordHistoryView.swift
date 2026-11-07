@@ -4,7 +4,7 @@ import SwiftUI
 // 两端「记录」tab（OpenSpec `add-run-record-history-tab`，DECISIONS D9）。
 //
 // 上半部分是跑后记录的月度列表（`RunRecordServing.monthlyRecords`，`add-post-run-record` 交的数据层）；
-// 订单仍从 `GET /api/orders/mine` 取：没走完的进顶部「待进行的预约」（#660 B-5），已取消 / 暂无志愿者的进底部「未完成的预约」。
+// 订单仍从 `GET /api/orders/mine` 取：已取消 / 暂无志愿者的进底部「未完成的预约」。没走完的预约不进「记录」（负责人 11-07，#823 第二轮）。
 // 两端共用一个结构（HANDOFF 6.1、`design-direction.md` §5.2：两端只在密度 / 层级 / 语气上有差异，
 // 不分叉组件）—— 角色只决定文案、行的密度和点进去落到哪一页。并发只用 async/await（AGENTS.md 硬约束）。
 
@@ -59,7 +59,6 @@ final class RunRecordHistoryViewModel: ObservableObject {
     /// 当前显示那个月的记录。切月份时先置 nil，界面回到加载态。
     @Published private(set) var history: RunRecordHistoryResponse?
     @Published private(set) var unfinished: [OrderDetailResponse] = []
-    @Published private(set) var upcoming: [OrderDetailResponse] = [] // 只给跑者（见 `RunRecordUpcomingBookings.swift`）
     /// `/api/orders/mine` 里有没有任何一张已完成的单。nil = 还不知道（没加载完或加载失败）——
     /// 那种情况下**不**给「完成第一次陪跑后…」的首用文案，否则网络一抖老用户就被当成新人。
     @Published private(set) var hasAnyCompletedOrder: Bool?
@@ -147,13 +146,12 @@ final class RunRecordHistoryViewModel: ObservableObject {
             let orders = try await appState.orders.myOrders().content
             hasAnyCompletedOrder = orders.contains { $0.status == .completed }
             unfinished = Self.unfinishedBookings(from: orders)
-            upcoming = role == .runner ? Self.upcomingBookings(from: orders) : []
         } catch {
             recordFailure(error)
         }
     }
 
-    /// 已取消 / 暂无志愿者，最近的在前。没走完的在 `upcomingBookings`，未知状态不当成「已结束」替用户下结论。
+    /// 已取消 / 暂无志愿者，最近的在前。没走完的不在这里，未知状态不当成「已结束」替用户下结论。
     static func unfinishedBookings(from orders: [OrderDetailResponse]) -> [OrderDetailResponse] {
         orders
             .filter { $0.status == .cancelled || $0.status == .noVolunteer }
@@ -183,16 +181,15 @@ final class RunRecordHistoryViewModel: ObservableObject {
     }
 
     var loadedAnnouncement: String {
-        let upcomingText = Self.upcomingAnnouncement(count: upcoming.count)
-        if showsFirstRunEmptyState { return upcomingText + emptyStateCopy.title + "。" + emptyStateCopy.message }
-        var text = upcomingText + (summaryText(spoken: true) ?? "")
+        if showsFirstRunEmptyState { return emptyStateCopy.title + "。" + emptyStateCopy.message }
+        var text = summaryText(spoken: true) ?? ""
         if !unfinished.isEmpty { text += "另有 \(unfinished.count) 条未完成的预约。" }
         return text
     }
 
     // MARK: 文案（纯计算，用例直接钉）
 
-    /// 月度汇总。`spoken` 时去掉姓名里的掩码星号（只进读屏，屏幕上照原样显示）。
+    /// 月度汇总。`spoken` 时朗读用的公里数去掉尾零。
     func summaryText(spoken: Bool = false) -> String? {
         guard let summary = history?.monthSummary else { return nil }
         guard summary.runs > 0 else {
@@ -210,11 +207,8 @@ final class RunRecordHistoryViewModel: ObservableObject {
             if let minutes = summary.serviceMin {
                 text += "，服务 \(Self.serviceDuration(minutes))"
             }
-            text += "。"
-            if let partner = summary.topPartner, let name = partner.name {
-                text += "其中和\(spoken ? name.unmaskedForSpeech : name)跑了 \(partner.runs) 次。"
-            }
-            return text
+            // 不说「其中和谁跑了几次」：列表不写和谁一起跑（负责人 2026-11-07，#823）。
+            return text + "。"
         }
     }
 
@@ -259,9 +253,13 @@ final class RunRecordHistoryViewModel: ObservableObject {
 // MARK: - Row Content
 
 /// 一行记录的全部文字。抽出来是为了让「null 整段不显示」「朗读不念星号」能被单测钉住。
+/// 负责人 11-07：不写和谁一起跑（「就只要记录跑步了就可以了」），行是「户外跑步」+ 距离 +「日期 · 地点」。
 struct RunHistoryRowContent: Equatable {
     let dateText: String
-    let detailText: String?
+    /// 「11月5日 周四 · 奥林匹克森林公园」；没有地点只写日期。
+    let detailText: String
+    /// 「5.21」，没有距离为 nil（整格不出现）。
+    let distanceValue: String?
     let distanceText: String?
     let accessibilityLabel: String
     /// 转子条目只念日期：转子是用来跳的，念完整行等于没有加速。
@@ -270,26 +268,17 @@ struct RunHistoryRowContent: Equatable {
     init(item: RunHistoryItem, role: RunRecordHistoryRole) {
         let date = item.finishedAt.backendTimestamp
         dateText = date.map { Self.dateFormatter.string(from: $0) } ?? item.finishedAt
-        let spokenDate = dateText
-
-        func detail(spoken: Bool) -> String? {
-            let name = item.partnerName.map { spoken ? $0.unmaskedForSpeech : $0 }
-            let parts: [String?]
-            switch role {
-            case .runner: parts = [item.place, name.map { "和\($0)" }]
-            case .volunteer: parts = [name.map { "陪\($0)" }, item.place]
-            }
-            let joined = parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "，")
-            return joined.isEmpty ? nil : joined
-        }
-        detailText = detail(spoken: false)
-        distanceText = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0)) 公里" }
+        let place = item.place?.trimmingCharacters(in: .whitespaces)
+        let shownPlace = place?.isEmpty == false ? place : nil
+        detailText = [dateText, shownPlace].compactMap { $0 }.joined(separator: " · ")
+        distanceValue = item.distanceM.map { RunRecordHistoryViewModel.kilometres($0) }
+        distanceText = distanceValue.map { "\($0) 公里" }
 
         let spokenDistance = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0, spoken: true)) 公里" }
-        accessibilityLabel = [spokenDate, detail(spoken: true), spokenDistance]
+        accessibilityLabel = [dateText, shownPlace, spokenDistance]
             .compactMap { $0 }
             .joined(separator: "，")
-        rotorLabel = spokenDate
+        rotorLabel = dateText
     }
 
     /// 「9月20日 周六」。
@@ -303,6 +292,8 @@ struct RunHistoryRowContent: Equatable {
 
 // MARK: - View
 
+/// 照健身：浅灰页底上一张汇总卡 + 每次跑步一张卡（右侧 88pt 小地图）。
+/// 读屏标签、转子、identifier、整行可点与改版前一致（#823）。
 struct RunRecordHistoryView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
@@ -318,76 +309,65 @@ struct RunRecordHistoryView: View {
     private var items: [RunHistoryItem] { viewModel.history?.items ?? [] }
 
     var body: some View {
-        List {
-            if let errorMessage = viewModel.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .foregroundColor(AppColors.destructive)
-                    Button("重试") {
-                        Task { await viewModel.load() }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                if let errorMessage = viewModel.errorMessage {
+                    RunRecordCard {
+                        Text(errorMessage)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.destructive)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button {
+                            Task { await viewModel.load() }
+                        } label: {
+                            Text("重试")
+                                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TextButtonStyle())
+                        .accessibilityHint("重新加载\(role.title)")
+                        .accessibilityIdentifier("runRecordHistoryRetry")
                     }
-                    .buttonStyle(TextButtonStyle())
-                    .accessibilityHint("重新加载\(role.title)")
-                    .accessibilityIdentifier("runRecordHistoryRetry")
                 }
-            }
 
-            RunRecordUpcomingSection(orders: viewModel.upcoming) { unfinishedDestination($0) }
-            Section {
-                if let summary = viewModel.summaryText() {
-                    Text(summary)
-                        .font(role == .runner ? .title3 : AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
-                        .accessibilityLabel(viewModel.summaryText(spoken: true) ?? summary)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("runRecordHistorySummary")
-                }
-                monthSwitchRow(
-                    title: "上个月：\(viewModel.previousMonthTitle)",
-                    identifier: "runRecordHistoryPreviousMonth"
-                ) { await viewModel.showPreviousMonth() }
-                if viewModel.canShowNextMonth {
-                    monthSwitchRow(
-                        title: "下个月：\(viewModel.nextMonthTitle)",
-                        identifier: "runRecordHistoryNextMonth"
-                    ) { await viewModel.showNextMonth() }
-                }
-            }
+                summaryCard
 
-            Section {
+                sectionTitle(viewModel.monthTitle)
                 if viewModel.history == nil && viewModel.isLoading {
                     loadingPlaceholder
                 } else if viewModel.showsFirstRunEmptyState {
-                    EmptyStateView(title: viewModel.emptyStateCopy.title, message: viewModel.emptyStateCopy.message)
+                    RunRecordCard {
+                        EmptyStateView(title: viewModel.emptyStateCopy.title, message: viewModel.emptyStateCopy.message)
+                    }
                 } else {
                     ForEach(items, id: \.orderId) { item in
                         NavigationLink {
                             completedDestination(orderId: item.orderId)
                         } label: {
-                            RunHistoryRow(content: RunHistoryRowContent(item: item, role: role), role: role, thumbnail: item.thumbnail)
+                            RunHistoryRow(content: RunHistoryRowContent(item: item, role: role), thumbnail: item.thumbnail)
                         }
+                        .buttonStyle(.plain)
                         .accessibilityFocused($focusedRecordID, equals: item.orderId)
                     }
                 }
-            }
 
-            if !viewModel.unfinished.isEmpty {
-                Section {
+                if !viewModel.unfinished.isEmpty {
+                    sectionTitle("未完成的预约")
                     ForEach(viewModel.unfinished, id: \.orderId) { order in
                         NavigationLink {
                             unfinishedDestination(order)
                         } label: {
                             UnfinishedBookingRow(order: order, role: role)
                         }
+                        .buttonStyle(.plain)
                     }
-                } header: {
-                    // 系统组标题色 `secondaryLabel` 浅色下只有 3.26:1，真机审计报了 Contrast nearly passed。
-                    Text("未完成的预约")
-                        .foregroundColor(AppColors.textSecondary)
-                        .accessibilityAddTraits(.isHeader)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+            .readableContentColumn()
         }
+        .background(AppColors.Flow.page.ignoresSafeArea())
         .navigationTitle(role.title)
         .accessibilityIdentifier("runRecordHistoryList")
         // 自定义转子：列表里混着本月记录和未完成的预约，逐行右滑要听完每一条。条件与 ForEach 同源。
@@ -410,28 +390,92 @@ struct RunRecordHistoryView: View {
         }
     }
 
+    // MARK: 汇总卡
+
+    /// 「11月」+ 彩色数字格 + 卡内「上个月：10月 ›」（D9 一次一个月、上下月竖排保留）。
+    /// 标题与数字合成一个读屏元素，念的是整句汇总（与改版前同一句）。
+    private var summaryCard: some View {
+        RunRecordCard {
+            if let summary = viewModel.summaryText() {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.monthTitle)
+                        .font(.headline)
+                        .foregroundColor(AppColors.textPrimary)
+                    if viewModel.summaryCells.isEmpty {
+                        Text(summary)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        RunRecordSummaryCells(cells: viewModel.summaryCells)
+                    }
+                }
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(viewModel.summaryText(spoken: true) ?? summary)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("runRecordHistorySummary")
+                GroupedCardDivider(leadingInset: 0)
+            }
+            monthSwitchRow(
+                title: "上个月：\(viewModel.previousMonthTitle)",
+                identifier: "runRecordHistoryPreviousMonth"
+            ) { await viewModel.showPreviousMonth() }
+            if viewModel.canShowNextMonth {
+                GroupedCardDivider(leadingInset: 0)
+                monthSwitchRow(
+                    title: "下个月：\(viewModel.nextMonthTitle)",
+                    identifier: "runRecordHistoryNextMonth"
+                ) { await viewModel.showNextMonth() }
+            }
+        }
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        RunRecordSectionTitle(text: text)
+            .padding(.top, 12)
+    }
+
     private func monthSwitchRow(title: String, identifier: String, action: @escaping @MainActor () async -> Void) -> some View {
         Button {
             Task { await action() }
         } label: {
-            Text(title)
-                .font(AppFonts.body())
-                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-                .contentShape(Rectangle())
+            HStack {
+                Text(title)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.primary)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .disabled(viewModel.isLoading)
+        .accessibilityLabel(title)
         .accessibilityIdentifier(identifier)
     }
 
-    /// 骨架屏：三行占位，读屏只读一句（HANDOFF 6.4）。
+    /// 骨架屏：两张卡占位，读屏只读一句（HANDOFF 6.4）。
     private var loadingPlaceholder: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(0..<3, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("9月20日 周六")
-                    Text("深圳湾公园，和小林")
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(0..<2, id: \.self) { _ in
+                RunRecordCard {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(RunRecordFitness.title).font(.headline)
+                            Text("5.21 公里").font(.title.weight(.bold))
+                            Text("9月20日 周六 · 深圳湾公园").font(.subheadline)
+                        }
+                        Spacer(minLength: 8)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .frame(width: RunRecordListMap.side, height: RunRecordListMap.side)
+                    }
                 }
-                .frame(minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
             }
         }
         .redacted(reason: .placeholder)
@@ -465,108 +509,10 @@ private extension RunHistoryItem {
     var rotorDateLabel: String { RunHistoryRowContent(item: self, role: .runner).rotorLabel }
 }
 
-// MARK: - Rows
-
-private struct RunHistoryRow: View {
-    let content: RunHistoryRowContent
-    let role: RunRecordHistoryRole
-    let thumbnail: [RunLatLng]?
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        Group {
-            // 最大几档字号下横排必然截断（`design-direction.md` §7：窄屏三列网格在 AX5 截成「…」），
-            // 改成竖排；不用 `ViewThatFits`（记忆 `viewthatfits-fails-dynamic-type-audit`）。
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 8) {
-                    thumbnailView
-                    texts
-                    distance
-                }
-            } else {
-                HStack(spacing: 12) {
-                    thumbnailView
-                    texts.frame(maxWidth: .infinity, alignment: .leading)
-                    distance
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(content.accessibilityLabel)
-    }
-
-    @ViewBuilder
-    private var thumbnailView: some View {
-        if role == .volunteer {
-            RunRouteThumbnail(points: thumbnail)
-                .frame(width: 48, height: 48)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private var texts: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(content.dateText)
-                .font(role == .runner ? .title3.weight(.semibold) : AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-            if let detail = content.detailText {
-                Text(detail)
-                    .font(role == .runner ? AppFonts.body() : .subheadline)
-                    .foregroundColor(AppColors.textSecondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var distance: some View {
-        if let distanceText = content.distanceText {
-            Text(distanceText)
-                .font((role == .runner ? Font.title3 : .body).weight(.semibold).monospacedDigit())
-                .foregroundColor(AppColors.textPrimary)
-        }
-    }
-}
-
-/// 「未完成的预约」一行。沿用两端改版前各自的行：跑者状态排最前（第一个词就判断「这单跑成没有」），
-/// 陪跑员沿用 `VolunteerServiceRecordRow`。
-private struct UnfinishedBookingRow: View {
-    let order: OrderDetailResponse
-    let role: RunRecordHistoryRole
-
-    var body: some View {
-        switch role {
-        case .runner:
-            let dateText = (order.createdAt ?? order.plannedStart ?? "").displayDateTime
-            VStack(alignment: .leading, spacing: 6) {
-                Text(order.status.displayName)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                Text(dateText)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                Text(order.startAddress ?? "地点未记录")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(order.status.displayName)，\(dateText)，出发地 \(order.startAddress ?? "未记录")")
-        case .volunteer:
-            let record = VolunteerServiceRecord(order: order)
-            VolunteerServiceRecordRow(record: record)
-                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(record.accessibilityLabel)
-        }
-    }
-}
-
 // MARK: - Thumbnail
 
-/// 陪跑员行左侧的路线缩略图。纯 `Path`，不用高德截图（负责人 2026-09-24 拍板，
+/// 纯 `Path` 的路线缩略图（陪跑员首页、跑步数据页还在用）。跑步记录列表 11-07 起换成真实高德小地图（`RunRecordListMap`，#823）。
+/// 此前列表用它，是负责人 2026-09-24 拍板「不用高德截图」（
 /// 依据 `docs/research/amap-snapshot-for-list-thumbnail-20260924.md`）。
 /// 画不出路线（没有点：超过 90 天留存期 / 后端没补算；或所有点重合：只跑了几秒）时
 /// 画一个跑步图标。只画底块或一个小点看起来像图片加载失败（2026-10-03 试用反馈）。

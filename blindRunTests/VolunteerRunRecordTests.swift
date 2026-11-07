@@ -103,11 +103,11 @@ final class VolunteerRunRecordTests: XCTestCase {
             distanceM: 5210, movingSec: 1950, elapsedSec: 2050, restSec: 100,
             avgPaceSecPerKm: 375, steps: nil, avgCadence: nil, elevationGainM: nil
         )))
-        XCTAssertEqual(content.primaryStats.map(\.label), ["运动时间", "平均配速"])
-        XCTAssertEqual(content.secondaryStats.map(\.label), ["中途休息"])
+        XCTAssertEqual(content.metrics.map(\.label), ["运动时间", "距离", "平均配速", "总时长（含休息）", "中途休息"])
         XCTAssertEqual(content.distanceText, "5.21")
-        XCTAssertEqual(content.primaryStats[1].spoken, "平均配速 每公里6分15秒")
-        XCTAssertFalse(content.primaryStats.contains { $0.spoken.contains("'") }, "读屏不念 6'15\" 这种写法")
+        XCTAssertEqual(content.metrics[2].value, "6'15\"", "陪跑员端屏幕上仍用撇号写法")
+        XCTAssertEqual(content.metrics[2].spoken, "平均配速，每公里6分15秒")
+        XCTAssertFalse(content.metrics.contains { $0.spoken.contains("'") }, "读屏不念 6'15\" 这种写法")
     }
 
     func testServiceRowNeverCarriesAConfirmationStatus() {
@@ -139,17 +139,24 @@ final class VolunteerRunRecordTests: XCTestCase {
         XCTAssertEqual(content.splits.map(\.paceText), ["6'12\"", "5'48\"", "6'50\""])
         XCTAssertEqual(content.splits.map(\.isFastest), [false, true, false])
         XCTAssertEqual(content.splits[1].barFraction, 1)
-        XCTAssertEqual(content.splits[0].accessibilityLabel, "第1公里，每公里6分12秒，步频每分钟160步")
-        XCTAssertEqual(content.splits[1].accessibilityLabel, "第2公里，每公里5分48秒，最快")
-        XCTAssertEqual(content.splits[2].accessibilityLabel, "最后 0.2 公里，每公里6分50秒")
+        XCTAssertEqual(content.splits[0].accessibilityLabel, "第1公里，每公里6分12秒，步频每分钟160步，累计用时6分12秒")
+        XCTAssertEqual(content.splits[1].accessibilityLabel, "第2公里，每公里5分48秒，最快，累计用时12分")
+        XCTAssertEqual(content.splits[2].accessibilityLabel, "最后 0.2 公里，每公里6分50秒，累计用时13分22秒")
         XCTAssertEqual(content.splits[2].bubbleText, "最后0.20公里 6'50\"")
         XCTAssertTrue(content.showsCadenceColumn)
+        // 单段表：时间列是累计（6:12 + 5:48 = 12:00），不是这一段自己的 5:48。
+        XCTAssertEqual(content.splits.map(\.table.elapsedText), ["06:12", "12:00", "13:22"])
+        XCTAssertEqual(content.splits.map(\.table.identifier), ["runRecordSplit-1", "runRecordSplit-2", "runRecordSplit-3"])
     }
 
-    func testTitleSpeaksTheNameWithoutMaskStars() {
+    /// 负责人 11-07：标题「户外跑步」，不写和谁一起跑；跑者的名字只在留言里出现。
+    func testTitleIsOutdoorRunWithoutThePartnerName() {
         let content = VolunteerRunRecordContent(record: record())
-        XCTAssertEqual(content.title, "和陈*一起跑")
-        XCTAssertEqual(content.spokenTitle, "和陈一起跑")
+        XCTAssertEqual(content.title, "户外跑步")
+        XCTAssertEqual(content.spokenTitle, "户外跑步")
+        var shown: [String] = [content.title, content.place ?? "", content.dateRange ?? ""]
+        shown += content.metrics.flatMap { [$0.label, $0.value, $0.spoken] }
+        XCTAssertFalse(shown.contains { $0.contains("陈") }, "出现了跑者姓名：\(shown)")
     }
 
     /// 真实生产响应（订单 #131，陪跑员视角）：步数/步频/爬升都是 null、触发过求助。
@@ -159,8 +166,9 @@ final class VolunteerRunRecordTests: XCTestCase {
         let geometry = record.track.flatMap(RunRouteGeometry.init(track:))
         let content = VolunteerRunRecordContent(record: record, geometry: geometry)
 
-        XCTAssertEqual(content.primaryStats.map(\.label), ["运动时间", "平均配速"])
-        XCTAssertFalse(content.secondaryStats.contains { $0.label == "步数" })
+        let labels = content.metrics.map(\.label)
+        XCTAssertTrue(labels.contains("运动时间") && labels.contains("平均配速"), "\(labels)")
+        XCTAssertFalse(labels.contains("步数") || labels.contains("平均步频") || labels.contains("累计爬升"), "null 的格不出现：\(labels)")
         XCTAssertEqual(content.sosLine, "此订单触发过紧急求助")
         XCTAssertEqual(content.splits.count, record.splits.count)
         XCTAssertEqual(content.timeline.count, record.events.count)

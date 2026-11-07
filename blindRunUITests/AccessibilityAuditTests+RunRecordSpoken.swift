@@ -26,9 +26,6 @@ extension AccessibilityAuditTests {
 
         app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
         _ = openRunnerRunRecordDetail(app)
-        // 讲述的文字稿点开才在树里，一并扫。
-        let listen = app.buttons["runnerRunRecordListen"]
-        if listen.isHittable { listen.tap(); listen.tap() }
         assertNothingSpokenCarriesAMask(app, screen: "跑者详情", swipes: 8)
         for _ in 0..<8 { app.swipeDown() }
         var primes: [String] = []

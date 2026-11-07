@@ -13,20 +13,20 @@ Both roles' records tab SHALL show completed runs read from `RunRecordServing.mo
 
 #### Scenario: Runner row
 - **WHEN** the signed-in role is the blind runner
-- **THEN** each row SHALL show the finish date with weekday, the place and partner, and the distance in kilometres
-- **AND** it SHALL NOT show a route thumbnail
-- **AND** its accessibility label SHALL be one sentence such as "9月20日周六，深圳湾公园，和小林，5.21公里"
+- **THEN** each row SHALL be a card titled "户外跑步" with the distance in kilometres and "date with weekday · place", and SHALL NOT name the partner (owner decision 2026-11-07, #823)
+- **AND** it SHALL show an 88pt real AMap route map on the right drawn from the item's `thumbnail` points, or a run icon when `thumbnail` is null or all points coincide
+- **AND** the map SHALL NOT be interactive and SHALL be hidden from accessibility
+- **AND** its accessibility label SHALL be one sentence such as "9月20日 周六，深圳湾公园，5.21 公里"
 
 #### Scenario: Volunteer row
 - **WHEN** the signed-in role is the volunteer
-- **THEN** each row SHALL additionally show a route thumbnail drawn from the item's `thumbnail` points
-- **AND** the thumbnail SHALL be hidden from accessibility
-- **AND** its accessibility label SHALL read like "9月20日周六，陪老陈，深圳湾公园，5.21公里"
+- **THEN** each row SHALL be the same card as the runner row, including the 88pt route map
+- **AND** its accessibility label SHALL read like "9月20日 周六，深圳湾公园，5.21 公里"
 
 #### Scenario: Month summary
 - **WHEN** the month has runs
 - **THEN** the runner summary SHALL read like "9月跑了 5 次，一共 22.54 公里。"
-- **AND** the volunteer summary SHALL read like "9月陪跑 4 次，服务 3 小时 40 分钟。其中和老陈跑了 3 次。"
+- **AND** the volunteer summary SHALL read like "9月陪跑 4 次，服务 3 小时 40 分钟。" and SHALL NOT name a partner
 
 #### Scenario: Masked partner names
 - **WHEN** a partner name arrives masked (for example `张*`)

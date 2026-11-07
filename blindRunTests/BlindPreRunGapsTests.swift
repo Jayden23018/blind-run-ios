@@ -4,55 +4,29 @@ import UIKit
 import XCTest
 @testable import blindRun
 
-/// #660 约跑前后的七条（OpenSpec `close-blind-pre-run-gaps`）：第二张预约、评分默认值、等待播报、
+/// #660 约跑前后的七条（OpenSpec `close-blind-pre-run-gaps`）：评分默认值、等待播报、
 /// 开跑提醒与日历、出发地点提醒、低电量。B-13 没有代码改动，不在这里。
 @MainActor
 final class BlindPreRunGapsTests: XCTestCase {
 
-    // MARK: - B-5 「待进行的预约」
+    // MARK: - B-5（「记录」里的「待进行的预约」11-07 按负责人要求删了，#823 第二轮）
 
-    func testUpcomingBookingsKeepEveryActiveOrderEarliestFirst() {
-        let orders = [
-            Self.order(id: 1, status: .completed, start: "2026-11-05T07:00:00"),
-            Self.order(id: 2, status: .scheduledConfirmed, start: "2026-11-07T07:00:00"),
-            Self.order(id: 3, status: .pendingMatch, start: "2026-11-06T07:00:00"),
-            Self.order(id: 4, status: .cancelled, start: "2026-11-06T08:00:00"),
-            Self.order(id: 5, status: .rematching, start: nil),
-        ]
-
-        XCTAssertEqual(
-            RunRecordHistoryViewModel.upcomingBookings(from: orders).map(\.orderId), [3, 2, 5],
-            "终态不进；有计划开始的按时间先后，没有的排最后"
-        )
-    }
-
-    func testRunnerRecordsListTheSecondActiveBookingAndSayHowMany() async {
+    /// 两张进行中的预约既不进「未完成的预约」，加载播报也不再提（旧实现以「有 2 张待进行的预约」开头）。
+    /// 首页多张预约另立 #825。
+    func testRunnerRecordsNeitherListNorAnnounceActiveBookings() async {
         let orders = FakeOrderService()
         orders.myOrdersResult = .success(Self.page([
             Self.order(id: 7, status: .scheduledConfirmed, start: "2026-11-06T07:00:00"),
             Self.order(id: 8, status: .pendingMatch, start: "2026-11-07T07:00:00"),
         ]))
         let appState = AppState(orders: orders, tokenStore: PreRunInMemoryTokenStore())
-        let speech = SpeechService()
         let viewModel = RunRecordHistoryViewModel(role: .runner)
-        viewModel.configure(with: appState, speechService: speech, runRecord: PreRunEmptyRunRecords())
-
-        await viewModel.load()
-
-        XCTAssertEqual(viewModel.upcoming.map(\.orderId), [7, 8], "首页只显示 7，8 此前在 App 里没有落点")
-        XCTAssertTrue(viewModel.loadedAnnouncement.hasPrefix("有 2 张待进行的预约"), viewModel.loadedAnnouncement)
-    }
-
-    func testVolunteerRecordsHaveNoUpcomingSection() async {
-        let orders = FakeOrderService()
-        orders.myOrdersResult = .success(Self.page([Self.order(id: 7, status: .scheduledConfirmed, start: nil)]))
-        let appState = AppState(orders: orders, tokenStore: PreRunInMemoryTokenStore())
-        let viewModel = RunRecordHistoryViewModel(role: .volunteer)
         viewModel.configure(with: appState, speechService: SpeechService(), runRecord: PreRunEmptyRunRecords())
 
         await viewModel.load()
 
-        XCTAssertTrue(viewModel.upcoming.isEmpty)
+        XCTAssertTrue(viewModel.unfinished.isEmpty, "进行中的预约不是「未完成的预约」")
+        XCTAssertFalse(viewModel.loadedAnnouncement.contains("待进行的预约"), viewModel.loadedAnnouncement)
     }
 
     /// 默认每页 10 条时，活跃单可能被后来下又取消的单挤到第二页。
@@ -65,13 +39,6 @@ final class BlindPreRunGapsTests: XCTestCase {
         let recorded = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(recorded.path, "/api/orders/mine")
         XCTAssertEqual(recorded.query?["size"], "50")
-    }
-
-    func testUpcomingRowSaysTheTimeFirst() {
-        let content = UpcomingBookingRowContent(order: Self.order(id: 1, status: .pendingMatch, start: "2026-11-06T07:00:00"))
-
-        XCTAssertTrue(content.accessibilityLabel.hasPrefix(content.timeText), content.accessibilityLabel)
-        XCTAssertTrue(content.accessibilityLabel.contains("出发地 朝阳公园南门"))
     }
 
     // MARK: - B-30 评分默认不选

@@ -5,17 +5,13 @@ import SwiftUI
 // 数据只来自 `RunRecordServing.record(orderId:)`；view model 与陪跑员页共用（`RunRecordViewModel`）。
 //
 // 这一页**任何地方都不出现 `6'15"`**（HANDOFF 5.3）：屏幕与读屏一律「6分15秒」。
-// 没做（P1 / 后续阶段）：低视力高对比大地图、分享给家人、休息点地名、留言一节与回复（阶段 6）。
+// 11-07 照苹果「健身」重做（#823）：通栏地图 + 头部、指标格、单段表、配速图；「听」两个大按钮换成地图右上两个圆钮，
+// VoiceOver 开着时头部后紧跟两个读屏元素（§7：头部右划一次到「听」）。全页不写和谁一起跑（搭档只在留言标题与订单页出现）。
+// 没做（P1 / 后续阶段）：分享给家人、休息点地名、留言回复。
 
 // MARK: - Content（纯计算，用例直接钉）
 
 struct RunnerRunRecordContent {
-    struct Row: Hashable {
-        let label: String
-        let value: String
-        let accessibilityLabel: String
-    }
-
     struct SplitRow: Hashable {
         let index: Int
         let title: String
@@ -23,20 +19,27 @@ struct RunnerRunRecordContent {
         let detail: String?
         let isFastest: Bool
         let accessibilityLabel: String
+        /// 单段表（照健身）的一行：灰序号 + 累计用时 + 平均配速（「6分12秒」）+ 步频。
+        let table: RunRecordSplitTableRow
     }
 
     /// 两个及以上满公里分段的步频，最大减最小不超过这个数就说「很稳」（HANDOFF 没给阈值）。
     static let steadyCadenceSpread = 5
 
     let dateLine: String?
+    /// 头部：地点、「户外跑步」、距离、「2026年9月24日 05:10–05:32」。
+    let place: String?
     let title: String
     let distanceText: String?
-    let facts: [String]
+    let dateRange: String?
+    /// 头部下面一行小数据：比上次多跑 / 中途休息次数，没有值的格不出现。
+    let smallStats: [RunRecordSmallStat]
     let headerLabel: String
     /// nil = 没有可讲的（生成中 / 失败），不给「听这次跑步」。
     let narration: String?
     let splits: [SplitRow]
-    let moreData: [Row]
+    /// 「详细信息」两列格（照健身）。取代改版前的「更多数据」平铺行；D6 的「陪跑员累计陪跑」11-07 收回（不写和谁一起跑）。
+    let metrics: [RunRecordMetric]
     /// nil = 没有路线。
     let routeDescription: String?
     /// 「X的留言」一节（阶段 6）。nil = 陪跑员没留过言，整节不出现。
@@ -57,36 +60,31 @@ struct RunnerRunRecordContent {
         let spokenPartner = partner?.unmaskedForSpeech
         let place = record.place?.trimmingCharacters(in: .whitespaces).nonEmpty
         let start = (record.runStartedAt ?? record.service.startedAt)?.backendTimestamp
+        let end = record.runEndedAt?.backendTimestamp
         let summary = record.summary
 
         dateLine = start.map { Self.shortDate.string(from: $0) + Self.period(of: $0) }
         let spokenDate = start.map { Self.longDate.string(from: $0) + Self.period(of: $0) }
-
-        func activity(_ who: String?) -> String {
-            switch (who, place) {
-            case let (who?, place?): return "和\(who)在\(place)"
-            case let (who?, nil): return "和\(who)一起"
-            case let (nil, place?): return "在\(place)"
-            case (nil, nil): return ""
-            }
-        }
-        let shownActivity = activity(partner)
-        // 屏幕标题：「和林*在深圳湾公园」「和林*一起跑」「在深圳湾公园」。
-        title = shownActivity.isEmpty ? "这次跑步" : (place == nil ? shownActivity + "跑" : shownActivity)
-        let spokenActivity = activity(spokenPartner)
+        self.place = place
+        title = RunRecordFitness.title
+        dateRange = RunRecordFitness.dateRange(start: start, end: end)
 
         distanceText = summary?.distanceM.map { RunRecordText.kilometres($0) }
         let spokenKm = summary?.distanceM.map { RunRecordText.kilometres($0, spoken: true) }
         let comparison = record.comparison.map { Self.comparisonText($0) }
 
-        facts = [
-            summary?.movingSec.map { "用时 \(RunRecordText.spokenDuration($0))" },
-            summary?.avgPaceSecPerKm.map { "每公里 \(RunRecordText.spokenDuration($0))" },
-            comparison.map { "比上次\($0.verb) \($0.amount) 公里" }
+        smallStats = [
+            comparison.map {
+                RunRecordSmallStat(value: "\($0.amount) 公里", label: "比上次\($0.verb)", spoken: "比上次\($0.verb) \($0.amount) 公里")
+            },
+            record.stops.isEmpty ? nil : RunRecordSmallStat(
+                value: "\(record.stops.count) 次", label: "中途休息", spoken: "中途休息 \(record.stops.count) 次"
+            )
         ].compactMap { $0 }
 
         // 头部整块一个元素（HANDOFF 6.3 第 1 条）。数字与单位之间留空格，审计判「标签不可读」（阶段 3）。
-        var header = [spokenDate, spokenActivity.isEmpty ? "跑步" : spokenActivity + "跑步"]
+        // 不念和谁一起跑（负责人 11-07）。
+        var header = [spokenDate, place.map { "在\($0)跑步" } ?? "跑步"]
             .compactMap { $0 }.joined(separator: "，") + "。"
         let stats = [
             spokenKm.map { "\($0) 公里" },
@@ -98,50 +96,46 @@ struct RunnerRunRecordContent {
         headerLabel = header
 
         let fullSplits = record.splits.filter { $0.distanceM >= 1000 }
-        splits = record.splits.map { split in
+        let cumulative = RunRecordFitness.cumulativeSeconds(record.splits)
+        // 「最快」只留在读屏句里（看不见屏幕的人没法「自己看」）；屏幕上不标（负责人 11-07）。
+        splits = zip(record.splits, cumulative).map { split, elapsed in
             let isFull = split.distanceM >= 1000
             let isFastest = split.index == record.fastestSplitIndex
             let cadence = split.avgCadence
+            let pace = RunRecordText.spokenDuration(split.paceSecPerKm)
+            let elapsedSpoken = "，累计用时\(RunRecordText.spokenDuration(elapsed))"
+            let table = { (indexText: String, label: String) in
+                RunRecordSplitTableRow(
+                    index: split.index, indexText: indexText, elapsedText: RunRecordFitness.splitClock(elapsed),
+                    paceText: pace, cadenceText: cadence.map(String.init), accessibilityLabel: label,
+                    identifier: "runnerRunRecordSplit-\(split.index)"
+                )
+            }
             if isFull {
-                let pace = RunRecordText.spokenDuration(split.paceSecPerKm)
                 var label = "第\(split.index)公里，\(pace)"
                 if isFastest { label += "，本次最快" }
                 if let cadence { label += "，步频每分钟\(cadence)步" }
+                label += elapsedSpoken + "。"
                 return SplitRow(
                     index: split.index, title: "第 \(split.index) 公里", value: pace,
-                    detail: cadence.map { "步频 \($0)" }, isFastest: isFastest, accessibilityLabel: label + "。"
+                    detail: cadence.map { "步频 \($0)" }, isFastest: isFastest, accessibilityLabel: label,
+                    table: table("\(split.index)", label)
                 )
             }
             let km = RunRecordText.kilometres(split.distanceM, spoken: true)
             let used = RunRecordText.spokenDuration(split.durationSec)
-            let pace = RunRecordText.spokenDuration(split.paceSecPerKm)
             var label = "最后 \(km) 公里，用时\(used)，折合每公里\(pace)"
             if let cadence { label += "，步频每分钟\(cadence)步" }
+            label += elapsedSpoken + "。"
             return SplitRow(
                 index: split.index, title: "最后 \(km) 公里", value: used,
                 detail: (["折合每公里 \(pace)"] + [cadence.map { "步频 \($0)" }].compactMap { $0 }).joined(separator: "，"),
-                isFastest: false, accessibilityLabel: label + "。"
+                isFastest: false, accessibilityLabel: label,
+                table: table(RunRecordText.kilometres(split.distanceM), label)
             )
         }
 
-        var rows: [Row] = []
-        func row(_ label: String, _ value: String, spoken: String? = nil) {
-            rows.append(Row(label: label, value: value, accessibilityLabel: "\(label)，\(spoken ?? value)"))
-        }
-        if let steps = summary?.steps { row("步数", "\(steps.formatted()) 步", spoken: "\(steps)步") }
-        if let cadence = summary?.avgCadence { row("平均步频", "\(cadence) 步/分", spoken: "每分钟\(cadence)步") }
-        if let climb = summary?.elevationGainM { row("累计爬升", "\(climb) 米") }
-        if let rest = summary?.restSec { row("中途休息", RunRecordText.spokenDuration(rest)) }
-        if let elapsed = summary?.elapsedSec { row("总时长（含休息）", RunRecordText.spokenDuration(elapsed)) }
-        // D6：跑者看得到这位陪跑员的累计服务时长。
-        if let total = record.service.volunteerTotalServiceMinutes {
-            let value = RunRecordHistoryViewModel.serviceDuration(total)
-            rows.append(Row(
-                label: "\(partner ?? "陪跑员")累计陪跑", value: value,
-                accessibilityLabel: "\(spokenPartner ?? "陪跑员")累计陪跑，\(value)"
-            ))
-        }
-        moreData = rows
+        metrics = RunRecordFitness.detailMetrics(summary: summary, apostrophePace: false)
 
         routeDescription = geometry.map { Self.routeDescription($0, stops: record.stops.count) }
 
@@ -336,12 +330,10 @@ struct RunnerRunRecordView: View {
     @StateObject private var audio = RunRecordAudioController()
     @State private var retryTask: Task<Void, Never>?
     @State private var voiceOverRunning = UIAccessibility.isVoiceOverRunning
-    @State private var showsTranscript = false
     @AccessibilityFocusState private var headerFocused: Bool
 
-    /// 与两个按钮的 `accessibilityIdentifier` 字面量一致（焦点移开就暂停靠它认按钮）。
+    /// 与圆钮 / 读屏元素的 `accessibilityIdentifier` 字面量一致（焦点移开就暂停靠它认控件）。
     static let listenID = "runnerRunRecordListen"
-    static let soundRouteID = "runnerRunRecordSoundRoute"
     static let readMessagesID = "runnerRunRecordReadMessages"
 
     init(orderId: Int64) {
@@ -350,9 +342,15 @@ struct RunnerRunRecordView: View {
 
     var body: some View {
         content
-            .background(AppColors.background)
-            .navigationTitle("这次跑步")
+            .background(AppColors.Flow.page.ignoresSafeArea())
+            // 标题只给读屏和下一页的返回键；屏幕上不显示，大标题在地图下沿的头部里（照健身）。
+            .navigationTitle(RunRecordFitness.title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("").accessibilityHidden(true)
+                }
+            }
             // 二级页藏标签栏（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
             .toolbar(.hidden, for: .tabBar)
             .accessibilityElement(children: .contain)
@@ -376,7 +374,7 @@ struct RunnerRunRecordView: View {
     private var content: some View {
         switch viewModel.phase {
         case .loading:
-            RunRecordLoadingPlaceholder(title: "和林*在深圳湾公园")
+            RunRecordLoadingPlaceholder(title: RunRecordFitness.title)
         case .failed(let message):
             RunRecordFailedView(message: message, retry: retry)
         case .loaded(let record):
@@ -392,263 +390,230 @@ struct RunnerRunRecordView: View {
     private func loaded(_ record: RunRecordResponse) -> some View {
         let geometry = record.status == .ready ? record.track.flatMap(RunRouteGeometry.init(track:)) : nil
         let content = RunnerRunRecordContent(record: record, geometry: geometry)
-        let sonification = RunRouteSonification(
-            samples: record.paceSamples, stops: record.stops, totalMetres: record.summary?.distanceM, geometry: geometry
-        )
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                // VoiceOver 关着（多半是低视力）：地图放最上面。高对比样式是 P1，这里先用阶段 4 那张。
-                if !voiceOverRunning, let geometry {
-                    routeMap(geometry, record: record, height: 300)
+        // VoiceOver 关着（多半是低视力）：地图固定在页面背后，头部压在它下沿，往上滑地图渐渐模糊（照健身）。
+        // VoiceOver 开着：地图挪进「路线」一节并隐藏（HANDOFF 6.3），头部直接在页顶。
+        return Group {
+            if !voiceOverRunning, let geometry {
+                RunRecordMapScrollPage(geometry: geometry, record: record, hasTopButtons: content.narration != nil) {
+                    header(content)
+                } buttons: {
+                    listenButton(content.narration)
+                } content: {
+                    sections(record, content: content, geometry: geometry)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 32)
                 }
-                header(content)
-                if let narration = content.narration {
-                    listenBlock(narration)
-                }
-                RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: retry) // 在「听」之后：头部右划一次就到「听」（§7 第 2 条）
-                if let sonification {
-                    soundRouteBlock(sonification)
-                }
-                if !content.splits.isEmpty {
-                    section("每一公里") {
-                        VStack(spacing: 0) {
-                            ForEach(content.splits, id: \.index) { RunnerSplitRow(row: $0) }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !voiceOverRunning, content.narration != nil {
+                            listenButton(content.narration)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.trailing, 8)
                         }
+                        header(content)
+                            .padding(.horizontal, 20)
+                            .padding(.top, voiceOverRunning || content.narration == nil ? 16 : 0)
+                        sections(record, content: content, geometry: geometry)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            .padding(.bottom, 32)
                     }
-                }
-                if let messages = content.messages {
-                    messagesBlock(messages)
-                }
-                if let geometry, let description = content.routeDescription {
-                    section("路线") {
-                        if voiceOverRunning {
-                            routeMap(geometry, record: record, height: 240)
-                        }
-                        Text(description)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityLabel("路线描述：\(description)")
-                            .accessibilityIdentifier("runnerRunRecordRouteDescription")
-                    }
-                }
-                if !content.moreData.isEmpty {
-                    section("更多数据") {
-                        VStack(spacing: 0) {
-                            ForEach(content.moreData, id: \.label) { RunnerDataRow(row: $0) }
-                        }
-                    }
-                }
-                orderLink(record.orderId)
-                if let target = viewModel.counterpartTarget {
-                    CounterpartSafetyActions(target: target)
+                    .readableContentColumn()
                 }
             }
-            .padding(20)
-            .padding(.bottom, 24)
-            .readableContentColumn()
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func sections(_ record: RunRecordResponse, content: RunnerRunRecordContent, geometry: RunRouteGeometry?) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            listenSections(record, content: content, geometry: geometry)
+            dataSections(record, content: content)
+            if let messages = content.messages {
+                messagesBlock(messages)
+            }
+            tailSections(record, content: content, geometry: geometry)
+        }
+    }
+
+    /// 读屏元素紧跟头部：进页面焦点在头部，往右划一次就到「听这次跑步」（HANDOFF 第 7 节）。
+    /// 然后是无路线提示（在「听」之后，§7 第 2 条）。讲述只出声，不显示文字稿（负责人 11-07 第二轮第 1 条）。
+    @ViewBuilder
+    private func listenSections(_ record: RunRecordResponse, content: RunnerRunRecordContent, geometry: RunRouteGeometry?) -> some View {
+        if voiceOverRunning, let narration = content.narration {
+            voiceOverListen(narration)
+        }
+        RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: retry)
+    }
+
+    /// 小数据行、「详细信息」两列格、「单段」表、「配速」图。
+    @ViewBuilder
+    private func dataSections(_ record: RunRecordResponse, content: RunnerRunRecordContent) -> some View {
+        if !content.smallStats.isEmpty {
+            RunRecordSmallStatsRow(stats: content.smallStats)
+                .padding(.horizontal, 4)
+        }
+        if !content.metrics.isEmpty {
+            RunRecordSectionTitle(text: "详细信息").padding(.top, 8)
+            RunRecordMetricGrid(metrics: content.metrics)
+        }
+        if !content.splits.isEmpty {
+            RunRecordSectionTitle(text: "单段").padding(.top, 8)
+            RunRecordSplitTable(rows: content.splits.map(\.table))
+        }
+        if record.paceSamples.count >= 2, let scale = RunPaceScale(samples: record.paceSamples) {
+            RunRecordSectionTitle(text: "配速").padding(.top, 8)
+            RunPaceChart(
+                samples: record.paceSamples, average: record.summary?.avgPaceSecPerKm, stops: record.stops,
+                fastestKilometre: record.fastestSplitIndex, scale: scale, apostrophePace: false
+            )
+        }
+    }
+
+    /// 「路线」（VoiceOver 开着时地图在这里）、「订单详情与评价」、举报与拉黑。
+    @ViewBuilder
+    private func tailSections(_ record: RunRecordResponse, content: RunnerRunRecordContent, geometry: RunRouteGeometry?) -> some View {
+        if let geometry, let description = content.routeDescription {
+            RunRecordSectionTitle(text: "路线").padding(.top, 8)
+            RunRecordCard {
+                if voiceOverRunning {
+                    routeMap(geometry, record: record, height: 240)
+                        .padding(.bottom, 12)
+                }
+                Text(description)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("路线描述：\(description)")
+                    .accessibilityIdentifier("runnerRunRecordRouteDescription")
+            }
+        }
+        orderLink(record.orderId)
+            .padding(.top, 8)
+        if let target = viewModel.counterpartTarget {
+            CounterpartSafetyActions(target: target)
         }
     }
 
     // MARK: 头部
 
     private func header(_ content: RunnerRunRecordContent) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let date = content.dateLine {
-                Text(date)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
+        RunRecordHeroHeader(place: content.place, distanceText: content.distanceText, dateRange: content.dateRange)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(content.headerLabel)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("runnerRunRecordHeader")
+            .accessibilityFocused($headerFocused)
+            // 进页面焦点落在头部，往右划一次就到「听这次跑步」（HANDOFF 第 7 节）。
+            // 立刻设会被导航转场吃掉，等转场走完再设。
+            .task {
+                guard voiceOverRunning else { return }
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                headerFocused = true
             }
-            Text(content.title)
-                .font(AppFonts.largeTitle())
-                .foregroundColor(AppColors.textPrimary)
-            if let distance = content.distanceText {
-                RunnerBigDistance(text: distance)
-            }
-            ForEach(content.facts, id: \.self) { fact in
-                Text(fact)
-                    .font(AppFonts.title())
-                    .foregroundColor(AppColors.textPrimary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(content.headerLabel)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityIdentifier("runnerRunRecordHeader")
-        .accessibilityFocused($headerFocused)
-        // 进页面焦点落在头部，往右划一次就到「听这次跑步」（HANDOFF 第 7 节）。
-        // 立刻设会被导航转场吃掉，等转场走完再设。
-        .task {
-            guard voiceOverRunning else { return }
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            headerFocused = true
-        }
     }
 
+}
+
+// 拆出来只是因为结构体正文超过 SwiftLint 上限（棘轮只许变小）；同一个文件，私有成员照常可见。
+extension RunnerRunRecordView {
     // MARK: 听这次跑步
 
-    private func listenBlock(_ narration: String) -> some View {
-        let seconds = RunnerRunRecordContent.estimatedSeconds(narration)
-        let title: String
-        let spoken: String
+    private var listenTitle: String {
         switch audio.state {
-        case .playing(.narration): title = "停止讲述"; spoken = "停止讲述"
-        case .paused(.narration): title = "继续讲述"; spoken = "继续讲述"
-        default: title = "听这次跑步"; spoken = "听这次跑步"
-        }
-        return VStack(alignment: .leading, spacing: 12) {
-            Button {
-                showsTranscript = true
-                audio.activeControlIdentifier = Self.listenID
-                audio.toggleSpeech(narration)
-            } label: {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(AppFonts.title().weight(.bold))
-                        Text("语音讲述，约 \(seconds) 秒")
-                            .font(AppFonts.body())
-                    }
-                    Spacer(minLength: 8)
-                    TactileDots()
-                        .accessibilityHidden(true)
-                }
-                .foregroundColor(.black)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(AppColors.tactileYellow))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(spoken)
-            .accessibilityHint("语音讲述这次跑步，大约 \(seconds) 秒")
-            .accessibilityIdentifier("runnerRunRecordListen")
-
-            if showsTranscript {
-                Text(narration)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("文字稿：\(narration)")
-                    .accessibilityIdentifier("runnerRunRecordTranscript")
-            }
+        case .playing(.narration): return "停止讲述"
+        case .paused(.narration): return "继续讲述"
+        default: return "听这次跑步"
         }
     }
 
-    // MARK: 用声音走一遍路线
+    private func toggleListen(_ narration: String) {
+        audio.activeControlIdentifier = Self.listenID
+        audio.toggleSpeech(narration)
+    }
 
-    private func soundRouteBlock(_ sonification: RunRouteSonification) -> some View {
-        let seconds = Int(sonification.duration.rounded())
-        let active = audio.state == .playing(.route) || audio.state == .paused(.route)
-        let time = active ? audio.routeTime : 0
-        let lit = active ? sonification.barIndex(at: time) : nil
-        let title: String
-        switch audio.state {
-        case .playing(.route): title = "停止"
-        case .paused(.route): title = "继续播放"
-        case .preparing(.route): title = "正在准备"
-        default: title = "播放，约 \(seconds) 秒"
+    /// 地图右上的圆钮（负责人 11-07 第 3 条：去掉页面里的大按钮）。
+    /// 第二轮去掉了旁边的「声音路线」圆钮：音调听着像防空警报（负责人 11-07 第二轮第 2 条）。
+    @ViewBuilder
+    private func listenButton(_ narration: String?) -> some View {
+        if let narration {
+            RunRecordMapCircleButton(
+                systemImage: audio.state == .playing(.narration) ? "stop.fill" : "speaker.wave.2.fill",
+                accessibilityLabel: listenTitle,
+                accessibilityHint: "语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒",
+                identifier: Self.listenID,
+                isActive: audio.state == .playing(.narration)
+            ) { toggleListen(narration) }
         }
-        return VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("用声音走一遍路线")
-                    .font(AppFonts.title())
-                    .foregroundColor(AppColors.textPrimary)
-                Text(Self.soundRouteExplanation)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("用声音走一遍路线。\(Self.soundRouteExplanation)")
-            .accessibilityAddTraits(.isHeader)
+    }
 
-            RunRouteSoundStrip(sonification: sonification, litIndex: lit)
-                .frame(height: 44)
-                .accessibilityHidden(true)
-
-            // 只做屏幕文字，不发 VoiceOver 通告：通告会和提示音叠在一起（HANDOFF 6.3 第 3 条）。
-            if active, let caption = sonification.caption(at: time) {
-                Text(caption)
-                    .font(AppFonts.title())
-                    .monospacedDigit()
-                    .foregroundColor(AppColors.textPrimary)
-                    .accessibilityHidden(true)
-            }
-
-            Button {
-                audio.activeControlIdentifier = Self.soundRouteID
-                audio.toggleRoute(sonification)
-            } label: {
-                // 可点区（整行、≥64pt）由 `OutlineSecondaryButtonStyle` 给（#749），标签里不再挂 frame。
-                Label(title, systemImage: audio.state == .playing(.route) ? "stop.fill" : "play.fill")
-                    .font(AppFonts.body().weight(.semibold))
-            }
-            .buttonStyle(OutlineSecondaryButtonStyle())
-            .accessibilityLabel(audio.state == .idle ? "播放声音路线，大约 \(seconds) 秒" : "\(title)声音路线")
-            .accessibilityIdentifier("runnerRunRecordSoundRoute")
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(AppColors.secondaryBackground))
+    /// VoiceOver 开着时紧跟头部的「听这次跑步」：只进无障碍树，看得见的人看不到（负责人 11-07 选「右上圆钮 + 读屏保留」）。
+    private func voiceOverListen(_ narration: String) -> some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 1)
+            .accessibilityElement()
+            .accessibilityLabel(listenTitle)
+            .accessibilityHint("语音讲述这次跑步，大约 \(RunnerRunRecordContent.estimatedSeconds(narration)) 秒")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { toggleListen(narration) }
+            .accessibilityIdentifier(Self.listenID)
     }
 
     // MARK: X的留言（阶段 6）
 
     /// P0 没有「回复」：语音回复是 P1，文字回复没人要（负责人 2026-09-25）。
+    /// 「朗读留言」11-07 从大按钮改成每条留言上的读屏自定义操作（负责人选「右上圆钮 + 读屏保留」）。
     private func messagesBlock(_ messages: RunnerRunRecordContent.Messages) -> some View {
         let reading = audio.state == .playing(.message)
-        let title = reading ? "停止朗读" : (audio.state == .paused(.message) ? "继续朗读" : "朗读留言")
+        let actionName = reading ? "停止朗读" : (audio.state == .paused(.message) ? "继续朗读" : "朗读留言")
         return VStack(alignment: .leading, spacing: 12) {
-            Text(messages.title)
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel(messages.spokenTitle)
-                .accessibilityAddTraits(.isHeader)
-            ForEach(messages.notes, id: \.id) { note in
-                Text(note.text ?? "")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let target = CounterpartSafetyGate.messageTarget(
-                    messageId: note.id,
-                    fromRole: note.fromRole,
-                    text: note.text,
-                    viewerRole: .blind,
-                    counterpart: viewModel.counterpartTarget
-                ) {
-                    MessageReportButton(target: target)
+            RunRecordSectionTitle(text: messages.title, spoken: messages.spokenTitle)
+                .padding(.top, 8)
+            RunRecordCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(messages.notes, id: \.id) { note in
+                        Text(note.text ?? "")
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityAction(named: Text(actionName)) {
+                                audio.activeControlIdentifier = Self.readMessagesID
+                                audio.toggleSpeech(messages.readAloud, as: .message)
+                            }
+                            // 每条留言挂同一个 identifier：焦点在留言之间移动不算「离开」，朗读不暂停（`focusMoved` 按它认控件）。
+                            .accessibilityIdentifier(Self.readMessagesID)
+                        if let target = CounterpartSafetyGate.messageTarget(
+                            messageId: note.id,
+                            fromRole: note.fromRole,
+                            text: note.text,
+                            viewerRole: .blind,
+                            counterpart: viewModel.counterpartTarget
+                        ) {
+                            MessageReportButton(target: target)
+                        }
+                    }
                 }
             }
-            Button {
-                audio.activeControlIdentifier = Self.readMessagesID
-                audio.toggleSpeech(messages.readAloud, as: .message)
-            } label: {
-                Label(title, systemImage: reading ? "stop.fill" : "play.fill")
-                    .font(AppFonts.body().weight(.semibold))
-            }
-            .buttonStyle(OutlineSecondaryButtonStyle())
-            .accessibilityLabel(title)
-            .accessibilityIdentifier("runnerRunRecordReadMessages")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("runnerRunRecordMessages")
     }
 
-    static let soundRouteExplanation = "音调越高，跑得越快。声音在左右耳之间移动，跟着路线往东或往西走。每过一公里会响几声，响几声就是第几公里；中途休息时会响一声低音。建议戴耳机。"
-
     // MARK: 其余
 
     private func routeMap(_ geometry: RunRouteGeometry, record: RunRecordResponse, height: CGFloat) -> some View {
-        RunRecordRouteMap(geometry: geometry, record: record, highlight: nil, bottomInset: 32)
-            .frame(height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            // 地图不进无障碍树：路线描述另有文字（遍历顺序跟随绘制顺序，只能 hidden，见 skill aidrun-a11y-voice）。
-            .accessibilityHidden(true)
-            .accessibilityIdentifier("runnerRunRecordMap")
+        RunRecordRouteMap(
+            geometry: geometry, record: record, highlight: nil,
+            edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
+        )
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        // 地图不进无障碍树：路线描述另有文字（遍历顺序跟随绘制顺序，只能 hidden，见 skill aidrun-a11y-voice）。
+        .accessibilityHidden(true)
+        .accessibilityIdentifier("runnerRunRecordMap")
     }
 
     private func orderLink(_ orderId: Int64) -> some View {
@@ -656,161 +621,22 @@ struct RunnerRunRecordView: View {
         NavigationLink {
             BlindOrderStatusView(orderId: orderId) { _ in }
         } label: {
-            HStack {
-                Text("订单详情与评价")
-                    .font(AppFonts.body())
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .accessibilityHidden(true)
+            RunRecordCard {
+                HStack {
+                    Text("订单详情与评价")
+                        .font(AppFonts.body())
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(AppColors.textSecondary)
+                        .accessibilityHidden(true)
+                }
+                .foregroundColor(AppColors.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight - 32, alignment: .leading)
             }
-            .foregroundColor(AppColors.textPrimary)
-            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityHint("查看订单，提交或查看评价")
         .accessibilityIdentifier("runnerRunRecordOrderLink")
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(AppFonts.title())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            content()
-        }
-    }
-}
-
-// MARK: - Pieces
-
-/// 大号距离（HANDOFF 5.2：跑者页约 72pt）。辅助字号下「公里」换行。
-private struct RunnerBigDistance: View {
-    let text: String
-    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 72
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
-        layout {
-            Text(text)
-                .font(.system(size: size, weight: .heavy))
-                .monospacedDigit()
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-            Text("公里")
-                .font(AppFonts.title())
-        }
-        .foregroundColor(AppColors.textPrimary)
-    }
-}
-
-/// 盲道提示砖一样的圆点纹理，纯装饰。
-private struct TactileDots: View {
-    var body: some View {
-        Grid(horizontalSpacing: 6, verticalSpacing: 6) {
-            ForEach(0..<3, id: \.self) { _ in
-                GridRow {
-                    ForEach(0..<3, id: \.self) { _ in
-                        Circle().fill(Color.black.opacity(0.35)).frame(width: 8, height: 8)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct RunnerSplitRow: View {
-    let row: RunnerRunRecordContent.SplitRow
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
-        layout {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(row.title)
-                        .font(AppFonts.body().weight(.semibold))
-                    if row.isFastest {
-                        // 「最快」用文字标签，不只靠颜色（HANDOFF 第 7 节）。
-                        Text("最快")
-                            .font(AppFonts.caption().weight(.semibold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(AppColors.tactileYellow))
-                    }
-                }
-                if let detail = row.detail {
-                    Text(detail)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
-            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-            Text(row.value)
-                .font(AppFonts.title())
-                .monospacedDigit()
-        }
-        .foregroundColor(AppColors.textPrimary)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(row.accessibilityLabel)
-        .accessibilityIdentifier("runnerRunRecordSplit-\(row.index)")
-    }
-}
-
-private struct RunnerDataRow: View {
-    let row: RunnerRunRecordContent.Row
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    var body: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
-        layout {
-            Text(row.label)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-            Text(row.value)
-                .font(AppFonts.body())
-                .monospacedDigit()
-                .foregroundColor(AppColors.textSecondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(row.accessibilityLabel)
-    }
-}
-
-/// 每 100 米一根竖条，颜色按配速；播放时已走过的点亮、没走到的变淡。纯装饰（信息在讲述与分段里）。
-private struct RunRouteSoundStrip: View {
-    let sonification: RunRouteSonification
-    let litIndex: Int?
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let bars = sonification.bars
-        GeometryReader { proxy in
-            let width = proxy.size.width / CGFloat(max(bars.count, 1))
-            HStack(alignment: .bottom, spacing: 0) {
-                ForEach(Array(bars.enumerated()), id: \.offset) { offset, bar in
-                    // 音高反推回 0（快）…1（慢），与地图、分段同一套配色。
-                    let fraction = 1 - log2(bar.hz / RunRouteSonification.lowestHz)
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color(uiColor: RunPacePalette.color(fraction: fraction, isDark: colorScheme == .dark)))
-                        .opacity(litIndex.map { offset <= $0 ? 1 : 0.3 } ?? 1)
-                        .frame(width: max(width - 1, 1), height: proxy.size.height * (0.35 + 0.65 * (1 - fraction)))
-                        .frame(width: width)
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .bottom)
-        }
     }
 }

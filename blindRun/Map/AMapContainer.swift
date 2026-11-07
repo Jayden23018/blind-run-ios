@@ -23,9 +23,9 @@ enum MapAnnotationKind: Equatable, Sendable {
     case xinghuoSelf(isVolunteer: Bool)
     /// 跑后详情（阶段 4）的自绘标注，图形在 `RunRouteGlyph`。文字就是画在图上的那几个字。
     case runKilometre(Int)
-    case runLabel(String)
     case runRest(String)
     case runBubble(String)
+    case runEndpoint(isStart: Bool, compact: Bool) // 跑步记录（#823）起点绿、终点红圆点；`compact` = 列表 88pt 小图
 }
 
 struct MapAnnotationItem: Identifiable {
@@ -86,6 +86,7 @@ struct AMapContainer: UIViewRepresentable {
     var snapsBackToCenter: Bool = true
     /// 主路线适配视野时四周留的边。跑后详情用它把路线挤到底部卡片上方。
     var fitEdgePadding = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
+    var mutedBasemap: Bool = false // 跑步记录的低饱和底图与重新取景（#823），见 `AMapContainer+RunRecord.swift`
 
     func makeUIView(context: Context) -> AMapHostView {
         let mapView = MAMapView(frame: .zero)
@@ -116,13 +117,12 @@ struct AMapContainer: UIViewRepresentable {
         if nightSky {
             applyNightSky(on: mapView, coordinator: context.coordinator)
         }
-        // MAMapView continuously mutates a large UIKit subview/accessibility tree
-        // while rendering. Exposing those implementation details through a
-        // UIViewRepresentable makes SwiftUI rebuild accessibility attributes on
-        // every map frame. SwiftUI supplies one stable summary element below.
+        // MAMapView changes its accessibility tree while it renders. SwiftUI supplies one stable summary element instead.
         mapView.isAccessibilityElement = false
         mapView.accessibilityElementsHidden = true
-        return AMapHostView(mapView: mapView)
+        let hostView = AMapHostView(mapView: mapView)
+        if mutedBasemap { configureRunRecordMap(hostView, coordinator: context.coordinator) }
+        return hostView
     }
 
     func updateUIView(_ hostView: AMapHostView, context: Context) {
@@ -144,11 +144,8 @@ struct AMapContainer: UIViewRepresentable {
             context.coordinator.routeContrast = routeContrast
             mapView.mapType = Self.mapType(isDark: routeContrast.isDark)
             // 跑后路线的配速色亮暗不同值、描边随「增强对比度」变宽：三层一起删，由下面的 syncPolylines 按数组顺序、按新配色加回，
-            // 叠放顺序才不会乱。
-            for (id, entry) in context.coordinator.polylinesByID where entry.routeStyle != nil {
-                context.coordinator.remove(entry, from: mapView)
-                context.coordinator.polylinesByID.removeValue(forKey: id)
-            }
+            // 叠放顺序才不会乱。降饱和那层也删掉重加（实现在 `AMapContainer+RunRecord.swift`）。
+            context.coordinator.resetRunRecordStyling(on: mapView)
         }
 
         // 「减弱动态效果」可以在页面开着的时候切换：屏幕上的星、「你」和足迹光点当场跟着换。
@@ -194,6 +191,7 @@ struct AMapContainer: UIViewRepresentable {
             ClientFlowDiagnostics.record(event: "applied", operation: "map-annotations")
         }
         syncPolylines(on: mapView, coordinator: context.coordinator)
+        refitPrimaryIfPaddingChanged(on: mapView, coordinator: context.coordinator)
     }
 
     static func dismantleUIView(_ hostView: AMapHostView, coordinator: Coordinator) {
@@ -328,12 +326,7 @@ struct AMapContainer: UIViewRepresentable {
             }
 
             if item.isPrimary, coordinator.lastFittedPrimarySignature != item.signature {
-                mapView.setVisibleMapRect(
-                    overlay.boundingMapRect,
-                    edgePadding: fitEdgePadding,
-                    animated: false
-                )
-                coordinator.lastFittedPrimarySignature = item.signature
+                fitPrimary(overlay, signature: item.signature, on: mapView, coordinator: coordinator)
             }
         }
     }
@@ -410,6 +403,7 @@ struct AMapContainer: UIViewRepresentable {
         /// 星火页第一批星加进地图的时刻，点亮延迟从这里起算。
         var sparkEpoch: CFTimeInterval?
         var nightWash: MAPolygon?
+        var mutedWash: MAPolygon?; var lastFittedPadding: UIEdgeInsets?; var lastFittedSize = CGSize.zero // 跑步记录（#823），见 `AMapContainer+RunRecord.swift`
 
         func remove(_ entry: PolylineEntry, from mapView: MAMapView) {
             mapView.remove(entry.overlay)
@@ -547,6 +541,7 @@ struct AMapContainer: UIViewRepresentable {
                 renderer?.lineWidth = 0
                 return renderer
             }
+            if let renderer = mutedWashRenderer(for: overlay) { return renderer }
             guard let polyline = overlay as? MAPolyline else { return nil }
             if let style = polylinesByID.values.first(where: { $0.overlay === polyline })?.routeStyle {
                 return RunRouteGlyph.renderer(for: polyline, style: style, contrast: routeContrast)
@@ -582,6 +577,7 @@ final class AMapHostView: UIView {
     /// `AMapApprovalNumberTests` 钉着我们没开。叠在高德 logo 正上方，不和它重叠。
     /// 读屏隐藏：这是给看屏幕的人的合规标注，「关于」页有一份能念的。
     let approvalNumberLabel = UILabel()
+    var onLayout: ((MAMapView) -> Void)? // 跑步记录按真实尺寸重新取景（#823 第二轮），见 `AMapContainer+RunRecord.swift`
 
     init(mapView: MAMapView) {
         self.mapView = mapView
@@ -621,6 +617,7 @@ final class AMapHostView: UIView {
             width: min(size.width, max(bounds.width - logoLeft, 0)),
             height: size.height
         )
+        onLayout?(mapView)
     }
 
     @available(*, unavailable)
@@ -653,7 +650,7 @@ private extension MapAnnotationKind {
         case .xinghuoSpark, .xinghuoSelf:
             return .purple
         // 跑后详情的标注走 `RunRouteGlyph` 的自绘图片。
-        case .runKilometre, .runLabel, .runRest, .runBubble:
+        case .runKilometre, .runRest, .runBubble, .runEndpoint:
             return .purple
         }
     }
@@ -1037,6 +1034,7 @@ struct MapViewWrapper: View {
     /// 见 `AMapContainer.nightSky` / `snapsBackToCenter`。只有星火页打开 / 关掉。
     var nightSky: Bool = false
     var snapsBackToCenter: Bool = true
+    var mutedBasemap: Bool = false // 见 `AMapContainer.mutedBasemap`；只有跑步记录的两处地图打开
 
     var body: some View {
         #if DEBUG || DEMO
@@ -1057,7 +1055,8 @@ struct MapViewWrapper: View {
                 animatesCenterChanges: animatesCenterChanges,
                 nightSky: nightSky,
                 snapsBackToCenter: snapsBackToCenter,
-                fitEdgePadding: fitEdgePadding
+                fitEdgePadding: fitEdgePadding,
+                mutedBasemap: mutedBasemap
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {
@@ -1079,7 +1078,8 @@ struct MapViewWrapper: View {
                 animatesCenterChanges: animatesCenterChanges,
                 nightSky: nightSky,
                 snapsBackToCenter: snapsBackToCenter,
-                fitEdgePadding: fitEdgePadding
+                fitEdgePadding: fitEdgePadding,
+                mutedBasemap: mutedBasemap
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {

@@ -161,6 +161,34 @@ enum AppColors {
         static let skyMid = dynamic(skyMidTone.light, skyMidTone.dark)
     }
 
+    /// 跑步记录列表与两端跑后详情的数字色（负责人 2026-11-07 批准「数字照健身上色」，#823）。
+    ///
+    /// **只是别名，不新增取值**：琥珀 / 靛蓝 / 天青 / 橙取 `VolunteerHome` 已批准的四色，绿取 `success`。
+    /// 用法照健身：时间琥珀、距离靛蓝、配速天青、步数与步频橙、爬升绿。颜色只是冗余线索，每个数字都有灰色标签。
+    /// 数字是字，压白卡 / `#1C1C1E` 卡都要 4.5:1，由 `RunRecordMetricColorContrastTests` 钉住。
+    enum RunRecordMetric {
+        static let timeAmberTone = VolunteerHome.ratingAmberTone
+        static let distanceIndigoTone = VolunteerHome.distanceIndigoTone
+        static let paceTealTone = VolunteerHome.durationTealTone
+        static let cadenceOrangeTone = VolunteerHome.streakOrangeTone
+        /// 与 `tones` 里的 `success` 同值（用例对撞）。
+        static let climbGreenTone = Tone(light: 0x1B7F3B, dark: 0x30D158)
+
+        static let tones: [(name: String, tone: Tone)] = [
+            ("timeAmber", timeAmberTone),
+            ("distanceIndigo", distanceIndigoTone),
+            ("paceTeal", paceTealTone),
+            ("cadenceOrange", cadenceOrangeTone),
+            ("climbGreen", climbGreenTone)
+        ]
+
+        static let timeAmber = VolunteerHome.ratingAmber
+        static let distanceIndigo = VolunteerHome.distanceIndigo
+        static let paceTeal = VolunteerHome.durationTeal
+        static let cadenceOrange = VolunteerHome.streakOrange
+        static let climbGreen = AppColors.success
+    }
+
     /// 语音输入框的麦克风按钮「正在录音」时的底色（`VoiceTextField`），上面是白色麦克风图标。
     ///
     /// **同 `availabilityOnSurface` 的形状**：语义色当背景、白色压在上面，所以不进 `tones`。

@@ -28,7 +28,7 @@ When the record has a `track`, the page SHALL show a map with the route drawn as
 - **AND** individual markers SHALL NOT be exposed
 
 ### Requirement: Card shows the run summary without confirmation status
-The card SHALL show avatars, "和X一起跑", date and place, the distance, moving time / average pace / cadence, steps / climb / rest, and the volunteer-service minutes with its time range, and SHALL NOT show any confirmation status such as "待确认".
+The page SHALL show, under the full-width map, the place, the title "户外跑步", the distance and the date with start–end time; then the volunteer-service minutes with its time range; then a "详细信息" grid with moving time, distance, average pace, climb, steps, cadence, total time and rest. It SHALL NOT name the runner outside the messages (owner decision 2026-11-07, #823), and SHALL NOT show any confirmation status such as "待确认".
 
 #### Scenario: Missing phone data
 - **WHEN** `steps`, `avgCadence` or `elevationGainM` is null
@@ -97,11 +97,11 @@ The page SHALL list the run's messages and SHALL offer a composer — a text box
 - **AND** existing messages SHALL still be shown
 
 ### Requirement: Pace colour on the route has a legend and a spoken meaning
-When the route is coloured by pace, the map SHALL show a "快 ▬ 慢" legend drawn in the same palette. The legend SHALL NOT be exposed to VoiceOver. The map's spoken description SHALL say what the colours mean and, when there is a fastest full kilometre, which one it was.
+When the route is coloured by pace, the "配速" card SHALL show a "快 ▬ 慢" legend drawn in the same palette as the route (moved off the map on 2026-11-07, #823: the map's top-left corner holds the back button). The legend SHALL NOT be a separate VoiceOver stop. The map's spoken description SHALL say what the colours mean and, when there is a fastest full kilometre, which one it was.
 
-#### Scenario: Legend on the map
+#### Scenario: Legend in the pace card
 - **WHEN** the record has pace samples and the route is drawn
-- **THEN** the map SHALL show the legend with the text "快" and "慢" at the two ends
+- **THEN** the "配速" card SHALL show the legend with the text "快" and "慢" at the two ends
 - **AND** VoiceOver SHALL NOT stop on it
 
 #### Scenario: Spoken description
@@ -115,10 +115,10 @@ When the route is coloured by pace, the map SHALL show a "快 ▬ 慢" legend dr
 ### Requirement: Spoken text carries the prototype's information without mask markers
 Everything VoiceOver reads on the volunteer detail SHALL be free of name mask markers (`*`, `＊`). The pace chart and the send button SHALL say what the prototype's `data-vo` says.
 
-#### Scenario: Navigation title
-- **WHEN** the runner's name is masked (`陈*`)
-- **THEN** the screen SHALL still show "和陈*一起跑"
-- **AND** VoiceOver SHALL read "和陈一起跑"
+#### Scenario: Message author
+- **WHEN** the runner's name is masked (`陈*`) and the runner left a message
+- **THEN** the message header SHALL still show "陈*"
+- **AND** VoiceOver SHALL read "陈说：…"
 
 #### Scenario: Pace chart rests
 - **WHEN** the record has rests

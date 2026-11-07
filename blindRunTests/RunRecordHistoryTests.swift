@@ -83,13 +83,18 @@ final class RunRecordHistoryTests: XCTestCase {
         _ = appState
         await viewModel.load()
         XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次，一共 22.54 公里。")
+        // 汇总卡的彩色数字格（#823）：跑步 N 次 + 距离。
+        XCTAssertEqual(viewModel.summaryCells.map(\.label), ["跑步", "距离"])
+        XCTAssertEqual(viewModel.summaryCells.map(\.value), ["5", "22.54"])
 
         records.result = .success(makeHistory(runs: 5, distanceM: nil))
         await viewModel.load()
         XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次。", "没有数据是整句不说，不是「一共 0.00 公里」")
+        XCTAssertEqual(viewModel.summaryCells.map(\.label), ["跑步"], "没有距离那一格整格不出现")
     }
 
-    func testVolunteerSummaryReadsServiceTimeAndTopPartnerWithoutTheMaskOnSpeech() async {
+    /// 负责人 11-07：列表不写和谁一起跑 —— 汇总句不再说「其中和陈跑了 3 次」。
+    func testVolunteerSummaryReadsServiceTimeButNotThePartner() async {
         let (viewModel, appState, records, _) = makeViewModel(
             role: .volunteer,
             now: date(2026, 9, 24),
@@ -98,8 +103,9 @@ final class RunRecordHistoryTests: XCTestCase {
         _ = appState
         await viewModel.load()
 
-        XCTAssertEqual(viewModel.summaryText(), "9月陪跑 4 次，服务 3 小时 40 分钟。其中和陈*跑了 3 次。")
-        XCTAssertEqual(viewModel.summaryText(spoken: true), "9月陪跑 4 次，服务 3 小时 40 分钟。其中和陈跑了 3 次。")
+        XCTAssertEqual(viewModel.summaryText(), "9月陪跑 4 次，服务 3 小时 40 分钟。")
+        XCTAssertEqual(viewModel.summaryText(spoken: true), "9月陪跑 4 次，服务 3 小时 40 分钟。")
+        XCTAssertEqual(viewModel.summaryCells.map(\.label), ["陪跑", "距离", "服务"])
 
         records.result = .success(makeHistory(runs: 4, distanceM: nil, serviceMin: nil, topPartner: RunTopPartner(name: nil, runs: 3)))
         await viewModel.load()
@@ -204,28 +210,31 @@ final class RunRecordHistoryTests: XCTestCase {
         )
         // 2026-09-20 是周日。原型里的「周六」对应的是 2025 年的样例日期，别照抄。
         XCTAssertEqual(full.dateText, "9月20日 周日")
-        XCTAssertEqual(full.detailText, "深圳湾公园，和林*", "屏幕上保留掩码，免得被当成全名")
+        // 负责人 11-07：不写和谁一起跑，行是「日期 · 地点」。
+        XCTAssertEqual(full.detailText, "9月20日 周日 · 深圳湾公园")
+        XCTAssertEqual(full.distanceValue, "5.21")
         XCTAssertEqual(full.distanceText, "5.21 公里")
-        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，和林，5.21 公里")
+        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，5.21 公里")
         XCTAssertEqual(full.rotorLabel, "9月20日 周日")
 
         let sparse = RunHistoryRowContent(
             item: makeItem(orderId: 1, finishedAt: "2026-09-20T07:15:00.5", place: nil, partner: nil, distanceM: nil),
             role: .runner
         )
-        XCTAssertNil(sparse.detailText)
+        XCTAssertEqual(sparse.detailText, "9月20日 周日", "没有地点只写日期，不留「 · 」")
         XCTAssertNil(sparse.distanceText, "没有距离就不显示，不是「0.00 公里」")
         XCTAssertEqual(sparse.accessibilityLabel, "9月20日 周日")
     }
 
-    func testVolunteerRowPutsThePartnerFirst() {
+    /// 陪跑员端同款：同样不写陪的是谁（负责人 11-07）。
+    func testVolunteerRowDoesNotNameThePartner() {
         let content = RunHistoryRowContent(
             item: makeItem(orderId: 1, finishedAt: "2026-09-06T08:00:00", place: "深圳湾公园", partner: "陈*", distanceM: 5_000),
             role: .volunteer
         )
-        XCTAssertEqual(content.detailText, "陪陈*，深圳湾公园")
+        XCTAssertEqual(content.detailText, "9月6日 周日 · 深圳湾公园")
         XCTAssertEqual(content.distanceText, "5.00 公里")
-        XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，陪陈，深圳湾公园，5 公里")
+        XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，深圳湾公园，5 公里")
     }
 
     func testNumberFormatting() {
@@ -236,50 +245,6 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertEqual(RunRecordHistoryViewModel.serviceDuration(45), "45 分钟")
         XCTAssertEqual(RunRecordHistoryViewModel.serviceDuration(120), "2 小时")
         XCTAssertEqual(RunRecordHistoryViewModel.serviceDuration(220), "3 小时 40 分钟")
-    }
-
-    // MARK: - 缩略图
-
-    /// 北在上、东在右、等比缩放、落在框内。经度要乘 cos(纬度)：
-    /// 深圳（22.5°）一个「正方形」的路线在经度上跨度更大，不校正就会被画成扁长方形。
-    func testThumbnailProjectionKeepsNorthUpAndTheShapeSquare() {
-        let lat = 22.5
-        let side = 0.001
-        let lngSide = side / cos(lat * .pi / 180)
-        let points = [
-            RunLatLng(lat: lat, lng: 113.9),
-            RunLatLng(lat: lat, lng: 113.9 + lngSide),
-            RunLatLng(lat: lat + side, lng: 113.9 + lngSide),
-            RunLatLng(lat: lat + side, lng: 113.9),
-        ]
-        let rect = CGRect(x: 0, y: 0, width: 40, height: 40)
-
-        let projected = RunRouteShape.project(points, into: rect)
-
-        XCTAssertEqual(projected.count, 4)
-        XCTAssertLessThan(projected[2].y, projected[1].y, "北边的点应该在上面")
-        XCTAssertGreaterThan(projected[1].x, projected[0].x, "东边的点应该在右边")
-        let width = projected.map(\.x).max()! - projected.map(\.x).min()!
-        let height = projected.map(\.y).max()! - projected.map(\.y).min()!
-        XCTAssertEqual(width, height, accuracy: 0.5, "按米是正方形，画出来也该是正方形")
-        XCTAssertTrue(projected.allSatisfy { rect.insetBy(dx: -0.01, dy: -0.01).contains($0) })
-    }
-
-    func testThumbnailProjectionOfASinglePointIsTheCentre() {
-        let rect = CGRect(x: 0, y: 0, width: 40, height: 40)
-        XCTAssertEqual(RunRouteShape.project([RunLatLng(lat: 22.5, lng: 113.9)], into: rect), [CGPoint(x: 20, y: 20)])
-        XCTAssertEqual(RunRouteShape.project([], into: rect), [])
-    }
-
-    /// 没有点、一个点、只有定位抖动（只跑了几秒）都画不出有意义的线，缩略图改画图标。
-    /// 阈值 10 米：取 5 米（应判否）和 20 米（应判是）两侧，换成「点不重合就画」的实现会在 5 米那条红。
-    func testThumbnailDrawsARouteOnlyWhenItSpansAtLeastTenMetres() {
-        let a = RunLatLng(lat: 22.5, lng: 113.9)
-        XCTAssertFalse(RunRouteShape.hasExtent([]))
-        XCTAssertFalse(RunRouteShape.hasExtent([a]))
-        XCTAssertFalse(RunRouteShape.hasExtent([a, a, a]))
-        XCTAssertFalse(RunRouteShape.hasExtent([a, RunLatLng(lat: 22.5 + 5.0 / 111_000, lng: 113.9)]), "5 米是抖动")
-        XCTAssertTrue(RunRouteShape.hasExtent([a, RunLatLng(lat: 22.5 + 20.0 / 111_000, lng: 113.9)]), "20 米是路线")
     }
 
     // MARK: - Fixtures

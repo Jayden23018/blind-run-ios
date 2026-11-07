@@ -1066,7 +1066,8 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     func openVolunteerRunRecordDetail(_ app: XCUIApplication) {
         openRecordsTab(app, title: "陪跑记录")
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "陪", "公里")).firstMatch
+        // 行不再写陪的是谁（#823）：读屏句是「日期，地点，X 公里」。
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "月", "公里")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的陪跑记录")
         row.tap()
         XCTAssertTrue(
@@ -1212,7 +1213,8 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     func openRunnerRunRecordDetail(_ app: XCUIApplication) -> XCUIElement {
         openRecordsTab(app, title: "跑步记录")
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "和", "公里")).firstMatch
+        // 行不再写和谁一起跑（#823）：读屏句是「日期，地点，X 公里」。
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "月", "公里")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的跑步记录")
         row.tap()
         let header = app.descendants(matching: .any)["runnerRunRecordHeader"].firstMatch
@@ -1220,7 +1222,7 @@ final class AccessibilityAuditTests: XCTestCase {
         return header
     }
 
-    /// 头部一句话、紧接着「听这次跑步」、不出现 `6'15"`、分段一行一句、D6 累计陪跑；
+    /// 头部一句话、「听这次跑步」圆钮够 64pt、不出现 `6'15"`、分段一行一句、不再有 D6 累计陪跑（#823）；
     /// 审计只在页顶做（理由同陪跑员页）；最后一行进订单页（补评价在那里），订单页的链接再回到本页。
     @MainActor
     func testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit() throws {
@@ -1236,32 +1238,34 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(header.label.contains("比上次多跑 0.3 公里"), "comparison 只给跑者：\(header.label)")
         XCTAssertFalse(header.label.contains("*"), "读屏不念掩码星号：\(header.label)")
 
-        // 往右划一次就到「听这次跑步」：中间不能夹任何元素（VoiceOver 关着时地图在头部上面，不在中间）。
+        // VoiceOver 关着（UI 用例都是关着的）：「听这次跑步」是地图右上的圆钮，可点区 64pt（#823）。
+        // VoiceOver 开着时它是紧跟头部的读屏元素（§7 头部右划一次到「听」），UI 用例开不了 VoiceOver，靠真机手验。
         let listen = app.buttons["runnerRunRecordListen"]
         XCTAssertTrue(listen.exists, "「听这次跑步」不在")
-        XCTAssertGreaterThanOrEqual(listen.frame.height, 96, "HANDOFF 6.3：至少 96pt")
-        let between = app.descendants(matching: .any).allElementsBoundByIndex.filter {
-            $0.frame.minY >= header.frame.maxY - 1 && $0.frame.maxY <= listen.frame.minY + 1 && !$0.label.isEmpty
-        }
-        XCTAssertTrue(between.isEmpty, "头部与「听这次跑步」之间夹了元素：\(between.map(\.label))")
+        XCTAssertGreaterThanOrEqual(listen.frame.height, 64, "圆钮可点区至少 64pt")
+
+        // 声音路线 11-07 第二轮整个去掉（音调像防空警报）。
+        XCTAssertFalse(app.buttons["runnerRunRecordSoundRoute"].exists, "声音路线圆钮应已去掉")
 
         listen.tap()
-        let transcript = app.descendants(matching: .any)["runnerRunRecordTranscript"].firstMatch
-        XCTAssertTrue(transcript.waitForExistence(timeout: 5), "点了之后要显示文字稿")
-        XCTAssertTrue(transcript.label.contains("给你留了一句话"), "讲述最后读陪跑员留言：\(transcript.label)")
         XCTAssertEqual(listen.label, "停止讲述")
+        // 讲述只出声，不再显示文字稿（负责人 11-07 第二轮第 1 条）。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["runnerRunRecordTranscript"].firstMatch.waitForExistence(timeout: 2),
+            "点了「听这次跑步」不应再出现文字稿"
+        )
         listen.tap()
         XCTAssertEqual(listen.label, "听这次跑步", "再点一次停止")
 
         let split = app.descendants(matching: .any)["runnerRunRecordSplit-2"].firstMatch
         for _ in 0..<6 where !split.isHittable { app.swipeUp() }
-        XCTAssertEqual(split.label, "第2公里，5分48秒，本次最快，步频每分钟167步。")
+        XCTAssertTrue(split.label.hasPrefix("第2公里，5分48秒，本次最快，步频每分钟167步，累计用时"), split.label)
 
         let orderLink = app.buttons["runnerRunRecordOrderLink"]
         for _ in 0..<8 where !orderLink.isHittable { app.swipeUp() }
-        XCTAssertTrue(
+        XCTAssertFalse(
             app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "累计陪跑")).firstMatch.exists,
-            "D6：陪跑员累计服务时长那一行不在"
+            "D6 的「累计陪跑」11-07 收回（不写和谁一起跑）"
         )
         orderLink.tap()
         XCTAssertTrue(app.staticTexts["服务已完成"].waitForExistence(timeout: 15), "「订单详情与评价」没进订单页")
@@ -1294,19 +1298,6 @@ final class AccessibilityAuditTests: XCTestCase {
             _ = openRunnerRunRecordDetail(app)
             sleep(3) // 等底图瓦片下完。
             attachScreenshot(app, name: "runner-run-record-\(variant.name)-0-top")
-            // 讲述点一次（截文字稿），声音路线放 3 秒（截「第 N 公里」和点亮的竖条），截完都停掉。
-            let listen = app.buttons["runnerRunRecordListen"]
-            for _ in 0..<3 where !listen.isHittable { app.swipeUp() }
-            if listen.isHittable { listen.tap() }
-            let play = app.buttons["runnerRunRecordSoundRoute"]
-            for _ in 0..<6 where !play.isHittable { app.swipeUp() }
-            if play.isHittable {
-                play.tap()
-                sleep(3)
-                attachScreenshot(app, name: "runner-run-record-\(variant.name)-sound")
-                play.tap()
-            }
-            if listen.exists, listen.label == "停止讲述" { listen.tap() }
             let pages = variant.name == "ax-xxxl" ? 12 : 5
             for page in 1...pages {
                 app.swipeUp()
@@ -1399,9 +1390,11 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let runner = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
         _ = openRunnerRunRecordDetail(runner)
-        let read = runner.buttons["runnerRunRecordReadMessages"]
-        scrollTo(read, in: runner)
-        XCTAssertTrue(read.isHittable, "「朗读留言」不在")
+        // 「朗读留言」11-07 改成留言上的读屏自定义操作（#823）。XCUITest 调不了自定义操作
+        // （记忆 xcuitest-cannot-invoke-accessibility-actions），这里只钉留言一节在、标题不念星号。
+        let messages = runner.descendants(matching: .any)["runnerRunRecordMessages"].firstMatch
+        scrollTo(messages, in: runner)
+        XCTAssertTrue(messages.exists, "留言一节不在")
         let title = runner.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "的留言")).firstMatch
         XCTAssertTrue(title.exists, "留言一节的标题不在")
         XCTAssertFalse(title.label.contains("*"), "读屏不念星号：\(title.label)")
@@ -1409,10 +1402,7 @@ final class AccessibilityAuditTests: XCTestCase {
             runner.buttons.matching(NSPredicate(format: "label CONTAINS %@", "回复")).firstMatch.exists,
             "P0 没有回复按钮（负责人 2026-09-25）"
         )
-        read.tap()
-        XCTAssertEqual(read.label, "停止朗读")
-        read.tap()
-        XCTAssertEqual(read.label, "朗读留言", "再点一次停止")
+        XCTAssertFalse(runner.buttons["runnerRunRecordReadMessages"].exists, "「朗读留言」大按钮已去掉")
     }
 
     @MainActor
@@ -1446,15 +1436,9 @@ final class AccessibilityAuditTests: XCTestCase {
 
             let runner = launchBlindHome(emptyOrders: false, extraEnvironment: environment, extraArguments: variant.arguments)
             _ = openRunnerRunRecordDetail(runner)
-            let read = runner.buttons["runnerRunRecordReadMessages"]
-            scrollTo(read, in: runner, swipes: 16)
+            let messages = runner.descendants(matching: .any)["runnerRunRecordMessages"].firstMatch
+            scrollTo(messages, in: runner, swipes: 16)
             attachScreenshot(runner, name: "messages-runner-\(variant.name)-1")
-            if read.isHittable {
-                read.tap()
-                sleep(1)
-                attachScreenshot(runner, name: "messages-runner-\(variant.name)-2-reading")
-                read.tap()
-            }
             runner.terminate()
         }
     }

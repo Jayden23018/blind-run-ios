@@ -41,8 +41,8 @@ extension VolunteerRunRecordTests {
         XCTAssertTrue(summary.contains("第3公里最快"), summary)
         XCTAssertFalse(RunPaceChartDescriptor(samples: samples, average: 360).summary.contains("公里最快"))
 
-        let cadence = VolunteerRunRecordContent(record: record()).primaryStats.first { $0.label == "步频" }
-        XCTAssertEqual(cadence?.spoken, "平均步频 每分钟162步")
+        let cadence = VolunteerRunRecordContent(record: record()).metrics.first { $0.label == "平均步频" }
+        XCTAssertEqual(cadence?.spoken, "平均步频，每分钟162步")
     }
 
     /// Audio Graph 与声音路线同方向：跑得越快值越大、音越高（#581）。直接用配速秒数会反过来。
