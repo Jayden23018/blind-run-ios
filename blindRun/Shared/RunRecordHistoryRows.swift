@@ -5,7 +5,7 @@ import SwiftUI
 
 // MARK: - Summary Cells
 
-/// 汇总卡里的彩色数字格（#823：「11月」+ 跑步 N 次 琥珀 / 距离 X 公里 靛蓝）。陪跑员端多一格服务时长（天青）。
+/// 汇总卡里的彩色数字格（跑步 N 次 琥珀 / 距离 X 公里 靛蓝，#829 起卡里不再写月份）。陪跑员端多一格服务时长（天青）。
 struct RunRecordSummaryCell: Equatable {
     let label: String
     let value: String
@@ -28,37 +28,105 @@ extension RunRecordHistoryViewModel {
     }
 }
 
-/// 汇总卡的彩色数字格；大字号下竖排。读屏由外层合成整句，这里不单独暴露。
+/// 汇总卡的彩色数字格，格与格之间一条竖线（#829 参考图）；大字号下竖排、不画竖线。
+/// 读屏由外层合成整句，这里不单独暴露。
 struct RunRecordSummaryCells: View {
     let cells: [RunRecordSummaryCell]
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
-        layout {
-            ForEach(cells, id: \.label) { cell in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(cell.label)
-                        .font(.subheadline)
-                        .foregroundColor(AppColors.textSecondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text(cell.value).font(.title.weight(.bold)).monospacedDigit()
-                        if !cell.unit.isEmpty { Text(cell.unit).font(.headline) }
-                    }
-                    .foregroundColor(cell.tone.color)
-                }
-                .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(cells, id: \.label) { cellView($0) }
             }
+        } else {
+            HStack(alignment: .top, spacing: 16) {
+                ForEach(Array(cells.enumerated()), id: \.element.label) { index, cell in
+                    if index > 0 { Divider() }
+                    cellView(cell).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func cellView(_ cell: RunRecordSummaryCell) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(cell.label)
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(cell.value).font(.title.weight(.bold)).monospacedDigit()
+                if !cell.unit.isEmpty { Text(cell.unit).font(.headline) }
+            }
+            .foregroundColor(cell.tone.color)
         }
     }
 }
 
+// MARK: - Row Content
+
+/// 一行记录的全部文字。抽出来是为了让「null 整段不显示」「朗读不念星号」能被单测钉住。
+/// 负责人 11-07：不写和谁一起跑（「就只要记录跑步了就可以了」）。卡片版式照负责人参考图（#829）：
+/// 左「11月6日 / 周五」，中间距离 + 地点，右小地图。
+struct RunHistoryRowContent: Equatable {
+    let dateText: String
+    /// 卡片左栏两行：「11月6日」「周五」。时间解析不出时只有第一行（原样的时间串）。
+    let dayText: String
+    let weekdayText: String?
+    let placeText: String?
+    /// 「5.21」，没有距离为 nil（整格不出现）。
+    let distanceValue: String?
+    let distanceText: String?
+    let accessibilityLabel: String
+    /// 转子条目只念日期：转子是用来跳的，念完整行等于没有加速。
+    let rotorLabel: String
+
+    init(item: RunHistoryItem, role: RunRecordHistoryRole) {
+        let date = item.finishedAt.backendTimestamp
+        dateText = date.map { Self.dateFormatter.string(from: $0) } ?? item.finishedAt
+        dayText = date.map { Self.dayFormatter.string(from: $0) } ?? item.finishedAt
+        weekdayText = date.map { Self.weekdayFormatter.string(from: $0) }
+        let place = item.place?.trimmingCharacters(in: .whitespaces)
+        let shownPlace = place?.isEmpty == false ? place : nil
+        placeText = shownPlace
+        distanceValue = item.distanceM.map { RunRecordHistoryViewModel.kilometres($0) }
+        distanceText = distanceValue.map { "\($0) 公里" }
+
+        let spokenDistance = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0, spoken: true)) 公里" }
+        accessibilityLabel = [dateText, shownPlace, spokenDistance]
+            .compactMap { $0 }
+            .joined(separator: "，")
+        rotorLabel = dateText
+    }
+
+    /// 「9月20日 周六」。
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日 EEE"
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日"
+        return formatter
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "EEE"
+        return formatter
+    }()
+}
+
 // MARK: - Rows
 
-/// 一次跑步一张卡：左边「户外跑步」、靛蓝大号公里数、「日期 · 地点」；右边 88pt 小地图。
-/// 大字号下小地图放到文字上面，文字才有整行宽度（不用 `ViewThatFits`，记忆 viewthatfits-fails-dynamic-type-audit）。
+/// 一次跑步一张卡（#829 参考图）：左「11月6日 / 周五」、竖线、中间靛蓝大号公里数 + 地点、右边小地图。
+/// 大字号下竖排：小地图在上，文字才有整行宽度（不用 `ViewThatFits`，记忆 viewthatfits-fails-dynamic-type-audit）。
 struct RunHistoryRow: View {
     let content: RunHistoryRowContent
     let thumbnail: [RunLatLng]?
@@ -69,13 +137,20 @@ struct RunHistoryRow: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
                     RunRecordListMap(points: thumbnail)
-                    texts
+                    Text([content.dayText, content.weekdayText].compactMap { $0 }.joined(separator: " "))
+                        .font(.headline)
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    metrics
                 }
             } else {
                 HStack(alignment: .center, spacing: 12) {
-                    texts.frame(maxWidth: .infinity, alignment: .leading)
+                    dateColumn
+                    Divider().padding(.vertical, 8)
+                    metrics.frame(maxWidth: .infinity, alignment: .leading)
                     RunRecordListMap(points: thumbnail)
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .contentShape(Rectangle())
@@ -83,11 +158,23 @@ struct RunHistoryRow: View {
         .accessibilityLabel(content.accessibilityLabel)
     }
 
-    private var texts: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(RunRecordFitness.title)
+    private var dateColumn: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(content.dayText)
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
+            if let weekday = content.weekdayText {
+                Text(weekday)
+                    .font(.subheadline)
+                    .foregroundColor(AppColors.textSecondary)
+            }
+        }
+        // 解析不出日期时 `dayText` 是后端原样的时间串，要让它换行，别把中间和地图挤出去。
+        .fixedSize(horizontal: content.weekdayText != nil, vertical: false)
+    }
+
+    private var metrics: some View {
+        VStack(alignment: .leading, spacing: 4) {
             if let distance = content.distanceValue {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text(distance).font(.title.weight(.bold)).monospacedDigit()
@@ -95,10 +182,14 @@ struct RunHistoryRow: View {
                 }
                 .foregroundColor(AppColors.RunRecordMetric.distanceIndigo)
             }
-            Text(content.detailText)
+            if let place = content.placeText {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Image(systemName: "mappin.and.ellipse")
+                    Text(place).fixedSize(horizontal: false, vertical: true)
+                }
                 .font(.subheadline)
                 .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
     }

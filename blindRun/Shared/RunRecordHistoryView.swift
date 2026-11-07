@@ -20,37 +20,6 @@ enum RunRecordHistoryRole {
     }
 }
 
-// MARK: - Month
-
-/// 列表一次只显示一个月（项目负责人 2026-09-24 拍板：月份切换，不往下追加）。
-nonisolated struct RunRecordMonth: Equatable, Sendable {
-    let year: Int
-    let month: Int
-
-    init(year: Int, month: Int) {
-        self.year = year
-        self.month = month
-    }
-
-    init(containing date: Date, calendar: Calendar = .current) {
-        let parts = calendar.dateComponents([.year, .month], from: date)
-        self.init(year: parts.year ?? 2026, month: parts.month ?? 1)
-    }
-
-    var previous: RunRecordMonth {
-        month == 1 ? RunRecordMonth(year: year - 1, month: 12) : RunRecordMonth(year: year, month: month - 1)
-    }
-
-    var next: RunRecordMonth {
-        month == 12 ? RunRecordMonth(year: year + 1, month: 1) : RunRecordMonth(year: year, month: month + 1)
-    }
-
-    /// 同一年只说「9月」；跨年才带年份，不然 1 月往回翻到的「12月」会被听成今年的 12 月。
-    func title(relativeTo current: RunRecordMonth) -> String {
-        year == current.year ? "\(month)月" : "\(year)年\(month)月"
-    }
-}
-
 // MARK: - View Model
 
 @MainActor
@@ -64,6 +33,17 @@ final class RunRecordHistoryViewModel: ObservableObject {
     @Published private(set) var hasAnyCompletedOrder: Bool?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+    /// 选中月份之后往下接的更早月份（只收有记录的月份）。
+    @Published private(set) var olderSections: [RunRecordMonthSection] = []
+    @Published private(set) var isLoadingOlder = false
+    /// 下一个要请求的更早月份；nil = 不再往下加载（还没加载完选中月份、出错、或连续空月够了）。
+    @Published private(set) var olderCursor: RunRecordMonth?
+    /// 每次重新加载 / 切月份加一：在途的旧请求回来时据此丢掉结果。
+    @Published private(set) var generation = 0
+    /// 从选中月份起连续多少个月没有记录。
+    private var emptyStreak = 0
+    /// 每次调 `loadOlderMonths` 加一：后来的调用接管，先前那次的结果作废。
+    private var olderRun = 0
 
     let role: RunRecordHistoryRole
     let currentMonth: RunRecordMonth
@@ -90,8 +70,35 @@ final class RunRecordHistoryViewModel: ObservableObject {
     var canShowNextMonth: Bool { month != currentMonth }
     var previousMonthTitle: String { month.previous.title(relativeTo: currentMonth) }
     var nextMonthTitle: String { month.next.title(relativeTo: currentMonth) }
+    /// 月份栏标题，总带年份。
+    var monthBarTitle: String { month.fullTitle }
+
+    /// 连续这么多个月没有记录就不再往下加载（#829：没有「最早月份」接口，用它当到底）。
+    static let emptyMonthsBeforeStopping = 12
+    /// 月份菜单从本月往回列多少个月。
+    // ponytail: 固定列 24 个月；后端给出最早有记录的月份后改成列到那个月。
+    static let monthPickerSpan = 24
+
+    /// 菜单里的月份，新的在前。
+    var pickerMonths: [RunRecordMonth] {
+        Array(sequence(first: currentMonth) { $0.previous }.prefix(Self.monthPickerSpan))
+    }
+
+    /// 选中月份（有记录时）+ 已加载的更早月份。
+    var sections: [RunRecordMonthSection] {
+        guard let items = history?.items, !items.isEmpty else { return olderSections }
+        return [RunRecordMonthSection(month: month, items: items)] + olderSections
+    }
+
+    /// 列表的全部记录，转子与读屏焦点用，和 `sections` 同源。
+    var allItems: [RunHistoryItem] { sections.flatMap(\.items) }
+
+    /// 底部的「加载更早月份」要在这个值变了时重跑：换了一批数据或又接上了一节。
+    var olderLoadTrigger: [Int] { [generation, olderSections.count] }
 
     func load() async {
+        generation += 1
+        resetOlder()
         errorMessage = nil
         async let monthly: Void = loadMonth(month)
         async let orders: Void = loadUnfinished()
@@ -108,10 +115,18 @@ final class RunRecordHistoryViewModel: ObservableObject {
         await switchTo(month.next)
     }
 
+    /// 月份菜单直接跳。比本月新的不接受。
+    func jump(to target: RunRecordMonth) async {
+        guard target <= currentMonth, target != month else { return }
+        await switchTo(target)
+    }
+
     private func switchTo(_ target: RunRecordMonth) async {
+        generation += 1
         month = target
         history = nil
         errorMessage = nil
+        resetOlder()
         // 订单那一路之前失败过（`hasAnyCompletedOrder` 还是 nil）就一起重试：
         // 上面刚把错误提示清掉，不重试的话「未完成的预约」会静默显示成「没有」。
         if hasAnyCompletedOrder == nil {
@@ -133,11 +148,56 @@ final class RunRecordHistoryViewModel: ObservableObject {
             // 用户在请求途中又切了月份：这份结果属于上一个月，丢掉。
             guard target == month else { return }
             history = loaded
+            emptyStreak = loaded.items.isEmpty ? 1 : 0
+            olderCursor = target.previous
         } catch {
             guard target == month else { return }
             recordFailure(error)
         }
         if target == month { isLoading = false }
+    }
+
+    private func resetOlder() {
+        olderSections = []
+        olderCursor = nil
+        emptyStreak = 0
+        isLoadingOlder = false
+    }
+
+    /// 列表滑到底时调：一直往前请求，直到接上一个有记录的月份，或连续空月够了就停。
+    /// 每月照旧调 `monthlyRecords`（后端不改）。被取消（滑走了）时不报错，下次从断点接着请求。
+    func loadOlderMonths() async {
+        guard let start = olderCursor, let appState else { return }
+        // 不用 `isLoadingOlder` 挡：滑走被取消的旧任务可能还在等网络，挡住新任务后加载条会一直转。
+        olderRun += 1
+        let started = (generation, olderRun)
+        func isCurrent() -> Bool { started == (generation, olderRun) }
+        isLoadingOlder = true
+        defer { if isCurrent() { isLoadingOlder = false } }
+        let service = runRecordOverride ?? appState.runRecord
+        var target = start
+        while emptyStreak < Self.emptyMonthsBeforeStopping {
+            let loaded: RunRecordHistoryResponse
+            do {
+                loaded = try await service.monthlyRecords(year: target.year, month: target.month)
+            } catch {
+                guard isCurrent(), !Task.isCancelled, !(error is CancellationError) else { return }
+                olderCursor = nil
+                recordFailure(error)
+                return
+            }
+            guard isCurrent() else { return }
+            olderCursor = target.previous
+            guard loaded.items.isEmpty else {
+                emptyStreak = 0
+                olderSections.append(RunRecordMonthSection(month: target, items: loaded.items))
+                return
+            }
+            emptyStreak += 1
+            if Task.isCancelled { return }
+            target = target.previous
+        }
+        olderCursor = nil
     }
 
     private func loadUnfinished() async {
@@ -250,63 +310,24 @@ final class RunRecordHistoryViewModel: ObservableObject {
     }
 }
 
-// MARK: - Row Content
-
-/// 一行记录的全部文字。抽出来是为了让「null 整段不显示」「朗读不念星号」能被单测钉住。
-/// 负责人 11-07：不写和谁一起跑（「就只要记录跑步了就可以了」），行是「户外跑步」+ 距离 +「日期 · 地点」。
-struct RunHistoryRowContent: Equatable {
-    let dateText: String
-    /// 「11月5日 周四 · 奥林匹克森林公园」；没有地点只写日期。
-    let detailText: String
-    /// 「5.21」，没有距离为 nil（整格不出现）。
-    let distanceValue: String?
-    let distanceText: String?
-    let accessibilityLabel: String
-    /// 转子条目只念日期：转子是用来跳的，念完整行等于没有加速。
-    let rotorLabel: String
-
-    init(item: RunHistoryItem, role: RunRecordHistoryRole) {
-        let date = item.finishedAt.backendTimestamp
-        dateText = date.map { Self.dateFormatter.string(from: $0) } ?? item.finishedAt
-        let place = item.place?.trimmingCharacters(in: .whitespaces)
-        let shownPlace = place?.isEmpty == false ? place : nil
-        detailText = [dateText, shownPlace].compactMap { $0 }.joined(separator: " · ")
-        distanceValue = item.distanceM.map { RunRecordHistoryViewModel.kilometres($0) }
-        distanceText = distanceValue.map { "\($0) 公里" }
-
-        let spokenDistance = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0, spoken: true)) 公里" }
-        accessibilityLabel = [dateText, shownPlace, spokenDistance]
-            .compactMap { $0 }
-            .joined(separator: "，")
-        rotorLabel = dateText
-    }
-
-    /// 「9月20日 周六」。
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEE"
-        return formatter
-    }()
-}
-
 // MARK: - View
 
-/// 照健身：浅灰页底上一张汇总卡 + 每次跑步一张卡（右侧 88pt 小地图）。
+/// 照负责人参考图（#829）：月份栏 → 选中月份的汇总卡 → 按月分节的记录卡，滑到底接着加载更早的月份。
 /// 读屏标签、转子、identifier、整行可点与改版前一致（#823）。
 struct RunRecordHistoryView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel: RunRecordHistoryViewModel
-    /// 加载完成后把读屏焦点落到第一条记录上，只在条数从 0 变成非 0 时动（沿用旧跑者列表的做法）。
+    /// 首次加载完把读屏焦点落到第一条记录上（沿用旧跑者列表的做法），只落一次。
     @AccessibilityFocusState private var focusedRecordID: Int64?
+    @State private var didPlaceInitialFocus = false
 
     init(role: RunRecordHistoryRole) {
         _viewModel = StateObject(wrappedValue: RunRecordHistoryViewModel(role: role))
     }
 
     private var role: RunRecordHistoryRole { viewModel.role }
-    private var items: [RunHistoryItem] { viewModel.history?.items ?? [] }
+    private var items: [RunHistoryItem] { viewModel.allItems }
 
     var body: some View {
         ScrollView {
@@ -330,9 +351,9 @@ struct RunRecordHistoryView: View {
                     }
                 }
 
+                RunRecordMonthBar(viewModel: viewModel)
                 summaryCard
 
-                sectionTitle(viewModel.monthTitle)
                 if viewModel.history == nil && viewModel.isLoading {
                     loadingPlaceholder
                 } else if viewModel.showsFirstRunEmptyState {
@@ -340,14 +361,20 @@ struct RunRecordHistoryView: View {
                         EmptyStateView(title: viewModel.emptyStateCopy.title, message: viewModel.emptyStateCopy.message)
                     }
                 } else {
-                    ForEach(items, id: \.orderId) { item in
-                        NavigationLink {
-                            completedDestination(orderId: item.orderId)
-                        } label: {
-                            RunHistoryRow(content: RunHistoryRowContent(item: item, role: role), thumbnail: item.thumbnail)
+                    ForEach(viewModel.sections) { section in
+                        sectionTitle(section.month.title(relativeTo: viewModel.currentMonth))
+                        ForEach(section.items, id: \.orderId) { item in
+                            NavigationLink {
+                                completedDestination(orderId: item.orderId)
+                            } label: {
+                                RunHistoryRow(content: RunHistoryRowContent(item: item, role: role), thumbnail: item.thumbnail)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityFocused($focusedRecordID, equals: item.orderId)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityFocused($focusedRecordID, equals: item.orderId)
+                    }
+                    if viewModel.history != nil, viewModel.olderCursor != nil {
+                        olderLoader
                     }
                 }
 
@@ -377,9 +404,12 @@ struct RunRecordHistoryView: View {
             entryID: \.orderId,
             entryLabel: \.rotorDateLabel
         )
-        .onChange(of: items.count) { count in
-            guard count > 0, focusedRecordID == nil else { return }
-            focusedRecordID = items.first?.orderId
+        // 只在首次加载时落一次：之后切月份（读屏焦点在月份栏上，可能要连按「上个月」）
+        // 或往下接更早的月份都不把焦点拽进列表。切完的结果由 `announceLoaded` 念出来。
+        .onChange(of: items.first?.orderId) { firstID in
+            guard let firstID, !didPlaceInitialFocus, focusedRecordID == nil else { return }
+            didPlaceInitialFocus = true
+            focusedRecordID = firstID
         }
         .task {
             viewModel.configure(with: appState, speechService: speechService)
@@ -392,15 +422,12 @@ struct RunRecordHistoryView: View {
 
     // MARK: 汇总卡
 
-    /// 「11月」+ 彩色数字格 + 卡内「上个月：10月 ›」（D9 一次一个月、上下月竖排保留）。
-    /// 标题与数字合成一个读屏元素，念的是整句汇总（与改版前同一句）。
+    /// 选中月份的彩色数字格，中间竖线分隔；这个月没跑就写一句「X月还没有跑步记录。」。
+    /// 整卡一个读屏元素，念的是整句汇总（与改版前同一句）。
     private var summaryCard: some View {
         RunRecordCard {
             if let summary = viewModel.summaryText() {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(viewModel.monthTitle)
-                        .font(.headline)
-                        .foregroundColor(AppColors.textPrimary)
+                Group {
                     if viewModel.summaryCells.isEmpty {
                         Text(summary)
                             .font(AppFonts.body())
@@ -410,24 +437,16 @@ struct RunRecordHistoryView: View {
                         RunRecordSummaryCells(cells: viewModel.summaryCells)
                     }
                 }
-                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(viewModel.summaryText(spoken: true) ?? summary)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("runRecordHistorySummary")
-                GroupedCardDivider(leadingInset: 0)
-            }
-            monthSwitchRow(
-                title: "上个月：\(viewModel.previousMonthTitle)",
-                identifier: "runRecordHistoryPreviousMonth"
-            ) { await viewModel.showPreviousMonth() }
-            if viewModel.canShowNextMonth {
-                GroupedCardDivider(leadingInset: 0)
-                monthSwitchRow(
-                    title: "下个月：\(viewModel.nextMonthTitle)",
-                    identifier: "runRecordHistoryNextMonth"
-                ) { await viewModel.showNextMonth() }
+            } else {
+                Text(" ")
+                    .font(.title.weight(.bold))
+                    .redacted(reason: .placeholder)
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -437,27 +456,21 @@ struct RunRecordHistoryView: View {
             .padding(.top, 12)
     }
 
-    private func monthSwitchRow(title: String, identifier: String, action: @escaping @MainActor () async -> Void) -> some View {
-        Button {
-            Task { await action() }
-        } label: {
-            HStack {
-                Text(title)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.primary)
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-            .contentShape(Rectangle())
+    /// 列表底部：出现在屏幕上就去请求更早的月份；接上一节后它被推下去，再滑到底再请求。
+    private var olderLoader: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+            Text("正在加载更早的记录")
+                .font(.subheadline)
+                .foregroundColor(AppColors.textSecondary)
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(identifier)
+        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("正在加载更早的记录")
+        .accessibilityIdentifier("runRecordHistoryLoadingOlder")
+        .task(id: viewModel.olderLoadTrigger) {
+            await viewModel.loadOlderMonths()
+        }
     }
 
     /// 骨架屏：两张卡占位，读屏只读一句（HANDOFF 6.4）。
@@ -467,9 +480,12 @@ struct RunRecordHistoryView: View {
                 RunRecordCard {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(RunRecordFitness.title).font(.headline)
+                            Text("9月20日").font(.headline)
+                            Text("周六").font(.subheadline)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
                             Text("5.21 公里").font(.title.weight(.bold))
-                            Text("9月20日 周六 · 深圳湾公园").font(.subheadline)
+                            Text("深圳湾公园").font(.subheadline)
                         }
                         Spacer(minLength: 8)
                         RoundedRectangle(cornerRadius: 14, style: .continuous)

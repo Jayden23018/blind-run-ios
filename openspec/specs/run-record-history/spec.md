@@ -1,10 +1,10 @@
 # run-record-history Specification
 
 ## Purpose
-Defines what each role's records tab shows — completed runs from the monthly run-record history (capability `post-run-record`), one month at a time, plus cancelled and no-volunteer bookings from the order list — and how loading, empty, error, and missing-value states are presented.
+Defines what each role's records tab shows — completed runs from the monthly run-record history (capability `post-run-record`), grouped by month starting from a selected month, plus cancelled and no-volunteer bookings from the order list — and how loading, empty, error, and missing-value states are presented.
 ## Requirements
 ### Requirement: Records tab lists completed runs from the monthly history
-Both roles' records tab SHALL show completed runs read from `RunRecordServing.monthlyRecords` (capability `post-run-record`) for one month at a time, with a month summary sentence and one row per completed run.
+Both roles' records tab SHALL show completed runs read from `RunRecordServing.monthlyRecords` (capability `post-run-record`) one month per request, with a summary of the selected month and one row per completed run.
 
 #### Scenario: Tab opens
 - **WHEN** the records tab appears
@@ -33,17 +33,25 @@ Both roles' records tab SHALL show completed runs read from `RunRecordServing.mo
 - **THEN** the visible text SHALL keep the mask
 - **AND** no accessibility label SHALL contain the mask character
 
-### Requirement: One month at a time with a month switcher
-The records tab SHALL offer full-width rows to switch to the previous month and, unless the shown month is the current month, to the next month.
+### Requirement: Month bar and month-grouped list
+The records tab SHALL show a month bar with previous / next arrows and a month menu, and SHALL list runs grouped by month from the selected month down to older months (#829, owner reference image 2026-11-07).
 
 #### Scenario: Switch to the previous month
-- **WHEN** the user activates "上个月"
+- **WHEN** the user activates "上个月" or swipes right on the month bar
 - **THEN** the tab SHALL request the previous calendar month (January goes to December of the previous year)
+- **AND** the list SHALL restart from that month
 - **AND** the unfinished-orders group SHALL stay as it was
 
 #### Scenario: Current month has no next
-- **WHEN** the shown month is the current month
+- **WHEN** the selected month is the current month
 - **THEN** no "下个月" control SHALL be shown
+- **AND** the month menu SHALL NOT offer a month after the current month
+
+#### Scenario: Older months load at the bottom
+- **WHEN** the user scrolls to the end of the loaded months
+- **THEN** the tab SHALL request the next older month, one month per request
+- **AND** a month without runs SHALL NOT get a section
+- **AND** after 12 months in a row without runs, counted from the selected month, the tab SHALL stop requesting
 
 ### Requirement: Unfinished bookings stay reachable
 Cancelled and no-volunteer orders SHALL keep coming from `GET /api/orders/mine` and SHALL appear in a bottom group titled "未完成的预约", not filtered by month.
@@ -54,7 +62,7 @@ Cancelled and no-volunteer orders SHALL keep coming from `GET /api/orders/mine` 
 - **AND** they SHALL be ordered newest first
 
 ### Requirement: Runner keeps the completed-runs rotor
-The runner's records tab SHALL keep the custom VoiceOver rotor "已完成的跑步", whose entries SHALL be exactly the completed runs listed for the shown month.
+The runner's records tab SHALL keep the custom VoiceOver rotor "已完成的跑步", whose entries SHALL be exactly the completed runs listed in the loaded months.
 
 #### Scenario: Rotor entries match the list
 - **WHEN** the month's runs are loaded
