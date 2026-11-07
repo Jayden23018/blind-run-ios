@@ -210,8 +210,8 @@ final class RunRecordHistoryTests: XCTestCase {
         )
         // 2026-09-20 是周日。原型里的「周六」对应的是 2025 年的样例日期，别照抄。
         XCTAssertEqual(full.dateText, "9月20日 周日")
-        // 负责人 11-07：不写和谁一起跑，行是「日期 · 地点」。
-        XCTAssertEqual(full.detailText, "9月20日 周日 · 深圳湾公园")
+        // #829 卡片左栏两行「9月20日 / 周日」，中间写地点；负责人 11-07：不写和谁一起跑。
+        XCTAssertEqual([full.dayText, full.weekdayText, full.placeText], ["9月20日", "周日", "深圳湾公园"])
         XCTAssertEqual(full.distanceValue, "5.21")
         XCTAssertEqual(full.distanceText, "5.21 公里")
         XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，5.21 公里")
@@ -221,7 +221,7 @@ final class RunRecordHistoryTests: XCTestCase {
             item: makeItem(orderId: 1, finishedAt: "2026-09-20T07:15:00.5", place: nil, partner: nil, distanceM: nil),
             role: .runner
         )
-        XCTAssertEqual(sparse.detailText, "9月20日 周日", "没有地点只写日期，不留「 · 」")
+        XCTAssertNil(sparse.placeText, "没有地点整行不出现")
         XCTAssertNil(sparse.distanceText, "没有距离就不显示，不是「0.00 公里」")
         XCTAssertEqual(sparse.accessibilityLabel, "9月20日 周日")
     }
@@ -232,7 +232,7 @@ final class RunRecordHistoryTests: XCTestCase {
             item: makeItem(orderId: 1, finishedAt: "2026-09-06T08:00:00", place: "深圳湾公园", partner: "陈*", distanceM: 5_000),
             role: .volunteer
         )
-        XCTAssertEqual(content.detailText, "9月6日 周日 · 深圳湾公园")
+        XCTAssertEqual(content.placeText, "深圳湾公园")
         XCTAssertEqual(content.distanceText, "5.00 公里")
         XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，深圳湾公园，5 公里")
     }
