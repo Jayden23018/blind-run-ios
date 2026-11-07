@@ -432,51 +432,6 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         )
     }
 
-    /// 按状态码分类响应，`request` 与 `upload` 共用（#848 D6）。
-    /// 2xx 解码（信封优先、裸解兜底，策略本体在 `APIPayloadDecoder`），解码失败留一条诊断记录；
-    /// 401 只抛 `.unauthorized`；429 走 `rateLimitError`；其余先按字符串 code 的错误体解，再按宽松信封解。
-    private func decodeResponse<T: Decodable>(
-        data: Data,
-        httpResponse: HTTPURLResponse,
-        diagnosticID: String,
-        endpointCategory: String,
-        startedAt diagnosticStart: Date
-    ) async throws -> T {
-        switch httpResponse.statusCode {
-        case 200...299:
-            if T.self == EmptyResponse.self, data.isEmpty {
-                return EmptyResponse() as! T
-            }
-            do {
-                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
-            } catch {
-                await recordDiagnostic(
-                    id: diagnosticID,
-                    endpointCategory: endpointCategory,
-                    statusCode: httpResponse.statusCode,
-                    startedAt: diagnosticStart,
-                    stage: .decodingFailure
-                )
-                throw APIError.decodingError(error)
-            }
-        case 401:
-            throw APIError.unauthorized
-        case 429:
-            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
-        default:
-            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
-            if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
-                throw APIError.serverError(errorResponse)
-            }
-            // Accept the cloud backend's flexible error payload during contract convergence.
-            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
-               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
-                throw APIError.serverError(errorResponse)
-            }
-            throw APIError.unknown(statusCode: httpResponse.statusCode)
-        }
-    }
-
     // MARK: - Multipart Upload
 
     func upload<T: Decodable>(
@@ -600,5 +555,53 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             segment.allSatisfy(\.isNumber) ? "{id}" : String(segment)
         }
         return "/" + segments.joined(separator: "/")
+    }
+}
+
+// 放在 extension 里：类体已贴着 swiftlint `type_body_length` 250 行的线。
+extension URLSessionAPIClient {
+    /// 按状态码分类响应，`request` 与 `upload` 共用（#848 D6）。
+    /// 2xx 解码（信封优先、裸解兜底，策略本体在 `APIPayloadDecoder`），解码失败留一条诊断记录；
+    /// 401 只抛 `.unauthorized`；429 走 `rateLimitError`；其余先按字符串 code 的错误体解，再按宽松信封解。
+    private func decodeResponse<T: Decodable>(
+        data: Data,
+        httpResponse: HTTPURLResponse,
+        diagnosticID: String,
+        endpointCategory: String,
+        startedAt diagnosticStart: Date
+    ) async throws -> T {
+        switch httpResponse.statusCode {
+        case 200...299:
+            if T.self == EmptyResponse.self, data.isEmpty {
+                return EmptyResponse() as! T
+            }
+            do {
+                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
+            } catch {
+                await recordDiagnostic(
+                    id: diagnosticID,
+                    endpointCategory: endpointCategory,
+                    statusCode: httpResponse.statusCode,
+                    startedAt: diagnosticStart,
+                    stage: .decodingFailure
+                )
+                throw APIError.decodingError(error)
+            }
+        case 401:
+            throw APIError.unauthorized
+        case 429:
+            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
+        default:
+            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
+            if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
+                throw APIError.serverError(errorResponse)
+            }
+            // Accept the cloud backend's flexible error payload during contract convergence.
+            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
+               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
+                throw APIError.serverError(errorResponse)
+            }
+            throw APIError.unknown(statusCode: httpResponse.statusCode)
+        }
     }
 }
