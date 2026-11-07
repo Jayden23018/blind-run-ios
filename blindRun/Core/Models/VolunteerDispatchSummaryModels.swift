@@ -19,7 +19,7 @@ struct DispatchStatusRequest: Codable, Sendable {
 ///
 /// 未知取值一律落到 `.unknown` 而不是解码抛错 —— 严格解码会让整份
 /// `VolunteerDispatchSummaryResponse` 连同积分、覆盖范围、订单列表一起丢失。
-enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendable {
+enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendable, UnknownFallbackDecodable {
     // MARK: 后端权威取值（DispatchBlockReason）
     case dispatchDisabled = "DISPATCH_DISABLED"
     case notVerified = "NOT_VERIFIED"
@@ -49,11 +49,6 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
             .offline,
             .accountSuspended
         ]
-    }
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = VolunteerDispatchNotAvailableReason(rawValue: rawValue) ?? .unknown
     }
 
     var displayText: String {

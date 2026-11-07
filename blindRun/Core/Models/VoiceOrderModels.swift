@@ -60,17 +60,12 @@ enum VoiceSlotField: String, Codable, Sendable {
 ///
 /// 未知值退化成 `.unknown` 而不是抛 —— 后端往这个枚举加值时不该让整条响应解不出来（与
 /// `RunOrderStatus` 同一套写法）。
-enum VoiceOrderMissingSlot: String, Codable, Sendable, Equatable {
+enum VoiceOrderMissingSlot: String, Codable, Sendable, Equatable, UnknownFallbackDecodable {
     case address = "ADDRESS"
     case startTime = "START_TIME"
     case duration = "DURATION"
     /// 后端新增槽位时的兜底，不是后端会发的值。
     case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = VoiceOrderMissingSlot(rawValue: rawValue) ?? .unknown
-    }
 }
 
 /// 用户对读回确认的**表态**（后端 2026-08-09 新增）。`nil` = 没表态。
@@ -82,18 +77,13 @@ enum VoiceOrderMissingSlot: String, Codable, Sendable, Equatable {
 /// 把 `REPEAT` 当成 `RESTART` 会把用户刚说完的一整句清空。
 ///
 /// 未知值退化成 `.unknown` 而不是抛 —— 与 `VoiceOrderMissingSlot` 同一套写法。
-enum VoiceUserIntent: String, Codable, Sendable, Equatable {
+enum VoiceUserIntent: String, Codable, Sendable, Equatable, UnknownFallbackDecodable {
     case confirm = "CONFIRM"
     case cancel = "CANCEL"
     case restart = "RESTART"
     case repeatBack = "REPEAT"
     /// 后端新增取值时的兜底，不是后端会发的值。
     case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = VoiceUserIntent(rawValue: rawValue) ?? .unknown
-    }
 }
 
 /// 用户点名要改的那一项 —— 他说了「改哪一项」但**没给新值**（后端 2026-08-09 新增）。
@@ -102,7 +92,7 @@ enum VoiceUserIntent: String, Codable, Sendable, Equatable {
 /// 这是响应侧的独立枚举，读回里念到的每一项都能被点名，包括终点和三个可选槽位。
 ///
 /// ⚠️ 非 nil 时**不改任何槽位的值，只决定问句问什么** —— 模型判错的代价只是问错一句话。
-enum VoiceCorrectionTarget: String, Codable, Sendable, Equatable {
+enum VoiceCorrectionTarget: String, Codable, Sendable, Equatable, UnknownFallbackDecodable {
     case startAddress = "START_ADDRESS"
     case endAddress = "END_ADDRESS"
     case startTime = "START_TIME"
@@ -112,11 +102,6 @@ enum VoiceCorrectionTarget: String, Codable, Sendable, Equatable {
     case notes = "NOTES"
     /// 后端新增取值时的兜底，不是后端会发的值。
     case unknown = "UNKNOWN"
-
-    init(from decoder: Decoder) throws {
-        let rawValue = try decoder.singleValueContainer().decode(String.self)
-        self = VoiceCorrectionTarget(rawValue: rawValue) ?? .unknown
-    }
 }
 
 /// 同名候选地点（后端 2026-08-10 新增，N48）。

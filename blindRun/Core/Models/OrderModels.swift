@@ -296,7 +296,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 /// 新增一个取值，iOS 这边即使自己的选择器里没有，也会在读订单详情时撞上。
 /// 所以未知取值一律落 `.unknown`，且 `.unknown` **编码成 null** —— 决不把一个后端不认识的
 /// 字符串再发回去，也不占用「无偏好」这个有明确语义的真实取值。
-enum PacePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackEnum {
+enum PacePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackDecodable, UnknownFallbackCodable {
     case walkRun = "WALK_RUN"
     case easy = "EASY"
     case moderate = "MODERATE"
@@ -326,7 +326,7 @@ enum PacePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackEnu
 }
 
 /// 兜底策略同 `PacePreference`，原因也同：`OrderDetailResponse.routePreference` 在订单主干上。
-enum RoutePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackEnum {
+enum RoutePreference: String, Codable, CaseIterable, Sendable, UnknownFallbackDecodable, UnknownFallbackCodable {
     case parkTrail = "PARK_TRAIL"
     case street = "STREET"
     case track = "TRACK"
@@ -1040,7 +1040,7 @@ struct CreateReviewRequest: Codable, Sendable {
 /// 三档评价（后端迁移 0055，契约 `ReviewResponse.level`）。**开放枚举**：契约明写
 /// `anyOf enum | string`、“遇到未知值请按未知档位处理，别让整条响应解不出来”，
 /// 所以未知取值落 `.unknown`，不抛。
-enum ReviewLevel: String, Decodable, Sendable, Equatable, UnknownFallbackEnum {
+enum ReviewLevel: String, Decodable, Sendable, Equatable, UnknownFallbackDecodable {
     case good = "GOOD"
     case ok = "OK"
     case problem = "PROBLEM"
