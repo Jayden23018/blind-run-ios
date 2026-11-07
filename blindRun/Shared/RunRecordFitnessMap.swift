@@ -32,8 +32,6 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
     /// 放在 `@State` 而不是 `@StateObject`：整页不订阅滚动位置，每帧只有遮罩那一层重画。
     @State private var scrolled = RunRecordScrollOffset()
 
-    private static var space: String { "runRecordMapScroll" }
-
     var body: some View {
         GeometryReader { proxy in
             let topInset = proxy.safeAreaInsets.top
@@ -49,7 +47,6 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
                 ScrollView {
                     column(topInset: topInset, mapHeight: mapHeight)
                 }
-                .coordinateSpace(name: Self.space)
             }
             // 右上圆钮固定在屏幕顶端（照健身：往上滑它们不走）。放在滚动视图之后，叠在内容上面、先于它被读屏 / 点到。
             .overlay(alignment: .topTrailing) {
@@ -59,9 +56,6 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
             }
             // 地图和内容都伸到导航栏下（照健身）；滚动后系统导航栏照常换上底色。
             .ignoresSafeArea(edges: .top)
-        }
-        .onPreferenceChange(RunRecordScrollOffsetKey.self) { minY in
-            scrolled.value = -minY
         }
         .onPreferenceChange(RunRecordHeroHeaderHeightKey.self) { height in
             // 半个点以内的抖动不重新取景。
@@ -74,11 +68,9 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
             // 地图露出来的那块：透明，滑动照常交给滚动视图。读屏描述挂在这里，跟着内容走。
             Color.clear
                 .frame(height: max(mapHeight - headerHeight, topInset))
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(key: RunRecordScrollOffsetKey.self, value: proxy.frame(in: .named(Self.space)).minY)
-                    }
-                )
+                // 直接读 `UIScrollView.contentOffset`：和手指同一帧，且已扣掉系统给内容留的顶部边距。
+                // 旧做法读「内容块在滚动视图里的 minY」：装机录屏量出地图前 150pt 纹丝不动（minY 起点不是 0），然后在 90pt 内突然糊掉。
+                .background(RunRecordScrollObserver { scrolled.value = $0 })
                 .overlay(alignment: .top) { mapDescription(height: mapHeight - headerHeight - topInset, topInset: topInset) }
                 .id(topID)
             header
@@ -199,9 +191,45 @@ final class RunRecordBlurView: UIVisualEffectView {
     }
 }
 
-private struct RunRecordScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+/// 找到包着自己的 `UIScrollView`，把「滚了多远」（往上滑为正，0 = 静止在顶部）报出去。
+private struct RunRecordScrollObserver: UIViewRepresentable {
+    let onChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> RunRecordScrollObserverView { RunRecordScrollObserverView() }
+
+    func updateUIView(_ view: RunRecordScrollObserverView, context: Context) {
+        view.onChange = onChange
+    }
+}
+
+final class RunRecordScrollObserverView: UIView {
+    var onChange: ((CGFloat) -> Void)?
+    private var observation: NSKeyValueObservation?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { attach() } else { observation = nil }
+    }
+
+    /// 沿着父视图往上找第一个 `UIScrollView`。找不到就不报（地图保持清晰，不会误糊）。
+    func attach() {
+        observation = nil
+        var ancestor = superview
+        while let current = ancestor, !(current is UIScrollView) { ancestor = current.superview }
+        guard let scrollView = ancestor as? UIScrollView else { return }
+        observation = scrollView.observe(\.contentOffset, options: [.initial, .new]) { [weak self] scrollView, _ in
+            self?.onChange?(RunRecordHeroLayout.scrolled(contentOffsetY: scrollView.contentOffset.y, adjustedTopInset: scrollView.adjustedContentInset.top))
+        }
+    }
 }
 
 /// 通栏地图的尺寸常量与路线取景框（负责人 11-07 第 11 条），抽成纯函数好让用例钉住四边。
@@ -220,6 +248,11 @@ enum RunRecordHeroLayout {
     /// 往下拉过头（`scrolled` 为负）不加遮罩。页底色在下面的卡片盖上来时接手，所以变暗滑满即 1。
     static let blurDistance: CGFloat = 70
     static let dimDistance: CGFloat = 150
+
+    /// 滚了多远：偏移量加上系统给内容留的顶部边距（有的页面内容缩在导航栏下，静止时偏移是 -边距）。静止在顶部 = 0。
+    static func scrolled(contentOffsetY: CGFloat, adjustedTopInset: CGFloat) -> CGFloat {
+        contentOffsetY + adjustedTopInset
+    }
 
     static func veil(scrolled: CGFloat) -> (blur: Double, dim: Double) {
         let positive = max(scrolled, 0)

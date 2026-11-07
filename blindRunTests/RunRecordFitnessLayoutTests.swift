@@ -52,6 +52,38 @@ final class RunRecordFitnessLayoutTests: XCTestCase {
         XCTAssertEqual(past.dim, 1)
     }
 
+    /// 装机录屏（2026-11-07 目前实现.mov）量出：旧做法读内容块的 minY，地图前 150pt 纹丝不动。
+    /// 现在直接读 `UIScrollView`：内容缩在导航栏下时静止偏移是 -边距，扣掉后静止 = 0，上滑 50pt = 50。
+    /// 取「边距 106、偏移 -56」：不扣边距的实现在这里会得到 -56，被当成「还没开始滚」。
+    func testScrolledIsZeroAtRestAndCountsFromTheFirstPoint() {
+        XCTAssertEqual(RunRecordHeroLayout.scrolled(contentOffsetY: -106, adjustedTopInset: 106), 0)
+        XCTAssertEqual(RunRecordHeroLayout.scrolled(contentOffsetY: -56, adjustedTopInset: 106), 50)
+        XCTAssertEqual(RunRecordHeroLayout.scrolled(contentOffsetY: 50, adjustedTopInset: 0), 50)
+        XCTAssertLessThan(RunRecordHeroLayout.scrolled(contentOffsetY: -130, adjustedTopInset: 106), 0, "往下拉过头为负")
+    }
+
+    /// 观察视图真的挂在 `UIScrollView` 里就能报出偏移，滚一下马上收到（同一帧，不经 SwiftUI 布局）。
+    func testScrollObserverReportsContentOffsetFromEnclosingScrollView() {
+        let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 300, height: 600))
+        scrollView.contentSize = CGSize(width: 300, height: 2000)
+        scrollView.contentInset = UIEdgeInsets(top: 106, left: 0, bottom: 0, right: 0)
+        scrollView.contentOffset = CGPoint(x: 0, y: -106)
+        let content = UIView(frame: CGRect(x: 0, y: 0, width: 300, height: 2000))
+        scrollView.addSubview(content)
+        let observer = RunRecordScrollObserverView()
+        content.addSubview(observer)
+        var reported: [CGFloat] = []
+        observer.onChange = { reported.append($0) }
+        observer.attach()
+
+        scrollView.contentOffset = CGPoint(x: 0, y: -56)
+        scrollView.contentOffset = CGPoint(x: 0, y: -26)
+
+        XCTAssertEqual(reported.last, 80, "-26 + 106")
+        XCTAssertTrue(reported.contains(50))
+        XCTAssertEqual(reported.first, 0, "挂上去的瞬间报一次静止位置")
+    }
+
     /// 每根竖条占「上一个采样 → 本采样」那段距离，乱序采样按距离排好；第一根从 0 起。
     func testPaceBarsSpanTheDistanceSinceThePreviousSample() {
         let samples = [
