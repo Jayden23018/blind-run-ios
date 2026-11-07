@@ -330,15 +330,6 @@ enum VolunteerAchievementsCopy {
         }
         return "\(nextBadgeSectionTitle)，\(next.displayName)，\(progress)"
     }
-
-    static func summarySpeech(_ response: VolunteerAchievementsResponse) -> String {
-        let level = response.resolvedStarLevel
-        let completed = response.completedCount
-        let head = completed > 0
-            ? "已完成 \(completed) 次陪跑服务。"
-            : "还没有完成的服务。"
-        return head + starAccessibilityLabel(level)
-    }
 }
 
 // MARK: - 主页只露 4 枚

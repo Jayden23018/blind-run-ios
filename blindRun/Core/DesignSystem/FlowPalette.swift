@@ -115,13 +115,6 @@ extension AppColors {
         static let replyUrgentTextTone = Tone(light: 0x8A5A00, dark: 0xF0B429)
         static let replyUrgentText = flowDynamic(replyUrgentTextTone)
 
-        // MARK: 雷达（匹配态视觉区，纯装饰）
-
-        static let radarOuter = flowDynamic(Tone(light: 0xF6F8FE, dark: 0x16203A))
-        static let radarOuterStroke = flowDynamic(Tone(light: 0xE3EAFA, dark: 0x22304F))
-        static let radarInner = flowDynamic(Tone(light: 0xEEF3FD, dark: 0x1B2745))
-        static let radarInnerStroke = flowDynamic(Tone(light: 0xDCE5FA, dark: 0x28375A))
-
         // MARK: 陪跑员头像
 
         /// 白卡上的头像底。
@@ -357,7 +350,6 @@ extension AppColors {
         static let warmCardTitleTone = Tone(light: 0x6B4A00, dark: 0xF5CF6B)
         static let warmCardTitle = flowDynamic(warmCardTitleTone)
         static let warmCardBodyTone = Tone(light: 0x3A2B00, dark: 0xFFF1CC)
-        static let warmCardBody = flowDynamic(warmCardBodyTone)
 
         /// **仅装饰**：邀请态虚线、未约好的跑者头像描边与姓氏。不能承载信息
         /// （`decorMutedInk` 压白只有 3.16）—— 邀请态的「还没约好」由读屏标签与虚线形状承担。

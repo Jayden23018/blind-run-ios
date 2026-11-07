@@ -230,12 +230,6 @@ enum BookingSlotText {
         return names[Calendar.aidRunBackend.component(.weekday, from: day) - 1]
     }
 
-    /// 日历表头的单字：「一」…「日」。
-    static func weekdayShortName(_ day: Date) -> String {
-        let names = ["日", "一", "二", "三", "四", "五", "六"]
-        return names[Calendar.aidRunBackend.component(.weekday, from: day) - 1]
-    }
-
     /// 读屏念的日期：「明天，11 月 7 日，周五」。相对说法只到后天，理由同 `RunPlanFormat.shortStart`。
     static func spokenDay(_ day: Date, now: Date) -> String {
         let calendar = Calendar.aidRunBackend

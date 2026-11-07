@@ -144,12 +144,3 @@ extension blindRunUITests {
         app.activate()
     }
 }
-
-extension String {
-    func leftPadded(toLength length: Int, withPad character: Character = "0") -> String {
-        if count >= length {
-            return String(suffix(length))
-        }
-        return String(repeating: String(character), count: length - count) + self
-    }
-}

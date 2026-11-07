@@ -63,26 +63,11 @@ enum FlowMetrics {
 
     // MARK: 状态卡视觉区
 
-    /// 雷达 / 头像所在的方形区域。
-    static let visualSide: CGFloat = 124
     /// 头像圆直径。
     static let avatarDiameter: CGFloat = 92
-    /// 已汇合对勾徽标。
-    static let successBadgeDiameter: CGFloat = 32
-    static let successBadgeRingWidth: CGFloat = 3
-    /// 出发态的进度环线宽。
-    static let progressRingWidth: CGFloat = 4
-    /// 状态标题距视觉区的间距。
-    static let statusTitleTopSpacing: CGFloat = 10
 
     // MARK: 跑步中（③）
 
-    /// 顶行「陪跑中 · 张伟」左侧那枚小头像。**与视觉区那枚 ⌀92 是同一个视图**
-    /// （`matchedGeometryEffect`），所以两个直径必须都在这里，不能一个写死在视图里。
-    static let partnerAvatarDiameter: CGFloat = 28
-    /// 顶行的内边距（设计稿 `padding 14/18`）。
-    static let partnerRowVerticalPadding: CGFloat = 14
-    static let partnerRowHorizontalPadding: CGFloat = 18
     /// 里程那个巨数字的字距（设计稿 `letter-spacing: -2`）。
     ///
     /// **负字距只给这一个数字。** 82pt 的等宽数字默认间距在 390pt 宽的屏幕上会让
@@ -203,7 +188,6 @@ enum FlowMetrics {
     static let v2CTAShadowRadius: CGFloat = 8
     static let v2CTAShadowY: CGFloat = 6
     static let v2CTAShadowOpacity: Double = 0.28
-    static let v2CTAStrokeWidth: CGFloat = 1.5
     /// 按下时的缩放。
     static let v2PressedScale: CGFloat = 0.98
 }
@@ -336,12 +320,6 @@ enum FlowFonts {
     static func rowDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .regular, .footnote) }
     /// 按钮文字 18 / Semibold。
     static func actionButton() -> (CGFloat, Font.Weight, Font.TextStyle) { (18, .semibold, .body) }
-    /// 按钮标题下面那行小字 13 / Regular。目前只有陪跑员端「长按 2 秒 · 松手取消」用。
-    ///
-    /// **和 `rowDetail()` 取值相同但不复用它**：那一档的语义是「列表行的次要信息」，
-    /// 而这一档是「这枚按钮该怎么按」—— 两者哪天要分开调（比如这行字要更醒目），
-    /// 复用会让改一处伤到另一处，而按钮上那行字调没调对没人会发现。
-    static func actionButtonHint() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .regular, .footnote) }
     /// 头像里的姓氏。视觉区那枚 38，首页深蓝卡那枚 18，跑步中顶行那枚 ⌀28 用 13。
     ///
     /// 三档按**直径**分，不按调用点：同一个 `FlowAvatar` 在三个地方用，
@@ -366,8 +344,6 @@ enum FlowFonts {
     /// 三个数字各自的标签。里程的标签 16、时长配速的标签 15（设计稿两档不同）。
     static func runPrimaryLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (16, .regular, .callout) }
     static func runSecondaryLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (15, .regular, .subheadline) }
-    /// 顶行「陪跑中 · 张伟」。
-    static func partnerHeadline() -> (CGFloat, Font.Weight, Font.TextStyle) { (15, .semibold, .subheadline) }
     /// 倒计时那三个数字，压在 ⌀92 的品牌蓝实心圆上。
     static func countdownNumber() -> (CGFloat, Font.Weight, Font.TextStyle) { (52, .semibold, .largeTitle) }
 }

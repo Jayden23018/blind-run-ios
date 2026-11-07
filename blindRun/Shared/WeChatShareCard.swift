@@ -35,9 +35,6 @@ enum WeChatShareCard {
     /// 但旧客户端仍按 32 KB 卡，所以按 32 KB 备素材。
     static let thumbnailByteLimit = 32 * 1024
 
-    /// 缩略图在卡片右侧按 1:1 展示，官方建议 300×300。
-    static let thumbnailSide = 300
-
     // MARK: - 文案
 
     /// 卡片标题。

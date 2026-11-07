@@ -185,14 +185,6 @@ extension APIClientProtocol {
         try await request(method: .put, path: path, query: nil, body: body, requiresAuth: requiresAuth)
     }
 
-    func patch<T: Decodable>(
-        _ path: String,
-        body: (any Encodable & Sendable)? = nil,
-        requiresAuth: Bool = true
-    ) async throws -> T {
-        try await request(method: .patch, path: path, query: nil, body: body, requiresAuth: requiresAuth)
-    }
-
     func delete<T: Decodable>(
         _ path: String,
         requiresAuth: Bool = true

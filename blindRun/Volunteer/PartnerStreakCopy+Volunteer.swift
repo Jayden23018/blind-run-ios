@@ -62,7 +62,6 @@ extension PartnerStreakCopy {
         title: "连续陪跑",
         detail: "你们每周一起跑完一次，就多记一周。"
     )
-    static let volunteerEmptyFootnote = "还没有跑者把你设为固定搭档。"
 
     // 搭档详情页
 
