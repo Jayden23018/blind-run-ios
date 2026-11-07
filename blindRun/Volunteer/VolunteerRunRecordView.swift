@@ -279,13 +279,10 @@ struct VolunteerRunRecordView: View {
                     geometry: geometry,
                     record: record,
                     highlight: highlightedSplit.flatMap { index in content.splits.first { $0.index == index } },
-                    hasTopButtons: false,
                     mapAccessibilityLabel: content.mapDescription,
                     topID: Self.topID
                 ) {
                     header(content)
-                } buttons: {
-                    EmptyView()
                 } content: {
                     sections(record, content, onSelectSplit: onSelectSplit)
                         .padding(.horizontal, 16)

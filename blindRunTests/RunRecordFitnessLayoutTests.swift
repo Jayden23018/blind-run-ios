@@ -4,24 +4,21 @@ import XCTest
 /// 跑步记录照健身重做（#823）里能脱开视图钉住的两件事：通栏地图的路线取景框、配速竖条的距离区间。
 final class RunRecordFitnessLayoutTests: XCTestCase {
 
-    /// 负责人 11-07 第 11 条：路线不压返回键、右上圆钮、头部。
-    /// 上 = 安全区顶 + 圆钮一行 64 + 16，下 = 头部高度 + 16，左右 28，四边再让出半个标注（12）。
-    /// 有圆钮和没圆钮取一对：去掉「圆钮那一行」的实现会让两者相等。
-    func testRouteInsetsClearTheButtonsAndTheHeader() {
-        let withButtons = RunRecordHeroLayout.routeInsets(topInset: 103, hasTopButtons: true, headerHeight: 180)
-        XCTAssertEqual(withButtons.top, 103 + 64 + 16 + 12)
-        XCTAssertEqual(withButtons.bottom, 180 + 16 + 12)
-        XCTAssertEqual(withButtons.left, 28 + 12)
-        XCTAssertEqual(withButtons.right, 28 + 12)
-
-        let volunteer = RunRecordHeroLayout.routeInsets(topInset: 103, hasTopButtons: false, headerHeight: 180)
-        XCTAssertEqual(volunteer.top, 103 + 16 + 12, "陪跑员端右上没有圆钮，不多让那一行")
+    /// 负责人 11-07 第 11 条：路线不压返回键、声音钮、头部。
+    /// 上 = 安全区顶（导航栏，#830 起声音钮也在这一行）+ 16，下 = 头部高度 + 16，左右 28，四边再让出半个标注（12）。
+    /// 上沿取 103 + 28：圆钮还叠在地图上时多让一行 64，会得到 103 + 92，这条能分辨。
+    func testRouteInsetsClearTheNavigationBarAndTheHeader() {
+        let insets = RunRecordHeroLayout.routeInsets(topInset: 103, headerHeight: 180)
+        XCTAssertEqual(insets.top, 103 + 16 + 12, "声音钮在导航栏里，不再多让圆钮那一行")
+        XCTAssertEqual(insets.bottom, 180 + 16 + 12)
+        XCTAssertEqual(insets.left, 28 + 12)
+        XCTAssertEqual(insets.right, 28 + 12)
     }
 
     /// 大字号头部变高，取景框下沿跟着抬：路线不会钻到头部下面。
     func testRouteInsetsFollowTheMeasuredHeaderHeight() {
-        let normal = RunRecordHeroLayout.routeInsets(topInset: 103, hasTopButtons: true, headerHeight: 180)
-        let large = RunRecordHeroLayout.routeInsets(topInset: 103, hasTopButtons: true, headerHeight: 420)
+        let normal = RunRecordHeroLayout.routeInsets(topInset: 103, headerHeight: 180)
+        let large = RunRecordHeroLayout.routeInsets(topInset: 103, headerHeight: 420)
         XCTAssertEqual(large.bottom - normal.bottom, 240)
     }
 

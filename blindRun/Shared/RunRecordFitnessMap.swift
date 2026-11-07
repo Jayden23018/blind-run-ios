@@ -13,21 +13,18 @@ import UIKit
 /// 模糊是盖在地图上的材质层，不对 `MAMapView` 本身做 `.blur`（每帧重绘地图太耗电）。
 /// 试过 `UIVisualEffectView` + `UIViewPropertyAnimator` 按进度驱动：系统的模糊动画非线性，进度很小画面就已糊掉一大半，
 /// 负责人装机说「随便碰一下立马就没了」，所以换回按滚动量线性变化的材质透明度。
-/// 右上圆钮固定在屏幕顶端、不跟内容滚（照健身）。
-/// 路线只落在「安全框」里，不压返回键、右上圆钮、头部（负责人 11-07 第 8、11 条）：
-/// 上 = 安全区顶（含导航栏）+ 圆钮那一行 + 16，下 = 头部实测高度 + 16，左右各 28。
-struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View {
+/// 跑者端「听这次跑步」在导航栏右侧，和返回键同一行（#830），不叠在地图上。
+/// 路线只落在「安全框」里，不压导航栏、头部（负责人 11-07 第 8、11 条）：
+/// 上 = 安全区顶（含导航栏）+ 16，下 = 头部实测高度 + 16，左右各 28。
+struct RunRecordMapScrollPage<Header: View, Content: View>: View {
     let geometry: RunRouteGeometry
     let record: RunRecordResponse
     var highlight: VolunteerRunRecordContent.SplitRow?
-    /// 右上有圆钮时为 true（跑者端）：取景框上沿多让一行。
-    let hasTopButtons: Bool
     /// 地图整体的读屏描述。nil = 地图对读屏完全隐藏（描述在页面别处）。
     var mapAccessibilityLabel: String?
     /// 地图露出来那块的 id：`ScrollViewReader.scrollTo` 滚回这里地图就完全显现（陪跑员端点单段时用）。
     var topID: String?
     @ViewBuilder let header: Header
-    @ViewBuilder let buttons: Buttons
     @ViewBuilder let content: Content
 
     @State private var headerHeight: CGFloat = 160
@@ -37,7 +34,7 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
     var body: some View {
         GeometryReader { proxy in
             let topInset = proxy.safeAreaInsets.top
-            let edgePadding = RunRecordHeroLayout.routeInsets(topInset: topInset, hasTopButtons: hasTopButtons, headerHeight: headerHeight)
+            let edgePadding = RunRecordHeroLayout.routeInsets(topInset: topInset, headerHeight: headerHeight)
             let screenHeight = proxy.size.height + topInset + proxy.safeAreaInsets.bottom
             let mapHeight = max(screenHeight * 0.62, edgePadding.top + RunRecordHeroLayout.minimumRouteHeight + edgePadding.bottom)
             ZStack(alignment: .top) {
@@ -52,12 +49,6 @@ struct RunRecordMapScrollPage<Header: View, Buttons: View, Content: View>: View 
                 ScrollView {
                     column(topInset: topInset, mapHeight: mapHeight)
                 }
-            }
-            // 右上圆钮固定在屏幕顶端（照健身：往上滑它们不走）。放在滚动视图之后，叠在内容上面、先于它被读屏 / 点到。
-            .overlay(alignment: .topTrailing) {
-                buttons
-                    .padding(.top, topInset)
-                    .padding(.trailing, 8)
             }
             // 地图和内容都伸到导航栏下（照健身）；滚动后系统导航栏照常换上底色。
             .ignoresSafeArea(edges: .top)
@@ -185,7 +176,6 @@ final class RunRecordScrollObserverView: UIView {
 
 /// 通栏地图的尺寸常量与路线取景框（负责人 11-07 第 11 条），抽成纯函数好让用例钉住四边。
 enum RunRecordHeroLayout {
-    static let buttonRowHeight: CGFloat = FlowMetrics.actionButtonMinHeight
     static let gradientMinHeight: CGFloat = 230
     static let routeSideInset: CGFloat = 28
     static let routeGap: CGFloat = 16
@@ -211,10 +201,10 @@ enum RunRecordHeroLayout {
         contentOffsetY + adjustedTopInset
     }
 
-    /// 上 = 安全区顶（含导航栏）+ 圆钮那一行（有圆钮时）+ 16；下 = 头部实测高度 + 16；左右 28；四边再加半个标注。
-    static func routeInsets(topInset: CGFloat, hasTopButtons: Bool, headerHeight: CGFloat) -> UIEdgeInsets {
+    /// 上 = 安全区顶（含导航栏，跑者端的声音钮也在这一行里）+ 16；下 = 头部实测高度 + 16；左右 28；四边再加半个标注。
+    static func routeInsets(topInset: CGFloat, headerHeight: CGFloat) -> UIEdgeInsets {
         UIEdgeInsets(
-            top: topInset + (hasTopButtons ? buttonRowHeight : 0) + routeGap + annotationMargin,
+            top: topInset + routeGap + annotationMargin,
             left: routeSideInset + annotationMargin,
             bottom: headerHeight + routeGap + annotationMargin,
             right: routeSideInset + annotationMargin
@@ -242,37 +232,6 @@ struct RunRecordHeroGradient: View {
             startPoint: .top,
             endPoint: .bottom
         )
-    }
-}
-
-/// 地图右上的圆钮：44pt 可见、64pt 可点，读屏有名字（负责人 11-07 第 3 条）。
-/// 可点区挂在 label 里（记忆 button-frame-outside-label-does-not-grow-hit-area）。
-struct RunRecordMapCircleButton: View {
-    let systemImage: String
-    let accessibilityLabel: String
-    let accessibilityHint: String
-    let identifier: String
-    var isActive = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.title3.weight(.semibold))
-                .foregroundColor(isActive ? AppColors.background : AppColors.primary)
-                .frame(width: 44, height: 44) // guard:allow small-touch-target（看得见的圆，可点区是下面的 64pt）
-                .background(
-                    Circle()
-                        .fill(isActive ? AppColors.primary : AppColors.Flow.surface)
-                        .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
-                )
-                .frame(width: FlowMetrics.actionButtonMinHeight, height: FlowMetrics.actionButtonMinHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(accessibilityHint)
-        .accessibilityIdentifier(identifier)
     }
 }
 
