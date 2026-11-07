@@ -20,7 +20,6 @@ enum VolunteerAccountCopy {
 
 struct VolunteerAccountView: View {
     @EnvironmentObject private var appState: AppState
-    @EnvironmentObject private var speechService: SpeechService
     @StateObject private var deletionViewModel = AccountDeletionViewModel()
     @State private var showLogoutConfirm = false
     @State private var showDeletionInitialConfirmation = false
@@ -45,33 +44,12 @@ struct VolunteerAccountView: View {
         .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerAccountView")
-        .alert("无法删除账户", isPresented: $deletionViewModel.isShowingPreflightBlock) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(deletionViewModel.preflightMessage ?? "")
-        }
         .logoutConfirmation(isPresented: $showLogoutConfirm)
-        .alert("确认删除账户", isPresented: $showDeletionInitialConfirmation) {
-            Button("继续删除账户", role: .destructive) {
-                Task {
-                    await deletionViewModel.preflight(
-                        appState: appState,
-                        speechService: speechService
-                    )
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("系统将先检查是否存在进行中的服务。检查通过后仍需再次确认，才会提交账户删除请求。")
-        }
-        .alert("最终确认删除账户", isPresented: $deletionViewModel.showFinalConfirmation) {
-            Button("永久删除账户", role: .destructive) {
-                Task { await appState.deleteCurrentAccount() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(AccountDeletionViewModel.finalConfirmationMessage(for: .volunteer))
-        }
+        .accountDeletionFlow(
+            viewModel: deletionViewModel,
+            isShowingInitialConfirmation: $showDeletionInitialConfirmation,
+            role: .volunteer
+        )
     }
 
     // MARK: 头部
