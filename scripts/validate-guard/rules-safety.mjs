@@ -580,5 +580,95 @@ export const cases = [
       '  func f() {\n' +
       '    let s = orders.first { [.driverEnRoute, .inProgress].contains($0.status) }\n' +
       '  }\n}'
+  },
+
+  // unknown-fallback-handwritten（2026-11-08，#847）：手写的「未知值降级」解码要改用协议。
+  {
+    name: '新枚举手写未知值降级的 init(from:)（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/Models/NewModels.swift',
+    swift:
+      'enum NewKind: String, Decodable {\n' +
+      '    case a = "A"\n' +
+      '    case unknown = "UNKNOWN"\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = NewKind(rawValue: rawValue) ?? .unknown\n' +
+      '    }\n}'
+  },
+  {
+    // 订单状态机按 #847 不动；判据是最近的 enum 声明，不靠文件名或标注。
+    name: 'RunOrderStatus 的手写降级解码（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/Models/OrderModels.swift',
+    swift:
+      'enum RunOrderStatus: String, Codable {\n' +
+      '    case pendingMatch = "PENDING_MATCH"\n' +
+      '    case unknown = "UNKNOWN"\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = RunOrderStatus(rawValue: rawValue) ?? .unknown\n' +
+      '    }\n}'
+  },
+  {
+    // 反向哨兵：RunOrderStatus 的豁免不能扩到同一文件里排在它后面的别的枚举。
+    name: '同文件 RunOrderStatus 之后的另一个枚举手写降级（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/Models/OrderModels.swift',
+    swift:
+      'enum RunOrderStatus: String, Codable {\n' +
+      '    case unknown = "UNKNOWN"\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = RunOrderStatus(rawValue: rawValue) ?? .unknown\n' +
+      '    }\n}\n' +
+      'enum PacePreference: String, Codable {\n' +
+      '    case unknown = "UNKNOWN"\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = PacePreference(rawValue: rawValue) ?? .unknown\n' +
+      '    }\n}'
+  },
+  {
+    // `try?` 的宽容写法让非字符串也落 .unknown，和协议行为不同，不归这条管。
+    name: 'try? 宽容写法的降级解码（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/Models/OrderModels.swift',
+    swift:
+      'enum RunRhythmSignal: String, Decodable {\n' +
+      '    case unknown = "UNKNOWN"\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try? decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = rawValue.flatMap(RunRhythmSignal.init(rawValue:)) ?? .unknown\n' +
+      '    }\n}'
+  },
+  {
+    name: '协议自己的默认实现 Self(rawValue:)（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/Models/UnknownFallbackDecodable.swift',
+    swift:
+      'nonisolated extension UnknownFallbackDecodable {\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = Self(rawValue: rawValue) ?? .unknown\n' +
+      '    }\n}'
+  },
+  {
+    name: '带行尾标注的手写降级解码（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/Models/NewModels.swift',
+    swift:
+      'enum NewKind: String, Decodable {\n' +
+      '    case unknown = "UNKNOWN"\n' +
+      '    init(from decoder: Decoder) throws {\n' +
+      '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
+      '        self = NewKind(rawValue: rawValue) ?? .unknown // guard:allow unknown-fallback-handwritten\n' +
+      '    }\n}'
   }
 ];

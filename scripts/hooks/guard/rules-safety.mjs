@@ -1,5 +1,5 @@
 // 内容规则 · 数据、安全与状态机：邀请码开关、服务端地址、Token 存储、求助状态写入、
-// async 闭包隔离、订单状态集合字面量。
+// async 闭包隔离、订单状态集合字面量、手写的未知值降级解码。
 // 规则表的字段约定（pattern / check / files / exceptFiles / why）与扫描逻辑见 `content-scan.mjs`。
 
 const REAL_HOST = 'blindrun.culiu-tech.com';
@@ -234,5 +234,36 @@ export const safetyRules = {
       '集合完全一样却刻意分开，理由写在它们自己的注释里。先问「这两处问的是不是同一个问题」。\n' +
       'Mock 侧照后端演（`handleGetActiveOrder` / `handleGetVolunteerLocation`）**本就该**用字面量：' +
       '耦合到客户端判定会毁掉「两边不对称才被看见」这个价值，那几处行尾加 `// guard:allow status-set-literal`。',
+  },
+  'unknown-fallback-handwritten': {
+    // 手写「未知值降级」解码（2026-11-08，#847）。
+    //
+    // 同一段 `init(from:)` 曾经写了 10 遍（审查报告 `docs/review/duplicate-code-20261108.md` §D7）。
+    // 现在 9 个都改成遵循 `Core/Models/UnknownFallbackDecodable.swift` 的协议。
+    // 这条规则拦下新写的副本，免得重复再长回来。
+    //
+    // 只认这一种严格的形状：上一两行是 `try decoder.singleValueContainer().decode(String.self)`
+    // （不是 `try?`），本行是 `self = X(rawValue: rawValue) ?? .unknown`。
+    // 用 `try?` 的宽容写法（非字符串也落 `.unknown`，例 `RunRhythmSignal`、`DistanceBucket`）
+    // 行为不同，不拦。
+    //
+    // `RunOrderStatus` 不拦：它是订单状态机（AGENTS §5），#847 定了不动。
+    // 判据是「本行之前最近的 `enum` 声明」，这样 `OrderModels.swift` 不用为它加标注。
+    pattern: /^\s*self\s*=\s*([A-Z]\w*)\(rawValue:\s*\w+\)\s*\?\?\s*\.unknown\b/,
+    check: (line, _window, _src, before) => {
+      const name = line.match(/=\s*([A-Z]\w*)\(rawValue:/)?.[1];
+      if (!name || name === 'Self') return false;
+      const recent = before.slice(-2).join('\n');
+      if (!/\btry\s+decoder\.singleValueContainer\(\)\.decode\(String\.self\)/.test(recent)) return false;
+      const enclosing = [...before].reverse().map((l) => l.match(/\benum\s+(\w+)/)?.[1]).find(Boolean);
+      return enclosing !== 'RunOrderStatus';
+    },
+    why:
+      '不要再手写「不认识的值落到 `.unknown`」的 `init(from:)`。\n' +
+      '改法：枚举声明里加 `UnknownFallbackDecodable`（`blindRun/Core/Models/UnknownFallbackDecodable.swift`），' +
+      '删掉这段 `init(from:)`。行为一样：认识的值照常解，其他字符串落 `.unknown`，不是字符串照常抛错。\n' +
+      '⚠️ 编码要先想清楚：只遵循 `UnknownFallbackDecodable` 时，`Codable` 枚举的 `.unknown` 仍编码成 `"UNKNOWN"`；' +
+      '要让 `.unknown` 编码成 `null`（App 会把这个值发给后端时），改遵循 `UnknownFallbackCodable` 并删掉手写的 `encode(to:)`。\n' +
+      '确实要保留手写版本（例如解码前要先 trim / 转大写），行尾加 `// guard:allow unknown-fallback-handwritten`。',
   },
 };
