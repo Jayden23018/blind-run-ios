@@ -689,8 +689,12 @@ struct BlindRunnerHomeView: View {
     /// **没有待进行订单时**预约换成深蓝大卡，占满下方内容之外的全部高度。
     /// 外层量一次可用高度，内容至少撑到那么高：装得下时不滚动，大字号装不下时才滚。
     ///
-    /// **多个待进行订单时全部显示，平分一张卡的高度**（#825，负责人 2026-11-07）。
-    /// 最早那张来自 `GET /api/orders/active`，其余来自 `GET /api/orders/mine`，见 `BlindHomeOrderStack`。
+    /// 🔄 **#825 起多张预约全部显示，平分一张卡的高度**（负责人 2026-11-07）：最早那张来自 `/active`，
+    /// 其余来自 `/mine`，见 `BlindHomeOrderStack`。下面这段写的是改版前，与 #824 合并后一起删。
+    ///
+    /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
+    /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
+    /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 顶部的「待进行的预约」里（#660 B-5）。
     private var contentLayer: some View {
         GeometryReader { proxy in
             ScrollView {
