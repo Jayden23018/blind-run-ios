@@ -10,7 +10,9 @@ import UIKit
 /// 详情页照健身（#823 第二轮，负责人 11-07 装机反馈第 5 条）：地图固定在页面背后，内容在它上面滚。
 /// 往上滑，头部和卡片盖上来，地图逐渐模糊、变暗（`RunRecordMapVeil`）；往回滑地图慢慢显现。
 /// 速度和曲线照苹果健身录屏逐帧量出来的（`RunRecordHeroLayout.veil`）：上滑 70pt 已全糊，150pt 全暗，与地图多高无关。
-/// 模糊是盖在地图上的 `UIVisualEffectView`，半径随滚动连续变大（`RunRecordMapBlur`）；不对 `MAMapView` 本身做 `.blur`（每帧重绘地图太耗电）。
+/// 模糊是盖在地图上的材质层，不对 `MAMapView` 本身做 `.blur`（每帧重绘地图太耗电）。
+/// 试过 `UIVisualEffectView` + `UIViewPropertyAnimator` 按进度驱动：系统的模糊动画非线性，进度很小画面就已糊掉一大半，
+/// 负责人装机说「随便碰一下立马就没了」，所以换回按滚动量线性变化的材质透明度。
 /// 右上圆钮固定在屏幕顶端、不跟内容滚（照健身）。
 /// 路线只落在「安全框」里，不压返回键、右上圆钮、头部（负责人 11-07 第 8、11 条）：
 /// 上 = 安全区顶（含导航栏）+ 圆钮那一行 + 16，下 = 头部实测高度 + 16，左右各 28。
@@ -116,7 +118,7 @@ final class RunRecordScrollOffset: ObservableObject {
     @Published var value: CGFloat = 0
 }
 
-/// 盖在固定地图上的那层：先模糊（半径连续变大），同时被页底色一点点盖住。「减少透明度」打开时不用模糊、只变暗。
+/// 盖在固定地图上的那层：材质层的透明度跟着滚动量线性变大，同时被页底色一点点盖住。「减少透明度」打开时不用模糊、只变暗。
 private struct RunRecordMapVeil: View {
     @ObservedObject var scrolled: RunRecordScrollOffset
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -126,68 +128,12 @@ private struct RunRecordMapVeil: View {
         ZStack {
             // 页顶（blur 为 0）不放模糊层，免得静止看地图时系统也做模糊合成。
             if !reduceTransparency, veil.blur > 0 {
-                RunRecordMapBlur(progress: veil.blur)
+                Rectangle().fill(.thinMaterial).opacity(veil.blur)
             }
             AppColors.Flow.page.opacity(veil.dim)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-}
-
-/// 真模糊：`UIVisualEffectView` + 暂停的 `UIViewPropertyAnimator`，`fractionComplete` 跟着滚动走，模糊半径从 0 连续变到满。
-/// 不用 SwiftUI 材质的 `.opacity` 渐变：那是「清晰地图 + 半透明磨砂罩」叠着，中间帧能看见清晰的路线透出来，像鬼影；
-/// 苹果健身每一帧都是一整张模糊图（2026-11-07 录屏逐帧对比）。
-private struct RunRecordMapBlur: UIViewRepresentable {
-    let progress: Double
-
-    func makeUIView(context: Context) -> RunRecordBlurView { RunRecordBlurView() }
-
-    func updateUIView(_ view: RunRecordBlurView, context: Context) {
-        view.progress = CGFloat(progress)
-    }
-}
-
-final class RunRecordBlurView: UIVisualEffectView {
-    private var animator: UIViewPropertyAnimator?
-    var progress: CGFloat = 0 {
-        didSet { animator?.fractionComplete = min(max(progress, 0), 1) }
-    }
-
-    init() {
-        super.init(effect: nil)
-        isUserInteractionEnabled = false
-        rebuildAnimator()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    /// 暂停中的动画在 App 退到后台或视图离开窗口后会被系统结束，回到窗口时按当前进度重建。
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil { rebuildAnimator() }
-    }
-
-    private func rebuildAnimator() {
-        tearDownAnimator()
-        effect = nil
-        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
-            self?.effect = UIBlurEffect(style: .systemThinMaterial)
-        }
-        animator.pausesOnCompletion = true
-        animator.fractionComplete = min(max(progress, 0), 1)
-        self.animator = animator
-    }
-
-    private func tearDownAnimator() {
-        guard let animator else { return }
-        animator.stopAnimation(true)
-        self.animator = nil
-    }
-
-    deinit {
-        animator?.stopAnimation(true)
     }
 }
 
@@ -243,11 +189,13 @@ enum RunRecordHeroLayout {
     /// 取景框里至少留给路线的高度。大字号头部变高时地图跟着变高，路线不至于缩成一个点。
     static let minimumRouteHeight: CGFloat = 200
 
-    /// 苹果健身录屏逐帧量出来的曲线（2026-11-07，健身记录.mov，1px = 1pt，量地图区域亮度与清晰度）：
-    /// 上滑 70pt 已全糊（26pt 明显、40pt 重度），150pt 前后全暗；与地图高度无关。
-    /// 往下拉过头（`scrolled` 为负）不加遮罩。页底色在下面的卡片盖上来时接手，所以变暗滑满即 1。
-    static let blurDistance: CGFloat = 70
-    static let dimDistance: CGFloat = 150
+    /// 苹果健身录屏逐帧量出来的曲线（2026-11-07，健身记录.mov，1px = 1pt，量地图区域亮度）：
+    /// 地图亮度随上滑近似线性往下掉 —— 26pt 掉 12%、63pt 掉 29%、105pt 掉 46%、142pt 掉 59%、170pt 掉 63%，
+    /// 170pt 之后是下面升上来的卡片把地图盖住，不是地图自己消失。所以变暗按 240pt 线性变满（170pt 时约 0.7）。
+    /// 模糊放缓到 100pt（上一版 70pt + 150pt 全暗，负责人装机说「划一秒钟就全消失」）。
+    /// 往下拉过头（`scrolled` 为负）不加遮罩。
+    static let blurDistance: CGFloat = 100
+    static let dimDistance: CGFloat = 240
 
     /// 滚了多远：偏移量加上系统给内容留的顶部边距（有的页面内容缩在导航栏下，静止时偏移是 -边距）。静止在顶部 = 0。
     static func scrolled(contentOffsetY: CGFloat, adjustedTopInset: CGFloat) -> CGFloat {

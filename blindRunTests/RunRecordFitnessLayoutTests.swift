@@ -25,8 +25,9 @@ final class RunRecordFitnessLayoutTests: XCTestCase {
         XCTAssertEqual(large.bottom - normal.bottom, 240)
     }
 
-    /// 负责人 11-07 第二轮第 5 条 + 苹果健身录屏逐帧量的曲线：上滑 70pt 全糊、150pt 全暗；回到顶部不遮；往下拉过头也不遮。
-    /// 取 40pt / 70pt：旧曲线按地图高度（约 480pt）算，40pt 时只糊 0.17、70pt 时只糊 0.29，在这两点上和新曲线结果不同。
+    /// 负责人 11-07 第二轮第 5 条 + 苹果健身录屏曲线：地图亮度近似线性掉，170pt 约掉 70%，240pt 才满；
+    /// 回到顶部不遮；往下拉过头也不遮。装机反馈「划一秒钟就全消失」：上一版 150pt 全暗。
+    /// 取 100pt / 170pt：上一版（模糊 70、变暗 150）在 100pt 时变暗 0.67、170pt 时已是 1，新曲线分别是 0.42、0.71。
     func testMapVeilFollowsAppleFitnessCurveAndClearsAtTheTop() {
         let top = RunRecordHeroLayout.veil(scrolled: 0)
         XCTAssertEqual(top.blur, 0)
@@ -37,15 +38,16 @@ final class RunRecordFitnessLayoutTests: XCTestCase {
         XCTAssertEqual(pulled.dim, 0)
 
         let early = RunRecordHeroLayout.veil(scrolled: 40)
-        XCTAssertEqual(early.blur, 40.0 / 70.0, accuracy: 0.0001, "40pt 时苹果已是重度模糊")
-        XCTAssertEqual(early.dim, 40.0 / 150.0, accuracy: 0.0001)
+        XCTAssertEqual(early.blur, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(early.dim, 40.0 / 240.0, accuracy: 0.0001)
 
-        let blurred = RunRecordHeroLayout.veil(scrolled: 70)
-        XCTAssertEqual(blurred.blur, 1, accuracy: 0.0001, "70pt 全糊")
-        XCTAssertLessThan(blurred.dim, 1, "全糊时还没全暗：先糊后暗")
+        let blurred = RunRecordHeroLayout.veil(scrolled: 100)
+        XCTAssertEqual(blurred.blur, 1, accuracy: 0.0001, "100pt 全糊")
+        XCTAssertEqual(blurred.dim, 100.0 / 240.0, accuracy: 0.0001, "全糊时地图还剩一半以上亮度，没有消失")
 
-        let dark = RunRecordHeroLayout.veil(scrolled: 150)
-        XCTAssertEqual(dark.dim, 1, accuracy: 0.0001, "150pt 全暗")
+        let apple170 = RunRecordHeroLayout.veil(scrolled: 170)
+        XCTAssertEqual(apple170.dim, 170.0 / 240.0, accuracy: 0.0001, "苹果 170pt 时地图还剩约 37% 亮度")
+        XCTAssertLessThan(apple170.dim, 0.75)
 
         let past = RunRecordHeroLayout.veil(scrolled: 900)
         XCTAssertEqual(past.blur, 1)
