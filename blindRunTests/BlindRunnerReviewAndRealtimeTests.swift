@@ -21,16 +21,17 @@ final class BlindRunnerReviewAndRealtimeTests: XCTestCase, BlindRunTestSupport {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
-        let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.order = makeOrder(orderId: 2, status: .completed)
+        // 评价 11-07 起在跑步详情（#831），view model 是 `RunnerRunFeedbackViewModel`。
+        let viewModel = RunnerRunFeedbackViewModel()
+        viewModel.configure(appState: appState, speech: speechService)
+        viewModel.bind(order: makeOrder(orderId: 2, status: .completed))
         viewModel.reviewRating = 5
         viewModel.reviewComment = "体验很好"
 
         await viewModel.submitReview()
 
         XCTAssertTrue(viewModel.didSubmitReview)
-        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.reviewErrorMessage)
         XCTAssertEqual(speechService.lastSpokenText, "评价已提交，感谢反馈。")
     }
 
@@ -45,16 +46,16 @@ final class BlindRunnerReviewAndRealtimeTests: XCTestCase, BlindRunTestSupport {
         let appState = AppState(apiClient: client)
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
-        let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.order = makeOrder(orderId: 3, status: .completed)
+        let viewModel = RunnerRunFeedbackViewModel()
+        viewModel.configure(appState: appState, speech: speechService)
+        viewModel.bind(order: makeOrder(orderId: 3, status: .completed))
         viewModel.reviewRating = 5
 
         await viewModel.submitReview()
 
         // 已评价不是失败：页面切到已评价态，不显示错误。
         XCTAssertTrue(viewModel.didSubmitReview)
-        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.reviewErrorMessage)
         XCTAssertEqual(speechService.lastSpokenText, "您已评价过此订单。")
         XCTAssertFalse(
             (speechService.lastSpokenText ?? "").contains("进行中的订单"),

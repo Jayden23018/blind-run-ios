@@ -47,25 +47,27 @@ final class BlindPreRunGapsTests: XCTestCase {
         let orders = FakeOrderService()
         let appState = AppState(orders: orders, tokenStore: PreRunInMemoryTokenStore())
         let speech = SpeechService()
-        let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: speech)
-        viewModel.order = Self.order(id: 9, status: .completed, start: nil)
+        // 评价 11-07 起在跑步详情（#831），view model 是 `RunnerRunFeedbackViewModel`。
+        let viewModel = RunnerRunFeedbackViewModel()
+        viewModel.configure(appState: appState, speech: speech)
+        viewModel.bind(order: Self.order(id: 9, status: .completed, start: nil))
 
         XCTAssertNil(viewModel.reviewRating, "默认不选：默认「很顺利」会让直接提交的差评被盖掉")
         await viewModel.submitReview()
 
         XCTAssertNil(orders.lastReviewRequest, "没选就不许发评价请求")
         XCTAssertFalse(viewModel.didSubmitReview)
-        XCTAssertEqual(viewModel.errorMessage, RunExperienceRating.missingSelectionMessage)
+        XCTAssertEqual(viewModel.reviewErrorMessage, RunExperienceRating.missingSelectionMessage)
         XCTAssertTrue(speech.spokenHistoryForTesting.contains(RunExperienceRating.missingSelectionMessage))
     }
 
     func testRatingSubmitsTheChosenValue() async {
         let orders = FakeOrderService()
         let appState = AppState(orders: orders, tokenStore: PreRunInMemoryTokenStore())
-        let viewModel = BlindOrderStatusViewModel()
-        viewModel.configure(appState: appState, speechService: SpeechService())
-        viewModel.order = Self.order(id: 9, status: .completed, start: nil)
+        let viewModel = RunnerRunFeedbackViewModel()
+        let speech = SpeechService()
+        viewModel.configure(appState: appState, speech: speech)
+        viewModel.bind(order: Self.order(id: 9, status: .completed, start: nil))
         viewModel.reviewRating = RunExperienceRating.bad.rawValue
 
         await viewModel.submitReview()

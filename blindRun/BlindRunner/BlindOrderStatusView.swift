@@ -9,13 +9,6 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var order: OrderDetailResponse?
     @Published var isLoading = false
     @Published var isPerformingAction = false
-    @Published var isSubmittingReview = false
-    @Published var reviewRating: Int?
-    @Published var reviewComment = ""
-    @Published var didSubmitReview = false
-    /// 本单已有的评价。**离开页面再回来时唯一的真相来源** —— `didSubmitReview` 是进程内的一次性标记，
-    /// 重进这一单它就回到 false，评价表单会再摆一次，提交后只能收到 409 `REVIEW_ALREADY_SUBMITTED`。
-    @Published var existingReview: OrderReview?
     @Published var statusLogs: [OrderStatusLog] = []
     @Published var isLoadingStatusLogs = false
     /// 状态记录单独一条错误，不复用 `errorMessage`：那条会被 `speakError` 念出来，
@@ -267,18 +260,6 @@ final class BlindOrderStatusViewModel: ObservableObject {
     var shouldPoll: Bool {
         order?.status.shouldPoll ?? true
     }
-
-    /// 这位志愿者是不是已经在固定搭档列表里。`nil` = 还没查到（含查失败）。
-    ///
-    /// 🚩 **三态而不是 Bool。** 查失败时若落成 `false`，页面会摆出「设为固定搭档」按钮，
-    /// 而他可能早就收藏过了 —— 点下去后端幂等返 204，于是用户听到「已把陈*设为固定搭档」，
-    /// 以为自己刚做成了一件其实几周前就做过的事。整块不渲染是唯一诚实的降级。
-    @Published var isVolunteerFavorited: Bool?
-    /// 收藏成功后的那句话。与 `errorMessage` 分开：那条每轮轮询都会被 `loadOrder` 清空，
-    /// 而这一句要留到用户划到它（理由同 `statusLogsErrorMessage`）。
-    @Published var favoriteNotice: String?
-    @Published var favoriteErrorMessage: String?
-    @Published var isUpdatingFavorite = false
 }
 
 // MARK: - Blind Order Status View
@@ -742,14 +723,10 @@ struct BlindOrderStatusView: View {
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
-            await viewModel.loadExistingReview()
-            // 挂在这条已有的 COMPLETED 分支上而不是另起一个 `.task`：这一页每 5 秒轮询一次，
-            // 独立的 task 很容易变成「每轮都查一次收藏列表」。这里一单只查一次。
-            await viewModel.loadFavoriteStateIfNeeded()
+            // 评价与「设为固定搭档」11-07 挪进跑者跑步详情（#831），这里不再查。
             await trackViewModel.load(orderID: orderId, appState: appState)
             // 这一次是不限时的（它只喂屏幕，不挡播报）。终值那次限时到点时，
-            // ④ 那张卡的三个数字由它兜底 —— 否则卡片顶着 `--`，而同一页下面的
-            // 轨迹总结里明明有数字。
+            // ④ 那张卡的三个数字由它兜底 —— 否则卡片顶着 `--`。
             viewModel.adoptCompletedTrackStats(trackViewModel.track?.blindStats)
             // 🔴 **这里刻意不再播轨迹总结。** 它曾经是完成那一刻的**第二句**，而两句同档 ⇒
             // 后到的把先到的从半句切断（记忆 `later-speak-silently-cuts-the-earlier-one`），

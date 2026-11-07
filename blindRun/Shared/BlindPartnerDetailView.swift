@@ -105,6 +105,10 @@ struct BlindPartnerDetailView: View {
     /// `true` = 设为固定搭档，`false` = 取消。成功返回 nil，失败返回给人看的原因。
     let setFavorite: @MainActor @Sendable (Bool) async -> String?
     let onBlocked: @MainActor @Sendable () async -> Void
+    /// 从跑步详情进来时传那一单的订单号，举报带上它（#831）。从固定搭档列表进来时没有具体哪一单。
+    var reportOrderId: Int64?
+    /// 跑步详情查不到是不是搭档时传 `false`：不给设为 / 取消固定搭档，免得对已是搭档的人说「设为」（#831）。
+    var showsFavoriteActions = true
 
     @Environment(\.dismiss) private var dismiss
     @State private var pendingRemoval: PartnerStreakCopy.RemoveFavoriteConfirmation?
@@ -112,6 +116,11 @@ struct BlindPartnerDetailView: View {
     @State private var actionError: String?
 
     private var displayName: String { row.displayName(fallback: PartnerStreakCopy.unknownVolunteerName) }
+
+    /// 举报与不再匹配的目标。从跑步详情进来时带那一单的订单号（#831）。
+    static func safetyTarget(row: PartnerRow, reportOrderId: Int64?) -> CounterpartSafetyTarget? {
+        CounterpartSafetyGate.target(userId: row.userId, orderId: reportOrderId)
+    }
     private var spokenName: String { row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName) }
 
     var body: some View {
@@ -123,7 +132,7 @@ struct BlindPartnerDetailView: View {
                     BlindPartnerStreakCard(streak: streak)
                 }
 
-                if !row.isFavorite, row.userId != nil {
+                if showsFavoriteActions, !row.isFavorite, row.userId != nil {
                     addSection
                 }
 
@@ -139,8 +148,7 @@ struct BlindPartnerDetailView: View {
                     .accessibilityIdentifier("blindPartnerTogetherRow")
                 }
 
-                if let userId = row.userId,
-                   let target = CounterpartSafetyGate.target(userId: userId, orderId: nil) {
+                if let target = Self.safetyTarget(row: row, reportOrderId: reportOrderId) {
                     CounterpartSafetyActions(
                         target: target,
                         spokenName: spokenName,
@@ -156,7 +164,7 @@ struct BlindPartnerDetailView: View {
                     .id(target.userId)
                 }
 
-                if row.isFavorite, row.userId != nil {
+                if showsFavoriteActions, row.isFavorite, row.userId != nil {
                     removeSection
                 }
             }

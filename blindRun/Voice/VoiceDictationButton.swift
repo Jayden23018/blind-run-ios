@@ -5,8 +5,9 @@ import SwiftUI
 /// 给已有的文字框挂一枚「语音输入」按钮（#795）：留言、评价、举报、工单。
 ///
 /// 和 `VoiceTextField` 的分工：
-/// - **不画输入框。** 各页面的输入框保持原样（工单页是 #755 定稿的白卡），按钮放在框下面整行铺满，
-///   盲人端次级操作一律整行竖排（`docs/ui/design-direction.md`）。
+/// - **不画输入框。** 各页面的输入框保持原样（工单页是 #755 定稿的白卡），按钮默认放在框下面整行铺满，
+///   盲人端次级操作一律整行竖排（`docs/ui/design-direction.md`）。例外：传 `besideField` 时
+///   输入框在左、只有图标的按钮在右同一行（#831 评语框，负责人 11-07 定）。
 /// - **接在后面，不覆盖。** 识别结果接在开录那一刻已有的文字后面。`VoiceTextField` 是整框替换，
 ///   放在这几处会把用户先打好的一段话冲掉，而读屏用户不一定发现。
 /// - **识别完念一遍。** 盲人用语音写字，大部分时间花在检查识别结果上
@@ -20,6 +21,12 @@ struct VoiceDictationButton: View {
     @ObservedObject var speechInputService: SpeechInputService
     @ObservedObject var speechService: SpeechService
     let speechField: SpeechInputField
+    /// 传了就把输入框画在左边、按钮缩成只有图标的方块放右边同一行（#831 评语框，负责人 11-07 定）。
+    /// 可点区仍是 64pt，读屏标签与整行样式完全相同；「正在聆听」与失败原因照旧在这一行下面整行显示。
+    var besideField: AnyView?
+
+    /// 只有图标的那一档的边长 = 盲人端最小可点区。
+    static let compactSide = AppTouchTarget.blindPrimary
 
     /// 只显示这一枚按钮自己引起的错误。`SpeechInputService` 全 App 共用一个，
     /// 它的 `errorMessage` 可能是别的页面上一次留下的。别的字段开录时复位。
@@ -32,18 +39,14 @@ struct VoiceDictationButton: View {
         let isListening = speechInputService.isListening(for: speechField)
 
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                toggleRecognition(isListening: isListening)
-            } label: {
-                Label(
-                    isListening ? VoiceDictationCopy.stop : VoiceDictationCopy.start,
-                    systemImage: isListening ? "stop.circle" : "mic"
-                )
+            if let besideField {
+                HStack(alignment: .top, spacing: 8) {
+                    besideField
+                    button(isListening: isListening)
+                }
+            } else {
+                button(isListening: isListening)
             }
-            .buttonStyle(OutlineSecondaryButtonStyle())
-            .accessibilityLabel(isListening ? "停止语音输入\(fieldTitle)" : "语音输入\(fieldTitle)")
-            .accessibilityHint(isListening ? VoiceDictationCopy.stopHint : VoiceDictationCopy.startHint)
-            .accessibilityIdentifier("\(speechField.rawValue)DictationButton")
 
             if isListening {
                 HStack(spacing: 6) {
@@ -72,6 +75,28 @@ struct VoiceDictationButton: View {
                 speechInputService.cancelRecognitionForLifecycle()
             }
         }
+    }
+
+    private func button(isListening: Bool) -> some View {
+        Button {
+            toggleRecognition(isListening: isListening)
+        } label: {
+            if besideField == nil {
+                Label(
+                    isListening ? VoiceDictationCopy.stop : VoiceDictationCopy.start,
+                    systemImage: isListening ? "stop.circle" : "mic"
+                )
+            } else {
+                Image(systemName: isListening ? "stop.circle" : "mic")
+                    .font(.title2.weight(.semibold))
+                    .frame(width: Self.compactSide, height: Self.compactSide)
+                    .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(OutlineSecondaryButtonStyle(fillsWidth: besideField == nil))
+        .accessibilityLabel(isListening ? "停止语音输入\(fieldTitle)" : "语音输入\(fieldTitle)")
+        .accessibilityHint(isListening ? VoiceDictationCopy.stopHint : VoiceDictationCopy.startHint)
+        .accessibilityIdentifier("\(speechField.rawValue)DictationButton")
     }
 
     /// 提交、保存之前调用：先停掉这个字段的录音再提交。
