@@ -421,7 +421,7 @@ struct VolunteerInviteCard: View {
             invite.order.distanceKm.map {
                 MetricTile(
                     label: VolunteerInviteCopy.distanceToStartLabel,
-                    value: String(format: "%.1f", $0),
+                    value: RunPlanFormat.kilometresValue($0),
                     unit: "公里"
                 )
             },

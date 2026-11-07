@@ -223,7 +223,7 @@ final class BlindRunPhaseTests: XCTestCase {
             BlindOrderStatusViewModel.completionAnnouncementText(
                 .justFinished, order: order, stats: .previewFinished
             ),
-            "张结束了本次陪跑，共跑 5.20 公里。"
+            "张结束了本次陪跑，共跑 5.2 公里。"
         )
         XCTAssertEqual(
             BlindOrderStatusViewModel.completionAnnouncementText(
@@ -246,7 +246,7 @@ final class BlindRunPhaseTests: XCTestCase {
         )
 
         XCTAssertTrue(text.contains("陪跑已完成"), "状态那一半丢了")
-        XCTAssertTrue(text.contains("已跑 5.20 公里"), "数字那一半丢了 —— 它原先由被删掉的那句轨迹总结承担")
+        XCTAssertTrue(text.contains("已跑 5.2 公里"), "数字那一半丢了 —— 它原先由被删掉的那句轨迹总结承担")
         XCTAssertTrue(text.contains("用时 33 分 41 秒"))
         XCTAssertTrue(text.contains("平均配速 6 分 28 秒每公里"))
         XCTAssertFalse(text.contains("张结束了本次陪跑"), "三天前的事不该说成刚刚发生")

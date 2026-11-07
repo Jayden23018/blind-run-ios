@@ -309,7 +309,7 @@ extension VolunteerOrderHero {
                 }
             }
             let distance = (order.actualDistanceMeters ?? 0) > 0
-                ? String(format: "%.2f 公里", Double(order.actualDistanceMeters ?? 0) / 1000) : nil
+                ? "\(RunPlanFormat.kilometresValue(Double(order.actualDistanceMeters ?? 0) / 1000)) 公里" : nil
             let duration = (order.actualDurationSeconds ?? 0) > 0
                 ? VolunteerOrderFlowCopy.spokenDuration(seconds: order.actualDurationSeconds ?? 0) : nil
             // 交付包 D11：**不显示配速**（不暗示「表现」）。
@@ -439,7 +439,7 @@ struct MeetBucketCopy: Equatable {
         case .within50: return Self(titleTemplate: .near, subtitle: within("大约 50 米以内"))
         case .within100: return Self(titleTemplate: .near, subtitle: within("大约 100 米以内"))
         case .far:
-            let km = farKm.map { String(format: "%.1f", $0) }
+            let km = farKm.map { RunPlanFormat.kilometresValue($0) }
             return Self(titleTemplate: .notYet, subtitle: km.map { "对方的手机在 \($0) 公里外" } ?? "对方离集合点还比较远")
         case .unknown:
             return Self(titleTemplate: .unknown, subtitle: "可以让对方的手机响起来，或者打电话")

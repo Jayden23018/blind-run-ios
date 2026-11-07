@@ -15,7 +15,7 @@ struct VolunteerOrderMetric: Identifiable, Equatable {
     /// 与邀请卡 `VolunteerInviteCard.metrics` 同一套取值（离你 / 跑多远 / 配速），缺的格子不画。
     static func invite(_ dispatch: WSNewOrder) -> [Self] {
         [
-            dispatch.distanceKm.map { Self(label: "离你", value: String(format: "%.1f", $0), unit: "公里") },
+            dispatch.distanceKm.map { Self(label: "离你", value: RunPlanFormat.kilometresValue($0), unit: "公里") },
             RunPlanFormat.plannedDistanceParts(meters: dispatch.plannedDistanceMeters).map {
                 Self(label: VolunteerOrderFlowCopy.plannedDistanceLabel, value: $0.value, unit: $0.unit)
             },

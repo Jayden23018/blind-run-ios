@@ -104,7 +104,7 @@ final class VolunteerRunRecordTests: XCTestCase {
             avgPaceSecPerKm: 375, steps: nil, avgCadence: nil, elevationGainM: nil
         )))
         XCTAssertEqual(content.metrics.map(\.label), ["运动时间", "距离", "平均配速", "总时长（含休息）", "中途休息"])
-        XCTAssertEqual(content.distanceText, "5.21")
+        XCTAssertEqual(content.distanceText, "5.2")
         XCTAssertEqual(content.metrics[2].value, "6'15\"", "陪跑员端屏幕上仍用撇号写法")
         XCTAssertEqual(content.metrics[2].spoken, "平均配速，每公里6分15秒")
         XCTAssertFalse(content.metrics.contains { $0.spoken.contains("'") }, "读屏不念 6'15\" 这种写法")
@@ -142,7 +142,7 @@ final class VolunteerRunRecordTests: XCTestCase {
         XCTAssertEqual(content.splits[0].accessibilityLabel, "第1公里，每公里6分12秒，步频每分钟160步，累计用时6分12秒")
         XCTAssertEqual(content.splits[1].accessibilityLabel, "第2公里，每公里5分48秒，最快，累计用时12分")
         XCTAssertEqual(content.splits[2].accessibilityLabel, "最后 0.2 公里，每公里6分50秒，累计用时13分22秒")
-        XCTAssertEqual(content.splits[2].bubbleText, "最后0.20公里 6'50\"")
+        XCTAssertEqual(content.splits[2].bubbleText, "最后0.2公里 6'50\"")
         XCTAssertTrue(content.showsCadenceColumn)
         // 单段表：时间列是累计（6:12 + 5:48 = 12:00），不是这一段自己的 5:48。
         XCTAssertEqual(content.splits.map(\.table.elapsedText), ["06:12", "12:00", "13:22"])

@@ -38,7 +38,7 @@ enum VolunteerSecondaryPagesCopy {
 
     /// 米 → 「36.4」。契约：取整成公里由客户端做；2026-08-14 前的订单没有里程快照，会少算。
     static func kilometres(_ meters: Int64?) -> String {
-        String(format: "%.1f", Double(max(0, meters ?? 0)) / 1000)
+        RunPlanFormat.kilometresValue(Double(max(0, meters ?? 0)) / 1000)
     }
 
     static func mileageSpoken(_ meters: Int64?) -> String {

@@ -14,11 +14,10 @@ enum VolunteerRunDataCopy {
 
     // MARK: 数字
 
-    /// 公里一位小数（「8.2」）。念的时候去掉「.0」：「8.0」念成「8点0」没有意义。
+    /// 公里一位小数，整数去掉「.0」（「8.2」「8」，`RunPlanFormat.kilometresValue`）。
+    /// 屏幕和朗读现在是同一个字符串；`spoken` 留着是为了不动调用处。
     static func km(_ value: Double, spoken: Bool = false) -> String {
-        let text = String(format: "%.1f", value)
-        guard spoken, text.hasSuffix(".0") else { return text }
-        return String(text.dropLast(2))
+        RunPlanFormat.kilometresValue(value)
     }
 
     static func km(metres: Int, spoken: Bool = false) -> String {

@@ -48,7 +48,7 @@ final class BlindRunFinishAnnouncementTests: XCTestCase {
 
         XCTAssertEqual(
             speech.spokenHistoryForTesting,
-            ["张结束了本次陪跑，共跑 5.20 公里。"],
+            ["张结束了本次陪跑，共跑 5.2 公里。"],
             """
             结束那一刻必须**只有一句、且带里程**。
             · 多出一句 ⇒ 后到的把先到的从半句切断（设计稿：变形为总结状态时不再播第二遍）
@@ -112,7 +112,7 @@ final class BlindRunFinishAnnouncementTests: XCTestCase {
         XCTAssertEqual(speech.spokenHistoryForTesting.count, 1, "冷启动也只该有一句")
         let spoken = speech.spokenHistoryForTesting.first ?? ""
         XCTAssertTrue(spoken.contains("陪跑已完成"), "状态那一半丢了：\(spoken)")
-        XCTAssertTrue(spoken.contains("已跑 5.20 公里"), "数字那一半丢了：\(spoken)")
+        XCTAssertTrue(spoken.contains("已跑 5.2 公里"), "数字那一半丢了：\(spoken)")
         XCTAssertTrue(spoken.contains("平均配速 6 分 28 秒每公里"), "配速标签或数值不对：\(spoken)")
         XCTAssertFalse(spoken.contains("结束了本次陪跑"), "三天前的事不该说成刚刚发生：\(spoken)")
     }

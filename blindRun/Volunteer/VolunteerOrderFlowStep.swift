@@ -146,7 +146,7 @@ enum VolunteerOrderFlowCopy {
     static let departedTitle = "正在前往集合点"
 
     static func distanceToStart(kilometers: Double) -> String {
-        String(format: "离你约 %.1f 公里", kilometers)
+        "离你约 \(RunPlanFormat.kilometresValue(kilometers)) 公里"
     }
 
     // MARK: 汇合
@@ -178,7 +178,7 @@ enum VolunteerOrderFlowCopy {
     /// 五分钟就分叉。拿跑步耗时冒充服务时长，志愿者拿去对组织的记录时会发现对不上。已投 handoff。
     static func completedSummary(name: String, distanceMeters: Int?, durationSeconds: Int?) -> String? {
         let distance = (distanceMeters ?? 0) > 0
-            ? String(format: "%.2f 公里", Double(distanceMeters ?? 0) / 1000)
+            ? "\(RunPlanFormat.kilometresValue(Double(distanceMeters ?? 0) / 1000)) 公里"
             : nil
         let duration = (durationSeconds ?? 0) > 0
             ? spokenDuration(seconds: durationSeconds ?? 0)

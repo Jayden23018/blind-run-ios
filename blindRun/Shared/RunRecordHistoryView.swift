@@ -287,14 +287,10 @@ final class RunRecordHistoryViewModel: ObservableObject {
 
     var loadingLabel: String { "正在加载\(role.title)" }
 
-    /// 公里数，两位小数。朗读时去掉尾零：「5.00」念成「5点00」没有意义。
+    /// 公里数，一位小数，整数去掉「.0」（`RunPlanFormat.kilometresValue`，负责人 2026-11-08 定）。
+    /// 屏幕和朗读现在是同一个字符串；`spoken` 留着是为了不动二十多处调用。
     static func kilometres(_ metres: Int, spoken: Bool = false) -> String {
-        let text = String(format: "%.2f", Double(metres) / 1000)
-        guard spoken, text.contains(".") else { return text }
-        var trimmed = text
-        while trimmed.hasSuffix("0") { trimmed.removeLast() }
-        if trimmed.hasSuffix(".") { trimmed.removeLast() }
-        return trimmed
+        RunPlanFormat.kilometresValue(Double(metres) / 1000)
     }
 
     static func serviceDuration(_ minutes: Int64) -> String {

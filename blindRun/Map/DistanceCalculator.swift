@@ -53,14 +53,13 @@ enum DistanceCalculator {
 
     /// 格式化距离为人类可读字符串
     /// - < 1000m: "XXX 米"（取整到十位）
-    /// - >= 1000m: "X.X 公里"（保留一位小数）
+    /// - >= 1000m: "X.X 公里"（一位小数，整数去掉「.0」，见 `RunPlanFormat.kilometresValue`）
     static func formattedDistance(_ meters: CLLocationDistance) -> String {
         if meters < 1000 {
             let rounded = Int((meters / 10).rounded()) * 10
             return "\(max(rounded, 10)) 米"
         } else {
-            let km = meters / 1000.0
-            return String(format: "%.1f 公里", km)
+            return "\(RunPlanFormat.kilometresValue(meters / 1000.0)) 公里"
         }
     }
 }

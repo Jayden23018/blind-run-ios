@@ -99,7 +99,7 @@ final class RunLiveActivityTests: XCTestCase {
         XCTAssertEqual(content.durationText, "21:04")
         XCTAssertEqual(content.paceText, "6'30\"")
 
-        XCTAssertEqual(content.spokenDistance, "3.20 公里")
+        XCTAssertEqual(content.spokenDistance, "3.2 公里")
         XCTAssertEqual(content.spokenDuration, "21 分 4 秒")
         XCTAssertEqual(content.spokenPace, "6 分 30 秒每公里")
     }
@@ -139,7 +139,7 @@ final class RunLiveActivityTests: XCTestCase {
             pace: content.spokenPace
         )
 
-        XCTAssertEqual(sentence, "3.20 公里，用时 21 分 4 秒，配速 6 分 30 秒每公里")
+        XCTAssertEqual(sentence, "3.2 公里，用时 21 分 4 秒，配速 6 分 30 秒每公里")
     }
 
     /// 三个数字一个都没到时，不许把占位串拼成句子念出去。

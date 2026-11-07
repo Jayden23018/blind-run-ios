@@ -27,7 +27,7 @@ final class BlindActiveRunTests: XCTestCase {
         XCTAssertEqual(running.paceClockText, "9'06\"")
 
         // 播报口径一个字没动 —— 它是 VoiceOver 与 TTS 的来源。
-        XCTAssertEqual(running.distanceText, "2.41 公里")
+        XCTAssertEqual(running.distanceText, "2.4 公里")
         XCTAssertEqual(running.durationText, "1 分 54 秒")
         XCTAssertEqual(running.averagePaceText, "9 分 6 秒每公里")
     }

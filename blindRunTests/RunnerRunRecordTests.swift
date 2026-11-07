@@ -12,13 +12,13 @@ final class RunnerRunRecordTests: XCTestCase {
         let content = RunnerRunRecordContent(record: record())
         XCTAssertEqual(
             content.headerLabel,
-            "9月20日星期日早上，在深圳湾公园跑步。5.21 公里，运动时间32分34秒，平均每公里6分15秒，比上次多跑 0.41 公里。"
+            "9月20日星期日早上，在深圳湾公园跑步。5.2 公里，运动时间32分34秒，平均每公里6分15秒，比上次多跑 0.4 公里。"
         )
         XCTAssertEqual(content.dateLine, "9月20日 周日早上")
         XCTAssertEqual(content.title, "户外跑步")
         XCTAssertEqual(content.place, "深圳湾公园")
         XCTAssertEqual(content.dateRange, "2026年9月20日 06:42–07:16")
-        XCTAssertEqual(content.smallStats.map(\.value), ["0.41 公里", "1 次"])
+        XCTAssertEqual(content.smallStats.map(\.value), ["0.4 公里", "1 次"])
         XCTAssertEqual(content.smallStats.map(\.label), ["比上次多跑", "中途休息"])
     }
 
@@ -39,7 +39,7 @@ final class RunnerRunRecordTests: XCTestCase {
         let content = RunnerRunRecordContent(record: record())
         XCTAssertEqual(
             content.narration,
-            "9月20日星期日，早上6点42分，你和林在深圳湾公园跑了5.21公里，运动时间32分34秒，平均每公里6分15秒，比上一次多跑了0.41公里。"
+            "9月20日星期日，早上6点42分，你和林在深圳湾公园跑了5.2公里，运动时间32分34秒，平均每公里6分15秒，比上一次多跑了0.4公里。"
                 + "最慢的是第1公里，用了6分38秒。第3公里你跑得最快，5分58秒。"
                 + "跑到2.6公里处，你们停下来休息了1分40秒。"
                 + "全程步频很稳，平均每分钟168步。"
@@ -58,7 +58,7 @@ final class RunnerRunRecordTests: XCTestCase {
 
     func testComparisonCanBeShorterAndIsDroppedWhenAbsent() {
         let shorter = RunnerRunRecordContent(record: record(comparison: RunComparison(previousOrderId: 1, previousDistanceM: 5_500, deltaDistanceM: -290)))
-        XCTAssertTrue(shorter.headerLabel.contains("比上次少跑 0.29 公里"), shorter.headerLabel)
+        XCTAssertTrue(shorter.headerLabel.contains("比上次少跑 0.3 公里"), shorter.headerLabel)
         let none = RunnerRunRecordContent(record: record(comparison: nil))
         XCTAssertFalse(none.headerLabel.contains("上次"))
         XCTAssertFalse(none.narration?.contains("上一次") ?? true)
@@ -95,7 +95,7 @@ final class RunnerRunRecordTests: XCTestCase {
         let content = RunnerRunRecordContent(record: record())
         XCTAssertEqual(content.splits[2].accessibilityLabel, "第3公里，5分58秒，本次最快，步频每分钟171步，累计用时18分48秒。")
         XCTAssertTrue(content.splits[2].isFastest)
-        XCTAssertEqual(content.splits[5].accessibilityLabel, "最后 0.21 公里，用时1分16秒，折合每公里6分2秒，步频每分钟170步，累计用时32分34秒。")
+        XCTAssertEqual(content.splits[5].accessibilityLabel, "最后 0.2 公里，用时1分16秒，折合每公里6分2秒，步频每分钟170步，累计用时32分34秒。")
         XCTAssertEqual(content.splits[5].value, "1分16秒")
     }
 
