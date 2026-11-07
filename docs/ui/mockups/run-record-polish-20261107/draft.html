@@ -1,0 +1,176 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>跑步记录三处小修 · 设计稿（2026-11-07 待负责人确认）</title>
+<style>
+body{margin:0;padding:24px;background:#fff;font-family:-apple-system,"PingFang SC",sans-serif;color:#000}
+h1{font-size:20px;font-weight:700;margin:0 0 6px}
+h2{font-size:17px;font-weight:700;margin:34px 0 4px}
+.note{font-size:13px;color:#444;margin:0 0 14px;max-width:1380px;line-height:1.65}
+.grid{display:grid;grid-template-columns:repeat(4,320px);gap:24px;align-items:start}
+.ph{width:320px;height:660px;border-radius:30px;overflow:hidden;position:relative;border:1px solid #C7C7CC;background:#F2F2F7}
+.cap{font-size:13px;color:#222;margin-top:8px;line-height:1.55}
+.cap b{font-weight:700}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:9px;margin-right:4px}
+.rec{background:#0A6FE0;color:#fff}.now{background:#8E8E93;color:#fff}.alt{background:#E5E5EA;color:#333}
+.sb{height:40px;display:flex;justify-content:space-between;align-items:center;padding:0 24px;font-size:13px;font-weight:600}
+.nav{height:40px;display:flex;align-items:center;padding:0 12px}
+.glass{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.82);box-shadow:0 1px 4px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;font-size:17px;color:#000}
+.big{font-size:27px;font-weight:800;margin:2px 16px 10px}
+.cd{background:#fff;border-radius:14px;margin:0 12px 10px;padding:11px 13px}
+.lb{font-size:12px;color:#6C6C70}
+.v{font-size:21px;font-weight:600;line-height:1.15}
+.u{font-size:13px;font-weight:500}
+.g2{display:grid;grid-template-columns:1fr 1fr;row-gap:8px}
+.mh{margin:16px 16px 6px}
+.mh .t{font-size:19px;font-weight:700}
+.mh .s{font-size:13px;color:#6C6C70;margin-top:1px}
+.row{display:flex;gap:12px;align-items:center}
+.th{width:60px;height:60px;border-radius:10px;flex:none;background:linear-gradient(135deg,#E8EEF2,#D9E3E8);position:relative;overflow:hidden}
+.th:after{content:"";position:absolute;left:12px;top:14px;width:34px;height:30px;border:3px solid #E0662E;border-radius:45% 55% 40% 60%;transform:rotate(-12deg)}
+.lnk{border-top:.5px solid #D1D1D6;margin-top:9px;padding-top:9px;display:flex;justify-content:space-between;font-size:14px;color:#0058C7}
+.chev{color:#C7C7CC}
+.fade{position:absolute;left:0;right:0;bottom:0;height:70px;background:linear-gradient(rgba(242,242,247,0),#F2F2F7)}
+.strike{position:relative;opacity:.45;padding:7px 13px;margin-bottom:6px;font-size:13px}
+.strike:after{content:"";position:absolute;left:8px;right:8px;top:50%;border-top:2px solid #D70015}
+.xlabel{font-size:11px;font-weight:700;color:#D70015;margin:0 16px 4px}
+.green{background:#1E8E3E;color:#fff;border-radius:18px;margin:0 12px 12px;padding:16px}
+.green .h{font-size:22px;font-weight:800}
+.green .m{display:grid;grid-template-columns:1fr 1fr 1fr;margin-top:12px}
+.green .m .k{font-size:11px;opacity:.9}.green .m .n{font-size:20px;font-weight:700}
+.green .btn{margin-top:14px;background:#fff;color:#1E7A35;border-radius:26px;height:46px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px}
+.map{height:300px;background:linear-gradient(160deg,#E9EEF0 0%,#DDE6EA 55%,#F2F2F7 100%);position:relative}
+.map .rt{position:absolute;left:70px;top:120px;width:170px;height:110px;border:4px solid #E0662E;border-radius:46% 54% 42% 58%;transform:rotate(-10deg)}
+.guide{position:absolute;left:0;right:0;border-top:1.5px dashed #D70015}
+.gl{position:absolute;left:120px;font-size:10px;color:#D70015;font-weight:700;background:#fff;padding:0 3px;border-radius:3px}
+.box{border:1.5px solid #0A6FE0;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.65;max-width:1340px;background:#F5F9FF}
+.box b{font-weight:700}
+.warn{border-color:#C93400;background:#FFF7F2}
+.seg{display:inline-flex;align-items:center;gap:0}
+.pill{width:30px;height:30px;border-radius:50%;background:#E5E5EA;display:flex;align-items:center;justify-content:center;font-size:15px;color:#0058C7}
+</style></head><body>
+<h1>跑步记录三处小修 · 设计稿</h1>
+<p class="note">2026-11-07。每一项左边是现在的样子（照 main 上的代码画），右边是改法。地图、缩略图是手画示意，实机用真实高德地图。绿色卡按 <code>BlindOrderFlowView</code> 已完成那一幕的结构画（「已完成 · 陈*」+ 三个数 +「完成」），颜色以真机为准。<b>请对每一项给一个选择，你同意后才改代码。</b></p>
+
+<!-- ============ 第 1 项 ============ -->
+<h2>第 1 项　跑步记录列表：怎么看上个月、下个月</h2>
+<p class="note">别家怎么做：<b>苹果「健身」→ 历史</b>是一条连续的列表，按月份分节，往下滑就是更早的月份，页面上没有任何切换按钮；<b>Nike Run Club</b> 顶部写本周 / 本月 / 本年汇总，下面直接滚动所有跑步；<b>Strava</b> 训练日志右上角一个日历图标，点开跳到某个月。三家都没有「上个月 / 下个月」这种两行按钮。</p>
+<div class="grid">
+
+<div><div class="ph">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="big">跑步记录</div>
+<div class="cd"><div style="font-weight:600;font-size:14px;margin-bottom:6px">11月</div>
+<div class="g2"><div><div class="lb">跑步</div><div class="v" style="color:#9A5B00">2<span class="u"> 次</span></div></div><div><div class="lb">距离</div><div class="v" style="color:#3D4FB8">2.08<span class="u"> 公里</span></div></div></div>
+<div class="lnk"><span>上个月：10月</span><span class="chev">›</span></div></div>
+<div class="mh"><div class="t">11月</div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月6日 周五 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月5日 周四 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="mh"><div class="t">未完成的预约</div></div>
+<div class="cd"><div style="display:flex;justify-content:space-between"><span style="font-size:15px;font-weight:600">已取消</span><span class="lb">11月6日 23:06</span></div><div class="lb">深圳湾公园南门</div></div>
+</div><div class="cap"><span class="tag now">现在</span>汇总卡底下一行「上个月：10月 ›」，翻到 10 月后再多一行「下个月」。月份写了两遍（卡里、分节标题）。</div></div>
+
+<div><div class="ph">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="big">跑步记录</div>
+<div class="mh" style="margin-top:6px"><div class="t">11月</div><div class="s">跑了 2 次 · 2.08 公里</div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月6日 周五 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月5日 周四 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="mh"><div class="t">10月</div><div class="s">跑了 4 次 · 15.3 公里</div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">5.20<span class="u"> 公里</span></div><div class="lb">10月28日 周三 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">3.10<span class="u"> 公里</span></div><div class="lb">10月20日 周二 · 莲花山公园</div></div><div class="th"></div></div>
+<div class="fade"></div>
+</div><div class="cap"><span class="tag rec">推荐 A</span><b>照健身「历史」：一条按月分节的列表，没有切换按钮。</b>最上面就是本月（即你说的「月度记录」），往下滑自动接上 10 月、9 月……滑到你第一次跑步那个月为止。没跑步的月份不出现；本月没跑时写「11月 · 还没有跑步」。读屏：每个月份是标题，用「标题」转子上下轻扫一次跳一个月。</div></div>
+
+<div><div class="ph">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="big">跑步记录</div>
+<div class="cd"><div style="font-weight:600;font-size:14px;margin-bottom:6px">11月</div>
+<div class="g2"><div><div class="lb">跑步</div><div class="v" style="color:#9A5B00">2<span class="u"> 次</span></div></div><div><div class="lb">距离</div><div class="v" style="color:#3D4FB8">2.08<span class="u"> 公里</span></div></div></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月6日 周五 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月5日 周四 · 深圳湾公园</div></div><div class="th"></div></div>
+<div style="margin:22px 16px 0;padding:12px;border:1.5px dashed #C93400;border-radius:12px;font-size:12px;color:#7A2E00;line-height:1.6;background:#FFF7F2"><b>12 月 1 日打开时：</b>上面变成「12月 · 还没有跑步」，11 月这两次跑步在 App 里就再也找不到了，包括「最近一次跑步」。</div>
+</div><div class="cap"><span class="tag alt">B · 你的思路</span><b>只显示本月，不能切换。</b>最简单。代价见图中橙框：每月 1 号清零，以前的跑步、陪跑员留言都看不到。A 的第一屏和 B 一样，只是多了往下滑。</div></div>
+
+<div><div class="ph">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="big">跑步记录</div>
+<div class="cd"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+<div class="pill">‹</div><div style="font-weight:700;font-size:16px">11月</div><div class="pill" style="color:#C7C7CC">›</div></div>
+<div class="g2"><div><div class="lb">跑步</div><div class="v" style="color:#9A5B00">2<span class="u"> 次</span></div></div><div><div class="lb">距离</div><div class="v" style="color:#3D4FB8">2.08<span class="u"> 公里</span></div></div></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月6日 周五 · 深圳湾公园</div></div><div class="th"></div></div>
+<div class="cd row"><div style="flex:1"><div style="font-size:15px;font-weight:600">户外跑步</div><div class="v" style="color:#3D4FB8">1.04<span class="u"> 公里</span></div><div class="lb">11月5日 周四 · 深圳湾公园</div></div><div class="th"></div></div>
+</div><div class="cap"><span class="tag alt">C</span><b>月份两边各一个小圆箭头</b>（像健康 App 的图表翻页）。紧凑，一次还是只看一个月。缺点：两个箭头并排、每个只有 30pt 可见，低视力用户要找；读屏要做成一个「可调整」元素（上下轻扫换月）。</div></div>
+</div>
+
+<div class="box" style="margin-top:16px"><b>我推荐 A。</b>理由：① 和健身、Nike 同一种做法，没有新控件可学；② 第一屏就是你要的「本月跑了几次」，B 的好处它全有；③ 不丢历史。<br>
+<b>A 要你知道的三件事：</b>① 2026-09-24 定过「一次只显示一个月、不往下追加」（<code>DECISIONS.md:99</code>），选 A 就是改掉这条；② 「未完成的预约」现在在列表最底下，A 的列表变长后它会被挤得很远 —— 我建议挪到最上面、本月之前，只在有的时候出现；③ 不用改后端：每个月照旧调 <code>/api/orders/mine/run-records?month=</code>，到底的月份用已完成订单里最早那一单判断。陪跑员端的「陪跑记录」是同一个页面，会一起变。</div>
+
+<!-- ============ 第 2 项 ============ -->
+<h2>第 2 项　跑步详情 →「订单详情与评价」：只留绿色卡</h2>
+<p class="note">你看到的那一页是订单页的「已完成」状态。绿色卡下面那一串是 2026-09-17 决定「把改版前那一页原样接回来」的（代码注释 <code>BlindOrderStatusView+Flow.swift:45-58</code>）。这两版界面更新时都没去掉它，不是这次新加的。</p>
+<div class="grid">
+
+<div><div class="ph">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="nav"><div class="glass">‹</div></div>
+<div class="green"><div class="h">已完成 · 陈*</div><div class="m"><div><div class="k">距离</div><div class="n">5.20</div></div><div><div class="k">用时</div><div class="n">32:05</div></div><div><div class="k">平均配速</div><div class="n">6分10秒</div></div></div><div class="btn">完成</div></div>
+<div class="xlabel">以下全部删掉 ↓</div>
+<div class="cd strike" style="font-weight:700">服务已完成</div>
+<div class="cd strike">本次路线 · 5.20 公里 · 小地图</div>
+<div class="cd strike">重复当前状态</div>
+<div class="cd strike">这次陪跑怎么样（三档）</div>
+<div class="cd strike">评价内容 · 语音输入</div>
+<div class="cd strike">提交评价 / 稍后再评</div>
+<div class="cd strike">把陈*设为固定搭档</div>
+<div class="cd strike">举报 · 不再匹配此人</div>
+<div class="cd strike">本单信息 · 状态记录</div>
+</div><div class="cap"><span class="tag now">现在</span>绿色卡下面还有 9 块。</div></div>
+
+<div><div class="ph">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="nav"><div class="glass">‹</div></div>
+<div class="green"><div class="h">已完成 · 陈*</div><div class="m"><div><div class="k">距离</div><div class="n">5.20</div></div><div><div class="k">用时</div><div class="n">32:05</div></div><div><div class="k">平均配速</div><div class="n">6分10秒</div></div></div><div class="btn">完成</div></div>
+</div><div class="cap"><span class="tag rec">改后</span><b>只剩绿色卡。</b>举报和不再匹配不会丢：跑步详情页最底下本来就有一份。</div></div>
+
+<div style="grid-column:span 2"><div class="box warn"><b>有两个功能会因此没有入口，需要你定：</b><br>
+<b>① 评价这次陪跑。</b>这是 App 里唯一的评价入口（跑步详情页那张卡的说明就是「查看订单，提交或查看评价」）。<br>
+<b>② 把陪跑员设为固定搭档。</b>这是覆盖面最大的收藏入口；另一个在「我的 › 固定搭档」，只列连续一起跑过的人，那个开关后端默认关着。<br><br>
+可选：<br>
+<b>甲（推荐）</b>：订单页只留绿色卡；在跑步详情页底部、现在「订单详情与评价」那张卡的位置，换成两行：「评价这次陪跑 ›」（点开是单独一页，三档 + 一句话）、「设为固定搭档」（已是搭档就不出现）。「订单详情与评价」那张卡改名「订单详情」。<br>
+<b>乙</b>：评价和设为固定搭档都不要了，只留绿色卡。后端评价接口不动，只是 App 不再调用。<br>
+<b>丙</b>：订单页留绿色卡 + 下面只留「这次陪跑怎么样」一块，其余删掉。<br><br>
+另外：开着的 PR #819（已取消 / 暂无志愿者终态页）也改同一个文件 <code>BlindOrderStatusView+Flow.swift</code>。我会等它合并后再动，免得冲突。</div></div>
+</div>
+
+<!-- ============ 第 3 项 ============ -->
+<h2>第 3 项　跑步详情右上角的声音按钮：和返回键同样式、对称</h2>
+<p class="note">原因：返回键是系统导航栏画的；声音按钮是自己叠在页面上的（<code>RunRecordFitnessMap.swift:57-61</code>），上边距用的是「状态栏 + 导航栏」的总高度，所以落在导航栏<b>下面</b>；它的圆又是 44pt 居中放在 64pt 的可点框里，又往下、往左各偏了 10pt。样式也不同：返回键是系统玻璃圆，声音钮是白底蓝图标加阴影。</p>
+<div class="grid">
+
+<div><div class="ph" style="height:440px">
+<div class="map"><div class="rt"></div>
+<div class="sb" style="position:relative"><span>9:41</span><span>●●●</span></div>
+<div class="nav" style="position:relative"><div class="glass">‹</div></div>
+<div style="position:absolute;right:14px;top:92px;width:36px;height:36px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;color:#0058C7;font-size:16px">🔊</div>
+<div class="guide" style="top:60px"></div><div class="gl" style="top:53px">返回键中线</div>
+<div class="guide" style="top:110px"></div><div class="gl" style="top:103px">声音钮中线</div>
+</div>
+<div style="margin:-70px 20px 0;position:relative"><div class="lb">深圳湾公园</div><div style="font-size:26px;font-weight:800">户外跑步</div><div style="font-size:34px;font-weight:700;color:#3D4FB8">5.20<span style="font-size:18px"> 公里</span></div></div>
+</div><div class="cap"><span class="tag now">现在</span>声音钮比返回键低、偏左，颜色和阴影也不一样。</div></div>
+
+<div><div class="ph" style="height:440px">
+<div class="map"><div class="rt"></div>
+<div class="sb" style="position:relative"><span>9:41</span><span>●●●</span></div>
+<div class="nav" style="position:relative;justify-content:space-between"><div class="glass">‹</div><div class="glass">🔊</div></div>
+<div class="guide" style="top:60px"></div><div class="gl" style="top:53px">同一条中线</div>
+</div>
+<div style="margin:-70px 20px 0;position:relative"><div class="lb">深圳湾公园</div><div style="font-size:26px;font-weight:800">户外跑步</div><div style="font-size:34px;font-weight:700;color:#3D4FB8">5.20<span style="font-size:18px"> 公里</span></div></div>
+</div><div class="cap"><span class="tag rec">改后</span><b>声音钮放进导航栏右边</b>（<code>ToolbarItem(placement: .topBarTrailing)</code>）。系统自己把它画成和返回键一样的玻璃圆，左右对称、同一高度，往上滑也一起留在顶上。播放时图标换成停止。</div></div>
+
+<div style="grid-column:span 2"><div class="box"><b>这样改的好处：</b>不用自己算位置，换手机尺寸、横屏、灵动岛都对得齐；以后苹果改导航栏样式，两个钮一起变。<br>
+<b>代价（需要你知道）：</b>① 可点区跟返回键一样，是系统的大小（约 44pt），比项目规定的盲人端 64pt 小。返回键本来就是这个大小；开着读屏时这颗钮本来就不显示（读屏走头部后面那个隐藏的「听这次跑步」），所以影响的是不开读屏的低视力用户。② iOS 16–25 上导航栏按钮没有玻璃圆，会和返回键一样只显示图标，仍然对称。<br>
+<b>不想要 44pt 的话</b>：可以保留自己画的钮，只把位置算到和返回键同一中线、样式换成玻璃圆，可点区仍 64pt。缺点是要自己算位置，换机型可能差一两个点。<br>
+顺带：没有地图的那种详情页（轨迹不够画不出地图）里，声音钮现在放在页面内容右上角，也会一起挪进导航栏。陪跑员端详情页没有这颗钮，不受影响。</div></div>
+</div>
+
+<p class="note" style="margin-top:28px">参考来源：iDownloadBlog《How to see all your activity history in the Fitness app on iPhone》（健身「历史」按日期和月份列出、往下滑看更早的，含截图）；Strava 帮助中心 Training Log（手机端右上角日历图标跳月）；Nike 帮助中心 How do I view my run in the NRC app（活动页顶部看本周 / 本月 / 本年汇总）。2026-11-07 核实。</p>
+</body></html>
