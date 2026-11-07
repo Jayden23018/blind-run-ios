@@ -197,7 +197,7 @@ struct VolunteerTrainingCourseView: View {
                     Button(VolunteerTrainingCopy.startQuiz) {
                         viewModel.isQuizVisible = true
                     }
-                    .buttonStyle(TrainingCapsuleButtonStyle())
+                    .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("打开课后答题")
                     .accessibilityIdentifier("volunteerTrainingStartQuizButton")
                 }

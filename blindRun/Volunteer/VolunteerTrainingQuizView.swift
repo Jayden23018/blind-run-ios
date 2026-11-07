@@ -189,7 +189,7 @@ struct VolunteerTrainingQuizView: View {
                     Text(VolunteerTrainingCopy.submitQuiz)
                 }
             }
-            .buttonStyle(TrainingCapsuleButtonStyle(isLoading: viewModel.isSubmitting))
+            .buttonStyle(PrimaryButtonStyle(isLoading: viewModel.isSubmitting))
             .disabled(!viewModel.canSubmit)
             .accessibilityIdentifier("volunteerTrainingSubmitButton")
 
@@ -259,14 +259,14 @@ extension VolunteerTrainingQuizView {
             TrainingBottomBar {
                 if result.isPassed {
                     Button(VolunteerTrainingCopy.finishQuiz) { onFinish() }
-                        .buttonStyle(TrainingCapsuleButtonStyle())
+                        .buttonStyle(PrimaryButtonStyle())
                         .accessibilityHint("回到培训课程列表")
                         .accessibilityIdentifier("volunteerTrainingFinishButton")
                 } else {
                     Button(wrongCount > 0 ? VolunteerTrainingCopy.retryQuiz(wrongCount: wrongCount) : VolunteerTrainingCopy.retryAll) {
                         viewModel.prepareRetry()
                     }
-                    .buttonStyle(TrainingCapsuleButtonStyle())
+                    .buttonStyle(PrimaryButtonStyle())
                     .accessibilityHint("答对的题会保留，只需重新选答错的题")
                     .accessibilityIdentifier("volunteerTrainingRetryQuizButton")
                 }
