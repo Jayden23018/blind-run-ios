@@ -195,11 +195,7 @@ struct BlindHomeOrderCard: View {
     ///
     /// 两个角色共用 `isUnderwayForBlindRunner`：这个谓词问的是「这一单动起来没有」，
     /// 答案与谁在看无关（名字里的 `BlindRunner` 说的是它当初为哪一屏写的）。
-    private var statusCaption: String {
-        order.status.isUnderwayForBlindRunner
-            ? order.status.displayName
-            : "下一次陪跑，\(order.status.displayName)"
-    }
+    private var statusCaption: String { Self.statusCaption(for: order) } // 实现在 BlindHomeUpcomingOrders.swift（#825 紧凑卡共用）
 
     /// 52pt 的那行大字。
     ///
@@ -209,12 +205,7 @@ struct BlindHomeOrderCard: View {
     ///
     /// 时间拿不到时同理**不显示占位时间**：摆一个「--:--」出来，位置就被一个
     /// 没有信息的东西占住了。
-    private var timeText: String {
-        if order.status.isUnderwayForBlindRunner {
-            return order.status.displayName
-        }
-        return order.blindRunnerShortStartText() ?? order.status.displayName
-    }
+    private var timeText: String { Self.timeText(for: order) } // 同上
 
     private var placeText: String {
         order.startAddress?.nilIfBlank ?? "出发地点待确认"
