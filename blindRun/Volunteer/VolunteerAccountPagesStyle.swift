@@ -96,17 +96,3 @@ struct VolunteerAccountActionRowLabel: View {
         + VolunteerAccountMetrics.iconSide
         + VolunteerAccountMetrics.iconSpacing
 }
-
-/// 卡片外的小节标题（「最新记录」）。
-struct VolunteerAccountSectionTitle: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(AppFonts.title())
-            .foregroundColor(AppColors.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 8)
-            .accessibilityAddTraits(.isHeader)
-    }
-}

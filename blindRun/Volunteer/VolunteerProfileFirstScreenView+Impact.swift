@@ -85,11 +85,11 @@ extension VolunteerProfileFirstScreen {
         NavigationLink {
             VolunteerServiceRecognitionView()
         } label: {
-            VolunteerHomeCard {
+            VolunteerSecondaryCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    VolunteerHomeCardHeader(
+                    VolunteerSecondaryCardHeader(
                         title: VolunteerProfileCopy.durationCardTitle,
-                        symbol: "clock",
+                        symbol: .system("clock"),
                         tint: AppColors.VolunteerHome.durationTeal,
                         showsChevron: true
                     )
@@ -262,11 +262,11 @@ extension VolunteerProfileFirstScreen {
     }
 
     private func halfCardBody(_ card: VolunteerHomeHalfCard) -> some View {
-        VolunteerHomeCard(padding: EdgeInsets(top: 12, leading: 14, bottom: 14, trailing: 14)) {
+        VolunteerSecondaryCard(padding: EdgeInsets(top: 12, leading: 14, bottom: 14, trailing: 14)) {
             VStack(alignment: .leading, spacing: 10) {
-                VolunteerHomeCardHeader(
+                VolunteerSecondaryCardHeader(
                     title: card.title,
-                    symbol: card.symbol,
+                    symbol: .system(card.symbol),
                     // 连续陪跑 / 固定搭档橙、评分琥珀：两张并排时颜色分开（负责人 2026-11-04 看截图要求）。
                     tint: card.kind == .rating ? AppColors.VolunteerHome.ratingAmber : AppColors.VolunteerHome.streakOrange,
                     showsChevron: card.hasDestination
@@ -290,7 +290,7 @@ extension VolunteerProfileFirstScreen {
     }
 
     private func impactPlaceholder(_ text: String, identifier: String) -> some View {
-        VolunteerHomeCard {
+        VolunteerSecondaryCard {
             Text(text)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)

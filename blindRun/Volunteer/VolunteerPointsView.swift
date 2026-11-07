@@ -151,7 +151,7 @@ struct VolunteerPointsView: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("volunteerPointsEmpty")
         } else {
-            VolunteerAccountSectionTitle(title: VolunteerPointsCopy.ledgerSectionTitle)
+            VolunteerSecondarySectionTitle(title: VolunteerPointsCopy.ledgerSectionTitle)
 
             // 后端按时间倒序，原样一行一条，不合并、不过滤。
             GroupedCard {

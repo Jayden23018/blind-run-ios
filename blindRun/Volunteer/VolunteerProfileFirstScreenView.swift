@@ -186,65 +186,6 @@ struct VolunteerProfileFirstScreen: View {
     }
 }
 
-// MARK: - 卡片
-
-/// 首页与接单页共用的白色圆角卡片（#694：两页「同一套卡片样式」）。
-///
-/// 不用 `FlowCard`：那一张带两层阴影，是订单页的样式；健康 App 摘要的卡片是平的，
-/// 边界靠白卡压在浅灰底上（`Flow.surface` / `Flow.page`，暗色是 `#1C1C1E` 压纯黑）。
-struct VolunteerHomeCard<Content: View>: View {
-    /// 样例 `.card{border-radius:22px}`。
-    static var cornerRadius: CGFloat { VolunteerHomeRadius.summaryCard }
-
-    var padding = EdgeInsets(top: 14, leading: 16, bottom: 16, trailing: 16)
-    var background: Color = AppColors.Flow.surface
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        content
-            .padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-    }
-}
-
-/// 卡片左上角的「图标 + 卡名」，右边可选一行灰字（日期）和箭头。
-///
-/// 🚩 **箭头只给真有去处的卡**（#694）：没有去处的卡画箭头，就是「点了没反应」。
-struct VolunteerHomeCardHeader: View {
-    let title: String
-    let symbol: String
-    let tint: Color
-    var meta: String?
-    var showsChevron = false
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            // 图标只是装饰：卡名就在旁边，不靠颜色也不靠图标传达（WCAG 1.4.1）。
-            Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 6)
-            if let meta {
-                Text(meta)
-                    .font(.subheadline)
-                    .foregroundColor(AppColors.textSecondary)
-            }
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityHidden(true)
-            }
-        }
-        .foregroundColor(tint)
-    }
-}
-
 /// 页面顶部那一抹颜色。纯装饰，不承载信息。
 ///
 /// 照样例三段：`top` 在最上沿，`middle` 在 150pt，300pt 处回到页面底色
