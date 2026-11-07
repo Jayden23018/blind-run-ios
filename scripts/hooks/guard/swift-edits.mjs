@@ -80,8 +80,7 @@ export function checkRawOpenURL({ filePath, body }) {
   //
   // 规则按出口登记：拨号走 `EmergencyDialer.dial`；确实是别的 scheme（地图、系统设置、
   // 短信 composer）就在行尾标注，标注本身就是那份出口清单。
-  // 已登记：ExternalMapNavigation.swift:145、LocationPermissionGuard.swift:57、
-  // BlindBookingView.swift:1717。
+  // 已登记：ExternalMapNavigation.swift:145、BlindBookingView.swift:1717。
   const isProductionSwift =
     /\/blindRun\/[^/]/.test(filePath) &&
     /\.swift$/.test(filePath) &&

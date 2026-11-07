@@ -18,8 +18,8 @@ export function fail(ruleId, detail) {
 // 每条「别这么写」的规则都要求它的说明能原样写出坏写法，否则规则一落地就锁死自己的文档，
 // 逼人去加 `guard:allow` —— 那等于把规则关掉。
 //
-// `#` 后面直接跟字母的**不算**注释：那是 Swift 编译指令（`#if` / `#Preview("…")`，
-// 见 LocationPermissionGuard.swift:85），会真的编进产物。shell / yaml / podspec 的
+// `#` 后面直接跟字母的**不算**注释：那是 Swift 编译指令（`#if` / `#Preview("…")`），
+// 会真的编进产物。shell / yaml / podspec 的
 // `# 说明` 与 `#!` 则照常跳过。
 export const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#(?![A-Za-z]))/;
 

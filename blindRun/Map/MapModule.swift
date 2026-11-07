@@ -9,11 +9,8 @@ import Foundation
 // 2. LocationService   - 设备定位服务（CLLocationManager 封装）
 // 3. AMapContainer     - 高德地图 UIViewRepresentable 桥接
 // 4. MapViewWrapper    - 自动选择地图/占位视图的包装组件
-// 5. MapViewModel      - 地图显示状态管理
-// 6. DistanceCalculator - 距离计算与排序工具
-// 7. LocationPermissionGuard - 定位权限引导视图
-// 8. MapPlaceholderView - AMap Key 缺失时的占位视图
-// 9. DemoLocationBanner - Demo 默认位置提示横幅
+// 5. DistanceCalculator - 距离计算与排序工具
+// 6. MapPlaceholderView - AMap Key 缺失时的占位视图
 //
 // 使用方式：
 // - LocationService 作为 @EnvironmentObject 注入整个 View 层级
