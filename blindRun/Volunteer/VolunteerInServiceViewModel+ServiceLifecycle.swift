@@ -21,7 +21,7 @@ extension VolunteerInServiceViewModel {
         let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .rematching, orderID: orderID, appState: appState) { [weak self] in
-            // 同 `VolunteerOrderDetailViewModel.cancel`：真发请求时才标「我自己取消的」。
+            // 真发请求时才标「我自己取消的」。
             await self?.beginCancellation()
             let response = try await orders.cancel(orderId: orderID)
             await self?.recordCancelResponse(response)
@@ -35,7 +35,7 @@ extension VolunteerInServiceViewModel {
         cancelAnnouncement.begin()
     }
 
-    /// 同 `VolunteerOrderDetailViewModel.recordCancelResponse`。
+    /// 取消请求回来后，按 `countedAsLateCancel` 决定要不要补念「已记一次临时取消」。
     func recordCancelResponse(_ response: CancelOrderResponse) {
         if let followUp = cancelAnnouncement.recordResponse(response) {
             speechService?.speak(followUp, priority: .onDemand)

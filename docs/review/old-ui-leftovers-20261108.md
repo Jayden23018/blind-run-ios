@@ -22,6 +22,8 @@ Mock、`#Preview`、`#if DEBUG` 调试页不算旧界面。
 
 ### 可以删（B 类，把握高）
 
+> 2026-11-08 负责人批准，第 1–4 条已删除（分支 `refactor/remove-old-ui-leftovers`）。删后 Periphery 从 211 降到 195。
+
 | # | 删什么 | 行数 | 为什么走不到 | 被谁替代 | 证据 |
 |---|---|---|---|---|---|
 | 1 | `VolunteerOrderDetailView`（`blindRun/Volunteer/VolunteerOrderDetailView.swift:3`），只服务它的 `VolunteerOrderMap`（`VolunteerOrderMap.swift:3`）和 `VolunteerCertificateUploadEntryLink`（`VolunteerCertificateEntryLink.swift:13`） | 221 + 28 + 114 | 全仓库没有构造它的地方，只剩 `VolunteerOrderInfoSection.swift:10` 一条注释 | 首页「最近陪跑」改进 `VolunteerRunRecordView`（入口 `VolunteerProfileFirstScreenView+Recent.swift:29`） | daa0c8d1「陪跑员首页 v3」删掉了最后一处调用 `VolunteerOrderDetailView(orderId: order.orderId)` |

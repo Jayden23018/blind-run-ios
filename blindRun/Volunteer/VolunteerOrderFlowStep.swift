@@ -6,7 +6,7 @@ import Foundation
 ///
 /// 与跑者端的「匹配 → 约好 → 出发 → 汇合」**一一对应**，只有第 1 步文案不同：
 /// 同一件事在盲人那头叫「系统在给我找人」，在陪跑员这头叫「系统在问我去不去」。
-/// 所以进度条组件（`FlowStepper`）共用、标题各给一份。
+/// 所以两端共用同一套步骤，标题各给一份（读屏「第 N 步」由引导绳 `RopeView` 念）。
 ///
 /// **它不是订单状态的别名。** 后端 11 个状态（客户端 12 个，含 `.unknown`），这一屏只有 4 格。
 enum VolunteerOrderFlowStep: Int, CaseIterable, Equatable {

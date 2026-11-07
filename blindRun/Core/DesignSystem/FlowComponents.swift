@@ -88,111 +88,6 @@ struct FlowAvatar: View {
     }
 }
 
-// MARK: - 进度条
-
-/// 订单流程的四步进度：匹配 → 约好 → 出发 → 汇合。
-///
-/// **整条合成一个无障碍元素**，标签是「进度，第 N 步，共 4 步，<当前步骤名>」。
-/// 拆成 4 个元素的后果是读屏用户要划 4 次才走完一条纯状态信息，而那 4 次里有 3 次
-/// 念的是「还没到的步骤」。
-///
-/// **不可点**：它是状态展示，没有「跳到某一步」这回事。所以节点 22pt 不受 64pt 线约束。
-///
-/// 三种节点形态**靠形状区分而不是只靠颜色**（WCAG 1.4.1）：
-/// 已完成 = 蓝色实心 + 白色对勾；当前 = 蓝色描边 + 蓝色圆点；未到达 = 灰色描边、空。
-/// 所以不需要额外响应「不使用颜色区分」开关 —— 关掉颜色三者依然可辨。
-struct FlowStepper: View {
-    /// 0-based 当前步骤。
-    let currentStep: Int
-    let titles: [String]
-
-    /// 动画由调用方通过 `withAnimation` 驱动（阶段 4），组件本身不带动画字面量。
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
-                stepColumn(index: index, title: title)
-                if index < titles.count - 1 {
-                    connector(isFilled: index < currentStep)
-                }
-            }
-        }
-        .padding(.top, FlowMetrics.stepperTopPadding)
-        .padding(.horizontal, FlowMetrics.stepperHorizontalPadding)
-        .padding(.bottom, FlowMetrics.stepperBottomPadding)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabel(currentStep: currentStep, titles: titles))
-    }
-
-    /// 读屏标签。**抽成纯静态函数而不是留一个私有计算属性**，理由同
-    /// `BlindLayout.decorativeMapHeight`：布局只有真机能验，但「第几步、共几步、叫什么」
-    /// 是纯字符串拼接，不该也要开一次真机才知道对不对。见 `FlowDesignSystemTests`。
-    ///
-    /// `min/max` 夹一下不是防御性代码：映射表在后端加状态时会漏，落到这里的就是越界值，
-    /// 而它念出来是「第 0 步」或「第 5 步，共 4 步」—— 对看不见屏幕的人那是错信息，
-    /// 比崩掉更难发现。
-    static func accessibilityLabel(currentStep: Int, titles: [String]) -> String {
-        guard !titles.isEmpty else { return "进度" }
-        let step = min(max(currentStep, 0), titles.count - 1)
-        return "进度，第 \(step + 1) 步，共 \(titles.count) 步，\(titles[step])"
-    }
-
-    @ViewBuilder
-    private func stepColumn(index: Int, title: String) -> some View {
-        let isDone = index < currentStep
-        let isCurrent = index == currentStep
-
-        VStack(spacing: 6) {
-            node(isDone: isDone, isCurrent: isCurrent)
-            Text(title)
-                .flowFont(FlowFonts.stepLabel(isCurrent: isCurrent))
-                .foregroundColor(
-                    // 未到达步骤的文字用 `secondaryText` 而不是设计稿的 `#8C93A3`
-                    // （3.08:1，不达 WCAG 4.5）。见 `AppColors.Flow` 的类型注释第 1 条。
-                    isDone || isCurrent ? AppColors.Flow.primaryText : AppColors.Flow.secondaryText
-                )
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        // 固定列宽只在默认字号下成立；放大字号后「匹配」两个字会被挤成两行再被裁。
-        // 所以给的是**最小**宽度，让列随文字长大。
-        .frame(minWidth: FlowMetrics.stepColumnWidth)
-    }
-
-    @ViewBuilder
-    private func node(isDone: Bool, isCurrent: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(isDone ? AppColors.Flow.accent : AppColors.Flow.surface)
-            if !isDone {
-                Circle()
-                    .strokeBorder(
-                        isCurrent ? AppColors.Flow.accent : AppColors.Flow.nodeStroke,
-                        lineWidth: FlowMetrics.stepNodeStrokeWidth
-                    )
-            }
-            if isDone {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .heavy))
-                    .foregroundColor(.white)
-            } else if isCurrent {
-                Circle()
-                    .fill(AppColors.Flow.accent)
-                    .frame(width: FlowMetrics.stepNodeDotDiameter, height: FlowMetrics.stepNodeDotDiameter)
-            }
-        }
-        .frame(width: FlowMetrics.stepNodeDiameter, height: FlowMetrics.stepNodeDiameter)
-    }
-
-    private func connector(isFilled: Bool) -> some View {
-        Rectangle()
-            .fill(isFilled ? AppColors.Flow.accent : AppColors.Flow.progressTrack)
-            .frame(height: FlowMetrics.stepConnectorHeight)
-            .frame(maxWidth: .infinity)
-            // 节点直径 22 ⇒ 半径 11，减去线宽让连接线对齐节点圆心。
-            .padding(.top, (FlowMetrics.stepNodeDiameter - FlowMetrics.stepConnectorHeight) / 2)
-    }
-}
-
 // MARK: - 信息列表行
 
 /// 信息列表的一行。三种形态：纯展示、可点（带箭头）、陪跑员（两行值）。
@@ -514,12 +409,6 @@ private struct FlowComponentGallery: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                ForEach(0..<4, id: \.self) { step in
-                    FlowCard {
-                        FlowStepper(currentStep: step, titles: ["匹配", "约好", "出发", "汇合"])
-                    }
-                }
-
                 FlowCard {
                     VStack(spacing: 0) {
                         FlowInfoRow(label: "时间") {

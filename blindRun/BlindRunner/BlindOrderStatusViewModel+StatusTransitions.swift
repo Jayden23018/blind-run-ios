@@ -32,7 +32,7 @@ extension BlindOrderStatusViewModel {
     /// 也不移动读屏焦点 —— 焦点在这三秒里必须待在原处，那正是原地变形要保住的东西。
     /// `状态清单.md` §2 也是逐字这么要求的：「数字走 announcement 通道播报，
     /// 不插入遍历顺序、不移动焦点」。
-    /// 判据抽成**纯静态函数**，理由同 `FlowStepper.accessibilityLabel`：三秒倒计时本身
+    /// 判据抽成**纯静态函数**：三秒倒计时本身
     /// 只有真机能看，但「什么时候该倒数」是两个布尔判断，不该也要开一次真机才知道对不对。
     /// 上面那两条边界（冷启动不倒数 / 同态刷新不重放）各有一条用例钉着。
     nonisolated static func shouldStartRunCountdown(
