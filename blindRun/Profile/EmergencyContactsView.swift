@@ -15,13 +15,18 @@ import SwiftUI
 ///   所以更新请求一律原样回传当前 `isPrimary`，改主联系人只走 `set-primary` 端点。
 @MainActor
 final class EmergencyContactsViewModel: ObservableObject {
-    @Published private(set) var contacts: [EmergencyContactResponse] = []
-    @Published var isLoading = false
+    /// 读列表的状态（#866）。读到过之后刷新失败停在 `.loaded`（页面规则），见 `failLoad`。
+    @Published private(set) var listState: AsyncLoadState<[EmergencyContactResponse]> = .idle
+    /// 进页时 `AppState` 里的缓存，服务端列表到手前先显示它。
+    @Published private(set) var cachedContacts: [EmergencyContactResponse] = []
+    private var listGeneration = 0
     @Published var isMutating = false
     @Published var errorMessage: String?
     @Published private(set) var statusMessage: String?
+    var contacts: [EmergencyContactResponse] { listState.value ?? cachedContacts }
+    var isLoading: Bool { listState.isLoading }
     /// 这一页从服务端拿到过列表没有。没拿到时 `contacts` 为空不代表真的一位都没有（弱网 load 失败、缓存为空）。
-    @Published private(set) var hasLoadedFromServer = false
+    var hasLoadedFromServer: Bool { listState.value != nil }
 
     /// 失败反馈的弹窗开关。
     ///
@@ -47,8 +52,8 @@ final class EmergencyContactsViewModel: ObservableObject {
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
-        if contacts.isEmpty {
-            contacts = appState.emergencyContacts
+        if cachedContacts.isEmpty {
+            cachedContacts = appState.emergencyContacts
         }
     }
 
@@ -115,19 +120,28 @@ final class EmergencyContactsViewModel: ObservableObject {
     func load() async {
         guard let appState, let userId = appState.userId else {
             // 会话未就绪时必须显式失败并朗读，否则盲人用户面对的是一个毫无反馈的空页面。
-            fail(with: "用户未登录，请重新登录后再试。")
+            failLoad("用户未登录，请重新登录后再试。")
             return
         }
-        isLoading = true
+        let previous = listState
+        if previous.value == nil { listState = .loading(requestID: UUID()) }
         errorMessage = nil
         do {
             try await refreshContacts(appState: appState, userId: userId)
         } catch let error as APIError {
-            handle(error)
+            if appState.handleAuthenticatedAPIError(error) { listState = previous; return }
+            failLoad(Self.displayMessage(for: error))
         } catch {
-            errorMessage = "加载紧急联系人失败，请重试。"
+            failLoad(Self.loadFailure)
         }
-        isLoading = false
+    }
+
+    static let loadFailure = "加载紧急联系人失败，请重试。"
+
+    /// 屏幕上一位都没有时失败由 `RemoteContent` 显示并朗读，不弹窗（免得念两遍）；有内容时保留内容，弹窗 + 朗读。
+    private func failLoad(_ message: String) {
+        if listState.value == nil { listState = .failed(message: message) }
+        if contacts.isEmpty { errorMessage = nil; statusMessage = nil } else { fail(with: message) }
     }
 
     func create(
@@ -247,10 +261,13 @@ final class EmergencyContactsViewModel: ObservableObject {
         return true
     }
 
+    /// 后发的读取为准：首次读取还没回来时又做了变更，变更后刷新到的新列表不能被慢的那次旧结果盖掉。
     private func refreshContacts(appState: AppState, userId: Int64) async throws {
+        listGeneration += 1
+        let generation = listGeneration
         let latest = try await appState.profile.emergencyContacts(userId: userId)
-        contacts = latest
-        hasLoadedFromServer = true
+        guard generation == listGeneration || listState.value == nil else { return }
+        listState = .loaded(latest)
         appState.updateEmergencyContacts(latest)
     }
 
@@ -375,12 +392,13 @@ struct EmergencyContactsView: View {
                 }
             } else {
                 Section {
-                    if viewModel.isLoading && viewModel.contacts.isEmpty {
-                        Text("正在加载紧急联系人…")
-                            .accessibilityLabel("正在加载紧急联系人")
-                    } else if viewModel.contacts.isEmpty {
-                        Text("还没有紧急联系人，请至少添加一位。")
-                            .accessibilityLabel("还没有紧急联系人，请至少添加一位")
+                    if viewModel.contacts.isEmpty {
+                        RemoteContent(viewModel.listState, loadingLabel: "正在加载紧急联系人",
+                                      failureIdentifier: "emergencyContactsRetryButton",
+                                      retry: { Task { await viewModel.load() } }) { _ in
+                            Text("还没有紧急联系人，请至少添加一位。")
+                                .accessibilityLabel("还没有紧急联系人，请至少添加一位")
+                        }
                     } else {
                         ForEach(viewModel.contacts) { contact in
                             contactRow(contact)
