@@ -22,6 +22,8 @@ final class VolunteerOrderLiveTrackingTests: XCTestCase {
         let fixture = makeFixture(status: .pendingAccept)
         await settleInitialPoll(fixture)
         let updates = recordStatusUpdates(fixture)
+        // 推送之后协调器会请求刷新：后端那时已是新状态，假服务也要跟上，否则拉回的旧详情会把状态退回去。
+        fixture.service.orderDetailResult = .success(.preview(orderId: orderID, status: .cancelled))
 
         pushStatus(fixture, from: .pendingAccept, to: .cancelled)
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -84,6 +86,8 @@ final class VolunteerOrderLiveTrackingTests: XCTestCase {
         let fixture = makeFixture(status: .inProgress)
         await settleInitialPoll(fixture)
         let updates = recordStatusUpdates(fixture)
+        // 同上：推送后的刷新拉到的是后端的新状态。
+        fixture.service.orderDetailResult = .success(.preview(orderId: orderID, status: .completed))
 
         pushStatus(fixture, from: .inProgress, to: .completed)
         try await Task.sleep(nanoseconds: 300_000_000)
