@@ -46,7 +46,9 @@ final class RemoteContentTests: XCTestCase {
         let speech = SpeechService()
         let host = Self.host(Self.runRecordContent(viewModel.phase), speech: speech)
         defer { host.window.isHidden = true }
-        Self.spin(Self.waitBeyondSettle)
+        // async 用例里不能用 `spin`：`RunLoop.run` 占着主线程，视图 `.task` 里的播报排不上队，什么都念不出来
+        // （2026-11-08 真机两次 `实际念过：[]`）。`Task.sleep` 让出主线程，播报才轮得到。
+        try? await Task.sleep(nanoseconds: UInt64(Self.waitBeyondSettle * 1_000_000_000))
 
         XCTAssertTrue(speech.spokenHistoryForTesting.contains(message), "实际念过：\(speech.spokenHistoryForTesting)")
         _ = appState
