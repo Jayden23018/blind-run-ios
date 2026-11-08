@@ -14,17 +14,11 @@ nonisolated extension RunRecordMonth: Hashable {
 
 @MainActor
 final class VolunteerRunDataModel: ObservableObject {
-    enum Phase: Equatable {
-        /// 一个月都还没回来。
-        case loading
-        /// 至少回来了一个月；`failedMonths` 里是没回来的。
-        case loaded
-        /// 12 个月全失败。
-        case failed
-    }
-
-    @Published private(set) var phase: Phase = .loading
-    @Published private(set) var summary: VolunteerRunDataSummary
+    /// 页面加载状态（#865）：
+    /// - `.loading`：一个月都还没回来。
+    /// - `.loaded`：至少回来了一个月；`failedMonths` 里是没回来的（部分失败由页面另画一张会念的卡）。
+    /// - `.failed`：12 个月全失败。
+    @Published private(set) var phase: AsyncLoadState<VolunteerRunDataSummary> = .loading(requestID: UUID())
     @Published private(set) var failedMonths: Set<RunRecordMonth> = []
     /// 还在路上的月份数。全部回来前日历和平均都可能再变。
     @Published private(set) var pendingCount = 0
@@ -34,12 +28,17 @@ final class VolunteerRunDataModel: ObservableObject {
     let currentMonth: RunRecordMonth
     private var months: [RunRecordMonth: RunRecordHistoryResponse] = [:]
     private var hasStarted = false
+    /// 一个月都没回来时的空汇总，只给 `summary` 兜底。
+    private let emptySummary: VolunteerRunDataSummary
+
+    /// 已经回来的那几个月的汇总。
+    var summary: VolunteerRunDataSummary { phase.value ?? emptySummary }
 
     init(now: Date = Date(), calendar: Calendar = .volunteerRunData) {
         self.now = now
         self.calendar = calendar
         currentMonth = RunRecordMonth(containing: now, calendar: calendar)
-        summary = VolunteerRunDataSummary(months: [:], now: now, calendar: calendar)
+        emptySummary = VolunteerRunDataSummary(months: [:], now: now, calendar: calendar)
     }
 
     /// 本月往前共 12 个月，旧的在前。
@@ -59,7 +58,7 @@ final class VolunteerRunDataModel: ObservableObject {
     func retry(appState: AppState) async {
         let failed = targetMonths.filter { failedMonths.contains($0) }
         guard !failed.isEmpty else { return }
-        if months.isEmpty { phase = .loading }
+        if months.isEmpty { phase = .loading(requestID: UUID()) }
         await fetch(failed, appState: appState)
     }
 
@@ -100,15 +99,13 @@ final class VolunteerRunDataModel: ObservableObject {
         if let response {
             months[month] = response
             failedMonths.remove(month)
-            summary = VolunteerRunDataSummary(months: months, now: now, calendar: calendar)
+            phase = .loaded(VolunteerRunDataSummary(months: months, now: now, calendar: calendar))
         } else {
             failedMonths.insert(month)
             ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-run-data-month")
-        }
-        if !months.isEmpty {
-            phase = .loaded
-        } else if failedMonths.count == targetMonths.count {
-            phase = .failed
+            if months.isEmpty, failedMonths.count == targetMonths.count {
+                phase = .failed(message: VolunteerRunDataCopy.allFailed)
+            }
         }
     }
 }

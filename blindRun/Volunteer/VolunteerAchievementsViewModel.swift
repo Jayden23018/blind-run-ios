@@ -28,9 +28,13 @@ import SwiftUI
 /// 并发只用 async/await：一个 `.task`，没有 `AnyCancellable`（AGENTS.md 硬约束）。
 @MainActor
 final class VolunteerAchievementsViewModel: ObservableObject {
-    @Published private(set) var achievements: VolunteerAchievementsResponse?
-    @Published private(set) var errorMessage: String?
-    @Published private(set) var isLoading = true
+    /// 页面加载状态（#865）。读到过一次之后，刷新失败保持 `.loaded`：
+    /// 从评分页、徽章页返回时 `.task` 会再拉一次，网络一抖不该把正在看的成就清掉。
+    @Published private(set) var state: AsyncLoadState<VolunteerAchievementsResponse> = .idle
+
+    var achievements: VolunteerAchievementsResponse? { state.value }
+
+    static let loadFailure = "服务成就加载失败，请稍后重试。"
 
     private weak var appState: AppState?
 
@@ -39,27 +43,28 @@ final class VolunteerAchievementsViewModel: ObservableObject {
         self.appState = appState
     }
 
-    /// 拉服务成就。**失败一定要留下东西**：`errorMessage` 驱动 `errorSection`
-    /// （一行原因 + 一个「重新加载」）。这段原来住在 view body 里，
-    /// 三个 `@State` 之间没有任何测试面。
+    /// 拉服务成就。**失败一定要留下东西**：`.failed` 由 `RemoteContent` 画成一行原因 + 一个「重新加载」，
+    /// 并且念出来。这段原来住在 view body 里，三个 `@State` 之间没有任何测试面。
     func load() async {
         guard let appState else {
-            isLoading = false
-            errorMessage = "服务成就加载失败，请稍后重试。"
+            markFailedUnlessAlreadyShowing(Self.loadFailure)
             return
         }
-        isLoading = true
-        defer { isLoading = false }
+        if state.value == nil { state = .loading(requestID: UUID()) }
         do {
             // 成就属于激励片（`IncentiveService`），不是订单片 —— 两片并行开发时
             // 各自实现了一遍 `GET /api/volunteer/achievements`，合并时以先落 main 的激励片为准。
-            achievements = try await appState.incentive.volunteerAchievements()
-            errorMessage = nil
+            state = .loaded(try await appState.incentive.volunteerAchievements())
         } catch let error as APIError {
-            errorMessage = error.localizedMessage
+            markFailedUnlessAlreadyShowing(error.localizedMessage)
         } catch {
-            errorMessage = "服务成就加载失败，请稍后重试。"
+            markFailedUnlessAlreadyShowing(Self.loadFailure)
         }
+    }
+
+    private func markFailedUnlessAlreadyShowing(_ message: String) {
+        if state.value != nil { return }
+        state = .failed(message: message)
     }
 }
 

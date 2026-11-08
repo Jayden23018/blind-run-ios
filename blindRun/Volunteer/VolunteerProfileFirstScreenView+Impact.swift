@@ -27,15 +27,20 @@ extension VolunteerProfileFirstScreen {
     @ViewBuilder
     var achievementsPlaceholder: some View {
         if incentive.loadFailed {
-            impactPlaceholder(
-                VolunteerHomeIncentiveCopy.loadFailure,
-                identifier: "volunteerHomeIncentiveFailure"
-            )
-            Button(VolunteerHomeIncentiveCopy.retry) {
-                Task { await incentive.load() }
+            // 失败块与其他远端内容同一个（#865）：上屏的同时念出来，原来只上屏。
+            // 外层 `.contain` 才能既留住回归用例认的 identifier、又不盖掉里面重试按钮的
+            // （记忆 `accessibility-identifier-overwrites-children`）。
+            VolunteerSecondaryCard {
+                IncentiveFailureSection(
+                    message: VolunteerHomeIncentiveCopy.loadFailure,
+                    retryTitle: VolunteerHomeIncentiveCopy.retry,
+                    identifier: "volunteerHomeIncentiveRetryButton"
+                ) {
+                    Task { await incentive.load() }
+                }
             }
-            .buttonStyle(TextButtonStyle())
-            .accessibilityIdentifier("volunteerHomeIncentiveRetryButton")
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("volunteerHomeIncentiveFailure")
         } else {
             impactPlaceholder(
                 VolunteerHomeIncentiveCopy.loading,

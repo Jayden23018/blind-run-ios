@@ -23,37 +23,32 @@ extension VolunteerProfileFirstScreen {
             .accessibilityIdentifier("volunteerProfileRecentAllLink")
         }
 
-        switch recentRun.state {
-        case .loaded(let content?):
-            NavigationLink {
-                VolunteerRunRecordView(orderId: content.orderId)
-            } label: {
-                recentCard(content)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(content.spoken)
-            .accessibilityHint(VolunteerProfileCopy.recentCardHint)
-            .accessibilityIdentifier("volunteerProfileRecentRunCard")
-
-        case .loaded(nil):
-            recentMessage(
-                // 跑过的人两个月没跑：不说「完成陪跑后会显示在这里」，那句是对新人说的。
-                hasCompletedRuns ? VolunteerProfileCopy.recentNoneLately : VolunteerProfileCopy.recentEmpty,
-                identifier: "volunteerProfileRecentEmpty"
-            )
-
-        case .failed:
-            VStack(alignment: .leading, spacing: 4) {
-                recentMessage(VolunteerProfileCopy.recentLoadFailure, identifier: "volunteerProfileRecentFailure")
-                Button(VolunteerProfileCopy.recentRetry) {
-                    Task { await recentRun.load(appState: appState) }
+        // 加载中 / 失败（会念）/ 内容走 `RemoteContent`（#865）；失败原来只上屏不念。
+        RemoteContent(
+            recentRun.state,
+            // 带上分区名：首页几块同时在加载时，读屏要分得清是哪一块。
+            loadingLabel: "\(VolunteerProfileCopy.recentSectionTitle)。\(VolunteerHomeIncentiveCopy.loading)",
+            failureIdentifier: "volunteerProfileRecentRetryButton",
+            retryTitle: VolunteerProfileCopy.recentRetry,
+            retry: { Task { await recentRun.load(appState: appState) } }
+        ) { content in
+            if let content {
+                NavigationLink {
+                    VolunteerRunRecordView(orderId: content.orderId)
+                } label: {
+                    recentCard(content)
                 }
-                .buttonStyle(TextButtonStyle())
-                .accessibilityIdentifier("volunteerProfileRecentRetryButton")
+                .buttonStyle(.plain)
+                .accessibilityLabel(content.spoken)
+                .accessibilityHint(VolunteerProfileCopy.recentCardHint)
+                .accessibilityIdentifier("volunteerProfileRecentRunCard")
+            } else {
+                recentMessage(
+                    // 跑过的人两个月没跑：不说「完成陪跑后会显示在这里」，那句是对新人说的。
+                    hasCompletedRuns ? VolunteerProfileCopy.recentNoneLately : VolunteerProfileCopy.recentEmpty,
+                    identifier: "volunteerProfileRecentEmpty"
+                )
             }
-
-        case .loading:
-            recentMessage(VolunteerHomeIncentiveCopy.loading, identifier: "volunteerProfileRecentLoading")
         }
     }
 

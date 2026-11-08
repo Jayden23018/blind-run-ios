@@ -430,17 +430,16 @@ final class VolunteerAchievementsTests: XCTestCase {
         await viewModel.load()
 
         XCTAssertEqual(viewModel.achievements?.completedCount, 3)
-        XCTAssertNil(viewModel.errorMessage)
-        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertNotNil(viewModel.state.value, "读到了就该是 .loaded")
+        XCTAssertFalse(viewModel.state.isLoading)
     }
 
     /// 🚨 失败时页面上必须**多**出一行原因加一个「重新加载」，而不是只少几块内容。
-    /// `errorSection` 是那两样东西的唯一驱动源，所以 `errorMessage` 非空是它的前提。
+    /// `RemoteContent` 只在 `.failed` 时画这两样（并念出来），所以落到 `.failed` 是它的前提。
     func testFailedLoadLeavesAReasonOnScreenInsteadOfAnEmptyPage() async {
         let service = FakeIncentiveService()
-        service.volunteerAchievementsResult = .failure(APIError.serverError(
-            ErrorResponse(code: "INTERNAL_ERROR", message: "服务暂时不可用")
-        ))
+        let failure = APIError.serverError(ErrorResponse(code: "INTERNAL_ERROR", message: "服务暂时不可用"))
+        service.volunteerAchievementsResult = .failure(failure)
         let appState = AppState(incentive: service)
         let viewModel = VolunteerAchievementsViewModel()
         viewModel.configure(appState: appState)
@@ -448,8 +447,10 @@ final class VolunteerAchievementsTests: XCTestCase {
         await viewModel.load()
 
         XCTAssertNil(viewModel.achievements)
-        XCTAssertNotNil(viewModel.errorMessage, "失败后一个字都不留，页面就只是空的 —— 重试入口也不会出现")
-        XCTAssertFalse(viewModel.isLoading, "卡在加载态的话连 errorSection 都渲染不到")
+        guard case .failed(let message) = viewModel.state else {
+            return XCTFail("失败后一个字都不留，页面就只是空的 —— 重试入口也不会出现。实际 \(viewModel.state)")
+        }
+        XCTAssertEqual(message, failure.localizedMessage, "API 错误要说 API 错误自己的那句")
     }
 
     /// `appState` 是 `weak`：没人持有它时 `load()` 也必须给出可见的失败，不能静默空转。
@@ -458,8 +459,6 @@ final class VolunteerAchievementsTests: XCTestCase {
 
         await viewModel.load()
 
-        XCTAssertNotNil(viewModel.errorMessage)
-        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertEqual(viewModel.state, .failed(message: VolunteerAchievementsViewModel.loadFailure))
     }
 }
-

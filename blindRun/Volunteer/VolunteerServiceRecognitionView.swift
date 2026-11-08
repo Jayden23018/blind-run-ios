@@ -27,14 +27,14 @@ struct VolunteerServiceRecognitionView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VolunteerSecondaryMetrics.sectionSpacing) {
-                if let achievements = viewModel.achievements {
+                RemoteContent(
+                    viewModel.state,
+                    loadingLabel: "正在加载服务成就",
+                    failureIdentifier: "volunteerAchievementsRetryButton",
+                    retryTitle: "重新加载",
+                    retry: { Task { await viewModel.load() } }
+                ) { achievements in
                     content(achievements)
-                } else if viewModel.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载服务成就")
-                } else {
-                    errorSection
                 }
             }
             .padding(.horizontal, 16)
@@ -184,17 +184,6 @@ struct VolunteerServiceRecognitionView: View {
             }
             .accessibilityHint(VolunteerSecondaryPagesCopy.badgeShowAllHint)
             .accessibilityIdentifier("volunteerBadgeWallLink")
-        }
-    }
-
-    /// 与积分、固定搭档等页同一个失败块：上屏的同时念出来（#527），盲人不会以为「点了没反应」。
-    private var errorSection: some View {
-        IncentiveFailureSection(
-            message: viewModel.errorMessage ?? "服务成就加载失败。",
-            retryTitle: "重新加载",
-            identifier: "volunteerAchievementsRetryButton"
-        ) {
-            Task { await viewModel.load() }
         }
     }
 }
