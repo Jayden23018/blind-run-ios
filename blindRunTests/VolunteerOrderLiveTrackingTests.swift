@@ -20,6 +20,7 @@ final class VolunteerOrderLiveTrackingTests: XCTestCase {
     /// 跑者取消：只念「…不算你的取消…」那一整句，首页的通用句「这一单已取消。」不念。
     func testRunnerCancelSpeaksOnlyTheNotYourCancelSentence() async throws {
         let fixture = makeFixture(status: .pendingAccept)
+        await settleInitialPoll(fixture)
         let updates = recordStatusUpdates(fixture)
 
         pushStatus(fixture, from: .pendingAccept, to: .cancelled)
@@ -78,7 +79,66 @@ final class VolunteerOrderLiveTrackingTests: XCTestCase {
         XCTAssertEqual(answer, .homeShouldSpeak, "订单页丢弃的推送不能回 spoke: true")
     }
 
+    /// 完成态陪跑员这边只念一句（requirement 18 在陪跑员端）：订单页念通用句并回 `spoke: true`，首页不再念。
+    func testCompletionIsSpokenOnceWithTheHomeListening() async throws {
+        let fixture = makeFixture(status: .inProgress)
+        await settleInitialPoll(fixture)
+        let updates = recordStatusUpdates(fixture)
+
+        pushStatus(fixture, from: .inProgress, to: .completed)
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(fixture.speech.spokenHistoryForTesting, [RunOrderStatus.completed.volunteerAnnouncement])
+        XCTAssertEqual(fixture.page.order?.status, .completed)
+        let answer = await pageAnnouncement(fixture, updates)
+        XCTAssertEqual(answer, .pageSpoke)
+    }
+
     // MARK: - 只改提示、不改状态
+
+    /// 页面被盖住（`onDisappear` → `stopPolling` → `pause`）后：跑者位置不再收，状态推送与走散告警照常送达
+    /// （requirement 16，design §1）。`pause` 若被改成断流，这两条推送会静默丢失。
+    func testAfterStopPollingStatusAndAlertsStillArriveButPeerLocationsDoNot() async throws {
+        let fixture = makeFixture(status: .inProgress)
+        await settleInitialPoll(fixture)
+        fixture.page.stopPolling()
+        let coordinator = fixture.appState.realtimeCoordinator
+
+        coordinator.simulateIncomingEventForTesting(.blindLocation(WSBlindLocationUpdate(
+            type: WSMessageType.blindLocationUpdate.rawValue, orderId: orderID, lat: 39.9, lng: 116.4,
+            timestamp: Int64(Date().timeIntervalSince1970 * 1_000)
+        )))
+        coordinator.simulateIncomingEventForTesting(
+            .notification(Self.notification(eventType: "ESCORT_DISTANCE_ALERT", messageID: UUID().uuidString))
+        )
+        let raised = await waitUntil { fixture.page.separationAlertAt != nil }
+        XCTAssertTrue(raised, "离页后走散告警没送到")
+        XCTAssertNil(fixture.page.latestBlindSample, "离页后还在收跑者位置")
+
+        pushStatus(fixture, from: .inProgress, to: .rematching)
+        let left = await waitUntil { fixture.page.didLoseOrder }
+        XCTAssertTrue(left, "离页后状态推送没送到")
+    }
+
+    /// 这一单已放下（失联转走）之后，协调器为它请求的刷新不再拉详情（`loadForTracking` 的守卫）。
+    /// 原来的刷新订阅只认手上的 `order`；放下后再拉，过时的详情会把已放下的单再念一遍。
+    func testRefreshAfterTheOrderWasTakenAwayDoesNotFetch() async throws {
+        let fixture = makeFixture(status: .driverEnRoute)
+        await settleInitialPoll(fixture)
+        let coordinator = fixture.appState.realtimeCoordinator
+        coordinator.simulateIncomingEventForTesting(
+            .notification(Self.notification(eventType: "ORDER_VOLUNTEER_LOST", messageID: "888-lost-refresh"))
+        )
+        let left = await waitUntil { fixture.page.didLoseOrder }
+        XCTAssertTrue(left, "前提：订单页放下了这一单")
+        let detailCalls = fixture.service.callCount("orderDetail(orderId:)")
+
+        coordinator.requestOrderRefresh(orderID, reason: .statusChanged)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(fixture.service.callCount("orderDetail(orderId:)"), detailCalls, "放下之后还在为它拉详情")
+        XCTAssertTrue(fixture.speech.spokenHistoryForTesting.isEmpty, "\(fixture.speech.spokenHistoryForTesting)")
+    }
 
     /// 走散告警：只点亮提示条（`separationAlertAt`），订单状态、求助与流转一概不动。
     func testSeparationAlertOnlyRaisesTheBannerAndLeavesTheOrderAlone() async throws {

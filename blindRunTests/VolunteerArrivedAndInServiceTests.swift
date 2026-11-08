@@ -155,6 +155,8 @@ final class VolunteerArrivedAndInServiceTests: XCTestCase, BlindRunTestSupport {
         let arrived = await waitUntil(timeout: 0.25) { viewModel.latestBlindSample != nil }
 
         XCTAssertTrue(arrived, "本单的样本没送到页面")
+        // 等 999 单那条也走完协调器的发布（同一主线程周期合并后各自一个 Task），再断言它没清掉、也没替换本单标记。
+        try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(try XCTUnwrap(viewModel.latestBlindSample).coordinate.latitude, 39.9342, accuracy: 0.000_001)
         // 阈值 0.3 秒：到期后由 track 发 `.peerLocationExpired`，页面清掉。
         let expired = await waitUntil(timeout: 1) { viewModel.latestBlindSample == nil }
