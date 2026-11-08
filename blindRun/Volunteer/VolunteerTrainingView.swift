@@ -77,10 +77,8 @@ enum VolunteerTrainingCopy {
 /// 并发只用 async/await：`.task` + `Task`，没有 `AnyCancellable`（AGENTS.md 硬约束）。
 @MainActor
 final class VolunteerTrainingViewModel: ObservableObject {
-    @Published private(set) var response: TrainingCourseListResponse?
-    @Published private(set) var isLoading = false
-    @Published private(set) var hasLoadedOnce = false
-    @Published var errorMessage: String?
+    /// 课程列表的远端状态（#866）。失败视图由 `RemoteContent` 画，会念出来。
+    @Published private(set) var state: AsyncLoadState<TrainingCourseListResponse> = .idle
 
     private weak var appState: AppState?
 
@@ -90,22 +88,25 @@ final class VolunteerTrainingViewModel: ObservableObject {
         self.appState = appState
     }
 
+    var response: TrainingCourseListResponse? { state.value }
+    var hasLoadedOnce: Bool { state.value != nil }
     var courses: [TrainingCourseSummary] { response?.visibleCourses ?? [] }
     var requiredCompleted: Bool { response?.isRequiredCompleted ?? false }
     var certificateNo: String? { response?.certificateNo?.nilIfBlank }
 
+    /// 首次进入、点重试、从课程详情返回时都走这里。
+    ///
+    /// 页面规则：已经读到过列表时，刷新不切回加载占位，刷新失败也保留已显示的列表（状态停在 `.loaded`）。
     func load() async {
         guard let appState else { return }
-        isLoading = true
-        errorMessage = nil
+        if state.value == nil { state = .loading(requestID: UUID()) }
         do {
-            response = try await appState.training.courses()
-            hasLoadedOnce = true
+            state = .loaded(try await appState.training.courses())
         } catch {
+            guard state.value == nil else { return }
             // 不吞错误：失败时页面要给出可点的重试，而不是一个空列表。
-            errorMessage = (error as? APIError)?.localizedMessage ?? VolunteerTrainingCopy.loadFailure
+            state = .failed(message: (error as? APIError)?.localizedMessage ?? VolunteerTrainingCopy.loadFailure)
         }
-        isLoading = false
     }
 }
 
@@ -132,21 +133,15 @@ struct VolunteerTrainingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if viewModel.hasLoadedOnce {
+                RemoteContent(
+                    viewModel.state,
+                    loadingLabel: "正在加载培训课程",
+                    failureIdentifier: "volunteerTrainingRetryButton",
+                    retryTitle: VolunteerTrainingCopy.retry,
+                    retry: { Task { await viewModel.load() } }
+                ) { _ in
                     progressCard
                     courseGroups
-                } else if viewModel.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载培训课程")
-                } else {
-                    IncentiveFailureSection(
-                        message: viewModel.errorMessage ?? VolunteerTrainingCopy.loadFailure,
-                        retryTitle: VolunteerTrainingCopy.retry,
-                        identifier: "volunteerTrainingRetryButton"
-                    ) {
-                        Task { await viewModel.load() }
-                    }
                 }
             }
             .padding(.horizontal, 16)

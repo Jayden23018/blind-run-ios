@@ -13,9 +13,10 @@ import SwiftUI
 /// 并发只用 async/await（AGENTS.md 硬约束）。
 @MainActor
 final class VolunteerTrainingCourseViewModel: ObservableObject {
-    @Published private(set) var detail: TrainingCourseDetail?
-    @Published private(set) var isLoading = false
+    /// 课程正文的远端状态（#866）。失败视图由 `RemoteContent` 画，会念出来。
+    @Published private(set) var state: AsyncLoadState<TrainingCourseDetail> = .idle
     @Published private(set) var isSubmitting = false
+    /// 只装交卷失败（答题页显示）。读正文失败在 `state` 里。
     @Published var errorMessage: String?
 
     /// 已选答案：questionId → optionId。
@@ -45,6 +46,7 @@ final class VolunteerTrainingCourseViewModel: ObservableObject {
         self.appState = appState
     }
 
+    var detail: TrainingCourseDetail? { state.value }
     var questions: [TrainingQuestion] { detail?.visibleQuestions ?? [] }
 
     /// 选项缺失、答不了的题。
@@ -68,16 +70,16 @@ final class VolunteerTrainingCourseViewModel: ObservableObject {
 
     func load() async {
         guard let appState else { return }
-        isLoading = true
-        errorMessage = nil
+        state = .loading(requestID: UUID())
         do {
-            detail = try await appState.training.courseDetail(courseId: courseId)
+            state = .loaded(try await appState.training.courseDetail(courseId: courseId))
             if enteredAt == nil { enteredAt = Date() }
         } catch {
-            errorMessage = (error as? APIError)?.localizedMessage ?? "课程内容加载失败。"
+            state = .failed(message: (error as? APIError)?.localizedMessage ?? Self.loadFailure)
         }
-        isLoading = false
     }
+
+    static let loadFailure = "课程内容加载失败。"
 
     /// 离开页面时把停留时长报上去。
     ///
@@ -167,21 +169,15 @@ struct VolunteerTrainingCourseView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if let detail = viewModel.detail {
+                RemoteContent(
+                    viewModel.state,
+                    loadingLabel: "正在加载课程内容",
+                    failureIdentifier: "volunteerTrainingCourseRetryButton",
+                    retryTitle: VolunteerTrainingCopy.retry,
+                    retry: { Task { await viewModel.load() } }
+                ) { detail in
                     header(detail)
                     contentSection(detail)
-                } else if viewModel.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载课程内容")
-                } else {
-                    IncentiveFailureSection(
-                        message: viewModel.errorMessage ?? "课程内容加载失败。",
-                        retryTitle: VolunteerTrainingCopy.retry,
-                        identifier: "volunteerTrainingCourseRetryButton"
-                    ) {
-                        Task { await viewModel.load() }
-                    }
                 }
             }
             .padding(.horizontal, 16)
