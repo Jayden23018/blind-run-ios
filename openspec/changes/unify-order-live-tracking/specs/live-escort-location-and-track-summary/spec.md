@@ -29,6 +29,6 @@ The iOS app SHALL present fresh peer positions only to the blind runner and volu
 - **AND** a matching sample captured 16 seconds ago SHALL NOT update the marker on either role's order page
 
 #### Scenario: REST fallback uses the shared threshold
-- **WHEN** the blind runner's WebSocket is connected and its latest volunteer sample was captured 16 seconds ago during `IN_PROGRESS`
+- **WHEN** the blind runner's WebSocket is connected during `IN_PROGRESS` and the latest volunteer sample has passed the shared freshness deadline
 - **THEN** the order page SHALL request `GET /api/blind/volunteer-location` on the next poll
-- **AND** when the latest sample was captured 14 seconds ago it SHALL NOT request it
+- **AND** while the latest accepted sample is still within the deadline it SHALL NOT request it

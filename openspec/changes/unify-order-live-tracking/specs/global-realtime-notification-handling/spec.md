@@ -2,7 +2,7 @@
 
 ### Requirement: 两端订单页用同一种方式跟住一张单
 
-跑者订单页与陪跑员订单页 SHALL 以相同的规则跟住手上这一单：协调器校验过的状态更新 SHALL 立即改本地状态，不等 REST 详情；协调器不发状态更新的事件（任一状态值未知、`fromStatus` 与本地不符、重复 `messageId`）SHALL NOT 改本地状态，只 MAY 触发一次刷新。协调器请求刷新这一单时，订单页 SHALL 重拉 `GET /api/orders/{id}`；进页时已挂着的刷新请求 SHALL 补拉一次。轮询兜底的间隔 SHALL 为 5 秒，停止条件按角色：跑者订单页在最近一次权威状态不再需要轮询时停，陪跑员订单页在拉到终态时停；登录暂缓中两端 SHALL NOT 轮询。刷新失败 SHALL 按 1、2、4 秒重试三次后放弃。订单页离开屏幕时 SHALL 停止轮询并停止接收对方位置，但 SHALL 继续接收这一单的状态更新，直到页面被释放。
+跑者订单页与陪跑员订单页 SHALL 以相同的规则跟住手上这一单：协调器校验过的状态更新 SHALL 立即改本地状态，不等 REST 详情；协调器不发状态更新的事件 SHALL NOT 改本地状态：任一状态值未知或 `fromStatus` 与本地不符时 MAY 触发一次刷新，重复 `messageId` SHALL 直接丢弃、不触发刷新。协调器请求刷新这一单时，订单页 SHALL 重拉 `GET /api/orders/{id}`；进页时已挂着的刷新请求 SHALL 补拉一次。轮询兜底的间隔 SHALL 为 5 秒，停止条件按角色：跑者订单页在最近一次权威状态不再需要轮询时停，陪跑员订单页在拉到终态时停；登录暂缓中两端 SHALL NOT 轮询。刷新失败 SHALL 按 1、2、4 秒重试三次后放弃；陪跑员拉详情得到 403 `ORDER_PERMISSION_DENIED`（单已转走）时 SHALL 清掉挂着的刷新、不重试。订单页离开屏幕时 SHALL 停止轮询并停止接收对方位置，但 SHALL 继续接收这一单的状态更新与其他实时事件，直到页面被释放；离开屏幕 SHALL NOT 注销这一单的活跃登记。
 
 #### Scenario: 状态推送先于详情生效
 - **WHEN** 陪跑员订单页正在等一次很慢的详情请求，收到本单合法的 `ORDER_STATUS_CHANGED`（`DRIVER_ARRIVED` → `IN_PROGRESS`）
@@ -41,7 +41,7 @@
 
 ### Requirement: 状态变化句只念一次，订单页开着时由订单页念
 
-同一次状态变化 SHALL 只念一句。本单的订单页 ViewModel 存在时，状态变化句 SHALL 由订单页念，首页 SHALL NOT 念这一单的状态句（首页的「当前订单」照常更新）；订单页不存在时 SHALL 由首页念。这个判断 SHALL 基于「本单的订单页是否在跟这一单」，SHALL NOT 依赖两处收到推送的先后顺序。
+同一次状态变化 SHALL 只念一句状态句（完成态除外，见下）。本单的订单页存在且念了这一次的状态句时，首页 SHALL NOT 再念；订单页不存在、或订单页这一次没有念（例如详情还没拉回来）时，首页 SHALL 念。首页的「当前订单」SHALL 照常更新，不等这个判断。判断 SHALL NOT 依赖两处收到推送的先后顺序；首页等订单页回话 SHALL 有上限，超时首页照念。完成态 SHALL 照现状由订单页念完成句、首页念通用句。
 
 #### Scenario: 陪跑员订单页开着时跑者取消
 - **WHEN** 陪跑员订单页开着，收到本单 `CANCELLED`（跑者取消）
@@ -54,8 +54,20 @@
 
 #### Scenario: 跑者订单页开着时通话磨合没成
 - **WHEN** 跑者订单页开着，收到本单 `PENDING_INTRO_CALL` → `PENDING_MATCH`
-- **THEN** 念订单页那句（含「本次见面安排未生效」或本轮结束的说明）
+- **THEN** 念订单页那句（含「本次见面安排未生效」或本轮结束的说明）；退回 `REMATCHING` 时同样
 - **AND** 首页 SHALL NOT 念它自己的状态句
+
+#### Scenario: 跑者订单页开着时双方都说合适
+- **WHEN** 跑者订单页开着，收到本单 `PENDING_INTRO_CALL` → `PENDING_ACCEPT`
+- **THEN** 念订单页那句整句约定，首页 SHALL NOT 念它自己的状态句
+
+#### Scenario: 订单页开着但详情还没拉回来
+- **WHEN** 跑者刚打开订单页、详情请求还没返回，收到本单合法的状态推送
+- **THEN** 首页念一次状态句
+
+#### Scenario: 完成
+- **WHEN** 跑者订单页开着，收到本单 `IN_PROGRESS` → `COMPLETED`
+- **THEN** 订单页念完成句，首页照现状念通用句
 
 #### Scenario: 失联转走后紧跟重派
 - **WHEN** 陪跑员订单页开着，先收到 `ORDER_VOLUNTEER_LOST`，紧接着收到本单 `REMATCHING`
