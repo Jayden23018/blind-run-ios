@@ -374,6 +374,25 @@ struct VolunteerRunRecordPage: View {
         }
     }
 
+    /// 头部下面一行小数据（照健身的天气行）：志愿服务时长、中途休息次数。D5：没有「待确认」之类的状态。
+    private func serviceRow(_ text: String, duration: String, range: String?, stops: Int) -> some View {
+        var stats = [RunRecordSmallStat(
+            value: duration,
+            label: "志愿服务",
+            spoken: [text, range.map { $0.replacingOccurrences(of: "–", with: "到") }].compactMap { $0 }.joined(separator: "，")
+        )]
+        if stops > 0 {
+            stats.append(RunRecordSmallStat(value: "\(stops) 次", label: "中途休息", spoken: "中途休息 \(stops) 次"))
+        }
+        return RunRecordSmallStatsRow(stats: stats)
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("runRecordServiceRow")
+    }
+}
+
+// 拆出来只是因为结构体正文超过 SwiftLint 上限（棘轮只许变小）；同一个文件，私有成员照常可见。
+extension VolunteerRunRecordPage {
     // MARK: 给X留句话（阶段 6，HANDOFF 6.2 第 9 条）
 
     @ViewBuilder
@@ -503,22 +522,6 @@ struct VolunteerRunRecordPage: View {
         case .idle, .sending:
             EmptyView()
         }
-    }
-
-    /// 头部下面一行小数据（照健身的天气行）：志愿服务时长、中途休息次数。D5：没有「待确认」之类的状态。
-    private func serviceRow(_ text: String, duration: String, range: String?, stops: Int) -> some View {
-        var stats = [RunRecordSmallStat(
-            value: duration,
-            label: "志愿服务",
-            spoken: [text, range.map { $0.replacingOccurrences(of: "–", with: "到") }].compactMap { $0 }.joined(separator: "，")
-        )]
-        if stops > 0 {
-            stats.append(RunRecordSmallStat(value: "\(stops) 次", label: "中途休息", spoken: "中途休息 \(stops) 次"))
-        }
-        return RunRecordSmallStatsRow(stats: stats)
-            .padding(.horizontal, 4)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("runRecordServiceRow")
     }
 }
 

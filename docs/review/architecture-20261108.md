@@ -93,6 +93,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - view model 构造时拿齐依赖：`RunRecordViewModel(orderId:dependencies:speech:)`。`configure`、weak、`guard let appState` 全部删掉，没有「配好之前」这个状态。
 - `runRecord` 闭包每次请求现取一次 `appState.runRecord`，和改前一样跟着当前环境走（`AppState.apiClient` 按 `currentEnvironment` 算，运行中能变）。
 - SwiftUI 的 `init` 里拿不到 `@EnvironmentObject`，所以页面拆成两层：原名 `RunnerRunRecordView` / `VolunteerRunRecordView` 变成只读环境对象的外壳，在 `body` 里构造内层 `…Page`。4 个调用方（含订单页红线文件 `CompletedTrackSummaryView.swift`）一行没改。`StateObject` 的闭包只跑一次，外壳重绘不会换掉 view model。
+- 内层页面改了名，SwiftLint 棘轮按声明原文认旧账，把陪跑员页当成新违规。照跑者页的先例，把「留句话」输入区挪进同文件 `extension`，没改 baseline。推广时每拆一页都会遇到同样的事。
 - 用例不再需要 `AppState`：删掉 10 行 `_ = appState` 和 3 个 token 存储类。新增 1 条用例守 `.live(appState)` 把订单详情接到 `appState.orders`（`UserSafetyViewModelTests.testLiveDependenciesReadTheOrderThroughAppState`，已写，未执行）。
 - weak 约定要防的两个问题：循环引用不存在（`AppState` 和 `SpeechService` 不持有 view model）；硬件服务竞态与本页无关（不用定位）。
 - 验证：`build-for-testing` 通过（见 PR）。没有跑真机，所有改动过的用例都是已写，未执行。
