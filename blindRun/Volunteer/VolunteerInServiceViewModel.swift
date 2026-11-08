@@ -1,4 +1,4 @@
-import Combine
+import Combine // 只为 `@Published` / `ObservableObject`；订单跟踪不走 Combine（unify-order-live-tracking）
 import SwiftUI
 
 // MARK: - In Service
@@ -30,7 +30,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 这一单被系统转走了（#456）：失联事件 `ORDER_VOLUNTEER_LOST`，或不是自己按的取消却收到 `REMATCHING`。
     /// 宿主据此收起面板并关页。与 `didCancelOrder` 分开：那条是「我自己退掉的」，由取消面板的回调关页。
     @Published var didLoseOrder = false
-    private var volunteerLostCancellable: AnyCancellable?
     @Published var latestBlindSample: LocatedCoordinate?
     /// 与盲人同步的里程 / 时长 / 配速。只在 `IN_PROGRESS` 有值。
     @Published private(set) var blindStats: TrackStats?
@@ -42,7 +41,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 页面据此把按钮上方小字换成「等待对方确认」；**按钮不置灰**，对方随时可能点。
     /// 收到 WS `BLIND_START_CONFIRMED`、或订单离开 `DRIVER_ARRIVED` 时清除。
     @Published var awaitingBlindConfirmation = false
-    private var blindStartConfirmedCancellable: AnyCancellable?
 
     // 陪跑员订单页 v2（交付包 02 ③④）。
     /// 跑者最近一次位置的精度（米），汇合页方位盘的扇形宽度用它。与 `latestBlindSample` 同生同灭。
@@ -64,11 +62,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var weakLocationSince: Date?
     @Published var isTogglingPause = false
     @Published var supportRequestState: VolunteerSupportRequestState = .idle
-    private var separationCancellable: AnyCancellable?
     /// 上一次已经播报（或进页时已经跑过）的整公里数。`nil` = 还没拿到过数字，第一次只记不播。
     private var lastAnnouncedKilometer: Int?
     private let voiceBroadcastEnabled: () -> Bool
-    private var orderLiveUpdateCancellable: AnyCancellable?
     /// 结束等待的请求在路上。那期间收到的 `CANCELLED` 是它自己造成的，不播「跑者取消了」。
     var isEndingWait = false
 
@@ -80,16 +76,14 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     weak var appState: AppState?
     var speechService: SpeechService?
-    private var pollingTask: Task<Void, Never>?
-    private var realtimeRefreshCancellable: AnyCancellable?
-    private var realtimeStatusCancellable: AnyCancellable?
-    private var peerLocationCancellable: AnyCancellable?
+    /// 这一页的订单跟踪（OpenSpec `unify-order-live-tracking` 第 3 批）：状态推送、刷新、5 秒轮询、
+    /// 跑者位置与过期、汇合 / 失联 / 走散几条推送都从这一条流来。只在第一次 `configure` 时打开。
+    private var track: OrderLiveTrack?
+    private var trackingTask: Task<Void, Never>?
     var confirmationTask: Task<Void, Never>?
     /// 取消之后那一句与「已记一次临时取消」的先后（`VolunteerCancelAnnouncement`）。
     var cancelAnnouncement = VolunteerCancelAnnouncement()
     var dispatchSummaryTask: Task<Void, Never>?
-    var peerExpiryTask: Task<Void, Never>?
-    var acceptsPeerLocations = true
     let actionDeadlineNanoseconds: UInt64
     let confirmationTimeout: TimeInterval
     let orderLoadTimeout: TimeInterval
@@ -121,7 +115,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func configure(with appState: AppState, speechService: SpeechService, initialOrder: OrderDetailResponse?) {
         self.appState = appState
         self.speechService = speechService
-        acceptsPeerLocations = true
         if order == nil {
             order = initialOrder
         }
@@ -130,119 +123,23 @@ final class VolunteerInServiceViewModel: ObservableObject {
             // 换单时 `updateOwnedOrder` 会清掉姓氏，所以这里再补一次（`didSet` 那次排在它前面）。
             appState.liveEscortCoordinator.updateLiveActivityPartnerName(order.blindSurname?.nilIfBlank)
         }
-        if realtimeRefreshCancellable == nil {
-            realtimeRefreshCancellable = appState.realtimeCoordinator.$pendingOrderRefreshIDs
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] orderIDs in
-                    guard let self, let orderID = self.order?.orderId, orderIDs.contains(orderID) else { return }
-                    Task { await self.load(orderId: orderID, speakChanges: true) }
-                }
-        }
-        if realtimeStatusCancellable == nil {
-            realtimeStatusCancellable = appState.realtimeCoordinator.statusUpdatePublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] update in
-                    guard let self,
-                          let current = self.order,
-                          current.orderId == update.orderId else { return }
-                    self.apply(
-                        current.replacingStatus(with: update.toStatus),
-                        speakChanges: true
-                    )
-                    self.isLoading = false
-                }
-        }
-        if peerLocationCancellable == nil {
-            peerLocationCancellable = appState.realtimeCoordinator.peerLocationPublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] sample in
-                    self?.handleBlindLocationUpdate(sample)
-                }
-        }
-        // ETA / 汇合距离档位。不落通知日志，只就地合进手上这份订单，重连后以详情为准。
-        if orderLiveUpdateCancellable == nil {
-            orderLiveUpdateCancellable = appState.realtimeCoordinator.orderLiveUpdatePublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] update in
-                    guard let self, let current = self.order else { return }
-                    self.order = current.merging(update)
-                }
-        }
-        // 盲人点了「可以开始」（`BLIND_START_CONFIRMED`）。该事件信封**不带 `orderId`**
-        // （`websocket-protocol.md`，早于 orderId 约定），所以只认「当前这张是汇合态」；
-        // 陪跑员同一时刻只会有一张汇合态订单（`VOLUNTEER_ALREADY_ENGAGED` 时段闸）。
-        if blindStartConfirmedCancellable == nil {
-            blindStartConfirmedCancellable = appState.realtimeCoordinator.blindStartConfirmedPublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] in
-                    guard let self, let order = self.order, order.status == .driverArrived else { return }
-                    self.awaitingBlindConfirmation = false
-                    // 跑者确认后后端把它置 `null`。先在本地清掉：下面那次重拉失败时，
-                    // 按钮上方不能还说「跑者还没按开始跑步」（`VolunteerActionGate`）。
-                    self.order?.blindConfirmDeadlineAt = nil
-                    Task { await self.load(orderId: order.orderId, speakChanges: false) }
-                }
-        }
-        // 出发后失联、单已转走（`ORDER_VOLUNTEER_LOST`，#456）。信封同样不带 `orderId`，判据见
-        // `isTakenAwayWhenVolunteerLost`。后端紧接着还会推 `REMATCHING`：这里先把 `order` 置空，
-        // 那条推送到达时上面的状态订阅就认不出这一单，不会再念「订单已取消」把横幅切断。
-        if volunteerLostCancellable == nil {
-            volunteerLostCancellable = appState.realtimeCoordinator.volunteerLostPublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] in
-                    guard let self, let order = self.order, order.status.isTakenAwayWhenVolunteerLost else { return }
-                    self.leaveLostOrder(orderID: order.orderId)
-                }
-        }
-        // 走散提示条的驱动（V7：沿用现有告警，阈值不改）。`dropFirst`：订阅时吐出的是旧告警，
-        // 进页那一刻不该把一条早就过去的走散当成「刚刚」。
-        if separationCancellable == nil {
-            separationCancellable = appState.realtimeCoordinator.$latestSeparationAlert
-                .dropFirst()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] alert in
-                    guard let self, let alert, alert.eventType == "ESCORT_DISTANCE_ALERT",
-                          alert.orderID == self.order?.orderId else { return }
-                    self.separationAlertAt = Date()
-                    // 前台横幅已经在念这条告警，这一下是它的冗余通道（08 §五「额外 .warning 一次」）。
-                    HapticFeedback.play(.warning)
-                }
-        }
+        openTrackIfNeeded(appState)
     }
 
     func startPolling(orderId: Int64) {
         if order?.orderId != orderId {
             clearPeerLocation()
         }
-        acceptsPeerLocations = true
-        appState?.realtimeCoordinator.registerActiveOrder(orderId)
-        pollingTask?.cancel()
-        pollingTask = Task { [weak self] in
-            // 暂缓中（#376）连第一次也不拉，理由同跑者订单页。
-            guard self?.appState?.isSessionExpiryDeferred != true else { return }
-            await self?.load(orderId: orderId, speakChanges: true)
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(AppConstants.Timing.orderPollingInterval * 1_000_000_000))
-                if Task.isCancelled { return }
-                await self?.load(orderId: orderId, speakChanges: true)
-                if self?.order?.status.isTerminal == true {
-                    return
-                }
-                // 跑步中登录已过期（#376）：拿着过期凭证轮询只会每 5 秒再收一次 401。
-                // 暂缓结束就是登出，这个页面随之销毁，不需要恢复轮询。
-                if self?.appState?.isSessionExpiryDeferred == true {
-                    return
-                }
-            }
-        }
+        // 登记活跃订单、（重）开轮询并立即拉一次、开始收跑者位置，都在 track 里（design §1、§4：
+        // 暂缓中连第一次也不拉；之后睡 5 秒 → 拉 → 终态或暂缓中就停）。
+        track?.follow(orderID: orderId)
     }
 
+    /// 只停轮询与跑者位置；状态推送等其余事件照常送达（design §1）。不注销活跃订单。
     func stopPolling() {
-        pollingTask?.cancel()
-        pollingTask = nil
+        track?.pause()
         confirmationTask?.cancel()
         confirmationTask = nil
-        acceptsPeerLocations = false
         clearPeerLocation()
     }
 
@@ -335,4 +232,82 @@ final class VolunteerInServiceViewModel: ObservableObject {
         speechService?.speak(VolunteerRunCopy.kilometerAnnouncement(km: km, duration: duration))
     }
 
+}
+
+// 订单跟踪的接入（design §1、§7）。放在同文件的扩展里：要写 `private(set)` 的 `separationAlertAt`，又不撑大类型体。
+extension VolunteerInServiceViewModel {
+    func openTrackIfNeeded(_ appState: AppState) {
+        guard track == nil else { return }
+        let track = appState.realtimeCoordinator.orderLiveTracker.open(
+            role: .volunteer,
+            polling: .volunteer,
+            peerFreshness: peerFreshness,
+            currentStatus: { [weak self] in self?.order?.status },
+            isSessionExpiryDeferred: { [weak appState] in appState?.isSessionExpiryDeferred ?? false },
+            load: { [weak self] orderID in await self?.loadForTracking(orderId: orderID) }
+        )
+        self.track = track
+        // 只拿流，不捕获 track：页面释放 ⇒ track 释放 ⇒ 流结束 ⇒ 这个任务退出。
+        let events = track.events
+        trackingTask = Task { [weak self] in
+            for await event in events {
+                self?.handle(event)
+            }
+        }
+    }
+
+    /// 轮询与协调器请求的刷新共用这一个入口。这一单已经放下（自己取消 / 被转走，`order` 已置空）就不再拉：
+    /// 原来的刷新订阅只认手上的 `order`，放下之后不为它发请求（否则会把已放下的单再念一遍）。
+    private func loadForTracking(orderId: Int64) async {
+        if order == nil, didLoseOrder || didCancelOrder { return }
+        await load(orderId: orderId, speakChanges: true)
+    }
+
+    /// 每种事件同步处理，判据照搬原来的 7 个订阅。
+    private func handle(_ event: OrderTrackingEvent) {
+        switch event {
+        case .status(let update):
+            // 必调（design §6）：首页据此决定念不念通用状态句。
+            track?.acknowledge(update, spoke: applyRealtimeStatus(update))
+        case .peerLocation(let peer):
+            showBlindLocation(peer)
+        case .peerLocationExpired:
+            clearPeerLocation()
+        case .liveUpdate(let update):
+            // ETA / 汇合距离档位。不落通知日志，只就地合进手上这份订单，重连后以详情为准。
+            guard let current = order else { return }
+            order = current.merging(update)
+        case .blindStartConfirmed:
+            confirmBlindStartIfMeeting()
+        case .volunteerLost:
+            // 出发后失联、单已转走（`ORDER_VOLUNTEER_LOST`，#456）。信封同样不带 `orderId`，判据见
+            // `isTakenAwayWhenVolunteerLost`。后端紧接着还会推 `REMATCHING`：这里先把 `order` 置空，
+            // 那条推送到达时 `applyRealtimeStatus` 就认不出这一单，不会再念「订单已取消」把横幅切断。
+            guard let order, order.status.isTakenAwayWhenVolunteerLost else { return }
+            leaveLostOrder(orderID: order.orderId)
+        case .separationAlert(let alert):
+            raiseSeparationAlert(alert)
+        }
+    }
+
+    private func confirmBlindStartIfMeeting() {
+        // 盲人点了「可以开始」（`BLIND_START_CONFIRMED`）。信封**不带 `orderId`**
+        // （`websocket-protocol.md`，早于 orderId 约定），所以只认「当前这张是汇合态」；
+        // 陪跑员同一时刻只会有一张汇合态订单（`VOLUNTEER_ALREADY_ENGAGED` 时段闸）。
+        guard let order, order.status == .driverArrived else { return }
+        awaitingBlindConfirmation = false
+        // 跑者确认后后端把它置 `null`。先在本地清掉：下面那次重拉失败时，
+        // 按钮上方不能还说「跑者还没按开始跑步」（`VolunteerActionGate`）。
+        self.order?.blindConfirmDeadlineAt = nil
+        Task { await self.load(orderId: order.orderId, speakChanges: false) }
+    }
+
+    private func raiseSeparationAlert(_ alert: RealtimeSeparationAlert) {
+        // 走散提示条的驱动（V7：沿用现有告警，阈值不改）。track 只送打开之后到的、本单的
+        // `ESCORT_DISTANCE_ALERT`；手上的单已放下就不认（原订阅比的是 `order?.orderId`）。
+        guard alert.orderID == order?.orderId else { return }
+        separationAlertAt = Date()
+        // 前台横幅已经在念这条告警，这一下是它的冗余通道（08 §五「额外 .warning 一次」）。
+        HapticFeedback.play(.warning)
+    }
 }
