@@ -14,7 +14,8 @@ final class BlindRunnerReviewAndRealtimeTests: XCTestCase, BlindRunTestSupport {
         viewModel.configure(appState: appState, speechService: SpeechService())
         viewModel.order = makeOrder(orderId: 1, status: .inProgress)
 
-        XCTAssertEqual(viewModel.effectivePollingInterval, AppConstants.Timing.orderPollingInterval)
+        // 轮询 2026-11-08 起在订单跟踪里（#887），间隔取 tracker 的。
+        XCTAssertEqual(appState.realtimeCoordinator.orderLiveTracker.interval, AppConstants.Timing.orderPollingInterval)
     }
 
     func testBlindRunnerCompletedOrderSubmitsReviewRequest() async throws {
@@ -148,10 +149,11 @@ final class BlindRunnerReviewAndRealtimeTests: XCTestCase, BlindRunTestSupport {
         }
 
         XCTAssertTrue(didApply)
-        XCTAssertEqual(
-            speechService.lastSpokenText,
-            viewModel.activeOrder?.blindRunnerAnnouncement()
-        )
+        // 首页那句 2026-11-08 起先问订单页念没念（#887），晚一拍才出声；没有订单页时照念。
+        let didSpeak = await waitUntil {
+            speechService.lastSpokenText == viewModel.activeOrder?.blindRunnerAnnouncement()
+        }
+        XCTAssertTrue(didSpeak)
         XCTAssertEqual(viewModel.currentStatusText.contains("陪跑员出发中"), true)
 
         refresh.cancel()

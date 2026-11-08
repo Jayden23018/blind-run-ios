@@ -284,7 +284,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             return nil
         }
         let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
-        guard now.timeIntervalSince(capturedAt) <= Self.peerFreshness else { return nil }
+        guard PeerLocationFreshness(threshold: Self.peerFreshness).isFresh(capturedAt: capturedAt, now: now) else { return nil }
         return BackendCoordinateNormalizer.backend(
             latitude: sample.latitude,
             longitude: sample.longitude,

@@ -14,15 +14,14 @@ extension BlindOrderStatusViewModel {
         self.speechService = speechService
         self.locationService = locationService
         self.placeSearchProvider = placeSearchProvider
-        acceptsPeerLocations = true
         // 坐标取 `latestVolunteerCoordinate` 而不是重算一遍：它已经过了新鲜度闸
-        // （WebSocket 那条判 `age <= peerFreshness`，过期由 `schedulePeerExpiry` 清空）。
+        // （WebSocket 那条由订单跟踪判新鲜度，过期时收到 `.peerLocationExpired` 清空）。
         voiceQuerySession.configure(
             speechService: speechService,
             speechInputService: speechInputService,
             context: { [weak self] in (self?.order, self?.latestVolunteerCoordinate) }
         )
-        subscribeToRealtimeCoordinator(appState: appState)
+        openOrderTrackIfNeeded(appState: appState)
     }
 
     func startPolling(orderId: Int64) {
@@ -49,30 +48,15 @@ extension BlindOrderStatusViewModel {
             lastArrivalCancelGate = nil
         }
         currentOrderId = orderId
-        acceptsPeerLocations = true
-        appState?.realtimeCoordinator.registerActiveOrder(orderId)
-        pollingTask?.cancel()
-        pollingTask = Task { [weak self] in
-            // 暂缓中（#376）连第一次也不拉：全屏遮罩收起时 `onAppear` 会再进这里，拉了必然 401。
-            guard self?.appState?.isSessionExpiryDeferred != true else { return }
-            await self?.loadOrder(orderId: orderId, speakChanges: true)
-
-            while !Task.isCancelled {
-                guard let self else { return }
-                if !self.shouldContinuePolling {
-                    return
-                }
-                try? await Task.sleep(nanoseconds: UInt64(self.effectivePollingInterval * 1_000_000_000))
-                if Task.isCancelled { return }
-                await self.loadOrder(orderId: orderId, speakChanges: true)
-            }
-        }
+        // 登记活跃订单、（重）开 5 秒轮询并立即拉一次、开始收对方位置，都在订单跟踪里。
+        // 轮询顺序（判停 → 睡 → 拉）与暂缓中（#376）连第一次也不拉，见 `OrderPollingPolicy.blindRunner`。
+        orderTrack?.follow(orderID: orderId)
     }
 
     func stopPolling() {
-        pollingTask?.cancel()
-        pollingTask = nil
-        acceptsPeerLocations = false
+        // 停轮询、停收对方位置；不注销活跃订单（注销只在 `apply` 的终态分支）。
+        orderTrack?.pause()
+        // 跟踪那边的 `.peerLocationExpired` 晚一拍才到，这里先同步清掉，离页即清。
         clearPeerLocation()
         cancelRunCountdown()
     }
@@ -98,14 +82,6 @@ extension BlindOrderStatusViewModel {
             isLoadingStatusLogs = false
             statusLogsErrorMessage = "获取状态变更记录失败。"
         }
-    }
-
-    private var shouldContinuePolling: Bool {
-        // 跑步中登录已过期（#376）：拿着过期凭证轮询只会每 5 秒再收一次 401。
-        // 暂缓结束就是登出，这个页面随之销毁，所以这里不需要「恢复轮询」的那一半。
-        if appState?.isSessionExpiryDeferred == true { return false }
-        guard let order else { return true }
-        return order.status.shouldPoll
     }
 
     func loadOrder(orderId: Int64, speakChanges: Bool) async {
@@ -185,7 +161,9 @@ extension BlindOrderStatusViewModel {
         }
     }
 
-    func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
+    /// - Returns: 这一次念没念状态句（首页据此决定念不念，design §6）。完成那句走独立任务，算没念。
+    @discardableResult
+    func apply(_ updated: OrderDetailResponse, speakChanges: Bool) -> Bool {
         let previousStatus = order?.status
         order = updated
         announceArrivalCancelUnlockIfNeeded(for: updated, speakChanges: speakChanges)
@@ -197,15 +175,17 @@ extension BlindOrderStatusViewModel {
         appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.volunteerSurname?.nilIfBlank)
         refreshVolunteerDistance()
         updateRunCountdown(from: previousStatus, to: updated.status)
+        var spokeStatus = false
         if speakChanges, previousStatus != updated.status {
             if let completion = Self.completionAnnouncement(from: previousStatus, to: updated.status) {
                 // 不在这里播 —— 里程要等 `/track` 的终值回来，而这一刻紧接着就要自我取消。
                 startCompletionAnnouncement(completion, order: updated)
             } else {
-                speechService?.speakBlindRunnerStatusChange(
+                // 被去重挡掉（这一态已念过）算没念：首页再念也同样会被挡掉。
+                spokeStatus = speechService?.speakBlindRunnerStatusChange(
                     updated,
                     text: statusChangeAnnouncement(from: previousStatus, to: updated)
-                )
+                ) ?? false
             }
         }
         if updated.status != .pendingIntroCall {
@@ -218,5 +198,6 @@ extension BlindOrderStatusViewModel {
             }
             stopPolling()
         }
+        return spokeStatus
     }
 }
