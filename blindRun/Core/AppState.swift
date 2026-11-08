@@ -58,6 +58,9 @@ final class AppState: ObservableObject {
     @Published var accessToken: String? {
         didSet {
             persistToken()
+            // Mock 跟着本地会话走（角色在 `activeRole` 里同样这么同步）。不同步的话，直接给 `accessToken` 赋值的路径上
+            // Mock 会对需要登录的端点回 401，而 `apiClient` 外面那层（#872）会把这个假 401 当成会话失效、把人登出。
+            mockAPIClient.syncSessionFromAppState(token: accessToken, role: activeRole)
             if oldValue != accessToken, !isApplyingRenewedAccessToken {
                 sessionGeneration &+= 1
                 realtimeCoordinator.detach(clearSessionState: true)

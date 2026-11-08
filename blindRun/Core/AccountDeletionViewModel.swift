@@ -44,7 +44,7 @@ final class AccountDeletionViewModel: ObservableObject {
                 return
             }
         } catch APIError.unauthorized {
-            appState.expireSession()
+            // 会话已由 `apiClient` 外面那层统一处理（跑步中暂缓，否则登出，#872）。这里只停下：不弹删除确认。
             return
         } catch {
             // 预检只提供及时提示；最终权限与订单状态始终由删除接口裁决。

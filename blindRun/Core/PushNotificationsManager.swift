@@ -201,7 +201,8 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         guard let token = lastReportedScope?.token ?? pendingToken,
               let appState, appState.isLoggedIn else { return nil }
         do {
-            try await appState.auth.unregisterDeviceToken(token)
+            // `sessionUnawareAuth`：登出前这一步的 401 按登出规则收尾，不走会话失效的统一处理（#872）。
+            try await appState.sessionUnawareAuth.unregisterDeviceToken(token)
             return nil
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "apns-token-unregister")

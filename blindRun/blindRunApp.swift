@@ -268,7 +268,7 @@ struct blindRunApp: App {
               let seconds = Double(raw) else { return }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
-            guard let mock = appState.apiClient as? MockAPIClient,
+            guard let mock = appState.sessionUnawareAPIClient as? MockAPIClient,
                   let lost = mock.takeAwayDepartedOrderForUITesting() else { return }
             appState.realtimeCoordinator.simulateIncomingEventForTesting(
                 .notification(WSAppNotification(
