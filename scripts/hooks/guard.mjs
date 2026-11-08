@@ -18,7 +18,7 @@
 // 本文件只做入口与调度（#722 拆分）。规则按主题放在 `scripts/hooks/guard/` 下，改一条规则只读一个模块：
 //   common.mjs               fail()、注释行过滤、读文件等共用工具
 //   repo-files.mjs           pre：归档契约、冻结文件与架构排除设置、隐私清单、高德 key、OpenAPI 运行时
-//   swift-edits.mjs          pre：weak 临时对象、UI 测试敲正中、裸 open URL、盲人端触达 64pt、通知播报档位
+//   swift-edits.mjs          pre：weak 临时对象、新增 weak appState、UI 测试敲正中、裸 open URL、盲人端触达 64pt、通知播报档位
 //   scripts-and-ci.mjs       pre：workflow if 里的 secrets、真机 xcodebuild 团队号、文档里写死团队号
 //   ui-test-identifiers.mjs  pre：UI 测试与 App 的 accessibilityIdentifier 漂移（跨文件）
 //   test-target.mjs          post：无障碍审计类型全集、测试 helper 漏交 weak 依赖
@@ -42,6 +42,7 @@ import { checkHardcodedTeamId, checkMissingTeam, checkSecretsInIf } from './guar
 import {
   checkBannerSpeechPriority,
   checkBlindTapCenter,
+  checkNewWeakAppState,
   checkRawOpenURL,
   checkSmallTouchTarget,
   checkWeakTemporary,
@@ -60,6 +61,7 @@ const PRE_EDIT_CHECKS = [
   checkAmapKey,
   checkOpenAPIInAppTarget,
   checkWeakTemporary,
+  checkNewWeakAppState,
   checkBlindTapCenter,
   checkRawOpenURL,
   checkSmallTouchTarget,

@@ -1,8 +1,8 @@
 // pre 段 · Swift 写法：weak 依赖传临时对象、UI 测试敲屏幕正中、绕开 EmergencyDialer 开 URL、
-// 盲人端触达低于 64pt、前台通知播报丢档位。
+// 盲人端触达低于 64pt、前台通知播报丢档位、新增 weak appState。
 // 每个函数命中即 `fail()` 退出 2；没命中就返回。调用顺序由 `guard.mjs` 决定。
 
-import { fail, nonCommentLines } from './common.mjs';
+import { fail, nonCommentLines, readFileOrEmpty } from './common.mjs';
 
 export function checkWeakTemporary({ filePath, body }) {
   // 5. 把临时对象传给 weak 依赖（2026-08-06）
@@ -181,4 +181,32 @@ export function checkBannerSpeechPriority({ filePath, body }) {
         `确需例外，行尾加 \`guard:allow banner-speech-priority\`。`
     );
   }
+}
+
+export function checkNewWeakAppState({ input, filePath, body }) {
+  // 7.7 新增 `weak var appState`（2026-11-08，#894 试点结论）
+  //
+  // 两步构造（`init` 里 `ViewModel()`、`.task` 里 `configure(with: appState)`、`appState` 是 weak）
+  // 会造出两类只在真机上才露馅的错：忘了 `configure` 时页面静默不做事；用例里 weak 依赖被提前释放，
+  // 断言假绿（记忆 `location-service-test-seam-and-weak-viewmodel-deps` 记了 4 次）。
+  // 试点 `RunRecordViewModel` 改成构造时传入窄依赖（`RunRecordDependencies`），负责人定：
+  // 旧页面不批量迁，但**不再新增**这种写法。
+  //
+  // 只拦「变多」：Edit 比新旧片段，Write 比磁盘上的原文件。把已有的声明搬个位置不拦。
+  if (!/\/blindRun\/.*\.swift$/.test(filePath)) return;
+  const WEAK_APPSTATE = /\bweak\s+var\s+appState\b/;
+  const count = (text) =>
+    nonCommentLines(text || '').filter((l) => WEAK_APPSTATE.test(l) && !l.includes('guard:allow weak-appstate')).length;
+  const before = input.new_string !== undefined ? count(input.old_string) : count(readFileOrEmpty(filePath));
+  const after = count(body);
+  if (after <= before) return;
+  const line = nonCommentLines(body).find((l) => WEAK_APPSTATE.test(l) && !l.includes('guard:allow weak-appstate'));
+  fail(
+    'weak-appstate',
+    `${filePath}\n  ${line.trim()}\n\n` +
+      `不再新增 \`weak var appState\` + \`configure(with:)\` 的两步构造（#894）。\n` +
+      `改法：构造 view model 时传入它真正要的窄依赖（协议或闭包），照 \`RunRecordDependencies\`（blindRun/Shared/RunRecordPresentation.swift）。\n` +
+      `View 的 \`init\` 里拿不到 \`@EnvironmentObject\`：用一个外壳在 \`body\` 里取，再构造内层页面（例：VolunteerRunRecordView）。\n` +
+      `结论与代价见 docs/review/architecture-20261108.md §6。确需例外，行尾加 \`// guard:allow weak-appstate\`。`
+  );
 }

@@ -1,7 +1,113 @@
 // `scripts/hooks/guard/swift-edits.mjs` 的自测用例：weak 临时对象、UI 测试敲正中、裸 open URL、盲人端触达 64pt、通知播报档位。
 // 用例格式与运行方式见 `scripts/validate-guard.mjs`（exit 2 = 拦下，exit 0 = 放行）。
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// `weak-appstate` 的 Write 用例要和磁盘上的原文件比：先落一个已有一处声明的文件。
+// 路径里要有 `/blindRun/`（规则只查生产代码）；放临时目录，不碰真实工程。
+const weakAppStateFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-weak-')), 'blindRun', 'Old.swift');
+fs.mkdirSync(path.dirname(weakAppStateFixture), { recursive: true });
+fs.writeFileSync(weakAppStateFixture, 'final class Old {\n    private weak var appState: AppState?\n}\n', 'utf8');
+
 export const cases = [
+  {
+    // 2026-11-08（#894）：不再新增两步构造。
+    name: '生产代码 Edit 新增 weak var appState（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Foo/FooViewModel.swift',
+        old_string: 'final class FooViewModel {',
+        new_string: 'final class FooViewModel {\n    private weak var appState: AppState?'
+      }
+    }
+  },
+  {
+    // 搬动已有声明：新旧片段各一处，数量没变多。
+    name: 'Edit 搬动已有的 weak var appState（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Foo/FooViewModel.swift',
+        old_string: '    private weak var appState: AppState?\n    let id: Int',
+        new_string: '    let id: Int\n    private weak var appState: AppState?'
+      }
+    }
+  },
+  {
+    name: 'Write 新文件里带 weak var appState（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/blindRun/Foo/NewViewModel.swift',
+        content: 'final class NewViewModel {\n    weak var appState: AppState?\n}'
+      }
+    }
+  },
+  {
+    // 和磁盘上的原文件比：原来就有一处，重写后还是一处。
+    name: 'Write 重写已有一处声明的文件（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: weakAppStateFixture,
+        content: 'final class Old {\n    // 改了别处\n    private weak var appState: AppState?\n}\n'
+      }
+    }
+  },
+  {
+    name: 'Write 重写时多加一处（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: weakAppStateFixture,
+        content: 'final class Old {\n    private weak var appState: AppState?\n}\nfinal class Other {\n    private weak var appState: AppState?\n}\n'
+      }
+    }
+  },
+  {
+    name: '测试 target 里的 weak var appState（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: '    weak var appState: AppState?'
+      }
+    }
+  },
+  {
+    name: 'weak var appState 行尾 guard:allow（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Foo/FooViewModel.swift',
+        old_string: 'a',
+        new_string: '    private weak var appState: AppState? // guard:allow weak-appstate'
+      }
+    }
+  },
+  {
+    name: '注释里写 weak var appState（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Foo/FooViewModel.swift',
+        old_string: 'a',
+        new_string: '    // 别再写 weak var appState，构造时传依赖'
+      }
+    }
+  },
   {
     // 2026-08-06：weak 依赖收到临时对象 = 收到 nil，测试照样绿。
     name: '把当场构造的 LocationService 传给 weak 依赖',
