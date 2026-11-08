@@ -86,8 +86,9 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 
 ### 7.1 已做：订单流转拆回 `+Order`（#895 → PR #PRNUM，11-08）
 
-- 搬了什么：`+IntroCall.swift` 原 `:342-522` 整段搬到 `blindRun/Core/MockAPIClient+Order.swift:244-426`。包括 `mockScheduledAheadThresholdMinutes`、`handleAcceptOrder`、`isFarFuture`、`handleConfirmDeparture`、`handleDeclineOrder`、`handleEnRoute`、`handleArrived`、`handleFinish`、`handleStartService`、`handleCancel`、`seededBlindCancelAt`、`isWithinLateCancelWindow`、`handleKeepWaiting`、`actionResponse`。
-- 行为不变：搬动的行逐字相同（diff 里增删行两两配对，只多出文件头一行和一行 `MARK`）。通话磨合的判定（`handleIntroCallDecision`、`checkIntroCallPlanGate`、安排单）一行没动，仍在 `+IntroCall`。
+- 搬了什么：`+IntroCall.swift` 原 `:342-522` 整段搬到 `blindRun/Core/MockAPIClient+Order.swift:181-363`。包括 `mockScheduledAheadThresholdMinutes`、`handleAcceptOrder`、`isFarFuture`、`handleConfirmDeparture`、`handleDeclineOrder`、`handleEnRoute`、`handleArrived`、`handleFinish`、`handleStartService`、`handleCancel`、`seededBlindCancelAt`、`isWithinLateCancelWindow`、`handleKeepWaiting`、`actionResponse`。
+- 为过 SwiftLint 棘轮（单文件 ≤ 400 行），`+Order` 里**不改订单状态**的陪跑员订单页 v2 动作（`handleQuickMessage`、`handleRingRunner`、`handleSetRunPaused`、`handleRunnerMessage`）原样挪到新文件 `blindRun/Core/MockAPIClient+OrderNudge.swift`。会改状态的 `handleEndWaiting` 留在 `+Order`。所以「改订单状态的 Mock 处理函数」除通话磨合外都在 `+Order` 一处（364 行）。
+- 行为不变：搬动的行逐字相同（对 origin/main 的 diff 里增删行两两配对，多出的只有文件头、注释和新文件的 `import` / `extension` 框架）。通话磨合的判定（`handleIntroCallDecision`、`checkIntroCallPlanGate`、安排单）一行没动，仍在 `+IntroCall`。
 - 跨文件依赖只剩一处：通话磨合成单 `+IntroCall.swift:89` 调 `Self.isFarFuture`，它现在在 `+Order`。这是原有调用，不是新加的。
 - `+IntroCall.swift` 从 635 行降到 454 行。它后半段还装着评价、状态日志、分享链接（`handleReview` 起到文件尾）。这些也不属于通话磨合，本次没搬，以后要拆另开 issue。
 - 验证：只跑了编译门禁 `build-for-testing`。没有新写用例，没跑真机。
