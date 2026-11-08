@@ -1,21 +1,7 @@
 import Foundation
 import OSLog
 
-// MARK: - Shared Async State
-
-/// A single-request UI state. The request identifier prevents a late response
-/// from replacing a newer refresh.
-enum AsyncLoadState<Value> {
-    case idle
-    case loading(requestID: UUID)
-    case loaded(Value)
-    case failed(message: String)
-
-    var isLoading: Bool {
-        if case .loading = self { return true }
-        return false
-    }
-}
+// `AsyncLoadState` moved to `Shared/RemoteContent.swift` (#863).
 
 // MARK: - Privacy-safe Network Diagnostics
 

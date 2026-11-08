@@ -370,16 +370,18 @@ struct RunnerRunRecordView: View {
             }
     }
 
-    @ViewBuilder
+    /// 加载中与失败只是一小块，放在页顶并留边距；记录读到后整页交给 `loaded`。
     private var content: some View {
-        switch viewModel.phase {
-        case .loading:
-            RunRecordLoadingPlaceholder(title: RunRecordFitness.title)
-        case .failed(let message):
-            RunRecordFailedView(message: message, retry: retry)
-        case .loaded(let record):
+        RemoteContent(
+            viewModel.phase,
+            loadingLabel: "正在加载跑步记录",
+            failureIdentifier: "runRecordRetry",
+            retry: retry
+        ) { record in
             loaded(record)
         }
+        .padding(viewModel.phase.value == nil ? 20 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func retry() {
