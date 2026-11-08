@@ -295,23 +295,23 @@ final class VolunteerRunDataSummaryTests: XCTestCase {
     @MainActor
     func testModelDrawsAsSoonAsTheFirstMonthArrivesAndCountsFailures() {
         let model = VolunteerRunDataModel(now: date(2026, 11, 5), calendar: calendar)
-        XCTAssertEqual(model.phase, .loading)
+        XCTAssertTrue(model.phase.isLoading)
         let months = model.targetMonths
         XCTAssertEqual(months.count, 12)
         model.record(month: months[0], response: nil)
-        XCTAssertEqual(model.phase, .loading, "失败一个月还不算全失败")
+        XCTAssertTrue(model.phase.isLoading, "失败一个月还不算全失败")
         let november = RunRecordHistoryResponse(
             role: .volunteer, month: "2026-11",
             monthSummary: RunMonthSummary(runs: 1, distanceM: 3_000, serviceMin: 30, topPartner: nil),
             items: [RunHistoryItem(orderId: 1, finishedAt: "2026-11-03T08:00:00", place: nil, partnerName: "李*", distanceM: 3_000, thumbnail: nil)]
         )
         model.record(month: months[11], response: november)
-        XCTAssertEqual(model.phase, .loaded)
+        XCTAssertEqual(model.phase.value?.daysRunInWindow, 1, "回来一个月就该画")
         XCTAssertEqual(model.summary.daysRunInWindow, 1)
         XCTAssertEqual(model.failedMonths, [months[0]])
 
         let failing = VolunteerRunDataModel(now: date(2026, 11, 5), calendar: calendar)
         failing.targetMonths.forEach { failing.record(month: $0, response: nil) }
-        XCTAssertEqual(failing.phase, .failed)
+        XCTAssertEqual(failing.phase, .failed(message: VolunteerRunDataCopy.allFailed))
     }
 }

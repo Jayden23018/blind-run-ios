@@ -15,30 +15,26 @@ import SwiftUI
 struct VolunteerPartnersView: View {
     @EnvironmentObject private var appState: AppState
 
-    @State private var rows: [PartnerRow] = []
-    @State private var favoritedByCount = 0
-    @State private var errorMessage: String?
-    @State private var isLoading = true
-    @State private var hasLoadedOnce = false
+    /// 列表的加载状态（#865）。读到过一次之后，重拉失败不改回 `.failed`，原因写进 `actionError`。
+    @State private var listState: AsyncLoadState<VolunteerPartnersList> = .idle
+    /// 列表已经显示之后的失败（退出搭档、重拉列表），就地显示在列表顶部。
+    @State private var actionError: String?
     @State private var notice: String?
+
+    private var rows: [PartnerRow] { listState.value?.rows ?? [] }
+    private var favoritedByCount: Int { listState.value?.favoritedByCount ?? 0 }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VolunteerSecondaryMetrics.sectionSpacing) {
-                if hasLoadedOnce {
+                RemoteContent(
+                    listState,
+                    loadingLabel: "正在加载固定搭档",
+                    failureIdentifier: "volunteerPartnersRetryButton",
+                    retryTitle: PartnerStreakCopy.retry,
+                    retry: { Task { await load() } }
+                ) { _ in
                     loadedContent
-                } else if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载固定搭档")
-                } else {
-                    IncentiveFailureSection(
-                        message: errorMessage ?? PartnerStreakCopy.loadFailure,
-                        retryTitle: PartnerStreakCopy.retry,
-                        identifier: "volunteerPartnersRetryButton"
-                    ) {
-                        Task { await load() }
-                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -54,7 +50,7 @@ struct VolunteerPartnersView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerPartnersView")
         .task {
-            guard !hasLoadedOnce else { return }
+            guard listState.value == nil else { return }
             await load()
         }
     }
@@ -69,8 +65,8 @@ struct VolunteerPartnersView: View {
                 .accessibilityIdentifier("volunteerPartnerOptOutNotice")
         }
         // 列表加载出来之后再失败（退出），错误要就地显示。
-        if let errorMessage, notice == nil {
-            Text(errorMessage)
+        if let actionError, notice == nil {
+            Text(actionError)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.destructive)
                 .fixedSize(horizontal: false, vertical: true)
@@ -128,21 +124,25 @@ struct VolunteerPartnersView: View {
     }
 
     private func load() async {
-        isLoading = true
-        defer { isLoading = false }
+        if listState.value == nil { listState = .loading(requestID: UUID()) }
         // 空态说哪一句取决于开关，先取到位再拉列表（理由见盲人侧 `BlindFavoriteVolunteersView.load`）。
         await appState.loadFeatureFlagsIfNeeded()
         do {
             let favorites = try await appState.incentive.volunteerFavoritedBy()
             let streaks = try await appState.incentive.volunteerPartnerStreaks()
-            favoritedByCount = favorites.count
-            rows = PartnerRowMerge.volunteerRows(favorites: favorites, streaks: streaks)
-            errorMessage = nil
-            hasLoadedOnce = true
-        } catch let error as APIError {
-            errorMessage = error.localizedMessage
+            listState = .loaded(VolunteerPartnersList(
+                rows: PartnerRowMerge.volunteerRows(favorites: favorites, streaks: streaks),
+                favoritedByCount: favorites.count
+            ))
+            actionError = nil
         } catch {
-            errorMessage = PartnerStreakCopy.loadFailure
+            let message = (error as? APIError)?.localizedMessage ?? PartnerStreakCopy.loadFailure
+            // 列表已经显示时保留它：被拉黑的人还在列表里，靠顶部这一句说明。
+            if listState.value != nil {
+                actionError = message
+            } else {
+                listState = .failed(message: message)
+            }
         }
     }
 
@@ -163,11 +163,11 @@ struct VolunteerPartnersView: View {
             return nil
         } catch let error as APIError {
             notice = nil
-            errorMessage = error.localizedMessage
+            actionError = error.localizedMessage
             return error.localizedMessage
         } catch {
             notice = nil
-            errorMessage = PartnerStreakCopy.optOutFailed
+            actionError = PartnerStreakCopy.optOutFailed
             return PartnerStreakCopy.optOutFailed
         }
     }
@@ -177,8 +177,14 @@ struct VolunteerPartnersView: View {
         notice = UserSafetyCopy.blockSucceeded
         await load()
         // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。
-        if errorMessage != nil { notice = nil }
+        if actionError != nil { notice = nil }
     }
+}
+
+/// 固定搭档页读到的内容：合并后的行与「把你设为固定搭档」的人数。
+struct VolunteerPartnersList {
+    let rows: [PartnerRow]
+    let favoritedByCount: Int
 }
 
 // MARK: - 顶部人数卡

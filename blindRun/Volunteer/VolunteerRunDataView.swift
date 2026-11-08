@@ -17,27 +17,21 @@ struct VolunteerRunDataView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject var model = VolunteerRunDataModel()
     @State var range: VolunteerRunDataSummary.MileageRange = .halfYear
+    /// 部分失败那张卡点了几次重试：同一句又失败时靠它再念一遍（同 `RemoteContent`）。
+    @State private var partialRetryAttempt = 0
     @Environment(\.dynamicTypeSize) var dynamicTypeSize
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VolunteerSecondaryMetrics.sectionSpacing) {
                 streakCard
-                switch model.phase {
-                case .loading:
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 120)
-                        .accessibilityLabel(VolunteerRunDataCopy.loading)
-                        .accessibilityIdentifier("volunteerRunData.loading")
-                case .failed:
-                    IncentiveFailureSection(
-                        message: VolunteerRunDataCopy.allFailed,
-                        retryTitle: VolunteerRunDataCopy.retry,
-                        identifier: "volunteerRunData.retry"
-                    ) {
-                        Task { await model.retry(appState: appState) }
-                    }
-                case .loaded:
+                RemoteContent(
+                    model.phase,
+                    loadingLabel: VolunteerRunDataCopy.loading,
+                    failureIdentifier: "volunteerRunData.retry",
+                    retryTitle: VolunteerRunDataCopy.retry,
+                    retry: { Task { await model.retry(appState: appState) } }
+                ) { _ in
                     loadedContent
                 }
                 partnersLink
@@ -88,18 +82,16 @@ struct VolunteerRunDataView: View {
         }
     }
 
+    /// 有几个月没读到：已读到的照常画，这一句单独一张卡，上屏的同时念出来（#865，同跑后记录列表）。
     private var partialFailure: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(VolunteerRunDataCopy.partialFailure(model.failedMonths.count))
-                .font(.subheadline)
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("volunteerRunData.partialFailure")
-            Button(VolunteerRunDataCopy.retry) {
-                Task { await model.retry(appState: appState) }
-            }
-            .buttonStyle(TextButtonStyle())
-            .accessibilityIdentifier("volunteerRunData.retry")
+        IncentiveFailureSection(
+            message: VolunteerRunDataCopy.partialFailure(model.failedMonths.count),
+            retryTitle: VolunteerRunDataCopy.retry,
+            identifier: "volunteerRunData.retry",
+            attempt: partialRetryAttempt
+        ) {
+            partialRetryAttempt += 1
+            Task { await model.retry(appState: appState) }
         }
     }
 

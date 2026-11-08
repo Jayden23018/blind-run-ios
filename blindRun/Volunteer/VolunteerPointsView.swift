@@ -17,36 +17,30 @@ import SwiftUI
 struct VolunteerPointsView: View {
     @EnvironmentObject private var appState: AppState
 
-    @State private var balance: Int64 = 0
-    @State private var transactions: [PointTransactionResponse] = []
-    @State private var nextPage = 0
-    @State private var hasMore = false
-    @State private var isLoading = true
+    /// 首屏一次加载的状态（#865）。翻页不改它的档位：翻页途中、翻页失败都保持 `.loaded`。
+    @State private var pageState: AsyncLoadState<VolunteerPointsPage> = .idle
+    /// 「查看更早的记录」的按钮忙碌态，不是页面加载态。
     @State private var isLoadingMore = false
-    @State private var errorMessage: String?
-    @State private var hasLoadedOnce = false
 
     private static let pageSize = 20
+
+    private var balance: Int64 { pageState.value?.balance ?? 0 }
+    private var transactions: [PointTransactionResponse] { pageState.value?.transactions ?? [] }
+    private var hasMore: Bool { pageState.value?.hasMore ?? false }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if hasLoadedOnce {
+                RemoteContent(
+                    pageState,
+                    loadingLabel: "正在加载积分",
+                    failureIdentifier: "volunteerPointsRetryButton",
+                    retryTitle: VolunteerPointsCopy.retry,
+                    retry: { Task { await load(reset: true) } }
+                ) { _ in
                     balanceCard
                     ledgerSection
                     complianceFooter
-                } else if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载积分")
-                } else {
-                    IncentiveFailureSection(
-                        message: errorMessage ?? VolunteerPointsCopy.loadFailure,
-                        retryTitle: VolunteerPointsCopy.retry,
-                        identifier: "volunteerPointsRetryButton"
-                    ) {
-                        Task { await load(reset: true) }
-                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -63,7 +57,7 @@ struct VolunteerPointsView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerPointsView")
         .task {
-            guard !hasLoadedOnce else { return }
+            guard pageState.value == nil else { return }
             await load(reset: true)
         }
     }
@@ -241,38 +235,40 @@ struct VolunteerPointsView: View {
         }
     }
 
+    /// 翻页失败保留已显示的记录，只有首屏没读到才是 `.failed`（规则同 `RemoteContent` 顶部那条）。
     private func load(reset: Bool) async {
+        let shown = pageState.value
         if reset {
-            isLoading = true
-            errorMessage = nil
+            pageState = .loading(requestID: UUID())
         } else {
             isLoadingMore = true
         }
-        defer {
-            isLoading = false
-            isLoadingMore = false
-        }
+        defer { isLoadingMore = false }
 
-        let page = reset ? 0 : nextPage
+        let page = reset ? 0 : (shown?.nextPage ?? 0)
         do {
             let response = try await appState.incentive.volunteerPoints(
                 page: page,
                 size: Self.pageSize
             )
-            balance = response.resolvedBalance
-            if reset {
-                transactions = response.resolvedTransactions
-            } else {
-                transactions += response.resolvedTransactions
-            }
-            nextPage = page + 1
-            hasMore = response.hasMorePages
-            errorMessage = nil
-            hasLoadedOnce = true
-        } catch let error as APIError {
-            errorMessage = error.localizedMessage
+            let earlier = reset ? [] : (shown?.transactions ?? [])
+            pageState = .loaded(VolunteerPointsPage(
+                balance: response.resolvedBalance,
+                transactions: earlier + response.resolvedTransactions,
+                nextPage: page + 1,
+                hasMore: response.hasMorePages
+            ))
         } catch {
-            errorMessage = VolunteerPointsCopy.loadFailure
+            guard reset || shown == nil else { return }
+            pageState = .failed(message: (error as? APIError)?.localizedMessage ?? VolunteerPointsCopy.loadFailure)
         }
     }
+}
+
+/// 积分页已经读到的内容：余额与已经翻到的那几页记录。
+struct VolunteerPointsPage {
+    let balance: Int64
+    let transactions: [PointTransactionResponse]
+    let nextPage: Int
+    let hasMore: Bool
 }

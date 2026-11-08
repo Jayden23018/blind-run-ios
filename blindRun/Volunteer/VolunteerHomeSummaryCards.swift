@@ -180,14 +180,8 @@ struct VolunteerHomeRecentRunContent: Equatable {
 /// （给「未完成的预约」用），首页用不上。
 @MainActor
 final class VolunteerHomeRecentRunModel: ObservableObject {
-    enum State: Equatable {
-        case loading
-        /// `nil` = 本月和上月都没有记录。
-        case loaded(VolunteerHomeRecentRunContent?)
-        case failed
-    }
-
-    @Published private(set) var state: State = .loading
+    /// 卡片的加载状态（#865）。`.loaded(nil)` = 本月和上月都没有记录。
+    @Published private(set) var state: AsyncLoadState<VolunteerHomeRecentRunContent?> = .idle
     /// 「这一轮算加载过了」只在拿到结果（内容或失败）时置位。
     /// 🚩 **取消不算结果**：志愿者一进首页就点进别的页很常见，`.task` 随之取消；
     /// 在请求前就置位的话，这张卡会整个会话停在「加载中」（同 `VolunteerHomeIncentiveViewModel`）。
@@ -243,7 +237,7 @@ final class VolunteerHomeRecentRunModel: ObservableObject {
             hasLoaded = true
             // 已经有内容时网络一抖不清掉它：上一份仍然是真的。
             if case .loaded = state { return }
-            state = .failed
+            state = .failed(message: VolunteerProfileCopy.recentLoadFailure)
         }
     }
 }

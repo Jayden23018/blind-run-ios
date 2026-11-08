@@ -11,8 +11,10 @@ struct VolunteerRatingsView: View {
     let achievements: VolunteerAchievementsResponse
 
     @EnvironmentObject private var appState: AppState
-    @State private var recentOrders: [VolunteerDispatchSummaryRecentOrder]?
-    @State private var recentFailed = false
+    /// 「最近的评价」那一节的加载状态（#865）。平均分与高分徽章来自上一页带进来的成就，不在这里。
+    @State private var recentState: AsyncLoadState<[VolunteerDispatchSummaryRecentOrder]> = .idle
+
+    static let recentLoadFailure = "最近的评价加载失败，请稍后重试。"
 
     var body: some View {
         ScrollView {
@@ -34,7 +36,7 @@ struct VolunteerRatingsView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerRatingsView")
         .task {
-            guard recentOrders == nil else { return }
+            guard recentState.value == nil else { return }
             await loadRecent()
         }
     }
@@ -64,58 +66,56 @@ struct VolunteerRatingsView: View {
         .accessibilityIdentifier("volunteerRatingsHighRated")
     }
 
-    @ViewBuilder
     private var recentSection: some View {
-        if let orders = recentOrders?.filter({ $0.status == .completed }) {
-            if orders.isEmpty {
-                VolunteerSecondaryFootnote(text: VolunteerSecondaryPagesCopy.recentEmpty)
-            } else {
-                VolunteerSecondaryCard(padding: EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 12)) {
-                    VStack(spacing: 0) {
-                        ForEach(Array(orders.enumerated()), id: \.element.id) { index, order in
-                            NavigationLink {
-                                VolunteerRunRecordView(orderId: order.orderId)
-                            } label: {
-                                VolunteerRatingRow(order: order)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(VolunteerSecondaryPagesCopy.recentRowSpoken(
-                                date: VolunteerSecondaryPagesCopy.recentDate(order),
-                                blindName: order.blindName,
-                                address: order.startAddress,
-                                level: VolunteerRatingLevel(rating: order.rating)
-                            ))
-                            .accessibilityHint(VolunteerSecondaryPagesCopy.recentRowHint)
-                            .accessibilityIdentifier("volunteerRatingRow.\(order.orderId)")
-                            if index < orders.count - 1 {
-                                Divider()
-                            }
+        RemoteContent(
+            recentState,
+            loadingLabel: "正在加载最近的评价",
+            failureIdentifier: "volunteerRatingsRetryButton",
+            retryTitle: "重新加载",
+            retry: { Task { await loadRecent() } }
+        ) { recentOrders in
+            recentList(recentOrders.filter { $0.status == .completed })
+        }
+    }
+
+    @ViewBuilder
+    private func recentList(_ orders: [VolunteerDispatchSummaryRecentOrder]) -> some View {
+        if orders.isEmpty {
+            VolunteerSecondaryFootnote(text: VolunteerSecondaryPagesCopy.recentEmpty)
+        } else {
+            VolunteerSecondaryCard(padding: EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 12)) {
+                VStack(spacing: 0) {
+                    ForEach(Array(orders.enumerated()), id: \.element.id) { index, order in
+                        NavigationLink {
+                            VolunteerRunRecordView(orderId: order.orderId)
+                        } label: {
+                            VolunteerRatingRow(order: order)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(VolunteerSecondaryPagesCopy.recentRowSpoken(
+                            date: VolunteerSecondaryPagesCopy.recentDate(order),
+                            blindName: order.blindName,
+                            address: order.startAddress,
+                            level: VolunteerRatingLevel(rating: order.rating)
+                        ))
+                        .accessibilityHint(VolunteerSecondaryPagesCopy.recentRowHint)
+                        .accessibilityIdentifier("volunteerRatingRow.\(order.orderId)")
+                        if index < orders.count - 1 {
+                            Divider()
                         }
                     }
                 }
-                VolunteerSecondaryFootnote(text: VolunteerSecondaryPagesCopy.recentFootnote)
             }
-        } else if recentFailed {
-            IncentiveFailureSection(
-                message: "最近的评价加载失败，请稍后重试。",
-                retryTitle: "重新加载",
-                identifier: "volunteerRatingsRetryButton"
-            ) {
-                Task { await loadRecent() }
-            }
-        } else {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("正在加载最近的评价")
+            VolunteerSecondaryFootnote(text: VolunteerSecondaryPagesCopy.recentFootnote)
         }
     }
 
     private func loadRecent() async {
-        recentFailed = false
+        recentState = .loading(requestID: UUID())
         do {
-            recentOrders = try await appState.orders.dispatchSummary().recentOrders ?? []
+            recentState = .loaded(try await appState.orders.dispatchSummary().recentOrders ?? [])
         } catch {
-            recentFailed = true
+            recentState = .failed(message: Self.recentLoadFailure)
         }
     }
 }
