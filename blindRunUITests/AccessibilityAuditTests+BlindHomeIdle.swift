@@ -147,4 +147,26 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(row.isHittable, "最大字号下出发地点行滚不出来")
         keepScreenshot(app, "idle-ax5-bottom")
     }
+
+    /// 约跑页钟点胶囊在辅助功能字号下排 2 列（负责人 11-08 定）：4 列时字只能缩小，审计报「改不了字号」。
+    /// 断言「7:00」落在「6:00」下一行 —— 4 列时它们同一行，用例会红。
+    func testBlindBookingTimeChipsUseTwoColumnsAtLargestText() {
+        let app = launchBlindHome(
+            extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        )
+        let start = element(app, "blindRunnerHomeStartBookingButton")
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+        XCTAssertTrue(waitForBookingScreen(app), "约跑页没起来")
+
+        let first = app.buttons["6:00"].firstMatch
+        let third = app.buttons["7:00"].firstMatch
+        for _ in 0..<8 where !(third.exists && third.isHittable) {
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(first.exists && third.isHittable, "最大字号下钟点胶囊滚不出来")
+        keepScreenshot(app, "booking-ax5-time-chips")
+
+        XCTAssertGreaterThanOrEqual(third.frame.minY, first.frame.maxY, "「7:00」和「6:00」还在同一行：钟点胶囊没改成 2 列")
+    }
 }

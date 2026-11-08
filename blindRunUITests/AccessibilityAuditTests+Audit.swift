@@ -38,7 +38,8 @@ extension AccessibilityAuditTests {
             // 陪跑员首页底部的接单滑块（滑块后面压着徽章与「最近陪跑」，#515）。
             // 陪跑培训正文 / 答题 / 结果页的通栏胶囊栏（#698）。盲人资料编辑页的保存栏（#750；资料页原来那条整页保存栏随改版删掉了）。
             // 盲人使用帮助的「再听一遍 / 知道了」栏（#753：四张卡在它后面滚动）。
-            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "volunteerTrainingBottomBar", "blindProfileEditSaveBar", "blindRunnerHelpBottomBar"] {
+            // 约跑页「开始找陪跑员」栏（钟点胶囊在它后面滚动，11-08 真机审计）。
+            for id in ["volunteerRunningBottomBar", "blindOrderFlowBottomBar", "blindIntroCallBottomBar", "volunteerHomeBottomBar", "volunteerTrainingBottomBar", "blindProfileEditSaveBar", "blindRunnerHelpBottomBar", "blindBookingSubmitBar"] {
                 let bar = app.descendants(matching: .any)[id].firstMatch
                 // 栏自己的子元素（按钮、滑块）是看得见的，照常审计；只有压在栏后面的页面内容才算被遮挡。
                 if bar.exists { return OccludingBar(top: bar.frame.minY, ownFrames: bar.descendants(matching: .any).allElementsBoundByIndex.map(\.frame)) }
