@@ -25,14 +25,16 @@ enum RunRecordHistoryRole {
 @MainActor
 final class RunRecordHistoryViewModel: ObservableObject {
     @Published private(set) var month: RunRecordMonth
-    /// 当前显示那个月的记录。切月份时先置 nil，界面回到加载态。
-    @Published private(set) var history: RunRecordHistoryResponse?
+    /// 当前显示那个月的记录（`RemoteContent`，#863）。切月份时回到加载态；
+    /// 下拉刷新时保持 `.loaded`，刷新失败也不换成 `.failed`，已显示的记录留着（失败写进 `partialFailure`）。
+    @Published private(set) var historyState: AsyncLoadState<RunRecordHistoryResponse> = .idle
     @Published private(set) var unfinished: [OrderDetailResponse] = []
     /// `/api/orders/mine` 里有没有任何一张已完成的单。nil = 还不知道（没加载完或加载失败）——
     /// 那种情况下**不**给「完成第一次陪跑后…」的首用文案，否则网络一抖老用户就被当成新人。
     @Published private(set) var hasAnyCompletedOrder: Bool?
-    @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
+    /// 月份记录之外的那几路失败：订单那一路、更早的月份、已显示记录时的刷新。
+    /// 选中月份本身失败时它为 nil —— 那句失败由 `historyState` 显示和念，两路都失败只念一次。
+    @Published private(set) var partialFailure: String?
     /// 选中月份之后往下接的更早月份（只收有记录的月份）。
     @Published private(set) var olderSections: [RunRecordMonthSection] = []
     @Published private(set) var isLoadingOlder = false
@@ -66,6 +68,18 @@ final class RunRecordHistoryViewModel: ObservableObject {
         self.runRecordOverride = runRecord
     }
 
+    /// 当前显示那个月的记录；没读到时为 nil。
+    var history: RunRecordHistoryResponse? { historyState.value }
+
+    /// 选中月份正在加载（月份栏据此挡住连点）。下拉刷新时为 false：已显示的记录留着。
+    var isLoading: Bool { historyState.isLoading }
+
+    /// 页面上那一句失败文案，不论来自哪一路。
+    var errorMessage: String? {
+        if case .failed(let message) = historyState { return message }
+        return partialFailure
+    }
+
     var monthTitle: String { month.title(relativeTo: currentMonth) }
     var canShowNextMonth: Bool { month != currentMonth }
     /// 月份栏标题，总带年份。
@@ -97,7 +111,7 @@ final class RunRecordHistoryViewModel: ObservableObject {
     func load() async {
         generation += 1
         resetOlder()
-        errorMessage = nil
+        partialFailure = nil
         async let monthly: Void = loadMonth(month)
         async let orders: Void = loadUnfinished()
         _ = await (monthly, orders)
@@ -122,8 +136,8 @@ final class RunRecordHistoryViewModel: ObservableObject {
     private func switchTo(_ target: RunRecordMonth) async {
         generation += 1
         month = target
-        history = nil
-        errorMessage = nil
+        historyState = .idle
+        partialFailure = nil
         resetOlder()
         // 订单那一路之前失败过（`hasAnyCompletedOrder` 还是 nil）就一起重试：
         // 上面刚把错误提示清掉，不重试的话「未完成的预约」会静默显示成「没有」。
@@ -139,20 +153,20 @@ final class RunRecordHistoryViewModel: ObservableObject {
 
     private func loadMonth(_ target: RunRecordMonth) async {
         guard let appState else { return }
-        isLoading = true
+        // 下拉刷新：已显示的记录留在屏幕上，不回到加载占位。
+        if historyState.value == nil { historyState = .loading(requestID: UUID()) }
         do {
             let service = runRecordOverride ?? appState.runRecord
             let loaded = try await service.monthlyRecords(year: target.year, month: target.month)
             // 用户在请求途中又切了月份：这份结果属于上一个月，丢掉。
             guard target == month else { return }
-            history = loaded
+            historyState = .loaded(loaded)
             emptyStreak = loaded.items.isEmpty ? 1 : 0
             olderCursor = target.previous
         } catch {
             guard target == month else { return }
-            recordFailure(error)
+            recordFailure(error, isMonthRequest: true)
         }
-        if target == month { isLoading = false }
     }
 
     private func resetOlder() {
@@ -216,7 +230,8 @@ final class RunRecordHistoryViewModel: ObservableObject {
             .sorted { ($0.createdAt ?? $0.plannedStart ?? "") > ($1.createdAt ?? $1.plannedStart ?? "") }
     }
 
-    private func recordFailure(_ error: Error) {
+    /// 失败的显示与朗读都在视图里（`IncentiveFailureSection`），这里只定文案和放哪一格。
+    private func recordFailure(_ error: Error, isMonthRequest: Bool = false) {
         let detail: String
         if let apiError = error as? APIError {
             if appState?.handleAuthenticatedAPIError(apiError) == true { return }
@@ -225,10 +240,15 @@ final class RunRecordHistoryViewModel: ObservableObject {
             detail = "请检查网络后重试"
         }
         let message = "\(role.title)没能加载完整。\(detail)"
+        // 选中月份没读到：整块换成失败。已显示记录时（刷新失败）保留记录，失败放 `partialFailure`。
+        if isMonthRequest, historyState.value == nil {
+            historyState = .failed(message: message)
+            partialFailure = nil
+            return
+        }
         // 两路请求都失败时只念一次。
         guard errorMessage == nil else { return }
-        errorMessage = message
-        speechService?.speakError(message)
+        partialFailure = message
     }
 
     /// 跑者端加载完要出声：加载态那一行被列表换掉时读屏焦点会被系统收走，用户既没听到结果也不知道停在哪
@@ -315,6 +335,8 @@ struct RunRecordHistoryView: View {
     /// 首次加载完把读屏焦点落到第一条记录上（沿用旧跑者列表的做法），只落一次。
     @AccessibilityFocusState private var focusedRecordID: Int64?
     @State private var didPlaceInitialFocus = false
+    /// 部分失败卡上点了几次重试：同一句失败重试又失败时靠它再念一遍（#573）。
+    @State private var partialRetryCount = 0
 
     init(role: RunRecordHistoryRole) {
         _viewModel = StateObject(wrappedValue: RunRecordHistoryViewModel(role: role))
@@ -326,50 +348,31 @@ struct RunRecordHistoryView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                if let errorMessage = viewModel.errorMessage {
+                // 订单那一路、更早的月份、刷新失败：已显示的记录留着，失败单独一张卡，会念（#863）。
+                if let partialFailure = viewModel.partialFailure {
                     RunRecordCard {
-                        Text(errorMessage)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.destructive)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button {
-                            Task { await viewModel.load() }
-                        } label: {
-                            Text("重试")
-                                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-                                .contentShape(Rectangle())
+                        IncentiveFailureSection(
+                            message: partialFailure,
+                            retryTitle: "重试",
+                            identifier: "runRecordHistoryRetry",
+                            attempt: partialRetryCount
+                        ) {
+                            partialRetryCount += 1
+                            reload()
                         }
-                        .buttonStyle(TextButtonStyle())
-                        .accessibilityHint("重新加载\(role.title)")
-                        .accessibilityIdentifier("runRecordHistoryRetry")
                     }
                 }
 
                 RunRecordMonthBar(viewModel: viewModel)
                 summaryCard
 
-                if viewModel.history == nil && viewModel.isLoading {
-                    loadingPlaceholder
-                } else if viewModel.showsFirstRunEmptyState {
-                    RunRecordCard {
-                        EmptyStateView(title: viewModel.emptyStateCopy.title, message: viewModel.emptyStateCopy.message)
-                    }
-                } else {
-                    ForEach(viewModel.sections) { section in
-                        sectionTitle(section.month.title(relativeTo: viewModel.currentMonth))
-                        ForEach(section.items, id: \.orderId) { item in
-                            NavigationLink {
-                                completedDestination(orderId: item.orderId)
-                            } label: {
-                                RunHistoryRow(content: RunHistoryRowContent(item: item, role: role), thumbnail: item.thumbnail)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityFocused($focusedRecordID, equals: item.orderId)
-                        }
-                    }
-                    if viewModel.history != nil, viewModel.olderCursor != nil {
-                        olderLoader
-                    }
+                RemoteContent(
+                    viewModel.historyState,
+                    loadingLabel: viewModel.loadingLabel,
+                    failureIdentifier: "runRecordHistoryRetry",
+                    retry: reload
+                ) { _ in
+                    monthRecords
                 }
 
                 if !viewModel.unfinished.isEmpty {
@@ -411,6 +414,36 @@ struct RunRecordHistoryView: View {
         }
         .refreshable {
             await viewModel.load()
+        }
+    }
+
+    private func reload() {
+        Task { await viewModel.load() }
+    }
+
+    /// 选中月份读到之后：首用空态，或按月分节的记录 + 底部「加载更早月份」。
+    @ViewBuilder
+    private var monthRecords: some View {
+        if viewModel.showsFirstRunEmptyState {
+            RunRecordCard {
+                EmptyStateView(title: viewModel.emptyStateCopy.title, message: viewModel.emptyStateCopy.message)
+            }
+        } else {
+            ForEach(viewModel.sections) { section in
+                sectionTitle(section.month.title(relativeTo: viewModel.currentMonth))
+                ForEach(section.items, id: \.orderId) { item in
+                    NavigationLink {
+                        completedDestination(orderId: item.orderId)
+                    } label: {
+                        RunHistoryRow(content: RunHistoryRowContent(item: item, role: role), thumbnail: item.thumbnail)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityFocused($focusedRecordID, equals: item.orderId)
+                }
+            }
+            if viewModel.olderCursor != nil {
+                olderLoader
+            }
         }
     }
 
@@ -465,33 +498,6 @@ struct RunRecordHistoryView: View {
         .task(id: viewModel.olderLoadTrigger) {
             await viewModel.loadOlderMonths()
         }
-    }
-
-    /// 骨架屏：两张卡占位，读屏只读一句（HANDOFF 6.4）。
-    private var loadingPlaceholder: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(0..<2, id: \.self) { _ in
-                RunRecordCard {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("9月20日").font(.headline)
-                            Text("周六").font(.subheadline)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("5.21 公里").font(.title.weight(.bold))
-                            Text("深圳湾公园").font(.subheadline)
-                        }
-                        Spacer(minLength: 8)
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .frame(width: RunRecordListMap.side, height: RunRecordListMap.side)
-                    }
-                }
-            }
-        }
-        .redacted(reason: .placeholder)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(viewModel.loadingLabel)
-        .accessibilityIdentifier("runRecordHistoryLoading")
     }
 
     /// 两个角色都进各自的跑后详情（阶段 4、5）。跑者的补评价仍在订单页，从跑后详情最后一行进。

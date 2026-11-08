@@ -243,22 +243,24 @@ struct VolunteerRunRecordView: View {
     }
 
     private var navigationTitle: String {
-        if case .loaded(let record) = viewModel.phase {
+        if let record = viewModel.phase.value {
             return VolunteerRunRecordContent(record: record).navigationTitle.spoken
         }
         return "跑后记录"
     }
 
-    @ViewBuilder
+    /// 加载中与失败只是一小块，放在页顶并留边距；记录读到后整页交给 `loaded`。
     private var content: some View {
-        switch viewModel.phase {
-        case .loading:
-            RunRecordLoadingPlaceholder(title: RunRecordFitness.title)
-        case .failed(let message):
-            RunRecordFailedView(message: message, retry: retry)
-        case .loaded(let record):
+        RemoteContent(
+            viewModel.phase,
+            loadingLabel: "正在加载跑步记录",
+            failureIdentifier: "runRecordRetry",
+            retry: retry
+        ) { record in
             loaded(record)
         }
+        .padding(viewModel.phase.value == nil ? 20 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func loaded(_ record: RunRecordResponse) -> some View {
@@ -554,43 +556,7 @@ struct VolunteerRunRecordView: View {
 // MARK: - Pieces
 
 // MARK: 状态（两个角色的详情页共用，HANDOFF 6.4）
-
-/// 骨架屏，读屏只读一句。
-struct RunRecordLoadingPlaceholder: View {
-    let title: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(AppFonts.title())
-            Text("5.21 公里").font(.largeTitle.weight(.heavy))
-            Text("运动时间 平均配速 步频")
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .redacted(reason: .placeholder)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("正在加载跑步记录")
-        .accessibilityIdentifier("runRecordLoading")
-    }
-}
-
-struct RunRecordFailedView: View {
-    let message: String
-    let retry: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(message)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.destructive)
-            RunRecordRetryButton(action: retry)
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
+// 页面级的加载中 / 失败走 `RemoteContent`（#863）。
 
 /// 生成中 / 失败 / 不认识的状态 / 没有路线。READY 且有地图时什么都不画。
 struct RunRecordStatusNotice: View {
@@ -610,12 +576,13 @@ struct RunRecordStatusNotice: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("runRecordGenerating")
         case .failed, .unknown:
-            VStack(alignment: .leading, spacing: 12) {
-                Text(status == .failed ? "记录生成失败。" : "这条记录暂时无法显示。")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
-                RunRecordRetryButton(action: retry)
-            }
+            // 和页面级失败同一套：会念出来（#863）。
+            IncentiveFailureSection(
+                message: status == .failed ? "记录生成失败。" : "这条记录暂时无法显示。",
+                retryTitle: "重试",
+                identifier: "runRecordRetry",
+                retry: retry
+            )
         case .ready, .insufficientTrack:
             if !hasMap {
                 Text("这次没有记录到完整路线")
@@ -624,21 +591,6 @@ struct RunRecordStatusNotice: View {
                     .accessibilityIdentifier("runRecordNoRoute")
             }
         }
-    }
-}
-
-struct RunRecordRetryButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text("重试")
-                .font(AppFonts.body())
-                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .accessibilityHint("重新加载跑后记录")
-        .accessibilityIdentifier("runRecordRetry")
     }
 }
 

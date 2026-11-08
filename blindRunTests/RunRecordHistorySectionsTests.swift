@@ -95,7 +95,8 @@ final class RunRecordHistorySectionsTests: XCTestCase {
         await viewModel.loadOlderMonths()
 
         XCTAssertNil(viewModel.olderCursor, "出错就别在底部一直转圈")
-        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertNotNil(viewModel.partialFailure, "更早月份失败：已显示的记录留着，失败单独一格")
+        XCTAssertNotNil(viewModel.history, "不能因为更早月份失败就把选中月份换成失败")
         XCTAssertEqual(viewModel.sections.map(\.month), [month(2026, 11)], "已显示的月份保留")
     }
 

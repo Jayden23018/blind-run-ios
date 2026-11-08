@@ -38,6 +38,8 @@ struct IncentiveFailureSection: View {
     let message: String
     let retryTitle: String
     let identifier: String
+    /// 重试了几次。同一句文案重试又失败时靠它再念一遍（#573）；`RemoteContent` 自己计数传进来。
+    var attempt: Int = 0
     let retry: () -> Void
 
     var body: some View {
@@ -51,6 +53,6 @@ struct IncentiveFailureSection: View {
                 .accessibilityIdentifier(identifier)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .announcesFailure(message, using: speechService)
+        .announcesFailure(message, using: speechService, attempt: attempt)
     }
 }

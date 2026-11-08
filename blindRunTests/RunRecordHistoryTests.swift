@@ -162,10 +162,13 @@ final class RunRecordHistoryTests: XCTestCase {
 
         await viewModel.load()
 
-        XCTAssertNotNil(viewModel.errorMessage, "失败必须留痕 —— 静默空列表看起来就是「你没跑过」")
-        XCTAssertTrue(viewModel.errorMessage?.hasPrefix("跑步记录没能加载完整。") == true)
+        guard case .failed(let message) = viewModel.historyState else {
+            return XCTFail("失败必须留痕 —— 静默空列表看起来就是「你没跑过」；实际 \(viewModel.historyState)")
+        }
+        XCTAssertTrue(message.hasPrefix("跑步记录没能加载完整。"))
+        XCTAssertNil(viewModel.partialFailure, "选中月份的失败只在一处显示和念，两路不能各来一遍")
         XCTAssertEqual(viewModel.unfinished.map(\.orderId), [2], "读到的那一半照常显示")
-        XCTAssertFalse(viewModel.isLoading, "失败后不能卡在加载态")
+        XCTAssertFalse(viewModel.historyState.isLoading, "失败后不能卡在加载态")
     }
 
     /// 订单那一路失败后切月份：不能只清掉错误提示而不重试 —— 否则「未完成的预约」
@@ -174,7 +177,8 @@ final class RunRecordHistoryTests: XCTestCase {
         let (viewModel, appState, _, orders) = makeViewModel(ordersFailure: APIError.invalidURL)
         _ = appState
         await viewModel.load()
-        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertNotNil(viewModel.partialFailure, "订单那一路失败：记录照常显示，失败单独一格")
+        XCTAssertNotNil(viewModel.history)
 
         orders.myOrdersResult = .success(PagedOrderResponse(
             content: [makeOrder(orderId: 2, status: .cancelled, createdAt: "2026-08-02T10:00:00")],

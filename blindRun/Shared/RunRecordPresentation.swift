@@ -9,12 +9,6 @@ import UIKit
 
 @MainActor
 final class RunRecordViewModel: ObservableObject {
-    enum Phase: Equatable {
-        case loading
-        case loaded(RunRecordResponse)
-        case failed(String)
-    }
-
     /// 契约 `getRunRecord`：`GENERATING` 时「客户端 1–2 秒后重试」。
     static let generatingRetryNanoseconds: UInt64 = 2_000_000_000
 
@@ -29,7 +23,8 @@ final class RunRecordViewModel: ObservableObject {
     /// 与后端 `@Size(max = 200)` 同口径：Java `String.length()` = UTF-16 码元。
     static let messageMaxLength = 200
 
-    @Published private(set) var phase: Phase = .loading
+    /// 远端内容的三态（`RemoteContent`，#863）。`GENERATING` 时停在 `.loaded`，由 `loadUntilSettled` 接着重读。
+    @Published private(set) var phase: AsyncLoadState<RunRecordResponse> = .idle
     @Published private(set) var sendState: SendState = .idle
     /// 本页发出去的留言。记录重读（GENERATING）后按 `id` 去重合并，不会出现两遍。
     @Published private(set) var sentMessages: [RunRecordMessageResponse] = []
@@ -162,7 +157,7 @@ final class RunRecordViewModel: ObservableObject {
     }
 
     func retry() async {
-        phase = .loading
+        phase = .loading(requestID: UUID())
         await loadUntilSettled()
     }
 
@@ -173,11 +168,11 @@ final class RunRecordViewModel: ObservableObject {
             phase = .loaded(try await service.record(orderId: orderId))
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
-            phase = .failed("跑后记录加载失败。\(error.localizedMessage)")
+            phase = .failed(message: "跑后记录加载失败。\(error.localizedMessage)")
         } catch is CancellationError {
             return
         } catch {
-            phase = .failed("跑后记录加载失败，请检查网络后重试。")
+            phase = .failed(message: "跑后记录加载失败，请检查网络后重试。")
         }
     }
 }
