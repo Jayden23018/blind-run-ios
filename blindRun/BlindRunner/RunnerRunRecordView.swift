@@ -317,7 +317,17 @@ private extension String {
 
 // MARK: - Page
 
+/// 外壳：从环境里取依赖，构造时交给页面（#894）。`init` 里拿不到 `@EnvironmentObject`，只能在 `body` 里取。
 struct RunnerRunRecordView: View {
+    @EnvironmentObject private var appState: AppState
+    let orderId: Int64
+
+    var body: some View {
+        RunnerRunRecordPage(orderId: orderId, dependencies: .live(appState))
+    }
+}
+
+struct RunnerRunRecordPage: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel: RunRecordViewModel
@@ -330,8 +340,10 @@ struct RunnerRunRecordView: View {
     static let listenID = "runnerRunRecordListen"
     static let readMessagesID = "runnerRunRecordReadMessages"
 
-    init(orderId: Int64) {
-        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId))
+    /// `StateObject` 的闭包只在页面第一次出现时跑一次：外壳重绘传进来的新依赖不会换掉 view model。
+    /// 不传 `speech`：迁移前这一页就没给 view model 语音。
+    init(orderId: Int64, dependencies: RunRecordDependencies) {
+        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId, dependencies: dependencies))
     }
 
     var body: some View {
@@ -341,7 +353,6 @@ struct RunnerRunRecordView: View {
         }
         .accessibilityIdentifier("runnerRunRecordDetail")
         .task {
-            viewModel.configure(with: appState)
             audio.configure(voice: speechService)
             feedback.configure(appState: appState, speech: speechService)
             await viewModel.loadUntilSettled()
@@ -478,7 +489,7 @@ struct RunnerRunRecordView: View {
 }
 
 // 拆出来只是因为结构体正文超过 SwiftLint 上限（棘轮只许变小）；同一个文件，私有成员照常可见。
-extension RunnerRunRecordView {
+extension RunnerRunRecordPage {
     // MARK: 听这次跑步
 
     private var listenTitle: String {

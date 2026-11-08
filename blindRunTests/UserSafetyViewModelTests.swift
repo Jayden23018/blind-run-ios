@@ -225,9 +225,10 @@ final class UserSafetyViewModelTests: XCTestCase {
     func testRecordDetailReadsTheCounterpartFromTheOrder() async throws {
         let orders = FakeOrderService()
         orders.orderDetailResult = .success(try order(#"{"orderId":42,"status":"COMPLETED","counterpartUserId":7}"#))
-        let appState = AppState(orders: orders)
-        let viewModel = RunRecordViewModel(orderId: 42)
-        viewModel.configure(with: appState, runRecord: StubRunRecord(response: try runRecord()))
+        let viewModel = RunRecordViewModel(
+            orderId: 42,
+            dependencies: .fixed(runRecord: StubRunRecord(response: try runRecord()), orders: orders)
+        )
 
         await viewModel.loadUntilSettled()
 
@@ -238,13 +239,26 @@ final class UserSafetyViewModelTests: XCTestCase {
     func testRecordDetailStillLoadsWhenTheOrderCannotBeRead() async throws {
         let orders = FakeOrderService()
         orders.orderDetailResult = .failure(serverError("ORDER_PERMISSION_DENIED"))
-        let appState = AppState(orders: orders)
-        let viewModel = RunRecordViewModel(orderId: 42)
-        viewModel.configure(with: appState, runRecord: StubRunRecord(response: try runRecord()))
+        let viewModel = RunRecordViewModel(
+            orderId: 42,
+            dependencies: .fixed(runRecord: StubRunRecord(response: try runRecord()), orders: orders)
+        )
 
         await viewModel.loadUntilSettled()
 
         guard case .loaded = viewModel.phase else { return XCTFail("记录应已加载") }
         XCTAssertNil(viewModel.counterpartTarget)
+    }
+
+    /// 页面用的 `.live(appState)` 要把订单详情接到 `appState.orders`（#894）。接错（比如接到默认环境的客户端）
+    /// 读回来的就不是这张替身订单，对方 id 对不上。已写，未执行。
+    func testLiveDependenciesReadTheOrderThroughAppState() async throws {
+        let orders = FakeOrderService()
+        orders.orderDetailResult = .success(try order(#"{"orderId":42,"status":"COMPLETED","counterpartUserId":7}"#))
+        let appState = AppState(orders: orders)
+
+        let detail = try await RunRecordDependencies.live(appState).orderDetail(42)
+
+        XCTAssertEqual(detail.counterpartUserId, 7)
     }
 }

@@ -18,7 +18,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 | 3 | 两端跑后记录页共用页面骨架（第 2 轮 D9） | 值得探 | 中 | 低 | 否 | 已合并：#879 → PR #880（11-08），三态部分早先由 PR #867 做掉。新用例 3 条，已写，未执行；画面不变只读代码确认，没有装机截图对比 |
 | 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 已合并：OpenSpec 变更 `centralize-session-expiry-handling`（PR #874），第 1 批 #872 → PR #876（security-reviewer 无 CRITICAL / HIGH），第 2 批 #873 → PR #877（均 11-08）。用例已写，未执行；真机跑（tasks 3.1）与归档（3.2）未做 |
 | 5 | 订单实时跟踪：两端订单页订阅、对方位置过期、轮询合成一个 module | 强 | 大 | 高 | **是，只报告** | 方案待批：OpenSpec 变更 `unify-order-live-tracking`，#881 → 草稿 PR #884（11-08）。批准前不改 Swift 文件 |
-| 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 设想 | 大 | 中 | 否 | 待选，先挑一页试 |
+| 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 有条件推广：新写或重写的页面用，旧页面顺手迁 | 大（剩 23 个 view model） | 中 | 否 | 试点已合并：`RunRecordViewModel`，#894 → PR #897（11-08）。用例已写，未执行；推广待负责人定 |
 | 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 待选 |
 
 ## 1. 首页单飞刷新（已选定）
@@ -76,6 +76,35 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - 两步构造：View init 里 `ViewModel()`，`.task` 里 `configure(with: AppState)`，`appState` 是 weak（`blindRun/Shared/RunRecordPresentation.swift:30-48`；`blindRun/Profile/BlindRunnerProfileView.swift:13` + `hasConfigured`）。配好之前 `guard let appState else { return }` 静默不做事。
 - 46 个测试文件调 `.configure(with:`，用例要自己持有 `AppState`。`AppState` 被 271 个文件引用。
 - 牵涉记忆 `location-service-test-seam-and-weak-viewmodel-deps` 的 weak 约定。建议只在新写或重写的页面上试。
+
+### 试点：跑后记录详情（#894，11-08）
+
+**试点页**：`RunRecordViewModel`（`blindRun/Shared/RunRecordPresentation.swift`），两端跑后记录详情页共用。选它是因为它从 `AppState` 只用两样（跑后记录服务、读一次订单详情），不碰红线。没选 `BlindRunnerProfileViewModel`：它牵涉视力授权、紧急联系人，依赖也多。
+
+**改前**
+
+- View `init` 里 `RunRecordViewModel(orderId:)`，`.task` 里 `configure(with: appState, speech:, runRecord:)`。`appState`、`speech` 是 weak；`runRecord:` 只给用例换替身。
+- 三处 `guard let appState else { return }`：`configure` 之前调任何方法都静默不做事。
+- 用例要自己 `let` 住 `AppState`，每条末尾写 `_ = appState` 防它提前释放；5 个测试文件里有 3 个为此各自带一个内存版 token 存储类。
+
+**改后**
+
+- 新增 `RunRecordDependencies`：两个闭包 `runRecord`、`orderDetail`。`.live(appState)` 给页面用，`.fixed(runRecord:orders:)` 给用例用。
+- view model 构造时拿齐依赖：`RunRecordViewModel(orderId:dependencies:speech:)`。`configure`、weak、`guard let appState` 全部删掉，没有「配好之前」这个状态。
+- `runRecord` 闭包每次请求现取一次 `appState.runRecord`，和改前一样跟着当前环境走（`AppState.apiClient` 按 `currentEnvironment` 算，运行中能变）。
+- SwiftUI 的 `init` 里拿不到 `@EnvironmentObject`，所以页面拆成两层：原名 `RunnerRunRecordView` / `VolunteerRunRecordView` 变成只读环境对象的外壳，在 `body` 里构造内层 `…Page`。4 个调用方（含订单页红线文件 `CompletedTrackSummaryView.swift`）一行没改。`StateObject` 的闭包只跑一次，外壳重绘不会换掉 view model。
+- 内层页面改了名，SwiftLint 棘轮按声明原文认旧账，把陪跑员页当成新违规。照跑者页的先例，把「留句话」输入区挪进同文件 `extension`，没改 baseline。推广时每拆一页都会遇到同样的事。
+- 用例不再需要 `AppState`：删掉 10 行 `_ = appState` 和 3 个 token 存储类。新增 1 条用例守 `.live(appState)` 把订单详情接到 `appState.orders`（`UserSafetyViewModelTests.testLiveDependenciesReadTheOrderThroughAppState`，已写，未执行）。
+- weak 约定要防的两个问题：循环引用不存在（`AppState` 和 `SpeechService` 不持有 view model）；硬件服务竞态与本页无关（不用定位）。
+- 验证：`build-for-testing` 通过（PR #897）。没有跑真机，所有改动过的用例都是已写，未执行。
+
+**是否建议推广：有条件推广，不批量迁。**
+
+- 好处是真的：用例少一半样板，「忘了 `configure` 就静默不做事」和「weak 依赖被提前释放导致假绿」（记忆里记了 4 次）这两类错在构造方式上就不可能发生。
+- 代价是每页多一层外壳（约 10 行），因为 SwiftUI 只能在 `body` 里拿环境对象。
+- 建议：新写或重写的页面直接用这种写法；旧页面只在本来就要改它的 PR 里顺手迁。不开专门的批量迁移。
+
+**推广的改动量**（`origin/main` bfa44241 计数，含本页）：生产代码 24 个文件有 `weak var appState`，`hasConfigured` 1 处；测试有 52 个文件调 `.configure(with:`，74 个文件把 `appState` 传进 `configure`。本页迁完剩 23 个。按本页的比例（1 个 view model 牵动 2 个页面、5 个测试文件），全量迁移约 23 个 PR 大小的工作。依赖多的 view model（例如约跑页同时要定位、地点搜索、语音输入）的依赖结构体会更大，要逐页判断，不宜机械照搬。
 
 ## 7. Mock 里的业务规则
 

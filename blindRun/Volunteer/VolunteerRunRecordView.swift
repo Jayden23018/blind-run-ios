@@ -199,8 +199,18 @@ private extension String {
 
 // MARK: - Page
 
+/// 外壳：从环境里取依赖，构造时交给页面（#894）。`init` 里拿不到 `@EnvironmentObject`，只能在 `body` 里取。
 struct VolunteerRunRecordView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+    let orderId: Int64
+
+    var body: some View {
+        VolunteerRunRecordPage(orderId: orderId, dependencies: .live(appState), speech: speechService)
+    }
+}
+
+struct VolunteerRunRecordPage: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel: RunRecordViewModel
     @State private var highlightedSplit: Int?
@@ -211,8 +221,9 @@ struct VolunteerRunRecordView: View {
 
     private static let topID = "runRecordTop"
 
-    init(orderId: Int64) {
-        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId))
+    /// `StateObject` 的闭包只在页面第一次出现时跑一次：外壳重绘传进来的新依赖不会换掉 view model。
+    init(orderId: Int64, dependencies: RunRecordDependencies, speech: SpeechService) {
+        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId, dependencies: dependencies, speech: speech))
     }
 
     var body: some View {
@@ -222,7 +233,6 @@ struct VolunteerRunRecordView: View {
         }
         .accessibilityIdentifier("volunteerRunRecordDetail")
         .task {
-            viewModel.configure(with: appState, speech: speechService)
             await viewModel.loadUntilSettled()
         }
     }
@@ -364,6 +374,25 @@ struct VolunteerRunRecordView: View {
         }
     }
 
+    /// 头部下面一行小数据（照健身的天气行）：志愿服务时长、中途休息次数。D5：没有「待确认」之类的状态。
+    private func serviceRow(_ text: String, duration: String, range: String?, stops: Int) -> some View {
+        var stats = [RunRecordSmallStat(
+            value: duration,
+            label: "志愿服务",
+            spoken: [text, range.map { $0.replacingOccurrences(of: "–", with: "到") }].compactMap { $0 }.joined(separator: "，")
+        )]
+        if stops > 0 {
+            stats.append(RunRecordSmallStat(value: "\(stops) 次", label: "中途休息", spoken: "中途休息 \(stops) 次"))
+        }
+        return RunRecordSmallStatsRow(stats: stats)
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("runRecordServiceRow")
+    }
+}
+
+// 拆出来只是因为结构体正文超过 SwiftLint 上限（棘轮只许变小）；同一个文件，私有成员照常可见。
+extension VolunteerRunRecordPage {
     // MARK: 给X留句话（阶段 6，HANDOFF 6.2 第 9 条）
 
     @ViewBuilder
@@ -493,22 +522,6 @@ struct VolunteerRunRecordView: View {
         case .idle, .sending:
             EmptyView()
         }
-    }
-
-    /// 头部下面一行小数据（照健身的天气行）：志愿服务时长、中途休息次数。D5：没有「待确认」之类的状态。
-    private func serviceRow(_ text: String, duration: String, range: String?, stops: Int) -> some View {
-        var stats = [RunRecordSmallStat(
-            value: duration,
-            label: "志愿服务",
-            spoken: [text, range.map { $0.replacingOccurrences(of: "–", with: "到") }].compactMap { $0 }.joined(separator: "，")
-        )]
-        if stops > 0 {
-            stats.append(RunRecordSmallStat(value: "\(stops) 次", label: "中途休息", spoken: "中途休息 \(stops) 次"))
-        }
-        return RunRecordSmallStatsRow(stats: stats)
-            .padding(.horizontal, 4)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("runRecordServiceRow")
     }
 }
 
