@@ -39,6 +39,11 @@ final class RunRecordRetryTests: XCTestCase {
         service.results = Array(repeating: .success(record(status: .generating)), count: 50)
 
         let task = viewModel.startRetry()
+        // 等它真的在轮询（至少读过一次）再离开页面，守的是「轮询中途取消」，不只是「还没开始就取消」。
+        for _ in 0..<200 where service.calls == 0 {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertGreaterThan(service.calls, 0, "重试任务没有开始读")
         viewModel.cancelRetry()
         await task.value
 
@@ -51,8 +56,9 @@ final class RunRecordRetryTests: XCTestCase {
 
     private func makeViewModel() -> (RunRecordViewModel, AppState, RetryRecordService) {
         let service = RetryRecordService()
-        // AppState 由调用方持有：view model 对它是 weak。
-        let appState = AppState(tokenStore: RetryInMemoryTokenStore())
+        // AppState 由调用方持有：view model 对它是 weak。`MockAPIClient` 是进程内的：
+        // 记录读到后还会查一次订单详情，不注入就按当前环境走，可能发真实请求。
+        let appState = AppState(apiClient: MockAPIClient(), tokenStore: RetryInMemoryTokenStore())
         let viewModel = RunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
         viewModel.configure(with: appState, runRecord: service)
         return (viewModel, appState, service)
