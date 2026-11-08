@@ -240,4 +240,188 @@ extension MockAPIClient {
         orders[index].messageToVolunteer = request.text.nilIfBlank
         return RunnerMessageResponse(messageToVolunteer: orders[index].messageToVolunteer)
     }
+
+    // MARK: - 订单状态流转（#895 从 +IntroCall 原样搬来）
+
+    /// 接单时距开跑超过这个分钟数就落 `SCHEDULED_CONFIRMED`（跨天预约，后端迁移 `0041`）。
+    ///
+    /// 镜像后端 `app.order.scheduled-ahead-threshold-minutes`（默认 240）。
+    /// **只有 Mock 需要这个数** —— 生产代码一个字都不该算它，状态由后端下发。
+    /// 镜像它的唯一理由是：不镜像，跨天预约那一整屏（确认出发入口）在开发期永远走不到，
+    /// 只能靠真实后端 + 两个账号 + 一张四小时后的单才看得见。
+    private static let mockScheduledAheadThresholdMinutes: TimeInterval = 240
+
+    func handleAcceptOrder(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .pendingMatch else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_ALREADY_ACCEPTED", message: "订单已被其他志愿者接单"))
+        }
+        // 远期单落 `SCHEDULED_CONFIRMED`，即时单照旧 `PENDING_ACCEPT`。
+        // 两条路都下发 `volunteerPhone`：后端 `allowsCounterpartCall()` 对这两态都判 true。
+        let target: RunOrderStatus = Self.isFarFuture(orders[index]) ? .scheduledConfirmed : .pendingAccept
+        orders[index] = updateOrderStatus(orders[index], to: target, volunteerPhone: "13800000002")
+        return actionResponse(for: orders[index], message: target == .scheduledConfirmed ? "已接下这张预约单" : "接单成功")
+    }
+
+    /// 拿不到 `plannedStart` 时判 **false**（当成即时单）：Mock 里造的订单大多不带计划时间，
+    /// 让它们默认落进预约态会把所有既有用例的状态机改掉。
+    static func isFarFuture(_ order: OrderDetailResponse) -> Bool {
+        guard let start = order.plannedStart?.nilIfBlank?.backendTimestamp else { return false }
+        return start.timeIntervalSinceNow > mockScheduledAheadThresholdMinutes * 60
+    }
+
+    /// `POST /api/orders/{id}/confirm-departure` —— 临期闸门，`SCHEDULED_CONFIRMED → PENDING_ACCEPT`。
+    ///
+    /// 409 的文案照后端契约：最常见成因是闸门已经把这一单退回重新匹配了，客户端此刻才把确认发上来。
+    func handleConfirmDeparture(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .scheduledConfirmed else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "这一单已经不在待确认状态了"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .pendingAccept)
+        return actionResponse(for: orders[index], message: "已确认出发")
+    }
+
+    func handleDeclineOrder(orderId: Int64) throws -> OrderResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        return actionResponse(for: order, message: "已拒绝本次派单")
+    }
+
+    func handleEnRoute(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .pendingAccept else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .driverEnRoute)
+        return actionResponse(for: orders[index], message: "已出发")
+    }
+
+    func handleArrived(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .driverEnRoute else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .driverArrived)
+        return actionResponse(for: orders[index], message: "已到达")
+    }
+
+    func handleFinish(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status.canFinishService else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .completed)
+        return actionResponse(for: orders[index], message: "服务已完成")
+    }
+
+    func handleStartService(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        // 契约（#346）：两端都能开始，先按的生效；「调用时订单已是 `IN_PROGRESS`（另一端先按了）
+        // → 两端都返回 200，不报错」。不照做的话，两人几乎同时按时后按的那一端会念一句报错。
+        if orders[index].status == .inProgress {
+            return actionResponse(for: orders[index], message: "服务已开始")
+        }
+        guard orders[index].status == .driverArrived else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .inProgress)
+        return actionResponse(for: orders[index], message: "服务已开始")
+    }
+
+    /// 契约：响应是裸的 `CancelOrderResponse`（后端 #361）。`countedAsLateCancel` 照后端口径算：
+    /// 陪跑员取消且距开跑**严格小于**窗口（默认 12 小时，开跑之后也算）为 `true`，盲人恒为 `false`。
+    func handleCancel(orderId: Int64) throws -> CancelOrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        // 汇合态的跑者取消（后端 #682）：只在后端给了时刻时放行，早于它回 409，message 带时刻。
+        if mockRole == .blind, orders[index].status == .driverArrived,
+           let raw = orders[index].earliestBlindCancelAt?.nilIfBlank {
+            if let opensAt = raw.backendTimestamp, opensAt > Date() {
+                let clock = DateFormatter.aidRunDisplayClock.string(from: opensAt)
+                throw APIError.serverError(ErrorResponse(
+                    code: "BLIND_CANCEL_TOO_EARLY",
+                    message: "陪跑员刚到不久，请先打电话联系对方；若一直没碰上，\(clock)之后可以取消"))
+            }
+            orders[index] = updateOrderStatus(orders[index], to: .cancelled)
+            return CancelOrderResponse(success: true, countedAsLateCancel: false)
+        }
+        guard let role = mockRole, orders[index].status.canCancel(as: role) else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许取消"))
+        }
+        let countedAsLateCancel = role == .volunteer
+            && Self.isWithinLateCancelWindow(plannedStart: orders[index].plannedStart?.backendTimestamp)
+        let nextStatus: RunOrderStatus = role == .volunteer ? .rematching : .cancelled
+        orders[index] = updateOrderStatus(orders[index], to: nextStatus)
+        return CancelOrderResponse(success: true, countedAsLateCancel: countedAsLateCancel)
+    }
+
+    /// UI 用例把汇合态的可取消时刻钉在「现在 + N 秒」（`AIDRUN_UI_TEST_BLIND_CANCEL_AFTER_SECONDS`，
+    /// 负数 = 已经可以取消）。不设 ⇒ `nil`，正是「后端关了这条出口」那一支 ——
+    /// 其余 UI 用例按现有行数断言，凭空多一行会假失败（同种子订单「刻意不带终点」）。
+    static func seededBlindCancelAt(for status: RunOrderStatus) -> String? {
+        guard status == .driverArrived,
+              let raw = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_BLIND_CANCEL_AFTER_SECONDS"],
+              let seconds = Double(raw) else { return nil }
+        return DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(seconds))
+    }
+
+    /// 没有开跑时间的单按「不在窗口内」算 —— Mock 不编一个时间去判罚。
+    private static func isWithinLateCancelWindow(plannedStart: Date?, now: Date = Date()) -> Bool {
+        guard let plannedStart else { return false }
+        return plannedStart.timeIntervalSince(now) < Double(RuleParams.fallback.lateCancelWindowHours) * 3600
+    }
+
+    /// `PUT /api/orders/{id}/keep-waiting` 与 `/keep-rematching`。
+    ///
+    /// 两条端点前置状态互斥，所以调用方传进来要求的那一个 —— Mock 不去猜订单当前是什么，
+    /// 猜的话就把「客户端打错了端点」这类 bug 遮掉了。
+    ///
+    /// 成功只回 `{"success": true}`，**订单状态不变**，这是契约保证的全部形状
+    /// （`api_spec.yaml:277-283`）。不要在这里编一个带剩余次数或新超时时刻的回执 ——
+    /// 那样客户端会长出依赖后端并不提供的字段的代码。
+    func handleKeepWaiting(
+        orderId: Int64,
+        requiredStatus: RunOrderStatus
+    ) throws -> ApiSuccessResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == requiredStatus else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不支持此操作"))
+        }
+        let used = keepWaitingCounts[orderId] ?? 0
+        guard used < Self.mockKeepWaitingLimit else {
+            throw APIError.serverError(ErrorResponse(
+                code: "KEEP_WAITING_LIMIT_REACHED", message: "继续等待次数已达上限，请取消订单后重新下单"))
+        }
+        keepWaitingCounts[orderId] = used + 1
+        return ApiSuccessResponse(success: true, message: nil)
+    }
+
+    func actionResponse(for order: OrderDetailResponse, message: String) -> OrderResponse {
+        OrderResponse(id: order.orderId, status: order.status, message: message, success: true)
+    }
 }

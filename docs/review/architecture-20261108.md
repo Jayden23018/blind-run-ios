@@ -19,7 +19,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 | 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 已合并：OpenSpec 变更 `centralize-session-expiry-handling`（PR #874），第 1 批 #872 → PR #876（security-reviewer 无 CRITICAL / HIGH），第 2 批 #873 → PR #877（均 11-08）。用例已写，未执行；真机跑（tasks 3.1）与归档（3.2）未做 |
 | 5 | 订单实时跟踪：两端订单页订阅、对方位置过期、轮询合成一个 module | 强 | 大 | 高 | **是，只报告** | 方案待批：OpenSpec 变更 `unify-order-live-tracking`，#881 → 草稿 PR #884（11-08）。批准前不改 Swift 文件 |
 | 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 设想 | 大 | 中 | 否 | 待选，先挑一页试 |
-| 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 待选 |
+| 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 已合并订单流转拆分：#895 → PR #PRNUM（11-08），只验编译。意图判定只出结论，待负责人定（见 §7.2） |
 
 ## 1. 首页单飞刷新（已选定）
 
@@ -83,6 +83,31 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - `blindRun/Core/MockAPIClient+Voice.swift`（894 行）`:187` 意图关键词表；`:162` 说「镜像后端两条规则」，`:549` 说「启发式，不是契约镜像」，互相矛盾。
 - `VoiceOrderWizardGoldenCorpusTests.swift:64-106` 直接测 Mock 的静态判定，与后端没有机械对照。
 - 建议：先只把订单流转从 `+IntroCall` 拆到 `+Order`；意图判定去留由负责人定。
+
+### 7.1 已做：订单流转拆回 `+Order`（#895 → PR #PRNUM，11-08）
+
+- 搬了什么：`+IntroCall.swift` 原 `:342-522` 整段搬到 `blindRun/Core/MockAPIClient+Order.swift:244-426`。包括 `mockScheduledAheadThresholdMinutes`、`handleAcceptOrder`、`isFarFuture`、`handleConfirmDeparture`、`handleDeclineOrder`、`handleEnRoute`、`handleArrived`、`handleFinish`、`handleStartService`、`handleCancel`、`seededBlindCancelAt`、`isWithinLateCancelWindow`、`handleKeepWaiting`、`actionResponse`。
+- 行为不变：搬动的行逐字相同（diff 里增删行两两配对，只多出文件头一行和一行 `MARK`）。通话磨合的判定（`handleIntroCallDecision`、`checkIntroCallPlanGate`、安排单）一行没动，仍在 `+IntroCall`。
+- 跨文件依赖只剩一处：通话磨合成单 `+IntroCall.swift:89` 调 `Self.isFarFuture`，它现在在 `+Order`。这是原有调用，不是新加的。
+- `+IntroCall.swift` 从 635 行降到 454 行。它后半段还装着评价、状态日志、分享链接（`handleReview` 起到文件尾）。这些也不属于通话磨合，本次没搬，以后要拆另开 issue。
+- 验证：只跑了编译门禁 `build-for-testing`。没有新写用例，没跑真机。
+
+### 7.2 意图判定：结论（不改代码）
+
+- 原报告说 `:162` 与 `:549` 两处注释互相矛盾。核对后**不矛盾**：`:162` 说的是 `mockVoiceAddressShort`（起点短名，镜像契约两条规则），`:549` 说的是 `mockVoiceEndSpan`（终点抽取，启发式）。两个函数，各说各的。
+- 真正的缺口在确认轮意图 `mockVoiceUserIntent`（`+Voice.swift:187`，关键词表 `:212-233`）：
+  - 注释 `:182` 写「真正的对撞由 `scripts/validate-voice-intent-words.mjs` 直接读 Java 源码做」。但这个脚本只读 `blindRun/Voice/VoiceOrderWizard.swift` 的本地直通表，**不读 Mock 的表**。
+  - 后端黄金语料 `docs/voice-golden-corpus.json`（origin/main）只有 START_TIME / DURATION / ADDRESS / PACE / GUIDE_DOG 五类，**没有确认轮意图**。`validate-golden-corpus.mjs` 和 `VoiceOrderWizardGoldenCorpusTests` 因此也守不到它。
+  - 结论：Mock 的意图关键词表自称「逐字转写」后端 `VoiceSlotParser`，但现在没有任何机器检查守着这句话。后端改了正则，Mock 不会红。
+- 通话磨合闸门 `checkIntroCallPlanGate`（`+IntroCall.swift:150`）照契约两态表手抄，同样没有机械对照。它属红线，本次不动。
+
+**待负责人定**：
+
+1. Mock 的确认轮意图判定保留为「启发式，只求开发期走得通」，还是和后端做机械对照？
+   - 保留启发式：改 `:182` 的注释，删掉「逐字转写」「对撞由脚本做」的说法，免得误导。改动几行。
+   - 机械对照：把 `validate-voice-intent-words.mjs` 扩成也读 `MockAPIClient+Voice.swift` 的 `mockVoiceIntent*` 表；或请后端在黄金语料加一类 `USER_INTENT`（要开后端 issue）。
+   - 建议：选机械对照里的第一种。脚本已经会解析 Java 正则，只多读一个 Swift 文件，不用后端改。
+2. `checkIntroCallPlanGate` 要不要也加对照？契约两态表是文字表格，机器不好读。建议暂不加，等契约改这张表时再看。
 
 ## 其他观察（不成候选）
 
