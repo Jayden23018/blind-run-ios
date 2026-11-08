@@ -18,7 +18,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 | 3 | 两端跑后记录页共用页面骨架（第 2 轮 D9） | 值得探 | 中 | 低 | 否 | 已合并：#879 → PR #880（11-08），三态部分早先由 PR #867 做掉。新用例 3 条，已写，未执行；画面不变只读代码确认，没有装机截图对比 |
 | 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 已合并：OpenSpec 变更 `centralize-session-expiry-handling`（PR #874），第 1 批 #872 → PR #876（security-reviewer 无 CRITICAL / HIGH），第 2 批 #873 → PR #877（均 11-08）。用例已写，未执行；真机跑（tasks 3.1）与归档（3.2）未做 |
 | 5 | 订单实时跟踪：两端订单页订阅、对方位置过期、轮询合成一个 module | 强 | 大 | 高 | **是，只报告** | 方案待批：OpenSpec 变更 `unify-order-live-tracking`，#881 → 草稿 PR #884（11-08）。批准前不改 Swift 文件 |
-| 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 设想 | 大 | 中 | 否 | 待选，先挑一页试 |
+| 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 有条件推广：新写或重写的页面用，旧页面顺手迁 | 大（23 个 view model） | 中 | 否 | 试点已合并：`RunRecordViewModel`，#894 → PR #897（11-08）。用例已写，未执行；推广待负责人定 |
 | 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 待选 |
 
 ## 1. 首页单飞刷新（已选定）
@@ -96,7 +96,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - 内层页面改了名，SwiftLint 棘轮按声明原文认旧账，把陪跑员页当成新违规。照跑者页的先例，把「留句话」输入区挪进同文件 `extension`，没改 baseline。推广时每拆一页都会遇到同样的事。
 - 用例不再需要 `AppState`：删掉 10 行 `_ = appState` 和 3 个 token 存储类。新增 1 条用例守 `.live(appState)` 把订单详情接到 `appState.orders`（`UserSafetyViewModelTests.testLiveDependenciesReadTheOrderThroughAppState`，已写，未执行）。
 - weak 约定要防的两个问题：循环引用不存在（`AppState` 和 `SpeechService` 不持有 view model）；硬件服务竞态与本页无关（不用定位）。
-- 验证：`build-for-testing` 通过（见 PR）。没有跑真机，所有改动过的用例都是已写，未执行。
+- 验证：`build-for-testing` 通过（PR #897）。没有跑真机，所有改动过的用例都是已写，未执行。
 
 **是否建议推广：有条件推广，不批量迁。**
 
