@@ -96,6 +96,8 @@ struct BlindMatchFirstBookingView: View {
                 useCurrentLocation()
             }
         }
+        // 先 contain 再挂 id：否则这个 id 盖掉页里所有子元素的 id（#814），审计也认不出底栏。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("matchFirstBookingPage")
     }
 
@@ -131,6 +133,9 @@ struct BlindMatchFirstBookingView: View {
         .padding(.horizontal, Self.horizontalPadding)
         .padding(.vertical, 8)
         .background(AppColors.Flow.page.ignoresSafeArea())
+        // 不透明底栏：无障碍审计据此认出滚到它后面的胶囊（看不见，不算对比度失败）。先 contain，免得盖掉按钮自己的 id。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("blindBookingSubmitBar")
     }
 
     private var submitSpokenLabel: String {

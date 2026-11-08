@@ -15,6 +15,12 @@ struct BookingSlotSection: View {
     let onSelectSlot: (BookingDaySlot) -> Void
     let onTogglePreferredStart: (Date) -> Void
 
+    /// 辅助功能字号（AX1 起）：钟点胶囊 4 列 → 2 列，三个时段胶囊改竖排，字才能真的变大而不是缩小（负责人 11-08 定）。
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var usesLargeTextLayout: Bool { dynamicTypeSize.isAccessibilitySize }
+    private static let startTimeColumns = 4
+    private static let largeTextStartTimeColumns = 2
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let hint = dutyHoursHint {
@@ -28,8 +34,14 @@ struct BookingSlotSection: View {
                 .padding(.bottom, 8)
                 .accessibilityIdentifier("matchFirstDutyHoursHint")
             }
-            HStack(spacing: 10) {
-                ForEach(BookingDaySlot.allCases) { slot in slotPill(slot) }
+            if usesLargeTextLayout {
+                VStack(spacing: 10) {
+                    ForEach(BookingDaySlot.allCases) { slot in slotPill(slot) }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    ForEach(BookingDaySlot.allCases) { slot in slotPill(slot) }
+                }
             }
             Rectangle()
                 .fill(AppColors.Flow.separator)
@@ -69,7 +81,10 @@ struct BookingSlotSection: View {
                 .foregroundColor(AppColors.Flow.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 10),
+                    count: usesLargeTextLayout ? Self.largeTextStartTimeColumns : Self.startTimeColumns
+                ),
                 alignment: .leading,
                 spacing: 0
             ) {
