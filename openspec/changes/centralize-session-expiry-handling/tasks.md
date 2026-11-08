@@ -7,7 +7,7 @@
 - [x] 1.5 求助触发 / 撤销：`EmergencyCoordinator+Trigger.swift:148`、`+Countdown.swift:141` 收到 `.unauthorized` 时落到「暂缓中被拦」的失败态；补对应单测
 - [x] 1.6 删除账户预检 `AccountDeletionViewModel.swift:46` 去掉直接 `expireSession()` 特例；补单测（跑步中 → 暂缓、不弹删除确认）
 - [x] 1.7 全量 `build-for-testing` 编译；检查断言「401 后仍有会话」的现有用例，按新需求改断言并逐条写进 PR
-- [ ] 1.8 security-reviewer 审第 1 批 diff，CRITICAL / HIGH 修完再合
+- [x] 1.8 security-reviewer 审第 1 批 diff，CRITICAL / HIGH 修完再合
 
 ## 2. 第 2 批：调用方清理（等 #868、#869、#871 合并后开）
 

@@ -232,6 +232,8 @@ extension AppState {
         guard accessToken != nil || tokenRefresher.currentRefreshToken != nil else {
             return true
         }
+        // 正在退出登录：交给登出流程收尾。抢先清会话会让它读不到凭据记补撤，还会在登录页多念一句「登录已过期」。
+        guard logoutState != .inProgress else { return true }
         // 判据读 `liveEscortCoordinator.activeStatus`：全 App 唯一记着「本账号当前订单状态」的地方，
         // 两端首页与订单页都往里写。冷启动时它还是空的 ⇒ 重启后的 401 照旧登出（design.md Non-Goals）。
         guard liveEscortCoordinator.activeStatus == .inProgress else {

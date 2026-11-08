@@ -129,6 +129,19 @@ final class SessionAwareAPIClientTests: XCTestCase, EmergencySOSTestSupport {
         XCTAssertEqual(transport.requests.map(\.path), ["/api/auth/logout"], "前提：登出请求确实发了")
     }
 
+    /// 退出登录进行中，后台另一个请求 401：不抢先清会话、不写提示，由登出流程收尾（security-reviewer M1）。
+    func testUnauthorizedWhileLoggingOutLeavesTheCleanupToTheLogout() async {
+        let (appState, transport) = Self.loggedInAppState(role: .blind)
+        transport.nextError = APIError.unauthorized
+        let recorder = SessionEventRecorder(appState)
+        appState.logoutState = .inProgress
+
+        _ = await Self.capture { let _: EmptyResponse = try await appState.apiClient.get("/api/orders/mine") }
+
+        XCTAssertEqual(appState.accessToken, "token-7", "凭据留给登出流程记补撤")
+        XCTAssertEqual(recorder.expiryMessages, [])
+    }
+
     // MARK: - 出口形状
 
     func testEveryExitIsWrappedExactlyOnceAndLogoutGetsTheRawClient() {
