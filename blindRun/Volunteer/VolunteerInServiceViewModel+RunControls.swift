@@ -26,7 +26,7 @@ extension VolunteerInServiceViewModel {
             speechService?.speak(paused ? VolunteerRunCopy.pausedSpoken : VolunteerRunCopy.resumedSpoken)
             await load(orderId: order.orderId, speakChanges: false)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -49,7 +49,7 @@ extension VolunteerInServiceViewModel {
             try await appState.safety.submitSupportTicket(request)
             supportRequestState = .submitted
             speechService?.speak(VolunteerRunCopy.supportSubmitted)
-        } catch let error as APIError where appState.handleAuthenticatedAPIError(error) {
+        } catch let error as APIError where error.endsSession {
             supportRequestState = .idle
         } catch {
             supportRequestState = .failed

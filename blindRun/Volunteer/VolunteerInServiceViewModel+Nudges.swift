@@ -53,7 +53,7 @@ extension VolunteerInServiceViewModel {
             speechService?.speak("已结束等待。订单已取消，不算你的取消。")
             didEndWaiting = true
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             // 409 `END_WAIT_TOO_EARLY`：手上的 `earliestEndWaitAt` 过期了，刷一次让主按钮换回去。
             // 先刷新再报（同 `submitTransition` 的冲突分支）。
             if case .serverError(let response) = error, response.errorCode == .endWaitTooEarly {
@@ -82,7 +82,7 @@ extension VolunteerInServiceViewModel {
     private func reportNudgeFailure(_ error: Error, appState: AppState) {
         let message: String
         switch error as? APIError {
-        case .some(let apiError) where appState.handleAuthenticatedAPIError(apiError):
+        case .some(let apiError) where apiError.endsSession:
             return
         case .some(.rateLimited(let info)):
             message = info.retryAfterSeconds.map { "操作过于频繁，\($0) 秒后再试。" } ?? "操作过于频繁，请稍后再试。"

@@ -13,7 +13,7 @@ final class MySupportTicketsViewModel: ObservableObject {
         do {
             phase = .loaded(try await appState.safety.myTickets())
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) { markFailedUnlessAlreadyShowing() }
+            if !error.endsSession { markFailedUnlessAlreadyShowing() }
         } catch is CancellationError {
             return
         } catch {

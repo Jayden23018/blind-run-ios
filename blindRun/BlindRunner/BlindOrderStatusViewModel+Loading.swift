@@ -90,7 +90,7 @@ extension BlindOrderStatusViewModel {
             statusLogs = logs
         } catch let error as APIError {
             isLoadingStatusLogs = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             statusLogsErrorMessage = error.localizedMessage
@@ -151,7 +151,7 @@ extension BlindOrderStatusViewModel {
             await refreshTrackStatsIfNeeded(for: updated, appState: appState)
         } catch let error as APIError {
             isLoading = false
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             errorMessage = error.localizedMessage
             pollFailureGate.reportFailure(error.localizedMessage, orderId: orderId, to: speechService)
         } catch {
@@ -173,7 +173,7 @@ extension BlindOrderStatusViewModel {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
-            if appState?.handleAuthenticatedAPIError(error) == true {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage

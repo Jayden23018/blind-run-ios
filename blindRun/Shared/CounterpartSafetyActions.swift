@@ -21,7 +21,7 @@ final class CounterpartBlockViewModel: ObservableObject {
             didBlock = true
             return true
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) {
+            if !error.endsSession {
                 errorMessage = UserSafetyCopy.failureMessage(for: error, fallback: UserSafetyCopy.blockFailed)
             }
             return false

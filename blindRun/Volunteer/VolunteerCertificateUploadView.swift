@@ -421,7 +421,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
             }
         } catch let error as APIError {
             isLoadingStatus = false
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             statusLoadFailed = true
         } catch {
             isLoadingStatus = false
@@ -502,7 +502,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
                 : "\(materialNoun)已提交，\(isAlternativeIdentityPath ? "等待管理员人工审核" : "等待团队审核")。"
         } catch let error as APIError {
             isUploading = false
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             // 保留已选文件，用户可直接重试。
             errorMessage = "\(error.localizedMessage) 可点击提交\(materialNoun)重试。"
         } catch {

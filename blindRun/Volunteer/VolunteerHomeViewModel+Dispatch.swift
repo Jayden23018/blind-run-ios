@@ -243,7 +243,7 @@ extension VolunteerHomeViewModel {
         allowsIntroCallUpgrade: Bool
     ) {
         isRespondingToDispatch = false
-        if appState.handleAuthenticatedAPIError(error) {
+        if error.endsSession {
             return
         }
         // 熟人误发 `INTERESTED`：后端 409 `INTRO_CALL_NOT_REQUIRED`（2026-08-26 新增）。

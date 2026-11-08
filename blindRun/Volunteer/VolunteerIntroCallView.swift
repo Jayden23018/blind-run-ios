@@ -111,7 +111,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
             clearLoadFailure()
             announceCountdownIfDue(now: now)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             guard Self.endsTheRound(error) else {
                 noteLoadFailure()
                 return
@@ -235,7 +235,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
             speechService?.speak(IntroCallCopy.volunteerPlanSubmittedAnnouncement)
             return .submitted
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return .roundEnded }
+            if error.endsSession { return .roundEnded }
             if Self.endsTheRound(error) {
                 await resolveFinishedRound(orderId: orderId, appState: appState)
                 return .roundEnded
@@ -285,7 +285,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
             await load()
         } catch let error as APIError {
             isSubmitting = false
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             if error.errorCode == .introCallNotActive {
                 // 窗口已经超时、订单已经换人。这不是失败重试能解决的，直接收尾。
                 await resolveFinishedRound(orderId: orderId, appState: appState)

@@ -361,7 +361,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             return true
         } catch let error as APIError {
             isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return false
             }
             reportSaveFailure(failureText?(error.localizedMessage) ?? error.localizedMessage, withdrawing: withdrawing)

@@ -165,7 +165,7 @@ extension VolunteerHomeViewModel {
             dispatchSummaryErrorMessage = "派单状态刷新超过 20 秒，请重试"
         } catch let error as APIError {
             guard !Task.isCancelled, summaryRefresh.isCurrent(ticket) else { return }
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             dispatchSummaryErrorMessage = error.localizedMessage

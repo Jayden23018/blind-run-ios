@@ -110,7 +110,7 @@ extension VolunteerHomeViewModel {
             speechService?.speakError(message)
         } catch let apiError as APIError {
             guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
-            if appState.handleAuthenticatedAPIError(apiError) { return }
+            if apiError.endsSession { return }
             dispatchSummaryErrorMessage = apiError.localizedMessage
             dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: apiError.localizedMessage)
             speechService?.speakError(apiError.localizedMessage)

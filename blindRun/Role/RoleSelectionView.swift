@@ -135,7 +135,7 @@ final class RoleSelectionViewModel: ObservableObject {
         case .rateLimited(let info):
             errorMessage = APIError.rateLimited(info).localizedMessage
         case .unauthorized:
-            appState?.expireSession()
+            // 会话已由 `apiClient` 外面那层处理（#872 / #873），这里只不显示错误。
             errorMessage = nil
         case .missingCredentials:
             // 刻意不走 `expireSession()`：本地本来就没 Token，再清一次只会把现场抹掉。
@@ -150,7 +150,7 @@ final class RoleSelectionViewModel: ObservableObject {
     }
 
     private func activeAPIClient(appState: AppState) -> any APIClientProtocol {
-        apiClientOverride ?? appState.apiClient
+        appState.apiClient(overriddenBy: apiClientOverride)
     }
 }
 

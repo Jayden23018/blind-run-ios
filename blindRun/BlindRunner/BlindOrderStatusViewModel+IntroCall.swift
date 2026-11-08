@@ -258,7 +258,7 @@ extension BlindOrderStatusViewModel {
             }
         } catch let error as APIError {
             isPerformingAction = false
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             if error.errorCode == .introCallNotActive {
                 // 窗口刚好到点：这一轮已经结束，刷订单让页面回到真实状态，念的是后端的那句。
                 errorMessage = error.localizedMessage
@@ -299,7 +299,7 @@ extension BlindOrderStatusViewModel {
             await loadOrder(orderId: order.orderId, speakChanges: false)
         } catch let error as APIError {
             isPerformingAction = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage

@@ -129,7 +129,7 @@ final class EmergencyContactsViewModel: ObservableObject {
         do {
             try await refreshContacts(appState: appState, userId: userId)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { listState = previous; return }
+            if error.endsSession { listState = previous; return }
             failLoad(Self.displayMessage(for: error))
         } catch {
             failLoad(Self.loadFailure)
@@ -272,7 +272,7 @@ final class EmergencyContactsViewModel: ObservableObject {
     }
 
     private func handle(_ error: APIError) {
-        if appState?.handleAuthenticatedAPIError(error) == true { return }
+        if error.endsSession { return }
         fail(with: Self.displayMessage(for: error))
     }
 

@@ -175,7 +175,7 @@ final class VolunteerProfileViewModel: ObservableObject {
         } catch let error as APIError {
             isCertificationRunning = false
             verificationStatus = "not_submitted"
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage
@@ -200,7 +200,7 @@ final class VolunteerProfileViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage

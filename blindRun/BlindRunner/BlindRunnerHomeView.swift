@@ -299,7 +299,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             speechService?.speakError(message)
         } catch let error as APIError {
             guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage
@@ -402,7 +402,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage
@@ -435,7 +435,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
-            if appState?.handleAuthenticatedAPIError(error) == true {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage

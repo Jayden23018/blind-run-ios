@@ -670,5 +670,49 @@ export const cases = [
       '        let rawValue = try decoder.singleValueContainer().decode(String.self)\n' +
       '        self = NewKind(rawValue: rawValue) ?? .unknown // guard:allow unknown-fallback-handwritten\n' +
       '    }\n}'
+  },
+
+  // session-handling-outside-core（2026-11-08，#873）。会话失效只在 AppState+Session 与 SessionAwareAPIClient 里处理。
+  {
+    name: '页面自己调 handleAuthenticatedAPIError（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Volunteer/VolunteerPointsView.swift',
+    swift: 'func f() { if appState.handleAuthenticatedAPIError(error) { return } }'
+  },
+  {
+    name: '页面自己调 expireSession（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Role/RoleSelectionView.swift',
+    swift: 'func f() { appState?.expireSession() }'
+  },
+  {
+    name: '会话本身的文件里调 expireSession（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppState+Session.swift',
+    swift: 'func f() { expireSession() }'
+  },
+  {
+    name: '网络层出口里调 handleAuthenticatedAPIError（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/SessionAwareAPIClient.swift',
+    swift: 'func f() { appState.handleAuthenticatedAPIError(.unauthorized) }'
+  },
+  {
+    name: '页面自己调网络层回调入口 handleSessionEndedByNetworkLayer（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Volunteer/VolunteerPointsView.swift',
+    swift: 'func f() { appState?.handleSessionEndedByNetworkLayer() }'
+  },
+  {
+    name: '调用方按 endsSession 停下（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Volunteer/VolunteerPointsView.swift',
+    swift: 'func f() { if error.endsSession { return } }'
   }
 ];

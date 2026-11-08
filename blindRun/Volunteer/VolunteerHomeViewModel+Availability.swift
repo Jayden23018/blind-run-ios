@@ -55,7 +55,7 @@ extension VolunteerHomeViewModel {
         } catch let error as APIError {
             isAvailable = previousValue
             isUpdatingAvailability = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             errorMessage = error.localizedMessage

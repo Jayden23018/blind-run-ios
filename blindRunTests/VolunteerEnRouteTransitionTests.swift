@@ -185,13 +185,12 @@ final class VolunteerEnRouteTransitionTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(client.postRequestCount, 2)
     }
 
+    /// #873 起页面不再自己调 `handleAuthenticatedAPIError`：会话由 `apiClient` 外面那层处理。
+    /// 所以这里经 `AppState(apiClient:)` 注入，走生产路径；注入 `orders:` 替身会绕过那一层，测不到登出。
     func testVolunteerEnRouteUnauthorizedUsesSessionExpirationFlow() async {
-        let client = TransitionConfirmationFixture(
-            postError: .unauthorized,
-            confirmation: .response,
-            order: makeOrder(orderId: 100, status: .pendingAccept)
-        )
-        let appState = AppState(orders: client.service)
+        let transport = RecordingTransport()
+        transport.nextError = APIError.unauthorized
+        let appState = AppState(apiClient: transport, tokenStore: InMemoryTokenStore(), refreshTokenStore: InMemoryTokenStore())
         appState.accessToken = "expired-token"
         let viewModel = VolunteerInServiceViewModel()
         viewModel.configure(

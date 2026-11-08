@@ -41,7 +41,7 @@ extension BlindRunnerHomeViewModel {
             }
             otherOrders = page.content.filter { $0.orderId != activeOrder.orderId && $0.status.isActiveForBlindRunner }
             otherOrdersFailed = false
-        } catch let error as APIError where appState.handleAuthenticatedAPIError(error) {
+        } catch let error as APIError where error.endsSession {
             return
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "blind-other-orders")

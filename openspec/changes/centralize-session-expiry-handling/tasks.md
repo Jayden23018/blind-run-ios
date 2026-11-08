@@ -11,9 +11,9 @@
 
 ## 2. 第 2 批：调用方清理（等 #868、#869、#871 合并后开）
 
-- [ ] 2.1 把调用方里的 `handleAuthenticatedAPIError` 调用改成「是 `.unauthorized` 就停下」，`AppState+Session` 以外不再直接操作会话
-- [ ] 2.2 加一条守卫（`scripts/hooks/guard.mjs`）：`blindRun/` 下除 `AppState+Session.swift`、`SessionAwareAPIClient.swift` 外出现 `handleAuthenticatedAPIError(` 或 `expireSession(` 就拦
-- [ ] 2.3 编译门禁；PR 写明「用例已写，未执行」
+- [x] 2.1 把调用方里的 `handleAuthenticatedAPIError` 调用改成「是 `.unauthorized` 就停下」，`AppState+Session` 以外不再直接操作会话
+- [x] 2.2 加一条守卫（`scripts/hooks/guard.mjs`）：`blindRun/` 下除 `AppState+Session.swift`、`SessionAwareAPIClient.swift` 外出现 `handleAuthenticatedAPIError(` 或 `expireSession(` 就拦
+- [x] 2.3 编译门禁；PR 写明「用例已写，未执行」
 
 ## 3. 收尾
 
