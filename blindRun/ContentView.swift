@@ -207,7 +207,7 @@ final class ContentRootRouter: ObservableObject {
         ) else { return }
 
         if let apiError = error as? APIError {
-            if appState.handleAuthenticatedAPIError(apiError) {
+            if apiError.endsSession {
                 route = .unauthenticated
                 return
             }

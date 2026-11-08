@@ -266,4 +266,17 @@ export const safetyRules = {
       '要让 `.unknown` 编码成 `null`（App 会把这个值发给后端时），改遵循 `UnknownFallbackCodable` 并删掉手写的 `encode(to:)`。\n' +
       '确实要保留手写版本（例如解码前要先 trim / 转大写），行尾加 `// guard:allow unknown-fallback-handwritten`。',
   },
+  'session-handling-outside-core': {
+    // 2026-11-08（#873，OpenSpec `centralize-session-expiry-handling` 任务 2.2）。会话失效（续期后仍 401）
+    // 由 `AppState.apiClient` 外面的 `SessionAwareAPIClient` 统一处理（#872）。调用方自己再调一次，
+    // 第一是多余，第二是会绕过跑步中暂缓（直接 `expireSession()`），第三是让「新页面要记得调」这条老坑复活 ——
+    // 收拢之前 65 处调用、另有 29 个文件忘了调，漏了没有任何东西会报错。
+    // 只在两个文件里成立：会话本身（`AppState+Session.swift`）与网络层出口（`SessionAwareAPIClient.swift`）。
+    pattern: /\b(?:handleAuthenticatedAPIError|expireSession)\s*\(/,
+    exceptFiles: /\/Core\/(?:AppState\+Session|SessionAwareAPIClient)\.swift$/,
+    why:
+      '会话失效已由网络层统一处理（`SessionAwareAPIClient`，#872 / #873）：需要登录的请求续期后仍 401 时，会话在那里处理（跑步中暂缓，否则登出），' +
+      '调用方仍收到 `.unauthorized`。调用方只需要停下：`if error.endsSession { return }`，不显示一般失败文案，**不要**自己调 `handleAuthenticatedAPIError` / `expireSession`。\n' +
+      '自建 transport 的页面用 `appState.apiClient(overriddenBy:)` 包上会话处理。确有正当理由，行尾加 `// guard:allow session-handling-outside-core` 并写明。',
+  },
 };

@@ -93,7 +93,7 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
             existingReview = OrderReview(orderId: orderId, rating: rating, level: nil, comment: comment, createdAt: nil)
             speech?.speak("评价已提交，感谢反馈。")
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             // 已评价过不是失败：切到只读卡，把那条评价取回来（后端 2026-07-31 起专用码）。
             if error.errorCode == .reviewAlreadySubmitted {
                 didSubmitReview = true
@@ -166,9 +166,6 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
                 partnerRow = rows.first { $0.userId == volunteerId } ?? Self.bareRow(volunteerId: volunteerId, name: volunteerName)
                 partnerStatus = .notPartner
             }
-        } catch let error as APIError {
-            appState.handleAuthenticatedAPIError(error)
-            partnerStatus = .unknown
         } catch {
             partnerStatus = .unknown
         }
@@ -200,7 +197,7 @@ final class RunnerRunFeedbackViewModel: ObservableObject {
             await loadPartnerState()
             return nil
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return error.localizedMessage }
+            if error.endsSession { return error.localizedMessage }
             // 收藏专属错误码的文案挂在 `ErrorCode.localizedMessage` 上，这里不再映射一遍。
             return failFavorite(error.localizedMessage)
         } catch {

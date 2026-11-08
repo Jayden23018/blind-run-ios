@@ -25,7 +25,7 @@ extension BlindBookingViewModel {
             return response
         } catch let error as APIError {
             isSubmitting = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return nil
             }
             return reject(error, appState: appState)

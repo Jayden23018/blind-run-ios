@@ -92,7 +92,7 @@ extension BlindOrderStatusViewModel {
             // 撤销的话下一轮轮询看到已完成，会说成「陪跑员结束了本次陪跑」—— 像是他又联系上了。
             if case APIError.serverError = error { BlindRunnerFinishRecord.unmark(order.orderId) }
             isPerformingAction = false
-            if let apiError = error as? APIError, appState.handleAuthenticatedAPIError(apiError) { return nil }
+            if let apiError = error as? APIError, apiError.endsSession { return nil }
             let message = Self.runnerFinishFailureMessage(for: error)
             speechService?.speakError(message)
             errorMessage = message

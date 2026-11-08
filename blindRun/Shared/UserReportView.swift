@@ -38,7 +38,7 @@ final class UserReportViewModel: ObservableObject {
             submittedMessage = UserSafetyCopy.reportSubmitted(ticketId: ticket.id)
             return true
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) {
+            if !error.endsSession {
                 errorMessage = UserSafetyCopy.failureMessage(for: error, fallback: UserSafetyCopy.reportFailed)
             }
             return false

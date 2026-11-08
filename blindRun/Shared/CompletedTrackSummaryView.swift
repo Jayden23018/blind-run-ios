@@ -13,7 +13,7 @@ final class CompletedTrackSummaryViewModel: ObservableObject {
         do {
             track = try await appState.safety.orderTrack(orderId: orderID)
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) {
+            if !error.endsSession {
                 errorMessage = "本次路线暂时无法加载。"
             }
         } catch {

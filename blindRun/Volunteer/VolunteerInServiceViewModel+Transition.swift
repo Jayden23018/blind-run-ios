@@ -48,7 +48,7 @@ extension VolunteerInServiceViewModel {
             if discardsResultOfLostOrder() { return }
             markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 transitionState = .failed(message: error.localizedMessage)
                 return
             }

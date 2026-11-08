@@ -249,6 +249,11 @@ extension AppState {
         return true
     }
 
+    /// `SessionAwareAPIClient` 的回调：需要登录的请求续期后仍 401（#872）。全 App 只有这一处从网络层进会话处理。
+    func handleSessionEndedByNetworkLayer() {
+        handleAuthenticatedAPIError(.unauthorized)
+    }
+
     /// 结束暂缓，按原逻辑登出。三个入口：本单离开 `IN_PROGRESS`（`init` 里的两条订阅）、
     /// 跑者从首页导航栈退出订单页（`BlindRunnerHomeView`）、横幅上的「现在重新登录」。
     ///

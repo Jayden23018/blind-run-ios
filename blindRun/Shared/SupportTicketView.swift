@@ -40,7 +40,7 @@ final class SupportTicketViewModel: ObservableObject {
             didSubmit = true
             return true
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) {
+            if !error.endsSession {
                 errorMessage = error.errorCode == .supportTicketLimitExceeded
                     ? error.localizedMessage
                     : SupportTicketCopy.failed

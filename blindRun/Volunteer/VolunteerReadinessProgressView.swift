@@ -69,7 +69,6 @@ final class VolunteerReadinessProgressViewModel: ObservableObject {
         do {
             return try await appState.profile.volunteerRegistrationStatus()
         } catch {
-            handle(error, appState)
             // 能进首页说明实名与人脸已经过了，缓存在这两步上不会说错话，
             // 还能保住替代路径的称呼（他没有证书）。
             return appState.volunteerRegistrationStatus
@@ -85,7 +84,6 @@ final class VolunteerReadinessProgressViewModel: ObservableObject {
             if status != .unknown { appState.updateVolunteerVerificationStatus(status.rawValue) }
             return (.from(status: status, statusLoadFailed: false), response.rejectionReason)
         } catch {
-            handle(error, appState)
             return (.statusUnavailable, nil)
         }
     }
@@ -96,13 +94,8 @@ final class VolunteerReadinessProgressViewModel: ObservableObject {
         do {
             return try await appState.orders.dispatchSummary().notAvailableReasons
         } catch {
-            handle(error, appState)
             return nil
         }
-    }
-
-    private func handle(_ error: Error, _ appState: AppState) {
-        if let error = error as? APIError { _ = appState.handleAuthenticatedAPIError(error) }
     }
 }
 

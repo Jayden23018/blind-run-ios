@@ -34,7 +34,7 @@ extension AppState {
                 invites, requestedAt: requestedAt, consecutiveDeclineCount: response.consecutiveDeclineCount
             )
         } catch let error as APIError {
-            if handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             // 失败静默：手上的卡照旧，下一次回前台 / 重连再对。对账失败不该打断陪跑员。
             ClientFlowDiagnostics.record(event: "failed", operation: "pending-invites")
         } catch {

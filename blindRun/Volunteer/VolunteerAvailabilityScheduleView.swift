@@ -283,7 +283,7 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
             isSaving = false
         } catch let error as APIError {
             isSaving = false
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             errorMessage = error.localizedMessage
         } catch {
             isSaving = false

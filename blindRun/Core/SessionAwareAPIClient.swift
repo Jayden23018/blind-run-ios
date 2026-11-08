@@ -1,5 +1,14 @@
 import Foundation
 
+extension APIError {
+    /// 这次失败是不是「会话已结束」（续期也救不回来的 401）。会话本身已由 `SessionAwareAPIClient` 处理过（#873）：
+    /// 调用方看到 true 就停下，不显示一般失败文案，**不要**自己再去碰会话。
+    var endsSession: Bool {
+        if case .unauthorized = self { return true }
+        return false
+    }
+}
+
 /// 会话失效的统一出口（OpenSpec `centralize-session-expiry-handling`，#872）。
 ///
 /// 包在 `AppState.apiClient` 外面。需要登录的请求最终抛出 `.unauthorized` 时，先交给 `onSessionEnded`

@@ -16,7 +16,6 @@ extension VolunteerHomeViewModel {
         } catch is CancellationError {
             return nil
         } catch {
-            if let error = error as? APIError { _ = appState.handleAuthenticatedAPIError(error) }
             return .failed
         }
         if let existing = appState.volunteerProfile {

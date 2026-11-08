@@ -88,7 +88,7 @@ final class RunRecordViewModel: ObservableObject {
             sendState = .sent
             return true
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 sendState = .idle
                 return false
             }
@@ -149,8 +149,6 @@ final class RunRecordViewModel: ObservableObject {
             let order = try await appState.orders.orderDetail(orderId: orderId)
             self.order = order
             counterpartTarget = CounterpartSafetyGate.target(userId: order.counterpartUserId, orderId: orderId)
-        } catch let error as APIError {
-            appState.handleAuthenticatedAPIError(error)
         } catch {
             return
         }
@@ -167,7 +165,7 @@ final class RunRecordViewModel: ObservableObject {
         do {
             phase = .loaded(try await service.record(orderId: orderId))
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
+            if error.endsSession { return }
             phase = .failed(message: "跑后记录加载失败。\(error.localizedMessage)")
         } catch is CancellationError {
             return

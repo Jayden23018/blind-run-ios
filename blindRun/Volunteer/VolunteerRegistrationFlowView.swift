@@ -575,7 +575,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             if showLoading {
@@ -756,7 +756,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             try await activeProfileService(appState: appState).submitVolunteerBasicInfo(request)
             await syncStatusAfterBasicInfoSuccess(appState: appState)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 isLoading = false
                 return
             }
@@ -863,7 +863,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             speechService?.speakError(message)
         } catch let error as APIError {
             isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             if handleRegistrationRateLimit(error) {
@@ -1004,7 +1004,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             await loadStatus(showLoading: false)
         } catch let error as APIError {
             isDecliningFaceVerify = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             if handleRegistrationRateLimit(error) {
@@ -1136,7 +1136,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             let response = try await activeProfileService(appState: appState).faceVerifyResult(request)
             return await handleFaceVerifyResult(response)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return true
             }
             errorMessage = error.localizedMessage
@@ -1223,7 +1223,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     /// 注入口仍收 `APIClientProtocol`（`init(apiClient:)` 没变）：用例注入的桩实现的就是它，
     /// 迁到 service 层不该逼 30 多个用例跟着换类型。service 在这里就地架在那个桩上。
     private func activeProfileService(appState: AppState) -> any ProfileServing {
-        ProfileService(transport: apiClientOverride ?? appState.apiClient)
+        ProfileService(transport: appState.apiClient(overriddenBy: apiClientOverride))
     }
 }
 

@@ -234,7 +234,7 @@ final class RunRecordHistoryViewModel: ObservableObject {
     private func recordFailure(_ error: Error, isMonthRequest: Bool = false) {
         let detail: String
         if let apiError = error as? APIError {
-            if appState?.handleAuthenticatedAPIError(apiError) == true { return }
+            if apiError.endsSession { return }
             detail = apiError.localizedMessage
         } else {
             detail = "请检查网络后重试"

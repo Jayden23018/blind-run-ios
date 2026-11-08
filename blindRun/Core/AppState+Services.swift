@@ -8,8 +8,18 @@ extension AppState {
     /// 需要登录的请求最终 401 时，会话在这里处理（跑步中暂缓，否则登出），调用方不用记得去调。
     /// 单测注入的 `apiClientOverride` 一样包：测的就是生产路径。
     var apiClient: any APIClientProtocol {
-        SessionAwareAPIClient.wrapping(sessionUnawareAPIClient) { [weak self] in
-            self?.handleAuthenticatedAPIError(.unauthorized)
+        sessionAware(sessionUnawareAPIClient)
+    }
+
+    /// 页面自带测试注入口（`apiClient:` 构造参数）时用：注入的客户端同样包上会话处理，没注入就是 `apiClient`。
+    /// 不包的话，页面在单测里收到 401 只会停下、不登出，测不到生产路径（#873）。
+    func apiClient(overriddenBy override: (any APIClientProtocol)?) -> any APIClientProtocol {
+        override.map(sessionAware) ?? apiClient
+    }
+
+    private func sessionAware(_ client: any APIClientProtocol) -> any APIClientProtocol {
+        SessionAwareAPIClient.wrapping(client) { [weak self] in
+            self?.handleSessionEndedByNetworkLayer()
         }
     }
 

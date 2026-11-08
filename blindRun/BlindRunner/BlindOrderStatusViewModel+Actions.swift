@@ -28,7 +28,7 @@ extension BlindOrderStatusViewModel {
             speechService?.speak(KeepWaitingCopy.success)
         } catch let error as APIError {
             isPerformingAction = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             switch error.errorCode {
@@ -80,7 +80,7 @@ extension BlindOrderStatusViewModel {
             // 按钮若先恢复成可点，这一段里还能再发一次。
             await loadOrder(orderId: order.orderId, speakChanges: true)
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             let message = error.localizedMessage
@@ -116,7 +116,7 @@ extension BlindOrderStatusViewModel {
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
         } catch let error as APIError {
             isPerformingAction = false
-            if appState.handleAuthenticatedAPIError(error) {
+            if error.endsSession {
                 return
             }
             let message = Self.cancelFailureMessage(for: error)
@@ -160,7 +160,7 @@ extension BlindOrderStatusViewModel {
             speechService?.speak(saved == nil ? "留言已清空" : "留言已发给陪跑员")
             return nil
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return nil }
+            if error.endsSession { return nil }
             speechService?.speakError(error.localizedMessage)
             return error.localizedMessage
         } catch {

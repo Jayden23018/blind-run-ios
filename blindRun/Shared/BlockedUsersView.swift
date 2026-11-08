@@ -15,7 +15,7 @@ final class BlockedUsersViewModel: ObservableObject {
         do {
             phase = .loaded(try await appState.safety.blockedUsers())
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) { phase = .failed(message: UserSafetyCopy.blockedListFailed) }
+            if !error.endsSession { phase = .failed(message: UserSafetyCopy.blockedListFailed) }
         } catch is CancellationError {
             return
         } catch {
@@ -41,7 +41,7 @@ final class BlockedUsersViewModel: ObservableObject {
             await load(appState: appState)
             return UserSafetyCopy.unblockSucceeded
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return nil }
+            if error.endsSession { return nil }
             let message = UserSafetyCopy.failureMessage(for: error, fallback: UserSafetyCopy.unblockFailed)
             actionError = message
             return message

@@ -124,7 +124,7 @@ extension VolunteerHomeViewModel {
             speechService?.speak(successSpeech + followUp)
             return true
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return false }
+            if error.endsSession { return false }
             // 409 `ORDER_STATUS_NOT_ALLOWED`：订单已经不在 `SCHEDULED_CONFIRMED` 上了。
             //
             // 🚨 **不许断言是哪一种。** 至少三种成因，客户端一个都分不出：
