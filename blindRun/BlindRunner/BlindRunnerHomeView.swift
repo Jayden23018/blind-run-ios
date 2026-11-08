@@ -151,10 +151,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     private func applyRealtimeStatus(_ update: RealtimeOrderStatusUpdate) {
         guard let current = activeOrder, current.orderId == update.orderId else { return }
         let updated = current.replacingStatus(with: update.toStatus)
-        speechService?.speakBlindRunnerStatusChange(
-            updated,
-            text: updated.blindRunnerAnnouncement()
-        )
+        announceRealtimeStatusUnlessOrderPageSpoke(updated, update: update)
         if updated.status.isActiveForBlindRunner {
             activeOrder = updated
             appState?.liveEscortCoordinator.updateOwnedOrder(
@@ -168,6 +165,23 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         }
         orderLoadState = .loaded(activeOrder)
         errorMessage = nil
+    }
+
+    /// 跑者订单页开着、跟着这一单时，状态句以订单页为准（负责人 2026-11-08 定，`unify-order-live-tracking` design §6）：
+    /// 通话磨合没成、成单时只有订单页那句带具体内容。订单页这一次没念（`order` 还没拉回来、完成态）
+    /// 或等回话超时，首页照念。只有念不念等这个结果，`activeOrder` 在上面照常同步更新。
+    private func announceRealtimeStatusUnlessOrderPageSpoke(
+        _ updated: OrderDetailResponse,
+        update: RealtimeOrderStatusUpdate
+    ) {
+        guard let tracker = appState?.realtimeCoordinator.orderLiveTracker else {
+            speechService?.speakBlindRunnerStatusChange(updated, text: updated.blindRunnerAnnouncement())
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard await tracker.pageAnnouncement(for: update, role: .blind) == .homeShouldSpeak else { return }
+            self?.speechService?.speakBlindRunnerStatusChange(updated, text: updated.blindRunnerAnnouncement())
+        }
     }
 
     /// - Parameter announcesStatus: 首启引导页正压在首页上时传 `false`。
@@ -353,7 +367,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     /// 志愿者的最新坐标，**过期的一律当没有**。
     ///
     /// `latestPeerLocation` 只是取缓存、不判新鲜度（订单状态页那套过期清理在
-    /// `schedulePeerExpiry`，首页没有）。念一个几分钟前的距离，对听不见屏幕的人就是假数据。
+    /// 订单跟踪 `OrderLiveTrack` 里，首页没有）。念一个几分钟前的距离，对听不见屏幕的人就是假数据。
     private var freshVolunteerCoordinate: CLLocationCoordinate2D? {
         guard let activeOrder,
               let sample = appState?.realtimeCoordinator.latestPeerLocation(
@@ -362,7 +376,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
               ),
               sample.isValid else { return nil }
         let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
-        guard Date().timeIntervalSince(capturedAt) <= LiveEscortSessionCoordinator.peerFreshness else {
+        guard PeerLocationFreshness().isFresh(capturedAt: capturedAt, now: Date()) else {
             return nil
         }
         return BackendCoordinateNormalizer.backend(

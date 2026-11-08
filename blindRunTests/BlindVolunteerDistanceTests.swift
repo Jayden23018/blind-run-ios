@@ -164,61 +164,41 @@ final class BlindVolunteerDistanceTests: XCTestCase, BlindRunTestSupport {
         }
     }
 
-    func testBlindOrderStatusViewModelTracksVolunteerDistanceToStart() {
-        let viewModel = BlindOrderStatusViewModel()
-        viewModel.order = makeOrder(orderId: 1, status: .driverEnRoute)
-        let nowMilliseconds = Int64(Date().timeIntervalSince1970 * 1_000)
+    // 下面三条 2026-11-08 随 `unify-order-live-tracking` 第 2 批（#887）改写：页面不再自己判新鲜度、
+    // 不再排过期任务，样本改经订单跟踪送进来（`OrderLiveTracker.receivePeerLocation`，
+    // 与协调器发布点调的是同一个入口）。页面只经 `openOrderTrackIfNeeded` 打开 track、不走 `configure`，
+    // 于是 `appState` 为 nil、`loadOrder` 直接返回，轮询不会拿 Mock 详情盖掉用例摆好的订单。
 
-        viewModel.handleVolunteerLocationUpdate(WSVolunteerLocationUpdate(
-            type: WSMessageType.volunteerLocationUpdate.rawValue,
-            orderId: 1,
-            lat: 39.9342,
-            lng: 116.4740,
-            timestamp: nowMilliseconds
-        ))
+    func testBlindOrderStatusViewModelTracksVolunteerDistanceToStart() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = followingOrderPage(orderId: 1, status: .driverEnRoute, appState: appState)
+        let tracker = appState.realtimeCoordinator.orderLiveTracker
 
-        XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米")
-
-        viewModel.handleVolunteerLocationUpdate(WSVolunteerLocationUpdate(
-            type: WSMessageType.volunteerLocationUpdate.rawValue,
-            orderId: 2,
-            lat: 39.9042,
-            lng: 116.4074,
-            timestamp: nowMilliseconds
-        ))
+        tracker.receivePeerLocation(volunteerSample(orderId: 1, latitude: 39.9342, longitude: 116.4740))
+        await drainTrackEvents()
 
         XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米")
+
+        tracker.receivePeerLocation(volunteerSample(orderId: 2, latitude: 39.9042, longitude: 116.4074))
+        await drainTrackEvents()
+
+        XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米", "别的单的位置不许改这一单的距离")
     }
 
     func testBlindPeerSampleExpiryUsesLatestSampleAndIgnoresWrongOrder() async throws {
-        let viewModel = BlindOrderStatusViewModel(peerFreshness: 0.12)
-        viewModel.order = makeOrder(orderId: 31, status: .driverEnRoute)
-        let first = RealtimePeerLocationSample(
-            orderId: 31,
-            ownerRole: .volunteer,
-            latitude: 39.9342,
-            longitude: 116.4740,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        )
-        viewModel.handleVolunteerLocationUpdate(first)
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = followingOrderPage(orderId: 31, status: .driverEnRoute, appState: appState, peerFreshness: 0.12)
+        let tracker = appState.realtimeCoordinator.orderLiveTracker
+        tracker.receivePeerLocation(volunteerSample(orderId: 31, latitude: 39.9342, longitude: 116.4740))
+        await drainTrackEvents()
         XCTAssertNotNil(viewModel.latestVolunteerSample)
 
         try await Task.sleep(nanoseconds: 70_000_000)
-        let second = RealtimePeerLocationSample(
-            orderId: 31,
-            ownerRole: .volunteer,
-            latitude: 39.9343,
-            longitude: 116.4741,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        )
-        viewModel.handleVolunteerLocationUpdate(second)
-        viewModel.handleVolunteerLocationUpdate(RealtimePeerLocationSample(
-            orderId: 99,
-            ownerRole: .volunteer,
-            latitude: 31.2,
-            longitude: 121.5,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        ))
+        let second = volunteerSample(orderId: 31, latitude: 39.9343, longitude: 116.4741)
+        tracker.receivePeerLocation(second)
+        tracker.receivePeerLocation(volunteerSample(orderId: 99, latitude: 31.2, longitude: 121.5))
 
         try await Task.sleep(nanoseconds: 70_000_000)
         XCTAssertEqual(
@@ -233,27 +213,51 @@ final class BlindVolunteerDistanceTests: XCTestCase, BlindRunTestSupport {
     }
 
     func testBlindPeerSampleStopCancelsExpiry() async throws {
-        let viewModel = BlindOrderStatusViewModel(peerFreshness: 0.04)
-        viewModel.order = makeOrder(orderId: 32, status: .driverArrived)
-        viewModel.handleVolunteerLocationUpdate(RealtimePeerLocationSample(
-            orderId: 32,
-            ownerRole: .volunteer,
-            latitude: 39.9342,
-            longitude: 116.4740,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        ))
-        viewModel.stopPolling()
-        viewModel.handleVolunteerLocationUpdate(RealtimePeerLocationSample(
-            orderId: 32,
-            ownerRole: .volunteer,
-            latitude: 31.2,
-            longitude: 121.5,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        ))
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = followingOrderPage(orderId: 32, status: .driverArrived, appState: appState, peerFreshness: 0.04)
+        let tracker = appState.realtimeCoordinator.orderLiveTracker
+        tracker.receivePeerLocation(volunteerSample(orderId: 32, latitude: 39.9342, longitude: 116.4740))
+        await drainTrackEvents()
+        XCTAssertNotNil(viewModel.latestVolunteerSample)
 
-        XCTAssertNil(viewModel.latestVolunteerSample)
+        viewModel.stopPolling()
+        XCTAssertNil(viewModel.latestVolunteerSample, "离页当场清，不等跟踪那边的过期事件")
+        tracker.receivePeerLocation(volunteerSample(orderId: 32, latitude: 31.2, longitude: 121.5))
+        await drainTrackEvents()
+
+        XCTAssertNil(viewModel.latestVolunteerSample, "离页后的样本不许再落到页面上")
         try await Task.sleep(nanoseconds: 60_000_000)
         XCTAssertNil(viewModel.latestVolunteerSample)
+    }
+
+    private func followingOrderPage(
+        orderId: Int64,
+        status: RunOrderStatus,
+        appState: AppState,
+        peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness
+    ) -> BlindOrderStatusViewModel {
+        let viewModel = BlindOrderStatusViewModel(peerFreshness: peerFreshness)
+        viewModel.order = makeOrder(orderId: orderId, status: status)
+        viewModel.openOrderTrackIfNeeded(appState: appState)
+        viewModel.startPolling(orderId: orderId)
+        return viewModel
+    }
+
+    private func volunteerSample(orderId: Int64, latitude: Double, longitude: Double) -> RealtimePeerLocationSample {
+        RealtimePeerLocationSample(
+            orderId: orderId,
+            ownerRole: .volunteer,
+            latitude: latitude,
+            longitude: longitude,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        )
+    }
+
+    /// 跟踪的事件经 `AsyncStream` 到页面，晚一拍；让消费任务把已入队的事件处理完。
+    private func drainTrackEvents() async {
+        for _ in 0..<5 { await Task.yield() }
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
 
     // `testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech` 随被测函数一起删除

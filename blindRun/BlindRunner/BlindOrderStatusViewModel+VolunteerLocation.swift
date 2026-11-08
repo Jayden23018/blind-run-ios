@@ -2,36 +2,13 @@ import CoreLocation
 import SwiftUI
 
 extension BlindOrderStatusViewModel {
-    func handleVolunteerLocationUpdate(_ sample: RealtimePeerLocationSample) {
-        guard acceptsPeerLocations,
-              sample.ownerRole == .volunteer,
-              sample.orderId == activeOrderId else { return }
-        let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
-        let age = max(0, Date().timeIntervalSince(capturedAt))
-        guard age <= peerFreshness,
-              let located = BackendCoordinateNormalizer.backend(
-            latitude: sample.latitude,
-            longitude: sample.longitude,
-            capturedAt: capturedAt
-        ) else { return }
-
-        latestVolunteerWebSocketDate = capturedAt
-        latestVolunteerSample = located
-        latestVolunteerCoordinate = located.coordinate
+    /// 订单跟踪送来的、已过新鲜度判据与 GCJ-02 边界的陪跑员位置（`PeerLocationFreshness.accept`）。
+    /// 角色、单号、15 秒、过期任务都在跟踪里判，这里只落到页面状态。
+    func handleVolunteerLocation(_ peer: FreshPeerLocation) {
+        latestVolunteerWebSocketDate = peer.located.capturedAt
+        latestVolunteerSample = peer.located
+        latestVolunteerCoordinate = peer.located.coordinate
         refreshVolunteerDistance()
-        schedulePeerExpiry(for: located, orderID: sample.orderId, remaining: peerFreshness - age)
-    }
-
-    func handleVolunteerLocationUpdate(_ message: WSVolunteerLocationUpdate) {
-        handleVolunteerLocationUpdate(
-            RealtimePeerLocationSample(
-                orderId: message.orderId,
-                ownerRole: .volunteer,
-                latitude: message.lat,
-                longitude: message.lng,
-                timestampMilliseconds: message.timestamp
-            )
-        )
     }
 
     // `shouldSuppressDirectNotificationSpeech(_:)` 已于 2026-08-09 删除（连同 31 条中文片段表）。
@@ -49,31 +26,7 @@ extension BlindOrderStatusViewModel {
         order?.orderId ?? currentOrderId
     }
 
-    private func schedulePeerExpiry(
-        for sample: LocatedCoordinate,
-        orderID: Int64,
-        remaining: TimeInterval
-    ) {
-        peerExpiryTask?.cancel()
-        peerExpiryTask = Task { [weak self] in
-            do {
-                try await Task.sleep(
-                    nanoseconds: UInt64(max(0.01, remaining) * 1_000_000_000)
-                )
-            } catch {
-                return
-            }
-            guard !Task.isCancelled,
-                  let self,
-                  self.activeOrderId == orderID,
-                  self.latestVolunteerSample == sample else { return }
-            self.clearPeerLocation()
-        }
-    }
-
     func clearPeerLocation() {
-        peerExpiryTask?.cancel()
-        peerExpiryTask = nil
         latestVolunteerSample = nil
         latestVolunteerCoordinate = nil
         latestVolunteerWebSocketDate = nil
@@ -94,7 +47,8 @@ extension BlindOrderStatusViewModel {
     /// 而 `IN_PROGRESS` 正是走散检测唯一需要兜底的那一段。
     func refreshVolunteerLocationFallbackIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
         guard order.status.fetchesVolunteerLocation else { return }
-        let websocketSampleIsFresh = latestVolunteerWebSocketDate.map { Date().timeIntervalSince($0) <= 15 } ?? false
+        let freshness = PeerLocationFreshness(threshold: peerFreshness)
+        let websocketSampleIsFresh = latestVolunteerWebSocketDate.map { freshness.isFresh(capturedAt: $0, now: Date()) } ?? false
         guard !appState.isWebSocketConnected || !websocketSampleIsFresh else { return }
 
         do {
@@ -173,7 +127,7 @@ extension BlindOrderStatusViewModel {
     /// 2. **`updatedAt` 缺失一律放行**，只在它真的有值时判新鲜度。后端 2026-08-20 才补上这个字段，
     ///    生产未必已部署 —— 失败闭合就会原地重演上面第一条。
     /// 3. 时间戳落在**未来**（设备时钟偏差）按「刚采样」处理，不因此丢坐标。与 WebSocket 那条
-    ///    `handleVolunteerLocationUpdate` 的 `max(0, ...)` 口径一致。
+    ///    `PeerLocationFreshness.accept` 的 `max(0, ...)` 口径一致。
     static func volunteerFallbackCoordinate(
         from data: VolunteerLocationData?,
         matching order: OrderDetailResponse,

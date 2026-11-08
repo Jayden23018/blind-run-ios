@@ -13,10 +13,10 @@
 
 ## 2. 第 2 批：跑者订单页
 
-- [ ] 2.1 `BlindOrderStatusViewModel+Realtime.swift` 改为 `open` + 一个消费 `Task`，`handle(_:)` 同步处理每种事件，判据照搬
-- [ ] 2.2 `+Loading.swift` 删轮询循环，`startPolling` / `stopPolling` 里的跟踪部分改调 `follow` / `pause`，换单清状态、`cancelRunCountdown()` 留在页面；`loadOrder` 的刷新记账不动；`open` 只在第一次 `configure` 调
-- [ ] 2.3 `+VolunteerLocation.swift` 新鲜度与过期改用第 1 批；`:97` 的字面量 `15` 改用 `isFresh`；`BlindOrderStatusView.swift` 删 `cancellables`
-- [ ] 2.4 跑者订单页每条 `.status` 处理后 `acknowledge`（完成态 `spoke: false`）；跑者首页 `applyRealtimeStatus` 念之前 `await pageAnnouncement`，`activeOrder` 照常同步更新
+- [x] 2.1 `BlindOrderStatusViewModel+Realtime.swift` 改为 `open` + 一个消费 `Task`，`handle(_:)` 同步处理每种事件，判据照搬
+- [x] 2.2 `+Loading.swift` 删轮询循环，`startPolling` / `stopPolling` 里的跟踪部分改调 `follow` / `pause`，换单清状态、`cancelRunCountdown()` 留在页面；`loadOrder` 的刷新记账不动；`open` 只在第一次 `configure` 调
+- [x] 2.3 `+VolunteerLocation.swift` 新鲜度与过期改用第 1 批；`:97` 的字面量 `15` 改用 `isFresh`；`BlindOrderStatusView.swift` 删 `cancellables`
+- [x] 2.4 跑者订单页每条 `.status` 处理后 `acknowledge`（完成态 `spoke: false`）；跑者首页 `applyRealtimeStatus` 念之前 `await pageAnnouncement`，`activeOrder` 照常同步更新
 - [ ] 2.5 补用例（design.md 第 2 批清单）；编译门禁；对照 design.md「必须原样保留的行为」逐条写进 PR
 
 ## 3. 第 3 批：陪跑员订单页

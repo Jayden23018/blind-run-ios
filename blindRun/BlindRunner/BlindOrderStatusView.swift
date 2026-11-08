@@ -1,3 +1,5 @@
+// 只为 `ObservableObject` / `@Published`（工程开了 MemberImportVisibility，SwiftUI 不再替它带进来）。
+// 订单实时跟踪不用 Combine 订阅（`unify-order-live-tracking`），这里不许再出现 `AnyCancellable`。
 import Combine
 import CoreLocation
 import SwiftUI
@@ -157,14 +159,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 而后者**同档打断**前者 —— 用户听到的是半句加一句。
     ///
     /// 🔴 **它必须是一个独立的、不继承取消的任务，这一点是实测出来的。**
-    /// `apply` 紧接着就会走 `!shouldPoll` 那条分支调 `stopPolling()`，而 `pollingTask`
+    /// `apply` 紧接着就会走 `!shouldPoll` 那条分支调 `stopPolling()`，而订单跟踪的轮询任务
     /// **就是当前正在跑的这个任务** —— 自我取消。第一版把这件事留在 `loadOrder` 尾巴上，
     /// 真机结果是：那一句照样出声（它是同步的），但 `/track` 在一个已取消的任务里
     /// 立刻抛 cancelled ⇒ **那一句里永远没有里程、屏幕上那三个数字永远是 `--`**。
     /// 两条用例钉住（`BlindRunFinishAnnouncementTests`），它们在修好之前红、修好之后绿。
     ///
     /// 独立任务还顺带盖住第二个入口：`apply` 有两个调用者，另一个是 WebSocket 状态推送
-    /// 那条 Combine sink（`subscribeToRealtimeCoordinator`）—— 它根本不在 `loadOrder` 里，
+    /// 那条（订单跟踪的 `.status` 事件，`handle(_:)`）—— 它根本不在 `loadOrder` 里，
     /// 挂在 `loadOrder` 尾巴上的写法在那条路径上一个字都不会播。
     var completionTask: Task<Void, Never>?
 
@@ -200,24 +202,19 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// （`AMapGeocodingService` 由 `blindRunApp` 的 `@StateObject` 持有），
     /// 临时构造一个传进来等于传 nil（守卫规则 `weak-temporary` 拦的就是这个）。
     weak var placeSearchProvider: (any PlaceSearchProviding)?
-    var pollingTask: Task<Void, Never>?
     var pollFailureGate = OrderPollFailureGate() // 轮询失败只播一次（#659）
     var currentOrderId: Int64?
     var latestVolunteerCoordinate: CLLocationCoordinate2D?
     var latestVolunteerWebSocketDate: Date?
-    var peerExpiryTask: Task<Void, Never>?
-    var acceptsPeerLocations = true
-    var cancellables = Set<AnyCancellable>()
+    /// 订单实时跟踪（`unify-order-live-tracking`）。第一次 `configure` 时打开，之后复用。
+    var orderTrack: OrderLiveTrack?
+    var orderTrackTask: Task<Void, Never>?
     let voiceQuerySession = VoiceStatusQuerySession()
+    /// 只经 `open(peerFreshness:)` 交给 tracker，REST 兜底的 `isFresh` 也用它。
     let peerFreshness: TimeInterval
 
     init(peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness) {
         self.peerFreshness = max(0.01, peerFreshness)
-    }
-
-    /// Active blind-runner orders keep the 5-second REST fallback even when WebSocket is connected.
-    var effectivePollingInterval: TimeInterval {
-        return AppConstants.Timing.orderPollingInterval
     }
 
     /// `GET /api/orders/{id}/track` 的最小间隔。
