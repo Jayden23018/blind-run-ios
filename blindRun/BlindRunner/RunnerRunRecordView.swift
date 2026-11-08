@@ -323,7 +323,6 @@ struct RunnerRunRecordView: View {
     @StateObject private var viewModel: RunRecordViewModel
     @StateObject private var audio = RunRecordAudioController()
     @StateObject private var feedback = RunnerRunFeedbackViewModel()
-    @State private var retryTask: Task<Void, Never>?
     @State private var voiceOverRunning = UIAccessibility.isVoiceOverRunning
     @AccessibilityFocusState private var headerFocused: Bool
 
@@ -336,57 +335,26 @@ struct RunnerRunRecordView: View {
     }
 
     var body: some View {
-        content
-            .background(AppColors.Flow.page.ignoresSafeArea())
-            // 标题只给读屏和下一页的返回键；屏幕上不显示，大标题在地图下沿的头部里（照健身）。
-            .navigationTitle(RunRecordFitness.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("").accessibilityHidden(true)
-                }
-            }
-            // 二级页藏标签栏（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
-            .toolbar(.hidden, for: .tabBar)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("runnerRunRecordDetail")
-            .task {
-                viewModel.configure(with: appState)
-                audio.configure(voice: speechService)
-                feedback.configure(appState: appState, speech: speechService)
-                await viewModel.loadUntilSettled()
-            }
-            // 订单详情读到后再查评价与搭档状态（陪跑员是谁只在订单详情里有）。
-            .task(id: viewModel.order?.orderId) {
-                if let order = viewModel.order { await feedback.load(order: order) }
-            }
-            // HANDOFF 6.3：VoiceOver 开关变了，地图位置实时跟着换。
-            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
-                voiceOverRunning = UIAccessibility.isVoiceOverRunning
-            }
-            .onDisappear {
-                retryTask?.cancel()
-                audio.stop()
-            }
-    }
-
-    /// 加载中与失败只是一小块，放在页顶并留边距；记录读到后整页交给 `loaded`。
-    private var content: some View {
-        RemoteContent(
-            viewModel.phase,
-            loadingLabel: "正在加载跑步记录",
-            failureIdentifier: "runRecordRetry",
-            retry: retry
-        ) { record in
+        // 背景、导航栏、标签栏、加载中 / 失败、重试任务都在外壳里（#879）。
+        RunRecordDetailPage(viewModel: viewModel, navigationTitle: RunRecordFitness.title) { record in
             loaded(record)
         }
-        .padding(viewModel.phase.value == nil ? 20 : 0)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func retry() {
-        retryTask?.cancel()
-        retryTask = Task { await viewModel.retry() }
+        .accessibilityIdentifier("runnerRunRecordDetail")
+        .task {
+            viewModel.configure(with: appState)
+            audio.configure(voice: speechService)
+            feedback.configure(appState: appState, speech: speechService)
+            await viewModel.loadUntilSettled()
+        }
+        // 订单详情读到后再查评价与搭档状态（陪跑员是谁只在订单详情里有）。
+        .task(id: viewModel.order?.orderId) {
+            if let order = viewModel.order { await feedback.load(order: order) }
+        }
+        // HANDOFF 6.3：VoiceOver 开关变了，地图位置实时跟着换。
+        .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
+            voiceOverRunning = UIAccessibility.isVoiceOverRunning
+        }
+        .onDisappear { audio.stop() }
     }
 
     private func loaded(_ record: RunRecordResponse) -> some View {
@@ -405,17 +373,10 @@ struct RunnerRunRecordView: View {
                         .padding(.bottom, 32)
                 }
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        header(content)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 16)
-                        sections(record, content: content, geometry: geometry)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 32)
-                    }
-                    .readableContentColumn()
+                RunRecordPlainScrollPage {
+                    header(content)
+                } content: {
+                    sections(record, content: content, geometry: geometry)
                 }
             }
         }
@@ -447,7 +408,7 @@ struct RunnerRunRecordView: View {
         if voiceOverRunning, let narration = content.narration {
             voiceOverListen(narration)
         }
-        RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: retry)
+        RunRecordStatusNotice(status: record.status, hasMap: geometry != nil, retry: { viewModel.startRetry() })
     }
 
     /// 小数据行、「详细信息」两列格、「单段」表、「配速」图。

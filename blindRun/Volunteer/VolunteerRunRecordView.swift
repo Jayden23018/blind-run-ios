@@ -207,9 +207,6 @@ struct VolunteerRunRecordView: View {
     /// 留言草稿。发成功才清空；没发出去原样留着。
     @State private var draft = ""
     @FocusState private var draftFocused: Bool
-    /// 「重试」起的任务。`.task` 那条随页面取消，这条要自己管：离开页面时还在 GENERATING 就会一直轮询，
-    /// 连点两下会起两个并行的轮询。
-    @State private var retryTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let topID = "runRecordTop"
@@ -219,27 +216,15 @@ struct VolunteerRunRecordView: View {
     }
 
     var body: some View {
-        content
-            .background(AppColors.Flow.page.ignoresSafeArea())
-            // 标题只给读屏和下一页的返回键；屏幕上不显示，大标题在地图下沿的头部里（照健身）。
-            .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("").accessibilityHidden(true)
-                }
-            }
-            // 二级页藏标签栏：悬浮胶囊会盖住最后一行（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
-            // 这一页是 push 进来的，返回箭头一直在。
-            .toolbar(.hidden, for: .tabBar)
-            // `children: .contain` 不能省：容器上的 identifier 会向下覆盖子元素（记忆 accessibility-identifier-overwrites-children）。
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("volunteerRunRecordDetail")
-            .task {
-                viewModel.configure(with: appState, speech: speechService)
-                await viewModel.loadUntilSettled()
-            }
-            .onDisappear { retryTask?.cancel() }
+        // 背景、导航栏、标签栏、加载中 / 失败、重试任务都在外壳里（#879）。
+        RunRecordDetailPage(viewModel: viewModel, navigationTitle: navigationTitle) { record in
+            loaded(record)
+        }
+        .accessibilityIdentifier("volunteerRunRecordDetail")
+        .task {
+            viewModel.configure(with: appState, speech: speechService)
+            await viewModel.loadUntilSettled()
+        }
     }
 
     private var navigationTitle: String {
@@ -247,20 +232,6 @@ struct VolunteerRunRecordView: View {
             return VolunteerRunRecordContent(record: record).navigationTitle.spoken
         }
         return "跑后记录"
-    }
-
-    /// 加载中与失败只是一小块，放在页顶并留边距；记录读到后整页交给 `loaded`。
-    private var content: some View {
-        RemoteContent(
-            viewModel.phase,
-            loadingLabel: "正在加载跑步记录",
-            failureIdentifier: "runRecordRetry",
-            retry: retry
-        ) { record in
-            loaded(record)
-        }
-        .padding(viewModel.phase.value == nil ? 20 : 0)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func loaded(_ record: RunRecordResponse) -> some View {
@@ -286,17 +257,10 @@ struct VolunteerRunRecordView: View {
                         .padding(.bottom, 32)
                 }
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        header(content)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 16)
-                        sections(record, content, onSelectSplit: onSelectSplit)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 32)
-                    }
-                    .readableContentColumn()
+                RunRecordPlainScrollPage {
+                    header(content)
+                } content: {
+                    sections(record, content, onSelectSplit: onSelectSplit)
                 }
             }
         }
@@ -333,7 +297,7 @@ struct VolunteerRunRecordView: View {
         onSelectSplit: ((Int) -> Void)?
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            RunRecordStatusNotice(status: record.status, hasMap: onSelectSplit != nil, retry: retry)
+            RunRecordStatusNotice(status: record.status, hasMap: onSelectSplit != nil, retry: { viewModel.startRetry() })
             if let service = content.serviceText, let duration = content.serviceDuration {
                 serviceRow(service, duration: duration, range: content.serviceRange, stops: record.stops.count)
             }
@@ -398,11 +362,6 @@ struct VolunteerRunRecordView: View {
         ) {
             MessageReportButton(target: target)
         }
-    }
-
-    private func retry() {
-        retryTask?.cancel()
-        retryTask = Task { await viewModel.retry() }
     }
 
     // MARK: 给X留句话（阶段 6，HANDOFF 6.2 第 9 条）
@@ -555,45 +514,6 @@ struct VolunteerRunRecordView: View {
 
 // MARK: - Pieces
 
-// MARK: 状态（两个角色的详情页共用，HANDOFF 6.4）
-// 页面级的加载中 / 失败走 `RemoteContent`（#863）。
-
-/// 生成中 / 失败 / 不认识的状态 / 没有路线。READY 且有地图时什么都不画。
-struct RunRecordStatusNotice: View {
-    let status: RunRecordStatus
-    let hasMap: Bool
-    let retry: () -> Void
-
-    var body: some View {
-        switch status {
-        case .generating:
-            HStack(spacing: 12) {
-                ProgressView()
-                Text("记录正在生成，大约 1 分钟后可以查看")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("runRecordGenerating")
-        case .failed, .unknown:
-            // 和页面级失败同一套：会念出来（#863）。
-            IncentiveFailureSection(
-                message: status == .failed ? "记录生成失败。" : "这条记录暂时无法显示。",
-                retryTitle: "重试",
-                identifier: "runRecordRetry",
-                retry: retry
-            )
-        case .ready, .insufficientTrack:
-            if !hasMap {
-                Text("这次没有记录到完整路线")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityIdentifier("runRecordNoRoute")
-            }
-        }
-    }
-}
-
 private struct RunTimeline: View {
     let entries: [VolunteerRunRecordContent.TimelineEntry]
     let sosLine: String
@@ -636,93 +556,5 @@ private struct DecorativeIconLabelStyle: LabelStyle {
             configuration.title
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Route Map
-
-/// 描边 + 配速线 + 公里标记 + 起终点 + 休息点 + 高亮那一公里。整张图对读屏是装饰（描述挂在页面上）。
-/// 两端详情页固定在背后的地图（`RunRecordMapScrollPage`）与跑者端「路线」一节都用它，跑者端 `highlight` 传 nil。
-/// 底图降饱和（#823 第 10 条）；配速图例挪到「配速」卡里（左上角现在是返回键）。
-struct RunRecordRouteMap: View {
-    let geometry: RunRouteGeometry
-    let record: RunRecordResponse
-    let highlight: VolunteerRunRecordContent.SplitRow?
-    /// 路线的取景框：四边让开返回键、右上圆钮、头部（#823 第 11 条）。
-    let edgePadding: UIEdgeInsets
-
-    var body: some View {
-        MapViewWrapper(
-            centerCoordinate: center,
-            showsUserLocation: false,
-            annotations: annotations,
-            polylines: polylines,
-            tracksUserLocation: false,
-            animatesCenterChanges: false,
-            fitEdgePadding: edgePadding,
-            isDecorative: true,
-            mutedBasemap: true
-        )
-    }
-
-    private var center: CLLocationCoordinate2D {
-        let lats = geometry.coordinates.map(\.latitude)
-        let lngs = geometry.coordinates.map(\.longitude)
-        return CLLocationCoordinate2D(
-            latitude: ((lats.min() ?? 0) + (lats.max() ?? 0)) / 2,
-            longitude: ((lngs.min() ?? 0) + (lngs.max() ?? 0)) / 2
-        )
-    }
-
-    private var polylines: [MapPolylineItem] {
-        // 没有配速采样时整条画成「快」那一档的单色。
-        let noPace: (indexes: [Int], fractions: [Double]) = ([], [0])
-        let pace = RunPaceScale(samples: record.paceSamples).map { geometry.paceStyle(samples: record.paceSamples, scale: $0) } ?? noPace
-        var items = [MapPolylineItem(id: "run-outline", coordinates: geometry.coordinates, isPrimary: true, routeStyle: .outline)]
-        if let highlight {
-            items.append(MapPolylineItem(id: "run-highlight", coordinates: geometry.segment(index: highlight.index), routeStyle: .highlight))
-        }
-        items.append(MapPolylineItem(
-            id: "run-pace",
-            coordinates: geometry.coordinates,
-            routeStyle: .pace(indexes: pace.indexes, fractions: pace.fractions)
-        ))
-        return items
-    }
-
-    private var annotations: [MapAnnotationItem] {
-        var items: [MapAnnotationItem] = []
-        // 起点绿点、终点红点照健身（#823 第 10 条）；重合时红点压在绿点上，两个都露一半。
-        // 「起点和终点在不在同一处」读屏从地图描述 / 路线描述里听到。
-        if let first = geometry.coordinates.first, let last = geometry.coordinates.last {
-            items.append(MapAnnotationItem(id: "run-start", coordinate: first, title: nil, subtitle: nil, kind: .runEndpoint(isStart: true, compact: false)))
-            items.append(MapAnnotationItem(id: "run-end", coordinate: last, title: nil, subtitle: nil, kind: .runEndpoint(isStart: false, compact: false)))
-        }
-        for marker in geometry.kilometreMarkers {
-            items.append(MapAnnotationItem(id: "run-km-\(marker.km)", coordinate: marker.coordinate, title: nil, subtitle: nil, kind: .runKilometre(marker.km)))
-        }
-        for (offset, stop) in record.stops.enumerated() {
-            guard let lat = stop.lat, let lng = stop.lng else { continue }
-            items.append(MapAnnotationItem(
-                id: "run-rest-\(offset)",
-                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng),
-                title: nil,
-                subtitle: nil,
-                kind: .runRest("休息 \(RunRecordText.clock(stop.durationSec))")
-            ))
-        }
-        if let highlight {
-            let segment = geometry.segment(index: highlight.index)
-            if !segment.isEmpty {
-                items.append(MapAnnotationItem(
-                    id: "run-bubble",
-                    coordinate: segment[segment.count / 2],
-                    title: nil,
-                    subtitle: nil,
-                    kind: .runBubble(highlight.bubbleText)
-                ))
-            }
-        }
-        return items
     }
 }

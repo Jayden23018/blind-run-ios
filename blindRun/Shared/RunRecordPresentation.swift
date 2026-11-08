@@ -38,6 +38,7 @@ final class RunRecordViewModel: ObservableObject {
     private weak var appState: AppState?
     private weak var speech: SpeechService?
     private var runRecordOverride: (any RunRecordServing)?
+    private var retryTask: Task<Void, Never>?
 
     init(orderId: Int64, retryNanoseconds: UInt64 = generatingRetryNanoseconds) {
         self.orderId = orderId
@@ -157,6 +158,22 @@ final class RunRecordViewModel: ObservableObject {
     func retry() async {
         phase = .loading(requestID: UUID())
         await loadUntilSettled()
+    }
+
+    /// 「重试」按钮用。先取消上一次再起新的：连点两下不会起两个并行的轮询。
+    /// 返回任务只给用例 `await`；页面不用。
+    @discardableResult
+    func startRetry() -> Task<Void, Never> {
+        retryTask?.cancel()
+        let task = Task { await self.retry() }
+        retryTask = task
+        return task
+    }
+
+    /// 离开页面时调。`.task` 那条随页面取消，重试起的这条要自己停：还在 GENERATING 就会一直轮询。
+    func cancelRetry() {
+        retryTask?.cancel()
+        retryTask = nil
     }
 
     private func loadOnce() async {
