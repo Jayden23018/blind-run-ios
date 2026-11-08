@@ -21,7 +21,7 @@ enum VolunteerAvailabilityCopy {
 
 // MARK: - Volunteer Home Layout Helpers
 
-/// 志愿者首页这一屏的圆角档位。**四档各有语义，不是四个可以互换的数。**
+/// 志愿者首页这一屏的圆角档位。**每一档都有语义，不是可以互换的数。** 现在只剩卡片这一档在用（弹窗与卡内小格两档没人用，#839 删除）。
 ///
 /// 立这个表的起因：全 App 的 `cornerRadius` 实测有 10 个取值
 /// （8×46 / 12×36 / 16×17 / 14×11 / 18×4 / 20·28·999×2 / 10·24×1），
@@ -31,13 +31,8 @@ enum VolunteerAvailabilityCopy {
 /// ⛔ **作用域刻意只到这一屏。** 跨屏共用的 `PartnerRowCard` 是 14，改它会波及盲人端的固定搭档页 —— 那不在本次范围内，
 /// 且纯视觉收敛没有任何测试守得住，改坏了不会有信号。要全 App 统一是另一件事。
 enum VolunteerHomeRadius {
-    /// 居中弹出的模态对话框（派单弹窗）。
-    static let modal: CGFloat = 24
     /// 内容流里的每一张卡片。
     static let card: CGFloat = 16
-    /// 卡片**内部**的元素：小格子、整行按钮、内嵌地图。
-    /// 比外层小是为了套着好看，不是另一套体系。
-    static let tile: CGFloat = 12
 }
 
 // MARK: - Volunteer Home View

@@ -92,8 +92,8 @@ final class SpeechInputLifecycleTests: XCTestCase {
     /// 系统权限弹窗会让 `scenePhase` 短暂走一趟 `.inactive`。在那一刻作废掉待授权的识别会话，
     /// 用户点完「允许」之后授权回调恢复时 `isCurrentRecognitionSession` 必然判 false，
     /// 于是**静默 return**：没有播报、没有 errorMessage、没有完成回调，麦克风从未启动。
-    /// 再点说话按钮命中 `VoiceOrderWizard.finishSpeakingOrSkipPrompt` 那个没有 `else` 的
-    /// `if/else if`，是彻底的空操作 —— 2026-09-07 真机报的「点了没反应，要退出重进两次」。
+    /// 再点说话按钮命中当时 `VoiceOrderWizard` 里那个没有 `else` 的 `if/else if`（随旧语音预约界面
+    /// 删除，#810），是彻底的空操作 —— 2026-09-07 真机报的「点了没反应，要退出重进两次」。
     ///
     /// 下面这两行刻意照抄 `blindRunApp.swift` 的 `onChange(of: scenePhase)` 体，
     /// 这样判定改错时这条会红，而不是只有那个纯函数的断言会红。

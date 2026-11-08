@@ -79,12 +79,6 @@ final class ContentRootRouter: ObservableObject {
         }
     }
 
-    func cancel() {
-        generation &+= 1
-        hydrationTask?.cancel()
-        hydrationTask = nil
-    }
-
     private func hydrate(role: UserRole, appState: AppState, generation: UInt64) async {
         // 比会话代号而不是 token 值：续期会在一次登录里换 token（#391），换了不代表会话变了。
         let token = appState.sessionGeneration

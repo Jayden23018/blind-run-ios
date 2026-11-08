@@ -51,6 +51,8 @@ Mock、`#Preview`、`#if DEBUG` 调试页不算旧界面。
 | 7 | `BlindBookingMissingSetupCard`（`blindRun/BlindRunner/BlindBookingMissingSetupCard.swift:14`），61 行 | 唯一的调用点在旧表单 `BlindBookingView+FormStage.swift:19`，那个文件 #816 会删，但这张卡本身不在 #816 的文件清单里。#816 合并后，它只剩 `BlindReadinessAppStateTests.swift:66-74` 一个引用。新约跑页没有「约跑前还差 N 项」这张卡，而 `ContentView.swift:124` 的注释还说要靠它引导用户去补资料。**要问：新约跑页要不要接回这张卡（可以并进 #813「旧表单的规格要求接回新页」），还是删掉？** |
 | 8 | `BlindMenuPicker`（`blindRun/Core/DesignSystem/BlindControls.swift:38`） | 只被 #816 要删的 `BlindBookingView+StepSections.swift` 用，`BlindControls.swift` 不在 #816 清单里。#816 合并后就是死代码，可以作为 #816 的补漏一起删 |
 
+> 2026-11-08 #816 已合并。第 8 条连同 #816 合并后变成 0 引用的另外 7 个声明（`secondaryFillButtonLabel`、`capsuleButtonsInRow`、`VoiceOrderWizard.finishSpeaking()` / `finishSpeakingOrSkipPrompt()`、`ContentRootRouter.cancel()`、`VolunteerHomeRadius.modal` / `.tile`）已删除（#839，分支 `refactor/remove-unused-symbols-839`）。删后 Periphery 从 155 降到 147，减少的正好是这 8 个，没有新增。第 7 条还在等负责人定。
+
 （`StepProgressDot` 只被旧表单使用。#816 会删 `HighContrastText.swift` 里 35 行，正好对应它，所以不另列。）
 
 ### 看过，不算残留
