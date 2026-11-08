@@ -83,9 +83,9 @@ final class RunRecordHistoryTests: XCTestCase {
         _ = appState
         await viewModel.load()
         XCTAssertEqual(viewModel.summaryText(), "9月跑了 5 次，一共 22.5 公里。")
-        // 汇总卡的彩色数字格（#823）：跑步 N 次 + 距离。
+        // 汇总卡的彩色数字格（#823）：跑步 N 次 + 距离。距离与汇总句同一位小数（#846 D8）。
         XCTAssertEqual(viewModel.summaryCells.map(\.label), ["跑步", "距离"])
-        XCTAssertEqual(viewModel.summaryCells.map(\.value), ["5", "22.54"])
+        XCTAssertEqual(viewModel.summaryCells.map(\.value), ["5", "22.5"])
 
         records.result = .success(makeHistory(runs: 5, distanceM: nil))
         await viewModel.load()
