@@ -37,8 +37,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private(set) var speechService: SpeechService?
-    private var activeLoadTask: Task<Void, Never>?
-    private var activeRequestID: UUID?
+    /// 首页整页刷新：同一时间只跑一个，`refreshPhase` 由它经回调写（#859）。
+    private lazy var pageRefresh = SingleFlightRefresh { [weak self] phase in
+        self?.refreshPhase = phase
+    }
     private var realtimeStatusCancellable: AnyCancellable?
     private let voiceQuerySession = VoiceStatusQuerySession()
     let loadTimeout: TimeInterval
@@ -182,65 +184,52 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     ///   **只闸成功路径的状态播报，不闸 `speakError`** —— 出错是最不该被静默的时刻，
     ///   而且它罕见到不值得为它多设一个开关。
     ///
-    ///   请求合并（下面 `activeLoadTask` 那段）会把后到者的这个参数丢掉，先到的赢。
+    ///   请求合并（下面 `pageRefresh` 那段）会把后到者的这个参数丢掉，先到的赢。
     ///   不特别处理是因为「欠着」这套机制本身兜住了：先到那次若传了 `false`，
     ///   欠账仍然在，首页一露头就补播 —— 后到者要的播报没丢，只是晚一点。
     func loadActiveOrder(announcesStatus: Bool = true) async {
         guard let appState else { return }
-        if let activeLoadTask {
+        if pageRefresh.isRunning {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "blind-home-refresh")
-            await activeLoadTask.value
-            return
         }
-        ClientFlowDiagnostics.record(event: "started", operation: "blind-home-refresh")
-        let requestID = UUID()
-        activeRequestID = requestID
-        refreshPhase = .refreshing(requestID: requestID)
-        if case .idle = orderLoadState {
-            orderLoadState = .loading(requestID: requestID)
-        }
-        errorMessage = nil
-
-        let workTask = Task { [weak self, weak appState] in
+        let outcome = await pageRefresh.run { [weak self] ticket in
+            ClientFlowDiagnostics.record(event: "started", operation: "blind-home-refresh")
+            guard let self else { return }
+            if case .idle = self.orderLoadState {
+                self.orderLoadState = .loading(requestID: ticket.id)
+            }
+            self.errorMessage = nil
+        } work: { [weak self, weak appState] ticket in
             guard let self, let appState else { return }
             await self.performActiveOrderLoad(
                 appState: appState,
-                requestID: requestID,
+                ticket: ticket,
                 announcesStatus: announcesStatus
             )
         }
-        activeLoadTask = workTask
 
-        await withTaskCancellationHandler {
-            await workTask.value
-        } onCancel: {
-            workTask.cancel()
-            Task { @MainActor [weak self] in
-                self?.cancelRequestIfCurrent(requestID)
+        switch outcome {
+        case .finished:
+            ClientFlowDiagnostics.record(event: "finished", operation: "blind-home-refresh")
+            if case .loading = orderLoadState {
+                orderLoadState = .loaded(activeOrder)
             }
-        }
-
-        guard activeRequestID == requestID else { return }
-        activeLoadTask = nil
-        activeRequestID = nil
-        refreshPhase = .idle
-        ClientFlowDiagnostics.record(event: "finished", operation: "blind-home-refresh")
-        if case .loading = orderLoadState {
-            orderLoadState = .loaded(activeOrder)
+        case .cancelled:
+            // 被取消的请求不写内容、不写失败文案；首次加载回 `.idle`。已有新的一次在跑就不碰。
+            if !pageRefresh.isRunning { cancelLoading() }
+        case .joined:
+            break
         }
     }
 
     func cancelLoading() {
-        activeLoadTask?.cancel()
-        activeLoadTask = nil
-        activeRequestID = nil
-        refreshPhase = .idle
+        pageRefresh.cancel()
         if orderLoadState.isLoading { orderLoadState = .idle }
     }
 
     private func performActiveOrderLoad(
         appState: AppState,
-        requestID: UUID,
+        ticket: RefreshTicket,
         announcesStatus: Bool = true
     ) async {
         do {
@@ -258,7 +247,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             ) {
                 try await orders.activeOrder()
             }
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             let previousOrderID = activeOrder?.orderId
             let candidate = envelope.data
             if candidate == nil,
@@ -297,21 +286,19 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             }
             // ponytail: 两个请求先后发，播报多等一次往返；嫌慢时改成与 `/active` 并发。
             await loadOtherOrders(appState: appState)
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             orderLoadState = .loaded(activeOrder)
-            refreshPhase = .idle
             settleStatusAnnouncement(announcesStatus: announcesStatus)
         } catch HomeLoadCoordinatorError.timedOut {
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             let message = "加载超过 20 秒，请重试。"
             errorMessage = message
             if activeOrder == nil {
                 orderLoadState = .failed(message: message)
             }
-            refreshPhase = .idle
             speechService?.speakError(message)
         } catch let error as APIError {
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
@@ -319,22 +306,15 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             if activeOrder == nil {
                 orderLoadState = .failed(message: error.localizedMessage)
             }
-            refreshPhase = .idle
             speechService?.speakError(error.localizedMessage)
         } catch {
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             errorMessage = "当前状态加载失败，请重试。"
             if activeOrder == nil {
                 orderLoadState = .failed(message: "当前状态加载失败，请重试。")
             }
-            refreshPhase = .idle
             speechService?.speakError("当前状态加载失败，请重试。")
         }
-    }
-
-    private func cancelRequestIfCurrent(_ requestID: UUID) {
-        guard activeRequestID == requestID else { return }
-        cancelLoading()
     }
 
     func handleOrderCreated(_ response: OrderResponse) {
