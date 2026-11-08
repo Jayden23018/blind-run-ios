@@ -77,6 +77,34 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - 46 个测试文件调 `.configure(with:`，用例要自己持有 `AppState`。`AppState` 被 271 个文件引用。
 - 牵涉记忆 `location-service-test-seam-and-weak-viewmodel-deps` 的 weak 约定。建议只在新写或重写的页面上试。
 
+### 试点：跑后记录详情（#894，11-08）
+
+**试点页**：`RunRecordViewModel`（`blindRun/Shared/RunRecordPresentation.swift`），两端跑后记录详情页共用。选它是因为它从 `AppState` 只用两样（跑后记录服务、读一次订单详情），不碰红线。没选 `BlindRunnerProfileViewModel`：它牵涉视力授权、紧急联系人，依赖也多。
+
+**改前**
+
+- View `init` 里 `RunRecordViewModel(orderId:)`，`.task` 里 `configure(with: appState, speech:, runRecord:)`。`appState`、`speech` 是 weak；`runRecord:` 只给用例换替身。
+- 三处 `guard let appState else { return }`：`configure` 之前调任何方法都静默不做事。
+- 用例要自己 `let` 住 `AppState`，每条末尾写 `_ = appState` 防它提前释放；5 个测试文件里有 3 个为此各自带一个内存版 token 存储类。
+
+**改后**
+
+- 新增 `RunRecordDependencies`：两个闭包 `runRecord`、`orderDetail`。`.live(appState)` 给页面用，`.fixed(runRecord:orders:)` 给用例用。
+- view model 构造时拿齐依赖：`RunRecordViewModel(orderId:dependencies:speech:)`。`configure`、weak、`guard let appState` 全部删掉，没有「配好之前」这个状态。
+- `runRecord` 闭包每次请求现取一次 `appState.runRecord`，和改前一样跟着当前环境走（`AppState.apiClient` 按 `currentEnvironment` 算，运行中能变）。
+- SwiftUI 的 `init` 里拿不到 `@EnvironmentObject`，所以页面拆成两层：原名 `RunnerRunRecordView` / `VolunteerRunRecordView` 变成只读环境对象的外壳，在 `body` 里构造内层 `…Page`。4 个调用方（含订单页红线文件 `CompletedTrackSummaryView.swift`）一行没改。`StateObject` 的闭包只跑一次，外壳重绘不会换掉 view model。
+- 用例不再需要 `AppState`：删掉 10 行 `_ = appState` 和 3 个 token 存储类。新增 1 条用例守 `.live(appState)` 把订单详情接到 `appState.orders`（`UserSafetyViewModelTests.testLiveDependenciesReadTheOrderThroughAppState`，已写，未执行）。
+- weak 约定要防的两个问题：循环引用不存在（`AppState` 和 `SpeechService` 不持有 view model）；硬件服务竞态与本页无关（不用定位）。
+- 验证：`build-for-testing` 通过（见 PR）。没有跑真机，所有改动过的用例都是已写，未执行。
+
+**是否建议推广：有条件推广，不批量迁。**
+
+- 好处是真的：用例少一半样板，「忘了 `configure` 就静默不做事」和「weak 依赖被提前释放导致假绿」（记忆里记了 4 次）这两类错在构造方式上就不可能发生。
+- 代价是每页多一层外壳（约 10 行），因为 SwiftUI 只能在 `body` 里拿环境对象。
+- 建议：新写或重写的页面直接用这种写法；旧页面只在本来就要改它的 PR 里顺手迁。不开专门的批量迁移。
+
+**推广的改动量**（`origin/main` 11-08 计数）：生产代码 23 个文件有 `weak var appState`，`hasConfigured` 1 处；测试有 48 个文件调 `.configure(with:`，71 个文件把 `appState` 传进 `configure`。按本页的比例（1 个 view model 牵动 2 个页面、5 个测试文件），全量迁移约 23 个 PR 大小的工作。依赖多的 view model（例如约跑页同时要定位、地点搜索、语音输入）的依赖结构体会更大，要逐页判断，不宜机械照搬。
+
 ## 7. Mock 里的业务规则
 
 - `blindRun/Core/MockAPIClient+IntroCall.swift`（635 行）`:149` `checkIntroCallPlanGate` 逐行抄契约两态表；`:350-480` 装着 accept / cancel / finish 整套订单流转，与 `+Order.swift` 分裂。

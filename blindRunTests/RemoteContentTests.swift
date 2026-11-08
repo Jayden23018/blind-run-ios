@@ -34,10 +34,11 @@ final class RemoteContentTests: XCTestCase {
     /// 真实 view model 落到的失败态，挂进同一个视图也会念 —— 钉住「VM 文案 → 视图」这一段没断。
     @MainActor
     func testRunRecordViewModelNetworkFailureIsSpokenByTheView() async {
-        let service = RemoteContentFailingRecordService()
-        let appState = AppState(tokenStore: RemoteContentInMemoryTokenStore())
-        let viewModel = RunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
-        viewModel.configure(with: appState, runRecord: service)
+        let viewModel = RunRecordViewModel(
+            orderId: 7,
+            dependencies: .fixed(runRecord: RemoteContentFailingRecordService(), orders: FakeOrderService()),
+            retryNanoseconds: 1_000_000
+        )
         await viewModel.loadUntilSettled()
         guard case .failed(let message) = viewModel.phase else {
             return XCTFail("应当落到 failed，实际 \(viewModel.phase)")
@@ -51,7 +52,6 @@ final class RemoteContentTests: XCTestCase {
         try? await Task.sleep(nanoseconds: UInt64(Self.waitBeyondSettle * 1_000_000_000))
 
         XCTAssertTrue(speech.spokenHistoryForTesting.contains(message), "实际念过：\(speech.spokenHistoryForTesting)")
-        _ = appState
     }
 
     /// 加载中与已加载都不念失败。
@@ -106,11 +106,4 @@ private final class RemoteContentFailingRecordService: RunRecordServing, @unchec
     func record(orderId: Int64) async throws -> RunRecordResponse { throw URLError(.notConnectedToInternet) }
     func monthlyRecords(year: Int, month: Int) async throws -> RunRecordHistoryResponse { throw URLError(.notConnectedToInternet) }
     func postMessage(orderId: Int64, text: String) async throws -> RunRecordMessageResponse { throw URLError(.notConnectedToInternet) }
-}
-
-private final class RemoteContentInMemoryTokenStore: TokenStoring, @unchecked Sendable {
-    private var token: String?
-    func save(_ token: String) { self.token = token }
-    func read() -> String? { token }
-    func delete() { token = nil }
 }

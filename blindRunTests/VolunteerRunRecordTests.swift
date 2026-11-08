@@ -178,18 +178,17 @@ final class VolunteerRunRecordTests: XCTestCase {
     // MARK: - 状态
 
     func testGeneratingIsReReadUntilTheRecordIsReady() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         service.results = [.success(record(status: .generating)), .success(record(status: .generating)), .success(record())]
 
         await viewModel.loadUntilSettled()
 
         XCTAssertEqual(service.calls, 3)
         XCTAssertEqual(viewModel.phase, .loaded(record()))
-        _ = appState
     }
 
     func testFailedStatusStopsPollingAndRetryReadsAgain() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         service.results = [.success(record(status: .failed)), .success(record())]
 
         await viewModel.loadUntilSettled()
@@ -197,11 +196,10 @@ final class VolunteerRunRecordTests: XCTestCase {
         await viewModel.retry()
         XCTAssertEqual(service.calls, 2)
         XCTAssertEqual(viewModel.phase, .loaded(record()))
-        _ = appState
     }
 
     func testNetworkErrorBecomesARetryableMessage() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         service.results = [.failure(URLError(.notConnectedToInternet))]
 
         await viewModel.loadUntilSettled()
@@ -210,7 +208,6 @@ final class VolunteerRunRecordTests: XCTestCase {
             return XCTFail("应当落到 failed，实际 \(viewModel.phase)")
         }
         XCTAssertTrue(message.contains("重试"))
-        _ = appState
     }
 
     // MARK: - 留言（阶段 6）
@@ -227,17 +224,16 @@ final class VolunteerRunRecordTests: XCTestCase {
     }
 
     func testBlankDraftIsNeverSent() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         let sent = await viewModel.send("   ")
         XCTAssertFalse(sent)
         XCTAssertEqual(service.postedTexts, [])
         XCTAssertEqual(viewModel.sendState, .failed("先写一句话再发送。"))
-        _ = appState
     }
 
     /// 发的是去过空白的；发出去的留言并进列表，记录重读后带回同一条也不会出现两遍。
     func testSentMessageIsTrimmedAndMergedOnce() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         let reply = RunRecordMessageResponse(id: 9, fromRole: .volunteer, type: .text, text: "节奏很稳。", createdAt: "2026-09-20T09:00:00")
         service.postResults = [.success(reply)]
         let sent = await viewModel.send("  节奏很稳。 \n")
@@ -252,7 +248,6 @@ final class VolunteerRunRecordTests: XCTestCase {
         let second = await viewModel.send("下周见。")
         XCTAssertTrue(second)
         XCTAssertEqual(viewModel.messages(of: record(messages: [reply])).map(\.id), [9, 10])
-        _ = appState
     }
 
     func testSendFailureSaysItWasNotSentAndWhy() async {
@@ -263,13 +258,12 @@ final class VolunteerRunRecordTests: XCTestCase {
             (APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "x")), "留言没有发出。此订单已经不存在了。")
         ]
         for (error, expected) in cases {
-            let (viewModel, appState, service) = makeViewModel()
+            let (viewModel, service) = makeViewModel()
             service.postResults = [.failure(error)]
             let sent = await viewModel.send("节奏很稳。")
             XCTAssertFalse(sent)
             XCTAssertEqual(viewModel.sendState, .failed(expected))
             XCTAssertTrue(viewModel.sentMessages.isEmpty)
-            _ = appState
         }
     }
 
@@ -290,13 +284,15 @@ final class VolunteerRunRecordTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeViewModel() -> (RunRecordViewModel, AppState, FakeRecordService) {
+    /// 依赖在构造时传齐（#894），不再要 `AppState`。订单详情没打桩：读不到就没有举报入口，这里的用例不看它。
+    private func makeViewModel() -> (RunRecordViewModel, FakeRecordService) {
         let service = FakeRecordService()
-        // AppState 由调用方持有：view model 对它是 weak。
-        let appState = AppState(tokenStore: RecordInMemoryTokenStore())
-        let viewModel = RunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
-        viewModel.configure(with: appState, runRecord: service)
-        return (viewModel, appState, service)
+        let viewModel = RunRecordViewModel(
+            orderId: 7,
+            dependencies: .fixed(runRecord: service, orders: FakeOrderService()),
+            retryNanoseconds: 1_000_000
+        )
+        return (viewModel, service)
     }
 
     /// `(纬度 ×1e-5 度, 累计米数)`，经度恒 0。
@@ -363,11 +359,4 @@ private final class FakeRecordService: RunRecordServing, @unchecked Sendable {
         guard postedTexts.count < postResults.count else { throw Exhausted() }
         return try postResults[postedTexts.count].get()
     }
-}
-
-private final class RecordInMemoryTokenStore: TokenStoring, @unchecked Sendable {
-    private var token: String?
-    func save(_ token: String) { self.token = token }
-    func read() -> String? { token }
-    func delete() { token = nil }
 }

@@ -6,7 +6,7 @@ import XCTest
 final class RunRecordRetryTests: XCTestCase {
 
     func testRetryAfterFailureReadsTheRecordAgain() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         service.results = [.success(record(status: .failed)), .success(record(status: .ready))]
         await viewModel.loadUntilSettled()
         XCTAssertEqual(service.calls, 1)
@@ -15,11 +15,10 @@ final class RunRecordRetryTests: XCTestCase {
 
         XCTAssertEqual(service.calls, 2)
         XCTAssertEqual(viewModel.phase.value?.status, .ready)
-        _ = appState
     }
 
     func testSecondRetryCancelsTheFirstSoOnlyOnePollRuns() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         service.results = Array(repeating: .success(record(status: .generating)), count: 50)
 
         let first = viewModel.startRetry()
@@ -30,11 +29,10 @@ final class RunRecordRetryTests: XCTestCase {
         viewModel.cancelRetry()
         await first.value
         await second.value
-        _ = appState
     }
 
     func testLeavingThePageStopsTheRetryPoll() async {
-        let (viewModel, appState, service) = makeViewModel()
+        let (viewModel, service) = makeViewModel()
         // 一直 GENERATING：不取消就会把 50 次读完。
         service.results = Array(repeating: .success(record(status: .generating)), count: 50)
 
@@ -49,19 +47,20 @@ final class RunRecordRetryTests: XCTestCase {
 
         XCTAssertTrue(task.isCancelled)
         XCTAssertLessThan(service.calls, 50, "离开页面后不能接着轮询")
-        _ = appState
     }
 
     // MARK: - Helpers
 
-    private func makeViewModel() -> (RunRecordViewModel, AppState, RetryRecordService) {
+    /// 依赖在构造时传齐（#894），不再要 `AppState`。记录读到后还会查一次订单详情：
+    /// `FakeOrderService` 没打桩就抛错，不发任何请求，记录页照常可看。
+    private func makeViewModel() -> (RunRecordViewModel, RetryRecordService) {
         let service = RetryRecordService()
-        // AppState 由调用方持有：view model 对它是 weak。`MockAPIClient` 是进程内的：
-        // 记录读到后还会查一次订单详情，不注入就按当前环境走，可能发真实请求。
-        let appState = AppState(apiClient: MockAPIClient(), tokenStore: RetryInMemoryTokenStore())
-        let viewModel = RunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
-        viewModel.configure(with: appState, runRecord: service)
-        return (viewModel, appState, service)
+        let viewModel = RunRecordViewModel(
+            orderId: 7,
+            dependencies: .fixed(runRecord: service, orders: FakeOrderService()),
+            retryNanoseconds: 1_000_000
+        )
+        return (viewModel, service)
     }
 
     private func record(status: RunRecordStatus) -> RunRecordResponse {
@@ -91,11 +90,4 @@ private final class RetryRecordService: RunRecordServing, @unchecked Sendable {
 
     func monthlyRecords(year: Int, month: Int) async throws -> RunRecordHistoryResponse { throw Exhausted() }
     func postMessage(orderId: Int64, text: String) async throws -> RunRecordMessageResponse { throw Exhausted() }
-}
-
-private final class RetryInMemoryTokenStore: TokenStoring, @unchecked Sendable {
-    private var token: String?
-    func save(_ token: String) { self.token = token }
-    func read() -> String? { token }
-    func delete() { token = nil }
 }

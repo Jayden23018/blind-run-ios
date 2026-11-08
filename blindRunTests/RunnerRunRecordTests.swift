@@ -234,7 +234,7 @@ final class RunnerRunRecordTests: XCTestCase {
         audio.activeControlIdentifier = "listen"
         audio.toggleSpeech("一")
         XCTAssertEqual(audio.state, .playing(.narration))
-        audio.activeControlIdentifier = RunnerRunRecordView.readMessagesID
+        audio.activeControlIdentifier = RunnerRunRecordPage.readMessagesID
         audio.toggleSpeech("二", as: .message)
         XCTAssertEqual(audio.state, .playing(.message), "讲述让位给朗读留言")
         audio.focusMoved(to: "runnerRunRecordListen")

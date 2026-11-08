@@ -199,8 +199,18 @@ private extension String {
 
 // MARK: - Page
 
+/// 外壳：从环境里取依赖，构造时交给页面（#894）。`init` 里拿不到 `@EnvironmentObject`，只能在 `body` 里取。
 struct VolunteerRunRecordView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+    let orderId: Int64
+
+    var body: some View {
+        VolunteerRunRecordPage(orderId: orderId, dependencies: .live(appState), speech: speechService)
+    }
+}
+
+struct VolunteerRunRecordPage: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel: RunRecordViewModel
     @State private var highlightedSplit: Int?
@@ -211,8 +221,9 @@ struct VolunteerRunRecordView: View {
 
     private static let topID = "runRecordTop"
 
-    init(orderId: Int64) {
-        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId))
+    /// `StateObject` 的闭包只在页面第一次出现时跑一次：外壳重绘传进来的新依赖不会换掉 view model。
+    init(orderId: Int64, dependencies: RunRecordDependencies, speech: SpeechService) {
+        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId, dependencies: dependencies, speech: speech))
     }
 
     var body: some View {
@@ -222,7 +233,6 @@ struct VolunteerRunRecordView: View {
         }
         .accessibilityIdentifier("volunteerRunRecordDetail")
         .task {
-            viewModel.configure(with: appState, speech: speechService)
             await viewModel.loadUntilSettled()
         }
     }

@@ -5,6 +5,33 @@ import UIKit
 // 跑后详情的纯计算（OpenSpec `add-volunteer-run-record-detail`）：配速着色、路线几何、文案。
 // 与视图分开，好让用例直接钉；阶段 5（跑者详情）也从这里取。
 
+// MARK: - 依赖（#894，#857 候选 6 试点）
+
+/// 跑后记录详情页要的窄依赖：构造 view model 时一次传齐，不再 `configure(with: AppState)` + weak。
+/// 只有两样：跑后记录服务、读一次订单详情。
+struct RunRecordDependencies {
+    /// 读记录、发留言。每次请求现取一次，同 `AppState.runRecord`「每次取都新建、跟着当前环境走」。
+    let runRecord: @MainActor () -> any RunRecordServing
+    /// 读一次订单详情：举报入口要对方 id，跑者页要陪跑员和状态。
+    let orderDetail: @MainActor (Int64) async throws -> OrderDetailResponse
+
+    /// 页面用。强引用 `appState`：它比页面活得久，也不持有 view model，不成环。
+    static func live(_ appState: AppState) -> RunRecordDependencies {
+        RunRecordDependencies(
+            runRecord: { appState.runRecord },
+            orderDetail: { try await appState.orders.orderDetail(orderId: $0) }
+        )
+    }
+
+    /// 用例用：两样都是定死的替身，不经过 `AppState`。
+    static func fixed(runRecord: any RunRecordServing, orders: any OrderServing) -> RunRecordDependencies {
+        RunRecordDependencies(
+            runRecord: { runRecord },
+            orderDetail: { try await orders.orderDetail(orderId: $0) }
+        )
+    }
+}
+
 // MARK: - View Model（两个角色的详情页共用）
 
 @MainActor
@@ -35,21 +62,21 @@ final class RunRecordViewModel: ObservableObject {
 
     let orderId: Int64
     private let retryNanoseconds: UInt64
-    private weak var appState: AppState?
-    private weak var speech: SpeechService?
-    private var runRecordOverride: (any RunRecordServing)?
+    private let dependencies: RunRecordDependencies
+    /// 留言没发出时念原因。跑者页不传（保持迁移前的行为）。
+    private let speech: SpeechService?
     private var retryTask: Task<Void, Never>?
 
-    init(orderId: Int64, retryNanoseconds: UInt64 = generatingRetryNanoseconds) {
+    init(
+        orderId: Int64,
+        dependencies: RunRecordDependencies,
+        speech: SpeechService? = nil,
+        retryNanoseconds: UInt64 = generatingRetryNanoseconds
+    ) {
         self.orderId = orderId
-        self.retryNanoseconds = retryNanoseconds
-    }
-
-    /// ⚠️ `appState` / `speech` 是 weak：用例要自己持有。`runRecord` 只给用例换替身。
-    func configure(with appState: AppState, speech: SpeechService? = nil, runRecord: (any RunRecordServing)? = nil) {
-        self.appState = appState
+        self.dependencies = dependencies
         self.speech = speech
-        self.runRecordOverride = runRecord
+        self.retryNanoseconds = retryNanoseconds
     }
 
     // MARK: 留言
@@ -73,13 +100,13 @@ final class RunRecordViewModel: ObservableObject {
     /// 发成功返回 true（调用方据此清空草稿）；失败时草稿留着，原因显示并念出来。
     @discardableResult
     func send(_ draft: String) async -> Bool {
-        guard sendState != .sending, let appState else { return false }
+        guard sendState != .sending else { return false }
         if let problem = Self.draftProblem(draft) {
             fail(problem)
             return false
         }
         sendState = .sending
-        let service = runRecordOverride ?? appState.runRecord
+        let service = dependencies.runRecord()
         do {
             let message = try await service.postMessage(
                 orderId: orderId,
@@ -145,9 +172,9 @@ final class RunRecordViewModel: ObservableObject {
 
     /// 失败不提示：记录页的内容照常可看，缺的只是入口。这一页没有单独的重试，下次进页面才会再读。
     private func loadCounterpartIfNeeded() async {
-        guard !Task.isCancelled, case .loaded = phase, order == nil, let appState else { return }
+        guard !Task.isCancelled, case .loaded = phase, order == nil else { return }
         do {
-            let order = try await appState.orders.orderDetail(orderId: orderId)
+            let order = try await dependencies.orderDetail(orderId)
             self.order = order
             counterpartTarget = CounterpartSafetyGate.target(userId: order.counterpartUserId, orderId: orderId)
         } catch {
@@ -177,8 +204,7 @@ final class RunRecordViewModel: ObservableObject {
     }
 
     private func loadOnce() async {
-        guard let appState else { return }
-        let service = runRecordOverride ?? appState.runRecord
+        let service = dependencies.runRecord()
         do {
             phase = .loaded(try await service.record(orderId: orderId))
         } catch let error as APIError {
