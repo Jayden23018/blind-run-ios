@@ -13,10 +13,10 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 
 | # | 候选 | 推荐 | 改动量 | 风险 | 红线 | 状态 |
 |---|---|---|---|---|---|---|
-| 1 | 两端首页「同一时间只跑一个刷新」合成 `SingleFlightRefresh` | 强 | 中（3 处，约 200 行） | 中（并发） | 否，但首页订单决定求助入口模式 | **负责人 11-08 选定，12 条决定见 #859，实现中** |
-| 2 | 远端数据「加载 / 失败 / 已加载」只留一种 module | 强 | 大（约 25 个 ViewModel） | 低 | 否 | 待选 |
-| 3 | 两端跑后记录页共用页面骨架（第 2 轮 D9） | 值得探 | 中 | 低 | 否 | 待选，版式要先问 |
-| 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 待选 |
+| 1 | 两端首页「同一时间只跑一个刷新」合成 `SingleFlightRefresh` | 强 | 中（3 处，约 200 行） | 中（并发） | 否，但首页订单决定求助入口模式 | 已合并：#859 → PR #861（11-08）。新用例 12 条，已写，未执行 |
+| 2 | 远端数据「加载 / 失败 / 已加载」只留一种 module | 强 | 大（约 25 个 ViewModel） | 低 | 否 | 已合并：模块 `blindRun/Shared/RemoteContent.swift`，#863 → PR #867、#864 → PR #868、#866 → PR #869、#865 → PR #871（均 11-08）。用例已写，未执行。`CompletedTrackSummaryView` 属订单页红线，没迁 |
+| 3 | 两端跑后记录页共用页面骨架（第 2 轮 D9） | 值得探 | 中 | 低 | 否 | 待选，版式要先问（三态部分已由 PR #867 做掉） |
+| 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 已合并：OpenSpec 变更 `centralize-session-expiry-handling`（PR #874），第 1 批 #872 → PR #876（security-reviewer 无 CRITICAL / HIGH），第 2 批 #873 → PR #877（均 11-08）。用例已写，未执行；真机跑（tasks 3.1）与归档（3.2）未做 |
 | 5 | 订单实时跟踪：两端订单页订阅、对方位置过期、轮询合成一个 module | 强 | 大 | 高 | **是，只报告** | 要做先建大档 OpenSpec |
 | 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 设想 | 大 | 中 | 否 | 待选，先挑一页试 |
 | 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 待选 |
