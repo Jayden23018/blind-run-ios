@@ -20,6 +20,8 @@ struct BlindStartPlaceIcon {
     let symbol: String
     let fill: Color
     var glyph: Color = .white
+    /// 只有浅色圆要：圆贴白卡片看不出边界时，描一圈 1pt（`nil` = 不描）。
+    var stroke: Color?
 
     /// 定稿规则：公园 / 绿道 → 树，地铁 / 站 → 列车，操场 / 体育 → 跑道，学校 / 书院 → 学士帽，其余 → 红色图钉。
     static func kind(forTitle title: String) -> Kind {
@@ -46,11 +48,13 @@ struct BlindStartPlaceIcon {
     /// 「添加常用地点」页的搜索结果：沿用改版前的蓝底图钉。
     static let searchResult = BlindStartPlaceIcon(symbol: "mappin", fill: rgb(AppColors.voiceStageSurfaceTone.light))
     static let recent = BlindStartPlaceIcon(symbol: "clock.fill", fill: rgb(AppColors.VolunteerHome.durationTealTone.light))
-    /// 浅灰圆 + 主色加号（稿子 `#EAEAEA` + `plus`）。暗色换系统灰，免得一块亮斑。
+    /// 卡片底色圆 + 灰描边 + 主色加号：与约跑页未选中的胶囊同一种样子（负责人 11-08 定，#906）。
+    /// 稿子原是浅灰底 `#EAEAEA`：贴白卡片只有约 1.2:1，审计按占面积最大的两种颜色判，加了描边仍报对比度不足。
     static let add = BlindStartPlaceIcon(
         symbol: "plus",
-        fill: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemGray5 : UIColor(rgb: 0xEAEAEA) }),
-        glyph: AppColors.primary
+        fill: AppColors.Flow.surface,
+        glyph: AppColors.primary,
+        stroke: AppColors.ButtonPalette.neutralStroke
     )
 
     /// `tree.fill` 要 iOS 16.1（SF Symbols `name_availability.plist`），部署目标是 16.0：取不到时退回叶子。
@@ -71,6 +75,11 @@ struct BlindStartPlaceIconCircle: View {
             .foregroundColor(icon.glyph)
             .frame(width: diameter, height: diameter)
             .background(Circle().fill(icon.fill))
+            .overlay {
+                if let stroke = icon.stroke {
+                    Circle().strokeBorder(stroke, lineWidth: 1)
+                }
+            }
             .accessibilityHidden(true)
     }
 }
