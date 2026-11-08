@@ -182,7 +182,7 @@ enum OrderPollingPolicy { case blindRunner, volunteer }
 - [tracker 成了一个新的单点] → 它不判状态、不调流转端点，只转交与调度；协调器的校验一行不改。第 1 批的单测直接覆盖它。
 - [`isOrderPageFollowing` 与页面寿命的对应] → track 的寿命 = 页面 ViewModel 的寿命（与现状 Combine 订阅相同），`pause()` 不结束 track。所以「页面被别的页面盖住」时仍由订单页念，与现状一致。
 - [第 2、3 批之间两端写法不一致] → 两批间隔短；第 2 批合并后、第 3 批合并前，陪跑员端仍是旧写法、行为不变。
-- [后端文档内部不一致] → `websocket-protocol.md` §六说 `GET /api/blind/volunteer-location`「仅在 `DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 返回数据」，`api_spec.yaml:874-888` 的回归门却是 `volunteerLocationFallback_worksDuringInProgress`。iOS 现状按 api_spec（`fetchesVolunteerLocation` 含 `IN_PROGRESS`），本变更照旧。已开后端 issue 请他们统一文档。
+- [后端文档内部不一致] → `websocket-protocol.md` §六说 `GET /api/blind/volunteer-location`「仅在 `DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 返回数据」，`api_spec.yaml:874-888` 的回归门却是 `volunteerLocationFallback_worksDuringInProgress`。iOS 现状按 api_spec（`fetchesVolunteerLocation` 含 `IN_PROGRESS`），本变更照旧。已开后端 issue（Jayden23018/blind-run-backend#942，低）请他们统一文档。
 - [真机没有执行任何新用例] → 11-05 起只验编译。每批 PR 写清「已写，未执行」；负责人真机跑完再归档本变更。
 
 ## 待确认（负责人）
