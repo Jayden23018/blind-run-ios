@@ -36,14 +36,14 @@ extension OrderLiveTrackerTestSupport {
         coordinator: AppRealtimeCoordinator,
         peerFreshness: TimeInterval = 15,
         status: OrderTrackerStatusBox? = nil,
-        deferred: Bool = false
+        deferred: OrderTrackerFlag? = nil
     ) -> OrderLiveTrack {
         tracker.open(
             role: role,
             polling: polling,
             peerFreshness: peerFreshness,
             currentStatus: { status?.value },
-            isSessionExpiryDeferred: { deferred },
+            isSessionExpiryDeferred: { deferred?.value ?? false },
             load: { [weak coordinator] orderID in
                 loads.count += 1
                 // 模拟页面 `load` 的记账：拿到权威结果就清掉挂着的刷新。
@@ -118,6 +118,12 @@ final class OrderTrackerLoadCounter {
 }
 
 @MainActor
+final class OrderTrackerFlag {
+    var value: Bool
+    init(_ value: Bool) { self.value = value }
+}
+
+@MainActor
 final class OrderTrackerStatusBox {
     var value: RunOrderStatus?
     init(_ value: RunOrderStatus?) { self.value = value }
@@ -129,6 +135,9 @@ final class OrderTrackerEventRecorder {
     private(set) var peers: [FreshPeerLocation] = []
     private(set) var expiredCount = 0
     private(set) var separationCount = 0
+    private(set) var liveUpdateCount = 0
+    private(set) var startConfirmedCount = 0
+    private(set) var volunteerLostCount = 0
     private var task: Task<Void, Never>?
 
     init(_ track: OrderLiveTrack) {
@@ -141,7 +150,9 @@ final class OrderTrackerEventRecorder {
                 case .peerLocation(let peer): self.peers.append(peer)
                 case .peerLocationExpired: self.expiredCount += 1
                 case .separationAlert: self.separationCount += 1
-                case .liveUpdate, .blindStartConfirmed, .volunteerLost: break
+                case .liveUpdate: self.liveUpdateCount += 1
+                case .blindStartConfirmed: self.startConfirmedCount += 1
+                case .volunteerLost: self.volunteerLostCount += 1
                 }
             }
         }
@@ -152,6 +163,9 @@ final class OrderTrackerEventRecorder {
         peers = []
         expiredCount = 0
         separationCount = 0
+        liveUpdateCount = 0
+        startConfirmedCount = 0
+        volunteerLostCount = 0
     }
 
     deinit { task?.cancel() }

@@ -93,6 +93,8 @@ final class OrderLiveTrack {
     /// 结束跟踪。之后不再调 `load`、不再发事件。同样不注销活跃订单。
     func end() {
         guard !isEnded else { return }
+        // 与 pause / 换单相同，先清对方标记（design §3），再结束流。
+        clearPeer()
         isEnded = true
         pollingTask?.cancel()
         pollingTask = nil
@@ -105,6 +107,11 @@ final class OrderLiveTrack {
         pending.forEach { $0.resume(nil) }
         continuation.finish()
     }
+
+    #if DEBUG
+    /// 首页正挂着等回话的次数。单测据此确认「真的在等」再回话。
+    var pendingAcknowledgementWaiterCountForTesting: Int { waiters.count }
+    #endif
 
     deinit {
         // 页面释放时走到这里。任务都只弱引用 track，会在下一步自己退出；等回话的首页由超时兜底。

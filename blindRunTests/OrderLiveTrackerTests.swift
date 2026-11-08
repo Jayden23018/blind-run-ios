@@ -121,7 +121,7 @@ final class OrderLiveTrackerTests: XCTestCase, OrderLiveTrackerTestSupport {
     func testDeferredSessionSkipsEvenTheFirstPoll() async {
         let (coordinator, tracker) = makePair(pollingInterval: 0.02)
         let loads = OrderTrackerLoadCounter()
-        let track = openTrack(tracker, role: .volunteer, polling: .volunteer, loads: loads, coordinator: coordinator, deferred: true)
+        let track = openTrack(tracker, role: .volunteer, polling: .volunteer, loads: loads, coordinator: coordinator, deferred: OrderTrackerFlag(true))
         track.follow(orderID: orderID)
 
         try? await Task.sleep(nanoseconds: 120_000_000)
@@ -134,7 +134,7 @@ final class OrderLiveTrackerTests: XCTestCase, OrderLiveTrackerTestSupport {
         coordinator.requestOrderRefresh(orderID, reason: .reconnected)
         let loads = OrderTrackerLoadCounter()
         // 暂缓中：关掉轮询那一次，只留补拉（刷新不看暂缓）。
-        let track = openTrack(tracker, role: .blind, loads: loads, coordinator: coordinator, deferred: true)
+        let track = openTrack(tracker, role: .blind, loads: loads, coordinator: coordinator, deferred: OrderTrackerFlag(true))
         track.follow(orderID: orderID)
 
         await waitUntil { loads.count == 1 }
@@ -147,12 +147,34 @@ final class OrderLiveTrackerTests: XCTestCase, OrderLiveTrackerTestSupport {
         let loads = OrderTrackerLoadCounter()
         let track = openTrack(tracker, role: .blind, loads: loads, coordinator: coordinator, status: OrderTrackerStatusBox(.inProgress))
         track.follow(orderID: orderID)
-        await waitUntil { loads.count == 1 }
+        await waitUntil { loads.count >= 1 }
 
         track.end()
         let afterEnd = loads.count
         coordinator.requestOrderRefresh(orderID, reason: .statusChanged)
         try? await Task.sleep(nanoseconds: 120_000_000)
         XCTAssertEqual(loads.count, afterEnd)
+    }
+
+    /// 轮询途中进入暂缓（跑步中登录过期）：两种策略都停。原有循环里这一条判断写在每一轮里。
+    func testPollingStopsOnceTheSessionExpiryIsDeferredMidway() async {
+        for policy in [OrderPollingPolicy.blindRunner, .volunteer] {
+            let (coordinator, tracker) = makePair(pollingInterval: 0.02)
+            let loads = OrderTrackerLoadCounter()
+            let deferred = OrderTrackerFlag(false)
+            let track = openTrack(
+                tracker, role: .blind, polling: policy, loads: loads, coordinator: coordinator,
+                status: OrderTrackerStatusBox(.inProgress), deferred: deferred
+            )
+            track.follow(orderID: orderID)
+            await waitUntil { loads.count >= 2 }
+
+            deferred.value = true
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            let afterDeferral = loads.count
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            XCTAssertEqual(loads.count, afterDeferral, "\(policy) 暂缓后不再轮询")
+            track.end()
+        }
     }
 }

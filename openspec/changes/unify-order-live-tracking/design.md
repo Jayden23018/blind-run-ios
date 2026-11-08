@@ -213,6 +213,11 @@ enum PageAnnouncement { case pageSpoke, homeShouldSpeak }
 1. 首页念不念状态句由「订单页这一次念了没有」决定（第 6 节）。陪跑员端等价于现状意图；跑者端从「看投递顺序」变成「订单页优先」。
 2. 订单页开始收对方位置的时刻从 `configure` 挪到 `follow`（同一个 `onAppear` 里先后调用，无可观察差别）。
 3. 刷新只在本单被请求时拉，不再因集合里别的单变化而重复拉（第 5 节）。
+4. 对方位置的单号比对从「页面已拉回的 `order?.orderId`」变成「track 正在跟的单号」：陪跑员页原来在详情拉回之前一律丢样本（`VolunteerInServiceViewModel+Nudges.swift:98-100`），现在 `follow` 之后就收（第 1 批复核 B5）。只会让 15 秒内的样本更早显示。
+
+## 第 2、3 批接入时要确认的（第 1 批复核记下）
+
+- `end()` 会取消在途的刷新任务，页面 `load` 里的请求随之取消。接入时确认 `load` 把取消当什么：若在 `defer` 里走 `failOrderRefresh`，会给协调器多排一次 1/2/4 秒重试（复核 B6）。页面释放时不调 `end()`（靠弱引用），这条只影响显式 `end()`。
 
 ## 风险 / 取舍
 
