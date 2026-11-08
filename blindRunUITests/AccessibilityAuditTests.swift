@@ -52,12 +52,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 20))
         start.tap()
 
-        // 落在语音态还是表单态由麦克风授权决定，两个都算「下单页起来了」。
-        // 此前这里只等 `blindBookingVoiceOrderButton`（表单态才有），授权成功的设备上会误报「页面没起来」。
-        XCTAssertTrue(
-            waitForBookingScreen(app),
-            "下单页没起来"
-        )
+        XCTAssertTrue(waitForBookingScreen(app), "约跑页没起来")
         try audit(app)
     }
 
@@ -465,97 +460,9 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertFalse(spoken.contains("尚未"), "星级栏还在用否定说法：\(spoken)")
     }
 
-    // MARK: - 语音态与表单态互斥
-
-    /// 语音在跑的时候，屏幕上**一个表单控件都不许有**。
-    ///
-    /// 这一页此前把语音区和四步表单堆在同一个滚动视图里，进来面对的是十几条 StaticText
-    /// 加两个文本框。用户 2026-08-08 的原话：「表单的形式不应该给盲人用」。
-    ///
-    /// 用 `AIDRUN_UI_TEST_FORCE_VOICE_STAGE` 把向导按在运行态 —— 真机跑 UI 测试拿不到语音识别
-    /// 授权，不加这个接缝，语音态在自动化里永远不出现，这条约束就只能靠人肉手测。
-    @MainActor
-    func testVoiceStageRendersNoFormControls() throws {
-        let app = launchBlindHome(forcingVoiceStage: true)
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
-
-        let surface = app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch
-        XCTAssertTrue(surface.waitForExistence(timeout: 20), "语音态没起来，后面的断言没有意义")
-
-        // 逃生口必须在。它在 `safeAreaInset` 的底栏里，不被内容区盖住。
-        XCTAssertTrue(
-            app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch.exists,
-            "语音态必须留着「改用表单」这个逃生口"
-        )
-
-        // 表单那一套一个都不许出现。
-        XCTAssertFalse(app.textFields["搜索出发地点"].firstMatch.exists, "语音态不许渲染地点搜索框")
-        XCTAssertFalse(app.textFields["出发地点补充描述"].firstMatch.exists, "语音态不许渲染补充描述框")
-        XCTAssertFalse(
-            app.descendants(matching: .any)["blindBookingAuxiliaryMap"].firstMatch.exists,
-            "语音态不许渲染辅助地图"
-        )
-        XCTAssertFalse(app.buttons["搜索地点"].firstMatch.exists, "语音态不许渲染搜索按钮")
-        XCTAssertFalse(
-            app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
-            "「用语音重新说一次」是表单态的按钮，语音已经在跑时它是噪音"
-        )
-        XCTAssertFalse(
-            app.staticTexts["按步骤确认出发地点、预约时间和选填需求，最后再提交。"].firstMatch.exists,
-            "语音态不许渲染表单的说明文字"
-        )
-    }
-
-    // MARK: - 语音下单前的第三方大模型同意（#374）
-
-    /// 第一次语音下单：先出现单独同意页，背后的下单页不在读屏树里；拒绝后落在手动表单。
-    ///
-    /// 用 `AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT` 走真实路径 —— 默认 UI 用例跳过这道同意。
-    /// 不点「同意」：同意会立刻启动向导去碰麦克风，真机 UI 测试拿不到语音识别授权。
-    @MainActor
-    func testVoiceOrderConsentIsolatesTheScreenAndDeclineFallsBackToTheForm() throws {
-        let app = launchBlindHome(
-            extraEnvironment: ["AIDRUN_UI_TEST_FORCE_VOICE_ORDER_CONSENT": "1"],
-            tapsAfterLaunch: true
-        )
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
-
-        let consent = app.descendants(matching: .any)["voiceOrderThirdPartyLLMConsentView"].firstMatch
-        XCTAssertTrue(consent.waitForExistence(timeout: 20), "第一次语音下单没有先弹出单独同意页")
-        let agree = app.buttons["voiceOrderThirdPartyLLMConsentAgreeButton"].firstMatch
-        let decline = app.buttons["voiceOrderThirdPartyLLMConsentDeclineButton"].firstMatch
-        XCTAssertTrue(agree.exists && decline.exists)
-        XCTAssertGreaterThanOrEqual(agree.frame.height, 64, "同意按钮低于 64pt")
-        XCTAssertGreaterThanOrEqual(decline.frame.height, 64, "不同意按钮低于 64pt")
-        XCTAssertTrue(
-            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "阿里云通义千问")).firstMatch.exists,
-            "同意页没有点名通义千问"
-        )
-
-        // 背后的下单页（表单态的语音按钮 / 语音态的整块表面）都不该还在读屏树里。
-        XCTAssertFalse(app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
-                       "同意页弹出时背后的内容仍在无障碍树里")
-        XCTAssertFalse(app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch.exists,
-                       "没同意就不该进语音态")
-
-        decline.tap()
-
-        XCTAssertTrue(
-            app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.waitForExistence(timeout: 20),
-            "拒绝后没有停在手动表单上"
-        )
-        XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
-        XCTAssertFalse(app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch.exists,
-                       "拒绝后不该进语音态")
-    }
-
     // MARK: - 位置轨迹的单独同意（#368）
 
-    /// 预约向导路由本身过闸：没有同意记录先出同意页；拒绝回首页并留下后果说明；同意才进向导。
+    /// 约跑路由本身过闸：没有同意记录先出同意页；拒绝回首页并留下后果说明；同意才进约跑页。
     ///
     /// 用 `AIDRUN_UI_TEST_FORCE_LOCATION_TRACK_CONSENT` 走真实路径 —— 默认 UI 用例跳过这道同意。
     @MainActor
@@ -576,8 +483,8 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(agree.exists && decline.exists)
         XCTAssertGreaterThanOrEqual(agree.frame.height, 64, "继续按钮低于 64pt")
         XCTAssertGreaterThanOrEqual(decline.frame.height, 64, "不同意按钮低于 64pt")
-        XCTAssertFalse(app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
-                       "没同意就不该进预约向导")
+        XCTAssertFalse(app.descendants(matching: .any)["matchFirstBookingPage"].firstMatch.exists,
+                       "没同意就不该进约跑页")
 
         decline.tap()
 
@@ -586,14 +493,11 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 5), "拒绝后应回到首页")
         XCTAssertFalse(consent.exists, "拒绝后同意页没有关闭")
 
-        // 再点一次：仍然要问（拒绝不是同意）；这次同意 → 进向导。
+        // 再点一次：仍然要问（拒绝不是同意）；这次同意 → 进约跑页。
         start.tap()
         XCTAssertTrue(consent.waitForExistence(timeout: 20), "拒绝过的人再点预约，仍要先问")
         app.buttons["blindLocationTrackConsentContinueButton"].firstMatch.tap()
-        let bookingSurface = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier IN %@", ["blindBookingVoiceOrderButton", "blindBookingFinishSpeakingSurface"]))
-            .firstMatch
-        XCTAssertTrue(bookingSurface.waitForExistence(timeout: 20), "同意后没有进预约向导")
+        XCTAssertTrue(waitForBookingScreen(app), "同意后没有进约跑页")
     }
 
     /// 滑开接单开关时没有同意记录：先盖同意页（背后的滑块不在读屏树里）；拒绝 → 开关仍关、留下说明；同意 → 开启并进接单主页。
@@ -2556,57 +2460,6 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
-    /// #373：「精确位置」关闭时，出发地点区块是降级告知而不是「当前位置」卡片，
-    /// 并且「临时开启精确位置」「去设置打开精确位置」两枚按钮都在、按得到。
-    ///
-    /// 单测只钉得住文案常量与 view model；这两枚按钮是 spec 明文要求的入口，
-    /// 视图分支（`offersTemporaryPreciseLocation`）被改回默认值时只有这条会红。
-    @MainActor
-    func testBookingWithPreciseLocationOffOffersTemporaryPreciseLocationAndSettings() throws {
-        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_PRECISE_LOCATION_OFF": "1"])
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
-        XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
-        // 语音态下表单整段不渲染，先走逃生口改用表单。
-        let stopVoice = app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch
-        if stopVoice.exists { stopVoice.tap() }
-
-        // 改用表单后会落在最后一步「确认并提交」，出发地点区块在第 1 步 —— 按「上一步」退回去。
-        let notice = app.descendants(matching: .any)["bookingLocationDegradationNotice"].firstMatch
-        let previous = app.buttons["上一步"].firstMatch
-        var backs = 0
-        while !notice.waitForExistence(timeout: 3) && previous.exists && backs < 4 {
-            previous.tap()
-            backs += 1
-        }
-        XCTAssertTrue(notice.waitForExistence(timeout: 10), "精确位置关闭时缺少降级告知（按了 \(backs) 次上一步）")
-        XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "精确位置")).firstMatch.exists,
-            "告知里没说是「精确位置」关了"
-        )
-        XCTAssertFalse(app.staticTexts["默认出发点"].exists, "区域代表点不许以「当前位置」卡片的形态出现")
-
-        let temporary = app.buttons["bookingRequestTemporaryPreciseLocationButton"].firstMatch
-        let settings = app.buttons["去设置打开精确位置"].firstMatch
-        for (button, name) in [(temporary, "临时开启精确位置"), (settings, "去设置打开精确位置")] {
-            // 按「上一步」退回第 1 步时滚动位置可能停在下方（真机量到告知在可视区上方，y < 0），
-            // 所以按元素在哪一侧决定往哪划。
-            var swipes = 0
-            while button.exists && !button.isHittable && swipes < 4 {
-                if button.frame.minY < app.frame.midY { app.swipeDown() } else { app.swipeUp() }
-                swipes += 1
-            }
-            XCTAssertTrue(button.exists, "缺少「\(name)」按钮")
-            XCTAssertTrue(button.isHittable, "「\(name)」在树里但按不到")
-            XCTAssertGreaterThanOrEqual(
-                button.frame.height + Self.layoutRoundingTolerance,
-                Self.minimumBlindPrimaryButtonHeight,
-                "「\(name)」只有 \(button.frame.height)pt，低于盲人端 64pt 触达下限"
-            )
-        }
-    }
-
     /// 订单状态页横屏。这一页横屏最吃亏：状态卡 + 同行地图（此前写死 180pt）+ 生命周期
     /// 全排在一列里，而横屏可用高度只有约 390pt。
     @MainActor
@@ -2821,17 +2674,10 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(colour.label, "陪跑员上衣，红色")
     }
 
-    /// 下单页起来了没有 —— 语音态和表单态各有一个标志元素，命中任一即可。
+    /// 约跑页（#806）起来了没有。
     @MainActor
     func waitForBookingScreen(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
-        let voiceSurface = app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch
-        let formButton = app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if voiceSurface.exists || formButton.exists { return true }
-            _ = voiceSurface.waitForExistence(timeout: 1)
-        }
-        return false
+        app.descendants(matching: .any)["matchFirstBookingPage"].firstMatch.waitForExistence(timeout: timeout)
     }
 
     /// - Parameter emptyOrders: `true` 走无订单首页（默认，绝大多数用例要的就是这一态）。
@@ -2842,7 +2688,6 @@ final class AccessibilityAuditTests: XCTestCase {
     ///   那要先滚到最底、连点三次，慢且是误触的温床。只在 `emptyOrders: false` 时有意义。
     @MainActor
     func launchBlindHome(
-        forcingVoiceStage: Bool = false,
         emptyOrders: Bool = true,
         forcingFirstRunHelp: Bool = false,
         seedOrderStatus: String? = nil,
@@ -2872,9 +2717,6 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
-        if forcingVoiceStage {
-            app.launchEnvironment["AIDRUN_UI_TEST_FORCE_VOICE_STAGE"] = "1"
-        }
         // 不传就跳过首次引导。`blindRunApp.applyUITestLaunchConfigurationIfNeeded` 默认把
         // 「已看过」置位 —— 否则每条用例一进首页就被引导页挡住，二十多条断言全红。
         if forcingFirstRunHelp {

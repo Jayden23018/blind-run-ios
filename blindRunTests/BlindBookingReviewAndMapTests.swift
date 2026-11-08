@@ -47,8 +47,8 @@ final class BlindBookingReviewAndMapTests: XCTestCase, BlindRunTestSupport {
     }
 
     /// 兜底那一支**必须说出来**。此前整条链一个字都没提：复核页那时显示的是
-    /// 「未填写选填跑步需求。」，而请求里已经装着一个具体的结束时刻。
-    func testReviewSpeechDisclosesTheDefaultedEndTime() throws {
+    /// 「未填写选填跑步需求。」，而请求里已经装着一个具体的结束时刻。语音向导读回念的就是这一句。
+    func testPlannedEndSummaryDisclosesTheDefaultedEndTime() throws {
         let viewModel = BlindBookingViewModel()
         viewModel.selectedStartPlace = ResolvedPlace(
             id: "poi-1",
@@ -63,7 +63,7 @@ final class BlindBookingReviewAndMapTests: XCTestCase, BlindRunTestSupport {
         )
         viewModel.duration = .none
 
-        let speech = viewModel.reviewSummarySpeech
+        let speech = viewModel.plannedEndSummary
 
         XCTAssertTrue(speech.contains("没有说跑多久"), "没交代这个结束时刻是系统补的：\(speech)")
         XCTAssertTrue(speech.contains("1 小时"), "没说按多久计：\(speech)")
@@ -71,7 +71,7 @@ final class BlindBookingReviewAndMapTests: XCTestCase, BlindRunTestSupport {
     }
 
     /// 说了时长就只念时刻，**不能还挂着「没有说跑多久」** —— 那是在说用户没做过的事。
-    func testReviewSpeechStatesTheEndTimePlainlyWhenDurationWasGiven() throws {
+    func testPlannedEndSummaryStatesTheEndTimePlainlyWhenDurationWasGiven() throws {
         let viewModel = BlindBookingViewModel()
         viewModel.selectedStartPlace = ResolvedPlace(
             id: "poi-1",
@@ -86,33 +86,10 @@ final class BlindBookingReviewAndMapTests: XCTestCase, BlindRunTestSupport {
         )
         viewModel.exactDurationMinutes = 180
 
-        let speech = viewModel.reviewSummarySpeech
+        let speech = viewModel.plannedEndSummary
 
         XCTAssertFalse(speech.contains("没有说跑多久"), "用户说了三小时，却被说成没说：\(speech)")
         XCTAssertTrue(speech.contains("12:30"), "结束时刻没跟着精确分钟数走：\(speech)")
-    }
-
-    /// 🚨 零输入路径**没有复核屏**，按钮标题就是唯一的复核面（也是它的 accessibilityLabel）。
-    /// 而走到这条路径的用户一定没说过时长（他连语音都用不了）⇒ 结束时刻一定是补的那个。
-    /// 不念，他就会在 1 小时 15 分时收到一条无从解释的「可能失联」提示。
-    func testZeroInputSummaryStatesTheEndTimeItIsAboutToCommit() throws {
-        let viewModel = BlindBookingViewModel()
-        viewModel.selectedStartPlace = ResolvedPlace(
-            id: "poi-1",
-            title: "科技园地铁站",
-            addressText: "深圳市南山区科技园地铁站 A 口",
-            latitude: 22.5401,
-            longitude: 113.9345,
-            source: .manual
-        )
-        viewModel.appointmentTime = try XCTUnwrap(
-            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
-        )
-
-        let summary = viewModel.zeroInputSummary
-
-        XCTAssertTrue(summary.contains("1 小时"), "没说按多久计：\(summary)")
-        XCTAssertTrue(summary.contains("10:30"), "没念出结束时刻：\(summary)")
     }
 
     /// 结束时刻**不许混进选填需求那一段** —— 它是推出来的事实不是用户填的项，
@@ -124,48 +101,16 @@ final class BlindBookingReviewAndMapTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(viewModel.optionalNeedsSpeechSummary, "没有填写选填跑步需求。")
     }
 
-    func testBlindBookingAuxiliaryMapAccessibilityLabelDoesNotExposeCoordinates() {
-        let viewModel = BlindBookingViewModel()
-        viewModel.selectedStartPlace = ResolvedPlace(
-            id: "poi-1",
-            title: "大观楼",
-            addressText: "大观楼，西山区 大观路284号",
-            latitude: 25.024196,
-            longitude: 102.673887,
-            source: .manual
-        )
-
-        XCTAssertTrue(viewModel.auxiliaryMapAccessibilityLabel.contains("辅助地图"))
-        XCTAssertTrue(viewModel.auxiliaryMapAccessibilityLabel.contains("已选择地点"))
-        XCTAssertFalse(viewModel.auxiliaryMapAccessibilityLabel.contains("25.024196"))
-        XCTAssertFalse(viewModel.auxiliaryMapAccessibilityLabel.contains("102.673887"))
-    }
-
-    func testBlindBookingLocationRefreshUpdatesPayloadWhileStabilizingAuxiliaryMapMarker() async throws {
+    func testBlindBookingLocationRefreshUpdatesPayloadUntilAPlaceIsChosen() async throws {
         let locationService = LocationService()
         let initialPlace = ResolvedPlace(
-            id: "current-1",
-            title: "当前位置",
-            addressText: "深圳市南山区科技园",
-            latitude: 22.5401,
-            longitude: 113.9345,
-            source: .deviceLocation
+            id: "current-1", title: "当前位置", addressText: "深圳市南山区科技园", latitude: 22.5401, longitude: 113.9345, source: .deviceLocation
         )
         let smallMovePlace = ResolvedPlace(
-            id: "current-2",
-            title: "当前位置",
-            addressText: "深圳市南山区科技园 A 口",
-            latitude: 22.5402,
-            longitude: 113.9345,
-            source: .deviceLocation
+            id: "current-2", title: "当前位置", addressText: "深圳市南山区科技园 A 口", latitude: 22.5402, longitude: 113.9345, source: .deviceLocation
         )
         let largeMovePlace = ResolvedPlace(
-            id: "current-3",
-            title: "当前位置",
-            addressText: "深圳市南山区科技园 B 口",
-            latitude: 22.5410,
-            longitude: 113.9345,
-            source: .deviceLocation
+            id: "current-3", title: "当前位置", addressText: "深圳市南山区科技园 B 口", latitude: 22.5410, longitude: 113.9345, source: .deviceLocation
         )
         let provider = FakePlaceSearchProvider(
             results: [],
@@ -179,62 +124,35 @@ final class BlindBookingReviewAndMapTests: XCTestCase, BlindRunTestSupport {
         )
 
         await viewModel.refreshCurrentLocation()
-        let demoCenter = try XCTUnwrap(viewModel.auxiliaryMapCenter)
-        XCTAssertEqual(viewModel.auxiliaryMapPlace?.source, .demoDefault)
 
         locationService.currentLocation = CLLocationCoordinate2D(latitude: 22.5401, longitude: 113.9345)
         await viewModel.refreshCurrentLocationIfNeeded()
-        let initialCenter = try XCTUnwrap(viewModel.auxiliaryMapCenter)
-        let initialMapPlace = try XCTUnwrap(viewModel.auxiliaryMapPlace)
-        XCTAssertNotEqual(initialCenter.latitude, demoCenter.latitude, accuracy: 0.000001)
-        XCTAssertEqual(initialMapPlace.latitude, initialPlace.latitude, accuracy: 0.000001)
         XCTAssertEqual(viewModel.resolvedStartPlace?.addressText, "深圳市南山区科技园")
 
         locationService.currentLocation = CLLocationCoordinate2D(latitude: 22.5402, longitude: 113.9345)
         await viewModel.refreshCurrentLocationIfNeeded()
-        let smallMoveCenter = try XCTUnwrap(viewModel.auxiliaryMapCenter)
-        let smallMoveMapPlace = try XCTUnwrap(viewModel.auxiliaryMapPlace)
         let smallMoveRequest = try XCTUnwrap(viewModel.makeCreateOrderRequest())
 
-        XCTAssertEqual(smallMoveCenter.latitude, initialCenter.latitude, accuracy: 0.000001)
-        XCTAssertEqual(smallMoveCenter.longitude, initialCenter.longitude, accuracy: 0.000001)
-        XCTAssertEqual(smallMoveMapPlace.latitude, initialPlace.latitude, accuracy: 0.000001)
         XCTAssertEqual(smallMoveRequest.startLatitude, smallMovePlace.latitude, accuracy: 0.000001)
         XCTAssertEqual(smallMoveRequest.startAddress, "深圳市南山区科技园 A 口")
 
         locationService.currentLocation = CLLocationCoordinate2D(latitude: 22.5410, longitude: 113.9345)
         await viewModel.refreshCurrentLocationIfNeeded()
-        let largeMoveCenter = try XCTUnwrap(viewModel.auxiliaryMapCenter)
-        let largeMoveMapPlace = try XCTUnwrap(viewModel.auxiliaryMapPlace)
 
-        XCTAssertEqual(largeMoveCenter.latitude, initialCenter.latitude, accuracy: 0.000001)
-        XCTAssertEqual(largeMoveCenter.longitude, initialCenter.longitude, accuracy: 0.000001)
-        XCTAssertEqual(largeMoveMapPlace.latitude, largeMovePlace.latitude, accuracy: 0.000001)
         XCTAssertEqual(viewModel.resolvedStartPlace?.addressText, "深圳市南山区科技园 B 口")
 
         let selectedPlace = ResolvedPlace(
-            id: "poi-2",
-            title: "大观楼",
-            addressText: "大观楼",
-            latitude: 25.024196,
-            longitude: 102.673887,
-            source: .manual
+            id: "poi-2", title: "大观楼", addressText: "大观楼", latitude: 25.024196, longitude: 102.673887, source: .manual
         )
         viewModel.selectPlace(selectedPlace)
-        let selectedCenter = try XCTUnwrap(viewModel.auxiliaryMapCenter)
-        let selectedMapPlace = try XCTUnwrap(viewModel.auxiliaryMapPlace)
         let selectedRequest = try XCTUnwrap(viewModel.makeCreateOrderRequest())
 
-        XCTAssertEqual(selectedCenter.latitude, selectedPlace.latitude, accuracy: 0.000001)
-        XCTAssertEqual(selectedCenter.longitude, selectedPlace.longitude, accuracy: 0.000001)
-        XCTAssertEqual(selectedMapPlace.latitude, selectedPlace.latitude, accuracy: 0.000001)
         XCTAssertEqual(selectedRequest.startLatitude, selectedPlace.latitude, accuracy: 0.000001)
 
         locationService.currentLocation = CLLocationCoordinate2D(latitude: 22.5500, longitude: 113.9400)
         await viewModel.refreshCurrentLocationIfNeeded()
 
         XCTAssertEqual(viewModel.resolvedStartPlace?.id, selectedPlace.id)
-        XCTAssertEqual(viewModel.auxiliaryMapPlace?.id, selectedPlace.id)
     }
 
     func testBlindBookingDurationOptions() {

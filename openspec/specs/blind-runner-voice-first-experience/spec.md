@@ -45,16 +45,16 @@ The iOS blind-runner experience SHALL keep AMap-backed location confirmation ava
 - **AND** the app SHALL NOT imply that a demo fallback coordinate is the user's real meeting point
 
 ### Requirement: Voice feedback is concise and repeatable
-The iOS blind-runner flow SHALL provide coherent TTS and VoiceOver feedback for guided booking without creating speech spam.
+The iOS blind-runner flow SHALL provide coherent TTS and VoiceOver feedback for booking without creating speech spam.
 
 #### Scenario: Step summary changes
-- **WHEN** the user moves between guided booking steps
-- **THEN** the app SHALL make the new step's purpose and current value available through visible text and repeat-status speech
+- **WHEN** the user changes a selection on the booking page
+- **THEN** the app SHALL make the current value available through visible text and repeat-status speech
 - **AND** the app SHALL NOT automatically speak long summaries after every keystroke or picker adjustment
 
 #### Scenario: Repeat status during booking
 - **WHEN** the user activates "重复当前状态" during booking
-- **THEN** the app SHALL speak the current step, current selected value, and the next expected action
+- **THEN** the app SHALL speak the current selection and the next expected action
 - **AND** error or blocked state SHALL be included when submission cannot proceed
 
 #### Scenario: Search result feedback
@@ -83,8 +83,8 @@ The iOS blind-runner screens affected by this change SHALL use a high-contrast, 
 - **AND** loading, disabled, and destructive states SHALL remain visually and semantically distinct
 
 #### Scenario: One primary task per screen region
-- **WHEN** a blind-runner guided booking step is displayed
-- **THEN** the screen SHALL emphasize one primary task for that step
+- **WHEN** the blind-runner booking page is displayed
+- **THEN** the screen SHALL emphasize one primary task
 - **AND** optional fields SHALL NOT obscure the required next action
 - **AND** dense table-like layouts SHALL NOT be used for required blind-runner task completion
 

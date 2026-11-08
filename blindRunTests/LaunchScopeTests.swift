@@ -161,7 +161,7 @@ final class LaunchScopeTests: XCTestCase {
         XCTAssertEqual(error.localizedMessage, LaunchScopeCopy.outsideDutyHoursFallback)
     }
 
-    func testOutsideOpenAreaReadsTheServerMessageAndReturnsToTheStartPointStep() async {
+    func testOutsideOpenAreaReadsTheServerMessageAndKeepsTheChoices() async {
         let message = "这个出发点不在开放范围内。目前只开放深圳市、杭州市，请换一个开放范围内的出发点"
         let form = makeSubmittingForm(rejectingWith: "ORDER_OUTSIDE_OPEN_AREA", message: message)
         let time = form.viewModel.appointmentTime
@@ -171,13 +171,12 @@ final class LaunchScopeTests: XCTestCase {
         XCTAssertNil(response)
         XCTAssertEqual(form.viewModel.errorMessage, message, "要原样显示后端 message，不换成通用的「下单失败」")
         XCTAssertTrue(form.speech.spokenHistoryForTesting.contains(message), "要原样念后端 message")
-        XCTAssertEqual(form.viewModel.currentStep, .startPoint)
-        XCTAssertEqual(form.viewModel.appointmentTime, time, "表单内容不许丢")
+        XCTAssertEqual(form.viewModel.appointmentTime, time, "已选的内容不许丢")
         XCTAssertEqual(form.viewModel.specialNotes, "慢一点")
         XCTAssertNotNil(form.viewModel.selectedStartPlace)
     }
 
-    func testOutsideDutyHoursReadsTheServerMessageAndReturnsToTheTimeStep() async {
+    func testOutsideDutyHoursReadsTheServerMessageAndKeepsTheChoices() async {
         let message = "这个时间没有值守人员，暂不接受预约。可预约的开跑时间是周一到周五 18:00 到 21:00，请换个时间"
         let form = makeSubmittingForm(rejectingWith: "APPOINTMENT_OUTSIDE_DUTY_HOURS", message: message)
         let place = form.viewModel.selectedStartPlace
@@ -186,8 +185,7 @@ final class LaunchScopeTests: XCTestCase {
 
         XCTAssertEqual(form.viewModel.errorMessage, message)
         XCTAssertTrue(form.speech.spokenHistoryForTesting.contains(message))
-        XCTAssertEqual(form.viewModel.currentStep, .appointmentTime)
-        XCTAssertEqual(form.viewModel.selectedStartPlace, place, "表单内容不许丢")
+        XCTAssertEqual(form.viewModel.selectedStartPlace, place, "已选的内容不许丢")
         XCTAssertEqual(form.viewModel.specialNotes, "慢一点")
     }
 
@@ -199,7 +197,6 @@ final class LaunchScopeTests: XCTestCase {
         _ = await form.viewModel.submit()
 
         XCTAssertEqual(BookingLaunchAvailability(form.appState.ruleParamsResponse?.launchScope), .closed(notice: message))
-        XCTAssertEqual(form.viewModel.currentStep, .review, "换什么都没用，不许把用户带回某一步去改")
         XCTAssertFalse(form.speech.spokenHistoryForTesting.contains(message), "告知页出现时会念，这里先念会被它切断")
     }
 
@@ -253,7 +250,7 @@ final class LaunchScopeTests: XCTestCase {
         return (appState, auth)
     }
 
-    /// 下单表单的 `appState` / `locationService` 是 `weak`：整套依赖由用例持有，不能只活在 helper 里。
+    /// 下单 view model 的 `appState` / `locationService` 是 `weak`：整套依赖由用例持有，不能只活在 helper 里。
     private struct SubmittingForm {
         let viewModel: BlindBookingViewModel
         let speech: SpeechService
@@ -262,7 +259,7 @@ final class LaunchScopeTests: XCTestCase {
         let orders: FakeOrderService
     }
 
-    /// 门槛全过、停在复核步的下单表单，后端用 `code` 拒绝这一单。
+    /// 门槛全过、可以提交的下单 view model，后端用 `code` 拒绝这一单。
     private func makeSubmittingForm(rejectingWith code: String, message: String) -> SubmittingForm {
         let orders = FakeOrderService()
         orders.createOrderResult = .failure(APIError.serverError(ErrorResponse(code: code, message: message)))
@@ -283,7 +280,6 @@ final class LaunchScopeTests: XCTestCase {
         )
         viewModel.appointmentTime = BookingTimeFixture.daytime()
         viewModel.specialNotes = "慢一点"
-        viewModel.currentStep = .review
         XCTAssertTrue(viewModel.canSubmit, "前提：门槛全过")
         return SubmittingForm(viewModel: viewModel, speech: speech, appState: appState, location: location, orders: orders)
     }

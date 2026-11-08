@@ -1,7 +1,7 @@
 # booking-launch-scope Specification
 
 ## Purpose
-Tell blind runners before they book which cities and duty hours are open, keep them out of the booking flow while booking is closed, and handle the three launch-scope rejections from order creation with the server's own words and the right step to fix.
+Tell blind runners before they book which cities and duty hours are open, keep them out of the booking flow while booking is closed, and handle the three launch-scope rejections from order creation with the server's own words while keeping the runner's choices.
 ## Requirements
 ### Requirement: Launch scope is optional and read per account
 The client SHALL decode `launchScope` from `GET /api/config/rules` as an optional field. A missing or malformed `launchScope` SHALL NOT fail the rest of the response and SHALL be treated as "no information". The client SHALL discard the stored rules when the session ends, SHALL discard a response that arrives after the account changed, and SHALL read the rules again each time the booking entry opens.
@@ -35,12 +35,12 @@ When `areaRestricted` is true the start-point step SHALL show `areaHint`; when `
 - **THEN** the time SHALL be treated as inside the window
 
 ### Requirement: Launch-scope rejections read the server message and keep the form
-For `ORDER_SERVICE_NOT_OPEN`, `ORDER_OUTSIDE_OPEN_AREA`, and `APPOINTMENT_OUTSIDE_DUTY_HOURS` the client SHALL show and speak the server `message` unchanged when it is not blank, and SHALL keep every field the runner filled in. `ORDER_OUTSIDE_OPEN_AREA` SHALL return the form to the start-point step, `APPOINTMENT_OUTSIDE_DUTY_HOURS` to the appointment-time step, and `ORDER_SERVICE_NOT_OPEN` SHALL replace the booking screen with the closed notice showing that message, without suggesting a different place or time.
+For `ORDER_SERVICE_NOT_OPEN`, `ORDER_OUTSIDE_OPEN_AREA`, and `APPOINTMENT_OUTSIDE_DUTY_HOURS` the client SHALL show and speak the server `message` unchanged when it is not blank, and SHALL keep every choice the runner made. `ORDER_OUTSIDE_OPEN_AREA` and `APPOINTMENT_OUTSIDE_DUTY_HOURS` SHALL leave the runner on the booking page, and `ORDER_SERVICE_NOT_OPEN` SHALL replace the booking screen with the closed notice showing that message, without suggesting a different place or time.
 
 #### Scenario: Start point outside the open area
 - **WHEN** order creation returns 422 `ORDER_OUTSIDE_OPEN_AREA`
 - **THEN** the server message SHALL be shown and spoken
-- **AND** the form SHALL be on the start-point step with the time and notes unchanged
+- **AND** the booking page SHALL stay open with the start point and time unchanged
 
 #### Scenario: Booking closed at submit time
 - **WHEN** order creation returns 422 `ORDER_SERVICE_NOT_OPEN`

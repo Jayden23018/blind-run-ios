@@ -137,7 +137,6 @@ Required coverage:
 | 订单状态 | `status` 推进（5 秒轮询 / WebSocket） | 状态卡 | `BlindOrderStatusView.statusHeaderFocused` |
 | 盲人首页 | 订单出现 / 消失 | 有订单→深蓝订单卡；无订单→「预约新的陪跑」 | `BlindRunnerHomeView.focusedSection` |
 | 历史订单 | 加载态消失 | 第一条记录 | `BlindRunHistoryView.focusedRecordID` |
-| 下单向导 | 步骤推进、错误出现 | 当前步骤 / 错误文本 | `BlindBookingView` |
 
 两条通用约束：
 

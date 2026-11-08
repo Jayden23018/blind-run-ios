@@ -201,7 +201,7 @@ final class PreciseLocationGateTests: XCTestCase {
 
     // MARK: - 下单起点
 
-    /// 精确位置关闭：设备位置拿得到，但不许当出发点；进页**不**自动弹系统框（会打断语音向导开场），只由按钮申请。
+    /// 精确位置关闭：设备位置拿得到，但不许当出发点；进页**不**自动弹系统框，只由按钮申请（约跑页的按钮见 #813）。
     func testPreciseLocationOffKeepsCurrentLocationOutOfTheStartPoint() async {
         let location = Self.locationService(accuracy: 5000)
         location.simulatePreciseLocationOffForTesting()
