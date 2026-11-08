@@ -1,5 +1,5 @@
 // 只为 `ObservableObject` / `@Published`（工程开了 MemberImportVisibility，SwiftUI 不再替它带进来）。
-// 订单实时跟踪不用 Combine 订阅（`unify-order-live-tracking`），这里不许再出现 `AnyCancellable`。
+// 订单实时跟踪不用 Combine 订阅（`unify-order-live-tracking`），这里不许再加订阅。
 import Combine
 import CoreLocation
 import SwiftUI

@@ -94,7 +94,7 @@ final class BlindVolunteerDistanceTests: XCTestCase, BlindRunTestSupport {
 
     /// 有时间戳时才判新鲜度：过期挡掉，落在未来（设备时钟偏差）按「刚采样」放行。
     ///
-    /// 未来时间戳放行是刻意的，与 WebSocket 那条 `handleVolunteerLocationUpdate` 的
+    /// 未来时间戳放行是刻意的，与 WebSocket 那条（订单跟踪的 `PeerLocationFreshness.accept`）的
     /// `max(0, ...)` 同口径 —— 用 `abs()` 的话，设备时钟快一分钟就会让整个兜底再次全灭。
     func testVolunteerLocationFallbackRejectsStaleButAcceptsFutureTimestamp() {
         let order = makeOrder(orderId: 1, status: .driverEnRoute)
@@ -212,7 +212,7 @@ final class BlindVolunteerDistanceTests: XCTestCase, BlindRunTestSupport {
         XCTAssertNil(viewModel.volunteerDistanceToStartText)
     }
 
-    func testBlindPeerSampleStopCancelsExpiry() async throws {
+    func testBlindPeerSampleIsClearedAndIgnoredAfterStop() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let viewModel = followingOrderPage(orderId: 32, status: .driverArrived, appState: appState, peerFreshness: 0.04)

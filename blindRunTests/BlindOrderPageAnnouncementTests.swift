@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import blindRun
 
@@ -9,6 +10,10 @@ import XCTest
 ///
 /// 订单页只经 `openOrderTrackIfNeeded` 打开 track、不走 `configure`：`appState` 为 nil，
 /// `loadOrder` 直接返回，Mock 详情不会盖掉用例摆好的订单。
+///
+/// 只看播报历史分辨不出订单页漏了 `acknowledge` 或报错了 `spoke`：首页那句与订单页同一个目标状态，
+/// 会被 `lastSpokenStatus` 去重挡掉，历史照样只有一句。所以每条用例还拿协调器发出的那条更新
+/// 直接问 `pageAnnouncement`：等回话的上限设成 5 秒，订单页回过话时答案会立即返回（断言 1 秒内）。
 @MainActor
 final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
     private let orderID: Int64 = 887
@@ -20,6 +25,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
         await settle()
 
         XCTAssertEqual(fixture.speech.spokenHistoryForTesting, [BlindIntroCallOutcomeCopy.roundEnded(hadPlan: false)])
+        await assertPageAnswer(fixture, is: .pageSpoke)
     }
 
     func testIntroCallBackToRematchingSpeaksOnlyTheOrderPageSentence() async {
@@ -29,6 +35,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
         await settle()
 
         XCTAssertEqual(fixture.speech.spokenHistoryForTesting, [BlindIntroCallOutcomeCopy.roundEnded(hadPlan: false)])
+        await assertPageAnswer(fixture, is: .pageSpoke)
     }
 
     func testIntroCallAgreedSpeaksOnlyTheOrderPageSentence() async {
@@ -41,6 +48,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
         await settle()
 
         XCTAssertEqual(fixture.speech.spokenHistoryForTesting, [agreed])
+        await assertPageAnswer(fixture, is: .pageSpoke)
         XCTAssertNotEqual(
             agreed,
             homeSentence(from: .pendingIntroCall, to: .pendingAccept),
@@ -59,6 +67,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
             fixture.speech.spokenHistoryForTesting,
             [homeSentence(from: .pendingAccept, to: .driverEnRoute)]
         )
+        await assertPageAnswer(fixture, is: .homeShouldSpeak)
     }
 
     func testHomeSpeaksWhenNoOrderPageIsOpen() async {
@@ -71,6 +80,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
             fixture.speech.spokenHistoryForTesting,
             [homeSentence(from: .pendingAccept, to: .driverEnRoute)]
         )
+        await assertPageAnswer(fixture, is: .homeShouldSpeak)
     }
 
     /// 完成态照现状两边都念：订单页的完成句走独立任务（`acknowledge(spoke: false)`），首页的通用句照念。
@@ -84,6 +94,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
         let history = fixture.speech.spokenHistoryForTesting
         XCTAssertEqual(history.count, 2, "应当是首页通用句 + 订单页完成句，实际：\(history)")
         XCTAssertTrue(history.contains(homeLine), "首页那句没念：\(history)")
+        await assertPageAnswer(fixture, is: .homeShouldSpeak)
     }
 
     // MARK: - 辅助
@@ -100,6 +111,7 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
         let home: BlindRunnerHomeViewModel
         let page: BlindOrderStatusViewModel?
         let orderID: Int64
+        let captured: CapturedUpdates
 
         func push(from: RunOrderStatus, to: RunOrderStatus) {
             appState.realtimeCoordinator.simulateIncomingEventForTesting(
@@ -125,10 +137,12 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
     ) -> Fixture {
         let appState = AppState()
         appState.currentEnvironment = .mock
-        // 等回话的上限缩到 0.2 秒：订单页漏了 `acknowledge` 时首页会在 `settle` 之内照念，用例能看见两句。
+        // 等回话的上限放到 5 秒：订单页漏了 `acknowledge` 时，`assertPageAnswer` 会等满它、断言超时而红；
+        // 守卫路径漏了时首页在 `settle` 之内一句都念不出来。
         appState.realtimeCoordinator.replaceOrderLiveTrackerForTesting(
-            OrderLiveTracker(coordinator: appState.realtimeCoordinator, pollingInterval: 60, announcementTimeout: 0.2)
+            OrderLiveTracker(coordinator: appState.realtimeCoordinator, pollingInterval: 60, announcementTimeout: Self.ackTimeout)
         )
+        let captured = CapturedUpdates(appState.realtimeCoordinator)
         let speech = SpeechService()
         speech.isCallActive = { false }
 
@@ -150,12 +164,42 @@ final class BlindOrderPageAnnouncementTests: XCTestCase, BlindRunTestSupport {
         }
         appState.realtimeCoordinator.registerActiveOrder(orderID)
         speech.resetSpokenHistoryForTesting()
-        return Fixture(appState: appState, speech: speech, home: home, page: page, orderID: orderID)
+        return Fixture(appState: appState, speech: speech, home: home, page: page, orderID: orderID, captured: captured)
     }
 
-    /// 超过等回话的上限（0.2 秒），把首页可能晚到的那句也等进来。
+    private static let ackTimeout: TimeInterval = 5
+
+    /// 拿协调器发出的那条更新问 `pageAnnouncement`。订单页已经回过话就立即返回；漏了就要等满 5 秒。
+    private func assertPageAnswer(
+        _ fixture: Fixture,
+        is expected: PageAnnouncement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        guard let update = fixture.captured.last else {
+            XCTFail("协调器没有发出状态更新", file: file, line: line)
+            return
+        }
+        let started = Date()
+        let answer = await fixture.appState.realtimeCoordinator.orderLiveTracker.pageAnnouncement(for: update, role: .blind)
+        XCTAssertEqual(answer, expected, file: file, line: line)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "订单页没有回话，首页等到了上限", file: file, line: line)
+    }
+
+    /// 订单页回话后首页立即念；等 0.4 秒，把可能多出来的一句也等进来。
     private func settle() async {
         for _ in 0..<5 { await Task.yield() }
         try? await Task.sleep(nanoseconds: 400_000_000)
+    }
+}
+
+/// 记下协调器发给首页的那条更新（与订单页收到的是同一个值），用来问 `pageAnnouncement`。
+@MainActor
+private final class CapturedUpdates {
+    private(set) var last: RealtimeOrderStatusUpdate?
+    private var subscription: AnyCancellable?
+
+    init(_ coordinator: AppRealtimeCoordinator) {
+        subscription = coordinator.statusUpdatePublisher.sink { [weak self] update in self?.last = update }
     }
 }
