@@ -100,7 +100,7 @@ final class VoiceOrderWizard: ObservableObject {
     /// **这是上限，不是等待时长** —— 播完就立刻放行。它存在只是为了在合成器代理丢事件时不至于
     /// 无限等下去。
     ///
-    /// 曾经写死 8 秒，而读回整单在默认语速下要 15~25 秒（见 `finishSpeakingOrSkipPrompt` 的说明），
+    /// 曾经写死 8 秒，而读回整单在默认语速下要 15~25 秒（原话 + 三项 + 两条出路），
     /// 于是**每一次读回都必被截断**：上限一到就开麦，而开麦会把音频会话切成允许录音的分类，
     /// 正在播的 `AVSpeechSynthesizer` 当场断掉。2026-08-06 真机手测报的「读到一半自动截断然后开始
     /// 录音」就是这条。修法不是把 8 调大一个拍脑袋的数，而是让上限跟着要念的字数走。
@@ -274,30 +274,6 @@ final class VoiceOrderWizard: ObservableObject {
         // 结束态下按「改用表单」也走这里：清掉它，界面才会真的换成表单。
         endedMessage = nil
         endedAfterFailure = false
-    }
-
-    /// 用户主动结束这一轮录音（「再点一下」）。停止会走完成回调，后续解析由 `handle` 接手。
-    ///
-    /// 与 `stop()` 的区别：`stop()` 是放弃整个语音流程，这里只是「我说完了」。
-    func finishSpeaking() {
-        guard isRunning, speechInputService?.isListening == true else { return }
-        speechInputService?.stopRecognition()
-    }
-
-    /// 向导运行期间「屏幕上那一下」的唯一入口：**在录音就是「我说完了」，在播报就是「别念了」。**
-    ///
-    /// 读回整单（原话 + 三项 + 两条出路）在写死的默认语速下要 15~25 秒，而读屏用户日常把语速调到
-    /// 14~16 字/秒。中途没有出路，等于把最熟练的用户按在最慢的一档上听完 —— 熟练用户正是最先弃用的人。
-    ///
-    /// 停播之后不需要额外做什么：`listen` 里 `waitForSpeechToSettle` 的循环条件自然放行，麦克风随即打开。
-    /// 所以这里没有新状态，只是提前结束等待。
-    func finishSpeakingOrSkipPrompt() {
-        guard isRunning else { return }
-        if speechInputService?.isListening == true {
-            finishSpeaking()
-        } else if speechService?.isSpeaking == true {
-            speechService?.stop()
-        }
     }
 
     /// 重复当前这一轮的问题。语音消失得快，重听是基本诉求。

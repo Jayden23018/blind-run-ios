@@ -93,14 +93,6 @@ extension View {
     ) -> some View {
         modifier(CapsuleButtonChrome(fill: fill, stroke: stroke, fillsWidth: fillsWidth, minWidth: minWidth))
     }
-
-    /// 几枚按钮并排在一行里（下单页底栏「上一步 / 提交预约」）：胶囊只变矮、不左右收进，字边距也收小。
-    ///
-    /// 定稿 ② 的规则（负责人 2026-11-05）。不这样做的话，最大字号下「提交预约」被两边各 12pt 的收进
-    /// 加 20pt 的字边距挤到一行只放得下一个字。挂在那一行的 `HStack` 上。
-    func capsuleButtonsInRow() -> some View {
-        environment(\.capsuleButtonInRow, true)
-    }
 }
 
 private struct CapsuleButtonInRowKey: EnvironmentKey {
