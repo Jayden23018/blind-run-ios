@@ -110,7 +110,7 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
 
         await viewModel.load(appState: appState)
 
-        XCTAssertEqual(viewModel.phase, .failed, "读取失败显示成「还没有工单」，刚提交过投诉的人会以为提交丢了")
+        XCTAssertEqual(viewModel.phase, .failed(message: SupportTicketCopy.myTicketsFailed), "读取失败显示成「还没有工单」，刚提交过投诉的人会以为提交丢了")
     }
 
     func testLoadSuccessShowsTicketsInServerOrder() async {

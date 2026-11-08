@@ -5,13 +5,8 @@ import SwiftUI
 
 @MainActor
 final class BlockedUsersViewModel: ObservableObject {
-    enum Phase: Equatable {
-        case loading
-        case loaded([BlockedUserResponse])
-        case failed
-    }
-
-    @Published private(set) var phase: Phase = .loading
+    /// 失败必须是 `.failed`，不能落成空列表（那等于说没拉黑过任何人）。
+    @Published private(set) var phase: AsyncLoadState<[BlockedUserResponse]> = .idle
     @Published private(set) var notice: String?
     @Published private(set) var actionError: String?
     @Published private(set) var busyUserId: Int64?
@@ -20,16 +15,16 @@ final class BlockedUsersViewModel: ObservableObject {
         do {
             phase = .loaded(try await appState.safety.blockedUsers())
         } catch let error as APIError {
-            if !appState.handleAuthenticatedAPIError(error) { phase = .failed }
+            if !appState.handleAuthenticatedAPIError(error) { phase = .failed(message: UserSafetyCopy.blockedListFailed) }
         } catch is CancellationError {
             return
         } catch {
-            phase = .failed
+            phase = .failed(message: UserSafetyCopy.blockedListFailed)
         }
     }
 
     func retry(appState: AppState) async {
-        phase = .loading
+        phase = .loading(requestID: UUID())
         await load(appState: appState)
     }
 
@@ -115,36 +110,29 @@ struct BlockedUsersView: View {
         }
     }
 
-    @ViewBuilder
+    /// 失败走 `RemoteContent`：会念出来，不只是一行红字（#864）。
     private var content: some View {
-        switch viewModel.phase {
-        case .loading:
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel(UserSafetyCopy.blockedListLoading)
-        case .failed:
-            Text(UserSafetyCopy.blockedListFailed)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.destructive)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("blockedUsersFailed")
-            FlowActionButton(UserSafetyCopy.retry, style: .ghost) {
-                Task { await viewModel.retry(appState: appState) }
-            }
-            .accessibilityIdentifier("blockedUsersRetry")
-        case .loaded(let users) where users.isEmpty:
-            emptyCard
-        case .loaded(let users):
-            // 一人一行，同一张分组卡（定稿 #755，照屏蔽的联系人）。
-            GroupedCard {
-                ForEach(Array(users.enumerated()), id: \.element.id) { index, user in
-                    if index > 0 {
-                        GroupedCardDivider(leadingInset: rowDividerInset)
+        RemoteContent(
+            viewModel.phase,
+            loadingLabel: UserSafetyCopy.blockedListLoading,
+            failureIdentifier: "blockedUsersRetry",
+            retryTitle: UserSafetyCopy.retry,
+            retry: { Task { await viewModel.retry(appState: appState) } }
+        ) { users in
+            if users.isEmpty {
+                emptyCard
+            } else {
+                // 一人一行，同一张分组卡（定稿 #755，照屏蔽的联系人）。
+                GroupedCard {
+                    ForEach(Array(users.enumerated()), id: \.element.id) { index, user in
+                        if index > 0 {
+                            GroupedCardDivider(leadingInset: rowDividerInset)
+                        }
+                        row(user)
                     }
-                    row(user)
                 }
+                GroupedCardFootnote(text: UserSafetyCopy.blockedListFootnote)
             }
-            GroupedCardFootnote(text: UserSafetyCopy.blockedListFootnote)
         }
     }
 

@@ -13,14 +13,18 @@ struct InviteCodeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
 
-    @State private var response: InviteCodeResponse?
-    @State private var errorMessage: String?
-    @State private var isLoading = true
+    @State private var state: AsyncLoadState<InviteCodeResponse> = .idle
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if let response {
+                RemoteContent(
+                    state,
+                    loadingLabel: "正在加载邀请码",
+                    failureIdentifier: "inviteCodeRetryButton",
+                    retryTitle: InviteCodeCopy.retry,
+                    retry: { Task { await load() } }
+                ) { response in
                     codeCard(response)
                     countsSection(response)
                     rulesSection
@@ -30,18 +34,6 @@ struct InviteCodeView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, GroupedCardMetrics.rowHorizontalPadding)
                         .accessibilityIdentifier("inviteCodePointsDisclaimer")
-                } else if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载邀请码")
-                } else {
-                    IncentiveFailureSection(
-                        message: errorMessage ?? InviteCodeCopy.loadFailure,
-                        retryTitle: InviteCodeCopy.retry,
-                        identifier: "inviteCodeRetryButton"
-                    ) {
-                        Task { await load() }
-                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -58,7 +50,7 @@ struct InviteCodeView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("inviteCodeView")
         .task {
-            guard response == nil else { return }
+            guard state.value == nil else { return }
             await load()
         }
     }
@@ -207,22 +199,24 @@ struct InviteCodeView: View {
     }
 
     private func load() async {
-        isLoading = true
-        defer { isLoading = false }
+        state = .loading(requestID: UUID())
         do {
-            response = try await appState.incentive.inviteCode()
-            errorMessage = nil
-        } catch let error as APIError {
-            // UNSET 用户拿不到邀请码（403）。入口本就放在设完角色之后，这是防御分支 ——
-            // 说清楚「先选身份」，而不是把 403 的通用文案甩给用户。
-            //
-            // 两种形状都要接：契约没给这个 403 定错误码，所以后端可能回一个能解出
-            // `SECURITY_FORBIDDEN` 的信封，也可能回一个空体（那时 `APIClient` 给的是
-            // `.unknown(statusCode: 403)`）。只判其中一种会漏。
-            errorMessage = Self.isForbidden(error) ? InviteCodeCopy.roleRequired : error.localizedMessage
+            state = .loaded(try await appState.incentive.inviteCode())
         } catch {
-            errorMessage = InviteCodeCopy.loadFailure
+            state = .failed(message: Self.failureMessage(for: error))
         }
+    }
+
+    /// 失败时给人看、给读屏念的那一句。
+    static func failureMessage(for error: Error) -> String {
+        guard let error = error as? APIError else { return InviteCodeCopy.loadFailure }
+        // UNSET 用户拿不到邀请码（403）。入口本就放在设完角色之后，这是防御分支 ——
+        // 说清楚「先选身份」，而不是把 403 的通用文案甩给用户。
+        //
+        // 两种形状都要接：契约没给这个 403 定错误码，所以后端可能回一个能解出
+        // `SECURITY_FORBIDDEN` 的信封，也可能回一个空体（那时 `APIClient` 给的是
+        // `.unknown(statusCode: 403)`）。只判其中一种会漏。
+        return isForbidden(error) ? InviteCodeCopy.roleRequired : error.localizedMessage
     }
 
     static func isForbidden(_ error: APIError) -> Bool {

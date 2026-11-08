@@ -113,7 +113,7 @@ final class UserSafetyViewModelTests: XCTestCase {
 
         fake.blockedUsersResult = .failure(URLError(.timedOut))
         await viewModel.retry(appState: appState)
-        XCTAssertEqual(viewModel.phase, .failed, "失败要看得见，不能落成空列表（那等于说没拉黑过任何人）")
+        XCTAssertEqual(viewModel.phase, .failed(message: UserSafetyCopy.blockedListFailed), "失败要看得见，不能落成空列表（那等于说没拉黑过任何人）")
     }
 
     func testUnblockReloadsFromTheServer() async {

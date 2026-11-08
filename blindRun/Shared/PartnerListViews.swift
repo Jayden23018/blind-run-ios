@@ -16,29 +16,22 @@ struct BlindFavoriteVolunteersView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
 
-    @State private var rows: [PartnerRow] = []
-    @State private var errorMessage: String?
-    @State private var isLoading = true
-    @State private var hasLoadedOnce = false
+    /// 只在首次加载时会是 `.failed`；列表已经显示过之后重拉失败，保持 `.loaded`，错误写进 `refreshError`。
+    @State private var state: AsyncLoadState<[PartnerRow]> = .idle
+    @State private var refreshError: String?
     @State private var actionNotice: String?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if hasLoadedOnce {
-                    loadedContent
-                } else if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("正在加载固定搭档")
-                } else {
-                    IncentiveFailureSection(
-                        message: errorMessage ?? PartnerStreakCopy.loadFailure,
-                        retryTitle: PartnerStreakCopy.retry,
-                        identifier: "blindFavoriteVolunteersRetryButton"
-                    ) {
-                        Task { await load() }
-                    }
+                RemoteContent(
+                    state,
+                    loadingLabel: "正在加载固定搭档",
+                    failureIdentifier: "blindFavoriteVolunteersRetryButton",
+                    retryTitle: PartnerStreakCopy.retry,
+                    retry: { Task { await load() } }
+                ) { rows in
+                    loadedContent(rows)
                 }
             }
             .padding(.horizontal, 16)
@@ -54,13 +47,13 @@ struct BlindFavoriteVolunteersView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindFavoriteVolunteersView")
         .task {
-            guard !hasLoadedOnce else { return }
+            guard state.value == nil else { return }
             await load()
         }
     }
 
     @ViewBuilder
-    private var loadedContent: some View {
+    private func loadedContent(_ rows: [PartnerRow]) -> some View {
         // 操作结果既要看得见也要听得见 —— 这一屏在盲人端，
         // 只把状态画进列表等于对读屏用户什么都没说（播报在 `setFavorite` / 拉黑组件里）。
         if let actionNotice {
@@ -72,9 +65,9 @@ struct BlindFavoriteVolunteersView: View {
         }
 
         // 列表已经加载出来之后再失败（重拉失败），错误要就地显示 ——
-        // 下面那个失败态整块只在**首次加载**失败时才出现。
-        if let errorMessage, actionNotice == nil {
-            Text(errorMessage)
+        // `RemoteContent` 的失败态整块只在**首次加载**失败时才出现。
+        if let refreshError, actionNotice == nil {
+            Text(refreshError)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.destructive)
                 .fixedSize(horizontal: false, vertical: true)
@@ -85,7 +78,7 @@ struct BlindFavoriteVolunteersView: View {
             emptyCard
         } else {
             let keyed = KeyedPartnerRow.make(rows)
-            heroCard
+            heroCard(rows)
 
             let favorites = keyed.filter { $0.row.isFavorite }
             if !favorites.isEmpty {
@@ -99,7 +92,7 @@ struct BlindFavoriteVolunteersView: View {
     }
 
     /// 顶部说明卡：图标 +「N 位固定搭档」+ 派单说明。N 只数没退出的。
-    private var heroCard: some View {
+    private func heroCard(_ rows: [PartnerRow]) -> some View {
         let count = rows.filter { $0.isFavorite && !$0.hasOptedOut }.count
         return GroupedCard {
             HStack(alignment: .top, spacing: 14) {
@@ -213,7 +206,7 @@ struct BlindFavoriteVolunteersView: View {
             actionNotice = isFavorite
                 ? PartnerStreakCopy.favoriteAdded(name)
                 : PartnerStreakCopy.favoriteRemoved(name)
-            errorMessage = nil
+            refreshError = nil
             speechService.announce(
                 isFavorite
                     ? PartnerStreakCopy.favoriteAdded(spokenName)
@@ -222,7 +215,7 @@ struct BlindFavoriteVolunteersView: View {
             Task {
                 await load()
                 // 重拉失败时列表还是旧的，要让用户看到错误，不能被成功提示盖住（同 `blocked()`）。
-                if errorMessage != nil { actionNotice = nil }
+                if refreshError != nil { actionNotice = nil }
             }
             return nil
         } catch let error as APIError {
@@ -240,12 +233,12 @@ struct BlindFavoriteVolunteersView: View {
         actionNotice = UserSafetyCopy.blockSucceeded
         await load()
         // 重拉失败时被拉黑的人还留在列表里，要让用户看到这一句，不能被成功提示盖住。
-        if errorMessage != nil { actionNotice = nil }
+        if refreshError != nil { actionNotice = nil }
     }
 
     private func load() async {
-        isLoading = true
-        defer { isLoading = false }
+        // 列表已经显示着就不换回加载中：重拉期间用户还在看、还在点。
+        if state.value == nil { state = .loading(requestID: UUID()) }
         // 空态要说哪一句取决于开关，所以**在拉列表之前**先把它取到位 ——
         // 反过来的话，列表回来得快、开关回来得慢时，用户会先看到 nil 档那句、
         // 再被替换成另一句，而读屏已经把第一句念完了。
@@ -256,13 +249,15 @@ struct BlindFavoriteVolunteersView: View {
             // ponytail: 不为两个请求引入 async let 的并发编排，等真慢了再说。
             let favorites = try await appState.incentive.blindFavoriteVolunteers()
             let streaks = try await appState.incentive.blindPartnerStreaks()
-            rows = PartnerRowMerge.blindRows(favorites: favorites, streaks: streaks)
-            errorMessage = nil
-            hasLoadedOnce = true
-        } catch let error as APIError {
-            errorMessage = error.localizedMessage
+            state = .loaded(PartnerRowMerge.blindRows(favorites: favorites, streaks: streaks))
+            refreshError = nil
         } catch {
-            errorMessage = PartnerStreakCopy.loadFailure
+            let message = (error as? APIError)?.localizedMessage ?? PartnerStreakCopy.loadFailure
+            if state.value == nil {
+                state = .failed(message: message)
+            } else {
+                refreshError = message
+            }
         }
     }
 }
