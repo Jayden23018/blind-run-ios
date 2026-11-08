@@ -20,6 +20,7 @@ extension AppState {
     /// 撤销这一次登录。返回服务端是否已经不认这次登录了：登出成功，或 401（续期也救不回来 = 本来就结束了）。
     /// 断网、限流、服务端错误返回 false，由调用方记进待撤记录。
     func logOutOnServer() async -> Bool {
+        let auth = sessionUnawareAuth
         do {
             _ = try await auth.logout()
             return true
@@ -33,6 +34,17 @@ extension AppState {
         } catch {
             return !PendingSessionRevoker.isWorthRetrying(error)
         }
+    }
+
+    /// 自己收尾 401 的几条会话流程用的 service：架在**未包**会话处理的客户端上（#872）。
+    /// - 退出登录（解绑推送、登出）：401 = 这次登录本来就结束了，按登出规则收尾。走 `apiClient` 的话会在登出中途
+    ///   先清一遍会话，再提示一次「登录已过期」。
+    /// - 冷启动校验会话（`restoreSession` 的 `/api/auth/me`）：401 有它自己的提示「登录状态已失效」，
+    ///   走 `apiClient` 会先写一句「登录已过期」再被改写，登录页可能念到两句。
+    /// 别的请求一律走 `auth`。
+    var sessionUnawareAuth: any AuthServing {
+        if let authOverride { return authOverride }
+        return AuthService(transport: sessionUnawareAPIClient)
     }
 
     /// 登出没撤完的部分记下来（#459）：推送 token 没解绑、或服务端登出没成。只存撤销要用的最少数据。

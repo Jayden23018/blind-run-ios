@@ -3,9 +3,20 @@ import Foundation
 import SwiftUI
 
 extension AppState {
-    /// 根据当前环境返回对应的 API Client
+    /// 根据当前环境返回对应的 API Client，外面包着会话失效的统一处理（`SessionAwareAPIClient`，#872）。
+    ///
+    /// 需要登录的请求最终 401 时，会话在这里处理（跑步中暂缓，否则登出），调用方不用记得去调。
+    /// 单测注入的 `apiClientOverride` 一样包：测的就是生产路径。
     var apiClient: any APIClientProtocol {
-        if let apiClientOverride { return apiClientOverride }
+        SessionAwareAPIClient.wrapping(sessionUnawareAPIClient) { [weak self] in
+            self?.handleAuthenticatedAPIError(.unauthorized)
+        }
+    }
+
+    /// 没包会话处理的客户端。**只给登出**（登出的 401 按登出规则处理，不能再提示一次登录已过期）
+    /// 和要认出具体实现的测试钩子用（`as? MockAPIClient`）。别的请求一律走 `apiClient`。
+    var sessionUnawareAPIClient: any APIClientProtocol {
+        if let apiClientOverride { return SessionAwareAPIClient.unwrapped(apiClientOverride) }
         switch currentEnvironment {
         case .mock where AppBuildChannel.current == .development:
             return mockAPIClient

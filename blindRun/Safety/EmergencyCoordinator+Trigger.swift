@@ -19,7 +19,9 @@ extension EmergencyCoordinator {
     /// 只认「`SafetyService` 包着 `MockAPIClient`」这一种形状，别的实现（包括单测的替身）一律按真实后端算：
     /// 判错的代价不对称 —— 判成「不是 Mock」最多让一条 UI 用例走不通，判成「是 Mock」就是测试坐标出了门。
     static func isMockBacked(_ safety: any SafetyServing) -> Bool {
-        (safety as? SafetyService)?.transport is MockAPIClient
+        // `AppState.apiClient` 外面包着会话处理那层（#872），判的是里面那个。
+        guard let transport = (safety as? SafetyService)?.transport else { return false }
+        return SessionAwareAPIClient.unwrapped(transport) is MockAPIClient
     }
 
     /// Sends one SOS for an owned `IN_PROGRESS` order.
@@ -114,6 +116,7 @@ extension EmergencyCoordinator {
         locationAccuracyMeters: Double? = nil
     ) async -> TriggerOutcome {
         state = .submitting
+        let generation = sessionGeneration
         do {
             let response = try await safety.triggerEmergency(request)
             // Only a structured success enters submitted state. A 200 that does not decode into
@@ -145,6 +148,13 @@ extension EmergencyCoordinator {
             }
             mergedRetriggerCount += 1
             return finish(.mergedIntoOpenEvent(response.eventStatus))
+        } catch APIError.unauthorized {
+            // 续期也救不回来的 401（#872）：会话已由 `apiClient` 外面那层处理 —— 跑步中进了暂缓、云端求助已被拦，
+            // 否则已登出。落到与暂缓中漏网触发同一个失败态（「求助未发出」+ 120 / 110），不说「网络异常，请重试」。
+            // 不对账：401 是过滤器那一层就拒了，事件没建；拿同一份过期凭证再问一次 `/active` 也只会是 401。
+            // 等待期间会话已结束（`reset()` 把状态写回了 idle）就不再改写状态，只把结果交给调用方去念。
+            guard generation == sessionGeneration else { return outcome(.unsentSessionExpired) }
+            return finish(.unsentSessionExpired)
         } catch let error as APIError {
             if case .rateLimited(let info) = error {
                 return await reconcile(

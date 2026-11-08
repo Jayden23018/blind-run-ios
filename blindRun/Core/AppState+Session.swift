@@ -21,7 +21,8 @@ extension AppState {
         }
         mockAPIClient.syncSessionFromAppState(token: accessToken, role: activeRole)
         do {
-            let user = try await auth.currentUser()
+            // 未包会话处理的那份（#872）：下面 `.unauthorized` 分支自己清会话、写「登录状态已失效」。
+            let user = try await sessionUnawareAuth.currentUser()
             guard user.roleResolution != .invalid else {
                 performLocalSessionCleanup()
                 sessionExpirationMessage = "登录角色信息异常，请重新登录。"
@@ -146,7 +147,11 @@ extension AppState {
             }
             performLocalSessionCleanup()
         } catch APIError.unauthorized {
-            expireSession()
+            // 不直接 `expireSession()`（#872）：那会绕过跑步中暂缓。经 `apiClient` 来的 401 已由 adapter 处理过，
+            // 这里再交一次是给 `authOverride` 注入的替身用的 —— `handleAuthenticatedAPIError` 幂等，不会登出两次。
+            handleAuthenticatedAPIError(.unauthorized)
+            // 暂缓中会话还在：删除没做成，退出「删除中」，别让遮罩一直挂着。
+            if accountDeletionState == .inProgress { accountDeletionState = .idle }
         } catch let error as APIError {
             accountDeletionState = .accountDeletionFailure(for: error)
         } catch {
@@ -221,6 +226,14 @@ extension AppState {
             }
             return true
         }
+        // 幂等（#872）：同一次失效会被报好几次 —— adapter 一次、还没清理的旧调用方一次，首页并发的几个请求各一次。
+        // 会话已经清掉了就别再 `expireSession()`：再清一遍没有意义，再写一次提示会让登录页念两遍「登录已过期」，
+        // 用户已经在登录页上时还会凭空冒出一句。
+        guard accessToken != nil || tokenRefresher.currentRefreshToken != nil else {
+            return true
+        }
+        // 正在退出登录：交给登出流程收尾。抢先清会话会让它读不到凭据记补撤，还会在登录页多念一句「登录已过期」。
+        guard logoutState != .inProgress else { return true }
         // 判据读 `liveEscortCoordinator.activeStatus`：全 App 唯一记着「本账号当前订单状态」的地方，
         // 两端首页与订单页都往里写。冷启动时它还是空的 ⇒ 重启后的 401 照旧登出（design.md Non-Goals）。
         guard liveEscortCoordinator.activeStatus == .inProgress else {

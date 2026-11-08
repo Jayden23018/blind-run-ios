@@ -77,7 +77,7 @@ extension BlindOrderStatusView {
                 // 陪跑员的「合适」自 #755 起就是提交安排单，所以代打的是这件事，不再是 `ACCEPT`。
                 if order.status == .pendingIntroCall {
                     Button("模拟陪跑员提交见面安排") {
-                        _ = try? (appState.apiClient as? MockAPIClient)?.simulateIntroCallPlanSubmissionForTesting(
+                        _ = try? (appState.sessionUnawareAPIClient as? MockAPIClient)?.simulateIntroCallPlanSubmissionForTesting(
                             orderId: order.orderId,
                             plan: MockAPIClient.demoIntroCallPlan(for: order)
                         )
