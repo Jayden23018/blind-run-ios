@@ -44,6 +44,11 @@ final class SingleFlightRefresh {
         begin: @MainActor (RefreshTicket) -> Void,
         work: @escaping @MainActor (RefreshTicket) async -> Void
     ) async -> RefreshOutcome {
+        // 发起方已被取消、只是还没轮到它收尾：这次已经作废，不让新调用并进去白等。
+        // 它让位后，旧发起方回来时 `current` 已不是它，什么都不碰。
+        if let task, task.isCancelled {
+            settle()
+        }
         if isRunning {
             await join()
             return .joined
@@ -62,6 +67,7 @@ final class SingleFlightRefresh {
         await withTaskCancellationHandler {
             await workTask.value
         } onCancel: {
+            // 同步打上取消标记：后到的 `run` 靠 `task.isCancelled` 认出这次已作废。
             workTask.cancel()
         }
 

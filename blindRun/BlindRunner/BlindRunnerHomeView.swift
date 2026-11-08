@@ -216,7 +216,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             }
         case .cancelled:
             // 被取消的请求不写内容、不写失败文案；首次加载回 `.idle`。已有新的一次在跑就不碰。
-            if !pageRefresh.isRunning { cancelLoading() }
+            if !pageRefresh.isRunning, orderLoadState.isLoading { orderLoadState = .idle }
         case .joined:
             break
         }

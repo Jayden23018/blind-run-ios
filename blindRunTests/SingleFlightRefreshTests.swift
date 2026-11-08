@@ -144,6 +144,57 @@ final class SingleFlightRefreshTests: XCTestCase {
         XCTAssertEqual(phases.last, .idle)
     }
 
+    /// 发起方已被取消、还没轮到它收尾时，新调用要自己发起，不能并进那次作废的刷新。
+    func testCallAfterInitiatorCancellationStartsAFreshRunInsteadOfJoining() async {
+        let refresh = makeRefresh()
+        let gate = Gate()
+        let box = Box()
+
+        let first = Task {
+            await refresh.run { _ in } work: { _ in
+                box.workCount += 1
+                await gate.wait()   // 不响应取消：旧发起方会一直挂着，空窗被撑开
+            }
+        }
+        await Self.yieldUntil { box.workCount == 1 }
+        first.cancel()
+
+        let second = await refresh.run { _ in box.beginCount += 1 } work: { _ in
+            box.workCount += 1
+        }
+        XCTAssertEqual(second, .finished)
+        XCTAssertEqual(box.beginCount, 1)
+        XCTAssertEqual(box.workCount, 2)
+
+        gate.open()
+        let firstOutcome = await first.value
+        XCTAssertEqual(firstOutcome, .cancelled)
+        XCTAssertFalse(refresh.isRunning)
+    }
+
+    /// `work` 不响应取消时，只能靠 `isCurrent` 挡住 `cancel()` 之后的写入。
+    func testWorkThatIgnoresCancellationSeesStaleTicketAfterCancel() async {
+        let refresh = makeRefresh()
+        let gate = Gate()
+        let box = Box()
+
+        let initiator = Task {
+            await refresh.run { _ in } work: { ticket in
+                box.ticket = ticket
+                await gate.wait()
+                guard refresh.isCurrent(ticket) else { return }
+                box.wroteContent = true
+            }
+        }
+        await Self.yieldUntil { box.ticket != nil }
+        refresh.cancel()
+        gate.open()
+
+        let outcome = await initiator.value
+        XCTAssertEqual(outcome, .cancelled)
+        XCTAssertFalse(box.wroteContent)
+    }
+
     func testCancelWhileIdleDoesNothing() {
         let refresh = makeRefresh()
         refresh.cancel()

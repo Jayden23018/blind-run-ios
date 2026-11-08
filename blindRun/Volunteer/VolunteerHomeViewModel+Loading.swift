@@ -15,20 +15,8 @@ extension VolunteerHomeViewModel {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-home-refresh")
         }
         let outcome = await pageRefresh.run { [weak self, weak appState] ticket in
-            ClientFlowDiagnostics.record(event: "started", operation: "volunteer-home-refresh")
             guard let self, let appState else { return }
-            // 冷启动与下拉刷新各对一次待回复邀请（后端 #366）。并行发、不等它：首页不该被它拖住。
-            Task { await appState.restorePendingInvites() }
-            // 规则参数（自动打开订单页的提前量、取消弹层的窗口）并行拉，**不等它**：
-            // 它挂住时不该把整个首页拖住（URLSession 超时 15 秒）。
-            // ponytail: 首次冷启动若规则晚于派单摘要回来，那一次的自动打开按默认 120 分钟判
-            // （与后端默认值相同）；要严格按下发值，得把 `resolveLaunchRouteIfNeeded` 改成规则到达后再判一次。
-            Task { await appState.loadRuleParamsIfNeeded() }
-            if self.dispatchSummary == nil {
-                self.dispatchLoadState = .loading(requestID: ticket.id)
-            }
-            self.errorMessage = nil
-            self.dispatchSummaryErrorMessage = nil
+            self.beginInitialLoad(appState: appState, ticket: ticket)
         } work: { [weak self, weak appState] ticket in
             guard let self, let appState else { return }
             await self.performInitialLoad(
@@ -51,10 +39,28 @@ extension VolunteerHomeViewModel {
             }
         case .cancelled:
             // 被取消的请求不写内容、不写失败文案；首次加载回 `.idle`。已有新的一次在跑就不碰。
-            if !pageRefresh.isRunning { cancelLoading() }
+            // 只回退加载态，不停辅助加载 —— 那可能是后来那次刷新起的。
+            if !pageRefresh.isRunning { revertUnfinishedDispatchLoad() }
         case .joined:
             break
         }
+    }
+
+    /// 真正发起整页刷新时调一次；合并进来的调用不走这里。
+    private func beginInitialLoad(appState: AppState, ticket: RefreshTicket) {
+        ClientFlowDiagnostics.record(event: "started", operation: "volunteer-home-refresh")
+        // 冷启动与下拉刷新各对一次待回复邀请（后端 #366）。并行发、不等它：首页不该被它拖住。
+        Task { await appState.restorePendingInvites() }
+        // 规则参数（自动打开订单页的提前量、取消弹层的窗口）并行拉，**不等它**：
+        // 它挂住时不该把整个首页拖住（URLSession 超时 15 秒）。
+        // ponytail: 首次冷启动若规则晚于派单摘要回来，那一次的自动打开按默认 120 分钟判
+        // （与后端默认值相同）；要严格按下发值，得把 `resolveLaunchRouteIfNeeded` 改成规则到达后再判一次。
+        Task { await appState.loadRuleParamsIfNeeded() }
+        if dispatchSummary == nil {
+            dispatchLoadState = .loading(requestID: ticket.id)
+        }
+        errorMessage = nil
+        dispatchSummaryErrorMessage = nil
     }
 
     func cancelLoading() {
@@ -62,12 +68,16 @@ extension VolunteerHomeViewModel {
         auxiliaryLoadTask?.cancel()
         auxiliaryLoadTask = nil
         auxiliaryRequestID = nil
-        if dispatchLoadState.isLoading {
-            if let dispatchSummary {
-                dispatchLoadState = .loaded(dispatchSummary)
-            } else {
-                dispatchLoadState = .idle
-            }
+        revertUnfinishedDispatchLoad()
+    }
+
+    /// 没走完的加载：已有摘要就留着，首次加载回 `.idle`。
+    private func revertUnfinishedDispatchLoad() {
+        guard dispatchLoadState.isLoading else { return }
+        if let dispatchSummary {
+            dispatchLoadState = .loaded(dispatchSummary)
+        } else {
+            dispatchLoadState = .idle
         }
     }
 
