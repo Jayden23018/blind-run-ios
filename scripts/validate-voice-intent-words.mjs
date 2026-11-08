@@ -59,17 +59,24 @@ const servicePath = path.resolve(
 
 // `private static final Pattern INTENT_CONFIRM = Pattern.compile("…" + "…");`
 // 正则字面量可能被 `+` 拆成多段（后端为了可读性这么写的），拼回一整条。
-function backendPattern(name) {
-  const java = fs.readFileSync(javaPath, 'utf8');
+const java = fs.readFileSync(javaPath, 'utf8');
+
+/** 后端某个 `Pattern` 常量的正则源串（去掉 Java 字符串那一层转义）与大小写开关。 */
+function backendDecl(name) {
   const decl = java.match(
     new RegExp(`Pattern\\s+${name}\\s*=\\s*(?:\\r?\\n\\s*)?Pattern\\.compile\\(([\\s\\S]*?)\\);`)
   );
   if (!decl) return null;
   const literals = [...decl[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
   if (!literals.length) return null;
-  // Java 字符串里的 `\\d` 在正则里是 `\d`；这里的模式只用到 `\\s` 与 `\\.`，统一去掉一层转义。
+  // Java 字符串里的 `\\d` 在正则里是 `\d`；这里的模式只用到 `\\s`、`\\p` 与 `\\.`，统一去掉一层转义。
   const source = literals.join('').replace(/\\\\/g, '\\');
-  return new RegExp(source);
+  return { source, caseInsensitive: /Pattern\.CASE_INSENSITIVE/.test(decl[1]) };
+}
+
+function backendPattern(name) {
+  const decl = backendDecl(name);
+  return decl ? new RegExp(decl.source) : null;
 }
 
 // 顺序即后端 `parseUserIntent` 的判定顺序（`VoiceSlotParser.java` 的 `parseUserIntent`），
@@ -202,6 +209,88 @@ backendOrdinals.forEach((spoken, index) => {
   }
 });
 
+// ------------------------------------------------- Mock 的确认轮判定：逐字镜像（#899）
+//
+// 上面查的是客户端本地直通表；这里查的是**进程内 Mock 后端**的 `mockVoiceUserIntent`。
+// Mock 不许比线上松也不许比线上紧，所以它不维护自己的词表，而是照抄后端的正则源串。
+// 这里逐字比三样：每条正则的源串、大小写开关、判定顺序与匹配方式（find / matches）。
+// 2026-11-08 加这一段之前，Mock 的注释说「由本脚本对撞」，其实本脚本从没读过 Mock ——
+// 那时 Mock 已经缺了「重说」，CONFIRM 还是子串命中、也不挡问句（「可以了吗」被判成确认）。
+const mockPath = path.resolve(
+  repoRoot,
+  process.env.AIDRUN_MOCK_VOICE_INTENT_SWIFT ?? 'blindRun/Core/MockAPIClient+VoiceIntent.swift'
+);
+const MOCK_MIRROR = [
+  ['INTENT_CANCEL', 'mockVoiceIntentCancel'],
+  ['INTENT_RESTART', 'mockVoiceIntentRestart'],
+  ['INTENT_REPEAT', 'mockVoiceIntentRepeat'],
+  ['INTENT_NOT_CONFIRM', 'mockVoiceIntentNotConfirm'],
+  ['INTENT_CONFIRM', 'mockVoiceIntentConfirm'],
+  ['QUESTION', 'mockVoiceQuestion'],
+  ['NOT_SPOKEN', 'mockVoiceNotSpoken'],
+];
+const mockProblems = [];
+const mockSwift = fs.existsSync(mockPath) ? fs.readFileSync(mockPath, 'utf8') : null;
+if (!mockSwift) {
+  console.error(`[voice-intent] 读不到 Mock 的确认轮判定：${mockPath}`);
+  process.exit(1);
+}
+
+for (const [javaName, swiftName] of MOCK_MIRROR) {
+  const backend = backendDecl(javaName);
+  if (!backend) {
+    console.error(`[voice-intent] 在 ${javaPath} 里找不到 ${javaName}，后端的写法可能变了。`);
+    process.exit(1);
+  }
+  const decl = mockSwift.match(
+    new RegExp(`let ${swiftName}\\s*=\\s*mockVoiceRegex\\(([\\s\\S]*?)\\n\\s*\\)`)
+  );
+  if (!decl) {
+    mockProblems.push(`Mock 里找不到 \`${swiftName} = mockVoiceRegex(…)\`（对应后端 ${javaName}）`);
+    continue;
+  }
+  const source = [...decl[1].matchAll(/#"([\s\S]*?)"#/g)].map((m) => m[1]).join('');
+  if (source !== backend.source) {
+    mockProblems.push(
+      `${swiftName} 与后端 ${javaName} 源串不同：\n      后端 ${backend.source}\n      Mock ${source}`
+    );
+  }
+  const caseInsensitive = /caseInsensitive:\s*true/.test(decl[1]);
+  if (caseInsensitive !== backend.caseInsensitive) {
+    mockProblems.push(
+      `${swiftName} 大小写开关与后端 ${javaName} 不同（后端 ${backend.caseInsensitive}，Mock ${caseInsensitive}）`
+    );
+  }
+}
+
+// 判定顺序与匹配方式。后端：`parseUserIntent` 里每个 `X.matcher(` 到下一个 `;` 之间看是 find 还是 matches。
+const javaBody = java.match(/Optional<VoiceUserIntent>\s+parseUserIntent\([^)]*\)\s*\{([\s\S]*?)\n    \}/);
+const swiftBody = mockSwift.match(/static func mockVoiceUserIntent\([\s\S]*?\{([\s\S]*?)\n    \}/);
+if (!javaBody || !swiftBody) {
+  console.error('[voice-intent] 解不出后端 parseUserIntent 或 Mock mockVoiceUserIntent 的函数体，写法可能变了。');
+  process.exit(1);
+}
+const javaNames = new Set(MOCK_MIRROR.map(([j]) => j));
+const backendSteps = [...javaBody[1].matchAll(/\b([A-Z_]+)\.matcher\(/g)]
+  .filter((m) => javaNames.has(m[1]) && m[1] !== 'NOT_SPOKEN')
+  .map((m) => {
+    const tail = javaBody[1].slice(m.index, javaBody[1].indexOf(';', m.index));
+    return `${m[1]}:${tail.includes('.matches()') ? 'matches' : 'find'}`;
+  });
+const swiftToJava = Object.fromEntries(MOCK_MIRROR.map(([j, s]) => [s, j]));
+const mockSteps = [...swiftBody[1].matchAll(/\b(mockVoice\w+)\.(found\(in:|matchesWhole\()/g)]
+  .filter((m) => swiftToJava[m[1]])
+  .map((m) => `${swiftToJava[m[1]]}:${m[2].startsWith('found') ? 'find' : 'matches'}`);
+if (backendSteps.join(' → ') !== mockSteps.join(' → ')) {
+  mockProblems.push(
+    `判定顺序或匹配方式不同：\n      后端 ${backendSteps.join(' → ')}\n      Mock ${mockSteps.join(' → ')}`
+  );
+}
+// CONFIRM 整句匹配前要先剥掉标点空白，两边都得有这一步。
+if (javaBody[1].includes('NOT_SPOKEN') !== swiftBody[1].includes('mockVoiceNotSpoken')) {
+  mockProblems.push('CONFIRM 整句匹配前剥标点（NOT_SPOKEN）这一步，后端和 Mock 一边有一边没有');
+}
+
 const total = tables.reduce((n, t) => n + t.words.length, 0);
 console.log(
   `[voice-intent] 前端本地直通表 ${total} 个词（${tables
@@ -245,11 +334,20 @@ if (ordinalProblems.length) {
   );
 }
 
-if (conflicts.length || ordinalProblems.length) {
+if (mockProblems.length) {
+  console.error(`\n[voice-intent] ✗ Mock 的确认轮判定与后端不一致（${mockProblems.length} 处）：`);
+  for (const problem of mockProblems) console.error(`  · ${problem}`);
+  console.error(
+    '\nMock 不许比线上松也不许比线上紧：照抄后端的正则与顺序进 Mock，别反过来改后端迁就 Mock。' +
+      `\n后端源：${javaPath}\nMock：${mockPath}`
+  );
+}
+
+if (conflicts.length || ordinalProblems.length || mockProblems.length) {
   process.exit(1);
 }
 
 console.log(
   '\n[voice-intent] 通过：本地直通表没有一个词会被后端判成别的意图，' +
-    '后端念的每个序数本地也都认得'
+    `后端念的每个序数本地也都认得，Mock 的 ${MOCK_MIRROR.length} 条正则与判定顺序（${mockSteps.length} 步）和后端逐字一致`
 );

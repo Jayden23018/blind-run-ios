@@ -174,84 +174,6 @@ extension MockAPIClient {
         return String(head)
     }
 
-    /// 确认轮的表态判定。**逐字转写**后端 `VoiceSlotParser` 的五条正则与判定顺序
-    /// （`demo/src/main/java/com/example/demo/util/VoiceSlotParser.java:187-308`）。
-    ///
-    /// 转写而不是自己写一套，理由与整个 Mock 一致：**Mock 不许比线上松也不许比线上紧**。
-    /// 客户端的本地直通表要求是这份正则的子集，Mock 若比它松，那条子集关系在开发期就验不出来。
-    /// 真正的对撞由 `scripts/validate-voice-intent-words.mjs` 直接读 Java 源码做，这里只保证
-    /// 开发期跑通的分支和线上是同一批。
-    ///
-    /// 后端还有一路大模型识别，Mock 没有 —— 所以方言与长句在 Mock 里会落到 `nil`，
-    /// 与「模型不可用」时的线上行为一致，不是漏实现。
-    static func mockVoiceUserIntent(in transcript: String, missingIsEmpty: Bool) -> VoiceUserIntent? {
-        let text = transcript.trimmed
-        guard !text.isEmpty else { return nil }
-        // 判定顺序有意义，别调换：
-        // ① CANCEL 先判 ——「算了不下了」里也有个「了」。
-        // ② REPEAT 必须在 RESTART **之后** ——「重新说一遍」两条都命中，而它是 RESTART。
-        // ③ NOT_CONFIRM 必须在 CONFIRM 之前 ——「不对」含「对」，不先挡就会被判成确认→直接下单。
-        if Self.mockVoiceIntentCancel.contains(where: text.contains)
-            || Self.mockVoiceBareCancel.contains(Self.mockVoiceStripTrailingParticles(text)) {
-            return .cancel
-        }
-        if Self.mockVoiceIntentRestart.contains(where: text.contains) { return .restart }
-        if Self.mockVoiceIntentRepeat.contains(where: text.contains) { return .repeatBack }
-        if Self.mockVoiceIntentNotConfirm.contains(where: text.contains) { return nil }
-        guard Self.mockVoiceIntentConfirm.contains(where: text.contains)
-                || Self.mockVoiceBareConfirm.contains(Self.mockVoiceStripTrailingParticles(text)) else {
-            return nil
-        }
-        // ⚠️ `CONFIRM` 只在 `missing` 为空时出现：槽位没齐就无从确认，那时用户说「对」
-        // 多半是没听清追问。`CANCEL`/`RESTART`/`REPEAT` 不受此限 —— 被卡住的人最需要那几个出口。
-        return missingIsEmpty ? .confirm : nil
-    }
-
-    // 以下五组逐字对应后端的 `INTENT_*` 正则（`VoiceSlotParser.java:187-262`）。
-    // 后端用 `Matcher.find()`（子串命中），所以这里也是 `contains`。
-    private static let mockVoiceIntentCancel = [
-        "算了", "不下单", "不下了", "不订了", "不跑了", "别下单", "别下了", "不要了",
-        "取消订单", "取消下单", "放弃"
-    ]
-    /// 后端 `^\s*取消[吧了]?\s*$` —— 光秃秃的「取消」只在**整句就是它**时才算数：
-    /// 「把导盲犬取消」是改一项，判成 CANCEL 会让用户的整单凭空消失。
-    private static let mockVoiceBareCancel: Set<String> = ["取消", "取消吧", "取消了"]
-    private static let mockVoiceIntentRestart = [
-        "重新说", "重新来", "重新开始", "重来", "从头再来", "从头说"
-    ]
-    /// ⚠️ 「再说一遍 / 再说一次」在**这一组**，不在 RESTART —— 中文里那是「你把刚才那句重复一次」，
-    /// 盲人没听清读回时最自然的请求。判成重来会把他刚说完的一整句清空。
-    private static let mockVoiceIntentRepeat = [
-        "再说一遍", "再说一次", "再念一遍", "再念一次", "再读一遍", "再播一遍",
-        "重复一遍", "重复一下", "重复一次",
-        "没听清", "没听见", "没听到", "刚才说啥", "刚才说什么", "你说啥", "说的啥", "再讲一遍"
-    ]
-    /// 否定/不满 —— 命中返回 nil（=没有表态），交给 `correctionTarget` / `correctionUnclear` 那条路。
-    private static let mockVoiceIntentNotConfirm = [
-        "不对", "不太对", "不是", "不行", "不可以", "不好", "先不", "错了", "有问题", "等一下", "等等"
-    ]
-    private static let mockVoiceIntentConfirm = [
-        "没问题", "就这样", "就这么", "可以了", "下单吧", "直接下单", "开始吧",
-        "确认", "是的", "对的", "行吧", "行了", "可行", "OK", "ok", "Ok"
-    ]
-    /// 后端的三条 `^…$` 锚定模式：裸「对」算确认，裸「好」**不算**（要带后缀），裸「可以」算。
-    /// 两者刻意不对称 ——「好」是中文最强的话语标记（「好，那我们…」），旁人对话里出现时多半
-    /// 不是在回答问题；而读回句以「对吗？」结尾，「对」是它唯一的自然答句。
-    private static let mockVoiceBareConfirm: Set<String> = [
-        "对", "对的", "对了", "对吧", "对呀", "对啊",
-        "好的", "好了", "好吧", "好呀", "好啊",
-        "可以"
-    ]
-
-    /// 后端那三条锚定模式允许的句尾语气词与标点。
-    private static func mockVoiceStripTrailingParticles(_ text: String) -> String {
-        var stripped = text
-        while let last = stripped.last, "。！!？? ".contains(last) {
-            stripped.removeLast()
-        }
-        return stripped
-    }
-
     /// 用户点名要改哪一项、但没给新值。
     ///
     /// ⚠️ **这是刻意的粗近似**：线上这一路纯靠大模型（与终点抽取同一次调用），没有正则实现，
@@ -271,11 +193,6 @@ extension MockAPIClient {
         if ["配速", "快慢"].contains(where: transcript.contains) { return .pace }
         if ["备注", "说明"].contains(where: transcript.contains) { return .notes }
         return nil
-    }
-
-    /// 只说了「不对」这类否定、既没点名也没给值。
-    static func mockVoiceIsPlainNegation(_ transcript: String) -> Bool {
-        Self.mockVoiceIntentNotConfirm.contains(where: transcript.contains)
     }
 
     /// 五个分支的文案，优先级即契约里那一串（`api_spec.yaml` 的 `ttsText` 说明）。
