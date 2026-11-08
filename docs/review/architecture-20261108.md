@@ -19,7 +19,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 | 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 已合并：OpenSpec 变更 `centralize-session-expiry-handling`（PR #874），第 1 批 #872 → PR #876（security-reviewer 无 CRITICAL / HIGH），第 2 批 #873 → PR #877（均 11-08）。用例已写，未执行；真机跑（tasks 3.1）与归档（3.2）未做 |
 | 5 | 订单实时跟踪：两端订单页订阅、对方位置过期、轮询合成一个 module | 强 | 大 | 高 | **是，只报告** | 方案待批：OpenSpec 变更 `unify-order-live-tracking`，#881 → 草稿 PR #884（11-08）。批准前不改 Swift 文件 |
 | 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 设想 | 大 | 中 | 否 | 待选，先挑一页试 |
-| 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 已合并订单流转拆分：#895 → PR #PRNUM（11-08），只验编译。意图判定只出结论，待负责人定（见 §7.2） |
+| 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 已合并订单流转拆分：#895 → PR #896（11-08），只验编译。意图判定只出结论，待负责人定（见 §7.2） |
 
 ## 1. 首页单飞刷新（已选定）
 
@@ -84,7 +84,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - `VoiceOrderWizardGoldenCorpusTests.swift:64-106` 直接测 Mock 的静态判定，与后端没有机械对照。
 - 建议：先只把订单流转从 `+IntroCall` 拆到 `+Order`；意图判定去留由负责人定。
 
-### 7.1 已做：订单流转拆回 `+Order`（#895 → PR #PRNUM，11-08）
+### 7.1 已做：订单流转拆回 `+Order`（#895 → PR #896，11-08）
 
 - 搬了什么：`+IntroCall.swift` 原 `:342-522` 整段搬到 `blindRun/Core/MockAPIClient+Order.swift:181-363`。包括 `mockScheduledAheadThresholdMinutes`、`handleAcceptOrder`、`isFarFuture`、`handleConfirmDeparture`、`handleDeclineOrder`、`handleEnRoute`、`handleArrived`、`handleFinish`、`handleStartService`、`handleCancel`、`seededBlindCancelAt`、`isWithinLateCancelWindow`、`handleKeepWaiting`、`actionResponse`。
 - 为过 SwiftLint 棘轮（单文件 ≤ 400 行），`+Order` 里**不改订单状态**的陪跑员订单页 v2 动作（`handleQuickMessage`、`handleRingRunner`、`handleSetRunPaused`、`handleRunnerMessage`）原样挪到新文件 `blindRun/Core/MockAPIClient+OrderNudge.swift`。会改状态的 `handleEndWaiting` 留在 `+Order`。所以「改订单状态的 Mock 处理函数」除通话磨合外都在 `+Order` 一处（364 行）。
