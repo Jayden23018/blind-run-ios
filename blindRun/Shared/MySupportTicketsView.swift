@@ -5,15 +5,9 @@ import SwiftUI
 
 @MainActor
 final class MySupportTicketsViewModel: ObservableObject {
-    enum Phase: Equatable {
-        case loading
-        case loaded([SupportTicketSummary])
-        /// 读取失败**不等于**没有工单：这里必须单列一档，否则失败会显示成「你还没有提交过工单」，
-        /// 一个刚提交过投诉的人会以为提交丢了。
-        case failed
-    }
-
-    @Published private(set) var phase: Phase = .loading
+    /// 读取失败**不等于**没有工单：失败必须是 `.failed`，不能落成空列表 —— 否则失败会显示成
+    /// 「你还没有提交过工单」，一个刚提交过投诉的人会以为提交丢了。
+    @Published private(set) var phase: AsyncLoadState<[SupportTicketSummary]> = .idle
 
     func load(appState: AppState) async {
         do {
@@ -30,11 +24,11 @@ final class MySupportTicketsViewModel: ObservableObject {
     /// 下拉刷新失败时保留已经显示的列表：用户正在看的客服回复不该因为一次刷新失败消失。
     private func markFailedUnlessAlreadyShowing() {
         if case .loaded = phase { return }
-        phase = .failed
+        phase = .failed(message: SupportTicketCopy.myTicketsFailed)
     }
 
     func retry(appState: AppState) async {
-        phase = .loading
+        phase = .loading(requestID: UUID())
         await load(appState: appState)
     }
 }
@@ -68,31 +62,24 @@ struct MySupportTicketsView: View {
         .refreshable { await viewModel.load(appState: appState) }
     }
 
-    @ViewBuilder
+    /// 失败走 `RemoteContent`：会念出来，不只是一行红字（#864）。
     private var content: some View {
-        switch viewModel.phase {
-        case .loading:
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel(SupportTicketCopy.myTicketsLoading)
-        case .failed:
-            Text(SupportTicketCopy.myTicketsFailed)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.destructive)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("mySupportTicketsFailed")
-            FlowActionButton(SupportTicketCopy.retry, style: .ghost) {
-                Task { await viewModel.retry(appState: appState) }
+        RemoteContent(
+            viewModel.phase,
+            loadingLabel: SupportTicketCopy.myTicketsLoading,
+            failureIdentifier: "mySupportTicketsRetry",
+            retryTitle: SupportTicketCopy.retry,
+            retry: { Task { await viewModel.retry(appState: appState) } }
+        ) { tickets in
+            if tickets.isEmpty {
+                Text(SupportTicketCopy.myTicketsEmpty)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("mySupportTicketsEmpty")
+            } else {
+                ForEach(tickets) { row($0) }
             }
-            .accessibilityIdentifier("mySupportTicketsRetry")
-        case .loaded(let tickets) where tickets.isEmpty:
-            Text(SupportTicketCopy.myTicketsEmpty)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("mySupportTicketsEmpty")
-        case .loaded(let tickets):
-            ForEach(tickets) { row($0) }
         }
     }
 
