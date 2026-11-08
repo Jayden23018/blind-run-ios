@@ -62,11 +62,12 @@
 
 ```swift
 @MainActor
-final class OrderLiveTracker {            // AppState 持有一个，与 realtimeCoordinator 同寿命；对每条 track 只持弱引用
+final class OrderLiveTracker {            // AppRealtimeCoordinator 强持有一个（`orderLiveTracker`），它弱引用回协调器；对每条 track 只持弱引用
     func open(role: WSRole,
               polling: OrderPollingPolicy,
               peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness,  // 现有 init 注入点改走这里
               currentStatus: @escaping @MainActor () -> RunOrderStatus?,                // 读页面手上 order 的状态，判停用
+              isSessionExpiryDeferred: @escaping @MainActor () -> Bool,                 // 读 appState.isSessionExpiryDeferred，只拦轮询
               load: @escaping @MainActor (Int64) async -> Void) -> OrderLiveTrack
     /// 首页念状态句前调。见第 6 节。
     func pageAnnouncement(for update: RealtimeOrderStatusUpdate, role: WSRole) async -> PageAnnouncement
@@ -133,7 +134,9 @@ enum PageAnnouncement { case pageSpoke, homeShouldSpeak }
 | `.blindRunner` | 暂缓中不拉 | 判停 → 睡 5 秒 → 拉 | 暂缓中；或 `currentStatus()` 不为 nil 且 `!shouldPoll` |
 | `.volunteer` | 暂缓中不拉 | 睡 5 秒 → 拉 → 判停 | 拉完后 `currentStatus()` 是终态（`isTerminal`）；或暂缓中 |
 
-间隔取 `AppConstants.Timing.orderPollingInterval`（可注入，单测用小值）。暂缓判断由 `AppState` 注入一个 `@MainActor () -> Bool`。
+间隔取 `AppConstants.Timing.orderPollingInterval`（可注入，单测用小值）。暂缓判断由页面在 `open` 时传入（读 `appState.isSessionExpiryDeferred`，与原有循环读的是同一个值）。
+
+> 第 1 批实现时改（#886）：原设计让 `AppState` 持有 tracker 并注入暂缓判断，但 `AppState.swift` 的文件长度与 `init` 长度都在 SwiftLint 棘轮的上限上（404 行 / 71 行），加 4 行就红。改成协调器持有、页面传入，`AppState` 一行不改，行为不变。
 
 ### 5. 刷新调度
 
@@ -165,7 +168,7 @@ enum PageAnnouncement { case pageSpoke, homeShouldSpeak }
 每批一个 PR，只过编译门禁（`build-for-testing`）与规格校验；新用例写进 PR，标「已写，未执行」。
 
 **第 1 批：tracker 与新鲜度判据（不动任何页面）**
-- 新增 `OrderLiveTracker.swift`、`PeerLocationFreshness.swift`；`AppState` 持有 tracker；协调器加第 2 节列的直接调用。
+- 新增 `OrderLiveTracker.swift`、`PeerLocationFreshness.swift`；协调器持有 tracker；协调器加第 2 节列的直接调用。
 - 单测（Mock 客户端 + `simulateIncomingEventForTesting`）：合法状态事件进流；`toStatus` 为未知值时流里没有 `.status`、`load` 被调一次；重复 `messageId` 不进流；别的单的事件不进流；14 秒前的样本进流、16 秒前的不进；样本到期发 `.peerLocationExpired`，被新样本替换时旧的不发；两种轮询策略的停止顺序各一条（用例要能区分「先判后拉」与「先拉后判」）；首页问 `pageAnnouncement`：无页面立即 `.homeShouldSpeak`、页面 `spoke: true` 返回 `.pageSpoke`、页面 `spoke: false` 与超时都返回 `.homeShouldSpeak`；页面 ViewModel 释放后视为无页面；`open` 时已挂着的刷新会补拉一次；`end()` 后不再调 `load`。
 - 验收：编译通过；页面行为零变化（diff 不含 `blindRun/BlindRunner/`、`blindRun/Volunteer/`）。
 
@@ -210,6 +213,11 @@ enum PageAnnouncement { case pageSpoke, homeShouldSpeak }
 1. 首页念不念状态句由「订单页这一次念了没有」决定（第 6 节）。陪跑员端等价于现状意图；跑者端从「看投递顺序」变成「订单页优先」。
 2. 订单页开始收对方位置的时刻从 `configure` 挪到 `follow`（同一个 `onAppear` 里先后调用，无可观察差别）。
 3. 刷新只在本单被请求时拉，不再因集合里别的单变化而重复拉（第 5 节）。
+4. 对方位置的单号比对从「页面已拉回的 `order?.orderId`」变成「track 正在跟的单号」：陪跑员页原来在详情拉回之前一律丢样本（`VolunteerInServiceViewModel+Nudges.swift:98-100`），现在 `follow` 之后就收（第 1 批复核 B5）。只会让 15 秒内的样本更早显示。
+
+## 第 2、3 批接入时要确认的（第 1 批复核记下）
+
+- `end()` 会取消在途的刷新任务，页面 `load` 里的请求随之取消。接入时确认 `load` 把取消当什么：若在 `defer` 里走 `failOrderRefresh`，会给协调器多排一次 1/2/4 秒重试（复核 B6）。页面释放时不调 `end()`（靠弱引用），这条只影响显式 `end()`。
 
 ## 风险 / 取舍
 
