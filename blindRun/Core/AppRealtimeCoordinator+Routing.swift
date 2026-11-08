@@ -40,7 +40,7 @@ extension AppRealtimeCoordinator {
                     activeOrderStatuses[message.orderId] = toStatus
                     recentLifecycleStatusDates[toStatus] = update.receivedAt
                     ClientFlowDiagnostics.record(event: "applied", operation: "order-status-event")
-                    statusUpdateSubject.send(update)
+                    publishStatusUpdate(update)
                 }
                 requestOrderRefresh(message.orderId, reason: .statusChanged)
             }
@@ -96,9 +96,9 @@ extension AppRealtimeCoordinator {
                 serverDistanceMeters: message.fallbackDistanceMeters
             )
         case .orderEtaUpdated(let message):
-            orderLiveUpdateSubject.send(.eta(orderId: message.orderId, message.eta))
+            publishLiveUpdate(.eta(orderId: message.orderId, message.eta))
         case .meetDistanceBucket(let message):
-            orderLiveUpdateSubject.send(.meet(orderId: message.orderId, message.meet))
+            publishLiveUpdate(.meet(orderId: message.orderId, message.meet))
         case .pong, .unknown:
             break
         }
@@ -109,6 +109,18 @@ extension AppRealtimeCoordinator {
         guard !pendingOrderRefreshIDs.contains(orderID) else { return }
         pendingOrderRefreshIDs.insert(orderID)
         pendingOrderRefreshRequests[orderID] = RealtimeOrderRefreshRequest(orderId: orderID, reason: reason)
+        orderLiveTracker.refreshRequested(orderID)
+    }
+
+    /// 原有发布 + 交给订单页跟踪（`unify-order-live-tracking` design §2）。
+    private func publishStatusUpdate(_ update: RealtimeOrderStatusUpdate) {
+        statusUpdateSubject.send(update)
+        orderLiveTracker.receiveStatus(update)
+    }
+
+    private func publishLiveUpdate(_ update: RealtimeOrderLiveUpdate) {
+        orderLiveUpdateSubject.send(update)
+        orderLiveTracker.receiveLiveUpdate(update)
     }
 
     /// 队列上限。**防的是异常堆积，不是产品规则** —— 后端没有「一次最多派几单给一个人」这回事。
@@ -205,6 +217,7 @@ extension AppRealtimeCoordinator {
             await Task.yield()
             guard !Task.isCancelled, let self, let latest = self.latestPeerSamples[key] else { return }
             self.peerLocationSubject.send(latest)
+            self.orderLiveTracker.receivePeerLocation(latest)
             self.peerPublishTasks.removeValue(forKey: key)
         }
     }

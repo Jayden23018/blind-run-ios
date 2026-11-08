@@ -4,12 +4,12 @@
 
 ## 1. 第 1 批：tracker 与新鲜度判据（不动页面）
 
-- [ ] 1.1 新建 `blindRun/Core/PeerLocationFreshness.swift`：`accept(sample, now:)`、`isFresh(capturedAt:now:)`，阈值默认 `LiveEscortSessionCoordinator.peerFreshness`
-- [ ] 1.2 新建 `blindRun/Core/OrderLiveTracker.swift`：`OrderLiveTracker`、`OrderLiveTrack`、`OrderTrackingEvent`、`OrderPollingPolicy`、`PageAnnouncement`；闭包一律标 `@MainActor`；tracker 对 track 只持弱引用；内部不持有 `AnyCancellable`
-- [ ] 1.3 `AppState` 持有一个 tracker，注入「是否暂缓中」与轮询间隔
-- [ ] 1.4 协调器在 design.md 第 2 节列的发布点旁各加一行直接调用 tracker，原发布不删
-- [ ] 1.5 单测（design.md 第 1 批清单）；轮询停止顺序的两条用例要能区分「先判后拉」与「先拉后判」
-- [ ] 1.6 编译门禁；确认 diff 不含 `blindRun/BlindRunner/`、`blindRun/Volunteer/`；PR 写「用例已写，未执行」
+- [x] 1.1 新建 `blindRun/Core/PeerLocationFreshness.swift`：`accept(sample, now:)`、`isFresh(capturedAt:now:)`，阈值默认 `LiveEscortSessionCoordinator.peerFreshness`
+- [x] 1.2 新建 `blindRun/Core/OrderLiveTracker.swift`：`OrderLiveTracker`、`OrderLiveTrack`、`OrderTrackingEvent`、`OrderPollingPolicy`、`PageAnnouncement`；闭包一律标 `@MainActor`；tracker 对 track 只持弱引用；内部不持有 `AnyCancellable`
+- [x] 1.3 协调器持有 tracker（`AppRealtimeCoordinator.orderLiveTracker`）；「是否暂缓中」由页面在 `open` 时传入（原写 `AppState` 持有，因 SwiftLint 棘轮改，见 design §4）
+- [x] 1.4 协调器在 design.md 第 2 节列的发布点旁各加一行直接调用 tracker，原发布不删
+- [x] 1.5 单测（design.md 第 1 批清单）；轮询停止顺序的两条用例要能区分「先判后拉」与「先拉后判」
+- [x] 1.6 编译门禁；确认 diff 不含 `blindRun/BlindRunner/`、`blindRun/Volunteer/`；PR 写「用例已写，未执行」
 
 ## 2. 第 2 批：跑者订单页
 

@@ -13,7 +13,10 @@ extension AppRealtimeCoordinator {
             requestOrderRefresh(orderId, reason: .statusChanged)
         }
         if Self.refreshOnlyEventTypes.contains(eventType) { return }
-        if eventType == Self.blindStartConfirmedEventType { blindStartConfirmedSubject.send() }
+        if eventType == Self.blindStartConfirmedEventType {
+            blindStartConfirmedSubject.send()
+            orderLiveTracker.receiveBlindStartConfirmed()
+        }
         publishVolunteerLostIfNeeded(eventType: eventType)
         // `backendTimestamp` 而不是 `parseISO8601`：WS 信封的 timestamp 是无时区的 LocalDateTime，
         // ISO8601DateFormatter 解不出来，会让重连补读来的旧提醒一律当成「刚刚」。
@@ -203,6 +206,7 @@ extension AppRealtimeCoordinator {
             timestamp: message.timestamp
         )
         latestSeparationAlert = event
+        orderLiveTracker.receiveSeparationAlert(event)
         enqueue(
             RealtimeForegroundNotification(
                 stableEventID: "escort:\(messageID)",

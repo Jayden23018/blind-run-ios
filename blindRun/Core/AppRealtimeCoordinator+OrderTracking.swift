@@ -95,6 +95,7 @@ extension AppRealtimeCoordinator {
                   self.pendingOrderRefreshRequests[orderID] != nil else { return }
             self.orderRefreshRetryTasks.removeValue(forKey: orderID)
             self.pendingOrderRefreshIDs.insert(orderID)
+            self.orderLiveTracker.refreshRequested(orderID)
         }
     }
 

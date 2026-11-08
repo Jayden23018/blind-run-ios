@@ -88,6 +88,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         guard eventType == Self.volunteerLostEventType,
               attachedRole == nil || attachedRole == .volunteer else { return }
         volunteerLostSubject.send()
+        orderLiveTracker.receiveVolunteerLost()
     }
     /// 陪跑员通话页开着时为 true：那一页自己显示「跑者王*正在来电」并播一次，
     /// 这条通知就**不再进横幅** —— 两处各念一遍，读屏用户会听到同一件事两次。
@@ -118,6 +119,9 @@ final class AppRealtimeCoordinator: ObservableObject {
     }
 
     private weak var attachedService: WebSocketService?
+    /// 订单页的跟踪（OpenSpec `unify-order-live-tracking`）。协调器在原有发布点旁直接调它，原发布不删。
+    /// 协调器强持有它、它弱引用回协调器。
+    private(set) lazy var orderLiveTracker = OrderLiveTracker(coordinator: self)
     var attachedRole: WSRole?
     private var eventCancellable: AnyCancellable?
     private var connectionCancellable: AnyCancellable?
@@ -172,6 +176,9 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     /// 注册进位置协同的单号。用例守「预约单不进位置协同」（#471）。
     var registeredActiveOrderIDsForTesting: Set<Int64> { activeOrderIDs }
+
+    /// 单测换上一个可调轮询间隔 / 时钟的 tracker。
+    func replaceOrderLiveTrackerForTesting(_ tracker: OrderLiveTracker) { orderLiveTracker = tracker }
     #endif
 
     init(
