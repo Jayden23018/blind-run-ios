@@ -18,7 +18,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 | 3 | 两端跑后记录页共用页面骨架（第 2 轮 D9） | 值得探 | 中 | 低 | 否 | 已合并：#879 → PR #880（11-08），三态部分早先由 PR #867 做掉。新用例 3 条，已写，未执行；画面不变只读代码确认，没有装机截图对比 |
 | 4 | 401 处理收进 APIClient 的 seam | 值得探 | 中（65 处 / 41 文件） | 中（认证） | 否，要过 security-reviewer | 已合并：OpenSpec 变更 `centralize-session-expiry-handling`（PR #874），第 1 批 #872 → PR #876（security-reviewer 无 CRITICAL / HIGH），第 2 批 #873 → PR #877（均 11-08）。用例已写，未执行；真机跑（tasks 3.1）与归档（3.2）未做 |
 | 5 | 订单实时跟踪：两端订单页订阅、对方位置过期、轮询合成一个 module | 强 | 大 | 高 | **是，只报告** | 方案待批：OpenSpec 变更 `unify-order-live-tracking`，#881 → 草稿 PR #884（11-08）。批准前不改 Swift 文件 |
-| 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 有条件推广：新写或重写的页面用，旧页面顺手迁 | 大（23 个 view model） | 中 | 否 | 试点已合并：`RunRecordViewModel`，#894 → PR #897（11-08）。用例已写，未执行；推广待负责人定 |
+| 6 | ViewModel 构造时注入窄依赖，不再 `configure(with: AppState)` + weak | 有条件推广：新写或重写的页面用，旧页面顺手迁 | 大（剩 23 个 view model） | 中 | 否 | 试点已合并：`RunRecordViewModel`，#894 → PR #897（11-08）。用例已写，未执行；推广待负责人定 |
 | 7 | Mock 后端里复制的业务规则拆开、与后端对照 | 设想 | 中 | 低 | 部分（通话磨合） | 待选 |
 
 ## 1. 首页单飞刷新（已选定）
@@ -104,7 +104,7 @@ Issue #857。方法照 `mattpocock-skills:improve-codebase-architecture` 1.3.2�
 - 代价是每页多一层外壳（约 10 行），因为 SwiftUI 只能在 `body` 里拿环境对象。
 - 建议：新写或重写的页面直接用这种写法；旧页面只在本来就要改它的 PR 里顺手迁。不开专门的批量迁移。
 
-**推广的改动量**（`origin/main` 11-08 计数）：生产代码 23 个文件有 `weak var appState`，`hasConfigured` 1 处；测试有 48 个文件调 `.configure(with:`，71 个文件把 `appState` 传进 `configure`。按本页的比例（1 个 view model 牵动 2 个页面、5 个测试文件），全量迁移约 23 个 PR 大小的工作。依赖多的 view model（例如约跑页同时要定位、地点搜索、语音输入）的依赖结构体会更大，要逐页判断，不宜机械照搬。
+**推广的改动量**（`origin/main` bfa44241 计数，含本页）：生产代码 24 个文件有 `weak var appState`，`hasConfigured` 1 处；测试有 52 个文件调 `.configure(with:`，74 个文件把 `appState` 传进 `configure`。本页迁完剩 23 个。按本页的比例（1 个 view model 牵动 2 个页面、5 个测试文件），全量迁移约 23 个 PR 大小的工作。依赖多的 view model（例如约跑页同时要定位、地点搜索、语音输入）的依赖结构体会更大，要逐页判断，不宜机械照搬。
 
 ## 7. Mock 里的业务规则
 
