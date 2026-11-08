@@ -141,7 +141,7 @@ enum PageAnnouncement { case pageSpoke, homeShouldSpeak }
 - 推送触发的刷新与轮询**照旧可以并行**，过时的响应仍由 `OrderStatusReconciler` 的 request token 挡掉。备选「同一时间只跑一个刷新」否决：会让推送触发的刷新排在一次慢轮询后面，是行为变化。
 - 有意不保留的一点：现状 `$pendingOrderRefreshIDs` 在集合里**任何一单**变化时都会对本单再拉一次（只要本单还在集合里）。tracker 只在本单被请求时拉。这只少掉重复请求，不少掉任何一次被请求的刷新。
 
-### 6. 状态句由谁念：订单页先处理、再告诉首页（需要负责人确认，见「待确认」）
+### 6. 状态句由谁念：订单页先处理、再告诉首页（负责人已确认，见「已确认」）
 
 只看「订单页开着没有」不够：页面有几种情况收到推送却不念（`order` 还没拉回来时守卫直接丢弃，`VolunteerInServiceViewModel.swift:145-147` / 跑者 `+Realtime.swift:21-23`；陪跑员 `apply` 里取消类分支不念通用句，`+OrderUpdates.swift:27`）。首页照这个判据静默，盲人会一句都听不到。所以判据落在「页面这一次念了没有」：
 
@@ -220,8 +220,8 @@ enum PageAnnouncement { case pageSpoke, homeShouldSpeak }
 - [后端文档内部不一致] → `websocket-protocol.md` §六说 `GET /api/blind/volunteer-location`「仅在 `DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 返回数据」，`api_spec.yaml:874-888` 的回归门却是 `volunteerLocationFallback_worksDuringInProgress`。iOS 现状按 api_spec（`fetchesVolunteerLocation` 含 `IN_PROGRESS`），本变更照旧。已开后端 issue（Jayden23018/blind-run-backend#942，低）请他们统一文档。
 - [真机没有执行任何新用例] → 11-05 起只验编译。每批 PR 写清「已写，未执行」；负责人真机跑完再归档本变更。
 
-## 待确认（负责人）
+## 已确认（负责人 2026-11-08 原话：「批准，按推荐答三问」）
 
-1. **跑者端状态句以订单页为准？** 推荐是。理由：通话磨合退回与成单时只有订单页那句带具体内容；现状谁念取决于没有保证的投递顺序。选否则第 2 批改成「首页念、订单页不念」，同样按结构判。
-2. **刷新是否改成「同一时间只跑一个」？** 推荐否（第 5 节），保持并行。
-3. **陪跑员订单页进页时要不要也回放最新的对方位置？** 推荐先不改（照现状不回放），需要的话另开小档。
+1. **跑者端状态句以订单页为准？** 答：是。理由：通话磨合退回与成单时只有订单页那句带具体内容；现状谁念取决于没有保证的投递顺序。选否则第 2 批改成「首页念、订单页不念」，同样按结构判。
+2. **刷新是否改成「同一时间只跑一个」？** 答：否（第 5 节），保持并行。
+3. **陪跑员订单页进页时要不要也回放最新的对方位置？** 答：不改（照现状不回放）。

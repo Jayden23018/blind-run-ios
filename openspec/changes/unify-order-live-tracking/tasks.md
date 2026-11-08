@@ -1,6 +1,6 @@
 ## 0. 批准
 
-- [ ] 0.1 负责人批准本变更，并回答 design.md「待确认」三问（跑者端状态句以谁为准、刷新是否单飞、陪跑员是否回放）
+- [x] 0.1 负责人批准本变更，并回答三问（2026-11-08：「批准，按推荐答三问」——跑者端以订单页为准；刷新不单飞；陪跑员不回放）
 
 ## 1. 第 1 批：tracker 与新鲜度判据（不动页面）
 
@@ -16,7 +16,7 @@
 - [ ] 2.1 `BlindOrderStatusViewModel+Realtime.swift` 改为 `open` + 一个消费 `Task`，`handle(_:)` 同步处理每种事件，判据照搬
 - [ ] 2.2 `+Loading.swift` 删轮询循环，`startPolling` / `stopPolling` 里的跟踪部分改调 `follow` / `pause`，换单清状态、`cancelRunCountdown()` 留在页面；`loadOrder` 的刷新记账不动；`open` 只在第一次 `configure` 调
 - [ ] 2.3 `+VolunteerLocation.swift` 新鲜度与过期改用第 1 批；`:97` 的字面量 `15` 改用 `isFresh`；`BlindOrderStatusView.swift` 删 `cancellables`
-- [ ] 2.4 跑者订单页每条 `.status` 处理后 `acknowledge`（完成态 `spoke: false`）；跑者首页 `applyRealtimeStatus` 念之前 `await pageAnnouncement`（按 0.1 的答复），`activeOrder` 照常同步更新
+- [ ] 2.4 跑者订单页每条 `.status` 处理后 `acknowledge`（完成态 `spoke: false`）；跑者首页 `applyRealtimeStatus` 念之前 `await pageAnnouncement`，`activeOrder` 照常同步更新
 - [ ] 2.5 补用例（design.md 第 2 批清单）；编译门禁；对照 design.md「必须原样保留的行为」逐条写进 PR
 
 ## 3. 第 3 批：陪跑员订单页
