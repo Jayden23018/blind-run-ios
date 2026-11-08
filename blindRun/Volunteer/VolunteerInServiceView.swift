@@ -80,8 +80,8 @@ struct VolunteerInServiceView: View {
     /// 本机到**跑者**的距离，汇合那一屏的 hero 就靠它。
     ///
     /// `nil` 的三种成因（没授权 / 没收到过 / 收到的已经过期）在这里**合成同一种**：
-    /// 对陪跑员来说它们的后果一样 —— 现在不知道他在哪。过期由 view model 的
-    /// `peerExpiryTask` 把 `latestBlindSample` 清掉（阈值 `LiveEscortSessionCoordinator.peerFreshness`），
+    /// 对陪跑员来说它们的后果一样 —— 现在不知道他在哪。过期由订单跟踪（`OrderLiveTrack`）发
+    /// `.peerLocationExpired`、view model 把 `latestBlindSample` 清掉（阈值 `LiveEscortSessionCoordinator.peerFreshness`），
     /// 所以这里不需要再判一次时间戳，**也不许判** —— 两处各有一个新鲜度阈值必然漂。
     var peerDistanceText: String? {
         guard locationService.isAuthorized,

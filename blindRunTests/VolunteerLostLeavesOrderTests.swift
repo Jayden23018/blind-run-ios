@@ -101,7 +101,8 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
             .success(()),
         ]
         for outcome in outcomes {
-            let fixture = makeFixture(status: .driverEnRoute)
+            // 不开轮询：下面要断言「离开后一次详情都不拉」，轮询进页那一次会混进计数。
+            let fixture = makeFixture(status: .driverEnRoute, follows: false)
             fixture.service.arrivedResult = outcome
             fixture.service.arrivedDelayNanoseconds = 400_000_000
 
@@ -136,7 +137,8 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
 
     /// 自己按的取消：关页由取消面板的回调做，不另置 `didLoseOrder`（两处同时 dismiss 会抢）。
     func testOwnCancelDoesNotCountAsLosingTheOrder() async {
-        let fixture = makeFixture(status: .driverEnRoute)
+        // 不开轮询：进页那一次会在取消请求发出前拉到 `REMATCHING`，被当成系统转走。
+        let fixture = makeFixture(status: .driverEnRoute, follows: false)
         fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
         fixture.service.orderDetailResult = .success(.preview(orderId: fixture.orderId, status: .rematching))
 
@@ -188,6 +190,7 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
     private func makeFixture(
         status: RunOrderStatus,
         initialOrderLoaded: Bool = true,
+        follows: Bool = true,
         realtimeSocket: WebSocketService? = nil
     ) -> Fixture {
         let orderId: Int64 = 4_560
@@ -205,6 +208,11 @@ final class VolunteerLostLeavesOrderTests: XCTestCase {
         page.configure(with: appState, speechService: speech, initialOrder: initialOrderLoaded ? order : nil)
         if let realtimeSocket {
             appState.realtimeCoordinator.attach(to: realtimeSocket, role: .volunteer)
+        }
+        // 订单页在跟这一单（生产上与 `configure` 同一个 `.task`，unify-order-live-tracking）：状态推送与刷新只送给
+        // 在跟的 track。必须在 `attach` 之后（它会清掉会话状态）。冷启动的用例不开：它们自己调 `load` 模拟轮询。
+        if follows, initialOrderLoaded {
+            page.startPolling(orderId: orderId)
         }
         // 生产上首页加载 / 订单页轮询时登记；协调器只把状态推送发给登记过的订单。
         appState.realtimeCoordinator.registerActiveOrder(orderId, status: status)
@@ -296,6 +304,10 @@ extension VolunteerLostLeavesOrderTests {
     func testCatchUpOfAGenuineLossLeavesOnTheRefreshThatFollows() async throws {
         let socket = WebSocketService()
         let fixture = makeFixture(status: .driverArrived, realtimeSocket: socket)
+        // 等进页轮询那一次拉完，再记基数：下面断言的是重连之后多出来的那次。
+        await waitUntil { fixture.service.callCount("orderDetail(orderId:)") >= 1 }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let detailCallsBeforeReconnect = fixture.service.callCount("orderDetail(orderId:)")
         socket.simulateConnectionStateForTesting(.connected)
         socket.simulateConnectionStateForTesting(.disconnected)
         await Task.yield()
@@ -305,7 +317,9 @@ extension VolunteerLostLeavesOrderTests {
         fixture.appState.realtimeCoordinator.ingestCatchUp([Self.missedVolunteerLost])
         await waitUntil { fixture.page.didLoseOrder }
 
-        XCTAssertGreaterThanOrEqual(fixture.service.callCount("orderDetail(orderId:)"), 1, "前提：重连后确实重拉了详情")
+        XCTAssertGreaterThan(
+            fixture.service.callCount("orderDetail(orderId:)"), detailCallsBeforeReconnect, "前提：重连后确实重拉了详情"
+        )
         XCTAssertTrue(fixture.page.didLoseOrder)
         XCTAssertNil(fixture.page.order)
         XCTAssertNil(fixture.page.errorMessage)
@@ -352,7 +366,8 @@ extension VolunteerLostLeavesOrderTests {
     /// 自己按的取消已被后端接下、`REMATCHING` 推送还没到时，轮询先回了 403：不另置 `didLoseOrder`。
     /// 关页由取消那条路做（推送 → `didCancelOrder`）；两条同时 dismiss 会多出栈一层。
     func testPermissionDeniedAfterOwnCancelDoesNotCountAsLosingTheOrder() async {
-        let fixture = makeFixture(status: .driverEnRoute)
+        // 不开轮询：进页那一次会在取消请求发出前先吃到 403。这条用例模拟的是取消之后的那次轮询。
+        let fixture = makeFixture(status: .driverEnRoute, follows: false)
         fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
         fixture.service.orderDetailResult = .failure(Self.notParticipant)
         await fixture.page.cancel()

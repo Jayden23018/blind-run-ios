@@ -57,6 +57,8 @@ final class VolunteerArrivedAndInServiceTests: XCTestCase, BlindRunTestSupport {
         let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.3)
         viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
+        // 生产上 `configure` 与 `startPolling` 在同一个 `.task` 里先后调；状态推送只送给在跟这一单的 track。
+        viewModel.startPolling(orderId: 106)
 
         await viewModel.arrive()
         appState.realtimeCoordinator.simulateIncomingEventForTesting(
@@ -131,32 +133,35 @@ final class VolunteerArrivedAndInServiceTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(client.postRequestCount, 2)
     }
 
+    /// 第 3 批（unify-order-live-tracking）起走真实链路：协调器 → 订单跟踪 → 页面。阈值从 `init(peerFreshness:)`
+    /// 经 `open(peerFreshness:)` 进 track；别的单的样本不进流，也清不掉本单的标记。
     func testVolunteerBlindPeerSampleExpiresAndWrongOrderCannotClearIt() async throws {
-        let viewModel = VolunteerInServiceViewModel(peerFreshness: 0.06)
-        viewModel.order = makeOrder(orderId: 109, status: .driverEnRoute)
-        let sample = RealtimePeerLocationSample(
-            orderId: 109,
-            ownerRole: .blind,
-            latitude: 39.9342,
-            longitude: 116.4740,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        )
-        viewModel.handleBlindLocationUpdate(sample)
-        viewModel.handleBlindLocationUpdate(RealtimePeerLocationSample(
-            orderId: 999,
-            ownerRole: .blind,
-            latitude: 31.2,
-            longitude: 121.5,
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
-        ))
+        let service = FakeOrderService()
+        service.orderDetailResult = .success(makeOrder(orderId: 109, status: .driverEnRoute))
+        let appState = AppState(orders: service)
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerInServiceViewModel(peerFreshness: 0.3)
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: makeOrder(orderId: 109, status: .driverEnRoute))
+        viewModel.startPolling(orderId: 109)
+        appState.realtimeCoordinator.registerActiveOrder(999)
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        let coordinator = appState.realtimeCoordinator
+        coordinator.simulateIncomingEventForTesting(.blindLocation(WSBlindLocationUpdate(
+            type: WSMessageType.blindLocationUpdate.rawValue, orderId: 109, lat: 39.9342, lng: 116.4740, timestamp: now
+        )))
+        coordinator.simulateIncomingEventForTesting(.blindLocation(WSBlindLocationUpdate(
+            type: WSMessageType.blindLocationUpdate.rawValue, orderId: 999, lat: 31.2, lng: 121.5, timestamp: now
+        )))
+        let arrived = await waitUntil(timeout: 0.25) { viewModel.latestBlindSample != nil }
 
-        XCTAssertEqual(
-            try XCTUnwrap(viewModel.latestBlindSample).coordinate.latitude,
-            sample.latitude,
-            accuracy: 0.000_001
-        )
-        try await Task.sleep(nanoseconds: 80_000_000)
-        XCTAssertNil(viewModel.latestBlindSample)
+        XCTAssertTrue(arrived, "本单的样本没送到页面")
+        // 等 999 单那条也走完协调器的发布（同一主线程周期合并后各自一个 Task），再断言它没清掉、也没替换本单标记。
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(try XCTUnwrap(viewModel.latestBlindSample).coordinate.latitude, 39.9342, accuracy: 0.000_001)
+        // 阈值 0.3 秒：到期后由 track 发 `.peerLocationExpired`，页面清掉。
+        let expired = await waitUntil(timeout: 1) { viewModel.latestBlindSample == nil }
+        XCTAssertTrue(expired, "样本过期后没清")
+        XCTAssertNil(viewModel.latestBlindAccuracyMeters)
     }
 
     func testVolunteerInServiceBlocksStartServiceOutsideDriverArrived() async {

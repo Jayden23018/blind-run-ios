@@ -67,12 +67,15 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
 
     // MARK: - 自己按的取消不变
 
-    /// 订单页上自己取消、推送随后到达：首页与订单页都订阅了这条推送，只念「订单已取消」一次，
-    /// 不先念首页那句「系统正在重新匹配」再被切断（首页推迟一拍，让订单页先念、记去重键）。
-    /// 两个订阅谁先收到推送不固定：这里让订单页先订阅，复现首页先收到的那种顺序（另一种顺序下不推迟也不会出错）。
+    /// 订单页上自己取消、推送随后到达：首页与订单页都收到这条推送，只念「订单已取消」一次，
+    /// 不先念首页那句「系统正在重新匹配」再被切断。首页念之前等订单页回话（unify-order-live-tracking §6），
+    /// 订单页念了整句就回 `spoke: true`，首页不念；不再靠主队列推迟一拍。订单页先订阅这一种顺序保留作回归。
     func testOwnCancelStillSaysCancelledOnceWithTheHomeListening() async throws {
         let fixture = makeFixture(status: .driverEnRoute, opensOrderPage: true, pageSubscribesFirst: true)
         let page = try XCTUnwrap(fixture.page)
+        // 等进页轮询那一次拉完：它若在取消请求发出前吃到下面的 403，会被当成系统转走。
+        await waitUntil(timeout: 2) { fixture.service.callCount("orderDetail(orderId:)") >= 1 }
+        try await Task.sleep(nanoseconds: 50_000_000)
         fixture.service.cancelResult = .success(CancelOrderResponse(success: true, countedAsLateCancel: false))
         // 取消后已不是参与者：确认拉取被后端 403，订单页只能靠推送知道。
         fixture.service.orderDetailResult = .failure(APIError.serverError(
@@ -145,6 +148,8 @@ final class VolunteerRematchingAnnouncementTests: XCTestCase {
         let openPage = {
             let viewModel = VolunteerInServiceViewModel()
             viewModel.configure(with: appState, speechService: speech, initialOrder: order)
+            // 生产上与 `configure` 同一个 `.task`：状态推送只送给在跟这一单的 track（unify-order-live-tracking）。
+            viewModel.startPolling(orderId: orderId)
             page = viewModel
         }
         if opensOrderPage, pageSubscribesFirst { openPage() }

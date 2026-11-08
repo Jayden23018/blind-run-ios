@@ -288,6 +288,8 @@ final class RuleParamsAndLateCancelTests: XCTestCase {
                 page.configure(with: appState, speechService: speech, initialOrder: order)
                 home.configure(with: appState, speechService: speech)
             }
+            // 订单页在跟这一单（生产上与 `configure` 同一个 `.task`）：首页念不念等它回话（unify-order-live-tracking §6）。
+            page.startPolling(orderId: 35)
             home.activeOrder = order
             appState.realtimeCoordinator.registerActiveOrder(35, status: .pendingAccept)
             speech.resetSpokenHistoryForTesting()

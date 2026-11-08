@@ -21,10 +21,10 @@
 
 ## 3. 第 3 批：陪跑员订单页
 
-- [ ] 3.1 `VolunteerInServiceViewModel.swift` 的 7 个 `AnyCancellable` 与 `pollingTask`、`peerExpiryTask` 换成一条 track
-- [ ] 3.2 `+Nudges.swift`、`+OrderUpdates.swift` 新鲜度与过期改用第 1 批；`load` 的刷新记账（含 403 转走）不动；`stopPolling` 里 `confirmationTask?.cancel()` 留在页面
-- [ ] 3.3 陪跑员订单页 `acknowledge`；`VolunteerHomeViewModel+Realtime.swift:38-46` 改为 `await pageAnnouncement`，删 `DispatchQueue.main.async`；`+OrderUpdates.swift:68-70` 的 `markStatusAnnounced` 保留、改注释
-- [ ] 3.4 补用例（design.md 第 3 批清单）；编译门禁；对照「必须原样保留的行为」逐条写进 PR
+- [x] 3.1 `VolunteerInServiceViewModel.swift` 的 7 个 `AnyCancellable` 与 `pollingTask`、`peerExpiryTask` 换成一条 track
+- [x] 3.2 `+Nudges.swift`、`+OrderUpdates.swift` 新鲜度与过期改用第 1 批；`load` 的刷新记账（含 403 转走）不动；`stopPolling` 里 `confirmationTask?.cancel()` 留在页面
+- [x] 3.3 陪跑员订单页 `acknowledge`；`VolunteerHomeViewModel+Realtime.swift:38-46` 改为 `await pageAnnouncement`，删 `DispatchQueue.main.async`；`+OrderUpdates.swift:68-70` 的 `markStatusAnnounced` 保留、改注释
+- [x] 3.4 补用例（design.md 第 3 批清单）；编译门禁；对照「必须原样保留的行为」逐条写进 PR
 
 ## 4. 第 4 批：守卫与收尾
 

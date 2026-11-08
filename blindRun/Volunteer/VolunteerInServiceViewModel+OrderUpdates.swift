@@ -1,8 +1,20 @@
 import SwiftUI
 
 extension VolunteerInServiceViewModel {
-    func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
+    /// 实时状态推送（track 的 `.status`）。手上没有这一单（还没拉回来、或已放下）就丢弃，与原订阅相同。
+    /// - Returns: 这一页有没有念这条状态句（或用自己的整句覆盖了它），交给 `acknowledge`（design §6）。
+    func applyRealtimeStatus(_ update: RealtimeOrderStatusUpdate) -> Bool {
+        guard let current = order, current.orderId == update.orderId else { return false }
+        let spoke = apply(current.replacingStatus(with: update.toStatus), speakChanges: true)
+        isLoading = false
+        return spoke
+    }
+
+    /// - Returns: 这一次有没有念状态句：通用句、自己取消那句、跑者取消那句任一句都算。
+    @discardableResult
+    func apply(_ updated: OrderDetailResponse, speakChanges: Bool) -> Bool {
         let previousStatus = order?.status
+        var spoke = false
         order = updated
         // 状态一变就清掉两样只属于上一状态的东西：
         // - 响铃 / 快捷消息的回执：跑步页也渲染它，免得汇合期那句「对方可能没收到」挂到跑步中。
@@ -26,6 +38,7 @@ extension VolunteerInServiceViewModel {
         // 系统转走的 `REMATCHING` 也走这里，低一档念，不切断闸门到点横幅（#477）。
         if speakChanges, previousStatus != updated.status, !announcesCancellation, !cancelledByRunner {
             speechService?.speakVolunteerStatusChange(updated.status)
+            spoke = true
         }
         if let target = transitionState.targetStatus,
            updated.status.satisfiesVolunteerTransition(target: target) {
@@ -44,8 +57,9 @@ extension VolunteerInServiceViewModel {
             order = nil
             if announcesCancellation, previousStatus != updated.status {
                 announceCancellation(entering: updated.status)
+                spoke = true
             }
-            return
+            return spoke
         }
         if updated.status.isTerminal {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
@@ -65,38 +79,18 @@ extension VolunteerInServiceViewModel {
                 // 关页面吧」（`REMATCHING` 那条分支），而这一次是盲人取消的，
                 // 要留在页面上把「不算你的取消」说清楚。
                 speechService?.speak(sentence)
-                // 首页也订阅了这条推送，会补一句通用的「这一单已取消。」（推迟一拍才念）。
-                // 记下去重键让它被挡掉，否则两句同档、前一句被切成半句（#462）。
+                spoke = true
+                // 首页念不念由订单页的回话决定（`OrderLiveTrack.acknowledge`，unify-order-live-tracking design §6），
+                // 这一句回的是 `spoke: true`。去重键留作纵深防御：回话超时首页照念时，通用的「这一单已取消。」
+                // 仍被挡掉，不把这一整句切成半句（#462）。
                 speechService?.markStatusAnnounced(.cancelled)
             }
         }
+        return spoke
     }
 
-    func schedulePeerExpiry(
-        for sample: LocatedCoordinate,
-        orderID: Int64,
-        remaining: TimeInterval
-    ) {
-        peerExpiryTask?.cancel()
-        peerExpiryTask = Task { [weak self] in
-            do {
-                try await Task.sleep(
-                    nanoseconds: UInt64(max(0.01, remaining) * 1_000_000_000)
-                )
-            } catch {
-                return
-            }
-            guard !Task.isCancelled,
-                  let self,
-                  self.order?.orderId == orderID,
-                  self.latestBlindSample == sample else { return }
-            self.clearPeerLocation()
-        }
-    }
-
+    /// 过期由 track 判（`.peerLocationExpired`，design §3）；离页、换单时页面也直接清。
     func clearPeerLocation() {
-        peerExpiryTask?.cancel()
-        peerExpiryTask = nil
         latestBlindSample = nil
         latestBlindAccuracyMeters = nil
     }

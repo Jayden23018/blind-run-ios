@@ -32,21 +32,7 @@ extension VolunteerHomeViewModel {
                 } else {
                     self.dropActiveOrder(updated.orderId)
                 }
-                // 陪跑员这一侧的那张表（#333；`REMATCHING` 那句与订单页相同），
-                // 且与订单页共用去重键：两边都订阅了这条推送，只该念出一句。
-                let status = updated.status
-                if status == .cancelled || status == .rematching {
-                    // 推迟一拍（#462 / #477）：订单页若开着，同一条推送会让它念自己那一整句（跑者取消的「不算你的取消」、
-                    // 自己取消的「订单已取消」）并记下去重键。两个订阅谁先收到不固定，但两边的
-                    // `receive(on: DispatchQueue.main)` 在推送那一刻都已入队 —— 再排一次主队列，
-                    // 这句通用的就一定在订单页之后、被去重挡掉；订单页没开时照常念。
-                    // 用主队列而不是 `Task`：先后顺序要和 Combine 的投递排在同一条 FIFO 上。
-                    DispatchQueue.main.async { [weak self] in
-                        self?.speechService?.speakVolunteerStatusChange(status)
-                    }
-                } else {
-                    self.speechService?.speakVolunteerStatusChange(status)
-                }
+                self.announceStatusChange(update, status: updated.status)
                 self.dispatchSummaryErrorMessage = nil
                 if let summary = self.dispatchSummary {
                     self.dispatchLoadState = .loaded(summary)
@@ -63,6 +49,21 @@ extension VolunteerHomeViewModel {
                       current.status.isTakenAwayWhenVolunteerLost else { return }
                 self.dropActiveOrder(current.orderId)
             }
+    }
+
+    /// 陪跑员这一侧的那张表（#333；`REMATCHING` 那句与订单页相同）。念不念等订单页回话
+    /// （OpenSpec `unify-order-live-tracking` design §6）：订单页在跟这一单、且这一次念了（或用自己的整句覆盖了，
+    /// 如跑者取消的「不算你的取消」、自己取消的「订单已取消」），首页就不念；订单页没开、没念或 1 秒内没回话，首页照念。
+    /// 「当前订单」在调用方已经同步更新，不等这个结果。取代原来在主队列上推迟一拍的做法（#462 / #477）。
+    private func announceStatusChange(_ update: RealtimeOrderStatusUpdate, status: RunOrderStatus) {
+        guard let tracker = appState?.realtimeCoordinator.orderLiveTracker else {
+            speechService?.speakVolunteerStatusChange(status)
+            return
+        }
+        Task { [weak self] in
+            guard await tracker.pageAnnouncement(for: update, role: .volunteer) == .homeShouldSpeak else { return }
+            self?.speechService?.speakVolunteerStatusChange(status)
+        }
     }
 
     /// 撤回推送与待回复快照（后端 #371 / #366）。从 `subscribeToRealtimeCoordinator` 分出来：那个函数只许变短。

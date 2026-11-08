@@ -76,6 +76,8 @@ final class VolunteerEnRouteTransitionTests: XCTestCase, BlindRunTestSupport {
         let speechService = SpeechService()
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
         viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
+        // 生产上 `configure` 与 `startPolling` 在同一个 `.task` 里先后调；状态推送只送给在跟这一单的 track。
+        viewModel.startPolling(orderId: 96)
 
         await viewModel.enRoute()
         appState.realtimeCoordinator.simulateIncomingEventForTesting(

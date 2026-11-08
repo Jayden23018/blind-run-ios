@@ -95,21 +95,10 @@ extension VolunteerInServiceViewModel {
         speechService?.speakError(message)
     }
 
-    func handleBlindLocationUpdate(_ sample: RealtimePeerLocationSample) {
-        guard acceptsPeerLocations,
-              sample.ownerRole == .blind,
-              sample.orderId == order?.orderId else { return }
-        let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
-        let age = max(0, Date().timeIntervalSince(capturedAt))
-        guard age <= peerFreshness,
-              let located = BackendCoordinateNormalizer.backend(
-                latitude: sample.latitude,
-                longitude: sample.longitude,
-                capturedAt: capturedAt
-              ) else { return }
-
-        latestBlindSample = located
-        latestBlindAccuracyMeters = sample.accuracyMeters
-        schedulePeerExpiry(for: located, orderID: sample.orderId, remaining: peerFreshness - age)
+    /// 跑者位置。新鲜度（15 秒）、单号与 GCJ-02 边界都由订单跟踪判过（`PeerLocationFreshness`），
+    /// 到期由它发 `.peerLocationExpired`，页面不再自己排过期任务。
+    func showBlindLocation(_ peer: FreshPeerLocation) {
+        latestBlindSample = peer.located
+        latestBlindAccuracyMeters = peer.accuracyMeters
     }
 }
