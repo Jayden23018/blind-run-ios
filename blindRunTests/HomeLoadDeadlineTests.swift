@@ -48,6 +48,52 @@ final class HomeLoadDeadlineTests: XCTestCase, BlindRunTestSupport {
         XCTAssertNil(viewModel.errorMessage)
     }
 
+    /// #859：被取消的首次加载不得写成「已加载（空订单）」，只回到 `.idle`。
+    func testBlindRunnerHomeCancelledInitialLoadReturnsOrderStateToIdle() async {
+        let appState = AppState(apiClient: CancellationSuspendingAPIClient())
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task { await viewModel.loadActiveOrder() }
+        let didBeginLoading = await waitUntil { viewModel.orderLoadState.isLoading }
+        XCTAssertTrue(didBeginLoading)
+
+        loadTask.cancel()
+        await loadTask.value
+        // 旧写法把清理放进另一个 Task 排队，给它一拍时间落地，免得断言抢在它前面。
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        guard case .idle = viewModel.orderLoadState else {
+            return XCTFail("Expected .idle after cancellation, got \(viewModel.orderLoadState)")
+        }
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// #859：被取消的首次加载不得写成「派单状态加载失败」，只回到 `.idle`。
+    func testVolunteerHomeCancelledInitialLoadReturnsDispatchStateToIdle() async {
+        let appState = AppState(apiClient: CancellationSuspendingAPIClient())
+        let viewModel = VolunteerHomeViewModel(
+            dispatchPropagationDelay: 60,
+            reportVolunteerLocation: { _, _, _ in true }
+        )
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task { await viewModel.load(currentLocation: nil, locationAuthorized: false) }
+        let didBeginLoading = await waitUntil { viewModel.dispatchLoadState.isLoading }
+        XCTAssertTrue(didBeginLoading)
+
+        loadTask.cancel()
+        await loadTask.value
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        guard case .idle = viewModel.dispatchLoadState else {
+            return XCTFail("Expected .idle after cancellation, got \(viewModel.dispatchLoadState)")
+        }
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertNil(viewModel.dispatchSummaryErrorMessage)
+    }
+
     func testBlindRunnerHomeTimeoutReleasesLoadingAndOffersRetryState() async {
         let client = CancellationSuspendingAPIClient()
         let appState = AppState(apiClient: client)
