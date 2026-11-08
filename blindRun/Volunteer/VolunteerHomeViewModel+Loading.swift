@@ -11,11 +11,43 @@ extension VolunteerHomeViewModel {
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {
         guard let appState else { return }
-        if let activeLoadTask {
+        if pageRefresh.isRunning {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-home-refresh")
-            await activeLoadTask.value
-            return
         }
+        let outcome = await pageRefresh.run { [weak self, weak appState] ticket in
+            guard let self, let appState else { return }
+            self.beginInitialLoad(appState: appState, ticket: ticket)
+        } work: { [weak self, weak appState] ticket in
+            guard let self, let appState else { return }
+            await self.performInitialLoad(
+                appState: appState,
+                ticket: ticket,
+                currentLocation: currentLocation,
+                locationAuthorized: locationAuthorized
+            )
+        }
+
+        switch outcome {
+        case .finished:
+            ClientFlowDiagnostics.record(event: "finished", operation: "volunteer-home-refresh")
+            if dispatchLoadState.isLoading {
+                if let dispatchSummary {
+                    dispatchLoadState = .loaded(dispatchSummary)
+                } else {
+                    dispatchLoadState = .failed(message: "派单状态加载失败，请重试。")
+                }
+            }
+        case .cancelled:
+            // 被取消的请求不写内容、不写失败文案；首次加载回 `.idle`。已有新的一次在跑就不碰。
+            // 只回退加载态，不停辅助加载 —— 那可能是后来那次刷新起的。
+            if !pageRefresh.isRunning { revertUnfinishedDispatchLoad() }
+        case .joined:
+            break
+        }
+    }
+
+    /// 真正发起整页刷新时调一次；合并进来的调用不走这里。
+    private func beginInitialLoad(appState: AppState, ticket: RefreshTicket) {
         ClientFlowDiagnostics.record(event: "started", operation: "volunteer-home-refresh")
         // 冷启动与下拉刷新各对一次待回复邀请（后端 #366）。并行发、不等它：首页不该被它拖住。
         Task { await appState.restorePendingInvites() }
@@ -24,69 +56,34 @@ extension VolunteerHomeViewModel {
         // ponytail: 首次冷启动若规则晚于派单摘要回来，那一次的自动打开按默认 120 分钟判
         // （与后端默认值相同）；要严格按下发值，得把 `resolveLaunchRouteIfNeeded` 改成规则到达后再判一次。
         Task { await appState.loadRuleParamsIfNeeded() }
-        let requestID = UUID()
-        activeRequestID = requestID
-        refreshPhase = .refreshing(requestID: requestID)
         if dispatchSummary == nil {
-            dispatchLoadState = .loading(requestID: requestID)
+            dispatchLoadState = .loading(requestID: ticket.id)
         }
         errorMessage = nil
         dispatchSummaryErrorMessage = nil
-
-        let workTask = Task { [weak self, weak appState] in
-            guard let self, let appState else { return }
-            await self.performInitialLoad(
-                appState: appState,
-                requestID: requestID,
-                currentLocation: currentLocation,
-                locationAuthorized: locationAuthorized
-            )
-        }
-        activeLoadTask = workTask
-
-        await withTaskCancellationHandler {
-            await workTask.value
-        } onCancel: {
-            workTask.cancel()
-            Task { @MainActor [weak self] in
-                self?.cancelRequestIfCurrent(requestID)
-            }
-        }
-
-        guard activeRequestID == requestID else { return }
-        activeLoadTask = nil
-        activeRequestID = nil
-        refreshPhase = .idle
-        ClientFlowDiagnostics.record(event: "finished", operation: "volunteer-home-refresh")
-        if dispatchLoadState.isLoading {
-            if let dispatchSummary {
-                dispatchLoadState = .loaded(dispatchSummary)
-            } else {
-                dispatchLoadState = .failed(message: "派单状态加载失败，请重试。")
-            }
-        }
     }
 
     func cancelLoading() {
-        activeLoadTask?.cancel()
+        pageRefresh.cancel()
         auxiliaryLoadTask?.cancel()
-        activeLoadTask = nil
         auxiliaryLoadTask = nil
         auxiliaryRequestID = nil
-        activeRequestID = nil
-        refreshPhase = .idle
-        if dispatchLoadState.isLoading {
-            if let dispatchSummary {
-                dispatchLoadState = .loaded(dispatchSummary)
-            } else {
-                dispatchLoadState = .idle
-            }
+        revertUnfinishedDispatchLoad()
+    }
+
+    /// 没走完的加载：已有摘要就留着，首次加载回 `.idle`。
+    private func revertUnfinishedDispatchLoad() {
+        guard dispatchLoadState.isLoading else { return }
+        if let dispatchSummary {
+            dispatchLoadState = .loaded(dispatchSummary)
+        } else {
+            dispatchLoadState = .idle
         }
     }
 
     private func performInitialLoad(
         appState: AppState,
-        requestID: UUID,
+        ticket: RefreshTicket,
         currentLocation: CLLocationCoordinate2D?,
         locationAuthorized: Bool
     ) async {
@@ -101,18 +98,18 @@ extension VolunteerHomeViewModel {
             ) {
                 try await orders.dispatchSummary()
             }
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             apply(summary: summary, requestedAt: requestedAt)
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             let message = "加载超过 20 秒，请重试。"
             dispatchSummaryErrorMessage = message
             dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: message)
             speechService?.speakError(message)
         } catch let apiError as APIError {
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             if appState.handleAuthenticatedAPIError(apiError) { return }
             dispatchSummaryErrorMessage = apiError.localizedMessage
             dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: apiError.localizedMessage)
@@ -120,14 +117,14 @@ extension VolunteerHomeViewModel {
         } catch is CancellationError {
             return
         } catch {
-            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
             let message = "派单状态加载失败，请重试。"
             dispatchSummaryErrorMessage = message
             dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: message)
             speechService?.speakError(message)
         }
 
-        guard activeRequestID == requestID, !Task.isCancelled else { return }
+        guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }
         startAuxiliaryLoad(appState: appState)
     }
 
@@ -188,10 +185,5 @@ extension VolunteerHomeViewModel {
     ) async -> Result<Value, Error> {
         do { return .success(try await operation()) }
         catch { return .failure(error) }
-    }
-
-    private func cancelRequestIfCurrent(_ requestID: UUID) {
-        guard activeRequestID == requestID else { return }
-        cancelLoading()
     }
 }

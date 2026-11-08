@@ -175,12 +175,16 @@ final class VolunteerHomeViewModel: ObservableObject {
     let reportVolunteerLocation: @MainActor (AppState, CLLocationCoordinate2D?, Bool) -> Bool
     let dispatchPropagationDelay: TimeInterval
     let loadTimeout: TimeInterval
-    var activeLoadTask: Task<Void, Never>?
-    var activeRequestID: UUID?
+    /// 整页刷新（主请求）与派单摘要刷新各一个，同一时间各只跑一个（#859）。
+    /// 两者都经回调写同一个 `refreshPhase`。
+    lazy var pageRefresh = SingleFlightRefresh { [weak self] phase in
+        self?.refreshPhase = phase
+    }
+    lazy var summaryRefresh = SingleFlightRefresh { [weak self] phase in
+        self?.refreshPhase = phase
+    }
     var auxiliaryLoadTask: Task<Void, Never>?
     var auxiliaryRequestID: UUID?
-    var summaryRefreshTask: Task<Void, Never>?
-    var summaryRefreshID: UUID?
     var refreshLoopTask: Task<Void, Never>?
     /// 去 `GET /api/orders/available` 给邀请补三项的那条任务。
     /// **只留一条**：每条新邀请都会触发一次，而它们要的是同一份列表。
@@ -283,9 +287,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         isSceneActive = isActive
         if !isActive {
             cancelLoading()
-            summaryRefreshTask?.cancel()
-            summaryRefreshTask = nil
-            summaryRefreshID = nil
+            summaryRefresh.cancel()
             delayedSummaryRefreshTask?.cancel()
             delayedSummaryRefreshTask = nil
             refreshLoopTask?.cancel()

@@ -123,40 +123,27 @@ extension VolunteerHomeViewModel {
 
     func refreshDispatchSummary() async {
         guard let appState else { return }
-        if let activeLoadTask {
+        // 整页刷新在跑就等它，它本身就会拉派单摘要。
+        if pageRefresh.isRunning {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-summary-refresh")
-            await activeLoadTask.value
+            await pageRefresh.join()
             return
         }
-        if let summaryRefreshTask {
+        if summaryRefresh.isRunning {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-summary-refresh")
-            await summaryRefreshTask.value
-            return
         }
-
-        let refreshID = UUID()
-        summaryRefreshID = refreshID
-        ClientFlowDiagnostics.record(event: "started", operation: "volunteer-summary-refresh")
-        refreshPhase = .refreshing(requestID: refreshID)
-        let task = Task { [weak self, weak appState] in
+        let outcome = await summaryRefresh.run { _ in
+            ClientFlowDiagnostics.record(event: "started", operation: "volunteer-summary-refresh")
+        } work: { [weak self, weak appState] ticket in
             guard let self, let appState else { return }
-            await self.performDispatchSummaryRefresh(appState: appState, refreshID: refreshID)
+            await self.performDispatchSummaryRefresh(appState: appState, ticket: ticket)
         }
-        summaryRefreshTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        if summaryRefreshID == refreshID {
-            summaryRefreshTask = nil
-            summaryRefreshID = nil
-            refreshPhase = .idle
+        if outcome == .finished {
             ClientFlowDiagnostics.record(event: "finished", operation: "volunteer-summary-refresh")
         }
     }
 
-    private func performDispatchSummaryRefresh(appState: AppState, refreshID: UUID) async {
+    private func performDispatchSummaryRefresh(appState: AppState, ticket: RefreshTicket) async {
         do {
             let orders = appState.orders
             let statusRequestToken = activeOrder.map {
@@ -169,15 +156,15 @@ extension VolunteerHomeViewModel {
             ) {
                 try await orders.dispatchSummary()
             }
-            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
+            guard !Task.isCancelled, summaryRefresh.isCurrent(ticket) else { return }
             apply(summary: summary, statusRequestToken: statusRequestToken, requestedAt: requestedAt)
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
-            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
+            guard !Task.isCancelled, summaryRefresh.isCurrent(ticket) else { return }
             dispatchSummaryErrorMessage = "派单状态刷新超过 20 秒，请重试"
         } catch let error as APIError {
-            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
+            guard !Task.isCancelled, summaryRefresh.isCurrent(ticket) else { return }
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
@@ -185,7 +172,7 @@ extension VolunteerHomeViewModel {
         } catch is CancellationError {
             return
         } catch {
-            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
+            guard !Task.isCancelled, summaryRefresh.isCurrent(ticket) else { return }
             dispatchSummaryErrorMessage = "派单状态刷新失败，请重试"
         }
     }
