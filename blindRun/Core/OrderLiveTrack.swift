@@ -79,11 +79,11 @@ final class OrderLiveTrack {
 
     /// 页面处理完一条 `.status` 后调：念了（或用自己的整句覆盖了）就 `spoke: true`，
     /// 被守卫丢弃或刻意不念（如完成态）就 `spoke: false`。
+    /// 回话总是记下：已有人在等时也记，之后再问同一条更新会立即拿到同一个答案，而不是等满超时。
     func acknowledge(_ update: RealtimeOrderStatusUpdate, spoke: Bool) {
-        if let index = waiters.firstIndex(where: { $0.update == update }) {
-            waiters.remove(at: index).resume(spoke)
-            return
-        }
+        let matching = waiters.filter { $0.update == update }
+        waiters.removeAll { $0.update == update }
+        matching.forEach { $0.resume(spoke) }
         recentAcknowledgements.append((update, spoke))
         if recentAcknowledgements.count > Self.maximumRecentAcknowledgements {
             recentAcknowledgements.removeFirst(recentAcknowledgements.count - Self.maximumRecentAcknowledgements)

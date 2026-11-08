@@ -171,6 +171,12 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 return
             }
             refreshedAuthoritativeOrder = true
+            // 请求在路上时这一单已放下（失联转走 / 自己取消）：回来的详情不再套用。
+            // 否则它会把已放下的单捡回来、再念一遍状态句，后面的 `REMATCHING` 还会被当成自己取消。
+            if order == nil, didLoseOrder || didCancelOrder {
+                isLoading = false
+                return
+            }
             apply(loaded, speakChanges: speakChanges)
             isLoading = false
             await refreshBlindStatsIfNeeded(for: loaded, appState: appState)
