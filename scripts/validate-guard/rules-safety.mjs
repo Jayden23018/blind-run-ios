@@ -702,6 +702,13 @@ export const cases = [
     swift: 'func f() { appState.handleAuthenticatedAPIError(.unauthorized) }'
   },
   {
+    name: '页面自己调网络层回调入口 handleSessionEndedByNetworkLayer（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Volunteer/VolunteerPointsView.swift',
+    swift: 'func f() { appState?.handleSessionEndedByNetworkLayer() }'
+  },
+  {
     name: '调用方按 endsSession 停下（放行）',
     mode: 'post',
     expect: 0,

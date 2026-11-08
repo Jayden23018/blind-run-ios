@@ -178,9 +178,7 @@ final class SessionExpiryDeferralTests: XCTestCase {
     }
 
     /// #438：陪跑员跑步页的轮询拿到 401 要进暂缓 —— 此前 `catch` 一并吞掉，跑步中过期基本进不了暂缓。
-    /// 对照组（同样拉取失败、但不是 401）不进暂缓：只断「进了」的话，把所有错误都当 401 的实现也会绿。
-    ///
-    /// #873 起由 `apiClient` 外面那层处理会话：经 `AppState(apiClient:)` 注入才走得到，注入 `orders:` 替身会绕过它。
+    /// 对照组（同样拉取失败、但不是 401）不进暂缓。#873 起须经 `AppState(apiClient:)` 注入（`orders:` 替身绕过会话处理）。
     func testVolunteerRunningPollRoutesUnauthorizedIntoTheDeferral() async {
         let cases: [(error: APIError, defers: Bool)] = [(.unauthorized, true), (.unknown(statusCode: 500), false)]
         for (error, defers) in cases {
@@ -325,14 +323,9 @@ final class SessionExpiryDeferralTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private static func loggedInAppState(
-        role: UserRole,
-        orders: (any OrderServing)? = nil,
-        apiClient: (any APIClientProtocol)? = nil
-    ) -> AppState {
+    private static func loggedInAppState(role: UserRole, orders: (any OrderServing)? = nil, apiClient: (any APIClientProtocol)? = nil) -> AppState {
         let appState = AppState(
-            apiClient: apiClient,
-            orders: orders,
+            apiClient: apiClient, orders: orders,
             persistence: AppStatePersistenceFactory.makeIsolatedTest(),
             tokenStore: InMemoryTokenStore()
         )

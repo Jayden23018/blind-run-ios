@@ -271,9 +271,10 @@ export const safetyRules = {
     // 由 `AppState.apiClient` 外面的 `SessionAwareAPIClient` 统一处理（#872）。调用方自己再调一次，
     // 第一是多余，第二是会绕过跑步中暂缓（直接 `expireSession()`），第三是让「新页面要记得调」这条老坑复活 ——
     // 收拢之前 65 处调用、另有 29 个文件忘了调，漏了没有任何东西会报错。
-    // 只在两个文件里成立：会话本身（`AppState+Session.swift`）与网络层出口（`SessionAwareAPIClient.swift`）。
-    pattern: /\b(?:handleAuthenticatedAPIError|expireSession)\s*\(/,
-    exceptFiles: /\/Core\/(?:AppState\+Session|SessionAwareAPIClient)\.swift$/,
+    // 只在三个文件里成立：会话本身（`AppState+Session.swift`）、包 adapter 的出口（`AppState+Services.swift`）与网络层（`SessionAwareAPIClient.swift`）。
+    // `handleSessionEndedByNetworkLayer` 是网络层回调的入口，只许 `AppState+Services.swift` 里包 adapter 时调。
+    pattern: /\b(?:handleAuthenticatedAPIError|expireSession|handleSessionEndedByNetworkLayer)\s*\(/,
+    exceptFiles: /\/Core\/(?:AppState\+Session|AppState\+Services|SessionAwareAPIClient)\.swift$/,
     why:
       '会话失效已由网络层统一处理（`SessionAwareAPIClient`，#872 / #873）：需要登录的请求续期后仍 401 时，会话在那里处理（跑步中暂缓，否则登出），' +
       '调用方仍收到 `.unauthorized`。调用方只需要停下：`if error.endsSession { return }`，不显示一般失败文案，**不要**自己调 `handleAuthenticatedAPIError` / `expireSession`。\n' +
