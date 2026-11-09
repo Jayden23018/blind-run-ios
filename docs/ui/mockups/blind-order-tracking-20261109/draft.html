@@ -2,7 +2,7 @@
 <html lang="zh-Hans">
 <head>
 <meta charset="utf-8">
-<title>盲人订单页改版 v4：统一竖线 + 地图常驻（2026-11-09，#909）</title>
+<title>盲人订单页改版 v5：统一竖线（拉起抽屉才显示）+ 地图常驻（2026-11-09，#909）</title>
 <style>
   :root{
     --navy:#1F2433; --ink:#14171F; --ink2:#4A4F5C; --ink3:#5F6470; --line:#E6E7EB;
@@ -66,6 +66,8 @@
   .pinV{position:absolute;width:34px;height:34px;border-radius:17px;background:var(--navy);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
   .me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 12px rgba(47,123,246,.16)}
   .meetpin{position:absolute;padding:6px 10px;border-radius:14px;background:var(--navy);color:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+  .grab{width:40px;height:5px;border-radius:3px;background:#C9CCD3;margin:-10px auto 14px}
+  .fadein{opacity:.45}
   .msheet{position:absolute;left:0;right:0;top:404px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:22px 24px 0;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
   .st{font-size:27px;font-weight:700;line-height:1.25}
   .ss{font-size:16px;color:var(--ink2);margin-top:4px}
@@ -102,10 +104,10 @@
 </style>
 </head>
 <body>
-<h1>盲人订单页改版 v4：统一竖线 + 地图常驻（2026-11-09，#909）</h1>
+<h1>盲人订单页改版 v5：统一竖线（拉起抽屉才显示）+ 地图常驻（2026-11-09，#909）</h1>
 <p class="lead">
 负责人 11-09 看 v3 后定：<b>只用竖线</b>（不要 United 的横向胶囊）；<b>以两张原稿为基础</b>出其余屏；从出发起<b>像 Uber 一样上半屏一直是地图，只换下半屏</b>，让整个流程连贯。<br>
-① 匹配中、② 已约好：原稿②的深色头 + 完整竖线（负责人选「保留原稿深色头」）。③ 出发到 ⑥ 已完成：原稿①的地图 + 抽屉（Uber 等车页同一做法），地图一直在，只有抽屉内容随状态换；抽屉里的竖线只展开当前一步，「全部步骤」点开看四步（负责人选「每个状态都放」）。<br>
+① 匹配中、② 已约好：原稿②的深色头 + 完整竖线（负责人选「保留原稿深色头」）。③ 出发到 ⑥ 已完成：原稿①的地图 + 抽屉（Uber 等车页同一做法），地图一直在，只有抽屉内容随状态换。<b>竖线默认藏起来</b>：把抽屉往上拉，竖线逐渐显示，拉到顶完整显示（负责人 11-09 定，见最下一排三帧）。<br>
 四步在所有屏里同名：匹配陪跑员 → 等出发 → 在南门汇合 → 开跑。演示地点是公共地点「朝阳公园南门」，人名已脱敏。
 </p>
 
@@ -190,13 +192,9 @@
     <div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
     <div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="msheet">
+  <div class="msheet"><div class="grab"></div>
     <div class="st">陈正在来找你</div>
     <div class="ss"><span class="diff">离南门约 300 米</span> · 请在南门原地等</div>
-    <div class="ctl">
-      <div class="past"><div class="mini"><i></i></div><span>已匹配陪跑员 · 等出发</span></div>
-      <div class="cur"><div class="dot" style="background:var(--navy)"></div><div class="nlabel">现在：在南门汇合</div><div class="all">全部步骤 ⌄</div></div>
-    </div>
     <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn">留一句话</div></div>
     <div class="line" style="border-bottom:none">让陈找到我<span>亮屏 + 提示音 ›</span></div>
   </div>
@@ -205,9 +203,9 @@
 <div class="cap">③ 出发（DRIVER_EN_ROUTE）</div>
 <span class="ref">照：负责人原稿①（= Uber 等车页的地图 + 抽屉）</span>
 <div class="anno note"><h4>和原稿不同的四处</h4>
-<span class="diff">1.</span> 原稿的「2 分」和横向进度条换成<b>竖线</b>：前两步缩成一行，当前步「在南门汇合」展开，「全部步骤」点开看四步。分钟数等 backend#943。<br>
+<span class="diff">1.</span> 去掉原稿的「2 分」和横向进度条：分钟数等 backend#943；进度改成竖线，<b>默认藏在抽屉下面</b>，往上拉才出现（见最下一排）。<br>
 <span class="diff">2.</span> 距离写清是「离南门」（数据是陪跑员到集合点的直线距离）。地图上蓝点是你，「南门 · 集合点」只在后端说你已到时才写「你在这」。<br>
-<span class="diff">3.</span> 去掉抽屉顶的拖动条：读屏用户拖不动，抽屉固定高度。<br>
+<span class="diff">3.</span> 拖动条保留（往上拉看竖线）。读屏用户拖不动，所以读屏打开时竖线直接排在抽屉内容最后，上下轻扫就能读到；拖动条另给「展开 / 收起」两个读屏动作。<br>
 <span class="diff">4.</span> 聊天气泡 →「留一句话」：盲人只能写一句 ≤40 字的留言，不能聊天。
 </div>
 </div>
@@ -225,13 +223,9 @@
     <div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round">···</div>
     <div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="msheet">
+  <div class="msheet"><div class="grab"></div>
     <div class="st">陈到了，在南门等你</div>
     <div class="ss">7:00 后可以开始跑步</div>
-    <div class="ctl">
-      <div class="past"><div class="mini"><i></i></div><span>已匹配陪跑员 · 等出发</span></div>
-      <div class="cur"><div class="dot" style="background:var(--navy)"></div><div class="nlabel">现在：在南门汇合</div><div class="all">全部步骤 ⌄</div></div>
-    </div>
     <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn">打电话</div></div>
     <div class="line" style="border-bottom:none">让陈找到我<span>亮屏 + 提示音 ›</span></div>
   </div>
@@ -254,16 +248,12 @@
     <div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
     <div class="sos live"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="msheet">
+  <div class="msheet"><div class="grab"></div>
     <div class="st">和陈一起跑步中</div>
     <div class="stats">
       <div class="big">2.40<small>公里</small></div>
       <div><p>用时</p><b>18:32</b></div>
       <div><p>每公里配速</p><b>7′43″</b></div>
-    </div>
-    <div class="ctl" style="margin-top:16px">
-      <div class="past"><div class="mini"><i></i></div><span>已匹配 · 已出发 · 已汇合</span></div>
-      <div class="cur"><div class="dot" style="background:var(--navy)"></div><div class="nlabel">现在：开跑 · 7:02 开始</div><div class="all">全部步骤 ⌄</div></div>
     </div>
     <div class="line" style="border-top:1px solid var(--line);margin-top:14px;border-bottom:none">行程分享给家人<span>已开 ›</span></div>
   </div>
@@ -272,7 +262,7 @@
 <div class="cap">⑤ 陪跑中（IN_PROGRESS）</div>
 <span class="ref">照：负责人原稿①的地图 + 抽屉；地图画已跑路线（Uber 行程中同样留着地图，截图 7）</span>
 <div class="anno note"><h4>说明 · 待负责人定</h4>
-地图一直在，改成画你们已跑的路线；抽屉放跑步数据、竖线当前步、行程分享状态（<code>shareActive</code>）。<br>
+地图一直在，改成画你们已跑的路线；抽屉放跑步数据和行程分享状态（<code>shareActive</code>）；竖线同样往上拉才出现。<br>
 这是唯一能发云端求助的状态，右上角「求助」红底白字。<br>
 <span class="tag">待定</span> 距离数字从现在的 64pt 降到 44pt（要给地图留上半屏）。低视力看不看得清要你定。
 </div>
@@ -286,16 +276,12 @@
     <div class="round">‹</div><div class="spacer"></div>
     <div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
   </div>
-  <div class="msheet">
+  <div class="msheet"><div class="grab"></div>
     <div class="st">跑完了，和陈一起</div>
     <div class="result">
       <div class="big">5.20<small>公里</small></div>
       <div><p>用时</p><b>42 分钟</b></div>
       <div><p>每公里配速</p><b>8′04″</b></div>
-    </div>
-    <div class="ctl" style="margin-top:16px">
-      <div class="past"><div class="mini"><i></i></div><span>已匹配 · 已出发 · 已汇合</span></div>
-      <div class="cur"><div class="dot" style="background:var(--navy);color:#fff;font-size:13px">✓</div><div class="nlabel">跑完了 · 7:44</div><div class="all">全部步骤 ⌄</div></div>
     </div>
   </div>
   <div class="bottom"><div class="cta">完成</div></div>
@@ -303,9 +289,73 @@
 <div class="cap">⑥ 已完成（COMPLETED）</div>
 <span class="ref">照：负责人原稿①，地图不动只换抽屉</span>
 <div class="anno note"><h4>说明 · 和 11-07 决定冲突，待负责人确认</h4>
-按「地图常驻 + 每个状态都放竖线」，已完成页变成：地图画整条路线，抽屉里绿色成果卡 + 四步全打勾。<br>
-11-07 定的是「已完成页只留绿色卡、保留真机现有排版」。这张把绿色卡保留了，但多了地图和竖线。<span class="tag">待定</span> 用这张，还是已完成页保持 11-07 不变。
+按「地图常驻 + 每个状态都放竖线」，已完成页变成：地图画整条路线，抽屉里绿色成果卡；往上拉看到四步全打勾的竖线。<br>
+11-07 定的是「已完成页只留绿色卡、保留真机现有排版」。这张把绿色卡保留了，但多了地图（和拉上来才看到的竖线）。<span class="tag">待定</span> 用这张，还是已完成页保持 11-07 不变。
 </div>
+</div>
+
+</div>
+
+<h2 style="font-size:18px;margin:40px 0 6px">抽屉往上拉，竖线逐渐出现（以③出发为例，④⑤⑥同理）</h2>
+<p class="lead">照 Uber 等车页：抽屉有收起和拉开两档。收起时只看地图和最要紧的几行；往上拉，竖线从抽屉下方逐渐变清楚；拉到顶，竖线完整显示，地图只露出顶上一条。</p>
+<div class="row">
+
+<div class="cell">
+<div class="phone">
+  <div class="map" data-map="enroute"></div>
+  <div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+  <div class="msheet"><div class="grab"></div>
+    <div class="st">陈正在来找你</div>
+    <div class="ss">离南门约 300 米 · 请在南门原地等</div>
+    <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn">留一句话</div></div>
+    <div class="line" style="border-bottom:none">让陈找到我<span>亮屏 + 提示音 ›</span></div>
+  </div>
+  <div class="bottom"><div class="cta"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.6 1.5 6 1.2l1.3 3.3-1.6 1.2a8.6 8.6 0 0 0 4.6 4.6l1.2-1.6 3.3 1.3-.3 2.4c-.1.8-.8 1.4-1.6 1.4C6.9 13.8 2.2 9.1 2.2 3.1c0-.8.6-1.5 1.4-1.6z"/></svg> 打电话给陈</div></div>
+</div>
+<div class="cap">A 收起（默认）</div>
+<div class="anno note">进页面时就是这样，和③相同：看不到竖线。</div>
+</div>
+
+<div class="cell">
+<div class="phone">
+  <div class="map" data-map="enroute"></div>
+  <div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+  <div class="msheet" style="top:250px"><div class="grab"></div>
+    <div class="st">陈正在来找你</div>
+    <div class="ss">离南门约 300 米 · 请在南门原地等</div>
+    <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn">留一句话</div></div>
+    <div class="line">让陈找到我<span>亮屏 + 提示音 ›</span></div>
+    <div class="tl fadein">
+      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已匹配陪跑员</div><div class="ndet">昨天 23:29</div></div></div>
+      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">等出发</div><div class="ndet">陈 0:58 出发</div></div></div>
+    </div>
+  </div>
+  <div class="bottom"><div class="cta"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.6 1.5 6 1.2l1.3 3.3-1.6 1.2a8.6 8.6 0 0 0 4.6 4.6l1.2-1.6 3.3 1.3-.3 2.4c-.1.8-.8 1.4-1.6 1.4C6.9 13.8 2.2 9.1 2.2 3.1c0-.8.6-1.5 1.4-1.6z"/></svg> 打电话给陈</div></div>
+</div>
+<div class="cap">B 拉到一半</div>
+<div class="anno note">抽屉跟着手指往上走，竖线从下方出现，透明度随拉动距离从 0 渐变到 1（图里约一半）。</div>
+</div>
+
+<div class="cell">
+<div class="phone">
+  <div class="map" data-map="enroute"></div>
+  <div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+  <div class="msheet" style="top:104px"><div class="grab"></div>
+    <div class="st">陈正在来找你</div>
+    <div class="ss">离南门约 300 米 · 请在南门原地等</div>
+    <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn">留一句话</div></div>
+    <div class="line">让陈找到我<span>亮屏 + 提示音 ›</span></div>
+    <div class="tl">
+      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已匹配陪跑员</div><div class="ndet">昨天 23:29</div></div></div>
+      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">等出发</div><div class="ndet">陈 0:58 出发</div></div></div>
+      <div class="node now"><div class="dot"></div><div><div class="nlabel">现在：在南门汇合</div><div class="ndet">请在南门原地等</div></div></div>
+      <div class="node todo"><div class="dot"></div><div class="nlabel">开跑</div></div>
+    </div>
+  </div>
+  <div class="bottom"><div class="cta"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.6 1.5 6 1.2l1.3 3.3-1.6 1.2a8.6 8.6 0 0 0 4.6 4.6l1.2-1.6 3.3 1.3-.3 2.4c-.1.8-.8 1.4-1.6 1.4C6.9 13.8 2.2 9.1 2.2 3.1c0-.8.6-1.5 1.4-1.6z"/></svg> 打电话给陈</div></div>
+</div>
+<div class="cap">C 拉到顶</div>
+<div class="anno note">竖线完整显示，和①②是同一条线、同样四步。地图只露出顶部一条；往下拉回到 A。<br>「陈 0:58 出发」取后端记录的出发时刻（订单状态流水），没有就只写「已出发」。</div>
 </div>
 
 </div>
