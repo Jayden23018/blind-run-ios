@@ -2,86 +2,81 @@
 <html lang="zh-Hans">
 <head>
 <meta charset="utf-8">
-<title>盲人订单页改版 · 时间轴 + 地图追踪（2026-11-09 初稿 v1）</title>
+<title>盲人订单页改版 v3：照 Uber 等车页与 United 行程页（2026-11-09，#909）</title>
 <style>
   :root{
-    --navy:#1F2433; --navy2:#2E3445; --ink:#14171F; --ink2:#4A4F5C; --ink3:#5F6470;
-    --line:#E6E7EB; --bg:#FFFFFF; --page:#E9EAEE; --chip:#EEEFF2;
-    --blue:#A9C8F7; --blueInk:#1F3A66; --title:#A8C8FF; --red:#D7263D; --redBg:#FFFFFF;
-    --green:#1E7A46; --done:#1F2433; --todo:#C5C8CF;
+    --navy:#1F2433; --ink:#14171F; --ink2:#4A4F5C; --ink3:#5F6470; --line:#E6E7EB;
+    --page:#E9EAEE; --chip:#EEEFF2; --blue:#A9C8F7; --blueInk:#1F3A66; --title:#A8C8FF;
+    --red:#D7263D; --todo:#C5C8CF;
+    --uaBand:#1E2A6E; --uaBand2:#24337F;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:var(--page);color:var(--ink);padding:28px 32px 40px}
   h1{font-size:22px;margin-bottom:6px}
-  .lead{font-size:13px;color:var(--ink2);line-height:1.6;max-width:1500px;margin-bottom:22px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1680px;margin-bottom:22px}
   .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
   .cell{width:390px}
   .cap{font-size:14px;font-weight:600;margin:10px 0 4px}
+  .ref{display:inline-block;font-size:12px;font-weight:600;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:1px 6px;margin-bottom:6px}
   .note{font-size:12px;color:var(--ink2);line-height:1.6}
   .note b{color:var(--ink)}
-  .note .tag{display:inline-block;background:#FFF3C4;border-radius:4px;padding:0 4px;color:#6B5200}
-  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:var(--bg);box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
-  /* 顶栏 */
+  .anno{margin-top:10px;padding:12px 14px;background:#fff;border-radius:12px}
+  .anno h4{font-size:13px;margin-bottom:6px}
+  .diff{color:#B3261E}
+  .tag{display:inline-block;background:#FFF3C4;border-radius:4px;padding:0 4px;color:#6B5200}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
   .top{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
   .round{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.18);font-size:18px;color:var(--ink)}
-  .round.dark{background:rgba(255,255,255,.12);box-shadow:none;color:#fff}
+  .round.dark{background:rgba(255,255,255,.14);box-shadow:none;color:#fff}
   .spacer{flex:1}
   .sos{height:44px;padding:0 16px;border-radius:22px;background:#fff;color:var(--red);font-weight:700;font-size:16px;display:flex;align-items:center;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
-  .sos.onDark{background:transparent;border:1.5px solid #FF7B86;color:#FF8C95;box-shadow:none}
-  .sos.live{background:var(--red);color:#fff}
-  .back-text{color:var(--title);font-size:16px;display:flex;align-items:center;gap:4px}
-  /* 深色头 */
+  .sos.onDark{background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2;box-shadow:none}
+  .sos.live{background:var(--red);color:#fff;border:none}
+  .navtitle{position:absolute;left:0;right:0;top:52px;text-align:center;color:#fff;font-size:16px;font-weight:600;pointer-events:none;z-index:4}
+  .navtitle small{display:block;font-size:11px;font-weight:400;color:#C9D0EE}
+  .back-text{color:#fff;font-size:16px}
+  .band{background:linear-gradient(180deg,var(--uaBand),var(--uaBand2));padding:112px 22px 0;color:#fff;height:300px}
+  .band .k{font-size:14px;color:#C9D0EE}
+  .band .t{font-size:28px;font-weight:700;line-height:1.25;margin-top:4px}
+  .band .s{font-size:14px;color:#C9D0EE;margin-top:6px}
+  .stages{margin:-58px 14px 0;position:relative;background:#fff;border-radius:22px 22px 0 0;padding:14px 14px 0}
+  .pills{display:flex;background:var(--uaBand);border-radius:22px;padding:4px;gap:2px}
+  .pill{flex:1;text-align:center;font-size:13px;color:#C9D0EE;height:36px;line-height:36px;border-radius:18px;letter-spacing:.5px}
+  .pill.done{color:#9FB0E8}
+  .pill.on{background:#fff;color:var(--uaBand);font-weight:700}
+  .pill.on:before{content:"● ";font-size:9px;vertical-align:2px}
+  .ucard{margin:14px 0 0;border:1px solid var(--line);border-radius:14px;padding:14px}
+  .ucard .lab{font-size:12px;letter-spacing:1px;color:var(--ink2);font-weight:600}
+  .ucard .big{font-size:24px;font-weight:700;margin-top:6px}
+  .tiles{display:flex;gap:8px;margin-top:14px}
+  .tile{flex:1;background:#F4F5F8;border-radius:10px;padding:10px}
+  .tile p{font-size:12px;color:var(--ink2)}
+  .tile b{display:block;font-size:16px;margin-top:4px;white-space:nowrap}
+  .rowline{display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);font-size:17px}
+  .rowline span{font-size:14px;color:var(--ink2)}
   .hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:232px;padding:108px 24px 0;color:#fff}
   .hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}
   .hero .t{font-size:30px;font-weight:700;color:var(--title);line-height:1.25}
-  .hero.green{background:linear-gradient(115deg,#18663A,#1E7A46 60%,#24884F)}
-  .hero.green .t{color:#fff}
-  .hero.teal{background:linear-gradient(115deg,#0E4F57,#11636B 60%,#157078)}
-  .hero.teal .t{color:#fff}
-  .big{font-size:64px;font-weight:700;letter-spacing:-1px;color:#fff;line-height:1}
-  .big small{font-size:22px;font-weight:600;margin-left:4px}
-  .stats{display:flex;gap:36px;margin-top:10px}
-  .stats div{font-size:24px;font-weight:700}
-  .stats span{display:block;font-size:13px;font-weight:400;color:#CFE3E5}
-  /* 抽屉 */
   .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
   .sheet.onHero{top:212px}
-  .sheet.onMap{top:430px;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
   .place{font-size:20px;font-weight:700}
   .sub{font-size:15px;color:var(--ink2);margin-top:4px}
-  .st{font-size:28px;font-weight:700;line-height:1.25}
-  .ss{font-size:16px;color:var(--ink2);margin-top:6px;line-height:1.45}
-  /* 时间轴 */
-  .tl{margin-top:20px;position:relative}
+  .tl{margin-top:20px}
   .node{display:flex;gap:14px;position:relative;padding-bottom:18px}
   .node:before{content:"";position:absolute;left:10px;top:24px;bottom:-2px;width:3px;background:var(--todo)}
-  .node.done:before{background:var(--done)}
+  .node.done:before{background:var(--navy)}
   .node:last-child:before{display:none}
   .dot{width:23px;height:23px;border-radius:12px;flex:none;background:var(--todo);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;position:relative;z-index:1}
-  .done .dot,.now .dot{background:var(--done)}
+  .done .dot,.now .dot{background:var(--navy)}
   .nlabel{font-size:17px;font-weight:600;line-height:23px}
   .todo .nlabel{color:var(--ink3);font-weight:500}
   .ndet{font-size:14px;color:var(--ink2);margin-top:2px}
   .card{margin-top:10px;border-radius:14px;overflow:hidden;background:var(--chip)}
-  .card .dk{background:var(--navy2);color:#fff;padding:12px 16px}
+  .card .dk{background:#2E3445;color:#fff;padding:12px 16px}
   .card .dk p{font-size:13px;color:#C9CFDB}
   .card .dk h3{font-size:20px;margin-top:2px}
   .card .lt{display:flex;align-items:center;gap:14px;padding:12px 16px}
-  /* 陪跑员行 */
-  .av{width:48px;height:48px;border-radius:24px;background:var(--blue);color:var(--blueInk);font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
-  .who{display:flex;align-items:center;gap:14px;padding:18px 0;border-bottom:1px solid var(--line)}
-  .who .n{font-size:19px;font-weight:700}
-  .who .d{font-size:14px;color:var(--ink2);margin-top:2px}
-  .chipbtn{margin-left:auto;height:44px;padding:0 14px;border-radius:22px;background:var(--chip);font-size:15px;font-weight:600;display:flex;align-items:center}
-  .line{display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid var(--line);font-size:17px}
-  .line span{font-size:14px;color:var(--ink2)}
-  .progress{height:5px;background:var(--line);border-radius:3px;margin-top:14px;position:relative}
-  /* 底部 */
-  .bottom{position:absolute;left:24px;right:24px;bottom:30px}
-  .cta{height:56px;border-radius:28px;background:var(--navy);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
-  .cta.ghost{background:#fff;color:var(--ink);border:1.5px solid #C9CCD3}
-  /* 地图 */
-  .map{position:absolute;left:0;right:0;top:0;height:452px;background:#EDEBE6;overflow:hidden}
+  .map{position:absolute;left:0;right:0;top:0;height:420px;background:#EDEBE6;overflow:hidden}
   .park{position:absolute;left:0;top:40px;width:262px;height:330px;background:#D9E8CF}
   .lake{position:absolute;left:40px;top:120px;width:90px;height:60px;border-radius:50%;background:#B9D7F0}
   .road{position:absolute;background:#fff}
@@ -89,29 +84,39 @@
   .lbl{position:absolute;font-size:12px;color:#4F6B45;font-weight:600}
   .rlbl{position:absolute;font-size:11px;color:#6B6B6B}
   .pinV{position:absolute;width:34px;height:34px;border-radius:17px;background:var(--navy);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
-  .me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 8px rgba(47,123,246,.18)}
-  .meetpin{position:absolute;padding:6px 10px;border-radius:14px;background:var(--navy);color:#fff;font-size:13px;font-weight:600;white-space:nowrap}
-  .anno{margin-top:14px;padding:12px 14px;background:#fff;border-radius:12px}
-  .anno h4{font-size:13px;margin-bottom:6px}
-  .diff{color:#B3261E}
+  .me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 14px rgba(47,123,246,.16)}
+  .mlabel{position:absolute;background:#fff;border-radius:4px;padding:6px 10px;font-size:14px;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.2);white-space:nowrap}
+  .usheet{position:absolute;left:0;right:0;top:396px;bottom:0;background:#fff;border-radius:18px 18px 0 0;padding:20px 22px 0;box-shadow:0 -3px 12px rgba(0,0,0,.08)}
+  .ut{font-size:24px;font-weight:700}
+  .us{font-size:16px;color:#2F4BD6;margin-top:4px;font-weight:600}
+  .driver{display:flex;align-items:center;gap:14px;padding:12px 0 12px;border-bottom:1px solid var(--line)}
+  .av{width:52px;height:52px;border-radius:26px;background:var(--blue);color:var(--blueInk);font-weight:700;font-size:21px;display:flex;align-items:center;justify-content:center;flex:none}
+  .driver .n{font-size:18px;font-weight:700}
+  .driver .d{font-size:14px;color:var(--ink2);margin-top:2px}
+  .driver .id{margin-left:auto;text-align:right}
+  .driver .id b{display:block;font-size:20px}
+  .driver .id span{font-size:12px;color:var(--ink2)}
+  .msg{display:flex;gap:10px;align-items:center;margin-top:14px}
+  .msg .field{flex:1;height:44px;border-radius:22px;background:#F1F2F4;font-size:15px;color:var(--ink2);display:flex;align-items:center;padding:0 16px}
+  .bottom{position:absolute;left:24px;right:24px;bottom:30px}
+  .cta{height:56px;border-radius:28px;background:var(--navy);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+  .cta.ghost{background:#fff;color:var(--ink);border:1.5px solid #C9CCD3}
 </style>
 </head>
 <body>
-<h1>盲人订单页改版 · 时间轴 + 地图追踪（v1 初稿，2026-11-09，#909）</h1>
+<h1>盲人订单页改版 v3：照 Uber 等车页与 United 行程页（2026-11-09，#909）</h1>
 <p class="lead">
-上排：负责人两屏初稿按契约修正后的样子（改动处标红）。下排：同一套样式补画的另外四个状态，<b>等负责人看过再实现</b>。<br>
-共用骨架：顶栏（返回 / 播报 / 更多 / 右上角「求助」）→ 头部（深色状态头或地图）→ 白色抽屉（一句话标题 + 陪跑员 + 时间轴或操作行）→ 底部一个深色主按钮。
-首页订单卡不变。演示用的是公共地点「朝阳公园南门」，人名已脱敏。
+负责人 11-09 要求：照具体 App 的真实截图出图，不自己设计。每一屏都标了照的是哪张截图（App Store 官方截图，2026-11-09 抓取：Uber v3.746.10001、United v4.2.102；截图不进仓库，来源和重抓方法见 <code>REFERENCES.md</code>）。<br>
+进度展示按负责人提的分阶段结构（调研 <code>docs/research/order-progress-by-stage-20261109.md</code>）：①已约好用负责人原稿的完整竖向时间轴；②出发、③匹配中、④已到达用 United 行程页那条阶段胶囊（一行，当前阶段白底）；⑤陪跑中去掉进度；⑥已完成不改（11-07 定稿只留绿色卡）。<br>
+颜色仍用本 App 的深灰蓝主按钮；United 的深蓝只借它的版式（头部大字 + 阶段胶囊 + 信息卡）。演示地点是公共地点「朝阳公园南门」，人名已脱敏。
 </p>
 
-<!-- ================= 上排：两屏修订 ================= -->
 <div class="row">
 
-<!-- A1 约好 -->
 <div class="cell">
 <div class="phone">
   <div class="top">
-    <div class="back-text">‹ 订单</div><div class="spacer"></div>
+    <div class="back-text" style="color:var(--title)">‹ 订单</div><div class="spacer"></div>
     <div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round dark">···</div>
     <div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
@@ -126,8 +131,8 @@
       <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已匹配到陪跑员</div><div class="ndet">今天 23:29</div></div></div>
       <div class="node now"><div class="dot"></div><div style="flex:1"><div class="nlabel">现在：等出发</div><div class="ndet diff">开跑前 1 小时会提醒你出门</div>
         <div class="card">
-          <div class="dk"><p>陈出发时</p><h3 class="diff" style="color:#fff">会通知你</h3></div>
-          <div class="lt"><div class="av">陈</div><div><div style="font-size:13px;color:var(--ink2)">你的陪跑员</div><div style="font-size:18px;font-weight:700">陈* · 陪跑 32 次</div></div></div>
+          <div class="dk"><p>陈出发时</p><h3>会通知你</h3></div>
+          <div class="lt"><div class="av" style="width:48px;height:48px">陈</div><div><div style="font-size:13px;color:var(--ink2)">你的陪跑员</div><div style="font-size:18px;font-weight:700">陈* · 陪跑 32 次</div></div></div>
         </div></div></div>
       <div class="node todo"><div class="dot"></div><div class="nlabel">在南门汇合</div></div>
       <div class="node todo"><div class="dot"></div><div class="nlabel">开跑</div></div>
@@ -135,70 +140,60 @@
   </div>
   <div class="bottom"><div class="cta"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.6 1.5 6 1.2l1.3 3.3-1.6 1.2a8.6 8.6 0 0 0 4.6 4.6l1.2-1.6 3.3 1.3-.3 2.4c-.1.8-.8 1.4-1.6 1.4C6.9 13.8 2.2 9.1 2.2 3.1c0-.8.6-1.5 1.4-1.6z"/></svg> 打电话给陈</div></div>
 </div>
-<div class="cap">① 约好（SCHEDULED_CONFIRMED）· 负责人初稿 ② 修订</div>
-<div class="anno note"><h4>和初稿不同的三处</h4>
-<span class="diff">1.</span> 深色卡「陈预计出发 1:05–1:10」→「陈出发时会通知你」：盲人侧拿不到 <code>suggestedDepartAt</code>，后端 #943 合了再换成「陈约 1:05 出发」（后端只有一个时刻，没有区间）。<br>
-<span class="diff">2.</span> 「开跑前 30 分钟」→「开跑前 1 小时」：本地提醒现在是 1 小时（<code>BlindRunStartReminder.leadTime</code>）。要 30 分钟另定。<br>
-<span class="diff">3.</span> 未到的两步字色加深（初稿浅灰在白底上不到 4.5:1）。<br>
-「···」里放：取消预约、把行程告诉家人。读屏念「更多操作」。
+<div class="cap">① 已约好（SCHEDULED_CONFIRMED）</div>
+<span class="ref">照：负责人原稿 ②（完整时间轴）</span>
+<div class="anno note"><h4>和原稿不同的三处</h4>
+<span class="diff">1.</span> 深色卡「陈预计出发 1:05–1:10」→「陈出发时会通知你」：盲人侧拿不到 <code>suggestedDepartAt</code>，后端 backend#943 合了再换成「陈约 1:05 出发」（后端只有一个时刻）。<br>
+<span class="diff">2.</span> 「开跑前 30 分钟」→「开跑前 1 小时」：本地提醒现在是 1 小时（<code>BlindRunStartReminder.leadTime</code>）。<br>
+<span class="diff">3.</span> 未到的两步字色加深（原稿浅灰在白底上不到 4.5:1）。「···」里放取消预约、把行程告诉家人。
 </div>
 </div>
 
-<!-- A2 出发 -->
 <div class="cell">
 <div class="phone">
   <div class="map">
-    <div class="park"></div><div class="lake"></div>
+    <div class="park" style="height:290px"></div><div class="lake"></div>
     <div class="lbl" style="left:60px;top:200px">朝阳公园</div>
-    <div class="road" style="left:0;right:0;top:368px;height:22px"></div>
+    <div class="road" style="left:0;right:0;top:328px;height:22px"></div>
     <div class="road" style="left:268px;top:0;bottom:0;width:22px"></div>
     <div class="road" style="left:0;top:250px;width:268px;height:12px"></div>
     <div class="blk" style="left:300px;top:40px;width:80px;height:90px"></div>
     <div class="blk" style="left:300px;top:140px;width:80px;height:100px"></div>
-    <div class="blk" style="left:300px;top:404px;width:80px;height:60px"></div>
-    <div class="rlbl" style="left:24px;top:373px">朝阳公园南路</div>
-    <div class="rlbl" style="left:293px;top:300px;writing-mode:vertical-rl">农展馆南路</div>
-    <!-- 陪跑员走过的轨迹 + 到集合点的虚线 -->
-    <svg style="position:absolute;left:0;top:0" width="390" height="452">
-      <polyline points="279,60 279,118" stroke="#1F2433" stroke-width="5" fill="none" stroke-linecap="round"/>
-      <polyline points="279,118 279,379 205,379" stroke="#1F2433" stroke-width="3" stroke-dasharray="6 6" fill="none"/>
+    <div class="rlbl" style="left:24px;top:354px">朝阳公园南路</div>
+    <svg style="position:absolute;left:0;top:0" width="390" height="470">
+      <polyline points="279,96 279,150" stroke="#1F2433" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <polyline points="279,150 279,339 205,339" stroke="#1F2433" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round" fill="none"/>
     </svg>
-    <div class="pinV" style="left:262px;top:104px">陈</div>
-    <div class="me" style="left:196px;top:370px"></div>
-    <div class="meetpin" style="left:120px;top:322px">南门 · 集合点</div>
+    <div class="pinV" style="left:262px;top:136px">陈</div>
+    <div class="mlabel" style="left:140px;top:180px">约 300 米</div>
+    <div class="me" style="left:196px;top:330px"></div>
+    <div class="mlabel" style="left:118px;top:278px">集合点 · 南门</div>
   </div>
   <div class="top">
     <div class="round">‹</div><div class="spacer"></div>
     <div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
     <div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="sheet onMap">
-    <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <div class="st">陈正在来找你</div>
-    </div>
-    <div class="ss"><span class="diff">离南门约 300 米</span> · 请在南门原地等</div>
-    <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn diff">留一句话</div></div>
-    <div class="line">让陈找到我<span>亮屏 + 提示音 ›</span></div>
+  <div class="usheet">
+    <div class="pills" style="margin-bottom:14px"><div class="pill done">匹配</div><div class="pill done">约好</div><div class="pill on">汇合</div><div class="pill">跑步</div></div>
+    <div class="ut">陈正在来找你</div>
+    <div class="us">离南门约 300 米 · 请在南门原地等</div>
+    <div class="driver"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">陪跑 32 次</div></div><div class="id"><b>蓝色上衣</b><span>认人看这里</span></div></div>
+    <div class="msg"><div class="field">给陈留一句话</div></div>
+    <div class="rowline" style="border-bottom:none">让陈找到我<span>亮屏 + 提示音 ›</span></div>
   </div>
   <div class="bottom"><div class="cta"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.6 1.5 6 1.2l1.3 3.3-1.6 1.2a8.6 8.6 0 0 0 4.6 4.6l1.2-1.6 3.3 1.3-.3 2.4c-.1.8-.8 1.4-1.6 1.4C6.9 13.8 2.2 9.1 2.2 3.1c0-.8.6-1.5 1.4-1.6z"/></svg> 打电话给陈</div></div>
 </div>
-<div class="cap">② 出发（DRIVER_EN_ROUTE）· 负责人初稿 ① 修订</div>
-<div class="anno note"><h4>和初稿不同的五处</h4>
-<span class="diff">1.</span> 去掉「2 分」和进度条：盲人侧 <code>eta</code> 恒为空，后端 #943 合了再加回。距离写清是「离南门」（数据是陪跑员到集合点的直线距离，不是到你）。<br>
-<span class="diff">2.</span> 「南门 · 你在这」→「南门 · 集合点」，蓝点是你手机的定位；后端说你已到集合点（<code>runnerAtMeetingPoint</code>）时才写「你在这」。<br>
-<span class="diff">3.</span> 去掉抽屉顶的拖动条：读屏用户拖不动，抽屉固定高度；字号放大时地图收起，抽屉占满。<br>
-<span class="diff">4.</span> 聊天气泡 →「留一句话」：盲人不能发快捷消息，只能写一句 ≤40 字的留言。<br>
-<span class="diff">5.</span> 实线 = 陪跑员已上报过的位置连成的轨迹；虚线 = 剩下到集合点的直线。像 Uber 那样按道路的规划线另做一个 PR。<br>
-出发态没有取消入口（后端会拒），所以这一屏没有「···」。地图对读屏隐藏，信息都在抽屉文字里。
+<div class="cap">② 出发（DRIVER_EN_ROUTE）</div>
+<span class="ref">照：Uber 等车页（App Store 截图 1）+ 负责人原稿 ①</span>
+<div class="anno note"><h4>照 Uber 改了什么</h4>
+地图上直接标距离（Uber「0.5 miles away」→「约 300 米」）和集合点标签（Uber「Pickup spot」）；已走的路是实线，剩下的是点线（同 Uber）。<br>
+抽屉照 Uber：一句标题 + 一行蓝字副标题；人像行右侧放认人信息（Uber 放车牌「3M53AF2」，我们放<b>上衣颜色</b>）；下面一条留言输入条（Uber「Send a message」）。<br>
+按负责人的结构加一条阶段胶囊（照 United，当前在「汇合」）。<br>
+<span class="diff">去掉</span>「2 分」和进度条：盲人侧 <code>eta</code> 为空，等 backend#943。主按钮「打电话给陈」保留负责人原稿的大按钮（Uber 是输入条旁的小圆钮），因为对看不见的人，打电话是最主要的动作。
 </div>
 </div>
 
-</div>
-
-<!-- ================= 下排：补画四态 ================= -->
-<div class="row" style="margin-top:36px">
-
-<!-- B1 匹配中 -->
 <div class="cell">
 <div class="phone">
   <div class="top">
@@ -206,129 +201,133 @@
     <div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
     <div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="hero">
-    <div class="k">匹配中</div>
+  <div class="band">
+    <div class="k">你的约跑 · 朝阳公园南门</div>
     <div class="t">正在为你找陪跑员</div>
+    <div class="s">找到后，陪跑员会先打电话和你商量具体时间</div>
   </div>
-  <div class="sheet onHero">
-    <div class="place">朝阳公园南门</div>
-    <div class="sub">11 月 10 日 周二 · 上午，想 7:00 左右</div>
-    <div class="tl">
-      <div class="node now"><div class="dot"></div><div style="flex:1"><div class="nlabel">现在：找陪跑员</div><div class="ndet">已等 3 分钟</div>
-        <div class="card"><div class="lt" style="display:block"><div style="font-size:16px;font-weight:600">找到后，陪跑员会先打电话和你商量具体时间</div></div></div></div></div>
-      <div class="node todo"><div class="dot"></div><div class="nlabel">约好时间</div></div>
-      <div class="node todo"><div class="dot"></div><div class="nlabel">在南门汇合</div></div>
-      <div class="node todo"><div class="dot"></div><div class="nlabel">开跑</div></div>
+  <div class="stages">
+    <div class="pills"><div class="pill on">匹配</div><div class="pill">约好</div><div class="pill">汇合</div><div class="pill">跑步</div></div>
+    <div class="ucard">
+      <div class="lab">匹配进展</div>
+      <div class="big">已等 3 分钟</div>
+      <div class="tiles">
+        <div class="tile"><p>日期</p><b>11 月 10 日</b></div>
+        <div class="tile"><p>时段</p><b>上午</b></div>
+        <div class="tile"><p>想几点</p><b>7:00 左右</b></div>
+      </div>
     </div>
   </div>
   <div class="bottom"><div class="cta ghost">取消匹配</div></div>
 </div>
 <div class="cap">③ 匹配中（PENDING_MATCH / REMATCHING）</div>
-<div class="anno note"><h4>说明</h4>
-这一态唯一能做的事是取消，所以「取消匹配」留在底部（白底描边，不做实心），不收进「···」。<br>
-时间轴第一步还没完成，所以四步是「找陪跑员 → 约好时间 → 汇合 → 开跑」；匹配成功后第一步变成「已匹配到陪跑员」。<br>
-副标题沿用现在的时段说明（<code>flexibleMatchingDescription</code>）。
+<span class="ref">照：United 行程页（App Store 截图 3「Connection」）</span>
+<div class="anno note"><h4>照 United 改了什么</h4>
+头部照 United：小字「Your trip to Munich」→「你的约跑 · 地点」，大字一句状态，下面一行小字说下一步。<br>
+阶段胶囊照 United「ORD→EWR · CONNECTION · EWR→MUC」：四段「匹配 · 约好 · 汇合 · 跑步」，当前段白底加点。<br>
+信息卡照 United「WHAT'S HAPPENING AT GATE 14」：小标题 + 一句大字 + 三格小卡。United 的登机人数进度条我们没有对应数据，不画。<br>
+这一态唯一能做的事是取消，所以「取消匹配」放在底部（白底描边）。
 </div>
 </div>
 
-<!-- B2 已到达 -->
+</div>
+
+<div class="row" style="margin-top:36px">
+
 <div class="cell">
 <div class="phone">
   <div class="map">
-    <div class="park"></div><div class="lake"></div>
+    <div class="park" style="height:290px"></div><div class="lake"></div>
     <div class="lbl" style="left:60px;top:200px">朝阳公园</div>
-    <div class="road" style="left:0;right:0;top:368px;height:22px"></div>
+    <div class="road" style="left:0;right:0;top:328px;height:22px"></div>
     <div class="road" style="left:268px;top:0;bottom:0;width:22px"></div>
     <div class="road" style="left:0;top:250px;width:268px;height:12px"></div>
     <div class="blk" style="left:300px;top:40px;width:80px;height:90px"></div>
     <div class="blk" style="left:300px;top:140px;width:80px;height:100px"></div>
-    <div class="rlbl" style="left:24px;top:373px">朝阳公园南路</div>
-    <svg style="position:absolute;left:0;top:0" width="390" height="452">
-      <polyline points="279,60 279,379 226,379" stroke="#1F2433" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <div class="rlbl" style="left:24px;top:354px">朝阳公园南路</div>
+    <svg style="position:absolute;left:0;top:0" width="390" height="470">
+      <polyline points="279,96 279,339 228,339" stroke="#1F2433" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    <div class="me" style="left:180px;top:370px"></div>
-    <div class="pinV" style="left:212px;top:362px">陈</div>
-    <div class="meetpin" style="left:110px;top:322px">南门 · 你在这</div>
+    <div class="me" style="left:180px;top:330px"></div>
+    <div class="pinV" style="left:212px;top:322px">陈</div>
+    <div class="mlabel" style="left:104px;top:278px">南门 · 你在这</div>
   </div>
   <div class="top">
     <div class="round">‹</div><div class="spacer"></div>
     <div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round">···</div>
     <div class="sos"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="sheet onMap">
-    <div class="st">陈到了，在南门等你</div>
-    <div class="ss">7:00 后可以开始跑步</div>
-    <div class="who"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">蓝色上衣 · 陪跑 32 次</div></div><div class="chipbtn">打电话</div></div>
-    <div class="line">让陈找到我<span>亮屏 + 提示音 ›</span></div>
+  <div class="usheet">
+    <div class="pills" style="margin-bottom:14px"><div class="pill done">匹配</div><div class="pill done">约好</div><div class="pill on">汇合</div><div class="pill">跑步</div></div>
+    <div class="ut">陈到了，在南门等你</div>
+    <div class="us">7:00 后可以开始跑步</div>
+    <div class="driver"><div class="av">陈</div><div><div class="n">陈*</div><div class="d">陪跑 32 次</div></div><div class="id"><b>蓝色上衣</b><span>认人看这里</span></div></div>
+    <div class="msg"><div class="field">给陈留一句话</div><div class="round" style="box-shadow:none;background:#F1F2F4"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.6 1.5 6 1.2l1.3 3.3-1.6 1.2a8.6 8.6 0 0 0 4.6 4.6l1.2-1.6 3.3 1.3-.3 2.4c-.1.8-.8 1.4-1.6 1.4C6.9 13.8 2.2 9.1 2.2 3.1c0-.8.6-1.5 1.4-1.6z"/></svg></div></div>
+    <div class="rowline" style="border-bottom:none">让陈找到我<span>亮屏 + 提示音 ›</span></div>
   </div>
   <div class="bottom"><div class="cta">开始跑步</div></div>
 </div>
 <div class="cap">④ 已到达（DRIVER_ARRIVED）</div>
+<span class="ref">照：Uber 等车页（App Store 截图 1）</span>
 <div class="anno note"><h4>说明</h4>
-主按钮换成「开始跑步」，打电话降为陪跑员行右边的浅底按钮（一屏一个实心）。<br>
-「你在这」只在后端说你已到集合点时出现；否则同②写「集合点」。<br>
-「···」里放取消预约：只在 <code>earliestBlindCancelAt</code> 之后可点，之前显示「x:xx 后可取消」。到点前「开始跑步」置灰并说明几点可按（沿用现有判定）。
+和②同一版式。主按钮换成「开始跑步」，打电话降为留言条旁边的圆钮（这就是 Uber 的原样：输入条 + 电话圆钮）。<br>
+「你在这」只在后端说你已到集合点（<code>runnerAtMeetingPoint</code>）时出现。<br>
+「···」里放取消预约：只在 <code>earliestBlindCancelAt</code> 之后可点。到点前「开始跑步」置灰，并说明几点可以按（沿用现有判定）。
 </div>
 </div>
 
-<!-- B3 陪跑中 -->
 <div class="cell">
 <div class="phone">
   <div class="top">
-    <div class="back-text" style="color:#fff">‹ 订单</div><div class="spacer"></div>
+    <div class="back-text">‹ 订单</div><div class="spacer"></div>
     <div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
     <div class="sos live"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div>
   </div>
-  <div class="hero teal" style="height:300px">
-    <div class="k" style="color:#CFE3E5">陪跑中 · 和陈一起</div>
-    <div class="big">2.40<small>公里</small></div>
-    <div class="stats"><div>18:32<span>用时</span></div><div>7′43″<span>每公里配速</span></div></div>
+  <div class="band" style="height:250px">
+    <div class="k">你的陪跑 · 和陈一起 · 7:02 开始</div>
+    <div class="t">已跑 2.40 公里</div>
   </div>
-  <div class="sheet" style="top:280px">
-    <div class="tl" style="margin-top:0">
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已匹配到陪跑员</div></div></div>
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已出发</div></div></div>
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">在南门汇合</div><div class="ndet">6:58</div></div></div>
-      <div class="node now"><div class="dot"></div><div><div class="nlabel">现在：跑步中</div><div class="ndet">7:02 开始</div></div></div>
+  <div class="stages" style="margin-top:-80px">
+    <div class="ucard" style="margin-top:0">
+      <div class="lab">本次陪跑</div>
+      <div class="tiles">
+        <div class="tile"><p>距离</p><b>2.40 公里</b></div>
+        <div class="tile"><p>用时</p><b>18:32</b></div>
+        <div class="tile"><p>每公里配速</p><b>7′43″</b></div>
+      </div>
+    </div>
+    <div class="ucard">
+      <div class="lab">安全</div>
+      <div class="rowline">行程分享给家人<span>已开 ›</span></div>
+      <div class="rowline" style="border-bottom:none">遇到危险<span>点右上角「求助」</span></div>
     </div>
   </div>
   <div class="bottom"><div class="cta"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg> 听当前状态</div></div>
 </div>
 <div class="cap">⑤ 陪跑中（IN_PROGRESS）</div>
+<span class="ref">照：United 行程页（截图 2）信息卡 + Uber「Share trip status」（截图 7）</span>
 <div class="anno note"><h4>说明 · 待负责人定</h4>
-这是唯一能发云端求助的状态，所以右上角「求助」做成<b>红底白字</b>，其他状态是白底红字。点开仍是现在的求助与安全中心（二次确认文案不变）。<br>
-返回按钮保留（同现状，跑步中也能退回订单列表）。<br>
-<span class="tag">待定</span> 头部用深青色（沿用 10-07 方向 A 跑步中的颜色）还是统一深灰蓝。
+按负责人的结构去掉进度。数据用 United 的三格小卡（距离 / 用时 / 配速）；安全那块照 Uber 行程中的「分享行程状态」，只显示分享开没开（<code>shareActive</code>）。<br>
+这是唯一能发云端求助的状态，所以右上角「求助」做成红底白字。<br>
+<span class="tag">待定</span> 现在跑步中是 64pt 大数字（10-07 方向 A）。改成三格小卡后数字变小，低视力用户看不看得清要你定：保留大数字，还是照 United 用小卡。
 </div>
 </div>
 
-<!-- B4 已完成 -->
 <div class="cell">
-<div class="phone">
-  <div class="top">
-    <div class="back-text" style="color:#fff">‹ 订单</div><div class="spacer"></div>
-    <div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div>
-  </div>
-  <div class="hero green" style="height:300px">
-    <div class="k" style="color:#D5EEDD">已完成 · 和陈一起</div>
-    <div class="big">5.20<small>公里</small></div>
-    <div class="stats"><div>42<span>分钟</span></div><div>8′04″<span>每公里配速</span></div></div>
-  </div>
-  <div class="sheet" style="top:280px">
-    <div class="tl" style="margin-top:0">
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已匹配到陪跑员</div></div></div>
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">已出发</div></div></div>
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">在南门汇合</div><div class="ndet">6:58</div></div></div>
-      <div class="node done"><div class="dot">✓</div><div><div class="nlabel">跑完了</div><div class="ndet">7:44</div></div></div>
-    </div>
+<div class="phone" style="background:#F2F2F6">
+  <div class="top"><div class="back-text" style="color:#1F3A66">‹ 订单</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div></div>
+  <div style="margin:112px 16px 0;background:#1E7A46;border-radius:20px;padding:22px;color:#fff">
+    <div style="font-size:14px;color:#D5EEDD">已完成 · 和陈一起</div>
+    <div style="font-size:56px;font-weight:700;margin-top:10px">5.20<small style="font-size:20px"> 公里</small></div>
+    <div style="display:flex;gap:30px;margin-top:8px;font-size:22px;font-weight:700"><div>42<span style="display:block;font-size:12px;font-weight:400;color:#D5EEDD">分钟</span></div><div>8′04″<span style="display:block;font-size:12px;font-weight:400;color:#D5EEDD">每公里配速</span></div></div>
   </div>
   <div class="bottom"><div class="cta">完成</div></div>
 </div>
 <div class="cap">⑥ 已完成（COMPLETED）</div>
-<div class="anno note"><h4>说明 · 待负责人选</h4>
-<span class="tag">甲（本图）</span> 绿色头 + 全部打勾的时间轴，和其他状态同一个骨架。<br>
-<span class="tag">乙</span> 保持 11-07 的决定不动：已完成页只留绿色卡（<code>order-done-review-20261107/</code>）。<br>
-两种都不在这一页放评价：评价在跑步详情最后（11-07 决定）。没有求助按钮：订单已结束。
+<span class="ref">不改：沿用 11-07 定稿（只留绿色卡）</span>
+<div class="anno note"><h4>说明</h4>
+负责人 11-07 定「已完成页只留绿色卡，保留真机现有排版」，本次不动。这张只是示意，以真机现有样子为准。<br>
+Lyft 的完成页是「这次行程怎么样」打分（截图 5）；我们的评价在跑步详情最后（11-07 决定），不搬到这里。
 </div>
 </div>
 
