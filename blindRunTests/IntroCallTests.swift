@@ -195,7 +195,7 @@ final class IntroCallTests: XCTestCase {
     /// 广播给周围的人。号码对「要不要打这通电话」这个决策没有帮助。
     func testDialHintNeverContainsDigits() {
         XCTAssertFalse(IntroCallCopy.callAccessibilityHint.contains(where: \.isNumber))
-        XCTAssertTrue(IntroCallCopy.callAccessibilityHint.contains("拨号确认"))
+        XCTAssertTrue(IntroCallCopy.callAccessibilityHint.contains("确认"))
     }
 
     // MARK: - 端点

@@ -69,9 +69,16 @@ final class BlindHomeNewBookingTests: XCTestCase, BlindRunTestSupport {
         XCTAssertEqual(client.activeRequestCount, before)
     }
 
+    /// ⚠️ 首页 view model 只 `weak` 持有 `AppState`（`BlindRunnerHomeView.swift:40`）。
+    /// 在 helper 里临时建一个、不留引用，它一返回就被释放，`loadActiveOrder` 第一行 `guard let appState` 直接早退：
+    /// 一个请求都不发，下面几条「回首页重拉」的用例就假红或假绿（#959 真机实测）。所以由测试实例持有。
+    private var retainedAppStates: [AppState] = []
+
     private func makeLoadedEmptyHome(client: StubClient) -> BlindRunnerHomeViewModel {
         let viewModel = BlindRunnerHomeViewModel()
-        viewModel.configure(with: AppState(apiClient: client), speechService: SpeechService())
+        let appState = AppState(apiClient: client)
+        retainedAppStates.append(appState)
+        viewModel.configure(with: appState, speechService: SpeechService())
         return viewModel
     }
 

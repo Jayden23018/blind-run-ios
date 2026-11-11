@@ -168,10 +168,10 @@ final class EmergencyUITestLocationSeamTests: XCTestCase {
             return XCTFail("再按一次应当被并进未结案的那条，实际 \(second.state)")
         }
         XCTAssertEqual(coordinator.mergedRetriggerCount, 1, "屏 3b 靠它重新弹出")
-        XCTAssertTrue(second.message.hasPrefix("这次没有新建求助"), second.message)
+        XCTAssertTrue(second.message.hasPrefix("上一次求助还在处理中"), second.message)
     }
 
-    /// 按钮真正走的入口是 `beginCountdown`（长按 / 确认后都到这里）：被合并时**念**的必须是「这次没有新建求助」那句。
+    /// 按钮真正走的入口是 `beginCountdown`（长按 / 确认后都到这里）：被合并时**念**的必须是「上一次求助还在处理中」那句。
     /// 屏 3b 上的同一句由 UI 用例 `testBlindSOSSentScreenPopsUpAgainWhenTheRetriggerIsMerged` 守，UI 测试听不到声音。
     func testMergedRetriggerThroughTheCountdownEntryAnnouncesNoNewRequest() async {
         let mock = Self.makeMock()

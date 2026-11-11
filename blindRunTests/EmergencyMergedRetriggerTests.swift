@@ -50,7 +50,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
 
         let outcome = await Self.triggerTwiceIntoOneEvent(coordinator: coordinator, safety: safety)
 
-        XCTAssertTrue(outcome.message.contains("这次没有新建求助"), "合并被念成了新求助：\(outcome.message)")
+        XCTAssertTrue(outcome.message.hasPrefix("上一次求助还在处理中"), "合并被念成了新求助：\(outcome.message)")
         // 负责人 2026-10-22 批准的原句，逐字锁住：改成「已通知客服 / 已通知家属」或丢掉 110 提示都要红。
         // 逐字相等也就覆盖了 `EmergencySOSTests` 那份「不得宣称送达」清单（那个文件长度已冻结，不往里加）。
         XCTAssertEqual(
@@ -93,7 +93,7 @@ final class EmergencyMergedRetriggerTests: XCTestCase {
         let outcome = await Self.trigger(coordinator, safety: safety, latitude: 39.916)
 
         XCTAssertEqual(outcome.state, .acknowledged(.csHandling))
-        XCTAssertFalse(outcome.message.contains("这次没有新建求助"))
+        XCTAssertFalse(outcome.message.hasPrefix("上一次求助还在处理中"))
         XCTAssertEqual(coordinator.mergedRetriggerCount, 0, "新求助被当成了合并")
     }
 

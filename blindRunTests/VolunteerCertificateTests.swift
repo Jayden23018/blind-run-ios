@@ -135,7 +135,7 @@ final class VolunteerCertificateTests: XCTestCase {
 
         XCTAssertTrue(VolunteerCertificateDisplayState.pending.guidanceMessage.contains("暂时无法接单"))
         XCTAssertTrue(VolunteerCertificateDisplayState.approved.guidanceMessage.contains("可以接单"))
-        XCTAssertTrue(VolunteerCertificateDisplayState.statusUnavailable.guidanceMessage.contains("重新获取状态"))
+        XCTAssertTrue(VolunteerCertificateDisplayState.statusUnavailable.guidanceMessage.contains("检查网络"))
     }
 
     /// 后端两个接口的响应体都能解出 status。
