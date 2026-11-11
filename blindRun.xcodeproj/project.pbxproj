@@ -15,7 +15,9 @@
 		C490E3132FC1000000807A54 /* RunLiveActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */; };
 		C490E3222FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */; };
 		C490E3232FC1000000807A54 /* GuideRunActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */; };
+		C490E9A22FC1000000807A54 /* GuideRunActivityPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E9A12FC1000000807A54 /* GuideRunActivityPresentation.swift */; };
 		C490E3242FC1000000807A54 /* GuideRunActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */; };
+		C490E9A32FC1000000807A54 /* GuideRunActivityPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E9A12FC1000000807A54 /* GuideRunActivityPresentation.swift */; };
 		C490E3252FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */; };
 		C490E3262FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */; };
 		C490E3142FC1000000807A54 /* blindRunWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C490E3022FC1000000807A54 /* blindRunWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -80,6 +82,7 @@
 		C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityShared.swift; sourceTree = "<group>"; };
 		C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideRunActivityWidget.swift; sourceTree = "<group>"; };
 		C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideRunActivityShared.swift; sourceTree = "<group>"; };
+		C490E9A12FC1000000807A54 /* GuideRunActivityPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideRunActivityPresentation.swift; sourceTree = "<group>"; };
 		CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRunTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.release.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.release.xcconfig"; sourceTree = "<group>"; };
 		FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.debug.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.debug.xcconfig"; sourceTree = "<group>"; };
@@ -223,6 +226,7 @@
 				C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */,
 				C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */,
 				C49191900100000000807A00 /* LiveActivityProgressLine.swift */,
+				C490E9A12FC1000000807A54 /* GuideRunActivityPresentation.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -515,6 +519,7 @@
 				C49191900100000000807A01 /* LiveActivityProgressLine.swift in Sources */,
 				C490E3132FC1000000807A54 /* RunLiveActivityShared.swift in Sources */,
 				C490E3242FC1000000807A54 /* GuideRunActivityShared.swift in Sources */,
+				C490E9A32FC1000000807A54 /* GuideRunActivityPresentation.swift in Sources */,
 				C490E3252FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */,
 				C490E3262FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */,
 			);
@@ -544,6 +549,7 @@
 				C490E3122FC1000000807A54 /* RunLiveActivityShared.swift in Sources */,
 				C490E3222FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */,
 				C490E3232FC1000000807A54 /* GuideRunActivityShared.swift in Sources */,
+				C490E9A22FC1000000807A54 /* GuideRunActivityPresentation.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

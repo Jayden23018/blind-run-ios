@@ -5,8 +5,8 @@ import SwiftUI
 
 @MainActor
 final class VolunteerInServiceViewModel: ObservableObject {
-    /// 每一份新订单（轮询 / WS ETA / 汇合档位）都顺手喂给出发 / 汇合锁屏卡 ——
-    /// 按下「我出发了」成功后订单落到 `DRIVER_EN_ROUTE`，卡就是从这里起的。
+    /// 每一份新订单（轮询 / WS ETA / 汇合档位）都顺手喂给实时活动第二段（#920）——
+    /// 开跑前 30 分钟起 V4，按下「我出发了」后换成 V5 出发、到了换 V6。
     @Published var order: OrderDetailResponse? {
         didSet {
             // 「等待对方确认」只在汇合态成立：订单离开 `DRIVER_ARRIVED`（开跑 / 取消 / 重派）就作废。

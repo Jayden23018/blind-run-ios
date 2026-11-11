@@ -2,15 +2,18 @@ import ActivityKit
 import AppIntents
 import SwiftUI
 
-// MARK: - 陪跑员「出发 / 汇合」锁屏卡：两个 target 共用的那一份
+// MARK: - 陪跑员实时活动（V1–V6）：两个 target 共用的那一份
 //
 // 🔴 与 `RunLiveActivityShared.swift` 同一条硬约束：本文件**同时属于 `blindRun` 与 `blindRunWidget`**，
 // 所以不能 `import` 任何只在 app target 里的东西（`AppColors` / `OrderDetailResponse` /
 // `QuickMessageCode` 都不行）。
 //
-// 这张卡与跑步卡**并存、不合并**（决定源 V3，后端对接说明 §5）：
-// 跑步卡本地更新，这张卡由后端经 APNs 推 `update` / `end`（`pushType: .token`）。
-// 开跑时后端给这张卡发 `end`，App 照旧本地起跑步卡。
+// 设计源：`docs/ui/mockups/live-activity-v7-20261111/`「四、陪跑员端」V1–V6 与「五」起卡表（#920）。
+// 这张卡分两段（DECISION 第 3 条）：
+// - 第一段：响应派单成功本地起 → V1 商量见面 → V2 已交安排单 → V3 已约好（推这一屏后收卡）；
+// - 第二段：开跑前 30 分钟起 → V4 待出发 → V5 出发 → V6 已到达；开跑时收卡，跑步卡（V7）由
+//   `RunLiveActivity*` 接上。
+// 出发 / 到达两态还由后端经 APNs 推 `update` / `end`（`pushType: .token`，后端 `docs/live-activity.md`）。
 
 @available(iOS 16.2, *)
 struct GuideRunAttributes: ActivityAttributes, Hashable {
@@ -26,49 +29,82 @@ struct GuideRunAttributes: ActivityAttributes, Hashable {
         var phase: Phase
         var etaMinutes: Int?
         var arriveAt: Date?
-        /// 引导绳位置，后端夹在 [0.1, 0.85]。画之前再夹一次。
+        /// 引导进度，后端夹在 [0.1, 0.85]。v4 卡上不再画引导绳，字段留着是因为后端推送里有它。
         var progress: Double
         var runnerNearMeetingPoint: Bool
         /// 只在汇合时有值，开放枚举（`WITHIN_10` / `WITHIN_50` / `WITHIN_100` / `FAR` / `UNKNOWN`）。
         var distanceBucket: String?
+
+        // ⚠️ 以下三项**只由 App 本地填**（后端推送里没有），一律可选 + 默认 `nil`：
+        // 后端推送不带它们照样能解，既有构造点也不必改。
+
+        /// V1 商量见面的截止时刻（`IntroCallView.windowEndsAt`）。卡上系统自走倒计时，也是 staleDate。
+        var deadline: Date? = nil
+        /// V4 建议出发时刻（`OrderDetailResponse.suggestedDepartAt`）。到点卡片转「该出发了」。
+        var leaveBy: Date? = nil
+        /// V4 路上要多久（`OrderDetailResponse.travelMinutes`）。
+        var travelMinutes: Int? = nil
     }
 
     /// **响应向开放枚举**：后端加了新值时不许整条更新解码失败（那等于锁屏卡冻住），
     /// 不认识的一律按 `departed` 画 —— 「正在赶去」对任何未知的在途状态都不说错话。
     enum Phase: String, Codable, Hashable {
+        // 第一段（App 本地，后端从不推这四个值）。
+        /// V1 商量见面安排（`PENDING_INTRO_CALL`，还没交安排单）。
+        case introCall
+        /// V2 已交安排单，等跑者确认。
+        case planSubmitted
+        /// V3 已约好（`SCHEDULED_CONFIRMED`）。第一段最后一屏。
+        case scheduled
+        // 第二段。
+        /// V4 开跑前 30 分钟，还没出发（App 本地）。
+        case preStart
         /// 后端 `end` 推送的 `content-state` 带 `"ended"` ⇒ 画「已结束」样式。
         /// **不能按 `activityState == .ended` 判**：`ActivityViewContext` 只有 `attributes` /
         /// `state` / `isStale` / `activityID`（iOS 26.2 SDK 的 WidgetKit swiftinterface 核过），
         /// `activityState` 只在 app 侧的 `Activity<_>` 上，widget 读不到。
         case ended
+        /// V5 出发（准时）。
         case departed
+        /// V5 出发（快迟到）。
         case late
+        /// V6 已到达。
         case arrived
 
         init(from decoder: Decoder) throws {
             let rawValue = try? decoder.singleValueContainer().decode(String.self)
             self = rawValue.flatMap(Phase.init(rawValue:)) ?? .departed
         }
+
+        /// 第一段的三屏。第二段的卡与它们互不覆盖（见 `GuideRunActivityController`）。
+        var isFirstSegment: Bool {
+            self == .introCall || self == .planSubmitted || self == .scheduled
+        }
+
+        /// 后端 `/api/devices/live-activity-token` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 收 token
+        /// （其余状态 409 `ORDER_STATUS_NOT_ALLOWED`）。V4 就起的卡先存 token，到这三个值再传。
+        var acceptsPushToken: Bool {
+            self == .departed || self == .late || self == .arrived
+        }
     }
 
     var orderID: Int64
-    /// 跑者姓氏（决定源 V11：锁屏只用姓氏，不加「先生 / 女士」）。
-    /// 后端 BE-2 的姓氏字段还没到 ⇒ 现在恒为 `nil`，卡上就不出现名字 —— **不拿掩码名顶替**。
+    /// 跑者姓氏。v4 起**卡上不写名字**（DECISION 第 7 条），字段留着只为旧卡认回时 attributes 能解。
     var runnerSurname: String?
     var meetingPointName: String
-    /// 计划开跑时刻。推送载荷里没有「晚到几分钟」，由 `arriveAt − plannedStart` 在卡上算
-    /// （后端 `EtaView.deltaVsStartMinutes` 同一个口径）。
+    /// 计划开跑时刻。V3 / V4 的标题与「晚到约 N 分钟」（`arriveAt − plannedStart`，
+    /// 后端 `EtaView.deltaVsStartMinutes` 同一个口径）都靠它。
     var plannedStart: Date?
 }
 
-// MARK: - 状态色
+// MARK: - 状态色（跑步卡仍在用）
 
-/// 锁屏卡的状态色（交付包 `01-design-tokens.md`，决定源 V13：状态色只用于头卡与锁屏卡）。
+/// 跑步卡的状态色（交付包 `01-design-tokens.md`）。
 ///
 /// widget target 编译不到 `AppColors`，所以这里是第二份取值，**必须与 `AppColors.Flow` 同名色同值**。
 /// 取**暗色档**（实时活动在锁屏上永远是深色呈现，不跟随系统亮暗，同 `RunLiveActivityPalette`）。
-/// 两份之间的连接是 `GuideRunActivityTests.testStatePaletteMatchesTheFlowPaletteDarkTones` ——
-/// 没有它，改 `FlowPalette` 不会有任何东西提示锁屏上还留着旧值。
+/// 两份之间的连接是 `GuideRunActivityTests.testStatePaletteMatchesTheFlowPaletteDarkTones`。
+/// v4 起陪跑员出发 / 汇合卡改用 `GuideRunCardPalette`，这里的出发 / 汇合色只剩对撞用例在读。
 enum LiveActivityStatePalette {
     /// 出发、快迟到：主蓝。
     static let stateDeparted: UInt32 = 0x2A5BD7
@@ -80,176 +116,49 @@ enum LiveActivityStatePalette {
     static let statePaused: UInt32 = 0x4B5263
     /// 快迟到的 ETA 文字、并肩后的绳子。
     static let gold: UInt32 = 0xFFD978
-    /// 出发卡左上角小图标的底。
-    static let yellow: UInt32 = 0xF6C343
-    static let onYellow: UInt32 = 0x1E1A0B
-    /// 「跑者已到集合点附近」前面那个绿点。
-    static let nearDot: UInt32 = 0x6BE79C
 
     /// 彩色底上的白字四档（`onHeroStrong / Body / Eyebrow / Track`）。
-    /// Body / Eyebrow 与 `AppColors.Flow.onHeroBodyOpacity / onHeroEyebrowOpacity` 同值（用例钉住）：
-    /// 交付包的 80% / 86% 在出发蓝上 4.36、汇合琥珀上 4.45 都够不到正文 4.5:1，app 侧已改成 90% / 94%。
+    /// Body / Eyebrow 与 `AppColors.Flow.onHeroBodyOpacity / onHeroEyebrowOpacity` 同值（用例钉住）。
     static let onHeroBodyOpacity = 0.94
     static let onHeroEyebrowOpacity = 0.90
     static let onHeroTrackOpacity = 0.22
-    /// 出发 / 汇合卡上 14–15pt 的小字取 Body 档。用例 `GuideRunActivityContrastTests` 钉住 ≥4.5:1。
-    static let smallTextOpacityOnGuideCard = onHeroBodyOpacity
-    /// 锁屏按钮的底：白色 12%。
-    static let buttonFillOpacity = 0.12
 }
 
-// MARK: - 文案
+/// 陪跑员卡 v4 的颜色（稿 `draft.html` 的 `:root`）。单独起名，不往 `LiveActivityStatePalette` 里加：
+/// 那个类型跑步卡也在用，#919 同期在改，同名常量两边各加一份会编不过。
+enum GuideRunCardPalette {
+    /// 卡底：深蓝（稿 `--navy`）。
+    static let navy: UInt32 = 0x1F2433
+    /// 已结束：灰（稿 `.la.stale`）。
+    static let ended: UInt32 = 0x3A3F4B
+    /// 快迟到 / 该出发了（稿 `--gold`）。
+    static let gold: UInt32 = 0xF6C343
+    /// 灵动岛「到了」（稿 `--greenDot`）。
+    static let positive: UInt32 = 0x5BD38E
+    /// 右侧通用人像（稿 `--avBg` / `--avInk`）。
+    static let avatarFill: UInt32 = 0xDDE6FF
+    static let avatarInk: UInt32 = 0x1F3A66
+    /// 副标题：白 64%（稿 `--sub`）。用例 `GuideRunActivityContrastTests` 钉住在两种卡底上 ≥4.5:1。
+    static let subtitleOpacity = 0.64
+    /// 右侧按钮底：白 16%（稿 `.btn`）。
+    static let buttonFillOpacity = 0.16
 
-enum GuideRunActivityCopy {
-    static let eyebrowDeparted = "助盲跑 · 正在赶去"
-    static let eyebrowArrived = "助盲跑 · 汇合中"
-    static let arrivedHeadline = "已到集合点"
-    static let departedWithoutEta = "已出发"
-    static let arrivingNow = "马上到"
-    static let compactArrived = "已到"
-    static let eyebrowEnded = "助盲跑 · 已结束"
-    static let endedHeadline = "引导已结束"
-    static let compactEnded = "已结束"
-    static let almostThere = "我快到了"
-    static let waitFiveMinutes = "再等我 5 分钟"
-    static let ringRunner = "让跑者的手机响起来"
-
-    /// 「8 分钟后到」。四舍五入到 0 时说「马上到」，不说「0 分钟后到」。
-    static func etaHeadline(minutes: Int?, late: Bool) -> String {
-        guard let minutes else { return departedWithoutEta }
-        guard minutes > 0 else { return arrivingNow }
-        return late ? "约 \(minutes) 分钟后到" : "\(minutes) 分钟后到"
+    static func color(_ rgb: UInt32) -> Color {
+        Color(
+            red: Double((rgb >> 16) & 0xFF) / 255,
+            green: Double((rgb >> 8) & 0xFF) / 255,
+            blue: Double(rgb & 0xFF) / 255
+        )
     }
-
-    /// 快迟到时跟在 ETA 后面的那一段。晚到不足 1 分钟（或算不出来）时不写。
-    static func lateSuffix(lateMinutes: Int?) -> String? {
-        guard let lateMinutes, lateMinutes > 0 else { return nil }
-        return "晚到约 \(lateMinutes) 分钟"
-    }
-
-    static func compactEta(minutes: Int?) -> String {
-        guard let minutes else { return departedWithoutEta }
-        return minutes > 0 ? "\(minutes) 分钟" : arrivingNow
-    }
-
-    /// 决定源 V11：**整句用「跑者」**，姓氏只进短标签（引导绳上的圆点）。
-    static func runnerNear(meetingPoint: String) -> String {
-        let place = meetingPoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        return place.isEmpty ? "跑者已到集合点附近" : "跑者已到\(place)附近"
-    }
-
-    /// 汇合时第 4 行。取值与 App 内汇合页 `MeetCopy` 同口径，只是名字一律换成「跑者」。
-    /// `UNKNOWN` 与缺省不写 —— 锁屏上没地方解释「看不到位置」是什么意思。
-    static func meetLine(distanceBucket: String?) -> String? {
-        switch distanceBucket {
-        case "WITHIN_10": return "跑者就在你身边"
-        case "WITHIN_50", "WITHIN_100": return "跑者就在附近"
-        case "FAR": return "跑者还没到集合点"
-        default: return nil
-        }
-    }
-
-    /// 「6:57」—— 到达时间只在锁屏卡上出现这一次。
-    static func clock(_ date: Date) -> String {
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-        return String(format: "%d:%02d", parts.hour ?? 0, parts.minute ?? 0)
-    }
-
-    /// 读屏念的时间：「6 点 57 分」。
-    static func spokenClock(_ date: Date) -> String {
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-        return "\(parts.hour ?? 0) 点 \(parts.minute ?? 0) 分"
-    }
-}
-
-// MARK: - 卡上要画什么（纯函数，app 与 widget 都用）
-
-/// 把 `ContentState` + attributes 解成卡上每一行的文字。**widget 只照着画**，
-/// 所以 app target 的用例能把「快迟到」「汇合」各长什么样逐字钉住。
-@available(iOS 16.2, *)
-struct GuideRunActivityPresentation: Equatable {
-    let eyebrow: String
-    let headline: String
-    let headlineIsLate: Bool
-    /// 「6:57」。汇合时为 `nil`。
-    let arriveClock: String?
-    let lateSuffix: String?
-    let statusLine: String?
-    let compactTrailing: String
-    let background: UInt32
-    let progress: Double
-    let actions: [GuideRunActivityAction]
-    /// 已结束时引导绳不再有意义（人已经不在引导途中），不画。
-    let showsRope: Bool
-    let accessibilityLabel: String
-
-    init(attributes: GuideRunAttributes, state: GuideRunAttributes.ContentState) {
-        if state.phase == .ended {
-            eyebrow = GuideRunActivityCopy.eyebrowEnded
-            headline = GuideRunActivityCopy.endedHeadline
-            headlineIsLate = false
-            arriveClock = nil
-            lateSuffix = nil
-            statusLine = nil
-            compactTrailing = GuideRunActivityCopy.compactEnded
-            // 与跑步卡「已暂停」同一块灰：已经不更新的卡不该还像在途那样亮着。不新增色。
-            background = LiveActivityStatePalette.statePaused
-            progress = 0.1
-            actions = []
-            showsRope = false
-            accessibilityLabel = "\(eyebrow.replacingOccurrences(of: " · ", with: "，"))，\(headline)"
-            return
-        }
-        showsRope = true
-        let isArrived = state.phase == .arrived
-        let isLate = state.phase == .late
-        eyebrow = isArrived ? GuideRunActivityCopy.eyebrowArrived : GuideRunActivityCopy.eyebrowDeparted
-        headlineIsLate = isLate
-        if isArrived {
-            headline = GuideRunActivityCopy.arrivedHeadline
-            arriveClock = nil
-            lateSuffix = nil
-            statusLine = GuideRunActivityCopy.meetLine(distanceBucket: state.distanceBucket)
-            compactTrailing = GuideRunActivityCopy.compactArrived
-            actions = [.ringRunner]
-        } else {
-            headline = GuideRunActivityCopy.etaHeadline(minutes: state.etaMinutes, late: isLate)
-            arriveClock = state.arriveAt.map(GuideRunActivityCopy.clock)
-            let lateMinutes: Int? = isLate
-                ? zip2(state.arriveAt, attributes.plannedStart).map { Int(($0.timeIntervalSince($1) / 60).rounded()) }
-                : nil
-            lateSuffix = GuideRunActivityCopy.lateSuffix(lateMinutes: lateMinutes)
-            statusLine = state.runnerNearMeetingPoint
-                ? GuideRunActivityCopy.runnerNear(meetingPoint: attributes.meetingPointName)
-                : nil
-            compactTrailing = GuideRunActivityCopy.compactEta(minutes: state.etaMinutes)
-            actions = [.almostThere, .waitFiveMinutes]
-        }
-        background = isArrived ? LiveActivityStatePalette.stateArrived : LiveActivityStatePalette.stateDeparted
-        progress = isArrived ? 0.85 : min(max(state.progress, 0.1), 0.85)
-
-        // 读屏一站念完（交付包 04「可访问性」）：「助盲跑，正在赶去，8 分钟后到，6 点 57 分，跑者已到…附近」。
-        let spokenEyebrow = eyebrow.replacingOccurrences(of: " · ", with: "，")
-        accessibilityLabel = [
-            spokenEyebrow,
-            headline,
-            lateSuffix,
-            isArrived ? nil : state.arriveAt.map(GuideRunActivityCopy.spokenClock),
-            statusLine,
-        ]
-        .compactMap { $0 }
-        .joined(separator: "，")
-    }
-}
-
-private func zip2<A, B>(_ a: A?, _ b: B?) -> (A, B)? {
-    guard let a, let b else { return nil }
-    return (a, b)
 }
 
 // MARK: - 锁屏按钮背后的意图
 
-/// 锁屏卡上的三个按钮。原始值是 intent 的参数（`@Parameter` 只收基础类型）。
+/// 锁屏卡上的按钮。原始值是 intent 的参数（`@Parameter` 只收基础类型）。
+///
+/// v4 起出发卡只放 `.almostThere`、到达卡只放 `.ringRunner`（DECISION 第 9 条）；
+/// `.waitFiveMinutes` 不再上卡（「再等我 5 分钟」进 App），case 留着是因为升级前起的旧卡上
+/// 还有这枚按钮，按下去仍要能执行。
 enum GuideRunActivityAction: String, CaseIterable, Sendable {
     case almostThere
     case waitFiveMinutes
@@ -277,7 +186,7 @@ enum GuideRunActivityActions {
     struct NotConfigured: Error {}
 }
 
-/// 「我快到了」「再等我 5 分钟」「让跑者的手机响起来」。
+/// 「我快到了」「让他手机响」（以及旧卡上的「再等我 5 分钟」）。
 ///
 /// `LiveActivityIntent` ⇒ 系统在 **app 进程**里执行 `perform()`，不打开 App。
 @available(iOS 17.0, *)

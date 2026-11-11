@@ -39,6 +39,7 @@ extension VolunteerHomeViewModel {
                 .flatMap(\.content)
                 .filter { Self.upcomingVolunteerStatuses.contains($0.status) && seen.insert($0.orderId).inserted }
                 .sorted { ($0.plannedStart ?? "\u{FFFF}") < ($1.plannedStart ?? "\u{FFFF}") }
+            startPreStartLiveActivityIfDue()
         }
         switch (scheduled, pendingAccept) {
         case (.success, _), (_, .success):
@@ -53,6 +54,22 @@ extension VolunteerHomeViewModel {
                 ? "预约列表加载失败，如果你有还没到时间的预约，请下拉刷新再看一次。"
                 : "预约列表刷新失败，显示的是上一次的内容。"
         }
+    }
+
+    /// 实时活动第二段的起点 V4「开跑前 30 分钟」（#920）。首页 10 秒刷新一次、回前台也刷新，
+    /// 都会走到这里；列表已按开跑时刻升序，取第一张进了 30 分钟的。
+    /// **只起不收**：列表里没有到点的单不代表手上没有别的卡，收卡归订单页与通话页。
+    ///
+    /// ponytail: ActivityKit 不许后台本地起卡，所以开跑前 30 分钟内没打开过 App 就没有 V4；
+    /// 升级路径是后端 push-to-start（iOS 17.2+）。
+    func startPreStartLiveActivityIfDue(now: Date = Date()) {
+        guard #available(iOS 16.2, *),
+              let next = scheduledOrders.first(where: {
+                  GuideRunActivityContentBuilder.isInPreStartWindow(
+                      status: $0.status, plannedStart: $0.plannedStart?.backendTimestamp, now: now
+                  )
+              }) else { return }
+        GuideRunActivityController.shared.sync(order: next, now: now)
     }
 
     /// 临期确认「我还会去」（`SCHEDULED_CONFIRMED → PENDING_ACCEPT`）。
