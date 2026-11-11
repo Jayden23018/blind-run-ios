@@ -31,14 +31,12 @@ struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
                     sheet
                 }
             }
-            // 往下拉过头时露出来的也是深色，不是白底断层。
-            .background(alignment: .top) {
-                BlindOrderV7Palette.headerTop.frame(height: 400)
-            }
             .background(AppColors.Flow.surface)
             bottomPanel
         }
         .background(AppColors.Flow.surface.ignoresSafeArea())
+        // 系统导航栏藏掉之后，读屏「两指 Z」不再自动返回；接到顶栏同一个返回动作上。
+        .accessibilityAction(.escape) { topBar.onBack() }
     }
 
     private var header: some View {

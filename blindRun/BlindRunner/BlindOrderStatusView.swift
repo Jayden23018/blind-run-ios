@@ -683,7 +683,7 @@ struct BlindOrderStatusView: View {
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
         }
-        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true, isFrontmost: !(showSafetyHub || showEmergencyCountdown || showRunnerMessage)) // #660
+        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true, isFrontmost: !(showSafetyHub || showEmergencyCountdown || showRunnerMessage || viewModel.order?.status == .pendingIntroCall)) // #660；通话那一步照旧不插播（原先由通话全屏页挡住）
         .modifier(OrderSafetyRequestPresenter(
             request: safetyRequest,
             isOrderLoaded: { viewModel.order != nil },
