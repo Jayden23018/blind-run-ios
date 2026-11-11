@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>上线前低视力小修 改前 / 改后（2026-11-11，#759 #688 #748 #870）</title>
+<style>
+  :root{--ink:#14171F;--ink2:#4A4F5C;--page:#F2F3F6;--surf:#fff;--blue:#0058C7;--g5:#E5E5EA;--sec:#5F6470;--red:#B3261E}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:#E4E5E9;color:var(--ink);padding:28px 32px 40px}
+  h1{font-size:22px;margin-bottom:6px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:20px}
+  h2{font-size:16px;margin:26px 0 4px}
+  .why{font-size:12.5px;color:var(--ink2);line-height:1.6;max-width:1300px;margin-bottom:10px}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .card{width:420px;border-radius:14px;padding:14px;background:var(--page)}
+  .card.dark{background:#000;color:#fff}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;margin-bottom:10px}
+  .before .tag{background:#F6D6D3;color:var(--red)} .after .tag{background:#D4EBD9;color:#1B6B30}
+  .btn{height:56px;border-radius:28px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;margin:8px 0}
+  .on{background:var(--blue);color:#fff}
+  .off{background:var(--g5);color:var(--sec)}
+  .dark .off{background:#2C2C2E;color:#A0A4AE}
+  .dim{opacity:.45}
+  .cap{font-size:12px;color:var(--ink2);margin:2px 0}
+  .dark .cap{color:#B6B9C2}
+  .tiles{display:grid;grid-template-columns:1fr;gap:10px}
+  .tile{border:1.5px solid rgba(20,23,31,.85);border-radius:14px;padding:12px;min-height:104px;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:6px;background:var(--surf)}
+  .tile b{font-size:26px}.tile span{font-size:19px;color:var(--sec)}
+  .nav{height:44px;display:flex;align-items:center;padding:0 6px;font-size:17px;color:var(--blue)}
+  .big{font-size:34px;font-weight:700;padding:4px 6px 10px}
+  .big.gone{color:transparent;border:1px dashed #C9CCD3}
+  .sq{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sq i{height:70px;border-radius:14px;display:block}
+  .bal{background:#fff;border-radius:14px;padding:14px;font-size:15px;margin-bottom:10px}
+  .bal b{font-size:34px}
+  .rowitem{background:#fff;padding:10px 14px;font-size:16px;border-bottom:1px solid #E6E7EB;display:flex;justify-content:space-between}
+  .fail{margin:12px 0;font-size:17px;line-height:1.5}
+  .fail .retry{display:inline-block;margin-top:8px;color:var(--blue);font-weight:600;font-size:17px;min-height:44px;line-height:44px}
+  .more{color:var(--blue);font-weight:600;text-align:center;min-height:44px;line-height:44px;font-size:17px}
+  .ask{color:var(--red);font-weight:600}
+</style>
+</head>
+<body>
+<h1>上线前低视力小修：改前 / 改后（#759 #688 #748 #870）</h1>
+<p class="lead">一页放 4 项。<b>绿色「改后」是我准备做的样子；红色「改前」是现在的样子。</b>下面的屏幕是示意，不是真机截图（负责人 11-05 定：不跑真机）。颜色取自代码里的现值：主按钮蓝 #0058C7、不可用灰底 systemGray5、不可用字 textSecondary。<br>
+<span class="ask">要你确认：</span>① 这四项样子对不对；② #688 看上去不变，只换了里面的容器，你同意这样修吗；③ #870 失败卡放在「查看更早的记录」上面，对吗。</p>
+
+<h2>① #759 不能点的主按钮：外层不再压透明度（提交 / 上传两处）</h2>
+<p class="why">按钮样式自己在不可用时已经换成灰底灰字（亮 5.3:1、暗 6.3:1）。外面又乘 0.45，字和底几乎一样淡，低视力用户读不出按钮叫什么。改后只剩样式自己的灰底灰字。</p>
+<div class="row">
+  <div class="card before"><span class="tag">改前 · 亮</span>
+    <div class="cap">可点</div><div class="btn on">提交</div>
+    <div class="cap">不可点（外层再压 0.45）</div><div class="btn off dim">提交</div></div>
+  <div class="card after"><span class="tag">改后 · 亮</span>
+    <div class="cap">可点（不变）</div><div class="btn on">提交</div>
+    <div class="cap">不可点（只用样式自己的灰底灰字）</div><div class="btn off">提交</div></div>
+  <div class="card dark before"><span class="tag">改前 · 暗</span>
+    <div class="cap">不可点（外层再压 0.45）</div><div class="btn off dim">上传</div></div>
+  <div class="card dark after"><span class="tag">改后 · 暗</span>
+    <div class="cap">不可点</div><div class="btn off">上传</div></div>
+</div>
+<p class="why" style="margin-top:8px">范围说明：issue 列了 5 处，其中 3 处（实名页、个人资料页、订单详情页）现在代码里已经没有 0.45，只剩「提交」（志愿者资料）和「上传」（资质证书）两处。人脸认证页「改用其他方式」按钮也有 0.45，但它是自绘的次按钮，没有自己的不可用样式，去掉就看不出禁用，这次不动。</p>
+
+<h2>② #688 求助中心方格：字本来就能放大，换掉容器让审计看得到</h2>
+<p class="why">这几格的字用的是系统 body / caption，真机放到最大字号照样变大。审计报「改不了字号」，原因推断是方格放在「懒加载」容器里，放大后排到屏外的格子审计看不到。改后：把懒加载网格换成普通的行（默认字号两格一行，大字号一格一行）。<b>看上去一个像素都不变，字、文案、64pt 触达、编号都不动。</b>这个原因是按过往真机实验推断的，我不能跑真机验，所以用例里「已知红灯」那一行先保留，等你真机验过再删。</p>
+<div class="row">
+  <div class="card before"><span class="tag">改前（最大字号一列）</span>
+    <div class="tiles"><div class="tile"><b>拨打120</b><span>摔倒、受伤、身体不适</span></div><div class="tile"><b>拨打联系人</b><span>电话打给主紧急联系人</span></div></div></div>
+  <div class="card after"><span class="tag">改后（看上去相同）</span>
+    <div class="tiles"><div class="tile"><b>拨打120</b><span>摔倒、受伤、身体不适</span></div><div class="tile"><b>拨打联系人</b><span>电话打给主紧急联系人</span></div></div></div>
+</div>
+
+<h2>③ #748 陪跑员「我的」：顶部大标题画出来</h2>
+<p class="why">现在导航栏常显一块实底，把大标题「我的」盖住，屏上只剩底色（读屏不受影响）。改后去掉「常显」，与盲人端「我的」同写法：在顶部时标题显示，上推后系统自己换成带底色的栏。</p>
+<div class="row">
+  <div class="card before"><span class="tag">改前</span>
+    <div class="nav"></div><div class="big gone">我的</div>
+    <div class="sq"><i style="background:#D7263D"></i><i style="background:#2E9E5B"></i></div></div>
+  <div class="card after"><span class="tag">改后</span>
+    <div class="nav"></div><div class="big">我的</div>
+    <div class="sq"><i style="background:#D7263D"></i><i style="background:#2E9E5B"></i></div></div>
+</div>
+
+<h2>④ #870 积分页「查看更早的记录」翻页失败：可见、可听</h2>
+<p class="why">现在点了翻页、请求失败，按钮恢复原样，屏上没字，也不念。改后在按钮上方出现一张失败卡：一句文案 + 「重新加载」，出现时会念出来；点「重新加载」翻的还是同一页。已显示的记录不动。文案沿用页面现有的失败说法，不新写。</p>
+<div class="row">
+  <div class="card before"><span class="tag">改前（失败后）</span>
+    <div class="bal">已有记录若干行…</div>
+    <div class="rowitem"><span>完成陪跑</span><b>+10</b></div><div class="rowitem"><span>完成陪跑</span><b>+10</b></div>
+    <div class="more">查看更早的记录</div></div>
+  <div class="card after"><span class="tag">改后（失败后）</span>
+    <div class="bal">已有记录若干行…</div>
+    <div class="rowitem"><span>完成陪跑</span><b>+10</b></div><div class="rowitem"><span>完成陪跑</span><b>+10</b></div>
+    <div class="fail">积分加载失败，请稍后重试。<br><span class="retry">重新加载</span></div>
+    <div class="more">查看更早的记录</div></div>
+</div>
+</body>
+</html>

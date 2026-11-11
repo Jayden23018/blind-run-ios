@@ -21,6 +21,7 @@ Claude Design 官方自认「没有版本历史」（[support.claude.com 原文]
 
 | 界面 | 目录 | 状态 | 取代关系 | 决定源（冲突听谁） | 实现落点 | 已知偏差 / 对照状态 |
 |---|---|---|---|---|---|---|
+| 上线前低视力小修四项：不可点主按钮去掉外层 0.45 透明度（#759）、求助中心方格换非懒加载容器（#688，外观不变）、陪跑员「我的」大标题画出来（#748）、积分页翻页失败出现失败卡（#870） | `lowvision-fixes-20261111/`（`draft.html` + `draft.png`，四项改前 / 改后各一组） | 待确认（等负责人看图） | 不取代任何设计稿；只改现有页面的小缺陷 | issue #759 #688 #748 #870 | `VolunteerModule.swift` `VolunteerCertificateUploadView.swift` `SafetyHubView.swift` `VolunteerSettingsView.swift` `VolunteerPointsView.swift` | 未实现（批准后才改 Swift） |
 | 陪跑员端 首页·准入·邀请卡 | `volunteer-home-accept-v3/` | Current | 其中「订单页」一节被下一行取代 | 包内 `陪跑员端首页与接单-设计交付文档-v3.md`；视觉基准 `storyboard-v3.html` | `VolunteerHomeView.swift` `VolunteerTabView.swift` `VolunteerInviteSheet.swift` `VolunteerInviteQueue.swift` | 已落地：#154 #157 #159 #161。未逐屏对照 |
 | 陪跑员端 首页「我的预约」卡（确认我还会去 / 我去不了） | —（没有单独的稿：v3 首页包与 v2 订单页包都没画这张卡） | Current | 上一行 v3 首页包**不覆盖**这张卡 | **订单页 v2「约好」屏**（`volunteer-order-page-v2/`，组件即 `FlowActionButton(.raisedPrimary)` + `FlowTextButton` + `VolunteerCancelSheet`）＋ 负责人 2026-10-17 拍板（#463 评论）：样式照「约好」屏；「我去不了」保留二次确认，不跟 v3 邀请卡的「5 秒撤销」，确认层与订单页同一个 | `VolunteerHomeView.swift` `VolunteerScheduledOrdersSection` | 落地：#463。与订单页的唯一差异：「我去不了」可点区 64pt（订单页 44pt 是 `design-direction.md` §6.1 例外，首页不在其内），是有意的。真机亮 / 暗、默认 / AX5 截图见 #463 的 PR |
 | 陪跑员订单页 **v1**（邀请→约好→出发→汇合→完成） | `volunteer-order-page-v1/` | Superseded | 被 v2 取代 | — | 同下一行 | v1 已实现：#212 #216。⚠️ 这两条提交标题里的「订单页 v2」是**后端说明文件名**（`volunteer-order-page-v2-ios-handoff.md`），不是交付包 v2 —— 两套编号别混 |
