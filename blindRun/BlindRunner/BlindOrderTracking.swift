@@ -69,6 +69,23 @@ enum BlindTrackingDrawerCopy {
     }
 }
 
+// MARK: - 抽屉里的竖线
+
+extension BlindOrderTrackingLayout {
+    /// ⑤–⑧ 抽屉里那条竖线的输入。`nil` = 这一态不画竖线。
+    ///
+    /// 不折叠（`folds: false`）：竖线只在拉到顶时才完整看得见，那时五步平铺（稿 C 帧）。
+    /// 「等出发」下写「已出发」：稿上是「陈 0:58 出发」，出发时刻要读状态流水，这一页不拉，按稿的兜底只写「已出发」。
+    static func timelineInput(status: RunOrderStatus, place: String?) -> BlindOrderTimelineInput? {
+        guard status.usesBlindTrackingMap, let position = status.blindOrderTimelinePosition else { return nil }
+        var details: [BlindOrderTimelineStep: String] = [.awaitDeparture: "已出发"]
+        if position == .current(.meetUp) {
+            details[.meetUp] = BlindTrackingDrawerCopy.waitInPlace(place: place)
+        }
+        return BlindOrderTimelineInput(position: position, details: details, folds: false)
+    }
+}
+
 // MARK: - 地图画什么
 
 /// 地图这一刻的全部内容。由 `BlindOrderTrackingLayout.mapContent` 算，视图只消费。
@@ -88,8 +105,8 @@ enum BlindOrderTrackingLayout {
     static let singlePointZoom: CGFloat = 17
     /// 上半屏地图占可用高度的比例（稿 ⑤：地图约占上半屏）。
     static let mapHeightFraction: CGFloat = 0.48
-    /// 抽屉拉到顶时，地图还露出的那一条（稿 C 帧）。
-    static let expandedMapStrip: CGFloat = 72
+    /// 抽屉拉到顶时，地图还露出的那一条（稿 C 帧）。要放得下顶栏（命中区 64pt）。
+    static let expandedMapStrip: CGFloat = 76
 
     static let meetPointID = "tracking-meet-point"
     static let volunteerID = "tracking-volunteer"

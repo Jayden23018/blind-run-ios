@@ -72,8 +72,12 @@ extension BlindOrderStatusView {
         }
     }
 
-    /// 订单页 v7 ⑤–⑧（#918）。竖线插槽等 #917 的时间轴组件，合并前先空着。
-    /// 底栏「求助与安全」暂留：顶栏求助胶囊（#917）接上后再撤。
+    /// 这一刻是不是 v7 ⑤–⑧ 地图页。导航栏、工具栏的分流都读它（同 `usesStagePage`）。
+    var usesTrackingMapPage: Bool {
+        flowPresentation != nil && viewModel.order?.status.usesBlindTrackingMap == true
+    }
+
+    /// 订单页 v7 ⑤–⑧（#918）。竖线与顶栏用 #917 的组件；求助只在右上角胶囊，底栏只剩主按钮。
     private func mapTrackingContent(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> some View {
         let route = order.status == .completed
             ? (trackViewModel.track?.primaryRouteCoordinates).flatMap { $0.count >= 2 ? $0 : nil } ?? viewModel.liveRunRoute
@@ -87,19 +91,8 @@ extension BlindOrderStatusView {
                 me: locationService.currentLocation == nil ? nil : locationService.effectiveBackendLocation,
                 route: route
             ),
-            bottom: OrderFlowBottomActions(
-                owner: .blindRunner,
-                primary: presentation.primaryAction.map { action in
-                    OrderFlowPrimaryAction(
-                        title: action.title,
-                        systemImage: action.systemImage,
-                        isEnabled: action.isEnabled,
-                        accessibilityHint: action.blindAccessibilityHint,
-                        action: { handleFlowPrimaryAction(presentation, order: order) }
-                    )
-                },
-                safetyHub: OrderFlowSafetyHubAction(action: { showSafetyHub = true })
-            ),
+            topBar: mapTrackingTopBar,
+            bottom: mapTrackingBottom(presentation, order: order),
             drawer: {
                 BlindOrderTrackingDrawer(
                     presentation: presentation,
@@ -113,8 +106,43 @@ extension BlindOrderStatusView {
                     onArrivalCancel: { showCancelConfirmation = true }
                 )
             },
-            timeline: { EmptyView() },
+            timeline: {
+                if let input = BlindOrderTrackingLayout.timelineInput(
+                    status: order.status,
+                    place: order.meetSpotNote?.nilIfBlank ?? order.startAddress?.nilIfBlank
+                ) {
+                    BlindOrderTimelineView(input: input) { _ in EmptyView() }
+                }
+            },
             footer: { flowSkeletonFooter(order) }
+        )
+    }
+
+    /// ⑤–⑧ 顶栏：压在地图上。求助走云端还是本地拨号由 `sosMode` 判（只有 `IN_PROGRESS` 是云端）。
+    private var mapTrackingTopBar: BlindOrderTopBar {
+        BlindOrderTopBar(
+            surface: .onMap,
+            onBack: { dismiss() },
+            onRepeatStatus: { viewModel.repeatStatus() },
+            sosMode: sosMode,
+            onHelp: { showSafetyHub = true }
+        )
+    }
+
+    /// ⑤–⑧ 底栏：只剩主按钮。求助已挪到右上角胶囊（DECISION 第 1 条），这里不再放第二个版位。
+    private func mapTrackingBottom(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> OrderFlowBottomActions {
+        OrderFlowBottomActions(
+            owner: .blindRunner,
+            primary: presentation.primaryAction.map { action in
+                OrderFlowPrimaryAction(
+                    title: action.title,
+                    systemImage: action.systemImage,
+                    isEnabled: action.isEnabled,
+                    accessibilityHint: action.blindAccessibilityHint,
+                    action: { handleFlowPrimaryAction(presentation, order: order) }
+                )
+            },
+            safetyHub: nil
         )
     }
 

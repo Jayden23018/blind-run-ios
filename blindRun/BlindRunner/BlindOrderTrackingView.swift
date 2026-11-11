@@ -19,10 +19,12 @@ struct BlindTrackingMapInput {
 /// - 读屏打开：竖线恒显示，排在抽屉内容最后；拖动条给「展开 / 收起」两个读屏动作。
 /// - 最大字号或横屏：不画地图，抽屉占满整屏可滚动。
 ///
-/// 竖线本身由 #917 的时间轴组件提供，这里只留 `timeline` 插槽。
-struct BlindOrderTrackingView<Drawer: View, Timeline: View, Footer: View>: View {
+/// 竖线（`BlindOrderTimelineView`）与顶栏（`BlindOrderTopBar`，`.onMap`）都是 #917 的组件，由调用方传进来。
+struct BlindOrderTrackingView<TopBar: View, Drawer: View, Timeline: View, Footer: View>: View {
     let status: RunOrderStatus
     let mapInput: BlindTrackingMapInput
+    /// 返回 / 重复当前状态 / 右上角求助。压在地图上；最大字号下排在抽屉上面。
+    let topBar: TopBar
     let bottom: OrderFlowBottomActions
     @ViewBuilder let drawer: () -> Drawer
     @ViewBuilder let timeline: () -> Timeline
@@ -74,6 +76,9 @@ struct BlindOrderTrackingView<Drawer: View, Timeline: View, Footer: View>: View 
         return ZStack(alignment: .top) {
             BlindTrackingMap(status: status, input: mapInput, size: CGSize(width: size.width, height: mapHeight))
                 .frame(height: mapHeight)
+            // 读屏顺序：顶栏在前（返回、喇叭、求助），然后才是抽屉。
+            topBar
+                .accessibilitySortPriority(1)
             drawerPanel(progress: progress, collapsedTop: collapsedTop, expandedTop: expandedTop)
                 .frame(height: max(0, size.height - top))
                 .frame(maxHeight: .infinity, alignment: .bottom)
@@ -103,9 +108,12 @@ struct BlindOrderTrackingView<Drawer: View, Timeline: View, Footer: View>: View 
     // MARK: - 最大字号 / 横屏：抽屉占满
 
     private var fullDrawer: some View {
-        ScrollView {
-            drawerColumn(timelineOpacity: 1)
-                .padding(.top, 8)
+        VStack(spacing: 0) {
+            topBar
+            ScrollView {
+                drawerColumn(timelineOpacity: 1)
+                    .padding(.top, 8)
+            }
         }
         .background(AppColors.Flow.surface)
     }

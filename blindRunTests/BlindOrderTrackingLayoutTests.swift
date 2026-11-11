@@ -108,6 +108,26 @@ final class BlindOrderTrackingLayoutTests: XCTestCase {
         ))
     }
 
+    // MARK: - 抽屉里的竖线
+
+    /// 拉到顶时五步平铺，不折叠；出发 / 已到达落在「在集合点汇合」，并写清在哪等。
+    func testTimelineInputIsUnfoldedAndNamesThePlace() throws {
+        let input = try XCTUnwrap(BlindOrderTrackingLayout.timelineInput(status: .driverEnRoute, place: "南门"))
+        XCTAssertFalse(input.folds)
+        XCTAssertEqual(input.position, .current(.meetUp))
+        XCTAssertEqual(input.details[.meetUp], "请在南门原地等")
+        XCTAssertEqual(input.details[.awaitDeparture], "已出发")
+    }
+
+    func testTimelineInputForRunningAndCompleted() throws {
+        let running = try XCTUnwrap(BlindOrderTrackingLayout.timelineInput(status: .inProgress, place: nil))
+        XCTAssertEqual(running.position, .current(.startRun))
+        XCTAssertNil(running.details[.meetUp])
+        let done = try XCTUnwrap(BlindOrderTrackingLayout.timelineInput(status: .completed, place: nil))
+        XCTAssertEqual(done.position, .allDone)
+        XCTAssertNil(BlindOrderTrackingLayout.timelineInput(status: .scheduledConfirmed, place: nil))
+    }
+
     // MARK: - 抽屉标题
 
     func testDrawerTitlesFollowTheMockup() {
