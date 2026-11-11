@@ -1139,6 +1139,9 @@ public struct Client: APIProtocol {
     /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
     /// 按当前账号下发，换账号要重新读。
     ///
+    /// `maxLeadDays`（#935，2026-11-07）：最远可以约到今天往后第几天，约跑页的日期选择器用它，默认 30。
+    /// iOS 读不到这个字段时（连的是还没升级的后端）退回 7，那是改动前的值。
+    ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
     ///
@@ -1978,7 +1981,7 @@ public struct Client: APIProtocol {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 30 天，客户端读 `GET /api/config/rules` 的 `maxLeadDays`），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
     ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
@@ -2491,7 +2494,7 @@ public struct Client: APIProtocol {
     ///
     /// "明天八点从人民广场出发跑一小时，我带导盲犬" 一句话抽必填三槽 + 可选的额外需求。
     ///
-    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（默认 7 天）/ 时长超 10~300 分钟）的**必填**槽位，
+    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（`app.order.max-lead-days`，默认 30 天）/ 时长超 10~300 分钟）的**必填**槽位，
     /// 客户端就那几项退化回向导逐项追问，不必让用户整句重说；missing 为空时 ttsText 是读回确认文案。
     ///
     /// **额外需求（hasGuideDog / pacePreference / specialNotes）是可选槽位，永不进 missing**：
