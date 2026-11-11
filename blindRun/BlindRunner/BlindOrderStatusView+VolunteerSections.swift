@@ -85,45 +85,6 @@ extension BlindOrderStatusView {
         }
     }
 
-    /// 进通话页的入口。通话本身整个在 `BlindIntroCallView` 里，这里只有一个按钮。
-    ///
-    /// 🚩 **它不能因为「反正会自动弹」而省掉。** 自动弹出只发生在 `status` **变化**那一跳，
-    /// 而用户按过「返回订单」之后本轮就不再自动弹（`BlindIntroCallPresentation`）——
-    /// 没有这个按钮，他此刻回不去了：状态卡还在念「有位志愿者想陪你跑，可以打个电话聊聊」，
-    /// 而屏幕上没有任何入口。那与 `introCallUnavailable` 当初修的是同一类缺陷。
-    ///
-    /// 还有一条更细的路会绕过自动弹出：同一次通话磨合里换候选人要经过 `PENDING_MATCH`
-    /// （`AGENTS.md` §5），而这一页 5 秒轮一次 —— 后端立刻派给下一位时，那个中间态
-    /// 可能整个落在两次轮询之间。客户端看到的是 `PENDING_INTRO_CALL → PENDING_INTRO_CALL`，
-    /// `onChange` 不触发。
-    ///
-    /// 版位与 `volunteerCallSection` / `keepWaitingSection` 相同、状态集互斥
-    /// （`.pendingIntroCall` 不在 `offersVolunteerCall` 也不在 `offersKeepWaiting` 里），
-    /// 所以读屏遍历时状态卡之后紧跟的永远是此刻唯一该做的那件事。
-    ///
-    /// 🚨 文案**不许复用 `callButtonTitle`**（「打电话给这位志愿者」）：那个按钮按下去
-    /// 立刻弹系统拨号确认，这个按钮只是打开一个页面。对看不见屏幕的人，两件事听起来
-    /// 一样就等于随时可能误拨。
-    @ViewBuilder
-    func introCallEntrySection(_ order: OrderDetailResponse) -> some View {
-        if order.status == .pendingIntroCall {
-            Button {
-                introCallPresentation.isShowing = true
-            } label: {
-                Text(IntroCallCopy.blindEntryButtonTitle)
-                    .font(AppFonts.largeTitle())
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: primaryActionButtonHeight)
-                    .background(AppColors.primary)
-                    .cornerRadius(16)
-            }
-            .accessibilityLabel(IntroCallCopy.blindEntryButtonTitle)
-            .accessibilityHint(IntroCallCopy.blindEntryAccessibilityHint)
-            .accessibilityIdentifier("blindOrderStatusIntroCallEntryButton")
-        }
-    }
-
     /// 等待期这一页唯一的主动作。
     ///
     /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字写着「点击继续等待可延长」，在这个按钮

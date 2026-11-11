@@ -110,10 +110,8 @@ final class ScreenTourTests: XCTestCase {
 
     @MainActor func testTour_B21_IntroCall() {
         let app = launchBlind(emptyOrders: false, seed: "PENDING_INTRO_CALL")
+        // 订单页 v7（#917）：通话在订单页同页显示，点进订单就是通话那一步。
         _ = tapIfAppears(app, "blindRunnerHomeOrderCard")
-        guard tapIfAppears(app, "blindOrderStatusIntroCallEntryButton") else {
-            return shoot(app, "B21-intro-call", anchor: "blindIntroCallTitle")
-        }
         shoot(app, "B21-intro-call", anchor: "blindIntroCallTitle", scroll: true)
     }
 

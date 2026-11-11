@@ -3,7 +3,10 @@ import SwiftUI
 extension BlindOrderStatusView {
     @ViewBuilder
     var content: some View {
-        if let presentation = flowPresentation, let order = viewModel.order {
+        if let order = viewModel.order, BlindOrderStage.resolve(order.status) != nil {
+            // 订单页 v7 ①–④（#917）：匹配中、商量见面安排、已约好。出发起仍走下面的骨架（#918 另做）。
+            stageContent(order)
+        } else if let presentation = flowPresentation, let order = viewModel.order {
             // 设计稿的骨架。**六幕共用同一套布局**，只换内容 —— 改版前每态一个
             // 独立页面，而 iOS 切页时 VoiceOver 会把焦点移回第一个元素，读屏用户每次
             // 都要从头找。单页原地更新让焦点保持不动，只播报变化。
@@ -166,7 +169,7 @@ extension BlindOrderStatusView {
     /// 而空号在界面上看不出任何异常（守卫 `raw-open-url` 拦绕开它的写法）。
     /// 拿不到号码时**出声**：按钮只在拼得出 URL 时才渲染，走到这里说明轮询间号码被收回了 ——
     /// 静默 return 在盲人端就是「点了没反应」。
-    private func dialVolunteer(_ order: OrderDetailResponse) {
+    func dialVolunteer(_ order: OrderDetailResponse) {
         guard let url = EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) else {
             speechService.speakError("暂时无法获取陪跑员电话，请稍后重试。")
             return
@@ -182,7 +185,8 @@ extension BlindOrderStatusView {
         case .callVolunteer:
             dialVolunteer(order)
         case .openIntroCall:
-            introCallPresentation.isShowing = true
+            // 通话态 2026-11-11 起走 v7 同页（`stageContent`），骨架不再渲染这一态，走不到这里。
+            break
         case .keepWaiting:
             Task { await viewModel.keepWaiting() }
         case .startRun:
@@ -229,7 +233,6 @@ extension BlindOrderStatusView {
                     // 而此刻用户唯一还能做的决定是「要不要取消」。
                     statusHeader(order)
                         .accessibilityFocused($statusHeaderFocused)
-                    introCallEntrySection(order)
                     volunteerCallSection(order)
                     keepWaitingSection(order)
                     actionSection(order)

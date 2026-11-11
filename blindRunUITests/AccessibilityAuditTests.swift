@@ -1810,7 +1810,8 @@ final class AccessibilityAuditTests: XCTestCase {
         currentOrder.tap()
 
         let entry = app.descendants(matching: .any)["blindOrderFlowSafetyHubButton"].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 15), "骨架底部没有「求助与安全」")
+        // 订单页 v7（#917）：求助在右上角胶囊，identifier 沿用。
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "匹配中右上角没有「求助」")
         entry.tap()
 
         XCTAssertTrue(
@@ -2585,8 +2586,9 @@ final class AccessibilityAuditTests: XCTestCase {
     /// B3「确认见面安排」（视觉稿 v2 ③ B3）：
     /// - 标题是一个读屏元素，念「陪跑员李已提交见面安排，共 2 项变更。」（去星号）；
     /// - 下面五项各自一个元素，**从上到下**是 开跑时间 → 集合地点 → 具体见面位置 → 上衣颜色 → 固定句；
-    /// - 「确认见面安排」「有异议，致电沟通」滚到之后**同高**且 ≥ 84pt，「更换陪跑员」≥ 64pt；
-    /// - 「求助与安全」不滚动就在屏内、点得到（底栏常驻，不被内容盖住）；
+    /// - 「有异议，致电沟通」「确认见面安排」在底部**同高**且 ≥ 64pt（订单页 v7 #917：胶囊 52pt 可见、64pt 可点）；
+    ///   「更换陪跑员」在顶栏「···」里；
+    /// - 右上角「求助」不滚动就在屏内、点得到；
     /// - 整页过一遍无障碍审计。
     ///
     /// ⚠️ 「焦点落在标题上」XCUITest 读不到（没有读 VoiceOver 焦点的接口）：这里钉的是焦点要落的那个元素
@@ -2621,31 +2623,37 @@ final class AccessibilityAuditTests: XCTestCase {
         // Contrast 就是这样来的（元素截图只有蓝灰底）。与 `occludingBarTop` 处理底栏是同一类遮挡。
         try audit(app)
 
-        // 求助与安全：不滚动就在屏内、点得到。
-        let safetyHub = app.descendants(matching: .any)["blindIntroCallSafetyHubButton"].firstMatch
+        // 右上角「求助」：不滚动就在屏内、点得到（订单页 v7 #917）。
+        let safetyHub = app.descendants(matching: .any)["blindOrderFlowSafetyHubButton"].firstMatch
         XCTAssertTrue(safetyHub.waitForExistence(timeout: 5))
-        XCTAssertTrue(safetyHub.isHittable, "底部「求助与安全」被盖住了")
-        XCTAssertLessThanOrEqual(safetyHub.frame.maxY, app.frame.maxY, "「求助与安全」要下滑才够得到")
+        XCTAssertTrue(safetyHub.isHittable, "右上角「求助」被盖住了")
+        XCTAssertLessThan(safetyHub.frame.midY, app.frame.midY, "「求助」应在屏幕上方")
         XCTAssertGreaterThanOrEqual(safetyHub.frame.height, Self.minimumBlindPrimaryButtonHeight)
 
-        // 三枚决定按钮：滚到之后再量（SwiftUI 不渲染屏外的东西，记忆 `snapshot-timeout-means-a-system-app-took-over`）。
+        // 两枚决定按钮在底栏，不用滚动。
         let confirm = app.descendants(matching: .any)["blindIntroCallConfirmPlanButton"].firstMatch
         let dispute = app.descendants(matching: .any)["blindIntroCallDisputePlanButton"].firstMatch
-        let decline = app.descendants(matching: .any)["blindIntroCallDeclineButton"].firstMatch
-        for button in [confirm, dispute, decline] {
+        for button in [confirm, dispute] {
             XCTAssertTrue(button.waitForExistence(timeout: 5))
-            scrollTo(button, in: app)
-            XCTAssertTrue(button.isHittable, "\(button.identifier) 滚到底也点不到 —— 被底栏盖住了")
+            XCTAssertTrue(button.isHittable, "\(button.identifier) 点不到")
         }
         XCTAssertEqual(confirm.label, "确认见面安排")
         XCTAssertEqual(dispute.label, "有异议，致电沟通")
-        XCTAssertGreaterThanOrEqual(confirm.frame.height, 84, "「确认见面安排」低于视觉稿的 84pt")
+        XCTAssertGreaterThanOrEqual(confirm.frame.height, Self.minimumBlindPrimaryButtonHeight)
         XCTAssertEqual(
             confirm.frame.height, dispute.frame.height, accuracy: 0.5,
             "「确认」与「有异议」不一样高 —— 视觉稿要求同高，免得让人觉得被迫同意"
         )
-        XCTAssertGreaterThanOrEqual(decline.frame.height, Self.minimumBlindPrimaryButtonHeight)
-        XCTAssertLessThan(confirm.frame.minY, dispute.frame.minY, "「确认」要在「有异议」上面")
+        XCTAssertLessThan(dispute.frame.minY, confirm.frame.minY, "稿 v7 ③：「有异议」在上、「确认」在下")
+
+        // 「更换陪跑员」收进顶栏「···」（负责人 11-09 第 9 条）。
+        let more = app.descendants(matching: .any)["blindOrderTopBarMoreMenu"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "顶栏没有「···」")
+        more.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindIntroCallDeclineButton"].firstMatch.waitForExistence(timeout: 5),
+            "「···」里没有「更换陪跑员」"
+        )
     }
 
     /// 按「确认见面安排」→ 订单约好，通话页收起，订单页信息卡多出「具体见面位置」「陪跑员上衣」两行。
@@ -2665,13 +2673,13 @@ final class AccessibilityAuditTests: XCTestCase {
             title.waitForNonExistence(timeout: 15),
             "确认之后通话页没有收起 —— 订单没转到「约好」"
         )
-        let meetSpot = app.descendants(matching: .any)["blindOrderFlowMeetSpotRow"].firstMatch
-        for _ in 0..<6 where !meetSpot.exists { app.swipeUp() }
-        XCTAssertTrue(meetSpot.waitForExistence(timeout: 10), "约好页没有「具体见面位置」那一行")
-        XCTAssertEqual(meetSpot.label, "具体见面位置，东门保安亭左侧")
-        let colour = app.descendants(matching: .any)["blindOrderFlowVolunteerTopColorRow"].firstMatch
-        XCTAssertTrue(colour.exists, "约好页没有「陪跑员上衣」那一行")
-        XCTAssertEqual(colour.label, "陪跑员上衣，红色")
+        // 订单页 v7（#917）：具体见面位置接在地点行后面，上衣颜色写进陪跑员那一行。
+        let place = app.descendants(matching: .any)["blindOrderStagePlace"].firstMatch
+        XCTAssertTrue(place.waitForExistence(timeout: 10), "约好页没有地点行")
+        XCTAssertTrue(place.label.contains("东门保安亭左侧"), "地点行没带具体见面位置：\(place.label)")
+        let volunteer = app.descendants(matching: .any)["blindOrderStageVolunteerRow"].firstMatch
+        XCTAssertTrue(volunteer.waitForExistence(timeout: 5), "约好页没有陪跑员那一行")
+        XCTAssertTrue(volunteer.label.contains("红色上衣"), "陪跑员那一行没带上衣颜色：\(volunteer.label)")
     }
 
     /// 约跑页（#806）起来了没有。
