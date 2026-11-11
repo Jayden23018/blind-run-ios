@@ -44,6 +44,14 @@ extension BlindRunnerHomeViewModel {
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: order.orderId, status: order.status)
     }
 
+    func handleOrderCreated(_ response: OrderResponse) {
+        noteOrderCreated()
+        speechService?.resetLastStatus()
+        if let status = response.status {
+            speechService?.speakStatusChange(status)
+        }
+    }
+
     /// 刚下了单（#936）。订单页在拉到详情之前就被退出时，返回不会写回任何东西，
     /// 所以记下来，回到首页时向服务端重新要一次。
     func noteOrderCreated() {

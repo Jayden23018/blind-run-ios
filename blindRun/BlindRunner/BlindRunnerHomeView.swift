@@ -354,14 +354,6 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         }
     }
 
-    func handleOrderCreated(_ response: OrderResponse) {
-        noteOrderCreated()
-        speechService?.resetLastStatus()
-        if let status = response.status {
-            speechService?.speakStatusChange(status)
-        }
-    }
-
     /// 首页欠着一次状态播报 —— 加载完成时引导页正压在上面，播了会把它切断。
     ///
     /// **必须是「欠着」而不是「进引导页时静音、出来时补播」**：用户可以在加载回来之前
