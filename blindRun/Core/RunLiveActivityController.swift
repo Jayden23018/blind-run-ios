@@ -31,6 +31,7 @@ enum RunLiveActivityContentBuilder {
         rhythmSignal: String? = nil,
         rhythmSignalAt: Date? = nil,
         isPaused: Bool? = nil,
+        isFinished: Bool? = nil,
         now: Date = Date()
     ) -> RunLiveActivityAttributes.ContentState {
         let targetKm = targetDistanceMeters.flatMap { $0 > 0 ? Double($0) / 1_000 : nil }
@@ -50,7 +51,8 @@ enum RunLiveActivityContentBuilder {
             targetDistanceText: targetKm.map { String(format: "%.2f", $0) },
             progress: progress,
             rhythmSignal: freshRhythm,
-            isPaused: isPaused
+            isPaused: isPaused,
+            isFinished: isFinished
         )
     }
 
@@ -70,6 +72,10 @@ final class RunLiveActivityController {
     /// 当前这张卡属于哪一单。换单时必须先结束旧的 —— 同一个 `ActivityAttributes` 类型
     /// 可以同时存在多张卡，不结束的话锁屏上会并排出现两张。
     private(set) var activeOrderID: Int64?
+
+    /// 已经推了「跑完了」、正在锁屏上留 30 分钟的卡。`end()` 不许把它们一起收掉 ——
+    /// 协调器跑完时是 `finish(...)` 紧跟 `end()`，而那时系统里这张卡的状态可能还没变成 `.ended`。
+    private var lingeringActivityIDs: Set<String> = []
 
     #if DEBUG
     /// 真机之外没法看锁屏，所以留一条调用历史给用例。
@@ -149,12 +155,41 @@ final class RunLiveActivityController {
         #if DEBUG
         eventsForTesting.append("end")
         #endif
-        let stale = Activity<RunLiveActivityAttributes>.activities
+        let all = Activity<RunLiveActivityAttributes>.activities
+        // 已经不在系统名单里的就不用再记着了。
+        lingeringActivityIDs.formIntersection(all.map(\.id))
+        let stale = all.filter { !lingeringActivityIDs.contains($0.id) }
         guard !stale.isEmpty else { return }
         Task {
             for running in stale {
                 await running.end(nil, dismissalPolicy: .immediate)
             }
+        }
+    }
+
+    /// 跑完（稿 B9 / 「五」第二段 · 两端）：同一版式换绿底「跑完了」，锁屏留 30 分钟。两端都走这里。
+    ///
+    /// 只处理**这一单还活着的那张**跑步卡：没跑过（直接从约好取消到完成之类）就没有卡，不为「跑完了」新起一张。
+    func finish(orderID: Int64, stats: TrackStats?, targetDistanceMeters: Int?, now: Date = Date()) {
+        adoptRunningActivityIfNeeded()
+        guard let running = Activity<RunLiveActivityAttributes>.activities.first(where: {
+            $0.attributes.orderID == orderID && $0.activityState != .ended
+        }) else { return }
+        let content = RunLiveActivityContentBuilder.contentState(
+            from: stats,
+            partnerName: nil,
+            targetDistanceMeters: targetDistanceMeters,
+            isFinished: true
+        )
+        lingeringActivityIDs.insert(running.id)
+        activity = nil
+        activeOrderID = nil
+        #if DEBUG
+        eventsForTesting.append("finish:\(orderID)")
+        #endif
+        let dismissAt = now.addingTimeInterval(RunLiveActivityCopy.finishedLinger)
+        Task {
+            await running.end(ActivityContent(state: content, staleDate: nil), dismissalPolicy: .after(dismissAt))
         }
     }
 
@@ -165,7 +200,7 @@ final class RunLiveActivityController {
     /// ② 已经跑完 ⇒ `end()` 找不到东西可结束，卡片变成清不掉的僵尸。
     private func adoptRunningActivityIfNeeded() {
         guard activity == nil else { return }
-        guard let running = Activity<RunLiveActivityAttributes>.activities.first else { return }
+        guard let running = Activity<RunLiveActivityAttributes>.activities.first(where: { $0.activityState != .ended }) else { return }
         activity = running
         activeOrderID = running.attributes.orderID
         #if DEBUG

@@ -148,6 +148,16 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         }
     }
 
+    /// 锁屏「约跑进度」卡（#919）。App 回前台首页会重拉，开跑前 30 分钟的卡在这里补起。
+    private func syncOrderLiveActivityAfterLoad() {
+        guard #available(iOS 16.2, *) else { return }
+        if let activeOrder {
+            BlindOrderActivityController.shared.sync(order: activeOrder, source: .home)
+        } else {
+            BlindOrderActivityController.shared.endLive()
+        }
+    }
+
     private func applyRealtimeStatus(_ update: RealtimeOrderStatusUpdate) {
         guard let current = activeOrder, current.orderId == update.orderId else { return }
         let updated = current.replacingStatus(with: update.toStatus)
@@ -161,7 +171,17 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         } else {
             activeOrder = nil
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
-            appState?.liveEscortCoordinator.clearOwnedOrder()
+            if updated.status == .completed {
+                // 跑完走 `updateOwnedOrder`：它在收会话之前把跑步卡换成「跑完了」（稿 B9，锁屏留 30 分钟）。
+                // 直接 `clearOwnedOrder()` 会把跑步卡立刻收掉。
+                appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: .completed)
+            } else {
+                appState?.liveEscortCoordinator.clearOwnedOrder()
+            }
+        }
+        // 锁屏「约跑进度」卡（#919）。取消 / 没找到也要喂进去：卡要推完 B11 那一屏再收。
+        if #available(iOS 16.2, *) {
+            BlindOrderActivityController.shared.sync(order: updated, source: .home)
         }
         orderLoadState = .loaded(activeOrder)
         errorMessage = nil
@@ -298,6 +318,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             } else {
                 appState.liveEscortCoordinator.clearOwnedOrder()
             }
+            syncOrderLiveActivityAfterLoad()
             // ponytail: 两个请求先后发，播报多等一次往返；嫌慢时改成与 `/active` 并发。
             await loadOtherOrders(appState: appState)
             guard pageRefresh.isCurrent(ticket), !Task.isCancelled else { return }

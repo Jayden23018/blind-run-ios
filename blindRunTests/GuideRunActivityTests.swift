@@ -203,34 +203,25 @@ final class GuideRunActivityTests: XCTestCase {
     /// 5 分钟闸两侧各取一点：阈值被悄悄改成 10 分钟或 1 分钟都会红。
     func testRhythmSignalDisappearsFromTheHeadlineAfterFiveMinutes() {
         let now = Date()
-        func headline(signalAgo seconds: TimeInterval) -> String {
+        func headline(signalAgo seconds: TimeInterval) -> String? {
             let state = RunLiveActivityContentBuilder.contentState(
                 from: stats, partnerName: "李",
                 rhythmSignal: "OK", rhythmSignalAt: now.addingTimeInterval(-seconds), now: now
             )
-            return RunLiveActivityCopy.volunteerHeadline(
-                surname: state.partnerName, rhythmSignal: state.rhythmSignal, isPaused: state.isPaused == true
-            )
+            return RunLiveActivityCopy.volunteerRhythm(state.rhythmSignal, isPaused: state.isPaused == true)
         }
 
-        XCTAssertEqual(headline(signalAgo: 4 * 60 + 50), "陪跑中 · 李：刚刚好")
-        XCTAssertEqual(headline(signalAgo: 5 * 60 + 10), "陪跑中")
+        XCTAssertEqual(headline(signalAgo: 4 * 60 + 50), "刚刚好")
+        XCTAssertNil(headline(signalAgo: 5 * 60 + 10))
     }
 
-    func testHeadlineFallsBackToRunnerWithoutSurnameAndSaysPausedWhenPaused() {
-        XCTAssertEqual(
-            RunLiveActivityCopy.volunteerHeadline(surname: nil, rhythmSignal: "SLOWER", isPaused: false),
-            "陪跑中 · 跑者：稍慢一点"
-        )
-        XCTAssertEqual(
-            RunLiveActivityCopy.volunteerHeadline(surname: "李", rhythmSignal: "FASTER", isPaused: true),
-            "已暂停"
-        )
-        XCTAssertEqual(
-            RunLiveActivityCopy.volunteerHeadline(surname: "李", rhythmSignal: "UNKNOWN_NEW", isPaused: false),
-            "陪跑中",
-            "不认识的信号不显示，不崩"
-        )
+    /// 稿 V7：顶行左「陪跑中 / 已暂停」，右节奏信号；卡上不写名字（负责人 2026-11-11）。
+    func testHeadlineSaysPausedWhenPausedAndDropsUnknownSignals() {
+        XCTAssertEqual(RunLiveActivityCopy.volunteerHeadline(isPaused: false), "陪跑中")
+        XCTAssertEqual(RunLiveActivityCopy.volunteerHeadline(isPaused: true), "已暂停")
+        XCTAssertEqual(RunLiveActivityCopy.volunteerRhythm("SLOWER", isPaused: false), "稍慢一点")
+        XCTAssertNil(RunLiveActivityCopy.volunteerRhythm("FASTER", isPaused: true), "暂停时不显示节奏")
+        XCTAssertNil(RunLiveActivityCopy.volunteerRhythm("UNKNOWN_NEW", isPaused: false), "不认识的信号不显示，不崩")
     }
 
     func testTargetDistanceDrivesTheSuffixAndProgress() {
@@ -239,11 +230,11 @@ final class GuideRunActivityTests: XCTestCase {
         )
         XCTAssertEqual(state.targetDistanceText, "5.00")
         XCTAssertEqual(state.progress ?? -1, 0.48, accuracy: 0.0001)
-        XCTAssertEqual(RunLiveActivityCopy.targetSuffix(state.targetDistanceText), "/ 5.00 公里")
+        XCTAssertEqual(RunLiveActivityCopy.distanceWithTarget(state.distanceText, target: state.targetDistanceText), "2.40 / 5.00")
 
         let noTarget = RunLiveActivityContentBuilder.contentState(from: stats, partnerName: nil)
         XCTAssertNil(noTarget.progress, "没有目标就不画进度条")
-        XCTAssertEqual(RunLiveActivityCopy.targetSuffix(noTarget.targetDistanceText), "公里")
+        XCTAssertEqual(RunLiveActivityCopy.distanceWithTarget(noTarget.distanceText, target: noTarget.targetDistanceText), "2.40")
     }
 
     func testProgressIsCappedAtFullWhenTheRunnerOverruns() {

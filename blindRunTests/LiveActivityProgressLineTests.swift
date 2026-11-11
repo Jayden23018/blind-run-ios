@@ -39,7 +39,7 @@ final class LiveActivityProgressLineTests: XCTestCase {
     func testDistanceReadsWhereTheVolunteerIsHeading() {
         XCTAssertEqual(
             LiveActivityProgressMode.distance(progress: 0.5, endLabel: "你 · 南门").accessibilityLabel,
-            "陪跑员在路上，前往你 · 南门"
+            "陪跑员在路上，前往你所在的南门"
         )
         XCTAssertEqual(LiveActivityProgressMode.distance(progress: 0.5, endLabel: " ").accessibilityLabel, "陪跑员在路上")
     }

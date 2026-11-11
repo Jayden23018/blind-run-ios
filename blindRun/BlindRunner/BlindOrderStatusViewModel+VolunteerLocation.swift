@@ -34,11 +34,38 @@ extension BlindOrderStatusViewModel {
     }
 
     func refreshVolunteerDistance() {
+        defer { syncOrderLiveActivity() }
         guard let order, order.status.offersVolunteerDistanceToStart else {
             volunteerDistanceToStartText = nil
             return
         }
         volunteerDistanceToStartText = order.volunteerDistanceToStartText(from: latestVolunteerCoordinate)
+    }
+
+    /// 锁屏「约跑进度」卡（#919）。订单、磨合安排单、陪跑员位置任一变了都走这里；内容没变时控制器什么都不做。
+    ///
+    /// 磨合数据还没拉回来（`introCall == nil`）时按首页口径喂：卡上已是 B3 的不会被冲回 B2。
+    func syncOrderLiveActivity() {
+        guard #available(iOS 16.2, *), let order else { return }
+        let introCallKnown = order.status == .pendingIntroCall && introCall != nil
+        let snapshot = introCallKnown
+            ? BlindOrderActivityController.IntroCallSnapshot(
+                reviewingPlan: introCallRunnerStep == .reviewingPlan,
+                deadline: introCall?.windowEndsAt?.backendTimestamp
+            )
+            : nil
+        let distance = order.status.offersVolunteerDistanceToStart
+            ? BlindOrderActivityController.volunteerDistanceMeters(
+                volunteer: latestVolunteerCoordinate,
+                meetingPoint: order.startCoordinate
+            )
+            : nil
+        BlindOrderActivityController.shared.sync(
+            order: order,
+            source: order.status == .pendingIntroCall && !introCallKnown ? .home : .orderPage,
+            introCall: snapshot,
+            volunteerDistanceMeters: distance
+        )
     }
 
     /// 🚩 判据是 `fetchesVolunteerLocation`（后端 `sharesLiveLocation()` 那三态），

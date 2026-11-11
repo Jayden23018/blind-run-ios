@@ -166,6 +166,8 @@ extension AppState {
         // 在清 access 之前：进行中的续期回来时先看 refresh 还在不在，不在就丢弃结果。
         tokenRefresher.clearCredential()
         disconnectWebSocket()
+        // 盲人端「约跑进度」锁屏卡（#919）不挂在同行会话上，退出登录要单独收：锁屏谁都看得见，卡上有见面地点。
+        if #available(iOS 16.2, *) { BlindOrderActivityController.shared.endAll() }
         // 连续拒绝次数按账号记（#552），要在 `userId = nil` 之前清：清的是这个账号的键。
         VolunteerDeclineStreak.clearStoredCounts(for: userId, in: persistence)
         accessToken = nil

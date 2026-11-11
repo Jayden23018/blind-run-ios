@@ -249,6 +249,10 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         realtimeCoordinator.registerActiveOrder(orderID, status: status)
 
         if status.endsLiveEscortSession {
+            // 跑完两端都换绿卡留 30 分钟（稿「五」第二段 · 两端）。排在 `clearOwnedOrder` 前：那里会清掉里程并结束其余跑步卡。
+            if #available(iOS 16.2, *), status == .completed {
+                RunLiveActivityController.shared.finish(orderID: orderID, stats: latestTrackStats, targetDistanceMeters: liveActivityTargetMeters)
+            }
             clearOwnedOrder()
             return
         }
@@ -502,21 +506,13 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     private func syncLiveActivity() {
         guard #available(iOS 16.2, *) else { return }
-        guard let plan = Self.liveActivityPlan(
-            orderID: activeOrderID,
-            status: activeStatus,
-            role: role,
-            partnerName: liveActivityPartnerName
-        ) else {
+        guard let plan = Self.liveActivityPlan(orderID: activeOrderID, status: activeStatus, role: role, partnerName: liveActivityPartnerName) else {
             RunLiveActivityController.shared.end()
             return
         }
         RunLiveActivityController.shared.sync(
-            orderID: plan.orderID,
-            side: plan.side,
-            partnerName: plan.partnerName,
-            stats: latestTrackStats,
-            targetDistanceMeters: liveActivityTargetMeters
+            orderID: plan.orderID, side: plan.side, partnerName: plan.partnerName,
+            stats: latestTrackStats, targetDistanceMeters: liveActivityTargetMeters
         )
     }
 
