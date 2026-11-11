@@ -41,84 +41,36 @@ h1{font-size:28px;margin-bottom:6px}.lead{font-size:15.5px;color:#3a3a3c;margin-
 .ax .notice p{font-size:36px;line-height:1.35}.ax .btn{font-size:36px;min-height:96px;padding:6px 16px;text-align:center;border-radius:48px}
 .ax .det{font-size:30px}.ax .sub{height:96px;font-size:38px;border-radius:48px}.ax .bar{padding-bottom:20px}.ax .err{font-size:36px}
 .ax.phone .status,.ax.phone .nav{font-size:17px}
-</style></head><body>
-<h1>约跑页：精确位置关闭的告知 + 开放范围提示</h1>
-<p class="lead">场景：盲人关掉了系统「精确位置」，没选常用地点就点「开始找陪跑员」。<b>改前</b>只念「请选择出发地点。」，也没有任何地方说只开放哪个城市。<b>改后</b>：出发地点卡下面直接写原因与出路，带「临时开启精确位置」「去设置」两个入口；标题下一行写开放范围；点提交被拦时念的是原因。开放城市句子由后端 <code>launchScope.areaHint</code> 下发，下面的城市只是示例。两档：默认字号、辅助功能最大字号（AX5）。</p>
-<div class="grid">
 
-<!-- 1 改前 默认 -->
-<div><div class="lbl"><span class="tag t-old">改前</span>默认字号 · 点提交后</div>
-<div class="phone"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div>
-<div class="page"><div class="h">从哪出发？</div>
-<div class="card"><div class="lib">
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.38)}
+.alert{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:290px;background:rgba(246,246,248,.97);border-radius:16px;text-align:center;overflow:hidden}
+.alert .t{font-weight:600;font-size:17px;padding:18px 16px 4px}.alert .m{font-size:13px;line-height:1.4;padding:0 16px 16px;color:#1c1c1e}
+.alert .b{border-top:.5px solid #C6C6C8;min-height:44px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--blue)}.alert .b.s{font-weight:600}
+.ax .alert{width:340px}.ax .alert .t{font-size:30px;padding:22px 16px 6px}.ax .alert .m{font-size:26px;padding:0 16px 20px}.ax .alert .b{font-size:30px;min-height:84px;padding:6px}
+.det.warn{color:#8A5A00}
+</style></head><body>
+<h1>约跑页 v2：精确位置关闭——弹系统权限框，不放大段说明</h1>
+<p class="lead">按负责人 11-11 的想法重做：<b>在用户点「开始找陪跑员」那一刻直接弹系统权限框</b>（拒绝后再给一个短提示 + 「去设置」），页面上不放大段文字和按钮。苹果文档也是这样建议：用户做了需要精确位置的动作时再申请；系统拒绝弹出时下次同一动作再试。开放城市句子由后端 <code>launchScope.areaHint</code> 下发，图里「深圳市」只是示例。</p>
+<div class="grid"><div><div class="lbl"><span class="tag t-old">改前</span>默认字号 · 点提交后</div><div class="phone "><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div><div class="page"><div class="h">从哪出发？</div><div class="card"><div class="lib">
 <div class="it sel"><div class="circ" style="background:#0058C7">➤</div><div class="nm">当前位置</div><div class="sb">这次从这里</div></div>
 <div class="it"><div class="circ" style="background:#C4281C">⌖</div><div class="nm">滨海公园南门</div><div class="sb">2.4 公里</div></div>
 <div class="it"><div class="circ" style="background:#fff;color:#0058C7;border:1px solid #8E8E93">+</div><div class="nm">添加</div></div></div>
-<div class="det">⌖ 还没拿到当前位置</div></div>
-<div class="h">哪天跑？</div><div class="card"><div class="strip"><span>今天</span><span>明天</span><span>周五</span><span>周六</span></div></div>
-<div class="err">请选择出发地点。</div></div>
-<div class="bar"><div class="sub">开始找陪跑员</div></div></div>
-<p class="cap"><b>问题：</b>没说为什么没有出发点；卡上写「还没拿到当前位置」，实际是系统只给大致位置；开场还会念「从当前位置出发」。</p></div>
-
-<!-- 2 改后 默认 -->
-<div><div class="lbl"><span class="tag t-new">改后</span>默认字号 · 进页</div>
-<div class="phone"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div>
-<div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div>
-<div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div>
-<div class="card"><div class="lib">
-<div class="it"><div class="circ" style="background:#0058C7">➤</div><div class="nm">当前位置</div><div class="sb">跟着你走</div></div>
+<div class="det ">⌖ 还没拿到当前位置</div></div><div class="err">请选择出发地点。</div></div><div class="bar"><div class="sub">开始找陪跑员</div></div></div><p class="cap"><b>问题：</b>只念「请选择出发地点」，不说原因，没有出路。</p></div><div><div class="lbl"><span class="tag t-new">改后</span>① 进页（默认字号）</div><div class="phone "><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div><div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div><div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div><div class="card"><div class="lib">
+<div class="it sel"><div class="circ" style="background:#0058C7">➤</div><div class="nm">当前位置</div><div class="sb">这次从这里</div></div>
 <div class="it"><div class="circ" style="background:#C4281C">⌖</div><div class="nm">滨海公园南门</div><div class="sb">2.4 公里</div></div>
 <div class="it"><div class="circ" style="background:#fff;color:#0058C7;border:1px solid #8E8E93">+</div><div class="nm">添加</div></div></div>
-<div class="det">⌖ 还没拿到当前位置</div></div>
-<div class="notice"><p>「精确位置」已关闭，系统只给大致位置，可能偏差几公里，所以不能用当前位置作为出发地点。可以直接搜索地点或选常用地点作为出发地点，预约照常提交；也可以临时开启精确位置。但陪跑过程中，紧急求助会因为拿不到准确位置发不出去，建议在系统设置里为助盲跑打开「精确位置」。</p>
-<div class="btn">临时开启精确位置</div><div class="btn">去设置</div></div>
-<div class="h">哪天跑？</div></div>
-<div class="fade"></div><div class="bar"><div class="sub">开始找陪跑员</div></div></div>
-<p class="cap"><b>改了：</b>① 标题下一行开放范围（有限制才显示）；② 卡下面的告知，文案是仓库里现成的那段；③ 两个入口。选了常用地点后告知消失，开放范围一行保留。进页开场只念一次：原因 + 开放范围，不再说「从当前位置」。</p></div>
-
-<!-- 3 改后 默认 提交被拦 -->
-<div><div class="lbl"><span class="tag t-new">改后</span>默认字号 · 没选地点就点提交</div>
-<div class="phone"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div>
-<div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div>
-<div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div>
-<div class="card"><div class="lib">
-<div class="it"><div class="circ" style="background:#0058C7">➤</div><div class="nm">当前位置</div><div class="sb">跟着你走</div></div>
+<div class="det warn">⌖ 精确位置已关闭，开始时请你允许一次</div></div><div class="h">哪天跑？</div><div class="card"><div class="strip"><span>今天</span><span>明天</span><span>周五</span><span>周六</span></div></div></div><div class="bar"><div class="sub">开始找陪跑员</div></div></div><p class="cap">页面几乎不变：标题下一行开放范围；卡底那行小字说一句精确位置关了。没有大段说明、没有按钮。</p></div><div><div class="lbl"><span class="tag t-new">改后</span>② 点「开始找陪跑员」→ 系统弹窗</div><div class="phone "><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div><div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div><div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div><div class="card"><div class="lib">
+<div class="it sel"><div class="circ" style="background:#0058C7">➤</div><div class="nm">当前位置</div><div class="sb">这次从这里</div></div>
 <div class="it"><div class="circ" style="background:#C4281C">⌖</div><div class="nm">滨海公园南门</div><div class="sb">2.4 公里</div></div>
 <div class="it"><div class="circ" style="background:#fff;color:#0058C7;border:1px solid #8E8E93">+</div><div class="nm">添加</div></div></div>
-<div class="det">⌖ 还没拿到当前位置</div></div>
-<div class="notice"><p>「精确位置」已关闭……</p><div class="btn">临时开启精确位置</div><div class="btn">去设置</div></div>
-<div class="err">精确位置已关闭，不能用当前位置出发。请选一个常用地点，或点上面的「临时开启精确位置」。</div></div>
-<div class="bar"><div class="sub">开始找陪跑员</div></div></div>
-<p class="cap"><b>改了：</b>提交被拦时，红字和语音都说原因与出路，不再是「请选择出发地点。」；读屏焦点移到上面的告知。</p></div>
-
-<!-- 4 改前 AX5 -->
-<div><div class="lbl"><span class="tag t-old">改前</span>AX5 · 最大字号</div>
-<div class="phone ax"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div>
-<div class="page"><div class="h">从哪出发？</div>
-<div class="card"><div class="row"><div class="circ" style="background:#0058C7">➤</div><div><b>当前位置</b><s>这次从这里</s></div></div>
+<div class="det warn">⌖ 精确位置已关闭，开始时请你允许一次</div></div></div><div class="bar"><div class="sub">开始找陪跑员</div></div><div class="dim"></div><div class="alert"><div class="t">允许“助盲跑”使用精确位置一次？</div><div class="m">精确位置已关闭时，系统只给大致位置，可能偏差几公里。允许后，助盲跑才能用你的当前位置作为陪跑出发地点，志愿者才能找到你。</div><div class="b">保持关闭</div><div class="b s">允许一次</div></div></div><p class="cap"><b>直接弹系统自带的权限框</b>（读屏原生支持）。文案是 Info.plist 里现成那段用途说明。点「允许一次」：自动取位置并继续提交。</p></div><div><div class="lbl"><span class="tag t-new">改后</span>③ 点了「保持关闭」</div><div class="phone "><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div><div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div><div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div><div class="card"><div class="lib">
+<div class="it sel"><div class="circ" style="background:#0058C7">➤</div><div class="nm">当前位置</div><div class="sb">这次从这里</div></div>
+<div class="it"><div class="circ" style="background:#C4281C">⌖</div><div class="nm">滨海公园南门</div><div class="sb">2.4 公里</div></div>
+<div class="it"><div class="circ" style="background:#fff;color:#0058C7;border:1px solid #8E8E93">+</div><div class="nm">添加</div></div></div>
+<div class="det warn">⌖ 精确位置已关闭，开始时请你允许一次</div></div></div><div class="bar"><div class="sub">开始找陪跑员</div></div><div class="dim"></div><div class="alert"><div class="t">没有精确位置</div><div class="m">不能从当前位置出发，陪跑时紧急求助也发不出位置。请选常用地点，或去设置打开精确位置。</div><div class="b">选常用地点</div><div class="b s">去设置</div></div></div><p class="cap">一个系统样式的小提示：原因 + 出路。「选常用地点」关掉提示、把读屏焦点移到常用地点；「去设置」直接跳到本 App 的系统设置页，回来后自动重取位置。</p></div><div><div class="lbl"><span class="tag t-new">改后</span>AX5 · 进页</div><div class="phone ax"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div><div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div><div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div><div class="card"><div class="row"><div class="circ" style="background:#0058C7">➤</div><div><b>当前位置</b><s>这次从这里</s></div></div>
 <div class="row"><div class="circ" style="background:#C4281C">⌖</div><div><b>滨海公园南门</b><s>2.4 公里</s></div></div>
 <div class="row"><div class="circ" style="background:#fff;color:#0058C7;border:1px solid #8E8E93">+</div><div><b>添加常用地点</b></div></div>
-<div class="det">⌖ 还没拿到当前位置</div></div>
-<div class="err">请选择出发地点。</div></div>
-<div class="bar"><div class="sub">开始找陪跑员</div></div></div>
-<p class="cap">大字档出发地点是一行一个的列表（#821 已有）。同样没有原因。</p></div>
-
-<!-- 5 改后 AX5 -->
-<div><div class="lbl"><span class="tag t-new">改后</span>AX5 · 进页</div>
-<div class="phone ax"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div>
-<div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div>
-<div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div>
-<div class="card"><div class="row"><div class="circ" style="background:#0058C7">➤</div><div><b>当前位置</b><s>跟着你走</s></div></div>
-<div class="row"><div class="circ" style="background:#C4281C">⌖</div><div><b>滨海公园南门</b><s>2.4 公里</s></div></div></div></div>
-<div class="fade"></div><div class="bar"><div class="sub">开始找陪跑员</div></div></div>
-<p class="cap">字放大后，告知排在列表下面，要滚动才看到。读屏用户靠进页那次朗读知道原因；点提交被拦时，焦点直接送到告知（见右）。开放范围那一行在标题下，不用滚动。</p></div>
-
-<!-- 6 改后 AX5 滚动后 -->
-<div><div class="lbl"><span class="tag t-new">改后</span>AX5 · 滚动到告知</div>
-<div class="phone ax"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div>
-<div class="page" style="padding-top:8px"><div class="notice" style="margin-top:0"><p>「精确位置」已关闭，系统只给大致位置，可能偏差几公里，所以不能用当前位置作为出发地点。可以直接搜索地点或选常用地点……</p>
-<div class="btn">临时开启精确位置</div><div class="btn">去设置</div></div></div>
-<div class="bar"><div class="sub">开始找陪跑员</div></div></div>
-<p class="cap">按钮在 AX5 下自然变高变宽、文字折行不截断；可点区高于 64pt。（长文案此处节选，实际全文显示。）</p></div>
-
-</div></body></html>
+<div class="det warn">⌖ 精确位置已关闭</div></div></div><div class="bar"><div class="sub">开始找陪跑员</div></div></div><p class="cap">大字档沿用现有列表，只多卡底一行小字；没有新增卡片。</p></div><div><div class="lbl"><span class="tag t-new">改后</span>AX5 · 点了「保持关闭」</div><div class="phone ax"><div class="status"><span>9:41</span><span>●●●</span></div><div class="nav">预约陪跑</div><div class="page"><div class="h" style="margin-bottom:6px">从哪出发？</div><div class="scope"><i>⌖</i><span>目前只开放深圳市</span></div><div class="card"><div class="row"><div class="circ" style="background:#0058C7">➤</div><div><b>当前位置</b><s>这次从这里</s></div></div>
+<div class="row"><div class="circ" style="background:#C4281C">⌖</div><div><b>滨海公园南门</b><s>2.4 公里</s></div></div>
+<div class="row"><div class="circ" style="background:#fff;color:#0058C7;border:1px solid #8E8E93">+</div><div><b>添加常用地点</b></div></div>
+<div class="det warn">⌖ 精确位置已关闭</div></div></div><div class="bar"><div class="sub">开始找陪跑员</div></div><div class="dim"></div><div class="alert"><div class="t">没有精确位置</div><div class="m">不能从当前位置出发，陪跑时紧急求助也发不出位置。请选常用地点，或去设置打开精确位置。</div><div class="b">选常用地点</div><div class="b s">去设置</div></div></div><p class="cap">系统提示随字号放大，按钮自然变高变宽。</p></div></div></body></html>
