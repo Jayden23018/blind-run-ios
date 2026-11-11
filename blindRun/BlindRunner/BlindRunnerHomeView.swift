@@ -929,8 +929,7 @@ struct BlindRunnerHomeView: View {
 }
 
 private extension BlindRunnerHomeView {
-    /// 约跑路由过闸：最外层先看开放范围（#667，暂不接受预约就只告知），再要位置轨迹的单独同意（#368），
-    /// 最里层缺紧急联系人时先过门页（#805），补齐后当场换成约跑页。里面是 #806 的约跑页。
+    /// 首页唯一的约跑入口（#806 选日期 + 时段一页）过三道闸：开放范围（#667）→ 位置轨迹同意（#368）→ 缺紧急联系人先过门页（#805）。
     func matchFirstBooking() -> some View {
         BlindBookingLaunchScopeGate(onLeave: { path.removeAll() }) {
             BlindBookingTrackConsentGate(onDecline: {
@@ -953,7 +952,6 @@ private extension BlindRunnerHomeView {
     func destination(for route: BlindRunnerRoute) -> some View {
         switch route {
         case .booking:
-            // #806：首页唯一的约跑入口走「选日期 + 时段」一页（模拟图 v4）。
             matchFirstBooking()
         case .addFavoritePlace: BlindFavoritePlaceAddRoute(favoritePlaces: favoritePlaces, path: $path)
         case .startPlacePicker: BlindHomeStartPlaceRoute(favoritePlaces: favoritePlaces, path: $path)
