@@ -142,23 +142,6 @@ enum GuideRunActivityCopy {
     }
 }
 
-// MARK: - 底部进度线（五步）
-
-/// 底部进度线的五步（订单页 v7 竖线五步）。V1–V2 停在「商量」，V3–V4 停在「出发」；V5–V6 不画线（稿四）。
-///
-/// TODO(#919): 共用组件 `LiveActivityProgressLine`（`blindRunWidget/Shared/LiveActivityProgressLine.swift`）
-/// 合进 main 后，`GuideRunStepsPlaceholder` 换成 `LiveActivityProgressLine(mode: .steps(current:))`，
-/// 读屏改用 `LiveActivityProgressMode.accessibilityLabel`，这里的 `stepTitles` 删掉。
-enum GuideRunProgressSteps {
-    static let count = 5
-    static let stepTitles = ["匹配", "商量", "出发", "汇合", "开跑"]
-
-    static func spoken(current: Int) -> String {
-        let index = min(max(current, 1), count)
-        return "第 \(index) 步，共 \(count) 步，\(stepTitles[index - 1])"
-    }
-}
-
 // MARK: - 卡上要画什么（纯函数，app 与 widget 都用）
 
 /// 把 `ContentState` + attributes 解成卡上每一块的内容。**widget 只照着画**，
@@ -219,7 +202,7 @@ struct GuideRunActivityPresentation: Equatable {
             ? GuideRunActivityCopy.spokenScheduledTitle(plannedStart: attributes.plannedStart, now: now)
             : title
         let spokenLines = [GuideRunActivityCopy.spokenBrand, spokenTitle, spokenSubtitle ?? subtitle]
-        accessibilityLabel = (spokenLines + [step.map(GuideRunProgressSteps.spoken(current:))])
+        accessibilityLabel = (spokenLines + [step.map { LiveActivityProgressMode.steps(current: $0).accessibilityLabel }])
             .compactMap { $0 }
             .joined(separator: "，")
         compactAccessibilityLabel = spokenLines.compactMap { $0 }.joined(separator: "，")

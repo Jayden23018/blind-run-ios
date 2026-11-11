@@ -58,7 +58,7 @@ enum GuideRunActivityMetrics {
     static let compactAvatar: CGFloat = 22
     /// 稿 `.btn`：44pt 高、22pt 圆角的胶囊。
     static let buttonHeight: CGFloat = 44
-    /// 共用进度线（#919）「看步骤」的高度：线 + 节点下两字。
+    /// 共用进度线（`LiveActivityProgressLine`）「看步骤」的高度：线 + 节点下两字。
     static let progressLineHeight: CGFloat = 30
 }
 
@@ -108,7 +108,8 @@ private struct GuideRunCardContent: View {
             .padding(.top, GuideRunActivityMetrics.brandToMain)
 
             if let step = presentation.step {
-                GuideRunStepsPlaceholder(current: step)
+                LiveActivityProgressLine(mode: .steps(current: step))
+                    .frame(height: GuideRunActivityMetrics.progressLineHeight)
                     .padding(.top, GuideRunActivityMetrics.mainToLine)
             }
         }
@@ -171,19 +172,6 @@ private struct GuideRunCardContent: View {
             .foregroundStyle(.white)
             .accessibilityLabel(action.title)
         }
-    }
-}
-
-/// TODO(#919): 换成 `LiveActivityProgressLine(mode: .steps(current: current))`。
-/// 现在只占同样的高度，好让高度用例与真机排版先按最终尺寸量。
-private struct GuideRunStepsPlaceholder: View {
-    let current: Int
-
-    var body: some View {
-        Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: GuideRunActivityMetrics.progressLineHeight)
-            .accessibilityHidden(true)
     }
 }
 

@@ -61,7 +61,7 @@ final class GuideRunActivityCardTests: XCTestCase {
         XCTAssertEqual(view.step, 2)
         XCTAssertEqual(view.trailing, .person)
         XCTAssertTrue(view.actions.isEmpty)
-        XCTAssertEqual(view.accessibilityLabel, "助盲跑，陪跑，给跑者打电话，商量见面，还剩约 19 分钟，第 2 步，共 5 步，商量")
+        XCTAssertEqual(view.accessibilityLabel, "助盲跑，陪跑，给跑者打电话，商量见面，还剩约 19 分钟，第 2 步，共 5 步，商量见面安排")
     }
 
     /// 过了截止时刻（staleDate）还停在倒计时，会让「还剩 00:00」一直挂在锁屏上。
