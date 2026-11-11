@@ -134,8 +134,8 @@ extension AccessibilityAuditTests {
         let blind = launchBlindHome(emptyOrders: false, seedOrderStatus: "PENDING_INTRO_CALL")
         let card = blind.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         if card.waitForExistence(timeout: 10) { card.tap() }
-        let entry = blind.buttons["blindOrderStatusIntroCallEntryButton"].firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() }
+        // 订单页 v7（#917）：通话在订单页同页显示，不再有「进通话页」按钮。
+        XCTAssertTrue(blind.descendants(matching: .any)["blindIntroCallTitle"].firstMatch.waitForExistence(timeout: 15), "没到通话那一步")
         let blindReport = revealButton(blind, "counterpartReportButton")
         XCTAssertGreaterThanOrEqual(blindReport.frame.height, 63.5)
         XCTAssertTrue(blind.buttons["counterpartBlockButton"].exists)

@@ -13,16 +13,22 @@ extension AccessibilityAuditTests {
         XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
         currentOrder.tap()
 
+        // 订单页 v7（#917）：「更换陪跑员」收进顶栏「···」。
+        let more = app.descendants(matching: .any)["blindOrderTopBarMoreMenu"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "通话那一步顶栏没有「···」")
+        more.tap()
         let decline = app.descendants(matching: .any)["blindIntroCallDeclineButton"].firstMatch
-        XCTAssertTrue(decline.waitForExistence(timeout: 20), "通话页没出现「更换陪跑员」")
-        for _ in 0..<4 where !decline.isHittable { app.swipeUp() }
+        XCTAssertTrue(decline.waitForExistence(timeout: 5), "「···」里没有「更换陪跑员」")
         decline.tap()
 
         let alert = app.alerts["确认更换陪跑员？"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "按「更换陪跑员」没有先确认")
         attachScreenshot(app, name: "blind-intro-call-decline-confirm")
         alert.buttons["取消"].tap()
-        XCTAssertTrue(decline.waitForExistence(timeout: 5), "取消之后离开了通话页")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindIntroCallTitle"].firstMatch.waitForExistence(timeout: 5),
+            "取消之后离开了通话那一步"
+        )
     }
 
     /// 陪跑员端 V1：「不合适」按下先问；「未接到来电」刚进页时不出现，原位置是一行说明。

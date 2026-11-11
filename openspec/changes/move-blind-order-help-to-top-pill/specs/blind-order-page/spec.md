@@ -30,3 +30,20 @@ In `PENDING_INTRO_CALL` the top bar SHALL offer a "···" menu holding "更换�
 #### Scenario: Change volunteer during the intro call
 - **WHEN** the order is `PENDING_INTRO_CALL` and the runner chooses "更换陪跑员" from the menu
 - **THEN** the existing decline confirmation SHALL appear before any request is sent
+
+## MODIFIED Requirements
+
+### Requirement: Runner page keeps safety entry and in-place running transition
+From `DRIVER_EN_ROUTE` on, the "求助与安全" button SHALL stay in the bottom action area in every step; before departure (`PENDING_MATCH`, `REMATCHING`, `PENDING_INTRO_CALL`, `SCHEDULED_CONFIRMED`, `PENDING_ACCEPT`) the help entry SHALL be the top-right pill instead. Entering `IN_PROGRESS` SHALL transform the same page in place rather than navigate to a new page. While running and after completion, the page SHALL show a tinted hero card (running teal, completed green) holding the side-by-side guide rope and the distance, duration and pace figures. The order page SHALL hide the bottom tab bar in every state, and SHALL therefore show a back button in every state including running and completed, so the page always has an exit.
+
+#### Scenario: Run starts
+- **WHEN** the order moves from `DRIVER_ARRIVED` to `IN_PROGRESS`
+- **THEN** the hero card SHALL be replaced in place by the teal running hero and the bottom safety button SHALL keep its position
+
+#### Scenario: Leaving during the run
+- **WHEN** the order is `IN_PROGRESS` and the runner activates the back button
+- **THEN** the app SHALL return to the home tab and the order SHALL keep running
+
+#### Scenario: No tab bar on the order page
+- **WHEN** the runner opens the order page in any state
+- **THEN** the bottom tab bar SHALL NOT be visible

@@ -296,12 +296,6 @@ struct BlindOrderStatusView: View {
     @State var showRunnerMessage = false
     @State var showLiveShareConsent = false
     @State var showLiveShareConfirmation = false
-    /// 通话页什么时候弹出来。整个通话流程在 `BlindIntroCallView` 里，这一页只管呈现时机 ——
-    /// 转移规则（关过一次不再弹、离开通话态复位）在 `BlindIntroCallPresentation` 上，
-    /// 连同它们各自防的那个缺陷一起。
-    @State var introCallPresentation = BlindIntroCallPresentation()
-    /// 通话页里按了「求助与安全」：通话页收起之后要接着打开求助中心。
-    @State private var opensSafetyHubAfterIntroCall = false
     /// 状态推进后把 VoiceOver 焦点接到状态卡上。
     ///
     /// 这一页每 5 秒轮询一次，重绘时焦点会被系统收走，落点不确定 —— 而状态卡恰恰是
@@ -402,6 +396,9 @@ struct BlindOrderStatusView: View {
         // 只能用 `.toolbar(.hidden, for: .tabBar)`：给内容加底部 padding 挡不住标签栏
         // （记忆 `tab-bar-clips-the-last-line-of-secondary-pages`）。
         .toolbar(.hidden, for: .tabBar)
+        // 订单页 v7 ①–④（#917）自带顶栏（返回、重复当前状态、···、右上角求助），藏掉系统导航栏。
+        // 出发起（#918 之前）仍用系统导航栏。
+        .toolbar(usesStagePage ? .hidden : .visible, for: .navigationBar)
         // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
         // （主按钮 + 求助与安全），再挂一条会变成四个按钮，而
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
@@ -430,7 +427,7 @@ struct BlindOrderStatusView: View {
         // 对看不见屏幕的人只是多一次误触面 —— 而这一条不违反上面那句「不能删」：
         // 功能没有消失，只是换了一个**更大、位置固定**的载体。
         .toolbar {
-            if (usesFlowSkeleton && !isRunningPhase) || usesTerminalPage {
+            if (usesFlowSkeleton && !isRunningPhase && !usesStagePage) || usesTerminalPage {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         viewModel.repeatStatus()
@@ -680,14 +677,13 @@ struct BlindOrderStatusView: View {
             }
         }
         .onChange(of: viewModel.order?.status) { status in
-            guard let status else { return }
+            guard status != nil else { return }
             statusHeaderFocused = true
-            introCallPresentation.apply(status: status)
         }
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)
         }
-        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true, isFrontmost: !(showSafetyHub || showEmergencyCountdown || showRunnerMessage || introCallPresentation.isShowing)) // #660
+        .blindRunnerPreRunCues(order: viewModel.order, announcesMatchingWait: true, isFrontmost: !(showSafetyHub || showEmergencyCountdown || showRunnerMessage)) // #660
         .modifier(OrderSafetyRequestPresenter(
             request: safetyRequest,
             isOrderLoaded: { viewModel.order != nil },
@@ -695,29 +691,6 @@ struct BlindOrderStatusView: View {
             showConfirmation: { showEmergencyConfirmation = true },
             showSafetyHub: { showSafetyHub = true }
         ))
-        // 全屏，不是 sheet：这一态盲人只有一件该做的事，而 sheet 会把订单页的内容
-        // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。
-        // 关闭只走「返回订单」按钮（`fullScreenCover` 本来就不能下滑关掉），
-        // 于是「用户主动关过」这个事实能被可靠地记下来，不会与「系统因状态变化收起」混淆。
-        //
-        // 通话页底部的「求助与安全」（定稿 v6）：全屏页盖着时这一层弹不出求助中心，
-        // 所以先按「用户主动关」收起通话页（本轮不再自动弹，用户可从订单页主按钮再进），
-        // 等收起动画结束（`onDismiss`）再打开。同一帧里两件事一起做，第二件会被系统丢掉 —— 按了没反应。
-        .fullScreenCover(isPresented: $introCallPresentation.isShowing, onDismiss: {
-            guard opensSafetyHubAfterIntroCall else { return }
-            opensSafetyHubAfterIntroCall = false
-            showSafetyHub = true
-        }) {
-            BlindIntroCallView(
-                viewModel: viewModel,
-                onOpenSafetyHub: {
-                    opensSafetyHubAfterIntroCall = true
-                    introCallPresentation.dismiss()
-                }
-            ) {
-                introCallPresentation.dismiss()
-            }
-        }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
             // 评价与「设为固定搭档」11-07 挪进跑者跑步详情（#831），这里不再查。
