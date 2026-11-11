@@ -7,17 +7,17 @@ import XCTest
 extension AccessibilityAuditTests {
     func testBookingWithPreciseLocationOffShowsTheReasonInsteadOfJustAskingForAPlace() {
         let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_PRECISE_LOCATION_OFF": "1"])
-        let start = element(app, "blindRunnerHomeStartBookingButton")
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         XCTAssertTrue(start.waitForExistence(timeout: 20))
         start.tap()
         XCTAssertTrue(waitForBookingScreen(app), "约跑页没起来")
 
         XCTAssertTrue(
-            element(app, "matchFirstStartDetail").label.contains("精确位置已关闭"),
+            app.descendants(matching: .any)["matchFirstStartDetail"].firstMatch.label.contains("精确位置已关闭"),
             "出发点卡底没说精确位置已关闭"
         )
 
-        let submit = element(app, "matchFirstSubmitButton")
+        let submit = app.descendants(matching: .any)["matchFirstSubmitButton"].firstMatch
         XCTAssertTrue(submit.waitForExistence(timeout: 10))
         submit.tap()
 
