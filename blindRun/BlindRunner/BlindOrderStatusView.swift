@@ -123,6 +123,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 🚩 取 `blindStats` 不是 `volunteerStats`：屏幕上那个数字是**跑者自己跑了多远**。
     /// 两条轨迹是各自独立采集的（后端 10 秒采样窗口、起点与点数都不同），拿错就是显示别人的成绩。
     @Published var trackStats: TrackStats?
+    @Published var liveRunRoute: [CLLocationCoordinate2D] = [] // 同一次 `/track` 的跑者轨迹，订单页 v7 地图画已跑路线（#918）
 
     /// 汇合 → 跑步中那三秒倒计时还剩第几拍。`nil` = 不在倒计时。
     ///
@@ -264,7 +265,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
 struct BlindOrderStatusView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var speechService: SpeechService
-    @EnvironmentObject private var locationService: LocationService
+    @EnvironmentObject var locationService: LocationService
     /// 不是 `private`：评价框的语音输入在 `+StatusSections.swift` 里用它（#795）。
     @EnvironmentObject var speechInputService: SpeechInputService
     /// 求助中心的「播报我的位置」要逆地理。取 `@EnvironmentObject` 而不是就地 new 一个：
@@ -398,7 +399,7 @@ struct BlindOrderStatusView: View {
         .toolbar(.hidden, for: .tabBar)
         // 订单页 v7 ①–④（#917）自带顶栏（返回、重复当前状态、···、右上角求助），藏掉系统导航栏。
         // 出发起（#918 之前）仍用系统导航栏。
-        .toolbar(usesStagePage ? .hidden : .visible, for: .navigationBar)
+        .toolbar(usesStagePage || usesTrackingMapPage ? .hidden : .visible, for: .navigationBar) // ⑤–⑧ 顶栏在地图上（#918）
         // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
         // （主按钮 + 求助与安全），再挂一条会变成四个按钮，而
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
@@ -427,7 +428,7 @@ struct BlindOrderStatusView: View {
         // 对看不见屏幕的人只是多一次误触面 —— 而这一条不违反上面那句「不能删」：
         // 功能没有消失，只是换了一个**更大、位置固定**的载体。
         .toolbar {
-            if (usesFlowSkeleton && !isRunningPhase && !usesStagePage) || usesTerminalPage {
+            if (usesFlowSkeleton && !isRunningPhase && !usesStagePage && !usesTrackingMapPage) || usesTerminalPage {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         viewModel.repeatStatus()

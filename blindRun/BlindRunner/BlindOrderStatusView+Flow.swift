@@ -29,30 +29,25 @@ extension BlindOrderStatusView {
             // 改版前它就在 `trackingContent` 的 ScrollView 里（跟着内容滚），
             // 阶段 3a 把它提到外面是无意的 —— 放回去即恢复。
             // `#if DEBUG` + `currentEnvironment == .mock` 两道闸没动，Release 里仍是 `EmptyView`。
-            BlindOrderFlowView(
-                presentation: presentation,
-                order: order,
-                stats: viewModel.trackStats,
-                isLocationFresh: viewModel.isDeviceLocationFresh,
-                onOpenStartPlace: nil,
-                onLastRowTapped: { handleFlowLastRow(order) },
-                onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
-                onOpenSafetyHub: { showSafetyHub = true },
-                onCallVolunteer: { dialVolunteer(order) },
-                onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
-                onArrivalCancel: { showCancelConfirmation = true },
-                footer: {
-                    VStack(spacing: 16) {
-                        flowFooter(order)
-                        // 🔴 已完成那一幕只留绿色卡（负责人 2026-11-07 定，#831）。2026-09-17 「把改版前那一页
-                        // 原样接回来」的决定作废：评价与「设为固定搭档」挪进跑者跑步详情（`RunnerRunRecordFeedbackSections.swift`），
-                        // 举报与不再匹配收进这个人的页面（`BlindPartnerDetailView`）；本单信息与状态流水不再显示。
-                        // 跑完当场停在这一页时不另加去跑步详情的入口，要评价从首页 → 记录进去。
-                        if order.status != .completed { OrderCounterpartSafetySection(order: order) }
-                        debugMockControls(order)
-                    }
-                }
-            )
+            if order.status.usesBlindTrackingMap {
+                // 订单页 v7（#918）：出发起上半屏地图常驻，只换下半屏抽屉。四态同一个分支，地图不重建。
+                mapTrackingContent(presentation, order: order)
+            } else {
+                BlindOrderFlowView(
+                    presentation: presentation,
+                    order: order,
+                    stats: viewModel.trackStats,
+                    isLocationFresh: viewModel.isDeviceLocationFresh,
+                    onOpenStartPlace: nil,
+                    onLastRowTapped: { handleFlowLastRow(order) },
+                    onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
+                    onOpenSafetyHub: { showSafetyHub = true },
+                    onCallVolunteer: { dialVolunteer(order) },
+                    onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
+                    onArrivalCancel: { showCancelConfirmation = true },
+                    footer: { flowSkeletonFooter(order) }
+                )
+            }
         } else if let order = viewModel.order, order.status.usesBlindTerminalPage {
             // 已取消 / 暂无志愿者（#818）：与骨架同一套版式，见 `BlindOrderStatusView+Terminal.swift`。
             terminalContent(order)
@@ -61,6 +56,94 @@ extension BlindOrderStatusView {
             // 这一条**不许删** —— 后端加状态时它是未知态唯一的落点。
             trackingContent
         }
+    }
+
+    /// 骨架与 v7 地图页共用的 footer：结果面、对方安全入口、Mock 调试区。
+    @ViewBuilder
+    func flowSkeletonFooter(_ order: OrderDetailResponse) -> some View {
+        VStack(spacing: 16) {
+            flowFooter(order)
+            // 🔴 已完成那一幕只留绿色卡（负责人 2026-11-07 定，#831）。2026-09-17 「把改版前那一页
+            // 原样接回来」的决定作废：评价与「设为固定搭档」挪进跑者跑步详情（`RunnerRunRecordFeedbackSections.swift`），
+            // 举报与不再匹配收进这个人的页面（`BlindPartnerDetailView`）；本单信息与状态流水不再显示。
+            // 跑完当场停在这一页时不另加去跑步详情的入口，要评价从首页 → 记录进去。
+            if order.status != .completed { OrderCounterpartSafetySection(order: order) }
+            debugMockControls(order)
+        }
+    }
+
+    /// 这一刻是不是 v7 ⑤–⑧ 地图页。导航栏、工具栏的分流都读它（同 `usesStagePage`）。
+    var usesTrackingMapPage: Bool {
+        flowPresentation != nil && viewModel.order?.status.usesBlindTrackingMap == true
+    }
+
+    /// 订单页 v7 ⑤–⑧（#918）。竖线与顶栏用 #917 的组件；求助只在右上角胶囊，底栏只剩主按钮。
+    private func mapTrackingContent(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> some View {
+        let route = order.status == .completed
+            ? (trackViewModel.track?.primaryRouteCoordinates).flatMap { $0.count >= 2 ? $0 : nil } ?? viewModel.liveRunRoute
+            : viewModel.liveRunRoute
+        return BlindOrderTrackingView(
+            status: order.status,
+            mapInput: BlindTrackingMapInput(
+                meetPoint: order.startCoordinate,
+                volunteer: viewModel.latestVolunteerCoordinate,
+                // 只用真实定位（`effectiveBackendLocation` 里做唯一一次 GCJ-02 转换），不拿 Demo 默认点取景。
+                me: locationService.currentLocation == nil ? nil : locationService.effectiveBackendLocation,
+                route: route
+            ),
+            topBar: mapTrackingTopBar,
+            bottom: mapTrackingBottom(presentation, order: order),
+            drawer: {
+                BlindOrderTrackingDrawer(
+                    presentation: presentation,
+                    order: order,
+                    stats: viewModel.trackStats,
+                    distanceText: viewModel.volunteerDistanceToStartText,
+                    isLocationFresh: viewModel.isDeviceLocationFresh,
+                    isLiveSharing: shareViewModel.isLiveSharing,
+                    onCallVolunteer: { dialVolunteer(order) },
+                    onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
+                    onArrivalCancel: { showCancelConfirmation = true }
+                )
+            },
+            timeline: {
+                if let input = BlindOrderTrackingLayout.timelineInput(
+                    status: order.status,
+                    place: order.meetSpotNote?.nilIfBlank ?? order.startAddress?.nilIfBlank
+                ) {
+                    BlindOrderTimelineView(input: input) { _ in EmptyView() }
+                }
+            },
+            footer: { flowSkeletonFooter(order) }
+        )
+    }
+
+    /// ⑤–⑧ 顶栏：压在地图上。求助走云端还是本地拨号由 `sosMode` 判（只有 `IN_PROGRESS` 是云端）。
+    private var mapTrackingTopBar: BlindOrderTopBar {
+        BlindOrderTopBar(
+            surface: .onMap,
+            onBack: { dismiss() },
+            onRepeatStatus: { viewModel.repeatStatus() },
+            sosMode: sosMode,
+            onHelp: { showSafetyHub = true }
+        )
+    }
+
+    /// ⑤–⑧ 底栏：只剩主按钮。求助已挪到右上角胶囊（DECISION 第 1 条），这里不再放第二个版位。
+    private func mapTrackingBottom(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> OrderFlowBottomActions {
+        OrderFlowBottomActions(
+            owner: .blindRunner,
+            primary: presentation.primaryAction.map { action in
+                OrderFlowPrimaryAction(
+                    title: action.title,
+                    systemImage: action.systemImage,
+                    isEnabled: action.isEnabled,
+                    accessibilityHint: action.blindAccessibilityHint,
+                    action: { handleFlowPrimaryAction(presentation, order: order) }
+                )
+            },
+            safetyHub: nil
+        )
     }
 
     /// 骨架信息列表之后那块「刚才那一下的结果」。**三态正常时整块为空。**

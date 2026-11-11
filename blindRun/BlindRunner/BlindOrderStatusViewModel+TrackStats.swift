@@ -23,6 +23,7 @@ extension BlindOrderStatusViewModel {
         ) {
         case .clear:
             trackStats = nil
+            liveRunRoute = []
             lastTrackFetchAt = nil
             didFetchFinalTrack = false
             return
@@ -53,6 +54,7 @@ extension BlindOrderStatusViewModel {
                 track = try await safety.orderTrack(orderId: orderID)
             }
             trackStats = track.blindStats
+            liveRunRoute = track.primaryRouteCoordinates
             // 🔴 **只在成功之后才算「终值拉过了」。** 置位放在请求之前的写法会让任何一次
             // 失败（网络抖动、或者上面那次自我取消）把这一单永久锁在 `.skip` 上 ——
             // 屏幕上三个 `--`、而读屏还会一直念「正在获取」，也就是一直撒谎。

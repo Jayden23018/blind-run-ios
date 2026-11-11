@@ -28,6 +28,8 @@ struct BlindActiveRunView: View {
     /// 画在彩色头卡上（2026-10-07 方向 A：跑步中青绿 / 已完成绿）。数字白色、标签半透明白，
     /// 取值与陪跑员跑步页头卡同一套 `onHero*`（逐色验过 ≥4.5）。`false` = 旧的白卡样式（Preview 用）。
     var onHero = false
+    /// 里程数字的字号。默认 82pt；订单页 v7 陪跑中那一幕传 44pt，给上半屏地图留位置（DECISION 第 10 条）。
+    var distanceFont: (CGFloat, Font.Weight, Font.TextStyle) = FlowFonts.runDistance()
 
     private var valueColor: Color { onHero ? AppColors.Flow.onHeroStrong : AppColors.Flow.primaryText }
     private var labelColor: Color { onHero ? AppColors.Flow.onHeroBody : AppColors.Flow.secondaryText }
@@ -47,7 +49,7 @@ struct BlindActiveRunView: View {
     private var distanceBlock: some View {
         VStack(spacing: 4) {
             Text(stats?.distanceKilometersText ?? "--")
-                .flowFont(FlowFonts.runDistance(), monospacedDigit: true)
+                .flowFont(distanceFont, monospacedDigit: true)
                 .tracking(FlowMetrics.runDistanceTracking)
                 .foregroundColor(valueColor)
                 // 设计稿 §23 给 AX5 的两条：裁掉这个数字等于裁掉这一屏本身，
