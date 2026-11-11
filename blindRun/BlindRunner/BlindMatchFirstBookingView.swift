@@ -29,6 +29,10 @@ struct BlindMatchFirstBookingView: View {
     /// 这一单从哪个常用地点出发。`nil` = 当前定位。只管这一单，不改默认出发地点。
     @State private var selectedFavoriteID: String?
     @State private var hasAppeared = false
+    /// 被拒后的短提示（#813）。`nil` = 不显示。
+    @State private var gateAlert: BookingStartGateAlert?
+    /// 点提交后等系统框回答的这段时间，按钮不可重复点。
+    @State private var isCheckingStartPoint = false
 
     private static let horizontalPadding: CGFloat = 16
 
@@ -38,6 +42,7 @@ struct BlindMatchFirstBookingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 sectionTitle("从哪出发？")
+                if let notice = launchAreaNotice { areaNoticeRow(notice) }
                 BookingStartPlacePicker(
                     places: favoritePlaces.places,
                     selectedPlaceID: selectedFavoriteID,
@@ -99,6 +104,16 @@ struct BlindMatchFirstBookingView: View {
         // 先 contain 再挂 id：否则这个 id 盖掉页里所有子元素的 id（#814），审计也认不出底栏。
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("matchFirstBookingPage")
+        .alert(gateAlert?.title ?? "", isPresented: gateAlertIsPresented, presenting: gateAlert) { _ in
+            Button(BookingStartGateCopy.pickFavorite, role: .cancel) {}
+            Button(BookingStartGateCopy.openSettings) { SystemSettingsLink.open() }
+        } message: { alert in
+            Text(alert.message)
+        }
+    }
+
+    private var gateAlertIsPresented: Binding<Bool> {
+        Binding(get: { gateAlert != nil }, set: { if !$0 { gateAlert = nil } })
     }
 
     // MARK: 从哪出发
@@ -109,7 +124,38 @@ struct BlindMatchFirstBookingView: View {
         favoritePlaces.places.first { $0.id == selectedFavoriteID }
     }
 
+    /// 出发点是当前位置、而定位用不了时才有（选了常用地点就不说）。
+    private var locationGateNote: String? {
+        guard selectedFavoriteID == nil else { return nil }
+        return BookingStartGateCopy.detail(isDenied: locationService.isDenied, isPreciseLocationOff: locationService.isPreciseLocationOff)
+    }
+
+    /// 后端下发的开放范围那句（`launchScope.areaHint`），城市不写死；没有限制时 `nil`。
+    /// 已选的出发点不在范围里时，`areaNotice` 会在前面加一句。直接读 `appState`：视图首帧早于 `onAppear` 里的 `configure`。
+    private var launchAreaNotice: String? {
+        let place = selectedFavorite ?? viewModel.resolvedStartPlace
+        return appState.ruleParamsResponse?.launchScope?.areaNotice(latitude: place?.latitude, longitude: place?.longitude)
+    }
+
+    private func areaNoticeRow(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "mappin.and.ellipse")
+                .foregroundColor(AppColors.Flow.secondaryText)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 2)
+        .padding(.bottom, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("matchFirstLaunchAreaNotice")
+    }
+
     private var startPointDetail: String {
+        if let locationGateNote { return locationGateNote }
         if let selectedFavorite { return "\(selectedFavorite.title) · 见面点电话里再定" }
         if let place = viewModel.resolvedStartPlace?.title.nilIfBlank { return "\(place)附近 · 见面点电话里再定" }
         return viewModel.isResolvingStartLocation ? "正在获取当前位置…" : "还没拿到当前位置"
@@ -124,10 +170,10 @@ struct BlindMatchFirstBookingView: View {
     // MARK: 主按钮
 
     private var submitBar: some View {
-        PrimaryButton("开始找陪跑员", isLoading: viewModel.isSubmitting) {
+        PrimaryButton("开始找陪跑员", isLoading: viewModel.isSubmitting || isCheckingStartPoint) {
             Task { await submit() }
         }
-        .disabled(currentSlot == nil)
+        .disabled(currentSlot == nil || isCheckingStartPoint)
         .accessibilityLabel(submitSpokenLabel)
         .accessibilityIdentifier("matchFirstSubmitButton")
         .padding(.horizontal, Self.horizontalPadding)
@@ -233,11 +279,50 @@ struct BlindMatchFirstBookingView: View {
         speechService.speak(entryAnnouncement)
     }
 
+    /// 开场只念一次（后到的 `speak` 会切断先到的）：定位用不了时换掉「从当前位置出发」，有开放范围就附一句。
     private var entryAnnouncement: String {
         let origin = selectedFavorite?.title ?? BlindStartPlaceCopy.currentLocation
-        guard let slot = currentSlot else { return "预约陪跑。从\(origin)出发。现在没有可以约的时段。" }
-        return "预约陪跑。从\(origin)出发。已选\(BookingSlotText.spokenDay(slot.day, now: now))\(slot.slot.title)，"
+        let gateNote = selectedFavoriteID == nil
+            ? BookingStartGateCopy.entrySpoken(isDenied: locationService.isDenied, isPreciseLocationOff: locationService.isPreciseLocationOff)
+            : nil
+        let departure = gateNote ?? "从\(origin)出发。"
+        let scope = launchAreaNotice.map { "\($0)。" } ?? ""
+        guard let slot = currentSlot else { return "预约陪跑。\(departure)\(scope)现在没有可以约的时段。" }
+        return "预约陪跑。\(departure)\(scope)已选\(BookingSlotText.spokenDay(slot.day, now: now))\(slot.slot.title)，"
             + "\(BookingSlotText.clock(slot.start))到\(BookingSlotText.clock(slot.end))之间。具体几点可以不选。点「开始找陪跑员」就开始匹配。"
+    }
+
+    /// 出发点是当前位置、而定位用不了时：精确位置关闭 → 请求一次临时精确位置，允许后取新位置再放行；
+    /// 被拒（或权限被拒）→ 弹短提示并朗读，不提交。出发点是常用地点时直接放行。
+    private func passesStartGate() async -> Bool {
+        let gate = BookingStartGate.evaluate(
+            usesCurrentLocation: selectedFavoriteID == nil,
+            isDenied: locationService.isDenied,
+            isPreciseLocationOff: locationService.isPreciseLocationOff
+        )
+        switch gate {
+        case .proceed:
+            return true
+        case .blockedByDeniedLocation:
+            showGateAlert(isDenied: true)
+            return false
+        case .askPreciseLocation:
+            isCheckingStartPoint = true
+            defer { isCheckingStartPoint = false }
+            let stillOff = await locationService.requestTemporaryPreciseLocationAndWaitForAnswer(for: .bookingStartPoint)
+            if stillOff {
+                showGateAlert(isDenied: false)
+                return false
+            }
+            await viewModel.refreshCurrentLocation()
+            return true
+        }
+    }
+
+    private func showGateAlert(isDenied: Bool) {
+        let alert = BookingStartGateAlert.make(isDenied: isDenied)
+        gateAlert = alert
+        speechService.speakError(alert.message)
     }
 
     private func submit() async {
@@ -247,6 +332,7 @@ struct BlindMatchFirstBookingView: View {
             speechService.speakError("这个时段已经过了，请换一个时段。")
             return
         }
+        guard await passesStartGate() else { return }
         viewModel.flexibleSlot = slot
         if let response = await viewModel.submit() {
             onOrderCreated(response)
