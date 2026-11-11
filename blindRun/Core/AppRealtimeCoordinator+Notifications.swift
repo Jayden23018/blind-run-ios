@@ -30,20 +30,16 @@ extension AppRealtimeCoordinator {
             routeEmergencyNotification(message, kind: kind)
             return
         }
-        guard !message.body.trimmed.isEmpty else { return }
+        // 派单进度不进浮层（#949）：写进订单页那一行，一连串只念最后一条。并在这个 guard 里，不另加分支（复杂度上限）。
+        guard !message.body.trimmed.isEmpty, !routeDispatchProgress(
+            eventType: eventType, orderID: message.orderId, stableID: message.messageId ?? message.eventId.map(String.init),
+            ttsText: message.ttsText, body: message.body, speak: true
+        ) else { return }
         // 排在抑制之前：普通 `REMATCHING` 有活跃订单时不播，但它说明这次不算半路退出。
         // 模板通知不带 `orderId` 时，只有一张活跃订单才认得出是哪一单（同 `routeEscortAlert`）。
         BlindMidRunDepartureRecord.shared.note(
             eventType: eventType, orderID: message.orderId ?? (activeOrderIDs.count == 1 ? activeOrderIDs.first : nil)
         )
-        // 派单进度不进浮层（#949）：写进订单页那一行，一连串只念最后一条。
-        // 同一条重复投递复用浮层那套去重窗口，不再念一遍。
-        if let stableID = message.messageId ?? message.eventId.map(String.init),
-           [Self.dispatchStartedEventType, Self.dispatchExpandingEventType].contains(eventType),
-           !shouldPresent(deduplicationKey: "\(eventType):\(stableID)") { return }
-        if routeDispatchProgress(
-            eventType: eventType, orderID: message.orderId, ttsText: message.ttsText, body: message.body, speak: true
-        ) { return }
         if shouldSuppressLifecycleNotification(eventType: eventType) { return }
         let body = overriddenBody(forEventType: eventType) ?? message.body
         // 覆盖时**两条通道一起换**。只换屏幕上那行、让 `ttsText` 照念后端原文，

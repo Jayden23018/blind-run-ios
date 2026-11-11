@@ -843,31 +843,13 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
 
     /// 派单期（最长 30 分钟、3 轮扩圈）订单一直停在 `PENDING_MATCH`，没有任何状态变化，
     /// 所以订单页不会播 —— 这几条被抑制就等于整段静音，而看不见屏幕的人没有别的方式知道系统还在跑。
-    ///
-    /// #949 起 `DISPATCH_STARTED` / `DISPATCH_EXPANDING` 不进浮层，改为订单页那一行 + 一条播报
-    /// （`DispatchProgressNotificationTests`）。这里守的仍是「不被静音」：有活跃订单时照样念。
-    func testDispatchProgressNotificationsAreNeverSuppressed() async throws {
-        let coordinator = AppRealtimeCoordinator(notificationDuration: 60, dispatchProgressSettleDelay: 0.05)
+    func testDispatchProgressNotificationsAreNeverSuppressed() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
         let service = WebSocketService()
         coordinator.attach(to: service, role: .blind)
         coordinator.registerActiveOrder(9, status: .pendingMatch)
 
-        for (index, eventType) in ["DISPATCH_STARTED", "DISPATCH_EXPANDING"].enumerated() {
-            service.simulateIncomingEventForTesting(.notification(makeNotification(
-                eventID: Int64(40 + index),
-                body: "派单进度 \(eventType)",
-                priority: "NORMAL",
-                eventType: eventType
-            )))
-            try await Task.sleep(nanoseconds: 200_000_000)
-            XCTAssertNotNil(
-                coordinator.dispatchProgressAnnouncement,
-                "\(eventType) 不改订单状态，订单页不会播，不念等于静音"
-            )
-            coordinator.dispatchProgressAnnouncement = nil
-        }
-
-        for (index, eventType) in ["REMATCH_TIMEOUT"].enumerated() {
+        for (index, eventType) in ["REMATCH_TIMEOUT"].enumerated() { // 派单两条 #949 起不进浮层，见 DispatchProgressNotificationTests
             service.simulateIncomingEventForTesting(.notification(makeNotification(
                 eventID: Int64(50 + index),
                 body: "派单进度 \(eventType)",

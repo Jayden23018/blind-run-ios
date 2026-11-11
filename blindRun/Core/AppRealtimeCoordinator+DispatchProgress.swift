@@ -1,4 +1,6 @@
+import Combine
 import Foundation
+import SwiftUI
 
 // MARK: - 派单进度（#949）
 //
@@ -26,11 +28,13 @@ extension AppRealtimeCoordinator {
 
     /// 派单进度事件的统一入口。返回 `true` = 已处理，调用方不再进浮层队列。
     ///
+    /// - `stableID`: 推送的 messageId / eventId。同一条重复投递复用浮层那套去重窗口，不再念一遍。
     /// - `speak`: 实时推送念；重连补读的是过去的进度，只更新那一行，不念。
     @discardableResult
     func routeDispatchProgress(
         eventType: String,
         orderID: Int64?,
+        stableID: String?,
         ttsText: String?,
         body: String,
         speak: Bool
@@ -41,6 +45,7 @@ extension AppRealtimeCoordinator {
         case Self.dispatchExpandingEventType: widening = true
         default: return false
         }
+        if let stableID, !shouldPresent(deduplicationKey: "\(eventType):\(stableID)") { return true }
         if let resolved = resolveDispatchProgressOrderID(orderID) {
             // 新一次派单（含重新匹配）从 STARTED 开始，上一次的「扩大范围」不再成立。
             if widening {
@@ -71,6 +76,36 @@ extension AppRealtimeCoordinator {
             try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.dispatchProgressAnnouncement = DispatchProgressAnnouncement(text: text)
+        }
+    }
+}
+
+// MARK: - 视图接线
+
+/// 订单页 ① 读「这一单扩大过范围没有」。协调器嵌在 `appState` 里，它的发布不会让订单页重画，
+/// 所以由这一层直接观察它；第一帧就是当前值，不会先闪一下旧的那行。
+struct DispatchWideningReader<Content: View>: View {
+    @ObservedObject var coordinator: AppRealtimeCoordinator
+    let orderID: Int64
+    @ViewBuilder let content: (Bool) -> Content
+
+    var body: some View {
+        content(coordinator.widenedDispatchOrderIDs.contains(orderID))
+    }
+}
+
+/// 念派单进度（不进浮层）。挂在 App 根上，和浮层那条播报并列。
+struct DispatchProgressAnnouncer: ViewModifier {
+    let coordinator: AppRealtimeCoordinator
+    @EnvironmentObject private var speechService: SpeechService
+    /// `@Published` 是当前值发布者：念一句会让视图失效、订阅重建并立刻重放同一条。闸门按 `id` 挡掉重放
+    /// （同 `ContentView` 浮层那条的 `notificationAnnouncementGate`）。
+    @State private var gate = CurrentValueReplayGate<UUID>()
+
+    func body(content: Content) -> some View {
+        content.onReceive(coordinator.$dispatchProgressAnnouncement.compactMap { $0 }) { announcement in
+            guard gate.accepts(announcement.id) else { return }
+            speechService.speak(announcement.text)
         }
     }
 }
