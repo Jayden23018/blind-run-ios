@@ -21,31 +21,85 @@ extension BlindOrderStatusView {
                 headerFocused: $statusHeaderFocused,
                 footer: { stageFooter(order) }
             )
+        } else if BlindOrderStage.resolve(order.status) == .matching {
+            // ①「已等 N 分钟」每分钟刷新（#926）。轮询也会重画，这里兜住轮询停了的时候。
+            TimelineView(.everyMinute) { context in
+                if let presentation = BlindOrderStagePresentation.make(
+                    order: order,
+                    canKeepWaiting: viewModel.canShowKeepWaiting,
+                    now: context.date
+                ) {
+                    stageScaffold(presentation, order: order)
+                }
+            }
         } else if let presentation = BlindOrderStagePresentation.make(
             order: order,
             canKeepWaiting: viewModel.canShowKeepWaiting
         ) {
-            BlindOrderStageScaffold(
-                topBar: stageTopBar(
-                    menu: presentation.menu.map { stageMenuItem($0, order: order) },
-                    onRepeatStatus: { viewModel.repeatStatus() }
-                ),
-                eyebrow: presentation.eyebrow,
-                title: presentation.title,
-                headerAccessibilityLabel: presentation.headerAccessibilityLabel,
-                headerFocused: $statusHeaderFocused,
-                place: presentation.place,
-                when: presentation.when,
-                timeline: presentation.timeline,
-                card: { stageCard(presentation) },
-                footer: { stageFooter(order) },
-                bottom: {
-                    ForEach(Array(presentation.bottom.enumerated()), id: \.offset) { _, action in
-                        stageButton(action, order: order)
-                    }
-                }
-            )
+            stageScaffold(presentation, order: order)
         }
+    }
+
+    /// 找到陪跑员那一刻的前 0.3 秒（#926）：照换之前那一单画旧 ①，当前点打勾、卡片淡出。
+    ///
+    /// 不接受点按：这一刻订单已经变了，旧屏上的「取消匹配」会作用在新状态上。
+    @ViewBuilder
+    func matchFoundContent(_ transition: BlindMatchFoundTransition) -> some View {
+        if let presentation = BlindOrderStagePresentation.make(
+            order: transition.previousOrder,
+            canKeepWaiting: viewModel.canShowKeepWaiting
+        ) {
+            stageScaffold(presentation.markingMatchFound(), order: transition.previousOrder)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// 找到陪跑员那一刻的时序（#926，稿 C 帧）。震动与播报不在这里：`apply` 换状态时已经各做了一次
+    /// （`speakStatusChange` = 现有状态句 + `RunOrderStatus.haptic`），这里再念一句会把那句切断。
+    ///
+    /// 被取消（换了新过渡、页面关了）时 `Task.sleep` 立刻返回，整段快进到定格，不会卡在旧 ① 上。
+    func playMatchFound() async {
+        guard let id = viewModel.matchFound?.id else { return }
+        let reduce = reduceMotion
+        if !reduce {
+            try? await Task.sleep(nanoseconds: Self.nanoseconds(BlindMatchFoundTiming.checkPhase))
+        }
+        // 只是淡入淡出（两支都是 `.transition(.opacity)`），本身就是减弱动态效果时的降级形态。
+        withAnimation(.easeInOut(duration: BlindMatchFoundTiming.crossfade)) { // guard:allow motion-not-gated
+            viewModel.revealMatchFound(id)
+        }
+        let rest = reduce ? BlindMatchFoundTiming.crossfade : BlindMatchFoundTiming.total - BlindMatchFoundTiming.checkPhase
+        try? await Task.sleep(nanoseconds: Self.nanoseconds(rest))
+        viewModel.finishMatchFound(id)
+        // 定格之后读屏焦点才挪到新标题（稿「停在 v7 ②，读屏焦点移到标题」）。
+        if viewModel.matchFound == nil { statusHeaderFocused = true }
+    }
+
+    private static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
+        UInt64(seconds * 1_000_000_000)
+    }
+
+    private func stageScaffold(_ presentation: BlindOrderStagePresentation, order: OrderDetailResponse) -> some View {
+        BlindOrderStageScaffold(
+            topBar: stageTopBar(
+                menu: presentation.menu.map { stageMenuItem($0, order: order) },
+                onRepeatStatus: { viewModel.repeatStatus() }
+            ),
+            eyebrow: presentation.eyebrow,
+            title: presentation.title,
+            headerAccessibilityLabel: presentation.headerAccessibilityLabel,
+            headerFocused: $statusHeaderFocused,
+            place: presentation.place,
+            when: presentation.when,
+            timeline: presentation.timeline,
+            card: { stageCard(presentation) },
+            footer: { stageFooter(order) },
+            bottom: {
+                ForEach(Array(presentation.bottom.enumerated()), id: \.offset) { _, action in
+                    stageButton(action, order: order)
+                }
+            }
+        )
     }
 
     /// 顶栏。返回 = 离开订单页；求助 = 求助与安全中心（走云端还是本地拨号由 `sosMode` 判，

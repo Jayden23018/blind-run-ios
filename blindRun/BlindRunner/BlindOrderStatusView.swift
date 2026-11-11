@@ -88,6 +88,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
     var introCallNotifyThrottle = IntroCallIncomingNotifyThrottle()
     /// App 在不在前台。10 分钟提醒在前台播报、不在前台走本地通知。
     var isAppActive = true
+    /// 找到陪跑员那一刻的过渡（#926）。`apply` 换订单的**同一刻**置上（同一次发布，首帧不会先闪出新屏），
+    /// 订单页演完约 1 秒后 `finishMatchFound()` 清掉。判据是纯函数 `BlindMatchFoundTransition.shouldPlay`。
+    @Published var matchFound: BlindMatchFoundTransition?
+    /// 上一次 `apply` 之后 App 进过后台。为真时这一次不放过渡：人没一直看着等待那一屏（稿第 5 条）。
+    var backgroundedSinceLastApply = false
     /// 这次离开前台时真排出去的那条提醒的到点时刻。`nil` = 没排（回前台时就不撤、也不记「已送达」）。
     var introCallReminderScheduledFor: Date?
     /// 安排单读不懂这件事已经念过了。只在 false → true 那一跳念一次，理由同 `introCallUnavailable`。
@@ -275,6 +280,8 @@ struct BlindOrderStatusView: View {
     /// 喂给 `viewModel.observeScenePhase`：通话页 B2 判据与 10 分钟提醒都靠它。
     /// 挂在订单页而不是通话页上 —— 通话页可以被关掉，订单页在整个通话期都在。
     @Environment(\.scenePhase) private var scenePhase
+    /// 找到陪跑员那一刻（#926）：开了「减弱动态效果」就只做 0.25 秒淡入淡出。
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
     @StateObject var viewModel = BlindOrderStatusViewModel()
     @StateObject var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject var shareViewModel = RunPlanLiveShareViewModel()
@@ -679,7 +686,12 @@ struct BlindOrderStatusView: View {
         }
         .onChange(of: viewModel.order?.status) { status in
             guard status != nil else { return }
+            // 过渡中整页会换一棵视图树，这时设焦点会落空：等定格后由下面的 `.task` 设（#926）。
+            guard viewModel.matchFound == nil else { return }
             statusHeaderFocused = true
+        }
+        .task(id: viewModel.matchFound?.id) {
+            await playMatchFound()
         }
         .onChange(of: scenePhase) { phase in
             viewModel.observeScenePhase(phase)

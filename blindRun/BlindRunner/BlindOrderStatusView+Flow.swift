@@ -3,9 +3,16 @@ import SwiftUI
 extension BlindOrderStatusView {
     @ViewBuilder
     var content: some View {
-        if let order = viewModel.order, BlindOrderStage.resolve(order.status) != nil {
+        if let transition = viewModel.matchFound, !transition.revealed {
+            // 找到陪跑员那一刻的前 0.3 秒（#926）：订单已经换了，屏上先留旧 ① 打勾。
+            // 揭开时两支在 `withAnimation` 里互换，`.transition(.opacity)` 就是稿里的标题交叉淡入。
+            matchFoundContent(transition)
+                .transition(.opacity)
+        } else if let order = viewModel.order, BlindOrderStage.resolve(order.status) != nil {
             // 订单页 v7 ①–④（#917）：匹配中、商量见面安排、已约好。出发起仍走下面的骨架（#918 另做）。
             stageContent(order)
+                .environment(\.blindOrderStageArrival, viewModel.matchFound?.revealed == true && !reduceMotion)
+                .transition(.opacity)
         } else if let presentation = flowPresentation, let order = viewModel.order {
             // 设计稿的骨架。**六幕共用同一套布局**，只换内容 —— 改版前每态一个
             // 独立页面，而 iOS 切页时 VoiceOver 会把焦点移回第一个元素，读屏用户每次

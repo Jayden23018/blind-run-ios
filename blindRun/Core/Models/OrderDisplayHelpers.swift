@@ -734,21 +734,22 @@ extension OrderDetailResponse {
     /// 就开始派），但「已等待 10080 分钟」既吓人又不能让盲人做出任何动作。上限到了就不说，
     /// 不去猜一个「有效等待时间」——猜出来的数没有任何一处能核对。
     func blindRunnerWaitedText(now: Date = Date()) -> String? {
+        guard let minutes = blindRunnerWaitedMinutes(now: now) else { return nil }
+        // 到小时级时那几分钟不再影响任何决定，念出来只是拉长播报。
+        // （订单页 v7 ① 屏上那行另写「已等 X 小时 Y 分钟」，见 `BlindOrderStageCopy.matchingWaited`，#926。）
+        return minutes < 60 ? "已等待 \(minutes) 分钟" : "已等待 \(minutes / 60) 小时"
+    }
+
+    /// 下单到现在过了几分钟。锚点、状态集、上下限都是 `blindRunnerWaitedText` 上面那段注释说的那套；
+    /// 抽出来是让屏幕与播报两种写法共用同一个数（#926）。`nil` = 这一刻不该说等了多久。
+    func blindRunnerWaitedMinutes(now: Date = Date()) -> Int? {
         guard status.offersWaitedDuration,
               let placedAt = createdAt?.nilIfBlank?.backendTimestamp else { return nil }
         let minutes = Int(now.timeIntervalSince(placedAt) / 60)
-        switch minutes {
-        case ..<1:
-            // 「已等待 0 分钟」是噪音，刚下完单的人知道自己刚下完单。负数同理（设备时钟偏了）。
-            return nil
-        case ..<60:
-            return "已等待 \(minutes) 分钟"
-        case ..<(24 * 60):
-            // 到小时级时那几分钟不再影响任何决定，念出来只是拉长播报。
-            return "已等待 \(minutes / 60) 小时"
-        default:
-            return nil
-        }
+        // 不到 1 分钟：「已等待 0 分钟」是噪音，刚下完单的人知道自己刚下完单。负数同理（设备时钟偏了）。
+        // 满 24 小时：理由见上（ponytail 那段）。
+        guard minutes >= 1, minutes < 24 * 60 else { return nil }
+        return minutes
     }
 
     func volunteerDistanceToStartText(from volunteerCoordinate: CLLocationCoordinate2D?) -> String? {

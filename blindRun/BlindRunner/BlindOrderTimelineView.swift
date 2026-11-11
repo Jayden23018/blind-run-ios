@@ -11,6 +11,8 @@ struct BlindOrderTimelineView<Current: View>: View {
 
     @State private var pastExpanded = false
     @State private var futureExpanded = false
+    /// 刚从 ① 揭开到这一屏（#926）。为真时当前行从下方 8pt 淡入，见 `BlindOrderStageArrivalReveal`。
+    @Environment(\.blindOrderStageArrival) private var arrival
 
     init(input: BlindOrderTimelineInput, @ViewBuilder current: @escaping (BlindOrderTimelineStep) -> Current) {
         self.input = input
@@ -28,7 +30,11 @@ struct BlindOrderTimelineView<Current: View>: View {
                 rowView(row)
                     .background(alignment: .topLeading) {
                         if index < rows.count - 1 {
-                            BlindOrderTimelineConnector(isPast: row.isPast)
+                            // 找到那一刻（#926）：连到当前步的那段走过的竖线从上往下长出来。
+                            BlindOrderTimelineConnector(
+                                isPast: row.isPast,
+                                growsIn: arrival && row.isPast && rows[index + 1].isCurrent
+                            )
                         }
                     }
             }
@@ -44,12 +50,14 @@ struct BlindOrderTimelineView<Current: View>: View {
         switch row {
         case .current(let step, _):
             HStack(alignment: .top, spacing: BlindOrderTimelineMetrics.gap) {
-                BlindOrderTimelineDot(kind: .current)
+                BlindOrderTimelineDot(kind: .current, currentDot: input.currentDot)
                 VStack(alignment: .leading, spacing: 0) {
                     titleBlock(row)
                     current(step)
                         .padding(.top, 10)
+                        .modifier(BlindOrderTimelineCardFadeOut(isActive: input.currentDot == .justFound))
                 }
+                .modifier(BlindOrderStageArrivalReveal(isActive: arrival))
             }
             .padding(.bottom, BlindOrderTimelineMetrics.rowSpacing)
         case .doneFold, .todoFold:
@@ -162,6 +170,16 @@ enum BlindOrderTimelineMetrics {
 struct BlindOrderTimelineDot: View {
     enum Kind { case done, current, todo, fold }
     let kind: Kind
+    /// 只对 `.current` 有意义。
+    var currentDot: BlindOrderTimelineCurrentDot = .still
+
+    /// 找到那一刻的打勾放大（稿 C 帧：1.3 倍再弹回）。
+    @State private var popScale: CGFloat = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var showsCheck: Bool {
+        kind == .done || (kind == .current && currentDot == .justFound)
+    }
 
     var body: some View {
         ZStack {
@@ -169,20 +187,27 @@ struct BlindOrderTimelineDot: View {
             if kind == .fold {
                 Circle().strokeBorder(AppColors.Flow.nodeStroke, lineWidth: 2.5)
             }
-            if kind == .done {
+            if showsCheck {
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(.white)
             }
         }
+        .scaleEffect(popScale)
         // 当前步：圆点外再画一圈浅色圈（稿 v7 第 11 条 C，取代「现在：」前缀）。
-        .background(
-            Circle()
-                .fill(AppColors.Flow.navy.opacity(kind == .current ? 0.16 : 0))
-                .padding(-4)
-        )
+        .background {
+            if kind == .current {
+                BlindOrderTimelineHalo(style: currentDot)
+            }
+        }
         .frame(width: BlindOrderTimelineMetrics.dotDiameter, height: BlindOrderTimelineMetrics.dotDiameter)
         .accessibilityHidden(true)
+        .task(id: kind == .current && currentDot == .justFound) {
+            guard kind == .current, currentDot == .justFound, !reduceMotion else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: BlindMatchFoundTiming.popUp)) { popScale = BlindMatchFoundTiming.popScale }
+            try? await Task.sleep(nanoseconds: UInt64(BlindMatchFoundTiming.popUp * 1_000_000_000))
+            withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.55)) { popScale = 1 }
+        }
     }
 
     private var fill: Color {
@@ -194,17 +219,128 @@ struct BlindOrderTimelineDot: View {
     }
 }
 
+/// 当前步圆点外那一圈（#926，稿 `blind-matching-wait-20261111/draft.html` 色板）。
+///
+/// 圈的**布局尺寸固定**为最大那一档，只动 `scaleEffect` 与透明度：`repeatForever` 若改的是 frame / padding，
+/// 在 `ScrollView` 里会把整行的位置也带着动。`.animation(_:value:)` 只挂在这一个视图上，同理。
+private struct BlindOrderTimelineHalo: View {
+    let style: BlindOrderTimelineCurrentDot
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var expanded = false
+
+    private static let dot = BlindOrderTimelineMetrics.dotDiameter
+    private static let maxRing: CGFloat = 11
+    private static var maxDiameter: CGFloat { dot + 2 * maxRing }
+
+    /// 外圈宽度与透明度。`still` 沿用 #923 的 4pt / 0.16。
+    private var ring: (width: CGFloat, opacity: Double) {
+        switch style {
+        case .still, .justFound:
+            return (4, 0.16)
+        case .breathing:
+            if reduceMotion { return (6, 0.14) }
+            return expanded ? (11, 0.12) : (3, 0.16)
+        }
+    }
+
+    var body: some View {
+        let ring = ring
+        Circle()
+            .fill(AppColors.Flow.navy.opacity(ring.opacity))
+            .frame(width: Self.maxDiameter, height: Self.maxDiameter)
+            .scaleEffect((Self.dot + 2 * ring.width) / Self.maxDiameter)
+            .animation(breathingAnimation, value: expanded)
+            .frame(width: Self.dot, height: Self.dot)
+            .onAppear { startBreathingIfNeeded() }
+            .onChange(of: reduceMotion) { _ in
+                // 中途关掉「减弱动态效果」要重新起；打开时 `ring` 直接落 6pt，不必停动画。
+                expanded = false
+                startBreathingIfNeeded()
+            }
+    }
+
+    private var breathingAnimation: Animation? {
+        guard style == .breathing, !reduceMotion else { return nil }
+        return .easeInOut(duration: BlindMatchingWaitTiming.breathHalfCycle).repeatForever(autoreverses: true)
+    }
+
+    private func startBreathingIfNeeded() {
+        guard style == .breathing, !reduceMotion else { return }
+        // 推到下一拍再改：同一拍里改的话首帧就在终值，看不到动画。
+        Task { @MainActor in expanded = true }
+    }
+}
+
 /// 圆点下面连到下一行的那段竖线。
 private struct BlindOrderTimelineConnector: View {
     let isPast: Bool
+    /// 找到那一刻：从上往下长出来（稿 C 帧 0.3–0.8 秒）。
+    var growsIn = false
+
+    @State private var grown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Rectangle()
             .fill(isPast ? AppColors.Flow.navy : AppColors.Flow.nodeStroke)
             .frame(width: BlindOrderTimelineMetrics.lineWidth)
+            .scaleEffect(x: 1, y: growsIn && !grown ? 0 : 1, anchor: .top)
             .padding(.top, BlindOrderTimelineMetrics.dotDiameter)
             .padding(.leading, (BlindOrderTimelineMetrics.dotDiameter - BlindOrderTimelineMetrics.lineWidth) / 2)
             .accessibilityHidden(true)
+            .onAppear {
+                guard growsIn else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: BlindMatchFoundTiming.lineGrow)) { grown = true }
+            }
+    }
+}
+
+/// 找到那一刻旧卡片淡出（稿 C 帧 0–0.3 秒「旧卡片淡出」）。
+private struct BlindOrderTimelineCardFadeOut: ViewModifier {
+    let isActive: Bool
+    @State private var faded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isActive && faded ? 0 : 1)
+            .onAppear {
+                guard isActive else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: BlindMatchFoundTiming.checkPhase)) { faded = true }
+            }
+    }
+}
+
+// MARK: - 找到那一刻的揭开（#926）
+
+private struct BlindOrderStageArrivalKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 这一屏是不是刚从 ① 匹配中揭开（找到陪跑员那一刻的后半段）。订单页在过渡期间置真。
+    var blindOrderStageArrival: Bool {
+        get { self[BlindOrderStageArrivalKey.self] }
+        set { self[BlindOrderStageArrivalKey.self] = newValue }
+    }
+}
+
+/// 揭开时从下方 8pt 淡入（稿 C 帧「新卡片和主按钮从下方 8pt 淡入」）。不在过渡里时什么都不做。
+struct BlindOrderStageArrivalReveal: ViewModifier {
+    let isActive: Bool
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let hidden = isActive && !shown
+        content
+            .opacity(hidden ? 0 : 1)
+            .offset(y: hidden ? BlindMatchFoundTiming.riseOffset : 0)
+            .onAppear {
+                guard isActive else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: BlindMatchFoundTiming.lineGrow)) { shown = true }
+            }
     }
 }
 

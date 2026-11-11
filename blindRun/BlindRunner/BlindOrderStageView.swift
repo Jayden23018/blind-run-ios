@@ -21,6 +21,9 @@ struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
     @ViewBuilder let footer: () -> Footer
     @ViewBuilder let bottom: () -> Bottom
 
+    /// 刚从 ① 揭开到这一屏（#926）：底部按钮与当前卡一起从下方 8pt 淡入。
+    @Environment(\.blindOrderStageArrival) private var arrival
+
     var body: some View {
         VStack(spacing: 0) {
             topBar
@@ -106,6 +109,7 @@ struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
         VStack(spacing: 0) {
             bottom()
         }
+        .modifier(BlindOrderStageArrivalReveal(isActive: arrival))
         .padding(.horizontal, 12)
         .padding(.top, 4)
         .background(AppColors.Flow.surface)
