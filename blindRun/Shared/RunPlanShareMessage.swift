@@ -33,9 +33,6 @@ enum RunPlanShareCopy {
     /// 说清「行程已经结束」而不是泛泛的失败：用户下一步不该是重试。
     static let notShareable = "这次行程已经结束，不能再分享了。"
 
-    /// 短信正文最后一句。家属需要知道这是一次性的告知，不是持续监控，
-    /// 否则「我收到过一条短信」会被误当成「我一直看得到他在哪」。
-    static let disclaimer = "（这条短信由本人发送，App 不会自动通知任何人。）"
 }
 
 // MARK: - Message
@@ -75,7 +72,6 @@ enum RunPlanShareMessage {
             lines.append("预计结束：\(end)")
         }
         lines.append("订单号：\(order.orderId)")
-        lines.append(RunPlanShareCopy.disclaimer)
 
         return lines.joined(separator: "\n")
     }

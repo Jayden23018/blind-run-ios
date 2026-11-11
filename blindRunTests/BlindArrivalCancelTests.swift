@@ -318,7 +318,7 @@ final class BlindArrivalCancelTests: XCTestCase {
         XCTAssertTrue(locked.contains("之后可以取消"), locked)
         XCTAssertEqual(
             BlindRunnerHomeViewModel.cancelBlockMessage(for: arrivedOrder(cancelOpensIn: nil), now: now),
-            "当前订单状态不能由盲人取消。"
+            "现在不能取消这个订单。"
         )
         XCTAssertNil(BlindRunnerHomeViewModel.cancelBlockMessage(for: .preview(status: .pendingMatch), now: now))
         XCTAssertNotNil(BlindRunnerHomeViewModel.cancelBlockMessage(for: .preview(status: .inProgress), now: now))
@@ -338,6 +338,6 @@ final class BlindArrivalCancelTests: XCTestCase {
         await viewModel.cancelActiveOrder()
 
         XCTAssertEqual(service.callCount("cancel(orderId:)"), 1)
-        XCTAssertNotEqual(viewModel.errorMessage, "当前订单状态不能由盲人取消。")
+        XCTAssertNotEqual(viewModel.errorMessage, "现在不能取消这个订单。")
     }
 }

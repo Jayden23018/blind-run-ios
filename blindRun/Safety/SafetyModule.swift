@@ -167,7 +167,7 @@ enum EmergencySafetyCopy {
     /// 的求助说成被拒绝。「刚才那条到底发出去没有」由只读的 `GET /api/emergency/active`
     /// 对账（`EmergencyCoordinator.reconcile(after:)`），不靠重发去试。
     static let retrySendTitle = "再发一次求助"
-    static let retrySendAccessibilityHint = "重新发送这次求助。如果上一次其实已经发出，系统会告诉你。"
+    static let retrySendAccessibilityHint = "重新发送这次求助"
 
     /// Not sent, because no fresh real coordinate was available. Says "未发出" first: the most
     /// important fact for someone who cannot see the screen is that nothing has been sent.
@@ -271,7 +271,7 @@ enum EmergencySafetyCopy {
         "陪跑员已为你发出紧急求助，系统正在联系你的紧急联系人。\(emergencyCallReminder)"
 
     /// `EMERGENCY_VOLUNTEER_ACK`：志愿者点了「确认需要帮助」后给志愿者本人的回执。
-    static let volunteerAcknowledged = "已确认需要帮助，客服正在跟进。\(emergencyCallReminder)"
+    static let volunteerAcknowledged = "已确认需要帮助。\(emergencyCallReminder)"
 
     /// `EMERGENCY_CLOSED_RESOLVED` / `EMERGENCY_CLOSED_FALSE_ALARM`：客服解除 / 标记误触后的收尾。
     ///
@@ -296,7 +296,7 @@ enum EmergencySafetyCopy {
     /// 志愿者收到 `EMERGENCY_VOLUNTEER_ALERT` 后唯一能做的动作。**不提供「误触」按钮** ——
     /// 一对一陪跑里志愿者本身可能就是威胁来源，后端对 `action=FALSE_ALARM` 恒 403。
     static let volunteerNeedHelpButtonTitle = "确认需要帮助"
-    static let volunteerAlertNotice = "被陪同者发出了紧急求助，请确认对方情况。"
+    static let volunteerAlertNotice = "跑者发出了紧急求助，请确认对方情况。"
 
     // MARK: 志愿者端·跑步中页的提示条（`VolunteerRunningHero`）
 
@@ -310,7 +310,7 @@ enum EmergencySafetyCopy {
     ///
     /// 也不能继续顶着红色的「求助中」—— 那会让一个**新的**求助在视觉上完全淹没掉。
     /// 所以是第三档：既不宣称结束，也不再报警。
-    static let volunteerPeerStatusAcknowledged = "已确认，客服处理中"
+    static let volunteerPeerStatusAcknowledged = "已确认"
 
     /// 🚩 措辞是「暂时收不到」不是「已断开」。
     ///
@@ -329,7 +329,7 @@ enum EmergencySafetyCopy {
     // MARK: 志愿者端·收到紧急求助（屏 5）
 
     static func volunteerAlertTitle(name: String?) -> String {
-        "\(name?.nilIfBlank ?? "被陪同者")发起紧急求助"
+        "\(name?.nilIfBlank ?? "跑者")发起紧急求助"
     }
 
     /// 「X 秒前」。**读的是本机收到的时刻**，不是后端时间戳 —— 两端时钟差几秒到几分钟时，
@@ -349,7 +349,7 @@ enum EmergencySafetyCopy {
     static let volunteerAlertLocationResolving = "正在确定他的位置…"
 
     static func volunteerAlertCallTitle(name: String?) -> String {
-        "呼叫\(name?.nilIfBlank ?? "被陪同者")"
+        "呼叫\(name?.nilIfBlank ?? "跑者")"
     }
 
     /// 底部主动作。**这句话是一个承诺**：按下去等于告诉客服「现场有人了」，
@@ -359,7 +359,7 @@ enum EmergencySafetyCopy {
     /// 按钮下面那行小字。**只说「同步给客服」，不说客服会做什么** ——
     /// 后端拿到 `NEED_HELP` 之后怎么调度不在客户端的知识范围里。
     static let volunteerAlertAcknowledgeFootnote = "确认后同步给客服"
-    static let volunteerAlertAcknowledgeHint = "确认被陪同者确实需要帮助，客服会介入"
+    static let volunteerAlertAcknowledgeHint = "确认跑者需要帮助"
 
     /// 🔴 **志愿者端没有「误触 / 关掉」。** 后端对 `action=FALSE_ALARM` 恒 403
     /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`：一对一陪跑里志愿者可能就是威胁来源，

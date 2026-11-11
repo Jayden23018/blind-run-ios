@@ -362,7 +362,7 @@ struct VolunteerMeetupPlanSummary: Equatable {
 enum VolunteerMeetupPlanCopy {
     static let navigationTitle = "见面安排"
     static let cancel = "取消"
-    static let intro = "请填写通话中商定的见面安排。跑者确认后即完成约定；未变更的项目无需修改。"
+    static let intro = "填写电话里商定的见面安排，没变的不用改。跑者确认后就约好了。"
     static let changedTag = "已变更"
     static let editButton = "修改"
     static let restoreTimeButton = "恢复原定时间"
@@ -383,7 +383,7 @@ enum VolunteerMeetupPlanCopy {
     static let placeCoordinateInvalid = "这个地点没有可用的位置信息，请换一个。"
 
     /// 视觉稿 ④ 原话。夜间窗口的判据是整段（与下单同一条）。
-    static let nightWindow = "行程时段不得与 22:00–05:00 重叠，请调整时间。"
+    static let nightWindow = "22:00 到 05:00 之间不能约跑，请调整时间。"
 
     // 时段单（#806，模拟图 v4 的 V2）
     static let flexibleStartRequired = "还没选开跑时间。请先和跑者商量好几点开跑。"

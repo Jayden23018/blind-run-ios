@@ -286,8 +286,7 @@ extension AccessibilityAuditTests {
     private static let auditIgnoredLabels: Set<String> = [
         "地图服务暂不可用",
         "请配置高德地图 API Key",
-        "参考 LocalConfig.xcconfig.example 创建配置文件",
-        "地图服务暂不可用，请配置高德地图 API Key"
+        "参考 LocalConfig.xcconfig.example 创建配置文件"
     ]
 }
 

@@ -89,7 +89,7 @@ extension VolunteerInServiceView {
                     Task { await viewModel.acknowledgeEmergency(eventID: alert.eventID) }
                 }
                 .accessibilityLabel(EmergencySafetyCopy.volunteerNeedHelpButtonTitle)
-                .accessibilityHint("确认被陪同者确实需要帮助，客服会介入")
+                .accessibilityHint("确认跑者需要帮助")
             }
 
             if order.status.canVolunteerTriggerEmergency, let message = coordinator.statusMessage {

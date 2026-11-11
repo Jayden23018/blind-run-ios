@@ -66,7 +66,7 @@ final class AccountDeletionViewModel: ObservableObject {
         case .blind:
             deleted = "你的实名信息、紧急联系人、常用地址和跑步轨迹"
         case .volunteer:
-            deleted = "你的资质证件照、志愿者资料、可服务时间和服务轨迹"
+            deleted = "你的资质证件照、陪跑员资料、可服务时间和服务轨迹"
         case .unset:
             // 角色还没定的账号只有登录信息，没有上面任何一份资料。
             deleted = "你的账户资料"

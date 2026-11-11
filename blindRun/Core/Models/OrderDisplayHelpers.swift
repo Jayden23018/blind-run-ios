@@ -439,7 +439,7 @@ extension RunOrderStatus {
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:
-            return "正在确认陪跑员状态，请稍候；如需更换陪跑员，系统会继续处理。"
+            return "正在确认陪跑员状态，请稍候。"
         // 终态。这条在语音查询里跟在 `displayName`（「暂无志愿者」）后面念
         // （`VoiceStatusQuery.swift:131`），所以不再重复「没有志愿者」，直接说结果与出路。
         case .noVolunteer:
@@ -540,7 +540,7 @@ extension RunOrderStatus {
 /// 这里每一句的措辞都有约束，散在 view 和 view model 里就只能靠人记。
 enum KeepWaitingCopy {
     static let buttonTitle = "继续等待"
-    static let accessibilityHint = "告诉系统你还想继续等，避免订单因为长时间没人接单被自动取消"
+    static let accessibilityHint = "继续为你找陪跑员"
 
     /// 成功文案。两条硬约束：
     ///

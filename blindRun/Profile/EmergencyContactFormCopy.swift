@@ -14,12 +14,11 @@ extension EmergencyContactFormView {
     ///   后端也没有控制台权限（handoff 2026-07-31）。写死一段猜的正文比不写更糟。
     /// - **不承诺送达** —— 短信失败不影响接口成功（后端已加 try-catch，`EmergencyContactService.java:91-93`），
     ///   所以「保存成功」不等于「对方收到了」。与 SOS 那条红线同源。
-    static let addSmsNotice = "新增后，系统会向该号码发送一条来自「助盲跑」的短信，告知对方被设为你的紧急联系人。"
-        + "短信可能发送失败，保存成功不代表对方已经收到。"
+    static let addSmsNotice = "新增后会给这个号码发一条「助盲跑」短信，告诉对方被设为你的紧急联系人。"
 
     /// 编辑走的是 `updateContact`，全仓库 `sendContactAddedSms` 只有 `addContact` 一个调用点
     /// （后端 2026-07-31 确认是有意为之）。**换号也不发**，所以编辑态说「会发短信」是一句念给盲人的假承诺。
-    static let editSmsNotice = "修改手机号不会给新号码发送告知短信。如果需要对方收到告知，请删除后重新添加。"
+    static let editSmsNotice = "改手机号不会再发告知短信，需要的话请删除后重新添加。"
 
     /// 「保存」按钮的提示。编辑态**不发**告知短信，原来这里不分情况一律说「会发短信」，
     /// 和同页的 `editSmsNotice` 互相矛盾（#657 B-32）。

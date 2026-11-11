@@ -16,7 +16,7 @@ struct LogoutConfirmation: ViewModifier {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("确认后将清除当前登录状态，返回登录页。")
+            Text("退出后回到登录页。")
         }
     }
 }

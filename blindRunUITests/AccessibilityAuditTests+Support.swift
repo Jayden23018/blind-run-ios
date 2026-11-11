@@ -25,8 +25,8 @@ extension AccessibilityAuditTests {
         let editor = app.descendants(matching: .any)["supportTicketEditor"].firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 10), "没打开工单页")
         XCTAssertTrue(
-            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "不是即时通道")).firstMatch.exists,
-            "写字之前要先说清不是即时通道"
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "120")).firstMatch.exists,
+            "写字之前要先说清有危险直接拨 120"
         )
         attachScreenshot(app, name: "blind-support-ticket-page")
         try audit(app)

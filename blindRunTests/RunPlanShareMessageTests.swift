@@ -146,8 +146,7 @@ final class RunPlanShareMessageTests: XCTestCase {
             RunPlanShareCopy.cancelled,
             RunPlanShareCopy.failed,
             RunPlanShareCopy.unavailable,
-            RunPlanShareCopy.noContact,
-            RunPlanShareCopy.disclaimer
+            RunPlanShareCopy.noContact
         ]
         let forbidden = ["已通知", "已收到", "已送达", "已知悉", "已经收到", "通知成功"]
 
@@ -164,14 +163,6 @@ final class RunPlanShareMessageTests: XCTestCase {
         XCTAssertTrue(RunPlanShareCopy.sent.contains("短信"))
         XCTAssertTrue(RunPlanShareCopy.sent.contains("确认"))
         XCTAssertTrue(RunPlanShareCopy.accessibilityHint.contains("自己点发送"))
-    }
-
-    /// 正文最后那句要让家属知道这是一次性告知，不是持续监控 ——
-    /// 否则「我收到过一条短信」会被误当成「我一直看得到他在哪」。
-    func testMessageTellsTheContactTheAppWillNotKeepThemUpdated() throws {
-        let body = try XCTUnwrap(RunPlanShareMessage.compose(order: Self.makeOrder(status: .inProgress)))
-        XCTAssertTrue(body.contains(RunPlanShareCopy.disclaimer))
-        XCTAssertTrue(RunPlanShareCopy.disclaimer.contains("不会自动通知"))
     }
 
     // MARK: - Fixtures

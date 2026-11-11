@@ -235,7 +235,7 @@ extension BlindOrderStatusView {
                 title: title,
                 systemImage: "phone.fill",
                 style: .solid,
-                accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出"
+                accessibilityHint: "确认后拨出"
             ) {
                 dialVolunteer(order)
             }

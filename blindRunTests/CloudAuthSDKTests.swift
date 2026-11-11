@@ -106,7 +106,7 @@ final class CloudAuthSDKTests: XCTestCase, BlindRunTestSupport {
             guard let metaInfoError = error as? CloudAuthMetaInfoError else {
                 return XCTFail("Expected CloudAuthMetaInfoError")
             }
-            XCTAssertEqual(metaInfoError.localizedDescription, "活体认证 SDK 初始化失败，请重试")
+            XCTAssertEqual(metaInfoError.localizedDescription, "刷脸没打开，请重试")
         }
     }
 

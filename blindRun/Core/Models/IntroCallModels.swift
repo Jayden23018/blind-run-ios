@@ -197,7 +197,7 @@ enum IntroCallCopy {
     /// 就会把这句话念出来，而视障跑者在户外常常**不戴耳机**（要听车流）——
     /// 外放等于把志愿者的手机号广播给周围的人。号码对「要不要打这通电话」这个决策没有帮助，
     /// 唯一有用的信息是「会先弹确认」。
-    static let callAccessibilityHint = "系统会先弹出拨号确认，确认后才会拨出"
+    static let callAccessibilityHint = "确认后拨出"
 
     /// 盲人侧的「不合适」。
     ///
@@ -249,7 +249,7 @@ enum IntroCallCopy {
 
     /// B2 等安排。**这一屏刻意没有主按钮**：此刻没有该盲人做的事（视觉稿 B2 注）。
     static let blindAwaitingPlanTitle = "等待见面安排"
-    static let blindAwaitingPlanSubtitle = "陪跑员将按通话内容填写见面时间与地点，提交后由你确认。确认后即完成约定。"
+    static let blindAwaitingPlanSubtitle = "陪跑员会填好见面时间和地点，发来后由你确认。"
 
     /// B3 的导航栏标题。
     static let blindPlanPageTitle = "见面安排"
@@ -268,7 +268,7 @@ enum IntroCallCopy {
     static let blindPlanChangedHeadline = "见面安排已修改，请重新收听"
 
     static let blindConfirmPlanButtonTitle = "确认见面安排"
-    static let blindConfirmPlanAccessibilityHint = "确认后即完成约定"
+    static let blindConfirmPlanAccessibilityHint = "确认后就约好了"
     /// 「有异议」直接拨号，安排单保留。陪跑员那边只会再收到一次「跑者正在给你打电话」，
     /// **不暴露「跑者不同意」**（设计文档 §3）。
     static let blindDisputePlanButtonTitle = "有异议，致电沟通"
@@ -320,7 +320,7 @@ enum IntroCallCopy {
         guard let endsAt = windowEndsAt?.nilIfBlank?.backendTimestamp else { return nil }
         let minutes = Int(endsAt.timeIntervalSince(now) / 60)
         guard minutes >= 1 else { return nil }
-        return "这一轮通话还剩 \(minutes) 分钟"
+        return "通话确认还剩 \(minutes) 分钟"
     }
 
     // MARK: 志愿者侧
@@ -389,7 +389,7 @@ enum IntroCallCopy {
         "等待跑者\(counterpartName?.nilIfBlank ?? "")确认"
     }
 
-    static let volunteerAwaitingConfirmationSubtitle = "见面安排已提交，跑者确认后即完成约定"
+    static let volunteerAwaitingConfirmationSubtitle = "见面安排已提交，跑者确认后就约好了"
     /// 提交成功那一刻播一次。
     static let volunteerPlanSubmittedAnnouncement = "见面安排已提交，等待跑者确认。"
     static let volunteerEditPlanButtonTitle = "修改见面安排"
@@ -478,7 +478,7 @@ enum IntroCallCopy {
 
     /// 409 `INTRO_CALL_NOT_ACTIVE`。最常见成因不是乱调，而是**窗口超时后客户端才发上来**，
     /// 所以要说清「这一轮已经结束」，不能说成「操作失败」。
-    static let roundAlreadyEnded = "这一轮通话已经结束了。"
+    static let roundAlreadyEnded = "这次通话确认已结束。"
 
     /// 通话数据拉不到时**看得见也听得到**的那句。
     ///

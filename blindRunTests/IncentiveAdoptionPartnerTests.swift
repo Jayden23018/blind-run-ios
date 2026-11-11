@@ -77,7 +77,7 @@ final class IncentiveAdoptionPartnerTests: XCTestCase {
     func testOptOutConfirmationSpellsOutTheConsequenceAndNeverPromisesAWayBack() {
         let message = PartnerStreakCopy.optOutConfirmMessage
         XCTAssertTrue(message.contains("无法撤销"))
-        XCTAssertTrue(message.contains("固定搭档"), "后果①：不进固定搭档那一轮")
+        XCTAssertTrue(message.contains("固定搭档先问"), "后果①：不进固定搭档那一轮")
         XCTAssertTrue(message.contains("加分"), "后果②：不再获得派单加分")
         XCTAssertTrue(message.contains("停止累积"), "后果③：连续记录停止")
         XCTAssertFalse(message.contains("恢复"), message)
@@ -140,7 +140,6 @@ final class IncentiveAdoptionPartnerTests: XCTestCase {
             XCTAssertFalse(copy.contains("一定派"), "不得承诺一定派给他：\(copy)")
         }
         XCTAssertTrue(PartnerStreakCopy.favoriteExplanation.contains("更可能"))
-        XCTAssertTrue(PartnerStreakCopy.favoriteExplanation.contains("不保证"))
     }
 
     /// 🚨 「没一起跑完过」与「这个 id 根本不是志愿者」后端同码同文案，客户端不得区分 ——

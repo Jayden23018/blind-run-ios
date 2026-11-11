@@ -21,7 +21,7 @@ extension VolunteerAvailabilityCopy {
     /// 负责人 2026-11-04 定：上线前不改机制，界面如实说。机制改了，这句和用到它的地方一起删。
     static let keepAppOpenNote = "保持助盲跑开着才收得到新邀请，锁屏或切到别的 App 后收不到"
 
-    static let slideHint = "向右滑动开启，开启后才会收到系统派单，并进入接单页。\(keepAppOpenNote)。开启不影响你当前的订单"
+    static let slideHint = "向右滑动开启接单。\(keepAppOpenNote)"
     static let enterHubTitle = "进入接单"
     static let enterHubHint = "查看下一次陪跑、待回复的邀请，也可以在那里暂停接单"
     static let closeTitle = "停止接单"

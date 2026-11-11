@@ -12,7 +12,7 @@ enum BlindRunnerFinishCopy {
 
     static let confirmTitle = "结束本次陪跑？"
     /// 说清两件事：先打电话；后端会判陪跑员是不是真的掉线了，不是按下就一定结束。
-    static let confirmMessage = "请先打电话联系陪跑员。确认后，如果陪跑员已经掉线超过 5 分钟，本次陪跑会结束；还在线的话，会告诉你什么时候可以结束。"
+    static let confirmMessage = "请先打电话联系陪跑员。陪跑员掉线超过 5 分钟后才能由你结束。"
     static let confirmButtonTitle = "结束陪跑"
     static let cancelButtonTitle = "先不结束"
 

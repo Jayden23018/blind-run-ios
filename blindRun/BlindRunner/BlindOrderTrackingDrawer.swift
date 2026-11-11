@@ -158,7 +158,7 @@ struct BlindOrderTrackingDrawer: View {
                 BlindTrackingDrawerCopy.call,
                 // 刻意不念号码（理由同 `PrimaryAction.blindAccessibilityHint` 的 `.callVolunteer`）。
                 accessibilityLabel: presentation.callTitle ?? BlindTrackingDrawerCopy.call,
-                hint: "系统会先弹出拨号确认，确认后才会拨出",
+                hint: "确认后拨出",
                 action: onCallVolunteer
             )
             .accessibilityIdentifier("blindOrderTrackingCallButton")

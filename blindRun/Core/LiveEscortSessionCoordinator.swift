@@ -30,7 +30,7 @@ enum LiveEscortHealthState: Equatable, Sendable {
         case .active(let background) where background:
             return "路线记录正在运行，锁屏后仍会持续使用定位，可能增加电量消耗。"
         case .active:
-            return "同行位置共享已开启，切到导航或锁屏后仍会继续共享；服务开始后还会记录路线，可能增加电量消耗。"
+            return "同行位置共享已开启，锁屏后也会继续；跑步开始后会记录路线。"
         case .trackConsentRequired:
             return nil
         case .locationSharingDeclined(let purpose):

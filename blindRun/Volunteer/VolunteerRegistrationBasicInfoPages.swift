@@ -96,7 +96,7 @@ struct VolunteerRegistrationBasicInfoContent: View {
                 }
 
                 // 与同意层第三条告知同一口径（`PrivacyConsentPurpose.volunteerIdentity`）。
-                Text("身份证号只用于核验身份，不会保存在这台手机上。")
+                Text("身份证号只用于核验身份。")
                     .font(.subheadline)
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

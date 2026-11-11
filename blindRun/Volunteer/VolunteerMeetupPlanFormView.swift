@@ -365,7 +365,7 @@ struct VolunteerMeetupPlanFormView: View {
                 style: .raisedPrimary,
                 isLoading: isSubmitting,
                 isEnabled: canSubmit,
-                accessibilityHint: [draft.submitButtonCaption, "跑者确认后即完成约定"].compactMap { $0 }.joined(separator: "。")
+                accessibilityHint: [draft.submitButtonCaption, "跑者确认后就约好了"].compactMap { $0 }.joined(separator: "。")
             ) {
                 submit()
             }

@@ -238,7 +238,7 @@ struct VolunteerRegistrationIntroContent: View {
             )
 
             RegistrationGroupCard {
-                RegistrationIntroStepRow(number: 1, title: "填写姓名和身份证号", detail: "身份证号不会保存在这台手机上")
+                RegistrationIntroStepRow(number: 1, title: "填写姓名和身份证号", detail: "要和身份证上的一致")
                 RegistrationRowDivider()
                 RegistrationIntroStepRow(number: 2, title: "写几句陪跑经历", detail: "选填，可以跳过")
                 RegistrationRowDivider()

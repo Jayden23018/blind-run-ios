@@ -56,7 +56,7 @@ final class DispatchAlgorithmNoticeTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            allCopy.contains("不公示各个维度的具体权重"),
+            allCopy.contains("具体权重不公开"),
             "「不公示权重」这句本身必须留在文案里：删掉它，用户就无从知道我们是有意不说，而不是漏了"
         )
     }
@@ -68,9 +68,10 @@ final class DispatchAlgorithmNoticeTests: XCTestCase {
     func testNoticeCopyListsFieldsExcludedFromRanking() {
         let allCopy = Self.allNoticeCopy
 
+        let sentence = "你的视力状况、牵引方式、姓名和手机号都不参与排序。"
         for field in ["视力状况", "牵引方式", "姓名", "手机号"] {
             XCTAssertTrue(
-                allCopy.contains("\(field)不参与排序"),
+                allCopy.contains(sentence) && sentence.contains(field),
                 "「\(field)不参与排序」不在文案里 —— 与隐私政策 §四 的公示口径对不上"
             )
         }

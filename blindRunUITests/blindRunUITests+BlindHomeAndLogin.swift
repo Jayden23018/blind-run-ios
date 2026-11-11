@@ -98,7 +98,7 @@ extension blindRunUITests {
             homeLoadTimeout: 3
         )
 
-        XCTAssertTrue(app.staticTexts["正在后台同步当前状态，页面仍可使用"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts["正在更新状态"].waitForExistence(timeout: 12))
 
         let scrollView = app.scrollViews["blindRunnerHomeScrollView"].firstMatch
         XCTAssertTrue(scrollView.exists, "Blind home must expose a scrollable surface during loading")

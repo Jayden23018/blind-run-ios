@@ -279,7 +279,7 @@ enum VolunteerAchievementsCopy {
 
     /// 这一页是展示，不是凭据。**不出现「证明」「证书」「已认证」**，
     /// 同时要说清对外申报走哪条路，否则志愿者会以为在这里就办完了。
-    static let disclaimer = "以上数据来自平台记录，供你自己查看。向学校或单位申报星级需要通过全国志愿服务信息系统办理。"
+    static let disclaimer = "申报星级请到全国志愿服务信息系统办理。"
 
     static let badgeSectionEmpty = "还没有解锁的勋章。完成第一次陪跑服务就会解锁「首次陪跑」。"
 

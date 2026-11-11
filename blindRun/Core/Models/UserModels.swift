@@ -15,7 +15,7 @@ enum UserRole: String, Codable, CaseIterable, Sendable {
         case .blind:
             return "视障跑者"
         case .volunteer:
-            return "志愿者"
+            return "陪跑员"
         case .unset:
             return "未设置"
         }

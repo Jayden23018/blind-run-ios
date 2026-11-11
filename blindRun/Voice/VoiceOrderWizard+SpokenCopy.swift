@@ -21,8 +21,8 @@ extension VoiceOrderWizard {
     /// 读回紧接着就会把记下的念一遍，用户自己听得出缺什么，而读回本来就要 15~25 秒。
     static func longUtteranceNotice(forCharacterCount count: Int) -> String? {
         guard count > ParseVoiceOrderRequest.modelFallbackCharacterLimit else { return nil }
-        return "这句话超过 \(ParseVoiceOrderRequest.modelFallbackCharacterLimit) 个字，"
-            + "我只能按关键词记，终点和备注可能没记下。缺了就说「重说」，讲短一点。"
+        return "这句话太长，"
+            + "终点和备注可能没记下，缺了就说「重说」，讲短一点。"
     }
 
     /// 听见了地名却没查到时，读回前先说的那一句。
@@ -47,7 +47,7 @@ extension VoiceOrderWizard {
     ///   失败的是把原话转成预约内容这一步。
     /// - **不给指令**。读回结尾那句「要改就说『改地点』⋯⋯」已经把出路说全了，再说一遍只是把
     ///   本就 15~25 秒的读回拖得更长。
-    static let parseFailureNotice = "这次没能把你说的话转成预约内容，下面念的是默认值。"
+    static let parseFailureNotice = "没能听明白，下面念的是默认安排。"
 
     /// 「这个接口在服务端根本不存在」——**重说多少遍都不会变好**，与「没听懂」必须分开。
     ///

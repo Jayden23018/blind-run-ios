@@ -10,19 +10,19 @@ final class VolunteerAcceptGuardTests: XCTestCase, BlindRunTestSupport {
     func testVolunteerAcceptGuardRequiresCompleteProfile() {
         XCTAssertEqual(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: nil),
-            "请先完善志愿者资料"
+            "请先完善陪跑员资料"
         )
 
         XCTAssertEqual(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(name: "")),
-            "请先完善志愿者资料"
+            "请先完善陪跑员资料"
         )
     }
 
     func testVolunteerAcceptGuardRequiresApproval() {
         XCTAssertEqual(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile()),
-            "请先完成志愿者注册流程"
+            "请先完成陪跑员注册"
         )
 
         XCTAssertNil(

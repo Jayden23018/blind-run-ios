@@ -42,7 +42,7 @@ struct VolunteerCannotFindRunnerSheet<Ticket: View>: View {
                         systemImage: "phone.fill",
                         style: .primary,
                         accessibilityLabel: VolunteerOrderFlowCopy.callRunner,
-                        accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出"
+                        accessibilityHint: "确认后拨出"
                     ) {
                         // 先拨号再关页：反过来写会让系统的拨号确认赶上这一层的收起动画。
                         onCall()
@@ -61,7 +61,7 @@ struct VolunteerCannotFindRunnerSheet<Ticket: View>: View {
                     .font(AppFonts.body())
                     .frame(maxWidth: .infinity, minHeight: 64)
                     .contentShape(Rectangle())
-                    .accessibilityHint("提交一条事后反馈，不会立刻有人联系你")
+                    .accessibilityHint("事后提交一条反馈")
                     .accessibilityIdentifier("volunteerCannotFindReportIssue")
             }
             .padding(24)

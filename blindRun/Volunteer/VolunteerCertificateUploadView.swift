@@ -117,7 +117,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .rejected:
             return "资质证书未通过审核，当前无法接单。请重新上传清晰完整的证书图片或 PDF。"
         case .statusUnavailable:
-            return "暂时无法获取资质审核状态，因此无法确认能否接单。请检查网络后重新获取状态。"
+            return "暂时查不到审核状态，请检查网络后重试。"
         }
     }
 
@@ -159,7 +159,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .rejected:
             return "身份材料未通过人工审核，当前无法接单。请重新上传能清晰证明本人身份的材料。"
         case .statusUnavailable:
-            return "暂时无法获取审核状态，因此无法确认能否接单。请检查网络后重新获取状态。"
+            return "暂时查不到审核状态，请检查网络后重试。"
         }
     }
 }

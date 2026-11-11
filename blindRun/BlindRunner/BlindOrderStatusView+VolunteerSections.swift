@@ -80,7 +80,7 @@ extension BlindOrderStatusView {
             //
             // 语音拨号那条路**照旧逐位复述号码**（`VoiceStatusQuery.swift:212`），
             // 那不是冗余暴露：用户已经明确说了要打，复述是拨号前确认拨给谁，删掉会变成盲拨。
-            .accessibilityHint("系统会先弹出拨号确认，确认后才会拨出")
+            .accessibilityHint("确认后拨出")
             .accessibilityIdentifier("blindOrderStatusCallVolunteerButton")
         }
     }

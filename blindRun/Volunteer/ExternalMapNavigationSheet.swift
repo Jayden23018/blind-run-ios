@@ -24,7 +24,7 @@ struct ExternalMapNavigationSheet: View {
                         .accessibilityHint("打开外部地图进行步行导航")
                     }
                 } footer: {
-                    Text("默认使用步行导航。未安装的第三方地图不会显示。")
+                    Text("使用步行导航。")
                 }
             }
             .navigationTitle("选择地图导航")

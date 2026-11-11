@@ -503,7 +503,7 @@ struct BlindOrderStatusView: View {
             // 汇合态取消的是一次见面，不是一个预约（后端 #682）。
             Text(viewModel.order?.status == .driverArrived
                  ? BlindArrivalCancelCopy.confirmationMessage
-                 : "确认取消本次预约？取消后将结束本次服务。")
+                 : "确认取消本次预约？")
         }
         // 不是 `NavigationLink`：`confirmationDialog` 的按钮只能跑闭包，塞不进导航。
         // 用 sheet 而不是 push 还有一个好处 —— 看完说明关掉就回到原地，

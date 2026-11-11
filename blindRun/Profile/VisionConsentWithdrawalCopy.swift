@@ -7,7 +7,7 @@ import Foundation
 /// 负责人要求文案严格成立。按钮标题未变。
 enum VisionConsentWithdrawalCopy {
     static let buttonTitle = "撤回同意"
-    static let accessibilityLabel = "撤回同意，不再提供视力状况和导盲犬。按下后立刻把资料里这两项改成不提供，以后想填可以再同意"
+    static let accessibilityLabel = "资料里的视力状况和导盲犬改为不提供，以后可以再填"
     static let succeeded = "已撤回。资料里的视力状况和导盲犬已改成不提供，以后想填可以再点「视力状况与导盲犬」。"
 
     static func failed(saveButtonTitle: String) -> String {

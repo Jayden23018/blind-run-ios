@@ -11,7 +11,7 @@ enum DispatchPreciseLocationCopy {
         location.requestTemporaryPreciseLocation(for: .volunteerDispatch)
     }
 
-    static let notice = "「精确位置」已关闭，只能拿到大致位置，可能偏差几公里，所以暂停为派单上报你的位置，附近的陪跑邀请会收不到。"
+    static let notice = "「精确位置」已关闭，收不到附近的陪跑邀请。"
         + "如果弹出提示请选允许，或到系统设置里为助盲跑打开「精确位置」。"
 }
 

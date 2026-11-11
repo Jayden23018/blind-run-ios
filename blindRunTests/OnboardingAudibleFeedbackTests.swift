@@ -123,8 +123,8 @@ final class OnboardingAudibleFeedbackTests: XCTestCase {
         XCTAssertTrue(blind.contains("不能更改"), blind)
 
         let volunteer = RoleSelectionViewModel.confirmationMessage(for: .volunteer)
-        XCTAssertTrue(volunteer.contains("志愿者"), volunteer)
-        XCTAssertFalse(volunteer.contains("盲人跑者"), "志愿者的确认里念成了盲人跑者：\(volunteer)")
+        XCTAssertTrue(volunteer.contains("陪跑员"), volunteer)
+        XCTAssertFalse(volunteer.contains("盲人跑者"), "陪跑员的确认里念成了盲人跑者：\(volunteer)")
         XCTAssertEqual(RoleSelectionViewModel.confirmButtonTitle(for: .blind), "确认，我是盲人跑者")
     }
 

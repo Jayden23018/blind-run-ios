@@ -103,7 +103,7 @@ extension BlindOrderStatusViewModel {
         // 时钟有偏差时照发，由后端 409 `BLIND_CANCEL_TOO_EARLY` 把时刻念出来。
         let isArrivalCancel = BlindArrivalCancelGate.resolve(order: order, now: Date()) != nil
         guard order.status.canBlindRunnerCancel || isArrivalCancel else {
-            let message = "当前订单状态不能由盲人取消。"
+            let message = "现在不能取消这个订单。"
             errorMessage = message
             speechService?.speakError(message)
             return

@@ -58,7 +58,7 @@ final class AMapGeocodingService: NSObject, ObservableObject, PlaceSearchProvidi
 
     func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> ResolvedPlace? {
         guard let search = ensureSearchClient() else {
-            lastErrorMessage = "高德地图未配置，使用坐标作为出发地点。"
+            lastErrorMessage = "暂时查不到地址，先用坐标作为出发地点。"
             return nil
         }
 
@@ -84,7 +84,7 @@ final class AMapGeocodingService: NSObject, ObservableObject, PlaceSearchProvidi
         guard !normalizedKeyword.isEmpty else { return [] }
 
         guard ensureSearchClient() != nil else {
-            lastErrorMessage = "高德地图未配置，暂不能搜索地点。"
+            lastErrorMessage = "暂时不能搜索地点。"
             return []
         }
 

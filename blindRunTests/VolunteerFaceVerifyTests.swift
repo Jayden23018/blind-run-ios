@@ -27,7 +27,7 @@ final class VolunteerFaceVerifyTests: XCTestCase, BlindRunTestSupport {
 
         XCTAssertTrue(verifier.receivedCertifyIds.isEmpty)
         XCTAssertEqual(client.resultCount, 0)
-        XCTAssertEqual(viewModel.errorMessage, "活体认证服务返回不完整，请稍后重试")
+        XCTAssertEqual(viewModel.errorMessage, "刷脸暂时用不了，请稍后重试")
     }
 
     func testVolunteerFaceVerifyInitErrorDoesNotPollOrEnterTraining() async {

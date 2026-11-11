@@ -57,7 +57,7 @@ extension AccessibilityAuditTests {
             }
             XCTAssertTrue(footer.exists, "\(variant.name)：页脚没有合规文案")
             XCTAssertTrue(footer.label.contains("积分不能提现、不能转让、不能兑换现金"), footer.label)
-            XCTAssertTrue(footer.label.contains("积分和志愿服务时长是两回事"), footer.label)
+            XCTAssertTrue(footer.label.contains("累计服务时长在「服务成就」页查看"), footer.label)
             attachScreenshot(app, name: "account-points-\(variant.name)-bottom")
             try audit(app)
             app.terminate()

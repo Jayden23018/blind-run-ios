@@ -238,7 +238,7 @@ struct LoginView: View {
                             requestCodeAndPrepareVerificationFocus(using: scrollProxy)
                         }
                         .disabled(!viewModel.canRequestCode)
-                        .accessibilityHint(viewModel.isCountdownActive ? "服务端限制发送频率，倒计时结束后可重试" : "点击后发送验证码到手机")
+                        .accessibilityHint(viewModel.isCountdownActive ? "倒计时结束后可重新发送" : "点击后发送验证码到手机")
 
                         // 验证码输入区（条件显示）
                         if viewModel.showCodeInput {

@@ -110,7 +110,7 @@ extension blindRunUITests {
         // Mock 默认未完成培训，所以这里是第三态：滑不开，按钮名是「查看接单前进度」（#658）。
         let slider = app.buttons["查看接单前进度"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 12), "未完成培训时底部应当是通往进度页的入口")
-        XCTAssertFalse(app.buttons["返回志愿者首页"].exists, "人脸通过后不该再要用户手动返回")
+        XCTAssertFalse(app.buttons["返回首页"].exists, "人脸通过后不该再要用户手动返回")
         XCTAssertFalse(
             app.buttons["进入接单"].exists,
             "Legacy completion must not automatically enable availability"

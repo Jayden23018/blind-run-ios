@@ -56,8 +56,8 @@ enum VolunteerAvailabilityScheduleEditing {
     static func footerText(for slots: [VolunteerAvailabilityDraftSlot]) -> String {
         let rule = slots.contains { !$0.isOneOff }
             ? "空闲时间以外不会给你发邀请。"
-            : "还没有每周重复的时段，任何时间都可能收到邀请；按日期添加的只是多加那一天。"
-        return rule + "改完自动保存，没有保存按钮。"
+            : "还没设每周时段，任何时间都可能收到邀请。"
+        return rule + "改完自动保存。"
     }
 
     // MARK: 一次性时段的日期（#455）

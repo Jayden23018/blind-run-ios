@@ -51,7 +51,7 @@ extension VolunteerHomeViewModel {
             // 一模一样，而他可能正有一张单在倒计时。判据是「这个失败态下屏幕上会**多**出什么」，
             // 当时的答案是「什么都不多」，那就是静默失败。
             scheduledOrdersMessage = scheduledOrders.isEmpty
-                ? "预约列表加载失败，如果你有还没到时间的预约，请下拉刷新再看一次。"
+                ? "预约列表加载失败，请下拉刷新。"
                 : "预约列表刷新失败，显示的是上一次的内容。"
         }
     }
@@ -113,7 +113,7 @@ extension VolunteerHomeViewModel {
         // 🚩 **不说「会转给其他志愿者」**：后端 `enterRematching` 在重匹次数达上限时是直接
         // 置 `CANCELLED` 而不是重派（`OrderLifecycleService`），那时这句话就是假的。
         // 只说他自己那一半 —— 那一半永远为真。
-        _ = await submitScheduled(orderID: orderID, successSpeech: "已告知系统你无法参加，此订单已解除。") { orders in
+        _ = await submitScheduled(orderID: orderID, successSpeech: "已回复去不了，此订单已解除。") { orders in
             // 「已记一次临时取消」以响应为准（后端 #361）。这条路径没有 WebSocket 抢先播报，直接接在成功那一句后面。
             VolunteerCancelAnnouncement.suffix(for: try await orders.cancel(orderId: orderID))
         }

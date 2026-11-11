@@ -9,7 +9,7 @@ import SwiftUI
 /// 说过一次就按账号记住（`VolunteerOnceNotice.phoneShare`）。按「先不接」不记，下次接单再说。
 enum VolunteerPhoneShareCopy {
     static let title = "接单前请知悉"
-    static let message = "继续后，你的完整手机号会提供给跑者，方便对方给你打电话。即使这一单最后没有约成，对方也已经拿到你的号码。这条说明只出现一次。"
+    static let message = "继续后，你的完整手机号会提供给跑者，方便对方给你打电话。即使这一单最后没有约成，对方也已经拿到你的号码。"
     static let proceedButton = "知道了，继续"
     static let cancelButton = "先不接"
 }

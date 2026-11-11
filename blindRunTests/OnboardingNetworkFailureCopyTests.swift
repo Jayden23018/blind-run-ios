@@ -64,11 +64,11 @@ final class OnboardingNetworkFailureCopyTests: XCTestCase {
     func testRunRecordMessageFailureEmbedsTheClauseWithoutAskingToWait() {
         XCTAssertEqual(
             RunRecordViewModel.sendFailureReason(.networkError(URLError(.cannotConnectToHost))),
-            "服务暂时出了问题，不是你的手机。请稍后再发一次。"
+            "服务暂时出了问题。请稍后再发一次。"
         )
         XCTAssertEqual(
             RunRecordViewModel.sendFailureReason(.networkError(URLError(.timedOut))),
-            "暂时连不上服务器，可能是信号弱，也可能是服务出了问题。请稍后再发一次。"
+            "暂时连不上服务器。请稍后再发一次。"
         )
         XCTAssertEqual(
             RunRecordViewModel.sendFailureReason(.networkError(URLError(.notConnectedToInternet))),

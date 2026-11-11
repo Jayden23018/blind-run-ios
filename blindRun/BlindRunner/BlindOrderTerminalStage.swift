@@ -7,7 +7,7 @@ import Foundation
 
 enum BlindOrderTerminalCopy {
     static let backHome = "返回首页"
-    static let backHomeHint = "点击后返回盲人首页"
+    static let backHomeHint = "回到首页"
     static let noVolunteerTitle = "这次没找到陪跑员"
     /// 暂无陪跑员那一步的小字。接 `blindRunnerDescription` 里的同一个原因，换成短句。
     static let noVolunteerDetail = "没有匹配到可用的陪跑员"
