@@ -42,7 +42,7 @@ struct BlindMatchFirstBookingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 sectionTitle("从哪出发？")
-                if let notice = launchAreaNotice { areaNoticeRow(notice) }
+                if let notice = launchAreaNotice { BookingLaunchAreaNoticeRow(text: notice) }
                 BookingStartPlacePicker(
                     places: favoritePlaces.places,
                     selectedPlaceID: selectedFavoriteID,
@@ -104,16 +104,7 @@ struct BlindMatchFirstBookingView: View {
         // 先 contain 再挂 id：否则这个 id 盖掉页里所有子元素的 id（#814），审计也认不出底栏。
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("matchFirstBookingPage")
-        .alert(gateAlert?.title ?? "", isPresented: gateAlertIsPresented, presenting: gateAlert) { _ in
-            Button(BookingStartGateCopy.pickFavorite, role: .cancel) {}
-            Button(BookingStartGateCopy.openSettings) { SystemSettingsLink.open() }
-        } message: { alert in
-            Text(alert.message)
-        }
-    }
-
-    private var gateAlertIsPresented: Binding<Bool> {
-        Binding(get: { gateAlert != nil }, set: { if !$0 { gateAlert = nil } })
+        .bookingStartGateAlert($gateAlert)
     }
 
     // MARK: 从哪出发
@@ -135,23 +126,6 @@ struct BlindMatchFirstBookingView: View {
     private var launchAreaNotice: String? {
         let place = selectedFavorite ?? viewModel.resolvedStartPlace
         return appState.ruleParamsResponse?.launchScope?.areaNotice(latitude: place?.latitude, longitude: place?.longitude)
-    }
-
-    private func areaNoticeRow(_ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "mappin.and.ellipse")
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.Flow.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 2)
-        .padding(.bottom, 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("matchFirstLaunchAreaNotice")
     }
 
     private var startPointDetail: String {
@@ -295,34 +269,15 @@ struct BlindMatchFirstBookingView: View {
     /// 出发点是当前位置、而定位用不了时：精确位置关闭 → 请求一次临时精确位置，允许后取新位置再放行；
     /// 被拒（或权限被拒）→ 弹短提示并朗读，不提交。出发点是常用地点时直接放行。
     private func passesStartGate() async -> Bool {
-        let gate = BookingStartGate.evaluate(
-            usesCurrentLocation: selectedFavoriteID == nil,
-            isDenied: locationService.isDenied,
-            isPreciseLocationOff: locationService.isPreciseLocationOff
+        isCheckingStartPoint = true
+        defer { isCheckingStartPoint = false }
+        let alert = await BookingStartGate.check(
+            usesCurrentLocation: selectedFavoriteID == nil, locationService: locationService, viewModel: viewModel
         )
-        switch gate {
-        case .proceed:
-            return true
-        case .blockedByDeniedLocation:
-            showGateAlert(isDenied: true)
-            return false
-        case .askPreciseLocation:
-            isCheckingStartPoint = true
-            defer { isCheckingStartPoint = false }
-            let stillOff = await locationService.requestTemporaryPreciseLocationAndWaitForAnswer(for: .bookingStartPoint)
-            if stillOff {
-                showGateAlert(isDenied: false)
-                return false
-            }
-            await viewModel.refreshCurrentLocation()
-            return true
-        }
-    }
-
-    private func showGateAlert(isDenied: Bool) {
-        let alert = BookingStartGateAlert.make(isDenied: isDenied)
+        guard let alert else { return true }
         gateAlert = alert
         speechService.speakError(alert.message)
+        return false
     }
 
     private func submit() async {

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// 约跑页点「开始找陪跑员」那一刻，出发点能不能用「当前位置」（#813）。
 ///
@@ -21,6 +22,32 @@ enum BookingStartGate: Equatable {
         guard usesCurrentLocation else { return .proceed }
         if isDenied { return .blockedByDeniedLocation }
         return isPreciseLocationOff ? .askPreciseLocation : .proceed
+    }
+
+    /// 执行判定。返回 `nil` = 放行；否则是要弹给用户的短提示（调用方负责弹并朗读）。
+    /// 精确位置关闭时在这里请求一次临时精确位置，允许后取新位置再放行。
+    @MainActor
+    static func check(
+        usesCurrentLocation: Bool,
+        locationService: LocationService,
+        viewModel: BlindBookingViewModel
+    ) async -> BookingStartGateAlert? {
+        let gate = evaluate(
+            usesCurrentLocation: usesCurrentLocation,
+            isDenied: locationService.isDenied,
+            isPreciseLocationOff: locationService.isPreciseLocationOff
+        )
+        switch gate {
+        case .proceed:
+            return nil
+        case .blockedByDeniedLocation:
+            return .make(isDenied: true)
+        case .askPreciseLocation:
+            let stillOff = await locationService.requestTemporaryPreciseLocationAndWaitForAnswer(for: .bookingStartPoint)
+            if stillOff { return .make(isDenied: false) }
+            await viewModel.refreshCurrentLocation()
+            return nil
+        }
     }
 }
 
@@ -56,5 +83,43 @@ enum BookingStartGateCopy {
         return isPreciseLocationOff
             ? "精确位置已关闭，不能用当前位置出发。点开始时请允许精确位置一次，或选常用地点。"
             : nil
+    }
+}
+
+/// 标题下一行开放范围（后端 `launchScope.areaHint`）。有限制才有，没有限制调用方不放这一行。
+struct BookingLaunchAreaNoticeRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "mappin.and.ellipse")
+                .foregroundColor(AppColors.Flow.secondaryText)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 2)
+        .padding(.bottom, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("matchFirstLaunchAreaNotice")
+    }
+}
+
+extension View {
+    /// 被拒后的短提示：两个出路，「选常用地点」只是关掉提示，「去设置」打开本 App 的系统设置页。
+    func bookingStartGateAlert(_ alert: Binding<BookingStartGateAlert?>) -> some View {
+        self.alert(
+            alert.wrappedValue?.title ?? "",
+            isPresented: Binding(get: { alert.wrappedValue != nil }, set: { if !$0 { alert.wrappedValue = nil } }),
+            presenting: alert.wrappedValue
+        ) { _ in
+            Button(BookingStartGateCopy.pickFavorite, role: .cancel) {}
+            Button(BookingStartGateCopy.openSettings) { SystemSettingsLink.open() }
+        } message: { alert in
+            Text(alert.message)
+        }
     }
 }
