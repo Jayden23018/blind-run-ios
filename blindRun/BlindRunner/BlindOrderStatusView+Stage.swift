@@ -27,11 +27,14 @@ extension BlindOrderStatusView {
                 if let presentation = BlindOrderStagePresentation.make(
                     order: order,
                     canKeepWaiting: viewModel.canShowKeepWaiting,
+                    dispatchWidened: widenedDispatchOrderIDs.contains(order.orderId),
                     now: context.date
                 ) {
                     stageScaffold(presentation, order: order)
                 }
             }
+            // 派单进度原位写在这一行（#949），不弹浮层。
+            .onReceive(appState.realtimeCoordinator.$widenedDispatchOrderIDs) { widenedDispatchOrderIDs = $0 }
         } else if let presentation = BlindOrderStagePresentation.make(
             order: order,
             canKeepWaiting: viewModel.canShowKeepWaiting

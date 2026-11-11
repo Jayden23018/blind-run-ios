@@ -45,6 +45,11 @@ final class AppRealtimeCoordinator: ObservableObject {
     @Published var runnerRing: RunnerRingRequest?
     @Published var latestSeparationAlert: RealtimeSeparationAlert?
     @Published var latestSafetyEvent: RealtimeSafetyEvent?
+    /// 派单已扩大范围的单（#949）。订单页 ① 那一行据此写「正在扩大范围找」。
+    @Published var widenedDispatchOrderIDs: Set<Int64> = []
+    /// 一连串派单进度里最后一条的播报（#949）。`ContentView` 念，不进浮层。
+    @Published var dispatchProgressAnnouncement: DispatchProgressAnnouncement?
+    var dispatchProgressTask: Task<Void, Never>?
 
     /// 最近一次（实时推送或重连补读）看到的通知 ISO-8601 timestamp。
     /// 作为 `GET /api/notifications/since?after=` 的游标，由 `AppState` 持久化。
@@ -150,7 +155,16 @@ final class AppRealtimeCoordinator: ObservableObject {
     var queuedNotifications: [RealtimeForegroundNotification] = []
     var deduplicationDates: [String: Date] = [:]
     var activeOrderIDs: Set<Int64> = []
-    var activeOrderStatuses: [Int64: RunOrderStatus] = [:]
+    var activeOrderStatuses: [Int64: RunOrderStatus] = [:] {
+        // 离开匹配（找到人、取消）就不再「扩大范围」；之后退回匹配要等新的一条推送（#949）。
+        // 三处写入（登记、状态推送、详情对账）都经过这里。
+        didSet {
+            let stillWidened = widenedDispatchOrderIDs.filter { id in
+                activeOrderStatuses[id].map { BlindOrderStage.resolve($0) == .matching } ?? true
+            }
+            if stillWidened != widenedDispatchOrderIDs { widenedDispatchOrderIDs = stillWidened }
+        }
+    }
     var orderStatusReconciler = OrderStatusReconciler()
     var retainedOrderStatusIdentities: [String: RetainedOrderStatusIdentity] = [:]
     var retainedOrderStatusIdentityOrder: [String] = []
@@ -163,6 +177,8 @@ final class AppRealtimeCoordinator: ObservableObject {
     let deduplicationWindow: TimeInterval
     let orderRefreshRetryDelays: [TimeInterval]
     let maximumQueuedNotifications: Int
+    /// 派单进度静下来多久才念（#949）。后端瞬时连发的几条间隔远小于 1 秒。
+    let dispatchProgressSettleDelay: TimeInterval
     let maximumDeduplicationEntries = 128
     let maximumOrderStatusIdentities = 256
     let lifecycleNotificationSuppressionWindow: TimeInterval = 30
@@ -186,9 +202,11 @@ final class AppRealtimeCoordinator: ObservableObject {
         notificationDuration: TimeInterval = 5,
         deduplicationWindow: TimeInterval = 120,
         orderRefreshRetryDelays: [TimeInterval] = [1, 2, 4],
-        maximumQueuedNotifications: Int = 24
+        maximumQueuedNotifications: Int = 24,
+        dispatchProgressSettleDelay: TimeInterval = 1
     ) {
         self.now = now
+        self.dispatchProgressSettleDelay = dispatchProgressSettleDelay
         self.notificationDuration = notificationDuration
         self.deduplicationWindow = deduplicationWindow
         self.orderRefreshRetryDelays = orderRefreshRetryDelays

@@ -19,6 +19,10 @@ extension AppRealtimeCoordinator {
             // 后端原文「点击继续等待可延长」。
             let eventType = (missed.eventType ?? "").uppercased()
             if eventType == Self.introCallIncomingEventType, routeIntroCallIncoming(sentAt: missed.sentAt) { continue }
+            // 补读的派单进度已经过去了：只更新订单页那一行，不念、不进浮层（#949）。
+            if routeDispatchProgress(
+                eventType: eventType, orderID: missed.orderId, ttsText: missed.ttsText, body: missed.body, speak: false
+            ) { continue }
             // 补读不退回「唯一活跃订单」：窗口有 24 小时，不带订单号的旧通知可能属于上一单。
             BlindMidRunDepartureRecord.shared.note(eventType: eventType, orderID: missed.orderId)
             let override = overriddenBody(forEventType: eventType)

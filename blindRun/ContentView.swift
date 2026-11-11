@@ -241,6 +241,7 @@ struct ContentView: View {
     #endif
     @StateObject private var rootRouter = ContentRootRouter()
     @State private var notificationAnnouncementGate = CurrentValueReplayGate<UUID>()
+    @State private var dispatchProgressAnnouncementGate = CurrentValueReplayGate<UUID>()
     @State private var healthAnnouncementGate = CurrentValueReplayGate<LiveEscortHealthState>()
     /// 按 `SessionExpiryDeferral.announcementSerial` 去重，理由同上。
     @State private var sessionExpiryAnnouncementGate = CurrentValueReplayGate<Int?>()
@@ -457,6 +458,11 @@ struct ContentView: View {
             // notification and forms a main-thread render/TTS feedback loop.
             guard notificationAnnouncementGate.accepts(notification.id) else { return }
             speechService.speak(notification.speechText, priority: notification.announcementPriority)
+        }
+        // 派单进度不进浮层，只念一连串里的最后一条（#949）。闸门理由同上一条。
+        .onReceive(appState.realtimeCoordinator.$dispatchProgressAnnouncement.compactMap { $0 }) { announcement in
+            guard dispatchProgressAnnouncementGate.accepts(announcement.id) else { return }
+            speechService.speak(announcement.text)
         }
         .onReceive(appState.liveEscortCoordinator.$healthState.removeDuplicates()) { state in
             // removeDuplicates only applies within one subscription. SwiftUI may

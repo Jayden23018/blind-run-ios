@@ -14,6 +14,7 @@ extension AppRealtimeCoordinator {
     }
 
     func unregisterActiveOrder(_ orderID: Int64) {
+        widenedDispatchOrderIDs.remove(orderID)
         activeOrderIDs.remove(orderID)
         orderStatusReconciler.unregister(orderID: orderID)
         activeOrderStatuses.removeValue(forKey: orderID)

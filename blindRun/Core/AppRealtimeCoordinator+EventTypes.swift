@@ -155,6 +155,7 @@ extension AppRealtimeCoordinator {
     /// - `DISPATCH_STARTED` / `DISPATCH_EXPANDING` / `REMATCH_TIMEOUT` /
     ///   `ORDER_CANCELLATION_WARNING` / `ORDER_OVERDUE` —— **不改订单状态**，订单页不会播。
     ///   抑制它们等于让派单期（最长 30 分钟、3 轮扩圈）整段静音。
+    ///   （前两条 #949 起不进浮层，走 `routeDispatchProgress`：订单页那一行 + 只念最后一条。）
     /// - `ROUTE_CONFIRM_REQUIRED*` / `PROXIMITY_ALERT` / `CERT_*` / `ID_VERIFY_*` ——
     ///   与订单状态无关，本来就不该进这条闸。
     /// - 🔴 **跨天预约那三条一个都不许加**（`SCHEDULED_RUN_REMINDER` / `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` /

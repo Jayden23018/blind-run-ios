@@ -306,6 +306,9 @@ struct BlindOrderStatusView: View {
     @State var showRunnerMessage = false
     @State var showLiveShareConsent = false
     @State var showLiveShareConfirmation = false
+    /// 已扩大派单范围的单（#949，镜像 `AppRealtimeCoordinator.widenedDispatchOrderIDs`）。
+    /// 协调器嵌在 `appState` 里，它的发布不会让本页重画，所以在 ① 上 `onReceive` 抄一份。
+    @State var widenedDispatchOrderIDs: Set<Int64> = []
     /// 状态推进后把 VoiceOver 焦点接到状态卡上。
     ///
     /// 这一页每 5 秒轮询一次，重绘时焦点会被系统收走，落点不确定 —— 而状态卡恰恰是

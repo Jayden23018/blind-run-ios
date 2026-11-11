@@ -38,6 +38,14 @@ enum BlindOrderStageCopy {
     static func matchingWaited(minutes: Int) -> String {
         "已等 \(VolunteerMeetupPlanCopy.durationText(minutes))"
     }
+    /// ① 当前步小字的前半句：后端推了 `DISPATCH_EXPANDING`（#949）。派单进度不再弹浮层，原位写在这一行。
+    /// 不说「第 N 轮」：轮次是后端内部的扩圈序号，用户拿它做不了任何事。
+    static let matchingWidening = "正在扩大范围找"
+    /// 「正在扩大范围找 · 已等 3 分钟」。两段都可能缺，都缺返回 nil（这一行不画）。
+    static func matchingDetail(widening: Bool, waitedMinutes: Int?) -> String? {
+        let parts = [widening ? matchingWidening : nil, waitedMinutes.map(matchingWaited(minutes:))].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
     /// 找到那一刻旧 ① 当前步的小字（稿 C 帧 0–0.3 秒）。
     static let matchFound = "刚刚找到"
 
@@ -116,13 +124,17 @@ struct BlindOrderStagePresentation: Equatable {
     static func make(
         order: OrderDetailResponse,
         canKeepWaiting: Bool,
+        dispatchWidened: Bool = false,
         now: Date = Date()
     ) -> BlindOrderStagePresentation? {
         guard let stage = BlindOrderStage.resolve(order.status),
               let position = order.status.blindOrderTimelinePosition else { return nil }
         switch stage {
         case .matching:
-            return matching(order: order, position: position, canKeepWaiting: canKeepWaiting, now: now)
+            return matching(
+                order: order, position: position, canKeepWaiting: canKeepWaiting,
+                dispatchWidened: dispatchWidened, now: now
+            )
         case .booked:
             return booked(order: order, position: position, now: now)
         case .introCall:
@@ -153,12 +165,13 @@ struct BlindOrderStagePresentation: Equatable {
         order: OrderDetailResponse,
         position: BlindOrderTimelinePosition,
         canKeepWaiting: Bool,
+        dispatchWidened: Bool,
         now: Date
     ) -> BlindOrderStagePresentation {
         var details: [BlindOrderTimelineStep: String] = [:]
-        if let minutes = order.blindRunnerWaitedMinutes(now: now) {
-            details[.matchVolunteer] = BlindOrderStageCopy.matchingWaited(minutes: minutes)
-        }
+        details[.matchVolunteer] = BlindOrderStageCopy.matchingDetail(
+            widening: dispatchWidened, waitedMinutes: order.blindRunnerWaitedMinutes(now: now)
+        )
         var bottom: [BlindOrderStageBottomAction] = []
         // 判据与改版前同一个（`offersBlindRunnerKeepWaitingControl`）：只有 REMATCHING 是真延长。
         if order.status.offersBlindRunnerKeepWaitingControl, canKeepWaiting {
