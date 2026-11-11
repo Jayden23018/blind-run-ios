@@ -40,24 +40,15 @@ struct BlindOrderActivityAttributes: ActivityAttributes, Hashable {
 /// 卡上哪一屏。**开放枚举**：旧版本 App 起的卡被新版本认回、或反过来，未知值降级成「匹配中」
 /// 而不是整条解码失败（那等于锁屏卡冻住）。同 `GuideRunAttributes.Phase` 的写法。
 enum BlindOrderActivityPhase: String, Codable, Hashable, Sendable, CaseIterable {
-    /// B1 正在找陪跑员。
-    case matching
-    /// B2 陪跑员已响应，先通电话商量。
-    case talking
-    /// B3 请确认见面安排。
-    case confirmPlan
-    /// B4 已约好 → 第一段收卡。
-    case scheduled
-    /// B5 开跑前 30 分钟（第二段起卡）。
-    case preRun
-    /// B6 陪跑员正在赶来。
-    case enRoute
-    /// B7 陪跑员到了。
-    case arrived
-    /// B11 取消。
-    case cancelled
-    /// B11 没找到陪跑员。
-    case noVolunteer
+    case matching  // B1 正在找陪跑员。
+    case talking  // B2 陪跑员已响应，先通电话商量。
+    case confirmPlan  // B3 请确认见面安排。
+    case scheduled  // B4 已约好 → 第一段收卡。
+    case preRun  // B5 开跑前 30 分钟（第二段起卡）。
+    case enRoute  // B6 陪跑员正在赶来。
+    case arrived  // B7 陪跑员到了。
+    case cancelled  // B11 取消。
+    case noVolunteer  // B11 没找到陪跑员。
 
     init(from decoder: Decoder) throws {
         let rawValue = try? decoder.singleValueContainer().decode(String.self)
@@ -248,114 +239,145 @@ struct BlindOrderActivityPresentation: Equatable {
     let accessibilityLabel: String
 
     init(state: BlindOrderActivityAttributes.ContentState, isStale: Bool, now: Date = Date(), calendar: Calendar = .current) {
-        let place = Self.trimmed(state.placeName)
-        let topColor = Self.trimmed(state.volunteerTopColor)
-        var countdown: Countdown?
-        // 读屏念的标题 / 副标题。和屏幕上不同的只有两处：时刻念成「7 点」，系统自走的倒计时念成这一刻的「约 N 分钟」。
-        var spokenTitle: String?
-        var spokenSubtitle: String?
         background = (isStale || state.phase == .cancelled || state.phase == .noVolunteer)
             ? BlindOrderActivityPalette.stale
             : BlindOrderActivityPalette.card
         titleIsLarge = state.phase == .arrived && !isStale
         compactShowsSearchingDot = state.phase == .matching
-
+        let screen: Screen
         // B10：匹配中到 8 小时变灰改字。商量那两屏也会到点变灰（灰底在上面），但字不改 ——
         // 那时已经找到人了，写「还在找陪跑员」是错话。
         if isStale && state.phase == .matching {
-            title = BlindOrderActivityCopy.staleMatching
-            subtitle = BlindOrderActivityCopy.staleSubtitle
-            self.countdown = nil
-            showsAvatar = false
-            line = nil
-            compactTrailing = BlindOrderActivityCopy.compactMatching
-            accessibilityLabel = "\(BlindOrderActivityCopy.appName)，\(title)，\(BlindOrderActivityCopy.staleSubtitle)"
-            return
+            screen = Screen(
+                title: BlindOrderActivityCopy.staleMatching,
+                subtitle: BlindOrderActivityCopy.staleSubtitle,
+                compactTrailing: BlindOrderActivityCopy.compactMatching
+            )
+        } else if state.phase.isFindingStage || state.phase == .scheduled {
+            screen = Self.firstStageScreen(state, now: now, calendar: calendar)
+        } else {
+            screen = Self.secondStageScreen(state, now: now, calendar: calendar)
         }
-
-        switch state.phase {
-        case .matching:
-            title = BlindOrderActivityCopy.matching
-            subtitle = state.plannedStart.map { BlindOrderActivityCopy.startsAt($0, now: now, calendar: calendar) }
-                ?? BlindOrderActivityCopy.matchingWithoutTime
-            spokenSubtitle = state.plannedStart.map { BlindOrderActivityCopy.spokenStartsAt($0, now: now, calendar: calendar) }
-            showsAvatar = false
-            line = .steps(current: 1)
-            compactTrailing = BlindOrderActivityCopy.compactMatching
-        case .talking:
-            title = BlindOrderActivityCopy.talking
-            subtitle = BlindOrderActivityCopy.talkingSubtitle
-            showsAvatar = true
-            line = .steps(current: 2)
-            compactTrailing = BlindOrderActivityCopy.compactTalking
-        case .confirmPlan:
-            title = BlindOrderActivityCopy.confirmPlan
-            if let deadline = state.confirmDeadline, deadline > now {
-                subtitle = nil
-                countdown = .subtitlePrefix(until: deadline, prefix: "还剩 ")
-                let minutes = max(Int((deadline.timeIntervalSince(now) / 60).rounded(.up)), 1)
-                spokenSubtitle = "还剩约 \(minutes) 分钟"
-            } else {
-                subtitle = nil
-            }
-            showsAvatar = true
-            line = .steps(current: 2)
-            compactTrailing = BlindOrderActivityCopy.compactTalking
-        case .scheduled:
-            title = state.plannedStart.map { BlindOrderActivityCopy.startsAt($0, now: now, calendar: calendar) }
-                ?? BlindOrderActivityCopy.scheduledFallback
-            spokenTitle = state.plannedStart.map { BlindOrderActivityCopy.spokenStartsAt($0, now: now, calendar: calendar) }
-            subtitle = BlindOrderActivityCopy.scheduledSubtitle(place: place)
-            showsAvatar = true
-            line = .steps(current: 3)
-            compactTrailing = BlindOrderActivityCopy.compactScheduled
-        case .preRun:
-            if let start = state.plannedStart, start > now {
-                title = "\(BlindOrderActivityCopy.clock(start, calendar: calendar)) 开跑"
-                countdown = .titlePrefix(until: start, suffix: " 后开跑")
-                let minutes = max(Int((start.timeIntervalSince(now) / 60).rounded(.up)), 1)
-                spokenTitle = "\(minutes) 分钟后开跑"
-                compactTrailing = "\(minutes) 分钟"
-            } else {
-                title = state.plannedStart.map { "\(BlindOrderActivityCopy.clock($0, calendar: calendar)) 开跑" }
-                    ?? BlindOrderActivityCopy.scheduledFallback
-                compactTrailing = BlindOrderActivityCopy.compactScheduled
-            }
-            subtitle = BlindOrderActivityCopy.preRunSubtitle
-            showsAvatar = true
-            line = .steps(current: 3)
-        case .enRoute:
-            title = BlindOrderActivityCopy.enRoute
-            let progress = Self.walkerProgress(now: state.distanceMeters, departure: state.departureDistanceMeters)
-            subtitle = state.distanceMeters.map { BlindOrderActivityCopy.awayFromYou($0) }
-                ?? BlindOrderActivityCopy.enRouteWithoutDistance
-            showsAvatar = true
-            line = .distance(progress: progress, endLabel: BlindOrderActivityCopy.distanceEndLabel(place: place))
-            compactTrailing = state.distanceMeters.map { BlindOrderActivityCopy.distance($0) } ?? BlindOrderActivityCopy.enRouteWithoutDistance
-        case .arrived:
-            title = BlindOrderActivityCopy.arrived
-            subtitle = BlindOrderActivityCopy.arrivedSubtitle(place: place, topColor: topColor)
-            showsAvatar = true
-            line = .distance(progress: 1, endLabel: BlindOrderActivityCopy.distanceEndLabel(place: place))
-            compactTrailing = BlindOrderActivityCopy.compactArrived
-        case .cancelled, .noVolunteer:
-            title = state.phase == .cancelled ? BlindOrderActivityCopy.cancelled : BlindOrderActivityCopy.noVolunteer
-            subtitle = BlindOrderActivityCopy.reorderSubtitle
-            showsAvatar = false
-            line = nil
-            compactTrailing = BlindOrderActivityCopy.compactCancelled
-        }
-        self.countdown = countdown
-
-        // 读屏一站念完：「助盲跑，陪跑员正在赶来，离你约 300 米，陪跑员在路上，前往你 · 南门」。
+        title = screen.title
+        subtitle = screen.subtitle
+        countdown = screen.countdown
+        showsAvatar = screen.showsAvatar
+        line = screen.line
+        compactTrailing = screen.compactTrailing
+        // 读屏一站念完：「助盲跑，陪跑员正在赶来，离你约 300 米，陪跑员在路上，前往你所在的南门」。
         accessibilityLabel = [
             BlindOrderActivityCopy.appName,
-            spokenTitle ?? title,
-            spokenSubtitle ?? subtitle,
-            line.map { $0.accessibilityLabel },
+            screen.spokenTitle ?? screen.title,
+            screen.spokenSubtitle ?? screen.subtitle,
+            screen.line.map { $0.accessibilityLabel },
         ]
         .compactMap { $0 }
         .joined(separator: "，")
+    }
+
+    /// 一屏的内容。读屏念的标题 / 副标题与屏幕不同的只有两处：时刻念成「7 点」，系统自走的倒计时念成这一刻的「约 N 分钟」。
+    private struct Screen {
+        var title: String
+        var subtitle: String?
+        var countdown: Countdown?
+        var showsAvatar = false
+        var line: LiveActivityProgressMode?
+        var compactTrailing: String
+        var spokenTitle: String?
+        var spokenSubtitle: String?
+    }
+
+    /// 第一段：B1 匹配中、B2 商量、B3 请确认、B4 已约好。
+    private static func firstStageScreen(
+        _ state: BlindOrderActivityAttributes.ContentState, now: Date, calendar: Calendar
+    ) -> Screen {
+        let startsAt = state.plannedStart.map { BlindOrderActivityCopy.startsAt($0, now: now, calendar: calendar) }
+        let spokenStartsAt = state.plannedStart.map { BlindOrderActivityCopy.spokenStartsAt($0, now: now, calendar: calendar) }
+        switch state.phase {
+        case .matching:
+            var screen = Screen(
+                title: BlindOrderActivityCopy.matching,
+                subtitle: startsAt ?? BlindOrderActivityCopy.matchingWithoutTime,
+                line: .steps(current: 1),
+                compactTrailing: BlindOrderActivityCopy.compactMatching
+            )
+            screen.spokenSubtitle = spokenStartsAt
+            return screen
+        case .confirmPlan:
+            var screen = Screen(
+                title: BlindOrderActivityCopy.confirmPlan, showsAvatar: true,
+                line: .steps(current: 2), compactTrailing: BlindOrderActivityCopy.compactTalking
+            )
+            if let deadline = state.confirmDeadline, deadline > now {
+                screen.countdown = .subtitlePrefix(until: deadline, prefix: "还剩 ")
+                screen.spokenSubtitle = "还剩约 \(minutesUntil(deadline, from: now)) 分钟"
+            }
+            return screen
+        case .scheduled:
+            var screen = Screen(
+                title: startsAt ?? BlindOrderActivityCopy.scheduledFallback,
+                subtitle: BlindOrderActivityCopy.scheduledSubtitle(place: trimmed(state.placeName)),
+                showsAvatar: true, line: .steps(current: 3),
+                compactTrailing: BlindOrderActivityCopy.compactScheduled
+            )
+            screen.spokenTitle = spokenStartsAt
+            return screen
+        default:
+            return Screen(
+                title: BlindOrderActivityCopy.talking, subtitle: BlindOrderActivityCopy.talkingSubtitle,
+                showsAvatar: true, line: .steps(current: 2), compactTrailing: BlindOrderActivityCopy.compactTalking
+            )
+        }
+    }
+
+    /// 第二段：B5 开跑前 30 分钟、B6 出发、B7 已到达；以及 B11 取消 / 没找到。
+    private static func secondStageScreen(
+        _ state: BlindOrderActivityAttributes.ContentState, now: Date, calendar: Calendar
+    ) -> Screen {
+        let place = trimmed(state.placeName)
+        let endLabel = BlindOrderActivityCopy.distanceEndLabel(place: place)
+        switch state.phase {
+        case .preRun:
+            let clock = state.plannedStart.map { "\(BlindOrderActivityCopy.clock($0, calendar: calendar)) 开跑" }
+            var screen = Screen(
+                title: clock ?? BlindOrderActivityCopy.scheduledFallback, subtitle: BlindOrderActivityCopy.preRunSubtitle,
+                showsAvatar: true, line: .steps(current: 3), compactTrailing: BlindOrderActivityCopy.compactScheduled
+            )
+            if let start = state.plannedStart, start > now {
+                let minutes = minutesUntil(start, from: now)
+                screen.countdown = .titlePrefix(until: start, suffix: " 后开跑")
+                screen.spokenTitle = "\(minutes) 分钟后开跑"
+                screen.compactTrailing = "\(minutes) 分钟"
+            }
+            return screen
+        case .enRoute:
+            let distance = state.distanceMeters
+            return Screen(
+                title: BlindOrderActivityCopy.enRoute,
+                subtitle: distance.map { BlindOrderActivityCopy.awayFromYou($0) } ?? BlindOrderActivityCopy.enRouteWithoutDistance,
+                showsAvatar: true,
+                line: .distance(progress: walkerProgress(now: distance, departure: state.departureDistanceMeters), endLabel: endLabel),
+                compactTrailing: distance.map { BlindOrderActivityCopy.distance($0) } ?? BlindOrderActivityCopy.enRouteWithoutDistance
+            )
+        case .arrived:
+            return Screen(
+                title: BlindOrderActivityCopy.arrived,
+                subtitle: BlindOrderActivityCopy.arrivedSubtitle(place: place, topColor: trimmed(state.volunteerTopColor)),
+                showsAvatar: true, line: .distance(progress: 1, endLabel: endLabel),
+                compactTrailing: BlindOrderActivityCopy.compactArrived
+            )
+        default:
+            return Screen(
+                title: state.phase == .noVolunteer ? BlindOrderActivityCopy.noVolunteer : BlindOrderActivityCopy.cancelled,
+                subtitle: BlindOrderActivityCopy.reorderSubtitle,
+                compactTrailing: BlindOrderActivityCopy.compactCancelled
+            )
+        }
+    }
+
+    /// 倒计时这一刻还剩几分钟（向上取整，至少 1）。
+    private static func minutesUntil(_ date: Date, from now: Date) -> Int {
+        max(Int((date.timeIntervalSince(now) / 60).rounded(.up)), 1)
     }
 
     /// 去掉首尾空白，空串当没有。

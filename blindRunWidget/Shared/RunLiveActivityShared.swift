@@ -213,9 +213,7 @@ enum RunLiveActivityMetrics {
     static let liveDot: CGFloat = 8
     /// 右侧白色圆形喇叭键（负责人 2026-11-11 定 52pt）。
     ///
-    /// 🚩 **52 低于本仓库的 64pt 触达下限，是一次有意偏离**：① 实时活动整卡高度上限 160pt，
-    /// 64 的圆键会把数字挤小；② 锁屏上这一格周围是系统卡片留白，且整张卡只有这一个可点元素。
-    /// 负责人 2026-09-16 要求「播报那个按钮做小一点」，2026-11-11 定稿 52pt 圆键。
+    /// 🚩 低于本仓库 64pt 触达下限是有意偏离：卡高上限 160pt，且整张卡只有这一个可点元素。负责人 2026-11-11 定稿。
     static let announceButtonDiameter: CGFloat = 52
     static let announceIconSize: CGFloat = 24
     static let horizontalPadding: CGFloat = 18
@@ -227,13 +225,10 @@ enum RunLiveActivityMetrics {
     static let columnSpacing: CGFloat = 6
 }
 
-/// 跑步卡 v4 的颜色（稿 `draft.html` `:root`）。锁屏上永远深色呈现。
+/// 跑步卡 v4 的颜色（稿 `draft.html` `:root`）：`--green` 跑完了、`--greenDot` 小绿点与里程标签、`--acc` 用时配速标签。
 enum RunLiveActivityV4Palette {
-    /// `--green`：跑完了（B9）。
     static let finished: UInt32 = 0x17432B
-    /// `--greenDot`：「陪跑中」前面的小绿点、里程标签。
     static let liveGreen: UInt32 = 0x5BD38E
-    /// `--acc`：用时、配速标签。
     static let accent: UInt32 = 0xA8C8FF
 }
 
