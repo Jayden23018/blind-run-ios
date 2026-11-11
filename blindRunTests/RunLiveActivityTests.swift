@@ -261,6 +261,13 @@ final class RunLiveActivityTests: XCTestCase {
         XCTAssertEqual(RunLiveActivityCopy.finishedLinger, 30 * 60)
     }
 
+    /// 稿「五」第二段 · 两端：陪跑员跑完也是绿底「跑完了」留 30 分钟，不立刻收卡。
+    func testVolunteerFinishedCardSaysFinished() {
+        XCTAssertEqual(RunLiveActivityCopy.volunteerHeadline(isPaused: false, isFinished: true), "跑完了")
+        XCTAssertEqual(RunLiveActivityCopy.volunteerHeadline(isPaused: true, isFinished: true), "跑完了")
+        XCTAssertEqual(RunLiveActivityCopy.volunteerHeadline(isPaused: true), "已暂停")
+    }
+
     /// 旧版本起的卡（没有 `isFinished` 键）被新版本认回时要能解码，否则锁屏卡冻住。
     func testContentStateWithoutTheNewKeyStillDecodes() throws {
         let json = #"{"distanceText":"1.00","durationText":"06:00","paceText":"6'00\"","spokenDistance":"1 公里","spokenDuration":"6 分","spokenPace":"6 分每公里"}"#

@@ -32,7 +32,7 @@ struct RunLiveActivityWidget: Widget {
             let state = context.state
             let label = RunLiveActivityCopy.cardAccessibilityLabel(
                 headline: context.attributes.side == .volunteer
-                    ? RunLiveActivityCopy.volunteerHeadline(isPaused: state.isPaused == true)
+                    ? RunLiveActivityCopy.volunteerHeadline(isPaused: state.isPaused == true, isFinished: state.isFinished == true)
                     : RunLiveActivityCopy.runnerHeadline(isFinished: state.isFinished == true),
                 state: state
             )
@@ -40,10 +40,10 @@ struct RunLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     RunCardBody(
                         headline: context.attributes.side == .volunteer
-                            ? RunLiveActivityCopy.volunteerHeadline(isPaused: state.isPaused == true)
+                            ? RunLiveActivityCopy.volunteerHeadline(isPaused: state.isPaused == true, isFinished: state.isFinished == true)
                             : RunLiveActivityCopy.runnerHeadline(isFinished: state.isFinished == true),
                         showsLiveDot: state.isFinished != true && state.isPaused != true,
-                        trailingNote: context.attributes.side == .volunteer
+                        trailingNote: context.attributes.side == .volunteer && state.isFinished != true
                             ? RunLiveActivityCopy.volunteerRhythm(state.rhythmSignal, isPaused: state.isPaused == true)
                             : nil,
                         distanceText: context.attributes.side == .volunteer
@@ -151,6 +151,7 @@ struct RunLiveActivityLockScreenView: View {
 // MARK: - 陪跑员端（V7）
 
 /// 「陪跑中 … 刚刚好」/「2.40 / 5.00 公里 · 用时 · 配速」/ 里程线。**不放任何按钮**（口袋误触会结束陪跑）。
+/// 跑完同版式换绿底「跑完了」、不显示节奏信号，锁屏留 30 分钟（稿「五」第二段 · 两端）。
 @available(iOS 16.2, *)
 struct VolunteerRunCardView: View {
     let state: RunLiveActivityAttributes.ContentState
@@ -158,17 +159,18 @@ struct VolunteerRunCardView: View {
     private typealias M = RunLiveActivityMetrics
 
     private var isPaused: Bool { state.isPaused == true }
+    private var isFinished: Bool { state.isFinished == true }
 
     var body: some View {
-        let headline = RunLiveActivityCopy.volunteerHeadline(isPaused: isPaused)
-        let rhythm = RunLiveActivityCopy.volunteerRhythm(state.rhythmSignal, isPaused: isPaused)
+        let headline = RunLiveActivityCopy.volunteerHeadline(isPaused: isPaused, isFinished: isFinished)
+        let rhythm = isFinished ? nil : RunLiveActivityCopy.volunteerRhythm(state.rhythmSignal, isPaused: isPaused)
         RunCardBody(
             headline: headline,
-            showsLiveDot: !isPaused,
+            showsLiveDot: !isPaused && !isFinished,
             trailingNote: rhythm,
             distanceText: RunLiveActivityCopy.distanceWithTarget(state.distanceText, target: state.targetDistanceText),
             state: state,
-            dimsLabels: false
+            dimsLabels: isFinished
         )
         .padding(.horizontal, M.horizontalPadding)
         .padding(.top, M.topPadding)

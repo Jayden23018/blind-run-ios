@@ -249,8 +249,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         realtimeCoordinator.registerActiveOrder(orderID, status: status)
 
         if status.endsLiveEscortSession {
-            // 盲人跑完换绿卡（B9）。排在 `clearOwnedOrder` 前：那里会清掉里程并结束其余跑步卡。
-            if #available(iOS 16.2, *), status == .completed, role == .blind {
+            // 跑完两端都换绿卡留 30 分钟（稿「五」第二段 · 两端）。排在 `clearOwnedOrder` 前：那里会清掉里程并结束其余跑步卡。
+            if #available(iOS 16.2, *), status == .completed {
                 RunLiveActivityController.shared.finish(orderID: orderID, stats: latestTrackStats, targetDistanceMeters: liveActivityTargetMeters)
             }
             clearOwnedOrder()

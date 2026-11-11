@@ -167,14 +167,13 @@ final class RunLiveActivityController {
         }
     }
 
-    /// 盲人跑完（稿 B9）：同一版式换绿底，锁屏留 30 分钟（Apple 建议 15–30 分钟，打车例子是 30 分钟）。
+    /// 跑完（稿 B9 / 「五」第二段 · 两端）：同一版式换绿底「跑完了」，锁屏留 30 分钟。两端都走这里。
     ///
     /// 只处理**这一单还活着的那张**跑步卡：没跑过（直接从约好取消到完成之类）就没有卡，不为「跑完了」新起一张。
-    /// 陪跑员端不走这里，仍由 `end()` 立刻收（稿里陪跑员没有跑完卡）。
     func finish(orderID: Int64, stats: TrackStats?, targetDistanceMeters: Int?, now: Date = Date()) {
         adoptRunningActivityIfNeeded()
         guard let running = Activity<RunLiveActivityAttributes>.activities.first(where: {
-            $0.attributes.orderID == orderID && $0.attributes.side == .runner && $0.activityState != .ended
+            $0.attributes.orderID == orderID && $0.activityState != .ended
         }) else { return }
         let content = RunLiveActivityContentBuilder.contentState(
             from: stats,

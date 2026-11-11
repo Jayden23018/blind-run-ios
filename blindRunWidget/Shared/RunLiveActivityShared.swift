@@ -142,9 +142,9 @@ enum RunLiveActivityCopy {
         }
     }
 
-    /// 稿 V7 顶行左边：「陪跑中」/「已暂停」。卡上不写名字。
-    static func volunteerHeadline(isPaused: Bool) -> String {
-        isPaused ? volunteerPaused : volunteerRunning
+    /// 稿 V7 顶行左边：「陪跑中」/「已暂停」/「跑完了」。卡上不写名字。
+    static func volunteerHeadline(isPaused: Bool, isFinished: Bool = false) -> String {
+        isFinished ? runnerFinished : (isPaused ? volunteerPaused : volunteerRunning)
     }
 
     /// 稿 V7 顶行右边：跑者最近一次节奏信号（「刚刚好」）。没有或认不出时不显示。
