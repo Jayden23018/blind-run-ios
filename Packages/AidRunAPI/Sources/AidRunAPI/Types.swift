@@ -186,6 +186,9 @@ public protocol APIProtocol: Sendable {
     /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
     /// 按当前账号下发，换账号要重新读。
     ///
+    /// `maxLeadDays`（#935，2026-11-07）：最远可以约到今天往后第几天，约跑页的日期选择器用它，默认 30。
+    /// iOS 读不到这个字段时（连的是还没升级的后端）退回 7，那是改动前的值。
+    ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
     ///
@@ -341,7 +344,7 @@ public protocol APIProtocol: Sendable {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 30 天，客户端读 `GET /api/config/rules` 的 `maxLeadDays`），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
     ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
@@ -419,7 +422,7 @@ public protocol APIProtocol: Sendable {
     ///
     /// "明天八点从人民广场出发跑一小时，我带导盲犬" 一句话抽必填三槽 + 可选的额外需求。
     ///
-    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（默认 7 天）/ 时长超 10~300 分钟）的**必填**槽位，
+    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（`app.order.max-lead-days`，默认 30 天）/ 时长超 10~300 分钟）的**必填**槽位，
     /// 客户端就那几项退化回向导逐项追问，不必让用户整句重说；missing 为空时 ttsText 是读回确认文案。
     ///
     /// **额外需求（hasGuideDog / pacePreference / specialNotes）是可选槽位，永不进 missing**：
@@ -1715,6 +1718,9 @@ extension APIProtocol {
     /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
     /// 按当前账号下发，换账号要重新读。
     ///
+    /// `maxLeadDays`（#935，2026-11-07）：最远可以约到今天往后第几天，约跑页的日期选择器用它，默认 30。
+    /// iOS 读不到这个字段时（连的是还没升级的后端）退回 7，那是改动前的值。
+    ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
     ///
@@ -1934,7 +1940,7 @@ extension APIProtocol {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 30 天，客户端读 `GET /api/config/rules` 的 `maxLeadDays`），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
     ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
@@ -2040,7 +2046,7 @@ extension APIProtocol {
     ///
     /// "明天八点从人民广场出发跑一小时，我带导盲犬" 一句话抽必填三槽 + 可选的额外需求。
     ///
-    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（默认 7 天）/ 时长超 10~300 分钟）的**必填**槽位，
+    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（`app.order.max-lead-days`，默认 30 天）/ 时长超 10~300 分钟）的**必填**槽位，
     /// 客户端就那几项退化回向导逐项追问，不必让用户整句重说；missing 为空时 ttsText 是读回确认文案。
     ///
     /// **额外需求（hasGuideDog / pacePreference / specialNotes）是可选槽位，永不进 missing**：
@@ -6527,7 +6533,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/plannedStartTime`.
             public var plannedStartTime: Swift.String
             /// （2026-11-06 新增，#932）跑者**想几点左右开始**，可选。只能和 `timeFlexible=true` 一起传，否则 400。
-            /// 须满足 `plannedStartTime ≤ preferredStartTime < plannedEndTime`，并过开跑时间那几道门槛（≥30 分钟后、≤7 天、值守时段），
+            /// 须满足 `plannedStartTime ≤ preferredStartTime < plannedEndTime`，并过开跑时间那几道门槛（≥30 分钟后、≤`maxLeadDays` 天（默认 30）、值守时段），
             /// 任何一条不满足都是 400 `BAD_REQUEST`（时段本身不满足门槛时仍是原来的 422）。
             /// 不进派单过滤与评分，只随邀请展示给陪跑员（「跑者想 8:30 左右」），并用来预填安排单的开跑时间。
             ///
@@ -6554,7 +6560,7 @@ public enum Components {
             public var startLongitude: Swift.Double
             /// （2026-11-06 新增，#932）**时段待定**。可选，不传或 `false` = 原有的准点单。
             /// `true` 时 `plannedStartTime` / `plannedEndTime` 表示盲人点的**一个时段**（如明天 06:00–11:00），
-            /// 现有校验照常对整个时段生效（≥30 分钟后开始、≤7 天、≤300 分钟、不碰 22:00–05:00、值守时段、时段冲突）。
+            /// 现有校验照常对整个时段生效（≥30 分钟后开始、≤`maxLeadDays` 天（默认 30）、≤300 分钟、不碰 22:00–05:00、值守时段、时段冲突）。
             /// 这样的单陪跑员一律先通话（熟人搭档也要），通话后在见面安排单里填准点开始与结束，盲人确认才成单；
             /// 成单后订单详情里 `timeFlexible` 变回 `false`，两个时间就是准点。
             ///
@@ -7974,7 +7980,7 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/plannedEndTime`.
             public var plannedEndTime: Swift.String?
-            /// 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 7 天、时长 ≤300 分钟、不碰 22:00–05:00）
+            /// 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 `maxLeadDays` 天（默认 30）、时长 ≤300 分钟、不碰 22:00–05:00）
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallPlanRequest/plannedStartTime`.
             public var plannedStartTime: Swift.String?
@@ -8039,7 +8045,7 @@ public enum Components {
             ///   - meetSpotNote: 具体在哪儿见，≤30 字（如「南门保安亭左边」）。空串或纯空白按没填处理
             ///   - pacePreference: （2026-11-06 新增，#932）电话里说定的这次配速档位。不传 = 按订单原来的（下单时的或跑者档案默认）。约成时写进订单
             ///   - plannedEndTime: 改后的结束时间。不传：若改了开跑时间则按原时长平移，否则按原约
-            ///   - plannedStartTime: 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 7 天、时长 ≤300 分钟、不碰 22:00–05:00）
+            ///   - plannedStartTime: 改后的开跑时间。不传 = 按原约。新时间须距现在 ≥ `app.order.min-lead-time-minutes` + 本轮通话窗口剩余分钟，其余门槛同下单（最远 `maxLeadDays` 天（默认 30）、时长 ≤300 分钟、不碰 22:00–05:00）
             ///   - runnerTopColor: 陪跑员在电话里问来的跑者上衣颜色。跑者不确定就不传
             ///   - specialNotes: （2026-11-06 新增，#932）这次的备注（跑者的需求，陪跑员在电话里问来），≤200 字，超过返回 400。不传、空串或纯空白 = 按订单原来的。约成时写进订单的 `specialNotes`
             ///   - startAddress: 改后的集合点地址（高德 POI 名称）。与两个坐标一起传。最长 255 字，超过返回 400
@@ -12724,6 +12730,10 @@ public enum Components {
             public var lateCancelWindowHours: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/launchScope`.
             public var launchScope: Components.Schemas.LaunchScopeResponse
+            /// 最远可以约到**今天往后第几天**（`app.order.max-lead-days`，默认 30，2026-11-07 起；原为 7）。 约跑页用它决定日期选择器能选到哪天。 只用来显示，能不能下单以 `POST /api/orders` 的返回为准：开跑时间晚于「现在 + 这么多天」会得到 422 `APPOINTMENT_TOO_FAR`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/maxLeadDays`.
+            public var maxLeadDays: Swift.Int32?
             /// 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
             ///
             /// - Remark: Generated from `#/components/schemas/RuleParamsResponse/volunteerOrderAutoOpenLeadMinutes`.
@@ -12733,19 +12743,23 @@ public enum Components {
             /// - Parameters:
             ///   - lateCancelWindowHours: 陪跑员「临时取消」的窗口，单位**小时**（`app.order.late-cancel-window-hours`，默认 12）：距开跑不足这么多小时取消，记一次临时取消（只记不罚）。 只用来在取消前提示用户，算不算临时取消以取消接口的返回为准。
             ///   - launchScope:
+            ///   - maxLeadDays: 最远可以约到**今天往后第几天**（`app.order.max-lead-days`，默认 30，2026-11-07 起；原为 7）。 约跑页用它决定日期选择器能选到哪天。 只用来显示，能不能下单以 `POST /api/orders` 的返回为准：开跑时间晚于「现在 + 这么多天」会得到 422 `APPOINTMENT_TOO_FAR`。
             ///   - volunteerOrderAutoOpenLeadMinutes: 陪跑员 App 在订单开跑前**多少分钟**自动打开订单页（`app.client.volunteer-order-auto-open-lead-minutes`，默认 120）。 只用来显示或跳转，是否真的该打开以后端给的订单状态为准。
             public init(
                 lateCancelWindowHours: Swift.Int32? = nil,
                 launchScope: Components.Schemas.LaunchScopeResponse,
+                maxLeadDays: Swift.Int32? = nil,
                 volunteerOrderAutoOpenLeadMinutes: Swift.Int32? = nil
             ) {
                 self.lateCancelWindowHours = lateCancelWindowHours
                 self.launchScope = launchScope
+                self.maxLeadDays = maxLeadDays
                 self.volunteerOrderAutoOpenLeadMinutes = volunteerOrderAutoOpenLeadMinutes
             }
             public enum CodingKeys: String, CodingKey {
                 case lateCancelWindowHours
                 case launchScope
+                case maxLeadDays
                 case volunteerOrderAutoOpenLeadMinutes
             }
         }
@@ -18717,6 +18731,9 @@ public enum Operations {
     /// `launchScope`（#896）：开放城市与值守时段。客户端用它在下单之前告知用户，不必等提交失败。
     /// 按当前账号下发，换账号要重新读。
     ///
+    /// `maxLeadDays`（#935，2026-11-07）：最远可以约到今天往后第几天，约跑页的日期选择器用它，默认 30。
+    /// iOS 读不到这个字段时（连的是还没升级的后端）退回 7，那是改动前的值。
+    ///
     /// ⚠️ **需要登录，但刻意不限角色**（与 `/features` 相同）：盲人与志愿者都要读，
     /// 未登录的人用不上，所以也不放进 permitAll。
     ///
@@ -20775,7 +20792,7 @@ public enum Operations {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 30 天，客户端读 `GET /api/config/rules` 的 `maxLeadDays`），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）。
     ///    `plannedStartTime` 不在值守时段内时 422 `APPOINTMENT_OUTSIDE_DUTY_HOURS`（#896）：看开跑时刻，时段两端都含。`message` 说明可预约的时段，时段经 `launchScope` 下发。没配置时不拦截
     /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
     ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
@@ -21809,7 +21826,7 @@ public enum Operations {
     ///
     /// "明天八点从人民广场出发跑一小时，我带导盲犬" 一句话抽必填三槽 + 可选的额外需求。
     ///
-    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（默认 7 天）/ 时长超 10~300 分钟）的**必填**槽位，
+    /// missing 列出还缺（或校验不通过：开始时间提前量不足 / 超过最多可提前的天数（`app.order.max-lead-days`，默认 30 天）/ 时长超 10~300 分钟）的**必填**槽位，
     /// 客户端就那几项退化回向导逐项追问，不必让用户整句重说；missing 为空时 ttsText 是读回确认文案。
     ///
     /// **额外需求（hasGuideDog / pacePreference / specialNotes）是可选槽位，永不进 missing**：
