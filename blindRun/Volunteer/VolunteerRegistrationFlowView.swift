@@ -272,7 +272,7 @@ struct CloudAuthVerificationFailure: Equatable, Sendable {
         case .deviceTimeError:
             return "设备时间不准确，请校准系统时间后重试\(suffix)"
         case .unknown(let code):
-            return "刷脸没完成，请重新开始\(suffix)"
+            return "刷脸没完成（\(code)），请重新开始\(suffix)"
         }
     }
 }
