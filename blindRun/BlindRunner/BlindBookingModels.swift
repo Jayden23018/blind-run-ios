@@ -106,7 +106,7 @@ enum BlindBookingGate: Equatable {
         return nil
     }
 
-    /// 要去别的页面补的项（现在只有紧急联系人）。约跑页顶部的 `BlindBookingMissingSetupCard` 就是补它的入口。
+    /// 要去别的页面补的项（现在只有紧急联系人）。补它的入口是约跑前的门页（#805，`BlindBookingEmergencyContactGate`）。
     static let setupGates: [BlindBookingGate] = [.emergencyContacts]
 
     /// 这句话是不是上面某一项的缺失说明。补齐回来时据它撤掉留在屏幕上的旧句子。
@@ -118,7 +118,9 @@ enum BlindBookingGate: Equatable {
     var message: String {
         switch self {
         case .emergencyContacts:
-            return "约跑前还要设好紧急联系人：至少 1 位，并设其中 1 位为主联系人。点本页最上面的「紧急联系人」去设。"
+            // 正常路径到不了这里：缺联系人时点「预约新的陪跑」先进门页（#805，`BlindBookingEmergencyContactGate`）。
+            // 只在门页放行后又不齐时兜底，所以指回门页的入口，不指「本页」（约跑页上没有补的入口）。
+            return "约跑前还要设好紧急联系人：至少 1 位，并设其中 1 位为主联系人。请返回首页，再点「预约新的陪跑」去设。"
         case .startPoint:
             return "请选择出发地点。"
         case .appointmentTime:
