@@ -218,16 +218,18 @@ final class BlindOrderTimelineTests: XCTestCase {
         )
     }
 
-    /// 中断那一步不许念成「当前这一步」；不是中断时仍念「当前这一步」。
-    func testInterruptedCurrentStepIsSpokenAsCancelled() {
-        let row = BlindOrderTimelineRow.current(.awaitDeparture, detail: nil)
+    /// 陪跑员 ⑨：停住的那一步用陪跑员说法念「到这一步结束」，已做的两步不折叠。
+    func testVolunteerStoppedTimelineSpeaksVolunteerNames() {
+        let input = BlindOrderTimelineInput(position: .stopped(.awaitDeparture), folds: false, vocabulary: .volunteer)
+        let rows = BlindOrderTimelineLayout.rows(input)
+        XCTAssertEqual(rows.map(\.id), ["done-0", "done-1", "stopped-2"])
         XCTAssertEqual(
-            BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: .volunteer, currentDot: .interrupted),
-            "等出发，在这一步取消了"
+            BlindOrderTimelineLayout.accessibilityLabel(for: rows[0], vocabulary: .volunteer),
+            "已接下陪跑"
         )
         XCTAssertEqual(
-            BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: .volunteer),
-            "等出发，当前这一步"
+            BlindOrderTimelineLayout.accessibilityLabel(for: rows[2], vocabulary: .volunteer),
+            "等出发，到这一步结束"
         )
     }
 }

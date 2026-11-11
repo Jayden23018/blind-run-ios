@@ -148,7 +148,9 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     private var timelinePosition: BlindOrderTimelinePosition {
         switch phase {
         case .none: return .current(.matchVolunteer)
-        case .confirmStillGoing, .agreedEarly, .agreedSoon, .runnerCancelled: return .current(.awaitDeparture)
+        case .confirmStillGoing, .agreedEarly, .agreedSoon: return .current(.awaitDeparture)
+        // ⑨：停在「等出发」，同盲人端已取消（#946 的 `.stopped`）。订单上没有取消时所处的步骤，跑者能取消的只有这一段。
+        case .runnerCancelled: return .stopped(.awaitDeparture)
         case .departed, .arrived: return .current(.meetUp)
         case .completed: return .allDone
         }
@@ -157,11 +159,11 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     private var timelineInput: BlindOrderTimelineInput {
         var details: [BlindOrderTimelineStep: String] = [:]
         if phase == .runnerCancelled {
-            // ⑨：五步全画、行距放宽（负责人 11-11「太挤了」），中断那步打叉。
+            // ⑨：已做的两步都写出来、行距放宽（负责人 11-11「太挤了」），停的那步打叉。
             details[.awaitDeparture] = VolunteerOrderFlowCopy.runnerCancelledStepDetail
             return BlindOrderTimelineInput(
                 position: timelinePosition, details: details, folds: false,
-                currentDot: .interrupted, vocabulary: .volunteer, roomy: true
+                vocabulary: .volunteer, roomy: true
             )
         }
         if case .current(let step) = timelinePosition {

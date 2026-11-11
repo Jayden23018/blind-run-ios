@@ -222,9 +222,14 @@ enum BlindOrderTimelineLayout {
     }
 
     /// 每一行的读屏。折叠行念出被收起来的每一步（稿原话「后面还有 3 步：等出发、在南门汇合、开跑」）。
+    /// 盲人端说法。单独一个重载（不用默认参数）：测试里有 `.map(BlindOrderTimelineLayout.accessibilityLabel(for:))` 这种函数引用写法。
+    static func accessibilityLabel(for row: BlindOrderTimelineRow) -> String {
+        accessibilityLabel(for: row, vocabulary: .blindRunner)
+    }
+
     static func accessibilityLabel(
         for row: BlindOrderTimelineRow,
-        vocabulary: OrderTimelineVocabulary = .blindRunner
+        vocabulary: OrderTimelineVocabulary
     ) -> String {
         let title = vocabulary.title
         switch row {
