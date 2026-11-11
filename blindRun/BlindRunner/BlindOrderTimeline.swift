@@ -38,6 +38,33 @@ enum BlindOrderTimelineStep: Int, CaseIterable, Equatable, Hashable {
     }
 }
 
+/// 五步用谁的说法（#945）。步骤本身两端相同，只是陪跑员视角换几个词：
+/// 「匹配陪跑员」→「接下陪跑」、「在集合点汇合」→「去集合点汇合」。盲人端默认 `.blindRunner`，说法不变。
+enum OrderTimelineVocabulary: Equatable {
+    case blindRunner
+    case volunteer
+
+    func title(_ step: BlindOrderTimelineStep) -> String {
+        switch (self, step) {
+        case (.volunteer, .matchVolunteer): return "接下陪跑"
+        case (.volunteer, .meetUp): return "去集合点汇合"
+        default: return step.title
+        }
+    }
+
+    func doneTitle(_ step: BlindOrderTimelineStep) -> String {
+        switch (self, step) {
+        case (.volunteer, .matchVolunteer): return "已接下陪跑"
+        case (.volunteer, _): return title(step)
+        case (.blindRunner, _): return step.doneTitle
+        }
+    }
+
+    func doneSpokenTitle(_ step: BlindOrderTimelineStep) -> String {
+        step == .matchVolunteer ? doneTitle(step) : "\(title(step))，已完成"
+    }
+}
+
 /// 竖线走到哪儿了：某一步正在进行、五步都完成了（已完成页），或停在某一步不会再往下走（已取消 / 暂无陪跑员，#946）。
 enum BlindOrderTimelinePosition: Equatable {
     case current(BlindOrderTimelineStep)
@@ -95,6 +122,10 @@ struct BlindOrderTimelineInput: Equatable {
     var folds = true
     /// 当前步那颗圆点怎么画（#926）。只有 ① 匹配中呼吸；找到那一刻的旧 ① 画成打勾。
     var currentDot: BlindOrderTimelineCurrentDot = .still
+    /// 步骤用谁的说法。陪跑员订单页传 `.volunteer`（#945）。
+    var vocabulary: OrderTimelineVocabulary = .blindRunner
+    /// 行距放宽到 22pt（#945 ⑨ 已取消：负责人「太挤了，下面还有很大的空间」）。默认 13pt 不变。
+    var roomy = false
 }
 
 /// 当前步圆点的三种画法（`docs/ui/mockups/blind-matching-wait-20261111/` 第 3、4 条）。
@@ -191,22 +222,26 @@ enum BlindOrderTimelineLayout {
     }
 
     /// 每一行的读屏。折叠行念出被收起来的每一步（稿原话「后面还有 3 步：等出发、在南门汇合、开跑」）。
-    static func accessibilityLabel(for row: BlindOrderTimelineRow) -> String {
+    static func accessibilityLabel(
+        for row: BlindOrderTimelineRow,
+        vocabulary: OrderTimelineVocabulary = .blindRunner
+    ) -> String {
+        let title = vocabulary.title
         switch row {
         case .done(let step, let detail):
-            return [step.doneSpokenTitle, detail].compactMap { $0?.nilIfBlank }.joined(separator: "，")
+            return [vocabulary.doneSpokenTitle(step), detail].compactMap { $0?.nilIfBlank }.joined(separator: "，")
         case .doneFold(let steps):
-            return "已完成 \(steps.count) 步：\(steps.map(\.title).joined(separator: "、"))"
+            return "已完成 \(steps.count) 步：\(steps.map(title).joined(separator: "、"))"
         case .current(let step, let detail):
-            return ["\(step.title)，当前这一步", detail].compactMap { $0?.nilIfBlank }.joined(separator: "。")
+            return ["\(title(step))，当前这一步", detail].compactMap { $0?.nilIfBlank }.joined(separator: "。")
         case .stopped(let step, let detail):
-            return ["\(step.title)，到这一步结束", detail].compactMap { $0?.nilIfBlank }.joined(separator: "。")
+            return ["\(title(step))，到这一步结束", detail].compactMap { $0?.nilIfBlank }.joined(separator: "。")
         case .next(let step):
-            return "下一步，\(step.title)"
+            return "下一步，\(title(step))"
         case .todo(let step):
-            return "\(step.title)，还没到"
+            return "\(title(step))，还没到"
         case .todoFold(let steps):
-            return "后面还有 \(steps.count) 步：\(steps.map(\.title).joined(separator: "、"))"
+            return "后面还有 \(steps.count) 步：\(steps.map(title).joined(separator: "、"))"
         }
     }
 

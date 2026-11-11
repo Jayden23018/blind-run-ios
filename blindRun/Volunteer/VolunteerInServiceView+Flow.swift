@@ -15,6 +15,7 @@ extension VolunteerInServiceView {
                 order: order,
                 stats: viewModel.blindStats,
                 isPeerLocationFresh: viewModel.latestBlindSample != nil,
+                mapInput: trackingMapInput(order: order),
                 isFinishing: viewModel.isPerformingAction,
                 isFinishEnabled: !viewModel.isTransitionPending,
                 onBack: { dismiss() },
@@ -62,6 +63,7 @@ extension VolunteerInServiceView {
                 phase: phase,
                 meet: meet,
                 quickReplies: quickReplies(order: order, phase: phase, now: now),
+                mapInput: trackingMapInput(order: order),
                 // 完成页没有返回：出口是主按钮「完成」。
                 onBack: phase == .completed ? nil : { dismiss() },
                 onRowAction: { handleFlowRowAction($0, order: order) },
@@ -85,6 +87,22 @@ extension VolunteerInServiceView {
         } else {
             fallbackContent
         }
+    }
+
+    /// v7 地图（#945）：集合点、跑者实时位置、本机位置；完成页画整条路线。坐标一律 GCJ-02：
+    /// 跑者位置只收后端坐标系那一份，「我」取 `effectiveBackendLocation`（唯一一次转换，同盲人端）。
+    private func trackingMapInput(order: OrderDetailResponse) -> BlindTrackingMapInput {
+        let runner = viewModel.latestBlindSample.flatMap { $0.system == .gcj02Backend ? $0.coordinate : nil }
+        let route = order.status == .completed
+            ? (trackViewModel.track?.primaryRouteCoordinates).flatMap { $0.count >= 2 ? $0 : nil } ?? []
+            : []
+        return BlindTrackingMapInput(
+            meetPoint: order.startCoordinate,
+            volunteer: runner,
+            me: locationService.currentLocation == nil ? nil : locationService.effectiveBackendLocation,
+            route: route,
+            peerTitle: "跑者"
+        )
     }
 
     /// 汇合页的方位。只在 `DRIVER_ARRIVED`、有定位授权时算。

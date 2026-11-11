@@ -6,8 +6,9 @@ import SwiftUI
 ///
 /// 读屏顺序 = 视觉顺序：顶栏（返回 → 喇叭 → ··· → 求助）→ 头部（一个合成元素）→ 地点与时间 → 竖线 → 结果面 → 底部按钮。
 /// 头部是状态变化时焦点落点（`headerFocused`），沿用改版前状态卡的 identifier `blindOrderFlowStatusCard`。
-struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
-    let topBar: BlindOrderTopBar
+struct BlindOrderStageScaffold<TopBar: OrderV7TopBar, Card: View, Footer: View, Bottom: View>: View {
+    /// 盲人端 `BlindOrderTopBar`、陪跑员端 `VolunteerOrderTopBar`（#945）。
+    let topBar: TopBar
     let eyebrow: String
     let title: String
     let headerAccessibilityLabel: String
@@ -143,12 +144,17 @@ enum BlindOrderStageHeaderIdentifier: ViewModifier {
     case statusCard
     case introCallTitle
     case introCallPlanTitle
+    /// 陪跑员订单页（#945）：沿用 v2 头卡与通话页标题的 identifier，守着它们的 UI 用例不用换判据。
+    case volunteerStatusCard
+    case volunteerIntroCallHeader
 
     func body(content: Content) -> some View {
         switch self {
         case .statusCard: content.accessibilityIdentifier("blindOrderFlowStatusCard")
         case .introCallTitle: content.accessibilityIdentifier("blindIntroCallTitle")
         case .introCallPlanTitle: content.accessibilityIdentifier("blindIntroCallPlanTitle")
+        case .volunteerStatusCard: content.accessibilityIdentifier("volunteerOrderFlowStatusCard")
+        case .volunteerIntroCallHeader: content.accessibilityIdentifier("volunteerIntroCallHeader")
         }
     }
 }

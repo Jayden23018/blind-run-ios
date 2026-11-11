@@ -122,7 +122,9 @@ struct DirectionDial: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static let diameter: CGFloat = 180
+    static let defaultDiameter: CGFloat = 180
+    /// v7 汇合抽屉里画小一号（#945），放在标题右边。
+    var diameter: CGFloat = DirectionDial.defaultDiameter
 
     var body: some View {
         ZStack {
@@ -133,7 +135,7 @@ struct DirectionDial: View {
             Capsule()
                 .fill(AppColors.Flow.primaryText)
                 .frame(width: 3, height: 8)
-                .offset(y: -Self.diameter / 2 + 10)
+                .offset(y: -diameter / 2 + 10)
 
             if let relativeDegrees {
                 ZStack {
@@ -142,7 +144,7 @@ struct DirectionDial: View {
                     Triangle()
                         .fill(AppColors.Flow.stateArrived)
                         .frame(width: 14, height: 12)
-                        .offset(y: -Self.diameter / 2 + 20)
+                        .offset(y: -diameter / 2 + 20)
                 }
                 .rotationEffect(.degrees(relativeDegrees))
                 // 03 §三：`.interactiveSpring(response: 0.3)`；减弱动态效果下仍跟随（这是信息），但不做 spring。
@@ -156,7 +158,7 @@ struct DirectionDial: View {
                 .frame(width: 40, height: 40)
                 .background(AppColors.Flow.stateArrived, in: Circle())
         }
-        .frame(width: Self.diameter, height: Self.diameter)
+        .frame(width: diameter, height: diameter)
         .opacity(relativeDegrees == nil ? 0.5 : 1)
         .accessibilityHidden(true)
     }
@@ -223,7 +225,7 @@ struct WaitRing: View {
             }
             .foregroundColor(AppColors.Flow.primaryText)
         }
-        .frame(width: DirectionDial.diameter, height: DirectionDial.diameter)
+        .frame(width: DirectionDial.defaultDiameter, height: DirectionDial.defaultDiameter)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("已等 \(minutes) 分钟，等满 15 分钟可以结束等待")
     }

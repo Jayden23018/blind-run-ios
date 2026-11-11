@@ -1,5 +1,7 @@
 # 陪跑员订单页 v2 · 审计后的决定（2026-09-26，项目负责人逐条确认）
 
+> **2026-11-11 起版式被 `../volunteer-order-v7-20261111/` 取代**（#945，负责人定陪跑员订单页整套换 v7）：头卡、引导绳、跑步中「无地图」（V19）的版式不再有效；下面的**业务**决定（走散阈值、客服、姓氏、长按时长、求助面板四行等）仍有效。
+
 本文件是 v2 交付包落地的**决定源**。与交付包其余文件冲突时以本文件为准；与仓库 `AGENTS.md` 的硬规则冲突时以 `AGENTS.md` 为准并回来改本文件。
 v1 的名字映射（交付包路径/字段 → 现有后端）以后端分支 `origin/docs/order-page-v2-ios-handoff` 的
 `docs/volunteer-order-page-v2-ios-handoff.md` §2 为准（读法：`git -C /Users/mac/Downloads/demo show c8d0fcd:docs/volunteer-order-page-v2-ios-handoff.md`）。

@@ -146,7 +146,8 @@ enum BlindOrderTrackingLayout {
         volunteer: CLLocationCoordinate2D?,
         me: CLLocationCoordinate2D?,
         route: [CLLocationCoordinate2D],
-        size: CGSize
+        size: CGSize,
+        peerTitle: String = "陪跑员"
     ) -> BlindTrackingMapContent? {
         guard status.usesBlindTrackingMap else { return nil }
         let drawsRoute = (status == .inProgress || status == .completed) && route.count >= 2
@@ -173,7 +174,7 @@ enum BlindOrderTrackingLayout {
                 framed.append(meetPoint)
             }
             if let volunteer {
-                annotations.append(MapAnnotationItem(id: volunteerID, coordinate: volunteer, title: "陪跑员", subtitle: nil, kind: .peer))
+                annotations.append(MapAnnotationItem(id: volunteerID, coordinate: volunteer, title: peerTitle, subtitle: nil, kind: .peer))
                 framed.append(volunteer)
             }
             if let me { framed.append(me) }

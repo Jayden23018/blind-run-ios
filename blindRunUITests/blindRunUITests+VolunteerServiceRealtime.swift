@@ -29,8 +29,9 @@ extension blindRunUITests {
         // 🚩 2026-09-17：这一态（`DRIVER_EN_ROUTE`）已从地图 + 底部面板换成四步骨架，
         // 所以这里不再断言 `volunteerServicePanel` 与地图底图。**被测行为没变** ——
         // 「挂住的详情/上报没有冻住界面，控件滚一下仍然可达」在新页面上同样要成立。
-        let releaseRow = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
-        XCTAssertTrue(releaseRow.waitForExistence(timeout: 5), "骨架里没有「我去不了」那一行")
+        // v7（#945）起「我去不了」收进顶栏「···」。
+        let moreMenu = app.buttons["volunteerOrderNavMoreMenu"].firstMatch
+        XCTAssertTrue(moreMenu.waitForExistence(timeout: 5), "顶栏没有「···」（「我去不了」在里面）")
         app.swipeUp()
         app.swipeDown()
         XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "返回键在页面自带的导航栏上，滚动后也该点得到")

@@ -1,15 +1,18 @@
 import SwiftUI
 
-// MARK: - 陪跑员订单页 v2
+// MARK: - 陪跑员订单页 v7（#945，定稿 `docs/ui/mockups/volunteer-order-v7-20261111/`）
 
-/// 陪跑员订单页（邀请 / 约好 / 出发 / 汇合 / 完成 / 跑者取消），交付包 `zhumangpao-handoff/02`。
+/// 陪跑员订单页（邀请 / 约好 / 出发 / 汇合 / 完成 / 跑者取消）。与盲人端订单页 v7 同一套版式：
+/// - ① 邀请、④ 约好、⑨ 跑者已取消：顶栏 + 深色头 + 白底抽屉（地点、五步竖线、当前步那张卡）+ 底部一枚深色主按钮
+///   （外壳 `BlindOrderStageScaffold`）；
+/// - ⑤ 出发、⑥ 汇合、⑧ 完成：上半屏地图常驻 + 下半屏抽屉，竖线拉起抽屉才渐显（外壳 `BlindOrderTrackingView`）。
+/// 跑步中是另一个结构体 `VolunteerRunningPage`，用同一个地图外壳。
 ///
-/// 结构：导航栏（左返回、右**求助**）+ 可滚动内容（头卡 + 按状态的卡片）+ 底部固定的动作区。
-/// 状态变化时原地切换，不 push 新页面（v3 原则不变）。
+/// 动效只留淡入淡出、当前步圆点、竖线生长（定稿第 5 条）：不再有弹簧、缩放、滑入、绳子画出。
 ///
 /// **这个视图不判任何状态。** 两个纯类型给它全部内容：
 /// - `VolunteerOrderFlowPresentation`：信息行、主按钮、求助路由（隐私闸与按状态发动作都在那边，用例穷举）；
-/// - `VolunteerOrderHero`：头卡（小标题、主角数字 / 主角句、副文、在场胶囊、提醒条、引导绳）。
+/// - `VolunteerOrderHero`：头部的小标题、主角数字 / 主角句、副文、在场提示、提醒条。
 ///
 /// 两个数据源各有一个入口：邀请吃派单推送 `WSNewOrder`（接单前拿不到订单详情，后端恒 403），
 /// 其余吃 `OrderDetailResponse`。
@@ -19,13 +22,15 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     /// `nil` = 邀请态（没有订单详情）。
     var order: OrderDetailResponse?
     var phase: VolunteerOrderPhase?
-    /// 邀请态头卡里的三宫格。
+    /// 邀请态的距离 / 配速这类封闭取值（接单前能给看的，AGENTS §8）。
     var inviteMetrics: [VolunteerOrderMetric] = []
-    var inviteRunnerName: String?  // 邀请态绳子头像的姓（去星号，#339）；接单后读 `order.blindName`
+    var inviteRunnerName: String?  // 邀请态没有订单详情时的跑者姓（去星号，#339）；接单后读 `order.blindName`
     /// 汇合页的方位盘、响铃、等待。`nil` = 不是汇合页。
     var meet: VolunteerOrderMeetPanel?
-    /// 出发 / 汇合页的快捷回复。`nil` = 不显示。
+    /// 出发页的快捷回复。`nil` = 不显示。
     var quickReplies: VolunteerOrderQuickReplies?
+    /// 出发 / 汇合 / 完成三态的地图。`nil` = 只画集合点（宿主拿不到位置时）。
+    var mapInput: BlindTrackingMapInput?
     /// `nil` = 不放返回按钮（完成页）。
     var onBack: (() -> Void)?
     let onRowAction: (VolunteerOrderFlowPresentation.Action) -> Void
@@ -43,57 +48,31 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var awaitingBlindConfirmation: Bool = false
     /// 后端放行时刻给的那句小字（`VolunteerActionGate.caption`），优先于动作自己的那句。
     var gateCaption: String? = nil
-    /// 非 `nil` = 顶栏放「···」（举报 / 不再匹配此人，2026-11-11 起从页脚收进来）。有没有对方由宿主判。
+    /// 非 `nil` = 顶栏「···」带举报 / 不再匹配此人。有没有对方由宿主判。
     var counterpartSafety: CounterpartBlockViewModel? = nil
-    /// 信息卡之后那块「刚才那一下的结果」。**这一页唯一的可见失败面**，少了它失败只剩一句 TTS。
+    /// 「刚才那一下的结果」。**这一页唯一的可见失败面**，少了它失败只剩一句 TTS。
     @ViewBuilder let footer: () -> Footer
 
     @State private var showsLocalHelp = false
+    @AccessibilityFocusState private var headerFocused: Bool
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(spacing: 0) {
-            FlowOrderNavBar(title: navTitle, onBack: onBack, onHelp: openHelp, helpIsCloud: presentation.helpMode == .cloud, counterpartSafety: counterpartSafety)
-                .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
-            ScrollView {
-                VStack(spacing: FlowMetrics.v2SectionGap) {
-                    heroCard
-                    if let notice = hero.notice {
-                        FlowNoticeBar(text: notice)
-                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
-                    }
-                    if let meet { meetSection(meet) }
-                    runnerCard
-                    if let place = placeRow { placeRowView(place) }
-                    if let quickReplies {
-                        FlowQuickReplyGrid(
-                            title: "一键告诉\(quickReplies.runnerName)",
-                            items: quickReplies.items,
-                            onTap: { quickReplies.onTap($0.id) }
-                        )
-                    }
-                    if !infoRows.isEmpty { infoCard }
-                    completionLinks
-                    footer()
-                }
-                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
-                .padding(.vertical, FlowMetrics.v2SectionGap)
-                .animation(.easeInOut(duration: 0.25), value: hero.notice)
-                // 状态原地切换（03 §二）：卡片的出现 / 消失跟着 spring 走；减弱动态效果下 0.2 秒淡入淡出。
-                .animation(phaseAnimation, value: phase)
+        Group {
+            if usesMap, let order {
+                trackingLayout(order: order)
+            } else {
+                stageLayout
             }
         }
-        .background(AppColors.Flow.page.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) { bottomActions }
         .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
     }
 
-    private var navTitle: String {
+    /// 出发起地图常驻（定稿第 1 条）。
+    private var usesMap: Bool {
         switch phase {
-        case .none: return "陪跑邀请"
-        case .completed: return "陪跑完成"
-        default: return VolunteerOrderFlowCopy.pageTitle
+        case .departed, .arrived, .completed: return true
+        case .confirmStillGoing, .agreedEarly, .agreedSoon, .runnerCancelled, .none: return false
         }
     }
 
@@ -104,168 +83,280 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         }
     }
 
-    /// 03 §二默认 spring；§四减弱动态效果下 0.2 秒淡入淡出。
-    private var phaseAnimation: Animation {
-        reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.85)
+    // MARK: 顶栏
+
+    private func topBar(surface: BlindOrderBarSurface) -> VolunteerOrderTopBar {
+        VolunteerOrderTopBar(
+            surface: surface,
+            onBack: { onBack?() },
+            showsBack: onBack != nil,
+            menu: menuItems,
+            counterpartSafety: counterpartSafety,
+            isCloudHelp: presentation.helpMode == .cloud,
+            onHelp: openHelp
+        )
     }
 
-    // MARK: 头卡
+    /// 「我去不了」收进「···」（定稿第 4 条，与盲人端「取消预约」一致）。邀请态的「这次去不了」留在主按钮下面：
+    /// 那是对邀请的回答，不是次要操作。
+    private var menuItems: [VolunteerOrderMenuItem] {
+        guard let release = rows.first(where: { $0.action == .releaseOrder }) else { return [] }
+        return [VolunteerOrderMenuItem(kind: .releaseOrder, title: release.value, isDestructive: true) {
+            onRowAction(.releaseOrder)
+        }]
+    }
 
-    private var heroCard: some View {
-        FlowHeroCard(style: hero.style.cardStyle) {
-            if phase == .completed {
-                // `Done.dc.html`：整卡居中、没有小标题（导航栏已经写着「陪跑完成」），
-                // 绳子换成单独的一张并肩大插图。
-                VStack(spacing: 12) {
-                    RopeTogetherIllustration(runnerName: order?.blindName)
-                    heroBody
-                }
-                .frame(maxWidth: .infinity)
-            } else if hero.rope == .arrived {
-                // 汇合：绳子画的是同一张并肩插图（换汇合橙，`RopeView` 的 `.illustration`），
-                // 所以整卡与完成页同样居中；小标题保留（「已到集合点」/「等待时间已满」不在导航栏里）。
-                VStack(spacing: 12) {
-                    Text(hero.eyebrow)
-                        .flowFont(FlowV2Fonts.subhead(bold: true))
-                        .foregroundColor(AppColors.Flow.onHeroEyebrow)
-                        .multilineTextAlignment(.center)
-                    rope
-                    heroBody
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                standardHeroContent
+    // MARK: ①④⑨ 深色头 + 竖线
+
+    private var stageLayout: some View {
+        BlindOrderStageScaffold(
+            topBar: topBar(surface: .onDark),
+            eyebrow: hero.eyebrow,
+            title: headerTitle,
+            headerAccessibilityLabel: hero.accessibilityLabel + metricsSpoken,
+            headerFocused: $headerFocused,
+            headerIdentifier: .volunteerStatusCard,
+            place: stagePlace,
+            when: stageWhen,
+            timeline: timelineInput,
+            card: { currentCard },
+            footer: { stageFooter },
+            bottom: { stageBottom }
+        )
+    }
+
+    /// 头部大字：主角句优先，没有就拼主角数字（「8 分钟后到」「明天 7:00 开跑」）。
+    private var headerTitle: String {
+        if let headline = hero.headline { return headline }
+        return [hero.number, hero.unit].compactMap { $0 }.joined(separator: " ")
+    }
+
+    private var stagePlace: String? {
+        if phase == .runnerCancelled { return VolunteerOrderFlowCopy.runnerCancelledSubtitle }
+        return placeRow?.value ?? order?.startAddress?.nilIfBlank
+    }
+
+    /// 地点下面那行：邀请态是距离 / 配速，其余是头部副文的第一行。
+    private var stageWhen: String? {
+        if !inviteMetrics.isEmpty {
+            return inviteMetrics.map { [$0.value, $0.unit].compactMap { $0 }.joined(separator: " ") }.joined(separator: " · ")
+        }
+        return phase == .runnerCancelled ? nil : hero.lines.first
+    }
+
+    private var timelinePosition: BlindOrderTimelinePosition {
+        switch phase {
+        case .none: return .current(.matchVolunteer)
+        case .confirmStillGoing, .agreedEarly, .agreedSoon, .runnerCancelled: return .current(.awaitDeparture)
+        case .departed, .arrived: return .current(.meetUp)
+        case .completed: return .allDone
+        }
+    }
+
+    private var timelineInput: BlindOrderTimelineInput {
+        var details: [BlindOrderTimelineStep: String] = [:]
+        if phase == .runnerCancelled {
+            // ⑨：五步全画、行距放宽（负责人 11-11「太挤了」），中断那步打叉。
+            details[.awaitDeparture] = VolunteerOrderFlowCopy.runnerCancelledStepDetail
+            return BlindOrderTimelineInput(
+                position: timelinePosition, details: details, folds: false,
+                currentDot: .interrupted, vocabulary: .volunteer, roomy: true
+            )
+        }
+        if case .current(let step) = timelinePosition {
+            details[step] = presentation.replyNotice ?? hero.presence
+        }
+        return BlindOrderTimelineInput(position: timelinePosition, details: details, vocabulary: .volunteer)
+    }
+
+    /// 当前步那张卡：深色块是头部副文（建议出发时间、带绳提醒），下半截是跑者一行。
+    @ViewBuilder
+    private var currentCard: some View {
+        let lines = Array(hero.lines.dropFirst(stageWhen == hero.lines.first ? 1 : 0))
+        if phase == .runnerCancelled {
+            EmptyView()
+        } else if !lines.isEmpty || runnerLine != nil {
+            BlindOrderStepCard(lead: nil, body: lines.isEmpty ? VolunteerOrderFlowCopy.pageTitle : lines.joined(separator: "\n")) {
+                if let runnerLine { runnerLine }
             }
+        }
+    }
+
+    private var runnerLine: BlindOrderPersonRow? {
+        guard let runnerRow, showsRunnerCard else { return nil }
+        let name = runnerRow.value
+        let line = [name, runnerRow.detail?.replacingOccurrences(of: "，", with: " · ")].compactMap { $0?.nilIfBlank }.joined(separator: " · ")
+        return BlindOrderPersonRow(
+            initial: String(name.unmaskedForSpeech.prefix(1)),
+            label: "你陪的跑者",
+            line: line,
+            spoken: runnerRow.accessibilityLabel
+        )
+    }
+
+    @ViewBuilder
+    private var stageFooter: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let notice = hero.notice {
+                FlowNoticeBar(text: notice).transition(.opacity)
+            }
+            if !infoRows.isEmpty { infoBox }
+            footer()
+        }
+        .padding(.top, phase == .runnerCancelled ? 14 : 0)
+        .animation(.easeInOut(duration: 0.25), value: hero.notice)
+    }
+
+    @ViewBuilder
+    private var stageBottom: some View {
+        VStack(spacing: 4) {
+            if let action = presentation.primaryAction {
+                if let caption = primaryCaption(action) {
+                    Text(caption)
+                        .flowFont(FlowV2Fonts.subhead())
+                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        // 已经拼进按钮的 hint，不再单独念一遍。
+                        .accessibilityHidden(true)
+                }
+                BlindOrderStageButton(
+                    title: action.title,
+                    systemImage: action.systemImage,
+                    style: action == .alreadyDeparted ? .outline : .solid,
+                    isEnabled: isPrimaryEnabled && !isPrimaryLoading,
+                    accessibilityHint: primaryHint(action),
+                    action: onPrimaryAction
+                )
+                .accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
+                .transition(.opacity)
+            }
+            if let decline = rows.first(where: { $0.action == .declineInvite }) {
+                FlowTextButton(
+                    title: decline.value,
+                    tone: .neutral,
+                    accessibilityHint: decline.accessibilityHint,
+                    action: { onRowAction(.declineInvite) }
+                )
+                .accessibilityIdentifier("volunteerOrderFlowRow-\(decline.id)")
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: presentation.primaryAction)
+    }
+
+    // MARK: ⑤⑥⑧ 地图 + 抽屉
+
+    private func trackingLayout(order: OrderDetailResponse) -> some View {
+        var input = mapInput ?? BlindTrackingMapInput(meetPoint: order.startCoordinate)
+        input.peerTitle = "跑者"
+        return BlindOrderTrackingView(
+            status: order.status,
+            mapInput: input,
+            topBar: topBar(surface: .onMap),
+            bottom: OrderFlowBottomActions(owner: .volunteer, primary: trackingPrimary, safetyHub: nil),
+            drawer: { trackingDrawer(order: order) },
+            timeline: {
+                BlindOrderTimelineView(
+                    input: BlindOrderTimelineInput(position: timelinePosition, folds: false, vocabulary: .volunteer)
+                ) { _ in EmptyView() }
+            },
+            footer: { footer() }
+        )
+    }
+
+    private var trackingPrimary: OrderFlowPrimaryAction? {
+        presentation.primaryAction.map { action in
+            OrderFlowPrimaryAction(
+                title: action.title,
+                systemImage: action.systemImage,
+                isLoading: isPrimaryLoading,
+                isEnabled: isPrimaryEnabled,
+                caption: primaryCaption(action),
+                accessibilityHint: primaryActionHint(action),
+                action: onPrimaryAction
+            )
         }
     }
 
     @ViewBuilder
-    private var standardHeroContent: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(hero.eyebrow)
-                .flowFont(FlowV2Fonts.subhead(bold: true))
-                .foregroundColor(AppColors.Flow.onHeroEyebrow)
-            Spacer(minLength: 8)
-            replyNotice
+    private func trackingDrawer(order: OrderDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            switch phase {
+            case .completed:
+                completedDrawer(order: order)
+            case .arrived:
+                arrivedDrawer
+            default:
+                drawerHeader(title: headerTitle, subtitle: departedSubtitle)
+                if let runnerLine { runnerLine.padding(.horizontal, -16) }
+                if let quickReplies {
+                    FlowQuickReplyGrid(
+                        title: "一键告诉\(quickReplies.runnerName)",
+                        items: quickReplies.items,
+                        onTap: { quickReplies.onTap($0.id) }
+                    )
+                }
+                if let place = placeRow { placeRowView(place) }
+                if let notice = hero.notice { FlowNoticeBar(text: notice) }
+                if !infoRows.isEmpty { infoBox }
+            }
         }
-        rope
-        heroBody
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.25), value: phase)
     }
 
-    /// 头卡正文合成**一个**读屏元素（绳子与回复倒计时各是一个）。
-    private var heroBody: some View {
-        let centered = phase == .completed || hero.rope == .arrived
-        return VStack(alignment: centered ? .center : .leading, spacing: 8) {
-            if let number = hero.number {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(number).flowHeroNumber(hero.numberSize)
-                    if let unit = hero.unit {
-                        Text(unit).flowFont(FlowV2Fonts.heroUnit())
-                    }
-                }
-                .foregroundColor(heroForeground)
-                .contentTransition(.numericText(countsDown: true))
-                .animation(.easeOut(duration: 0.6), value: number)
-                // 出发 → 快迟到：数字颜色 0.25 秒过渡到金色（03 §二）。
-                .animation(.easeInOut(duration: 0.25), value: hero.isGold)
-            }
-            if let headline = hero.headline {
-                Text(headline)
-                    .flowFont(phase == .completed ? FlowV2Fonts.title2() : FlowV2Fonts.title())
-                    .foregroundColor(heroForeground)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            ForEach(hero.lines, id: \.self) { line in
+    /// 出发：「8 分钟后到」+ 头部副文。
+    private var departedSubtitle: [String] {
+        var lines: [String] = []
+        if hero.headline != nil, let number = hero.number {
+            lines.append([number, hero.unit].compactMap { $0 }.joined(separator: " "))
+        }
+        return lines + hero.lines
+    }
+
+    /// 抽屉顶上的标题与蓝字副标题。合成一个元素，沿用 v2 头卡的 identifier。
+    private func drawerHeader(title: String, subtitle: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .flowFont(FlowV2Fonts.title())
+                .foregroundColor(hero.isGold ? AppColors.Flow.gold : AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(subtitle, id: \.self) { line in
                 Text(line)
                     .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(AppColors.Flow.onHeroBody)
+                    .foregroundColor(AppColors.Flow.accent)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if !inviteMetrics.isEmpty { metricsTriple }
-            if let presence = hero.presence {
-                FlowPresencePill(text: presence)
-                    .transition(.opacity)
-            }
         }
-        .multilineTextAlignment(centered ? .center : .leading)
-        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(hero.accessibilityLabel + metricsSpoken)
+        .accessibilityLabel(hero.accessibilityLabel)
+        .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("volunteerOrderFlowStatusCard")
     }
 
-    private var heroForeground: Color {
-        if hero.isGold { return AppColors.Flow.gold }
-        return AppColors.Flow.onHeroStrong
-    }
-
-    /// 「还剩 25 秒回复」。只有邀请态有；每秒都变，所以是独立读屏元素。
-    /// 进入最后 10 秒只靠颜色转折时，「不使用颜色区分」下补一个感叹号。
-    @ViewBuilder
-    private var replyNotice: some View {
-        if let notice = presentation.replyNotice {
-            HStack(spacing: 4) {
-                if differentiateWithoutColor && presentation.isReplyUrgent {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .accessibilityHidden(true)
-                }
-                Text(notice).flowFont(FlowV2Fonts.subhead(), monospacedDigit: true)
-            }
-            // 2026-10-13 起邀请头卡是钢蓝底（定稿 v6）：常态 90% 白、最后 10 秒转金色
-            // （金色在本 App 里就是「快到点 / 过点」，压钢蓝 5.20）。红字压彩色底不到 4.5。
-            .foregroundColor(presentation.isReplyUrgent ? AppColors.Flow.gold : AppColors.Flow.onHeroEyebrow)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("volunteerOrderFlowReplyCountdown")
-        }
-    }
-
-    private var metricsTriple: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(spacing: 0))
-        return layout {
-            ForEach(inviteMetrics) { metric in
-                VStack(spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(metric.value).flowFont(FlowV2Fonts.metricValue(), monospacedDigit: true)
-                        if let unit = metric.unit { Text(unit).flowFont(FlowV2Fonts.tag()) }
-                    }
-                    .foregroundColor(AppColors.Flow.onHeroStrong)
-                    Text(metric.label)
-                        .flowFont(FlowV2Fonts.tag())
-                        .foregroundColor(AppColors.Flow.onHeroBody)
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(.vertical, 12)
-        // 头卡是钢蓝底（定稿 v6）：浅灰块压在彩色卡里成了一块补丁，改成 12% 白。
-        // 白字 5.24、副文 4.85（`FlowDesignSystemTests.testInviteMetricTileOnTheMatchingHero`）。
-        .background(Color.white.opacity(FlowMetrics.heroChipWhiteOpacity), in: RoundedRectangle(cornerRadius: FlowMetrics.v2ChipRadius, style: .continuous))
-    }
-
-    private var metricsSpoken: String {
-        inviteMetrics.isEmpty ? "" : "，" + inviteMetrics.map(\.spoken).joined(separator: "，")
-    }
-
-    // MARK: 汇合
+    // MARK: ⑥ 汇合
 
     @ViewBuilder
-    private func meetSection(_ meet: VolunteerOrderMeetPanel) -> some View {
-        VStack(spacing: FlowMetrics.v2SectionGap) {
+    private var arrivedDrawer: some View {
+        HStack(alignment: .center, spacing: 12) {
+            drawerHeader(title: headerTitle, subtitle: hero.lines)
+            if let meet, !meet.canEndWait, let degrees = meet.relativeDegrees {
+                // 没有方向（太远 / 位置未知 / 拿不到朝向）不画方位盘（负责人 2026-10-05）。
+                DirectionDial(relativeDegrees: degrees, sectorWidth: meet.sectorWidth, diameter: 96)
+                    .transition(.opacity)
+            }
+        }
+        if let meet {
             if meet.canEndWait {
                 WaitRing(waitedSeconds: WaitRing.defaultFullSeconds)
-            } else {
-                // 没有方向（太远 / 位置未知 / 拿不到朝向）不画方位盘：50% 透明的空圆占约 1/4 屏却什么也不指（负责人 2026-10-05）。
-                if let degrees = meet.relativeDegrees { DirectionDial(relativeDegrees: degrees, sectorWidth: meet.sectorWidth)
-                    .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity)) } // 出发 → 汇合：0.9 倍缩放并淡入（03 §二）
-                if let remaining = meet.endWaitRemainingSeconds, remaining > 0 {
-                    Text("再等 \(Int((Double(remaining) / 60).rounded(.up))) 分钟可以结束等待")
-                        .flowFont(FlowV2Fonts.subhead())
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                }
+                    .frame(maxWidth: .infinity)
+            } else if let remaining = meet.endWaitRemainingSeconds, remaining > 0 {
+                Text("再等 \(Int((Double(remaining) / 60).rounded(.up))) 分钟可以结束等待")
+                    .flowFont(FlowV2Fonts.subhead())
+                    .foregroundColor(AppColors.Flow.secondaryText)
             }
+            meetButtons(callFirst: meet.canEndWait)
             ringButton(meet)
             if let ringNotice = meet.ringNotice {
                 Text(ringNotice)
@@ -273,32 +364,31 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     .foregroundColor(AppColors.Flow.warmCardTitle)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            meetButtons(callFirst: meet.canEndWait)
         }
-        .frame(maxWidth: .infinity)
+        if let notice = hero.notice { FlowNoticeBar(text: notice) }
+        if !infoRows.isEmpty { infoBox }
     }
 
+    /// 「让陈的手机响起来」：一整行，与盲人 v7 抽屉里的行同一个样子。
     private func ringButton(_ meet: VolunteerOrderMeetPanel) -> some View {
         Button(action: meet.onRing) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ringIcon(isRinging: meet.isRinging)
                 Text(meet.isRinging ? "正在响铃…" : "让\(meet.runnerName)的手机响起来")
-                    .flowFont((16, .bold, .callout))
+                    .flowFont((17, .semibold, .body))
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .accessibilityHidden(true)
             }
-            // v2 C08：藏青现在代表「约好」，响铃改汇合的暖色（暖底 + 描边 + 深琥珀字）。
-            .foregroundColor(AppColors.Flow.arrivedInk)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .frame(minHeight: FlowMetrics.actionButtonMinHeight)
-            .background(AppColors.Flow.arrivedTint)
-            .overlay(
-                RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
-                    .strokeBorder(AppColors.Flow.arrivedTintBorder, lineWidth: 1.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+            .foregroundColor(AppColors.Flow.primaryText)
+            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { FlowSeparator() }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(meet.isRinging ? "正在响铃" : "让\(meet.runnerNameSpoken)的手机响起来")
@@ -307,7 +397,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         .accessibilityIdentifier("volunteerOrderRingButton")
     }
 
-    /// 交付包 03 §三：响铃中图标做 `variableColor`（iOS 17+）；减弱动态效果下静止。
+    /// 响铃中图标做 `variableColor`（iOS 17+，淡入淡出类的动效）；减弱动态效果下静止。
     @ViewBuilder
     private func ringIcon(isRinging: Bool) -> some View {
         let image = Image(systemName: "speaker.wave.2").font(.system(size: 17, weight: .bold))
@@ -320,8 +410,9 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    /// 「打电话 / 找不到对方」两列（AX 字号下竖排）。等满时限后打电话排第一个并加重（交付包 ④b）。
+    /// 「打电话 / 找不到对方」两枚胶囊（AX 字号下竖排）。等满时限后打电话加重。
     @ViewBuilder
     private func meetButtons(callFirst: Bool) -> some View {
         let buttons = [callRow, cannotFindRow].compactMap { $0 }
@@ -337,18 +428,11 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                             row.action == .callRunner ? "打电话" : row.value,
                             systemImage: row.action == .callRunner ? "phone" : "magnifyingglass"
                         )
-                        .flowFont((15, .bold, .callout))
+                        .flowFont((16, .bold, .callout))
                         .foregroundColor(emphasized ? .white : AppColors.Flow.primaryText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .frame(minHeight: FlowMetrics.v2TertiaryMinHeight)
-                        // v2 C09：等满时限后的「打电话」用汇合琥珀底白字。
-                        .background(emphasized ? AppColors.Flow.stateArrived : AppColors.Flow.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
-                                .strokeBorder(emphasized ? Color.clear : AppColors.Flow.ghostStroke, lineWidth: 1.5)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+                        .frame(maxWidth: .infinity, minHeight: FlowMetrics.v2TertiaryMinHeight)
+                        .background(Capsule().fill(emphasized ? AppColors.Flow.navy : AppColors.Flow.surfaceSubtle))
+                        .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
@@ -358,24 +442,59 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     .accessibilityIdentifier("volunteerOrderFlowRow-\(row.id)")
                 }
             }
-            // 等满时限后打电话排第一个：它在行里本来就排第一（`metUp` 先放拨号行），这里只负责加重。
         }
     }
 
-    // MARK: 跑者卡
+    // MARK: ⑧ 完成
 
+    /// 负责人 11-11「状态卡有点挤」后的改稿：标题只写「跑完了」，次数进副标题；
+    /// 绿卡里距离单独一行、用时第二行；星级单独一张卡（在 `footer` 里）；两个去处并排。
     @ViewBuilder
-    private var runnerCard: some View {
-        if let order, let runnerRow, showsRunnerCard {
-            FlowRunnerCard(
-                name: runnerRow.value,
-                detail: (runnerRow.detail ?? "").replacingOccurrences(of: "，", with: " · "),
-                togetherCount: order.completedTogetherCount,
-                // 交付包 02 ②b：出发前 30 分钟那一屏不再显示留言气泡，保持卡片短。
-                message: phase == .agreedSoon ? nil : order.messageToVolunteer,
-                preferenceText: order.guidePreferenceText
-            )
+    private func completedDrawer(order: OrderDetailResponse) -> some View {
+        drawerHeader(
+            title: VolunteerOrderFlowCopy.completedDrawerTitle,
+            subtitle: [hero.headline, order.startAddress?.nilIfBlank].compactMap { $0 }
+        )
+        VolunteerCompletedResultCard(order: order)
+        if !linkRows.isEmpty {
+            HStack(spacing: 10) {
+                ForEach(linkRows) { row in
+                    Button { onRowAction(row.action ?? .reportIssue) } label: {
+                        Text(row.value)
+                            .flowFont((16, .bold, .callout))
+                            .foregroundColor(AppColors.Flow.primaryText)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, minHeight: FlowMetrics.v2TertiaryMinHeight)
+                            .background(Capsule().fill(AppColors.Flow.surfaceSubtle))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHintIfPresent(row.accessibilityHint)
+                    .accessibilityIdentifier("volunteerOrderFlowRow-\(row.id)")
+                }
+            }
         }
+    }
+
+    // MARK: 行的分派
+    //
+    // 行本身（有哪些、读屏说什么、接单前露不露）全在 `VolunteerOrderFlowPresentation` 里定；
+    // 这里只决定**画成什么形状**：集合点画成地点行、「我去不了」进「···」、「这次去不了」画成主按钮下的文字按钮、
+    // 汇合页的拨号与找人画成两枚胶囊、完成页两个去处画成并排按钮，其余进信息块。
+
+    private var rows: [VolunteerOrderFlowPresentation.Row] { presentation.rows }
+    private var runnerRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.id == "runner" } }
+    private var placeRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.action == .openMeetingPoint } }
+    private var dismissRow: VolunteerOrderFlowPresentation.Row? {
+        rows.first { $0.action == .releaseOrder || $0.action == .declineInvite }
+    }
+    private var cannotFindRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.action == .cannotFindRunner } }
+    /// 只有汇合页把拨号画成按钮；其余页电话仍是信息块里一行（`AGENTS.md` §8：掩码号 + 拨号入口）。
+    private var callRow: VolunteerOrderFlowPresentation.Row? {
+        cannotFindRow == nil ? nil : rows.first { $0.action == .callRunner }
+    }
+    private var linkRows: [VolunteerOrderFlowPresentation.Row] {
+        rows.filter { $0.action == .viewRunRecord || $0.action == .reportIssue }
     }
 
     private var showsRunnerCard: Bool {
@@ -385,32 +504,14 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         }
     }
 
-    // MARK: 行的分派
-    //
-    // 行本身（有哪些、读屏说什么、接单前露不露）全在 `VolunteerOrderFlowPresentation` 里定；
-    // 这里只决定**画成什么形状**：集合点画成地点行、「去不了」画成底部文字按钮、
-    // 汇合页的拨号与找人画成两列按钮、完成页两个去处画成文字链接，其余进信息卡。
-
-    private var rows: [VolunteerOrderFlowPresentation.Row] { presentation.rows }
-    private var runnerRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.id == "runner" } }
-    private var placeRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.action == .openMeetingPoint } }
-    private var dismissRow: VolunteerOrderFlowPresentation.Row? {
-        rows.first { $0.action == .releaseOrder || $0.action == .declineInvite }
-    }
-    private var cannotFindRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.action == .cannotFindRunner } }
-    /// 只有汇合页把拨号画成按钮；其余页电话仍是信息卡里一行（`AGENTS.md` §8：掩码号 + 拨号入口）。
-    private var callRow: VolunteerOrderFlowPresentation.Row? {
-        cannotFindRow == nil ? nil : rows.first { $0.action == .callRunner }
-    }
-    private var linkRows: [VolunteerOrderFlowPresentation.Row] {
-        rows.filter { $0.action == .viewRunRecord || $0.action == .reportIssue }
-    }
     private var infoRows: [VolunteerOrderFlowPresentation.Row] {
-        let taken = Set([placeRow, dismissRow, cannotFindRow, callRow].compactMap { $0?.id } + linkRows.map(\.id))
+        // 出发起集合点画成地点行；①④ 的集合点已在抽屉顶上那行，但它是个可点的导航入口，留在信息块里。
+        let placeTaken = usesMap ? placeRow?.id : nil
+        let taken = Set([placeTaken, dismissRow?.id, cannotFindRow?.id, callRow?.id].compactMap { $0 } + linkRows.map(\.id))
         return rows.filter { row in
             if taken.contains(row.id) { return false }
             if row.id == "runner" && showsRunnerCard { return false }
-            // 邀请态三宫格已经说了跑多远 / 配速，信息卡里不再重复。
+            // 邀请态地点下面那行已经说了跑多远 / 配速，信息块里不再重复。
             if !inviteMetrics.isEmpty && (row.id == "plannedDistance" || row.id == "pace") { return false }
             return true
         }
@@ -429,15 +530,18 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         .accessibilityIdentifier("volunteerOrderFlowRow-\(row.id)")
     }
 
-    private var infoCard: some View {
-        FlowCard {
-            VStack(spacing: 0) {
-                ForEach(Array(infoRows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { FlowSeparator() }
-                    infoRow(row)
-                }
+    /// 信息块：浅灰圆角底、行间细线（同盲人 v7 ③ 安排单与 ⑨ 原定信息卡）。
+    private var infoBox: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(infoRows.enumerated()), id: \.element.id) { index, row in
+                if index > 0 { FlowSeparator() }
+                infoRow(row)
             }
         }
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.surfaceSubtle)
+        )
     }
 
     @ViewBuilder
@@ -468,71 +572,19 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         .accessibilityIdentifier("volunteerOrderFlowRow-\(row.id)")
     }
 
-    /// 完成页的「查看跑步记录 · 上报问题」（交付包 ⑤）。
-    @ViewBuilder
-    private var completionLinks: some View {
-        if !linkRows.isEmpty {
-            HStack(spacing: 8) {
-                ForEach(linkRows) { row in
-                    FlowTextButton(
-                        title: row.value,
-                        tone: row.action == .viewRunRecord ? .link : .neutral,
-                        accessibilityHint: row.accessibilityHint,
-                        action: { onRowAction(row.action ?? .reportIssue) }
-                    )
-                    .accessibilityIdentifier("volunteerOrderFlowRow-\(row.id)")
-                }
-            }
-        }
+    private var metricsSpoken: String {
+        inviteMetrics.isEmpty ? "" : "，" + inviteMetrics.map(\.spoken).joined(separator: "，")
     }
 
-    // MARK: 底部动作区
+    // MARK: 主按钮
 
-    private var bottomActions: some View {
-        VStack(spacing: 8) {
-            if let action = presentation.primaryAction {
-                let actionCaption = gateCaption ?? action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation, tetherPreference: order?.tetherPreference)
-                if let caption = actionCaption {
-                    Text(caption)
-                        .flowFont(FlowV2Fonts.subhead())
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        // 已经拼进按钮的 hint，不再单独念一遍。
-                        .accessibilityHidden(true)
-                }
-                FlowActionButton(
-                    action.title,
-                    systemImage: action.systemImage,
-                    style: action == .alreadyDeparted ? .outlined : .raisedPrimary,
-                    isLoading: isPrimaryLoading,
-                    isEnabled: isPrimaryEnabled,
-                    accessibilityHint: [actionCaption, primaryActionHint(action)]
-                        .compactMap { $0 }.joined(separator: "。").nilIfBlank,
-                    action: onPrimaryAction
-                )
-                .accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
-                // ② → ②b「主按钮升级」：白色次要按钮原地换成黄色主按钮，0.98→1 缩放 + 交叉淡入，0.35 秒（03 §二）。
-                // 换动作就换身份，旧按钮淡出、新按钮淡入；减弱动态效果下只淡入淡出。
-                .id(action.title)
-                .transition(reduceMotion ? .opacity : .scale(scale: 0.98).combined(with: .opacity))
-            }
-            if let dismissRow {
-                FlowTextButton(
-                    title: dismissRow.value,
-                    tone: .neutral,
-                    accessibilityHint: dismissRow.accessibilityHint,
-                    action: { onRowAction(dismissRow.action ?? .releaseOrder) }
-                )
-                .accessibilityIdentifier("volunteerOrderFlowRow-\(dismissRow.id)")
-                // 主按钮的投影向下伸约 20pt，压进这一行的框里；审计在亮色下取到掺了黄色的底，报 Contrast failed
-                // （#669；字色 5.51:1 本身达标）。用页面底色的不透明底盖住这一行，晕染在它上沿收掉。
-                .padding(.top, 6)
-                .background(AppColors.Flow.page)
-            }
-        }
-        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.35), value: presentation.primaryAction)
-        .flowBottomBar()
+    private func primaryCaption(_ action: VolunteerOrderFlowPresentation.PrimaryAction) -> String? {
+        gateCaption ?? action.caption(awaitingBlindConfirmation: awaitingBlindConfirmation, tetherPreference: order?.tetherPreference)
+    }
+
+    /// 小字 + 动作说明合成的读屏提示（小字本身对读屏隐藏，免得念两遍）。
+    private func primaryHint(_ action: VolunteerOrderFlowPresentation.PrimaryAction) -> String? {
+        [primaryCaption(action), primaryActionHint(action)].compactMap { $0 }.joined(separator: "。").nilIfBlank
     }
 
     private func primaryActionHint(_ action: VolunteerOrderFlowPresentation.PrimaryAction) -> String? {
@@ -556,22 +608,52 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     }
 }
 
-// MARK: - 头卡状态色
+/// ⑧ 完成页的绿色成果卡：距离单独一行，用时在第二行（负责人 11-11「有点挤」后的改稿）。
+/// 只读订单上已有的实跑数字；没有就整卡不画（跑步记录页有完整数据）。
+struct VolunteerCompletedResultCard: View {
+    let order: OrderDetailResponse
 
-// 写在结构体外、同一个文件里：页面结构体只许变短（SwiftLint 棘轮 #488）。
-extension VolunteerOrderFlowPage {
-    private var rope: some View {
-        RopeView(
-            state: hero.rope,
-            theme: hero.style.ropeTheme,
-            runnerName: order?.blindName ?? inviteRunnerName,
-            remainingMinutes: hero.remainingMinutes
-        )
+    var body: some View {
+        if let meters = order.actualDistanceMeters {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(RunPlanFormat.kilometresValue(Double(meters) / 1_000))
+                        .flowHeroNumber(FlowV2Fonts.heroM, capped: false)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text("公里").flowFont(FlowV2Fonts.heroUnit())
+                }
+                if let seconds = order.actualDurationSeconds {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("用时")
+                            .flowFont(FlowV2Fonts.subhead())
+                            .foregroundColor(Color.white.opacity(0.85))
+                        Text("\(Int((Double(seconds) / 60).rounded())) 分钟")
+                            .flowFont((20, .bold, .title3))
+                    }
+                }
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.stateDone))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spoken(meters: meters))
+        }
+    }
+
+    private func spoken(meters: Int) -> String {
+        var parts = ["跑了 \(RunPlanFormat.kilometresValue(Double(meters) / 1_000)) 公里"]
+        if let seconds = order.actualDurationSeconds {
+            parts.append("用时 \(Int((Double(seconds) / 60).rounded())) 分钟")
+        }
+        return parts.joined(separator: "，")
     }
 }
 
 extension VolunteerOrderHero.Style {
-    /// 交付包 v2 C01。纯类型那边只说「是哪一种」，取色在视图层。
+    /// 交付包 v2 C01。纯类型那边只说「是哪一种」，取色在视图层。v7 页面只在锁屏卡等处还用到它。
     var color: Color {
         switch self {
         case .matching: return AppColors.Flow.stateMatching
@@ -581,34 +663,9 @@ extension VolunteerOrderHero.Style {
         case .done: return AppColors.Flow.stateDone
         }
     }
-
-    var cardStyle: FlowHeroCardStyle { .tinted(color) }
-
-    var ropeTheme: RopeView.Theme { .onHero(color) }
 }
 
-private extension View {
-    /// 底部常驻动作区的底：页面底色 + 上沿 16pt 渐隐，让滚上来的内容淡进按钮后面而不是被一刀切断。
-    func flowBottomBar() -> some View {
-        padding(.horizontal, FlowMetrics.v2ScreenPadding)
-            .padding(.vertical, 8)
-            .background(
-                VStack(spacing: 0) {
-                    LinearGradient(
-                        colors: [AppColors.Flow.page.opacity(0), AppColors.Flow.page],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .frame(height: FlowMetrics.v2BottomFadeHeight)
-                    .offset(y: -FlowMetrics.v2BottomFadeHeight)
-                    AppColors.Flow.page
-                }
-                .ignoresSafeArea(edges: .bottom)
-                .accessibilityHidden(true)
-            )
-    }
-}
-
-// MARK: - 跑步中（v2 画布 ⑤）
+// MARK: - 跑步中（v7 ⑦）
 
 /// 跑步中头卡的全部内容。纯类型，用例 `VolunteerRunningHeroTests`。
 ///
@@ -704,14 +761,11 @@ struct VolunteerRunningHero: Equatable {
     }
 }
 
-/// 陪跑员跑步中那一屏（v2 画布 ⑤）：导航栏 + 藏青头卡（`stateAgreed`） + 一条提示 + 求助结果区 + 底部长按结束。
+/// 陪跑员跑步中那一屏（v7 ⑦，#945）：地图常驻 + 抽屉（距离 / 用时 / 配速、目标进度、一条提示、耳机播报）+
+/// 底部长按结束。右上角红色实心「求助」开跑步中求助面板（V5，面板本身不改）。
 ///
-/// 与画布的差异（都在 `openspec/changes/restyle-volunteer-running-page-v2/design.md`）：
-/// 头卡用藏青不用青绿（#229 的按状态着色没给跑步中定色，负责人 09-26 选藏青；不新增颜色）；保留返回箭头（这一页藏了标签栏，
-/// 没有返回就没有出口）；不画头像对、不画「折返」。
-///
-/// 节奏卡、语音播报开关、暂停（头卡换 `statePaused` + 「继续陪跑」）、合并后的提示条与求助面板
-/// 由 FE-3 接上（`VolunteerRunningCompanion.swift`，后端 BE-1/BE-2 已给数据）。
+/// 求助走云端还是本地拨号只读 `VolunteerOrderSOSMode.resolve`（AGENTS §6）：这一页只在 `IN_PROGRESS` 出现，结果恒为云端。
+/// 不画「折返」：契约里没有路线形状。地图只画跑者位置与集合点（跑中没有整条路线数据）。
 ///
 /// 自己 `@ObservedObject` 持有 coordinator：`AppState.emergencyCoordinator` 是 `let`，
 /// 在宿主 body 里读它**读得到值但不跟着更新**（记忆 `nested-observableobject-does-not-republish`）。
@@ -720,16 +774,17 @@ struct VolunteerRunningPage<Footer: View>: View {
     let order: OrderDetailResponse
     let stats: TrackStats?
     let isPeerLocationFresh: Bool
+    /// 跑者位置、集合点、本机位置。`nil` = 只画集合点。
+    var mapInput: BlindTrackingMapInput?
     let isFinishing: Bool
     let isFinishEnabled: Bool
     let onBack: () -> Void
     let onHelp: () -> Void
     let onFinish: () -> Void
     /// 跑到一半陪不了了（受伤、临时有事）：订单转 `REMATCHING` 换人，**不是**结束陪跑。
-    /// 画布 ⑤ 没画这个入口，但旧页面有、`AGENTS.md` §5 允许，删掉的话唯一的退出就只剩
-    /// 「结束陪跑」—— 那会把没跑完的一单记成完成、并计入志愿时长。
+    /// 删掉的话唯一的退出就只剩「结束陪跑」—— 那会把没跑完的一单记成完成、并计入志愿时长。
     let onCancel: () -> Void
-    /// FE-3：提示（走散 / 电量低 / 定位弱）、暂停与继续。节奏卡 2026-10-07 删除。
+    /// 提示（走散 / 电量低 / 定位弱）、暂停与继续。
     let tip: VolunteerRunTip?
     let isTogglingPause: Bool
     let onResume: () -> Void
@@ -737,7 +792,6 @@ struct VolunteerRunningPage<Footer: View>: View {
     @ViewBuilder let footer: () -> Footer
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var hero: VolunteerRunningHero {
         .make(
@@ -759,182 +813,169 @@ struct VolunteerRunningPage<Footer: View>: View {
     }
 
     var body: some View {
-        let hero = hero
-        VStack(spacing: 0) {
-            FlowOrderNavBar(
-                title: VolunteerRunningHero.title,
+        var input = mapInput ?? BlindTrackingMapInput(meetPoint: order.startCoordinate)
+        input.peerTitle = "跑者"
+        return BlindOrderTrackingView(
+            status: order.status,
+            mapInput: input,
+            topBar: VolunteerOrderTopBar(
+                surface: .onMap,
                 onBack: onBack,
-                onHelp: onHelp,
-                helpIsCloud: true,
-                helpIsBusy: coordinator.state.isBusy
-            )
-            .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
-            ScrollView {
-                VStack(spacing: FlowMetrics.v2SectionGap) {
-                    heroCard(hero)
-                    // 同一时刻只有一条（`VolunteerRunningNotice`）。
-                    switch notice {
-                    case .hero:
-                        if let text = hero.notice {
-                            FlowNoticeBar(text: text)
-                                .accessibilityLabel(hero.noticeSpoken ?? text)
-                                .accessibilityIdentifier("volunteerRunningNotice")
-                        }
-                    case .tip(let tip):
-                        VolunteerRunTipBar(tip: tip, name: order.runnerShortName)
-                    case .none:
-                        EmptyView()
-                    }
-                    VolunteerRunVoiceToggle()
-                    footer()
-                }
-                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
-                .padding(.vertical, FlowMetrics.v2SectionGap)
-                .animation(.easeInOut(duration: 0.25), value: notice)
-                .animation(.easeInOut(duration: 0.35), value: isPaused)
-            }
-        }
-        .background(AppColors.Flow.page.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 8) {
-                // 跑步中登录过期（#376）：结束陪跑要先重新登录，那枚按钮就在这里。没有暂缓时不渲染。
-                SessionExpiryNotice()
-                // 暂停中本屏唯一的黄色按钮（08 §五）；长按结束保持在它下面。
-                if isPaused {
-                    FlowActionButton(
-                        VolunteerRunCopy.resume,
-                        systemImage: "play.fill",
-                        style: .raisedPrimary,
-                        isLoading: isTogglingPause,
-                        accessibilityHint: "恢复计时"
-                    ) {
-                        onResume()
-                    }
-                    .accessibilityIdentifier("volunteerRunResumeButton")
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
-                VolunteerFinishLongPressButton(
-                    isPerformingAction: isFinishing,
-                    isEnabled: isFinishEnabled,
-                    onFinish: onFinish
-                )
-                // 取消类一律灰色文字（交付包 v3 禁止项），不和长按结束抢视觉重量。
-                FlowTextButton(
-                    title: VolunteerServiceActionKind.cancelOrder.title,
-                    tone: .neutral,
-                    accessibilityHint: "双击后会先确认一次。取消前请先把跑者带到安全的地方",
-                    action: onCancel
-                )
-                .disabled(isFinishing || !isFinishEnabled)
-                .accessibilityIdentifier("volunteerRunningCancel")
-            }
-            .flowBottomBar()
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("volunteerRunningBottomBar")
-        }
+                isCloudHelp: VolunteerOrderSOSMode.resolve(status: order.status) == .cloud,
+                isHelpBusy: coordinator.state.isBusy,
+                onHelp: onHelp
+            ),
+            bottom: OrderFlowBottomActions(owner: .volunteer, primary: nil, secondary: AnyView(bottomControls), safetyHub: nil),
+            drawer: { drawer },
+            timeline: {
+                BlindOrderTimelineView(
+                    input: BlindOrderTimelineInput(position: .current(.startRun), folds: false, vocabulary: .volunteer)
+                ) { _ in EmptyView() }
+            },
+            footer: { footer() }
+        )
     }
 
-    /// 横屏（高约 402pt）把用时 / 配速挪到里程右边：竖着排整张卡约 300pt，
-    /// 放不下就有一截滚进底部按钮区的渐隐层里，审计判那两行对比度不足（2026-09-26 真机）。
-    private var isWide: Bool { verticalSizeClass == .compact && !dynamicTypeSize.isAccessibilitySize }
+    // MARK: 抽屉
 
-    private func heroCard(_ hero: VolunteerRunningHero) -> some View {
-        // 跑步中青绿（V19）；暂停：头卡换 `statePaused`（V13），小标题改「已暂停 · 计时停在 mm:ss」（读 `run.elapsedSeconds`，暂停中不走）。
-        FlowHeroCard(style: .tinted(isPaused ? AppColors.Flow.statePaused : AppColors.Flow.stateRunning)) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(isPaused ? VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText) : hero.eyebrow)
-                    .flowFont(FlowV2Fonts.subhead(bold: true), monospacedDigit: true)
-                    .foregroundColor(AppColors.Flow.onHeroEyebrow)
-                    .fixedSize(horizontal: false, vertical: true)
-                if isPaused {
-                    Text(VolunteerRunCopy.pausedBody)
-                        .flowFont(FlowV2Fonts.subhead())
-                        .foregroundColor(AppColors.Flow.onHeroBody)
-                        .fixedSize(horizontal: false, vertical: true)
+    private var drawer: some View {
+        let hero = hero
+        return VStack(alignment: .leading, spacing: 16) {
+            statsBlock(hero)
+            // 同一时刻只有一条（`VolunteerRunningNotice`）。
+            switch notice {
+            case .hero:
+                if let text = hero.notice {
+                    FlowNoticeBar(text: text)
+                        .accessibilityLabel(hero.noticeSpoken ?? text)
+                        .accessibilityIdentifier("volunteerRunningNotice")
                 }
-                if isWide {
-                    HStack(alignment: .top, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            distanceRow(hero)
-                            if let goal = hero.goal { goalView(goal) }
-                        }
-                        // 两格横排：竖着叠会比左边的里程还高，末行又滚进渐隐层（2026-09-26 真机截图）。
-                        metric(value: hero.duration, label: "用时")
-                        metric(value: hero.pace, label: "配速 / 公里")
-                    }
-                } else {
-                    distanceRow(hero)
-                    if let goal = hero.goal { goalView(goal) }
-                    Rectangle()
-                        .fill(AppColors.Flow.ropeMuted)
-                        .frame(height: 1)
-                    metrics(hero)
-                }
+            case .tip(let tip):
+                VolunteerRunTipBar(tip: tip, name: order.runnerShortName)
+            case .none:
+                EmptyView()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(
-                isPaused
-                    ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.accessibilityLabel)"
-                    : hero.accessibilityLabel
-            )
-            .accessibilityIdentifier("volunteerRunningStatsCard")
+            VolunteerRunVoiceToggle()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.25), value: notice)
+        .animation(.easeInOut(duration: 0.25), value: isPaused)
     }
 
-    /// 主角数字**不封顶** Dynamic Type（见 `flowHeroNumber(_:capped:)`），宽度靠缩放兜住。
-    private func distanceRow(_ hero: VolunteerRunningHero) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(hero.distance)
-                .flowHeroNumber(FlowV2Fonts.heroXL, capped: false)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-            Text("公里").flowFont(FlowV2Fonts.heroUnit())
-        }
-        .foregroundColor(.white)
+    private var title: String {
+        if isPaused { return VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText) }
+        return "和\(order.runnerShortName)一起跑步中"
     }
 
-    private func goalView(_ goal: VolunteerRunningHero.Goal) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(AppColors.Flow.ropeMuted)
-                    Capsule()
-                        .fill(goal.isReached ? AppColors.Flow.gold : Color.white)
-                        .frame(width: proxy.size.width * goal.progress)
-                }
-            }
-            .frame(height: 6)
-            Text(goal.text)
-                .flowFont(FlowV2Fonts.subhead(bold: true), monospacedDigit: true)
-                .foregroundColor(goal.isReached ? AppColors.Flow.gold : AppColors.Flow.onHeroBody)
+    /// 标题 + 44pt 距离 + 用时 / 配速 + 目标进度。合成一个读屏元素，沿用 v2 头卡的 identifier。
+    private func statsBlock(_ hero: VolunteerRunningHero) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .flowFont(FlowV2Fonts.title(), monospacedDigit: true)
+                .foregroundColor(AppColors.Flow.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
+            if isPaused {
+                Text(VolunteerRunCopy.pausedBody)
+                    .flowFont(FlowV2Fonts.callout())
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            metricsRow(hero)
+            if let goal = hero.goal { goalView(goal) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            isPaused
+                ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.accessibilityLabel)"
+                : hero.accessibilityLabel
+        )
+        .accessibilityIdentifier("volunteerRunningStatsCard")
     }
 
-    /// 用时 / 配速两格。辅助字号下竖排：两个 44pt 起的数字并排会把彼此挤到缩小。
-    private func metrics(_ hero: VolunteerRunningHero) -> some View {
+    /// 距离 44pt（盲人 v7 ⑦ 同值），用时 / 配速在右边；辅助字号下竖排。
+    private func metricsRow(_ hero: VolunteerRunningHero) -> some View {
         let layout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .lastTextBaseline, spacing: 24))
         return layout {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(hero.distance)
+                    .flowFont((44, .bold, .largeTitle), monospacedDigit: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text("公里").flowFont(FlowV2Fonts.heroUnit())
+            }
             metric(value: hero.duration, label: "用时")
-            metric(value: hero.pace, label: "配速 / 公里")
+            metric(value: hero.pace, label: "配速")
         }
+        .foregroundColor(AppColors.Flow.primaryText)
     }
 
     private func metric(value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .flowHeroNumber(FlowV2Fonts.heroS, capped: false)
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
             Text(label)
                 .flowFont(FlowV2Fonts.subhead())
-                .foregroundColor(AppColors.Flow.onHeroBody)
+                .foregroundColor(AppColors.Flow.secondaryText)
+            Text(value)
+                .flowFont((22, .bold, .title2), monospacedDigit: true)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func goalView(_ goal: VolunteerRunningHero.Goal) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(AppColors.Flow.separator)
+                    Capsule()
+                        .fill(goal.isReached ? AppColors.Flow.stateDone : AppColors.Flow.navy)
+                        .frame(width: proxy.size.width * goal.progress)
+                }
+            }
+            .frame(height: 8)
+            .accessibilityHidden(true)
+            Text(goal.text)
+                .flowFont(FlowV2Fonts.subhead(), monospacedDigit: true)
+                .foregroundColor(AppColors.Flow.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: 底部
+
+    private var bottomControls: some View {
+        VStack(spacing: 8) {
+            // 暂停中本屏唯一的实心按钮（08 §五）；长按结束保持在它下面。
+            if isPaused {
+                BlindOrderStageButton(
+                    title: VolunteerRunCopy.resume,
+                    systemImage: "play.fill",
+                    style: .solid,
+                    isEnabled: !isTogglingPause,
+                    accessibilityHint: "恢复计时",
+                    action: onResume
+                )
+                .accessibilityIdentifier("volunteerRunResumeButton")
+                .transition(.opacity)
+            }
+            VolunteerFinishLongPressButton(
+                isPerformingAction: isFinishing,
+                isEnabled: isFinishEnabled,
+                onFinish: onFinish
+            )
+            // 取消类一律灰色文字（交付包 v3 禁止项），不和长按结束抢视觉重量。
+            FlowTextButton(
+                title: VolunteerServiceActionKind.cancelOrder.title,
+                tone: .neutral,
+                accessibilityHint: "双击后会先确认一次。取消前请先把跑者带到安全的地方",
+                action: onCancel
+            )
+            .disabled(isFinishing || !isFinishEnabled)
+            .accessibilityIdentifier("volunteerRunningCancel")
+        }
+        .animation(.easeInOut(duration: 0.25), value: isPaused)
     }
 }
 

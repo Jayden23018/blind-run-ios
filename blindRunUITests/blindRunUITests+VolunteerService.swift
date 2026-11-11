@@ -252,9 +252,10 @@ extension blindRunUITests {
         // 🚩 `PENDING_ACCEPT` 已从地图 + 底部面板换成四步骨架，所以这里不再断言地图底图、
         // 「取消订单」与「导航到出发地点」那三个旧控件。**被测行为没变**：确认挂住时界面
         // 不能变成模态，其余入口照样点得到。骨架上对应的是「我去不了」那一行与返回键。
-        let releaseRow = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
-        XCTAssertTrue(releaseRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(releaseRow.isHittable, "Cancellation entry must remain locally interactive")
+        // v7（#945）起「我去不了」收进顶栏「···」：入口就是那枚「···」。
+        let moreMenu = app.buttons["volunteerOrderNavMoreMenu"].firstMatch
+        XCTAssertTrue(moreMenu.waitForExistence(timeout: 5))
+        XCTAssertTrue(moreMenu.isHittable, "Cancellation entry must remain locally interactive")
         // v2 页面藏了系统导航栏，返回键在页面自带的导航栏上。
         XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "Back navigation must remain usable")
 

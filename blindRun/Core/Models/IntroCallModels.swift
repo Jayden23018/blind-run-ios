@@ -463,6 +463,8 @@ enum IntroCallCopy {
 
     /// 两端通话页的导航栏标题（定稿 v6）。
     static let pageTitle = "先通个电话"
+    /// 陪跑员 v7 ③ 深色头小字（#945，定稿稿面）：安排单已交、等跑者确认。
+    static let volunteerPlanSubmittedEyebrow = "已提交见面安排"
 
     /// 头卡小标题：「明天早上 7:00 · 朝阳公园南门」，陪跑员端再接「3.2 公里」。
     /// 每一段取不到就省掉那一段，全都取不到返回 `nil`（不摆占位）。
