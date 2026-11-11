@@ -58,6 +58,15 @@ struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
         // 抽屉的圆角压在头部下沿上（稿里抽屉往上叠 20pt）。
         .padding(.bottom, 20 + BlindOrderStageMetrics.sheetOverlap)
         .background(BlindOrderV7Palette.headerGradient)
+        // Top overscroll (pull-down bounce) exposes the ScrollView's white background between
+        // the fixed top bar and this header. Extend the top bar colour above the header so the
+        // two read as one block (#941).
+        .background(alignment: .top) {
+            BlindOrderV7Palette.headerTop
+                .frame(height: BlindOrderStageMetrics.overscrollFill)
+                .offset(y: -BlindOrderStageMetrics.overscrollFill)
+                .accessibilityHidden(true)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(headerAccessibilityLabel)
         .accessibilityAddTraits(.isHeader)
@@ -144,6 +153,8 @@ enum BlindOrderStageHeaderIdentifier: ViewModifier {
 enum BlindOrderStageMetrics {
     static let sheetRadius: CGFloat = 22
     static let sheetOverlap: CGFloat = 20
+    /// Height of the top-bar colour above the header. Covers any pull-down bounce distance (#941).
+    static let overscrollFill: CGFloat = 1000
 }
 
 // MARK: - 当前步那张卡
