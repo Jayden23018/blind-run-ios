@@ -296,6 +296,17 @@ struct LoginView: View {
                                 .accessibilityLabel(error)
                         }
 
+                        // 「登录」跟在验证码区后面随页面滚动。原先用 `safeAreaInset(edge: .bottom)` 钉在底部，
+                        // 键盘一弹就被顶到键盘上方，连同键盘工具栏盖住正在输入的验证码框（2026-11-11 负责人反馈）。
+                        // 输满 6 位会自动收键盘，按钮随即露出来。
+                        if viewModel.showCodeInput {
+                            PrimaryButton("登录", isLoading: viewModel.isLoading) {
+                                focusedField = nil
+                                viewModel.submitLogin()
+                            }
+                            .transition(.opacity)
+                        }
+
                         Spacer()
 
                         // 环境切换入口（底部角落，灰色小字）
@@ -306,7 +317,6 @@ struct LoginView: View {
                         #endif
                     }
                     .padding(.horizontal, 32)
-                    .padding(.bottom, viewModel.showCodeInput ? 160 : 0)
                     // 登录是两端共用的第一屏，也是 iPad 上最先被看到的一屏。
                     // 不限宽时手机号输入框会拉到 1024pt 宽，光标离标签一整个屏幕。
                     // `readableContentColumn()` 自带居中，原来的 `.frame(maxWidth: .infinity)` 由它接管。
@@ -328,18 +338,6 @@ struct LoginView: View {
             }
         }
         .background(AppColors.background)
-        .safeAreaInset(edge: .bottom) {
-            if viewModel.showCodeInput {
-                PrimaryButton("登录", isLoading: viewModel.isLoading) {
-                    focusedField = nil
-                    viewModel.submitLogin()
-                }
-                .padding(.horizontal, 32)
-                .readableContentColumn()
-                .padding(.vertical, 12)
-                .background(.regularMaterial)
-            }
-        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
