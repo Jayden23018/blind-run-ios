@@ -69,6 +69,7 @@ extension AccessibilityAuditTests {
             XCTAssertTrue(button.isHittable, "\(variant)：「\(tile.label)」方块点不到")
         }
         sleep(1) // 服务成就那一行是异步加载的，等它落定再截图
+        assertLargeTitleIsDrawn(app, title: "我的", variant: variant)
         attachScreenshot(app, name: "volunteer-settings-\(variant)-top")
         try audit(app)
     }

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><title>上线前低视力小修 改前 / 改后（v3：照陪跑员「我的」「个人资料」「积分」定稿的版式，2026-11-11）</title><style>
+  :root{--ink:#14171F;--ink2:#4A4F5C;--ink3:#5F6470;--line:#E6E7EB;--page:#F2F3F6;--bg:#E4E5E9;--blue:#0058C7;--g5:#E5E5EA;--green:#1E7A46}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:var(--bg);color:var(--ink);padding:28px 32px 40px}
+  h1{font-size:22px;margin-bottom:6px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:22px}
+  h2{font-size:17px;margin:30px 0 4px}
+  .why{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:14px}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .cell{width:390px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;border-radius:4px;padding:1px 7px;margin-bottom:8px}
+  .b{background:#F6D6D3;color:#B3261E}.a{background:#D4EBD9;color:#1B6B30}
+  .ask{color:#B3261E;font-weight:600}
+  .phone{width:390px;height:620px;border-radius:44px;overflow:hidden;position:relative;background:var(--page);box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+  .sb{position:absolute;left:0;right:0;top:0;height:44px;padding:16px 30px 0;display:flex;justify-content:space-between;font-size:14px;font-weight:600}
+  .back{position:absolute;left:16px;top:52px;width:40px;height:40px;border-radius:20px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .large{position:absolute;left:20px;top:104px;font-size:34px;font-weight:700}
+  .large.gone{color:transparent}
+  .body{position:absolute;left:16px;right:16px;top:166px}
+  .card{background:#fff;border-radius:18px;overflow:hidden}
+  .r{padding:15px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;font-size:17px}
+  .r:last-child{border-bottom:none}.r span:last-child{color:var(--ink3)}
+  .r small{display:block;font-size:12px;color:var(--ink2);margin-top:2px}
+  .sec{font-size:13px;color:var(--ink3);margin:16px 6px 6px}
+  .cta{position:absolute;left:24px;right:24px;bottom:30px;height:56px;border-radius:28px;background:var(--blue);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .cta.off{background:var(--g5);color:var(--ink3)}
+  .dim{opacity:.45}
+  .ph{color:var(--ink3)}
+  .sq{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .sq i{height:92px;border-radius:18px;display:flex;align-items:flex-end;padding:10px 12px;color:#fff;font-weight:700;font-size:16px;font-style:normal}
+  .acc{display:flex;gap:12px;align-items:center;padding:12px 14px}
+  .av{width:48px;height:48px;border-radius:24px;background:#9AA3B5}
+  .acc b{font-size:17px}.acc small{display:block;font-size:13px;color:var(--ink3)}
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
+  .tile{background:#fff;border:1.5px solid rgba(20,23,31,.85);border-radius:14px;padding:12px;min-height:112px;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .tile b{font-size:17px}.tile span{font-size:12px;color:var(--ink3)}
+  .bal small{font-size:14px;color:#8A5A00;font-weight:600}.bal b{display:block;font-size:44px;margin:4px 0 2px}.bal b i{font-size:16px;font-style:normal;color:var(--ink3)}.bal p{font-size:13px;color:var(--ink3)}
+  .plus{width:28px;height:28px;border-radius:14px;background:var(--green);color:#fff;text-align:center;line-height:28px;font-size:18px;margin-right:12px;flex:none}
+  .li{display:flex;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line);font-size:16px}
+  .li:last-child{border-bottom:none}.li div{flex:1}.li small{display:block;font-size:12px;color:var(--ink2)}.li em{font-style:normal;font-weight:600;color:var(--green)}
+  .fail{padding:14px 6px 0;font-size:16px;line-height:1.5}
+  .fail .retry{display:block;color:var(--blue);font-weight:600;min-height:44px;line-height:44px}
+  .more{text-align:center;color:var(--blue);font-weight:600;font-size:16px;min-height:44px;line-height:44px}
+</style></head><body>
+<h1>上线前低视力小修：改前 / 改后（v3，照陪跑员设置那一组定稿的版式）</h1>
+<p class="lead">版式取自 2026-11-04 已批准的陪跑员定稿（<code>volunteer-settings-20261104</code>、<code>volunteer-account-pages-20261104</code>）：浅灰底、白色分组卡、白色圆形返回键、系统大标题、蓝色文字与按钮、彩色方块。最像的是「我的积分」（健康 / Apple Cash 风格）与「个人资料」，所以 ①④ 照它们，③ 就是「我的」页本身。示意图，不是真机截图。<br>
+<span class="ask">要你确认：</span>这样的风格对不对？按钮保持现有亮蓝（和这一组一致）。</p>
+<h2>① #759 不能点的主按钮：外层不再压 0.45 透明度（提交 / 上传两处）</h2>
+<p class="why">样式自己的不可用配色已经是灰底灰字（亮 5.3:1、暗 6.3:1）。外面再乘 0.45，字和底几乎一样淡。改后只剩灰底灰字，「提交」「上传」读得清。读屏提示不变，屏上不加字。</p>
+<div class="row"><div class="cell"><span class="tag b">改前 · 提交</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large">个人资料</div><div class="body"><div class="card"><div class="r"><span>昵称</span><span class="ph">请输入昵称</span></div><div class="r"><span>手机号</span><span>138****0002</span></div></div></div><div class="cta off dim">提交</div></div></div><div class="cell"><span class="tag a">改后 · 提交</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large">个人资料</div><div class="body"><div class="card"><div class="r"><span>昵称</span><span class="ph">请输入昵称</span></div><div class="r"><span>手机号</span><span>138****0002</span></div></div></div><div class="cta off">提交</div></div></div></div>
+<div class="row" style="margin-top:28px"><div class="cell"><span class="tag b">改前 · 上传</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large" style="font-size:17px;left:0;right:0;text-align:center;top:62px">资质证书</div><div class="body" style="top:116px"><div class="card"><div class="r"><span>资质证书.jpg<small>已选择，尚未上传</small></span><span>移除</span></div></div></div><div class="cta off dim">上传</div></div></div><div class="cell"><span class="tag a">改后 · 上传</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large" style="font-size:17px;left:0;right:0;text-align:center;top:62px">资质证书</div><div class="body" style="top:116px"><div class="card"><div class="r"><span>资质证书.jpg<small>已选择，尚未上传</small></span><span>移除</span></div></div></div><div class="cta off">上传</div></div></div></div>
+<h2>② #688 求助中心方格：外观不变，只换里面的容器</h2>
+<p class="why">字本来就是系统 body / caption，能放大。审计报「改不了字号」，推断是方格在懒加载网格里。改后换成普通的行（默认字号两格一行，大字号一格一行），字、文案、编号、64pt 触达都不动。外观改前改后相同，只画一屏。原因没法在这里验，用例里「已知红灯」先保留，等你真机验过再删。</p>
+<div class="row"><div class="cell"><span class="tag a">改前 = 改后（看上去相同）</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large">求助中心</div><div class="body"><div class="tiles"><div class="tile"><b>拨打120</b><span>摔倒、受伤、身体不适</span></div><div class="tile"><b>拨打联系人</b><span>电话打给主紧急联系人</span></div><div class="tile"><b>拨打110</b><span>遇到危险</span></div><div class="tile"><b>告诉我位置</b><span>念出当前位置</span></div></div></div></div></div></div>
+<h2>③ #748 陪跑员「我的」：顶部大标题画出来</h2>
+<p class="why">现在导航栏常显一块实底，把大标题「我的」盖住，屏上只剩底色（读屏不受影响）。改后去掉「常显」，与盲人端「我的」同写法：在顶部时大标题可见，上推后系统自己换成带底色的栏。</p>
+<div class="row"><div class="cell"><span class="tag b">改前</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="large gone">我的</div><div class="body"><div class="card acc"><div class="av"></div><div><b>志愿者</b><small>个人资料、实名与账户</small></div></div><div class="sec" style="font-weight:700;color:var(--ink);font-size:17px">类别</div><div class="sq"><i style="background:#3C9A57">陪跑培训</i><i style="background:#C83A32">空闲时间</i><i style="background:#2A6FD6">资质证书</i><i style="background:#D4642A">固定搭档</i></div></div></div></div><div class="cell"><span class="tag a">改后</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="large">我的</div><div class="body"><div class="card acc"><div class="av"></div><div><b>志愿者</b><small>个人资料、实名与账户</small></div></div><div class="sec" style="font-weight:700;color:var(--ink);font-size:17px">类别</div><div class="sq"><i style="background:#3C9A57">陪跑培训</i><i style="background:#C83A32">空闲时间</i><i style="background:#2A6FD6">资质证书</i><i style="background:#D4642A">固定搭档</i></div></div></div></div></div>
+<h2>④ #870 积分页「查看更早的记录」翻页失败：可见、可听</h2>
+<p class="why">现在翻页失败，按钮恢复原样，屏上没字，也不念。改后按钮上方出现失败文字 +「重新加载」，出现时会念；点「重新加载」翻的还是同一页，已显示的记录不动。文案用页面现有的。</p>
+<div class="row"><div class="cell"><span class="tag b">改前（失败后）</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large">我的积分</div><div class="body"><div class="card bal" style="padding:16px"><small>★ 可用积分</small><b>30<i> 分</i></b><p>本月 +30 · 共 2 笔</p></div><div class="sec" style="font-weight:700;color:var(--ink);font-size:17px">最新记录</div><div class="card"><div class="li"><span class="plus">+</span><div>完成陪跑服务<small>11月3日</small></div><em>+10</em></div><div class="li"><span class="plus">+</span><div>邀请奖励<small>11月3日</small></div><em>+20</em></div></div><div class="more">查看更早的记录</div></div></div></div><div class="cell"><span class="tag a">改后（失败后）</span><div class="phone"><div class="sb"><span>9:41</span><span>5G ▮</span></div><div class="back">‹</div><div class="large">我的积分</div><div class="body"><div class="card bal" style="padding:16px"><small>★ 可用积分</small><b>30<i> 分</i></b><p>本月 +30 · 共 2 笔</p></div><div class="sec" style="font-weight:700;color:var(--ink);font-size:17px">最新记录</div><div class="card"><div class="li"><span class="plus">+</span><div>完成陪跑服务<small>11月3日</small></div><em>+10</em></div><div class="li"><span class="plus">+</span><div>邀请奖励<small>11月3日</small></div><em>+20</em></div></div><div class="fail">积分加载失败，请稍后重试。<span class="retry">重新加载</span></div><div class="more">查看更早的记录</div></div></div></div></div>
+</body></html>
