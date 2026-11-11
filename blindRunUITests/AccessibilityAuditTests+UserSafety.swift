@@ -68,8 +68,10 @@ extension AccessibilityAuditTests {
     @available(iOS 17.0, *)
     @MainActor
     private func unblockFromSettings(_ app: XCUIApplication) throws {
-        // 订单页没有标签栏，退回首页才有。
-        app.navigationBars.buttons.firstMatch.tap()
+        // 订单页没有标签栏，退回首页才有。v7 起订单页藏了系统导航栏，返回键在自带顶栏上（#917）。
+        let back = app.buttons["blindOrderTopBarBackButton"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "订单页顶栏没有返回键")
+        back.tap()
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10))
         tabBar.buttons["我的"].tap()
