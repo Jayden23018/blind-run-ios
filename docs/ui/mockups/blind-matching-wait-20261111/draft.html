@@ -1,0 +1,175 @@
+<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8">
+<title>盲人订单页 · 匹配中的等待与「找到了」那一刻（2026-11-11，#909）</title><style>
+  :root{
+    --navy:#1F2433; --ink:#14171F; --ink2:#4A4F5C; --ink3:#5F6470; --line:#E6E7EB;
+    --page:#E9EAEE; --chip:#EEEFF2; --blue:#A9C8F7; --blueInk:#1F3A66; --title:#A8C8FF;
+    --red:#D7263D; --todo:#C5C8CF; --green:#1E7A46;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:var(--page);color:var(--ink);padding:28px 32px 40px}
+  h1{font-size:22px;margin-bottom:6px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:22px}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .cell{width:390px}
+  .cap{font-size:14px;font-weight:600;margin:10px 0 4px}
+  .ref{display:inline-block;font-size:12px;font-weight:600;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:1px 6px;margin-bottom:6px}
+  .note{font-size:12px;color:var(--ink2);line-height:1.6}
+  .note b{color:var(--ink)}
+  .plan{padding:4px 14px 6px;background:#F4F5F8}
+  .prow{padding:9px 0;border-bottom:1px solid var(--line)}
+  .prow:last-child{border-bottom:none}
+  .prow p{font-size:12px;color:var(--ink2)}
+  .prow b{display:block;font-size:16px;margin-top:2px}
+  .prow small{display:block;font-size:12px;font-weight:400;color:var(--ink2);margin-top:1px}
+  .chg{display:inline-block;margin-left:6px;font-size:11px;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:0 4px}
+  .anno{margin-top:10px;padding:12px 14px;background:#fff;border-radius:12px}
+  .anno h4{font-size:13px;margin-bottom:6px}
+  .diff{color:#B3261E}
+  .tag{display:inline-block;background:#FFF3C4;border-radius:4px;padding:0 4px;color:#6B5200}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+  .top{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
+  .round{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.18);font-size:18px;color:var(--ink)}
+  .round.dark{background:rgba(255,255,255,.12);box-shadow:none;color:#fff}
+  .spacer{flex:1}
+  .sos{height:44px;padding:0 16px;border-radius:22px;background:#fff;color:var(--red);font-weight:700;font-size:16px;display:flex;align-items:center;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  .sos.onDark{background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2;box-shadow:none}
+  .sos.live{background:var(--red);color:#fff}
+  .back-text{color:var(--title);font-size:16px}
+  /* 原稿②：深色头 + 抽屉 + 完整竖线 */
+  .hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:232px;padding:108px 24px 0;color:#fff}
+  .hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}
+  .hero .t{font-size:30px;font-weight:700;color:var(--title);line-height:1.25}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
+  .sheet.onHero{top:212px}
+  .place{font-size:20px;font-weight:700}
+  .sub{font-size:15px;color:var(--ink2);margin-top:4px}
+  .tl{margin-top:20px}
+  .node{display:flex;gap:14px;position:relative;padding-bottom:13px}
+  .node:before{content:"";position:absolute;left:10px;top:24px;bottom:-2px;width:3px;background:var(--todo)}
+  .node.done:before{background:var(--navy)}
+  .node:last-child:before{display:none}
+  .dot{width:23px;height:23px;border-radius:12px;flex:none;background:var(--todo);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;position:relative;z-index:1}
+  .done .dot,.now .dot{background:var(--navy)}
+  .nlabel{font-size:17px;font-weight:600;line-height:23px}
+  .todo .nlabel{color:var(--ink3);font-weight:500}
+  .ndet{font-size:14px;color:var(--ink2);margin-top:2px}
+  .card{margin-top:10px;border-radius:14px;overflow:hidden;background:var(--chip)}
+  .card .dk{background:#2E3445;color:#fff;padding:12px 16px}
+  .card .dk p{font-size:13px;color:#C9CFDB}
+  .card .dk h3{font-size:20px;margin-top:2px}
+  .card .lt{display:flex;align-items:center;gap:14px;padding:12px 16px}
+  /* 原稿①：地图常驻 + 抽屉 */
+  .map{position:absolute;left:0;right:0;top:0;height:430px;background:#EDEBE6;overflow:hidden}
+  .park{position:absolute;left:0;top:40px;width:262px;height:290px;background:#D9E8CF}
+  .lake{position:absolute;left:40px;top:120px;width:90px;height:60px;border-radius:50%;background:#B9D7F0}
+  .road{position:absolute;background:#fff}
+  .blk{position:absolute;background:#E0DDD6;border-radius:2px}
+  .lbl{position:absolute;font-size:12px;color:#4F6B45;font-weight:600}
+  .rlbl{position:absolute;font-size:11px;color:#6B6B6B}
+  .pinV{position:absolute;width:34px;height:34px;border-radius:17px;background:var(--navy);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+  .me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 12px rgba(47,123,246,.16)}
+  .meetpin{position:absolute;padding:6px 10px;border-radius:14px;background:var(--navy);color:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+  .grab{width:40px;height:5px;border-radius:3px;background:#C9CCD3;margin:-10px auto 14px}
+  .fadein{opacity:.45}
+  .msheet{position:absolute;left:0;right:0;top:404px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:22px 24px 0;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
+  .st{font-size:27px;font-weight:700;line-height:1.25}
+  .ss{font-size:16px;color:var(--ink2);margin-top:4px}
+  /* 抽屉里的竖线（只展开当前一步） */
+  .ctl{margin-top:14px;position:relative;padding-left:0}
+  .ctl .past{display:flex;gap:14px;align-items:center;position:relative;padding-bottom:10px}
+  .ctl .past:before{content:"";position:absolute;left:10px;top:20px;bottom:-2px;width:3px;background:var(--navy)}
+  .ctl .mini{width:23px;height:23px;flex:none;display:flex;align-items:center;justify-content:center}
+  .ctl .mini i{width:13px;height:13px;border-radius:7px;background:var(--navy);display:block}
+  .ctl .past span{font-size:14px;color:var(--ink2)}
+  .ctl .cur{display:flex;gap:14px;align-items:center}
+  .ctl .cur .nlabel{flex:1}
+  .ctl .all{font-size:14px;color:#2F4BD6;font-weight:600}
+  .who{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin-top:14px}
+  .av{width:48px;height:48px;border-radius:24px;background:var(--blue);color:var(--blueInk);font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
+  .who .n{font-size:19px;font-weight:700}
+  .who .d{font-size:14px;color:var(--ink2);margin-top:2px}
+  .chipbtn{margin-left:auto;height:44px;padding:0 14px;border-radius:22px;background:var(--chip);font-size:15px;font-weight:600;display:flex;align-items:center}
+  .line{display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);font-size:17px}
+  .line span{font-size:14px;color:var(--ink2)}
+  .stats{display:flex;gap:28px;margin-top:14px;align-items:flex-end}
+  .stats .big{font-size:44px;font-weight:700;letter-spacing:-1px;line-height:1}
+  .stats .big small{font-size:18px;font-weight:600;margin-left:2px}
+  .stats div p{font-size:13px;color:var(--ink2)}
+  .stats div b{font-size:22px}
+  .result{margin-top:14px;background:var(--green);border-radius:16px;padding:14px 16px;color:#fff;display:flex;gap:26px;align-items:flex-end}
+  .result .big{font-size:40px;font-weight:700;line-height:1}
+  .result .big small{font-size:16px;margin-left:2px}
+  .result p{font-size:12px;color:#D5EEDD}
+  .result b{font-size:20px}
+  .bottom.panel{z-index:6;left:0;right:0;bottom:0;padding:14px 24px 30px;background:#fff;box-shadow:0 -10px 18px rgba(255,255,255,.95)}
+  .bottom{position:absolute;left:24px;right:24px;bottom:30px}
+  .cta{height:56px;border-radius:28px;background:var(--navy);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+  .cta.ghost{background:#fff;color:var(--ink);border:1.5px solid #C9CCD3}
+
+  /* v7 */
+  .vtag{display:inline-block;font-size:14px;font-weight:700;border-radius:6px;padding:3px 10px;margin-bottom:16px}
+  .vtag.old{background:#E0E1E6;color:#3A3F4B}
+  .vtag.new{background:#DDE6FF;color:#1E2A6E}
+  .side{width:420px;padding-top:44px}
+  .side .anno{font-size:13px;line-height:1.75}
+  .node.now .dot{box-shadow:0 0 0 4px rgba(31,36,51,.16)}
+  .pre{font-size:13px;font-weight:600;color:var(--ink3);margin-right:8px}
+  .chev{margin-left:6px;font-weight:600}
+  .node.fold .nlabel{font-size:15px;font-weight:500;color:var(--ink2)}
+  .node.more .dot{background:#fff;border:2.5px solid var(--todo)}
+  .node.more .nlabel{font-size:15px;font-weight:600;color:#2F4BD6}
+  table.m{border-collapse:collapse;font-size:13px;margin:4px 0 6px;background:#fff;border-radius:10px;overflow:hidden}
+  table.m th,table.m td{padding:7px 14px;border-bottom:1px solid var(--line);text-align:center}
+  table.m th:first-child,table.m td:first-child{text-align:left}
+  table.m th{background:#F4F5F8;font-weight:600}
+
+  .vtag{display:inline-block;font-size:14px;font-weight:700;border-radius:6px;padding:3px 10px;margin-bottom:16px;background:#DDE6FF;color:#1E2A6E}
+  .node.now.breathe .dot{box-shadow:0 0 0 9px rgba(31,36,51,.13)}
+  .node.pop .dot{width:31px;height:31px;border-radius:16px;margin:-4px -4px 0 -4px;font-size:16px;box-shadow:0 0 0 6px rgba(31,36,51,.15)}
+  .node.grow:before{background:linear-gradient(var(--navy) 70%,var(--todo) 70%)}
+  .xfade{position:relative;height:38px}
+  .xfade span{position:absolute;left:0;top:0;white-space:nowrap}
+  .xfade .old{opacity:.25}.xfade .new{opacity:.75}
+  .lock{background:linear-gradient(160deg,#30384E,#141824);color:#fff;text-align:center}
+  .lk-time{font-size:82px;font-weight:600;margin-top:110px;letter-spacing:-2px}
+  .lk-date{font-size:19px;opacity:.85;margin-top:-4px}
+  .notif{position:absolute;left:12px;right:12px;top:300px;background:rgba(245,246,250,.92);color:var(--ink);border-radius:22px;padding:14px;display:flex;gap:12px;text-align:left}
+  .notif .ic{width:38px;height:38px;border-radius:9px;background:var(--navy);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+  .notif .nt{display:flex;justify-content:space-between;font-size:15px}
+  .notif .nt span{font-size:13px;color:var(--ink2)}
+  .notif .nb{font-size:16px;margin-top:3px;line-height:1.35}
+  .breath{display:flex;gap:26px;background:#fff;border-radius:12px;padding:18px 20px 12px;margin-top:4px}
+  .breath div{text-align:center}
+  .breath i{display:block;width:23px;height:23px;border-radius:12px;background:var(--navy);margin:12px auto 10px}
+  .breath .b1{box-shadow:0 0 0 3px rgba(31,36,51,.16)}
+  .breath .b2{box-shadow:0 0 0 11px rgba(31,36,51,.12)}
+  .breath .b0{box-shadow:0 0 0 6px rgba(31,36,51,.14)}
+  .breath p{font-size:12px;color:var(--ink2)}
+</style></head><body>
+<h1>盲人订单页 · 匹配中的等待与「找到了」那一刻（2026-11-11 定稿，#909）</h1>
+<p class="lead">
+依据 <code>docs/research/matching-wait-screen-20261111.md</code>：匹配是<b>长等待</b>（后端死线在开跑前 30 分钟），所以<b>不做循环播放的整屏动画</b>。
+等待时说清三件事：已经等了多久、最晚什么时候有结果、可以先离开；当前圆点轻微呼吸，表示没卡住。
+<b>动画只放在找到陪跑员的那一刻</b>（约 1 秒），同时震动一次、播报一句；人不在页面上就靠锁屏通知。<br>
+版式就是 v7 ①（<code>blind-order-tracking-20261109/</code>），只改深色卡内容和下面四个地方。演示地点是公共地点，人名已脱敏。
+</p>
+<div class="row">
+<div class="cell"><div class="vtag new">A 等待中</div><div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div><div class="hero"><div class="k">匹配中</div><div class="t">正在为你找陪跑员</div></div><div class="sheet onHero"><div class="place">朝阳公园南门</div><div class="sub">11 月 10 日 周二 · 上午，想 7:00 左右</div><div class="tl"><div class="node now breathe"><div class="dot"></div><div style="flex:1"><div class="nlabel">匹配陪跑员</div><div class="ndet">已等 3 分钟</div><div class="card"><div class="dk"><p>可以先离开这个页面</p><h3>找到后马上通知你</h3></div><div class="lt"><div style="font-size:15px;color:var(--ink2)">最晚开跑前半小时会有结果</div></div></div></div></div><div class="node todo"><div class="dot"></div><div class="nlabel"><span class="pre">下一步</span>商量见面安排</div></div><div class="node more"><div class="dot"></div><div class="nlabel">还有 3 步<span class="chev">›</span></div></div></div></div><div class="bottom"><div class="cta ghost">取消匹配</div></div></div><div class="cap">A 等待中（PENDING_MATCH）</div><div class="anno note"><b>和 v7 ① 的差别只在深色卡</b>：<br>1. 「找到后 / 陪跑员会先给你打电话」改成「可以先离开这个页面 / 找到后马上通知你」。<span class='diff'>原句与流程不符</span>：要通话的单是盲人打给陪跑员（推送 <code>INTRO_CALL_READY</code>「可以打个电话聊聊」，陪跑员收到「跑者正在打给你」）；<code>requiresIntroCall=false</code> 的单根本不通话。<br>2. 卡片下半加一行「最晚开跑前半小时会有结果」：这是 NN/g 说的「还要等多久」。依据是后端 <code>dispatchDeadline</code> 对 <code>PENDING_MATCH</code> 取开跑前 30 分钟；<b>只说规则，不算具体钟点</b>（客户端不自己算死线）。<span class='tag'>要后端确认能这样对用户承诺</span><br>3. 当前圆点外圈呼吸（右边色板），「已等 N 分钟」每分钟刷新一次。</div></div>
+<div class="cell"><div class="vtag new">B 等了很久</div><div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div><div class="hero"><div class="k">匹配中</div><div class="t">正在为你找陪跑员</div></div><div class="sheet onHero"><div class="place">朝阳公园南门</div><div class="sub">11 月 10 日 周二 · 上午，想 7:00 左右</div><div class="tl"><div class="node now breathe"><div class="dot"></div><div style="flex:1"><div class="nlabel">匹配陪跑员</div><div class="ndet">已等 2 小时 15 分钟</div><div class="card"><div class="dk"><p>可以先离开这个页面</p><h3>找到后马上通知你</h3></div><div class="lt"><div style="font-size:15px;color:var(--ink2)">最晚开跑前半小时会有结果</div></div></div></div></div><div class="node todo"><div class="dot"></div><div class="nlabel"><span class="pre">下一步</span>商量见面安排</div></div><div class="node more"><div class="dot"></div><div class="nlabel">还有 3 步<span class="chev">›</span></div></div></div></div><div class="bottom"><div class="cta ghost">取消匹配</div></div></div><div class="cap">B 同一屏，等了两个多小时</div><div class="anno note">版式不变，只有已等时间变长。超过 1 小时写「已等 X 小时 Y 分钟」，沿用仓库已有的「X 小时 X 分钟」格式器（11-08 审查列过 5 份，实现时用其中一份）。<br>没有「继续等待」按钮：<code>PENDING_MATCH</code> 的那个按钮 09-16 负责人删了（后端每轮超时自己往后推，按了等于没按，见 <code>offersBlindRunnerKeepWaitingControl</code>）。<br><code>REMATCHING</code>（陪跑员中途取消、重新找人）死线规则不同，<b>不显示「开跑前半小时」那行</b>，本稿不画。</div></div>
+<div class="cell" style="padding-top:44px"><div class="cap">呼吸圆点（只动当前这一颗）</div><div class="breath"><div><i class="b1"></i><p>0 秒</p></div><div><i class="b2"></i><p>1.5 秒</p></div><div><i class="b1"></i><p>3 秒</p></div><div><i class="b0"></i><p>减弱动态效果</p></div></div>
+<div class="anno note">外圈从 3pt 慢慢扩到 11pt 再收回，3 秒一个来回，只改外圈透明度和大小，圆点本身不动、不闪。<br>
+HIG：等待指示要一直在动，静止的会被当成卡住；但动效要能关。系统开了「减弱动态效果」时外圈固定在 6pt，只靠「已等 N 分钟」每分钟刷新表示还在进行。<br>
+读屏：圆点不进读屏树；这一步念「匹配陪跑员，已等 3 分钟，进行中」。<b>等待期间不放任何循环声音</b>，免得和读屏抢话。</div></div>
+</div>
+
+<h2 style="font-size:18px;margin:36px 0 6px">找到陪跑员的那一刻（约 1 秒，下面三帧是同一段动画的三个时刻）</h2>
+<p class="lead">照 Uber 把定制动画放在「匹配成功」那一刻的做法。动画只用竖线自己的元素：圆点打勾 → 竖线往下长 → 下一步变成当前步，标题换字。读屏和不看屏幕的人靠震动和播报。</p>
+<div class="row">
+<div class="cell"><div class="vtag new">C 0 – 0.3 秒</div><div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div><div class="hero"><div class="k">匹配中</div><div class="t">正在为你找陪跑员</div></div><div class="sheet onHero"><div class="place">朝阳公园南门</div><div class="sub">11 月 10 日 周二 · 上午，想 7:00 左右</div><div class="tl"><div class="node done pop"><div class="dot">✓</div><div style="flex:1"><div class="nlabel">匹配陪跑员</div><div class="ndet">刚刚找到</div><div style="opacity:.35"><div class="card"><div class="dk"><p>可以先离开这个页面</p><h3>找到后马上通知你</h3></div><div class="lt"><div style="font-size:15px;color:var(--ink2)">最晚开跑前半小时会有结果</div></div></div></div></div></div><div class="node todo"><div class="dot"></div><div class="nlabel"><span class="pre">下一步</span>商量见面安排</div></div><div class="node more"><div class="dot"></div><div class="nlabel">还有 3 步<span class="chev">›</span></div></div></div></div><div class="bottom"><div class="cta ghost">取消匹配</div></div></div><div class="cap">C 圆点打勾</div><div class="anno note">当前圆点填成 ✓，放大到 1.3 倍再弹回；旧卡片淡出。<br>同一时刻：<b>震动一次</b>（沿用现有 <code>RunOrderStatus.haptic</code>：进 <code>PENDING_INTRO_CALL</code> / <code>SCHEDULED_CONFIRMED</code> 都是 <code>.success</code>，不新增）。</div></div>
+<div class="cell"><div class="vtag new">C 0.3 – 0.8 秒</div><div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round dark">···</div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div><div class="hero"><div class="k" style="opacity:.5">先通个电话</div><div class="t xfade"><span class="old">正在为你找陪跑员</span><span class="new">陪跑员陈*已响应</span></div></div><div class="sheet onHero"><div class="place">朝阳公园南门</div><div class="sub">11 月 10 日 周二 · 上午，想 7:00 左右</div><div class="tl"><div class="node done grow"><div class="dot">✓</div><div><div class="nlabel">已匹配陪跑员</div><div class="ndet">今天 23:29</div></div></div><div class="node now"><div class="dot"></div><div style="flex:1"><div class="nlabel">商量见面安排</div><div class="ndet">先通电话，再确认安排 · 剩余 20 分钟</div><div style="opacity:.5;transform:translateY(8px)"><div class="card"><div class="dk"><p>请先与陈通话</p><h3>通话后陈会填写见面安排</h3></div><div class="lt"><div class="av">陈</div><div><div style="font-size:13px;color:var(--ink2)">想陪你跑的陪跑员</div><div style="font-size:18px;font-weight:700">陈* · 陪跑 32 次</div></div></div></div></div></div></div><div class="node todo"><div class="dot"></div><div class="nlabel"><span class="pre">下一步</span>等出发</div></div><div class="node more"><div class="dot"></div><div class="nlabel">还有 2 步<span class="chev">›</span></div></div></div></div><div class="bottom" style="opacity:.5"><div class="cta">致电陪跑员陈*</div></div></div><div class="cap">C 竖线往下长，标题换字</div><div class="anno note">已完成那段竖线从上往下染深色，长到下一颗圆点；下一步变成当前步。<br>深色头标题交叉淡入成「陪跑员陈*已响应」；新卡片和主按钮从下方 8pt 淡入。<br>同一时刻：<b>播报一句</b>，用现有 B1 原文「陪跑员陈*已响应。请先与陪跑员通话。」读屏开着时交给读屏念，不自己合成，避免两个声音叠在一起。</div></div>
+<div class="cell"><div class="vtag new">C 1 秒后定格</div><div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round dark">···</div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div><div class="hero"><div class="k">先通个电话</div><div class="t">陪跑员陈*已响应</div></div><div class="sheet onHero"><div class="place">朝阳公园南门</div><div class="sub">11 月 10 日 周二 · 上午，想 7:00 左右</div><div class="tl"><div class="node done"><div class="dot">✓</div><div><div class="nlabel">已匹配陪跑员</div><div class="ndet">今天 23:29</div></div></div><div class="node now"><div class="dot"></div><div style="flex:1"><div class="nlabel">商量见面安排</div><div class="ndet">先通电话，再确认安排 · 剩余 20 分钟</div><div class="card"><div class="dk"><p>请先与陈通话</p><h3>通话后陈会填写见面安排</h3></div><div class="lt"><div class="av">陈</div><div><div style="font-size:13px;color:var(--ink2)">想陪你跑的陪跑员</div><div style="font-size:18px;font-weight:700">陈* · 陪跑 32 次</div></div></div></div></div></div><div class="node todo"><div class="dot"></div><div class="nlabel"><span class="pre">下一步</span>等出发</div></div><div class="node more"><div class="dot"></div><div class="nlabel">还有 2 步<span class="chev">›</span></div></div></div></div><div class="bottom"><div class="cta">致电陪跑员陈*</div></div></div><div class="cap">C 定格 = v7 ②</div><div class="anno note">停在 v7 ② 通电话商量，读屏焦点移到标题。<br><code>requiresIntroCall=false</code> 的单直接进已约好：同一段动画，只是定格在 v7 ④，标题换成「明天上午 7:00 开跑」。<br>减弱动态效果：三帧合成一次淡入淡出（0.25 秒），震动和播报照常。</div></div>
+</div>
+<div class="row" style="margin-top:30px">
+<div class="cell"><div class="vtag new">D 不在页面上</div><div class="phone lock"><div class="lk-time">23:29</div><div class="lk-date">11 月 9 日 星期一</div><div class="notif"><div class="ic">跑</div><div style="flex:1"><div class="nt"><b>助盲跑</b><span>现在</span></div><div class="nb">有位志愿者想陪你跑，可以打个电话聊聊</div></div></div></div><div class="cap">D 锁屏通知（App 在后台或被关掉）</div><div class="anno note">人离开页面时，结果靠后端已有的 HIGH 推送：要通话的单是 <code>INTRO_CALL_READY</code>，正文照后端原文「有位志愿者想陪你跑，可以打个电话聊聊」；不用通话的单是接单推送。<b>客户端不改文案</b>。<br>点通知进订单页，直接显示定格后的 v7 ②，不补放动画（人没看到过等待那一屏）。</div></div>
+</div>
+</body></html>
