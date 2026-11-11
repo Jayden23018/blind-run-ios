@@ -2,96 +2,121 @@
 <html lang="zh-Hans">
 <head>
 <meta charset="utf-8">
-<title>上线前低视力小修 改前 / 改后（2026-11-11，#759 #688 #748 #870）</title>
+<title>上线前低视力小修 改前 / 改后（v2：照订单页 v7 的版式，2026-11-11，#759 #688 #748 #870）</title>
 <style>
-  :root{--ink:#14171F;--ink2:#4A4F5C;--page:#F2F3F6;--surf:#fff;--blue:#0058C7;--g5:#E5E5EA;--sec:#5F6470;--red:#B3261E}
+  :root{--navy:#1F2433;--ink:#14171F;--ink2:#4A4F5C;--ink3:#5F6470;--line:#E6E7EB;--page:#E9EAEE;--chip:#EEEFF2;
+    --title:#A8C8FF;--red:#D7263D;--blue:#0058C7;--g5:#E5E5EA;--green:#1E7A46}
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:#E4E5E9;color:var(--ink);padding:28px 32px 40px}
+  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:var(--page);color:var(--ink);padding:28px 32px 40px}
   h1{font-size:22px;margin-bottom:6px}
-  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:20px}
-  h2{font-size:16px;margin:26px 0 4px}
-  .why{font-size:12.5px;color:var(--ink2);line-height:1.6;max-width:1300px;margin-bottom:10px}
-  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
-  .card{width:420px;border-radius:14px;padding:14px;background:var(--page)}
-  .card.dark{background:#000;color:#fff}
-  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;margin-bottom:10px}
-  .before .tag{background:#F6D6D3;color:var(--red)} .after .tag{background:#D4EBD9;color:#1B6B30}
-  .btn{height:56px;border-radius:28px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;margin:8px 0}
-  .on{background:var(--blue);color:#fff}
-  .off{background:var(--g5);color:var(--sec)}
-  .dark .off{background:#2C2C2E;color:#A0A4AE}
-  .dim{opacity:.45}
-  .cap{font-size:12px;color:var(--ink2);margin:2px 0}
-  .dark .cap{color:#B6B9C2}
-  .tiles{display:grid;grid-template-columns:1fr;gap:10px}
-  .tile{border:1.5px solid rgba(20,23,31,.85);border-radius:14px;padding:12px;min-height:104px;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:6px;background:var(--surf)}
-  .tile b{font-size:26px}.tile span{font-size:19px;color:var(--sec)}
-  .nav{height:44px;display:flex;align-items:center;padding:0 6px;font-size:17px;color:var(--blue)}
-  .big{font-size:34px;font-weight:700;padding:4px 6px 10px}
-  .big.gone{color:transparent;border:1px dashed #C9CCD3}
-  .sq{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sq i{height:70px;border-radius:14px;display:block}
-  .bal{background:#fff;border-radius:14px;padding:14px;font-size:15px;margin-bottom:10px}
-  .bal b{font-size:34px}
-  .rowitem{background:#fff;padding:10px 14px;font-size:16px;border-bottom:1px solid #E6E7EB;display:flex;justify-content:space-between}
-  .fail{margin:12px 0;font-size:17px;line-height:1.5}
-  .fail .retry{display:inline-block;margin-top:8px;color:var(--blue);font-weight:600;font-size:17px;min-height:44px;line-height:44px}
-  .more{color:var(--blue);font-weight:600;text-align:center;min-height:44px;line-height:44px;font-size:17px}
-  .ask{color:var(--red);font-weight:600}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:22px}
+  h2{font-size:17px;margin:30px 0 4px}
+  .why{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:14px}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .cell{width:390px}
+  .cap{font-size:14px;font-weight:600;margin:12px 0 4px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;border-radius:4px;padding:1px 7px;margin-bottom:8px}
+  .b{background:#F6D6D3;color:#B3261E}.a{background:#D4EBD9;color:#1B6B30}
+  .note{font-size:12px;color:var(--ink2);line-height:1.6;background:#fff;border-radius:12px;padding:12px 14px;margin-top:10px}
+  .ask{color:#B3261E;font-weight:600}
+  /* 手机壳与 v7 同款 */
+  .phone{width:390px;height:600px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+  .top{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
+  .round{width:44px;height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .round.dark{background:rgba(255,255,255,.12);color:#fff}
+  .spacer{flex:1}
+  .sos{height:44px;padding:0 16px;border-radius:22px;font-weight:700;font-size:16px;display:flex;align-items:center;gap:6px;background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2}
+  .back-text{color:var(--title);font-size:16px}
+  .hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:200px;padding:100px 24px 0;color:#fff}
+  .hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}
+  .hero .t{font-size:30px;font-weight:700;color:var(--title);line-height:1.25}
+  .sheet{position:absolute;left:0;right:0;bottom:0;top:180px;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
+  .place{font-size:20px;font-weight:700}
+  .sub{font-size:15px;color:var(--ink2);margin-top:4px}
+  .cta{position:absolute;left:24px;right:24px;bottom:28px;height:56px;border-radius:28px;background:var(--navy);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .cta.blue{background:var(--blue)}
+  .cta.off{background:var(--g5);color:var(--ink3)}
+  .cta.dim{opacity:.45}
+  .hint{position:absolute;left:24px;right:24px;bottom:96px;font-size:14px;color:var(--ink2);text-align:center}
+  .field{margin-top:18px}.field p{font-size:13px;color:var(--ink2);margin-bottom:6px}
+  .input{height:56px;border-radius:14px;background:var(--chip);display:flex;align-items:center;padding:0 16px;font-size:17px;color:var(--ink3)}
+  /* 求助中心方格 */
+  .tiles{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .tile{border:1.5px solid rgba(20,23,31,.85);border-radius:14px;padding:12px;min-height:112px;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .tile b{font-size:17px}.tile span{font-size:12px;color:var(--ink3)}
+  /* 我的 */
+  .page{position:absolute;inset:0;background:#F2F3F6}
+  .nav{position:absolute;left:0;right:0;top:0;height:96px}
+  .big{position:absolute;left:20px;top:100px;font-size:34px;font-weight:700}
+  .big.gone{color:transparent}
+  .sq{position:absolute;left:16px;right:16px;top:180px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .sq i{height:96px;border-radius:18px;display:block}
+  .acct{position:absolute;left:16px;right:16px;top:150px;display:none}
+  /* 积分页 */
+  .bal{background:#fff;border-radius:18px;padding:16px;margin-bottom:12px}
+  .bal small{font-size:13px;color:var(--ink2);font-weight:600}.bal b{display:block;font-size:34px;margin-top:2px}
+  .ledger{background:#fff;border-radius:18px;overflow:hidden}
+  .li{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;font-size:16px}
+  .li small{display:block;font-size:12px;color:var(--ink2)}
+  .li b{color:var(--green)}
+  .fail{padding:14px 4px 2px;font-size:16px;line-height:1.5}
+  .fail .retry{display:block;color:var(--blue);font-weight:600;min-height:44px;line-height:44px}
+  .more{text-align:center;color:var(--blue);font-weight:600;font-size:16px;min-height:44px;line-height:44px}
 </style>
 </head>
 <body>
-<h1>上线前低视力小修：改前 / 改后（#759 #688 #748 #870）</h1>
-<p class="lead">一页放 4 项。<b>绿色「改后」是我准备做的样子；红色「改前」是现在的样子。</b>下面的屏幕是示意，不是真机截图（负责人 11-05 定：不跑真机）。颜色取自代码里的现值：主按钮蓝 #0058C7、不可用灰底 systemGray5、不可用字 textSecondary。<br>
-<span class="ask">要你确认：</span>① 这四项样子对不对；② #688 看上去不变，只换了里面的容器，你同意这样修吗；③ #870 失败卡放在「查看更早的记录」上面，对吗。</p>
+<h1>上线前低视力小修：改前 / 改后（v2，照订单页 v7 的版式重画）</h1>
+<p class="lead">版式取自 v7：深色头 + 白色抽屉、竖排大标题、56pt 胶囊主按钮、浅灰底分组卡、求助胶囊在右上角。示意图，不是真机截图。<br>
+<b>颜色说明：</b>订单页 v7 的主按钮是深蓝黑；志愿者资料、资质证书用的 `PrimaryButton` 是亮蓝，这次只去透明度，不改颜色，所以第 ① 项按钮保持亮蓝，其余版式照 v7。<br>
+<span class="ask">要你确认：</span>这样的风格对不对？颜色要不要也统一成 v7 深蓝黑（那是另一件事，不在这 4 个 issue 里，我会另开）？</p>
 
-<h2>① #759 不能点的主按钮：外层不再压透明度（提交 / 上传两处）</h2>
-<p class="why">按钮样式自己在不可用时已经换成灰底灰字（亮 5.3:1、暗 6.3:1）。外面又乘 0.45，字和底几乎一样淡，低视力用户读不出按钮叫什么。改后只剩样式自己的灰底灰字。</p>
+<h2>① #759 不能点的主按钮：外层不再压 0.45 透明度</h2>
+<p class="why">提交 / 上传两处。样式自己的不可用配色已经是灰底灰字（亮 5.3:1、暗 6.3:1）。外面再乘 0.45，字和底几乎一样淡。改后只剩灰底灰字，「提交」两个字读得清。读屏的提示（「请先填写昵称」）本来就有，不改，也不在屏上加字。网上的通行做法也是：不可用不能只靠变淡，标签要读得清（来源写进 PR 说明）。</p>
 <div class="row">
-  <div class="card before"><span class="tag">改前 · 亮</span>
-    <div class="cap">可点</div><div class="btn on">提交</div>
-    <div class="cap">不可点（外层再压 0.45）</div><div class="btn off dim">提交</div></div>
-  <div class="card after"><span class="tag">改后 · 亮</span>
-    <div class="cap">可点（不变）</div><div class="btn on">提交</div>
-    <div class="cap">不可点（只用样式自己的灰底灰字）</div><div class="btn off">提交</div></div>
-  <div class="card dark before"><span class="tag">改前 · 暗</span>
-    <div class="cap">不可点（外层再压 0.45）</div><div class="btn off dim">上传</div></div>
-  <div class="card dark after"><span class="tag">改后 · 暗</span>
-    <div class="cap">不可点</div><div class="btn off">上传</div></div>
+  <div class="cell"><span class="tag b">改前</span>
+    <div class="phone"><div class="top"><div class="round dark">‹</div><div class="back-text">返回</div></div>
+      <div class="hero"><div class="k">志愿者资料</div><div class="t">先告诉我们怎么称呼你</div></div>
+      <div class="sheet"><div class="field"><p>昵称</p><div class="input">请输入昵称</div></div></div>
+      <div class="cta blue off dim">提交</div></div></div>
+  <div class="cell"><span class="tag a">改后</span>
+    <div class="phone"><div class="top"><div class="round dark">‹</div><div class="back-text">返回</div></div>
+      <div class="hero"><div class="k">志愿者资料</div><div class="t">先告诉我们怎么称呼你</div></div>
+      <div class="sheet"><div class="field"><p>昵称</p><div class="input">请输入昵称</div></div></div>
+      <div class="cta blue off">提交</div></div></div>
 </div>
-<p class="why" style="margin-top:8px">范围说明：issue 列了 5 处，其中 3 处（实名页、个人资料页、订单详情页）现在代码里已经没有 0.45，只剩「提交」（志愿者资料）和「上传」（资质证书）两处。人脸认证页「改用其他方式」按钮也有 0.45，但它是自绘的次按钮，没有自己的不可用样式，去掉就看不出禁用，这次不动。</p>
 
-<h2>② #688 求助中心方格：字本来就能放大，换掉容器让审计看得到</h2>
-<p class="why">这几格的字用的是系统 body / caption，真机放到最大字号照样变大。审计报「改不了字号」，原因推断是方格放在「懒加载」容器里，放大后排到屏外的格子审计看不到。改后：把懒加载网格换成普通的行（默认字号两格一行，大字号一格一行）。<b>看上去一个像素都不变，字、文案、64pt 触达、编号都不动。</b>这个原因是按过往真机实验推断的，我不能跑真机验，所以用例里「已知红灯」那一行先保留，等你真机验过再删。</p>
-<div class="row">
-  <div class="card before"><span class="tag">改前（最大字号一列）</span>
-    <div class="tiles"><div class="tile"><b>拨打120</b><span>摔倒、受伤、身体不适</span></div><div class="tile"><b>拨打联系人</b><span>电话打给主紧急联系人</span></div></div></div>
-  <div class="card after"><span class="tag">改后（看上去相同）</span>
-    <div class="tiles"><div class="tile"><b>拨打120</b><span>摔倒、受伤、身体不适</span></div><div class="tile"><b>拨打联系人</b><span>电话打给主紧急联系人</span></div></div></div>
-</div>
+<h2>② #688 求助中心方格：外观不变，只换里面的容器</h2>
+<p class="why">字本来就是系统 body / caption，能放大。审计报「改不了字号」，推断是方格在懒加载网格里。改后换成普通的行（默认字号两格一行，大字号一格一行），字、文案、编号、64pt 触达都不动。外观改前改后相同，所以只画一屏。这个原因没法在这里验，用例里「已知红灯」先保留，等你真机验过再删。</p>
+<div class="row"><div class="cell"><span class="tag a">改前 = 改后（看上去相同）</span>
+  <div class="phone"><div class="top"><div class="round dark">‹</div><div class="back-text">订单</div><div class="spacer"></div><div class="sos">求助</div></div>
+    <div class="hero"><div class="k">跑步中</div><div class="t">求助中心</div></div>
+    <div class="sheet"><div class="place">需要帮助时，选一项</div>
+      <div class="tiles"><div class="tile"><b>拨打120</b><span>摔倒、受伤、身体不适</span></div><div class="tile"><b>拨打联系人</b><span>电话打给主紧急联系人</span></div>
+      <div class="tile"><b>拨打110</b><span>遇到危险</span></div><div class="tile"><b>告诉我位置</b><span>念出当前位置</span></div></div></div></div></div></div>
 
 <h2>③ #748 陪跑员「我的」：顶部大标题画出来</h2>
-<p class="why">现在导航栏常显一块实底，把大标题「我的」盖住，屏上只剩底色（读屏不受影响）。改后去掉「常显」，与盲人端「我的」同写法：在顶部时标题显示，上推后系统自己换成带底色的栏。</p>
+<p class="why">现在导航栏常显一块实底，把大标题盖住，屏上只剩底色（读屏不受影响）。改后去掉「常显」，与盲人端「我的」同写法：在顶部时大标题可见，上推后系统自己换成带底色的栏。</p>
 <div class="row">
-  <div class="card before"><span class="tag">改前</span>
-    <div class="nav"></div><div class="big gone">我的</div>
-    <div class="sq"><i style="background:#D7263D"></i><i style="background:#2E9E5B"></i></div></div>
-  <div class="card after"><span class="tag">改后</span>
-    <div class="nav"></div><div class="big">我的</div>
-    <div class="sq"><i style="background:#D7263D"></i><i style="background:#2E9E5B"></i></div></div>
+  <div class="cell"><span class="tag b">改前</span>
+    <div class="phone"><div class="page"><div class="nav"></div><div class="big gone">我的</div><div class="sq"><i style="background:#D7263D"></i><i style="background:#2E9E5B"></i><i style="background:#2F7BF6"></i><i style="background:#F29F1D"></i></div></div></div></div>
+  <div class="cell"><span class="tag a">改后</span>
+    <div class="phone"><div class="page"><div class="nav"></div><div class="big">我的</div><div class="sq"><i style="background:#D7263D"></i><i style="background:#2E9E5B"></i><i style="background:#2F7BF6"></i><i style="background:#F29F1D"></i></div></div></div></div>
 </div>
 
 <h2>④ #870 积分页「查看更早的记录」翻页失败：可见、可听</h2>
-<p class="why">现在点了翻页、请求失败，按钮恢复原样，屏上没字，也不念。改后在按钮上方出现一张失败卡：一句文案 + 「重新加载」，出现时会念出来；点「重新加载」翻的还是同一页。已显示的记录不动。文案沿用页面现有的失败说法，不新写。</p>
+<p class="why">现在翻页失败，按钮恢复原样，屏上没字，也不念。改后按钮上方出现失败文字 +「重新加载」，出现时会念；点「重新加载」翻的还是同一页，已显示的记录不动。文案用页面现有的：「积分加载失败，请稍后重试。」「重新加载」。</p>
 <div class="row">
-  <div class="card before"><span class="tag">改前（失败后）</span>
-    <div class="bal">已有记录若干行…</div>
-    <div class="rowitem"><span>完成陪跑</span><b>+10</b></div><div class="rowitem"><span>完成陪跑</span><b>+10</b></div>
-    <div class="more">查看更早的记录</div></div>
-  <div class="card after"><span class="tag">改后（失败后）</span>
-    <div class="bal">已有记录若干行…</div>
-    <div class="rowitem"><span>完成陪跑</span><b>+10</b></div><div class="rowitem"><span>完成陪跑</span><b>+10</b></div>
-    <div class="fail">积分加载失败，请稍后重试。<br><span class="retry">重新加载</span></div>
-    <div class="more">查看更早的记录</div></div>
+  <div class="cell"><span class="tag b">改前（失败后）</span>
+    <div class="phone"><div class="page" style="padding:104px 16px 0"><div class="big" style="top:96px">我的积分</div><div style="height:50px"></div>
+      <div class="bal"><small>★ 当前积分</small><b>120 分</b></div>
+      <div class="ledger"><div class="li"><span>完成陪跑<small>11 月 9 日</small></span><b>+10</b></div><div class="li"><span>完成陪跑<small>11 月 8 日</small></span><b>+10</b></div></div>
+      <div class="more">查看更早的记录</div></div></div></div>
+  <div class="cell"><span class="tag a">改后（失败后）</span>
+    <div class="phone"><div class="page" style="padding:104px 16px 0"><div class="big" style="top:96px">我的积分</div><div style="height:50px"></div>
+      <div class="bal"><small>★ 当前积分</small><b>120 分</b></div>
+      <div class="ledger"><div class="li"><span>完成陪跑<small>11 月 9 日</small></span><b>+10</b></div><div class="li"><span>完成陪跑<small>11 月 8 日</small></span><b>+10</b></div></div>
+      <div class="fail">积分加载失败，请稍后重试。<span class="retry">重新加载</span></div>
+      <div class="more">查看更早的记录</div></div></div></div>
 </div>
 </body>
 </html>
