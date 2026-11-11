@@ -6,3 +6,4 @@
 - 依据：`docs/research/precise-location-prompt-20261111.md`。
 - 要同步改的规格：`openspec/specs/blind-precise-location-gate/spec.md`「精确位置关闭时下单不用当前位置作出发点」（原要求页面显示降级告知 + 两个入口）。
 - 不在本稿：隐私提醒（后放）、50 米精度核对、重复当前状态、默认地点自动带入、缺项卡。
+- 系统弹窗已在 iOS 26.2 模拟器真弹核对：`system-temp-precise-prompt-ios26.png`（标题、「不允许 / 允许一次」为系统原样）。
