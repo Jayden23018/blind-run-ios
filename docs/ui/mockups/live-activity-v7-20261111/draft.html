@@ -2,11 +2,11 @@
 <html lang="zh-Hans">
 <head>
 <meta charset="utf-8">
-<title>实时活动 v2（照 Uber / Uber Eats / DoorDash / 美团 / Flighty 版式重排）· 两端（2026-11-11，#914）</title>
+<title>实时活动 v3（找人与赶路照 Uber，跑步照健身类）· 两端（2026-11-11，#914）</title>
 <style>
   :root{
     --navy:#1F2433; --ink:#14171F; --ink2:#4A4F5C; --line:#E6E7EB; --page:#E9EAEE;
-    --acc:#A8C8FF; --sub:rgba(255,255,255,.66); --dim:rgba(255,255,255,.18);
+    --acc:#A8C8FF; --sub:rgba(255,255,255,.64); --track:rgba(255,255,255,.22);
     --green:#17432B; --greenDot:#5BD38E; --gold:#F6C343;
     --avBg:#DDE6FF; --avInk:#1F3A66;
   }
@@ -20,55 +20,65 @@
   .cell{width:399px}
   .cap{font-size:14px;font-weight:600;margin:10px 0 4px}
   .note{font-size:12px;color:var(--ink2);line-height:1.6;background:#fff;border-radius:12px;padding:9px 12px;margin-top:6px}
-  .note b{color:var(--ink)}
   .tag{display:inline-block;background:#FFF3C4;border-radius:4px;padding:0 4px;color:#6B5200}
-  .rules{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;max-width:1300px;margin-top:12px}
-  .rules div{background:#fff;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.6;color:var(--ink2)}
-  .rules b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px}
 
   .lock{width:399px;padding:12px 14px 18px;border-radius:28px;background:linear-gradient(165deg,#7D8BA6,#46516B 55%,#283043)}
   .clock{color:#fff;text-align:center;font-weight:600;margin-bottom:14px}
   .clock .d{font-size:15px;opacity:.9}
   .clock .t{font-size:62px;line-height:1.05;font-weight:700;letter-spacing:-1px}
 
-  .la{width:371px;border-radius:24px;background:var(--navy);color:#fff;padding:16px;position:relative}
+  /* ===== 锁屏卡（Uber 版式：标志 / 大标题 / 短副标题 + 右侧头像 / 底部一根线） ===== */
+  .la{width:371px;border-radius:24px;background:var(--navy);color:#fff;padding:16px 18px 18px;position:relative}
   .la.done{background:var(--green)}
   .la.stale{background:#3A3F4B}
-  .brand{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--sub);height:16px}
-  .brand svg{width:14px;height:14px;color:var(--acc)}
-  .main{display:flex;align-items:center;gap:12px;margin-top:8px}
+  .brand{display:flex;align-items:center;gap:5px;font-size:14px;font-weight:600;color:#fff;height:18px}
+  .brand svg{width:15px;height:15px}
+  .main{display:flex;align-items:center;gap:14px;margin-top:10px}
   .txt{flex:1;min-width:0}
-  .t1{font-size:22px;font-weight:700;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .t1 em{font-style:normal;color:var(--acc)}
-  .t2{font-size:15px;line-height:1.35;color:var(--sub);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .t2 em{font-style:normal;color:#fff;font-weight:600}
-  .av{width:48px;height:48px;border-radius:50%;background:var(--avBg);color:var(--avInk);font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;position:relative}
-  .av.wait{background:transparent;border:2px dashed rgba(255,255,255,.4)}
-  .av.wait:after{content:"";width:12px;height:12px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 6px rgba(168,200,255,.25)}
-  .av .ok{position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:50%;background:var(--greenDot);border:3px solid var(--navy)}
-  .seg{display:flex;gap:5px;margin-top:14px}
-  .seg i{flex:1;height:5px;border-radius:3px;background:var(--dim)}
-  .seg i.d{background:rgba(255,255,255,.5)}
-  .seg i.c{background:var(--acc)}
-  .seg.g i{background:rgba(255,255,255,.75)}
-  .la.hb{padding:14px 16px}
-  .btn{margin-top:10px;height:44px;border-radius:22px;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700}
-  .km{font-size:44px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.5px;white-space:nowrap}
-  .km small{font-size:16px;font-weight:600;color:var(--sub);margin-left:4px;letter-spacing:0}
-  .speak{width:60px;height:60px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex:none}
+  .t1{font-size:22px;font-weight:700;line-height:1.2;white-space:nowrap}
+  .t1.xl{font-size:28px}
+  .t2{font-size:16px;line-height:1.3;color:var(--sub);margin-top:4px;white-space:nowrap}
+  .av .ps{width:26px;height:26px}
+  .sav .ps{width:14px;height:14px}
+  .av{width:46px;height:46px;border-radius:50%;background:var(--avBg);color:var(--avInk);font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 0 0 3px #fff}
+  /* 底部一根线：已走段白，未走段灰，终点空心圆；标记 = 白点 或 陪跑员头像 */
+  .trk{position:relative;height:18px;margin-top:14px}
+  .trk .base{position:absolute;left:0;right:6px;top:7px;height:4px;border-radius:2px;background:var(--track)}
+  .trk .fill{position:absolute;left:0;top:7px;height:4px;border-radius:2px;background:#fff}
+  .trk .end{position:absolute;right:0;top:3px;width:12px;height:12px;border-radius:50%;border:3px solid rgba(255,255,255,.55);background:var(--navy)}
+  .trk .pt{position:absolute;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transform:translateX(-50%)}
+  .trk .pt.pulse{box-shadow:0 0 0 6px rgba(168,200,255,.28)}
+  .trk .who svg{width:14px;height:14px}
+  .trk .who{position:absolute;top:-3px;width:24px;height:24px;border-radius:50%;background:#fff;color:var(--navy);display:flex;align-items:center;justify-content:center;transform:translateX(-50%);box-shadow:0 0 0 2px #fff}
+  .btn{height:44px;padding:0 16px;border-radius:22px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex:none;white-space:nowrap}
+
+  /* ===== 跑步卡（健身类版式：顶行 + 三个并排大数字 + 彩色小标签 + 右侧圆键） ===== */
+  .fhead{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600}
+  .fhead .live{width:8px;height:8px;border-radius:50%;background:var(--greenDot)}
+  .fhead .r{margin-left:auto;color:var(--sub);font-weight:600}
+  .metrics{display:flex;align-items:center;margin-top:10px;gap:6px}
+  .m{flex:1;min-width:0}
+  .m b{display:block;font-size:30px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.3px;white-space:nowrap}
+  .m span{display:block;font-size:13px;font-weight:700;margin-top:5px;color:var(--acc)}
+  .m.k span{color:var(--greenDot)}
+  .speak{width:52px;height:52px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex:none}
   .speak svg{width:26px;height:26px}
+  .done .m span{color:rgba(255,255,255,.7)}
+
   .hbadge{position:absolute;right:-6px;top:-10px;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px;background:#1E7A46;color:#fff}
   .hbadge.over{background:#D7263D}
 
+  /* 灵动岛 */
   .di{background:#F7F7F9;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
   .lab{font-size:11px;color:var(--ink2);font-weight:600}
-  .pill{height:37px;border-radius:19px;background:#000;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 9px;width:236px;position:relative}
+  .pill{height:37px;border-radius:19px;background:#000;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 13px 0 8px;width:236px;position:relative}
   .pill:after{content:"";position:absolute;left:50%;top:5px;transform:translateX(-50%);width:120px;height:27px;border-radius:14px;outline:1px dashed #333}
-  .pill .r{font-size:15px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
-  .ring{width:22px;height:22px;border-radius:50%;flex:none;-webkit-mask:radial-gradient(circle,transparent 7px,#000 7.5px)}
-  .mini{width:37px;height:37px;border-radius:50%;background:#000;display:flex;align-items:center;justify-content:center}
-  .exp{width:371px;border-radius:44px;background:#000;color:#fff;padding:18px 22px 20px}
-  .exp .seg{margin-top:12px}
+  .pill .r{font-size:15px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums}
+  .sav{width:22px;height:22px;border-radius:50%;background:var(--avBg);color:var(--avInk);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .sdot{width:10px;height:10px;border-radius:50%;background:var(--acc);margin:0 6px;box-shadow:0 0 0 4px rgba(168,200,255,.3)}
+  .mini{min-width:37px;height:37px;border-radius:19px;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;padding:0 6px}
+  .exp{width:371px;border-radius:44px;background:#000;color:#fff;padding:20px 24px 22px;position:relative}
+  .exp .trk .end{background:#000}
   table{border-collapse:collapse;font-size:12.5px;background:#fff;margin-top:10px;max-width:1300px}
   th,td{border-bottom:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;line-height:1.55}
   th{background:#F4F5F8}
@@ -77,172 +87,172 @@
 <body>
 <svg width="0" height="0" style="position:absolute"><defs>
   <symbol id="run" viewBox="0 0 16 16"><circle cx="9.6" cy="2.6" r="1.8" fill="currentColor"/><path d="M5.6 15l2.1-5 2.1 2v3M3.8 8l3-3 3 1 2 3M7.7 10L6.4 6.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="person" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4" fill="currentColor"/><path d="M4.5 20c.8-4 3.8-6 7.5-6s6.7 2 7.5 6z" fill="currentColor"/></symbol>
   <symbol id="spk" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#1F2433"/><path d="M16 8.5a5 5 0 010 7M18.6 6a8.5 8.5 0 010 12" stroke="#1F2433" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
 </defs></svg>
 
-<h1>实时活动 v2 · 照别家好看的卡重排（#914）</h1>
-<p class="lead">v1 往卡里塞了竖线两行字，五层信息挤在一起，负责人指出「很拥挤，不好看」。v2 照下面五家的共同版式重排；参考图与出处见 <code>REFERENCES.md</code>。两段起卡、30 分钟、1 小时提醒不变（负责人 11-11 定）。</p>
-<div class="rules">
-  <div><b>① 三层就够</b>小标志（不加底框）→ 一行粗标题 → 一行副标题。Uber「Pickup in 2 min」、DoorDash「Preparing your order」都这样。</div>
-  <div><b>② 右边一个圆头像</b>Uber 放司机，DoorDash / 美团放店。我们放陪跑员姓氏圆章（v7 订单页同款）。</div>
-  <div><b>③ 进度只有一个图形</b>Uber Eats 底部 5 段条、Uber 一条线。我们 5 段 = v7 竖线五步，不再用文字列步骤。</div>
-  <div><b>④ 只强调一个数</b>美团把送达时间标黄、Apple 示例把「8 minutes」标蓝。我们只把关键人名或数字标成 v7 标题蓝。</div>
-  <div><b>⑤ 留白</b>参考卡高约 120–140pt，不顶满 160。v2 每张都实测（右上角徽标）。</div>
-</div>
+<h1>实时活动 v3 · 找人与赶路照 Uber，跑步照健身类（#914）</h1>
+<p class="lead">负责人 11-11 看 v2：「还是太拥挤」；底部横条留一条；匹配中、找人多参考 Uber；跑步中多参考健身类。<br>
+v3 照 Uber 卡量出来的比例重排：<b>组与组之间空 12–16pt</b>（v2 只有 8）、<b>副标题只说一件事</b>（不再用「·」拼两件）、<b>底部一根细线 + 一个标记沿线走</b>（Uber 是小车，我们是白点或陪跑员头像），终点空心圆。跑步卡照 Gentler Streak / Apple 健身：顶行是状态，中间三个并排大数字，数字下面彩色小标签，右边一个圆形按钮。</p>
 
-<h2>一、盲人端</h2>
+<h2>一、盲人端 · 找人（照 Uber）</h2>
 <div class="row">
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">9:41</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1">正在为你找陪跑员</div><div class="t2">周三 7:00 开跑 · 已等 3 分钟</div></div><div class="av wait"></div></div>
-<div class="seg"><i class="c"></i><i></i><i></i><i></i><i></i></div></div></div>
-<div class="cap">B1 匹配中</div><div class="note">右边虚线圆 + 呼吸点 = 「还没有人」（匹配中定稿的呼吸点）。找到人那一刻虚线圆换成「陈」圆章，带一次提醒。</div></div>
+<div class="main"><div class="txt"><div class="t1">正在找陪跑员</div><div class="t2">周三 7:00 开跑</div></div></div>
+<div class="trk"><div class="base"></div><div class="pt pulse" style="left:7px"></div><div class="end"></div></div></div></div>
+<div class="cap">B1 匹配中</div><div class="note">还没有人，所以不放头像（Uber 找司机时也只有文字，HIG 举的打车例子：找司机时卡片更矮，有了司机再加内容）。线上只有起点一个呼吸白点。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">9:58</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1">陪跑员<em>陈*</em>已响应</div><div class="t2">先通个电话，商量见面安排</div></div><div class="av">陈</div></div>
-<div class="seg"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div></div></div>
-<div class="cap">B2 商量见面安排</div><div class="note">不放拨号键：掩码号码不能拼 <code>tel:</code>，锁屏按钮还要先解锁。点卡片进订单页拨。</div></div>
+<div class="main"><div class="txt"><div class="t1">陪跑员已响应</div><div class="t2">先通电话，商量见面</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:25%"></div><div class="pt" style="left:25%"></div><div class="end"></div></div></div></div>
+<div class="cap">B2 商量见面安排</div><div class="note">找到人那一刻右边出现人像（Uber「Pickup in 2 min」放司机头像的位置），带一次提醒。卡上不写名字：负责人 11-11 原话「不需要说是谁来了，就是说这个陪跑员正在赶来就可以」。线走到四分之一。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">10:20</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1">见面安排已发来</div><div class="t2">请在 <em>9 分钟</em>内确认</div></div><div class="av">陈</div></div>
-<div class="seg"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div></div></div>
-<div class="cap">B3 请你确认安排</div><div class="note">第一段里唯一要盲人动手的一步 ⇒ 带一次提醒。「9 分钟」系统自走倒计时。</div></div>
+<div class="main"><div class="txt"><div class="t1">请确认见面安排</div><div class="t2">还剩 9 分钟</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:25%"></div><div class="pt" style="left:25%"></div><div class="end"></div></div></div></div>
+<div class="cap">B3 请你确认安排</div><div class="note">带一次提醒。「9 分钟」系统自走倒计时。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">10:24</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1">已约好，<em>明早 7:00</em> 开跑</div><div class="t2">朝阳公园南门 · 前 1 小时提醒你出门</div></div><div class="av">陈</div></div>
-<div class="seg"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i></div></div></div>
-<div class="cap">B4 已约好 → 第一段收卡</div><div class="note">推这一屏后结束，锁屏留 15 分钟自动清掉。之后到开跑前 30 分钟不出卡。</div></div>
+<div class="main"><div class="txt"><div class="t1">明早 7:00 开跑</div><div class="t2">已约好，在朝阳公园南门</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:50%"></div><div class="pt" style="left:50%"></div><div class="end"></div></div></div></div>
+<div class="cap">B4 已约好 → 第一段收卡</div><div class="note">推这一屏后结束，锁屏留 15 分钟。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:30</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1"><em>30 分钟</em>后开跑</div><div class="t2">朝阳公园南门 · 陈* 还没出发</div></div><div class="av">陈</div></div>
-<div class="seg"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i></div></div></div>
-<div class="cap">B5 开跑前 30 分钟（第二段起卡）</div><div class="note">「30 分钟」系统自走倒计时。陪跑员一按出发就换 B6。</div></div>
+<div class="main"><div class="txt"><div class="t1">30 分钟后开跑</div><div class="t2">陪跑员还没出发</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:50%"></div><div class="pt" style="left:50%"></div><div class="end"></div></div></div></div>
+<div class="cap">B5 开跑前 30 分钟（第二段起卡）</div><div class="note">「30 分钟」系统自走倒计时。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:49</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1"><em>陈*</em>正在来找你</div><div class="t2">离南门约 300 米 · 请在南门原地等</div></div><div class="av">陈</div></div>
-<div class="seg"><i class="d"></i><i class="d"></i><i class="d"></i><i class="c"></i><i></i></div></div></div>
-<div class="cap">B6 陪跑员出发了</div><div class="note">带一次提醒。「N 分钟后到」等 backend#943，合之前只写距离。</div></div>
+<div class="main"><div class="txt"><div class="t1">陪跑员正在赶来</div><div class="t2">离南门约 300 米</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:72%"></div><div class="who" style="left:72%"><svg><use href="#run"/></svg></div><div class="end"></div></div></div></div>
+<div class="cap">B6 陪跑员出发了</div><div class="note">照 Uber 小车：右边是人像，线上走的是跑步小人（Uber 是车标，两者不重复），按「出发时距离 → 现在距离」走向终点（南门）。带一次提醒。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:56</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1"><em>陈*</em>到了，在南门等你</div><div class="t2">穿蓝色上衣 · 7:00 开跑</div></div><div class="av">陈<span class="ok"></span></div></div>
-<div class="seg"><i class="d"></i><i class="d"></i><i class="d"></i><i class="c"></i><i></i></div></div></div>
-<div class="cap">B7 陪跑员已到达</div><div class="note">带一次提醒。头像角上绿点 = 已到。「让他找到我」在 App 里，锁屏不放假按钮。</div></div>
-
-<div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">7:18</div></div>
-<div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 和陈一起跑步中</div>
-<div class="main"><div class="txt"><div class="km">2.40<small>公里</small></div><div class="t2" style="margin-top:6px">用时 <em>18:32</em> · 配速 <em>7'43"</em></div></div><div class="speak"><svg><use href="#spk"/></svg></div></div></div></div>
-<div class="cap">B8 陪跑中</div><div class="note">照 Gentler Streak / Strava：只放里程、用时、配速。唯一按钮改成右侧 60pt 白色圆键（占头像的位置），读屏念「听当前状态，按钮」，按下不开 App 直接播报（现行 <code>AudioPlaybackIntent</code>）。</div></div>
-
-<div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">7:46</div></div>
-<div class="la done"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 和陈一起</div>
-<div class="main"><div class="txt"><div class="t1">跑完了</div><div class="t2">用时 <em>42 分钟</em> · 配速 <em>8'04"</em></div></div><div class="km">5.20<small>公里</small></div></div>
-<div class="seg g"><i></i><i></i><i></i><i></i><i></i></div></div></div>
-<div class="cap">B9 已完成 → 收卡</div><div class="note">绿底 = v7 ⑧ 成果卡。五段全满。锁屏留 30 分钟（Apple 打车例子同数）。</div></div>
+<div class="main"><div class="txt"><div class="t1 xl">陪跑员到了</div><div class="t2">在南门等你，穿蓝色上衣</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:calc(100% - 13px)"></div><div class="who" style="left:calc(100% - 13px)"><svg><use href="#run"/></svg></div></div></div></div>
+<div class="cap">B7 陪跑员已到达</div><div class="note">照 Uber「Arriving Now」：标题放大到 28pt，跑步小人走到线的终点。带一次提醒。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">17:41</div></div>
 <div class="la stale"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1">还在为你找陪跑员</div><div class="t2">卡片到时间了，打开 App 看进度</div></div></div></div></div>
-<div class="cap">B10 匹配中超过 8 小时 <span class="tag">待负责人定</span></div><div class="note">系统上限：一张卡最多亮 8 小时。方案 a（画的这张）：到点变灰，找到人靠普通通知。方案 b：后端到点再远程起一张新卡，看着连续，但等于绕开系统上限。</div></div>
+<div class="main"><div class="txt"><div class="t1">还在找陪跑员</div><div class="t2">打开 App 看最新进度</div></div></div></div></div>
+<div class="cap">B10 匹配中超过 8 小时 <span class="tag">待负责人定</span></div><div class="note">方案 a（画的这张）：到点变灰，找到人靠普通通知。方案 b：后端到点再远程起一张新卡。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">10:31</div></div>
 <div class="la stale"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
 <div class="main"><div class="txt"><div class="t1">这次约跑已取消</div><div class="t2">打开 App 可以重新约</div></div></div></div></div>
-<div class="cap">B11 取消 / 没找到陪跑员 → 收卡</div><div class="note">灰底 = 结束。没找到时标题换「这次没找到陪跑员」。不写原因。</div></div>
+<div class="cap">B11 取消 / 没找到 → 收卡</div></div>
 
 </div>
 
-<h2>二、对比：去掉底部 5 段条（如果横条和 v7「只用竖线」冲突）</h2>
-<p class="lead">负责人在订单页否过「竖线横线混用」。锁屏卡是另一处界面，但若仍不想出现横条，可以照 DoorDash 只留文字 + 头像，卡更矮。</p>
+<h2>二、盲人端 · 跑步（照健身类）</h2>
 <div class="row">
-<div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:49</div></div>
-<div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1"><em>陈*</em>正在来找你</div><div class="t2">离南门约 300 米 · 请在南门原地等</div></div><div class="av">陈</div></div></div></div>
-<div class="cap">B6 无进度条版</div></div>
-<div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">9:41</div></div>
-<div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-<div class="main"><div class="txt"><div class="t1">正在为你找陪跑员</div><div class="t2">周三 7:00 开跑 · 已等 3 分钟</div></div><div class="av wait"></div></div></div></div>
-<div class="cap">B1 无进度条版</div></div>
+
+<div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">7:18</div></div>
+<div class="la"><div class="fhead"><span class="live"></span>陪跑中<span class="r">助盲跑</span></div>
+<div class="metrics">
+  <div class="m k"><b>2.40</b><span>公里</span></div>
+  <div class="m"><b>18:32</b><span>用时</span></div>
+  <div class="m"><b>7'43"</b><span>配速</span></div>
+  <div class="speak"><svg><use href="#spk"/></svg></div>
+</div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:48%"></div><div class="pt" style="left:48%"></div><div class="end"></div></div></div></div>
+<div class="cap">B8 陪跑中</div><div class="note">照 Gentler Streak / Apple 健身：三个数字并排、同字号，下面彩色小标签（里程绿，其余标题蓝）。右边圆键 = 唯一按钮「听当前状态」，按下不开 App 直接播报。底线 = 里程 / 目标里程，没有目标里程时不画线。</div></div>
+
+<div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">7:46</div></div>
+<div class="la done"><div class="fhead">跑完了<span class="r">助盲跑</span></div>
+<div class="metrics">
+  <div class="m"><b>5.20</b><span>公里</span></div>
+  <div class="m"><b>42:10</b><span>用时</span></div>
+  <div class="m"><b>8'04"</b><span>配速</span></div>
+</div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:calc(100% - 6px)"></div></div></div></div>
+<div class="cap">B9 已完成 → 收卡</div><div class="note">同一版式换绿底（v7 ⑧ 成果卡）。锁屏留 30 分钟。</div></div>
+
 </div>
 
-<h2>三、灵动岛（照 Flighty：左边进度圆环，右边一个数）</h2>
-<p class="lead">紧凑态左右两块读成一句话：左边圆环 = 五步走到第几步（替代横条），右边一个会变的数，用标题蓝。最小态只剩圆环（多个活动同时在时用）。展开态 = 锁屏卡去掉按钮。灵动岛底色系统固定为黑。每种形态单独写读屏标签（VoiceOver 不会主动念灵动岛）。</p>
+<h2>三、灵动岛（照 Uber：左图标，右一个数）</h2>
+<p class="lead">Uber 紧凑态是「车标 + 到达时间」。我们左边放人像（找人时是呼吸点，跑步时是跑步图标），右边一个数。最小态只放头像或数字。展开态 = 锁屏卡去掉按钮。每种形态单独写读屏标签。</p>
 <div class="row">
 <div class="cell"><div class="di">
-  <div class="lab">B1 匹配中 · 读屏「助盲跑，正在找陪跑员，已等 3 分钟」</div>
-  <div class="pill"><span class="ring" style="background:conic-gradient(var(--acc) 0 20%,#333 20% 100%)"></span><span class="r">找人 3 分</span></div>
+  <div class="lab">B1 匹配中 · 读屏「助盲跑，正在找陪跑员」</div>
+  <div class="pill"><span class="sdot"></span><span class="r">找陪跑员</span></div>
   <div class="lab">B5 开跑前</div>
-  <div class="pill"><span class="ring" style="background:conic-gradient(var(--acc) 0 60%,#333 60% 100%)"></span><span class="r">29:58</span></div>
+  <div class="pill"><span class="sav"><svg class="ps"><use href="#person"/></svg></span><span class="r">29:58</span></div>
   <div class="lab">B6 出发</div>
-  <div class="pill"><span class="ring" style="background:conic-gradient(var(--acc) 0 80%,#333 80% 100%)"></span><span class="r">陈 300 米</span></div>
+  <div class="pill"><span class="sav"><svg class="ps"><use href="#person"/></svg></span><span class="r">300 米</span></div>
   <div class="lab">B7 已到达</div>
-  <div class="pill"><span class="ring" style="background:conic-gradient(var(--greenDot) 0 80%,#333 80% 100%)"></span><span class="r" style="color:var(--greenDot)">陈 已到</span></div>
+  <div class="pill"><span class="sav"><svg class="ps"><use href="#person"/></svg></span><span class="r" style="color:var(--greenDot)">到了</span></div>
   <div class="lab">B8 陪跑中</div>
   <div class="pill"><svg style="width:18px;height:18px;color:var(--greenDot)"><use href="#run"/></svg><span class="r">2.40 公里</span></div>
   <div class="lab">最小态</div>
-  <div style="display:flex;gap:10px"><div class="mini"><span class="ring" style="background:conic-gradient(var(--acc) 0 60%,#333 60% 100%)"></span></div><div class="mini"><svg style="width:18px;height:18px;color:var(--greenDot)"><use href="#run"/></svg></div></div>
+  <div style="display:flex;gap:10px"><div class="mini"><span class="sav"><svg class="ps"><use href="#person"/></svg></span></div><div class="mini">2.4</div></div>
 </div></div>
 <div class="cell"><div class="di">
   <div class="lab">B6 出发 · 展开态</div>
   <div class="exp"><div class="brand"><svg><use href="#run"/></svg>助盲跑</div>
-  <div class="main"><div class="txt"><div class="t1"><em>陈*</em>正在来找你</div><div class="t2">离南门约 300 米 · 请在南门原地等</div></div><div class="av">陈</div></div>
-  <div class="seg"><i class="d"></i><i class="d"></i><i class="d"></i><i class="c"></i><i></i></div></div>
+  <div class="main"><div class="txt"><div class="t1">陪跑员正在赶来</div><div class="t2">离南门约 300 米</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+  <div class="trk"><div class="base"></div><div class="fill" style="width:72%"></div><div class="who" style="left:72%"><svg><use href="#run"/></svg></div><div class="end"></div></div></div>
   <div class="lab">B8 陪跑中 · 展开态（不放按钮）</div>
-  <div class="exp"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 和陈一起跑步中</div>
-  <div class="main"><div class="txt"><div class="km">2.40<small>公里</small></div><div class="t2" style="margin-top:6px">用时 <em>18:32</em> · 配速 <em>7'43"</em></div></div></div></div>
+  <div class="exp"><div class="fhead"><span class="live"></span>陪跑中</div>
+  <div class="metrics"><div class="m k"><b>2.40</b><span>公里</span></div><div class="m"><b>18:32</b><span>用时</span></div><div class="m"><b>7'43"</b><span>配速</span></div></div></div>
 </div></div>
 </div>
 
-<h2>四、陪跑员端（没有「匹配中」，从响应派单起）</h2>
-<p class="lead">同一版式。头像放跑者姓氏（锁屏只用姓，V11）。<span class="tag">待负责人定</span> 现有出发 / 汇合卡各有两个快捷按钮（V3 定的），Apple 建议「尽量只放一个可点的东西」，稿里各留一个：出发留「我快到了」，汇合留「让他的手机响起来」；另一个进 App。</p>
+<h2>四、陪跑员端（同一版式）</h2>
+<p class="lead">卡上不写名字（负责人 11-11：「不需要说是谁来了」），头像用通用人像。<span class="tag">待负责人定</span> 出发 / 汇合卡各留一个快捷按钮（Apple 建议一张卡只放一个可点元素），按钮放在右侧头像的位置（健身类卡也把控制键放右边），这两张不画底线。V6「让他的手机响起来」缩成「让他手机响」才放得下。</p>
 <div class="row">
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">9:58</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
-<div class="main"><div class="txt"><div class="t1">给<em>王先生</em>打个电话</div><div class="t2">商量见面安排 · 剩 19 分钟</div></div><div class="av">王</div></div>
-<div class="seg"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div></div></div>
+<div class="main"><div class="txt"><div class="t1">给跑者打电话</div><div class="t2">商量见面，还剩 19 分钟</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:25%"></div><div class="pt" style="left:25%"></div><div class="end"></div></div></div></div>
 <div class="cap">V1 商量见面安排</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">10:21</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
-<div class="main"><div class="txt"><div class="t1">等<em>王先生</em>确认安排</div><div class="t2">见面安排已发出</div></div><div class="av">王</div></div>
-<div class="seg"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div></div></div>
+<div class="main"><div class="txt"><div class="t1">等跑者确认</div><div class="t2">见面安排已发出</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:25%"></div><div class="pt" style="left:25%"></div><div class="end"></div></div></div></div>
 <div class="cap">V2 已交安排单</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月10日 星期二</div><div class="t">10:24</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
-<div class="main"><div class="txt"><div class="t1">已约好，<em>明早 7:00</em> 开跑</div><div class="t2">朝阳公园南门 · 前 1 小时提醒你出门</div></div><div class="av">王</div></div>
-<div class="seg"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i></div></div></div>
+<div class="main"><div class="txt"><div class="t1">明早 7:00 开跑</div><div class="t2">已约好，在朝阳公园南门</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:50%"></div><div class="pt" style="left:50%"></div><div class="end"></div></div></div></div>
 <div class="cap">V3 已约好 → 第一段收卡</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:30</div></div>
 <div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
-<div class="main"><div class="txt"><div class="t1"><em>6:40</em> 前出发</div><div class="t2">路上约 18 分钟 · 朝阳公园南门</div></div><div class="av">王</div></div>
-<div class="seg"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i></div></div></div>
-<div class="cap">V4 开跑前 30 分钟</div><div class="note">陪跑员有 <code>suggestedDepartAt</code>，标题给出发时刻。到点没出发，数字转金色「该出发了」。</div></div>
+<div class="main"><div class="txt"><div class="t1">6:40 前出发</div><div class="t2">路上约 18 分钟</div></div><div class="av"><svg class="ps"><use href="#person"/></svg></div></div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:50%"></div><div class="pt" style="left:50%"></div><div class="end"></div></div></div></div>
+<div class="cap">V4 开跑前 30 分钟</div><div class="note">到点没出发，标题转金色「该出发了」。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:49</div></div>
-<div class="la hb"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
-<div class="main"><div class="txt"><div class="t1"><em>8 分钟</em>后到南门</div><div class="t2">6:57 到 · 王先生已到附近</div></div><div class="av">王<span class="ok"></span></div></div>
-<div class="btn">我快到了</div></div></div>
-<div class="cap">V5 出发</div><div class="note">有按钮时去掉 5 段条（一张卡只留一个底部元素）。快迟到时「8 分钟」转金色，副标题加「晚到约 6 分钟」。</div></div>
+<div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
+<div class="main"><div class="txt"><div class="t1">8 分钟后到</div><div class="t2">跑者已到南门附近</div></div><div class="btn">我快到了</div></div></div></div>
+<div class="cap">V5 出发</div><div class="note">快迟到时「8 分钟」转金色，副标题换「晚到约 6 分钟」。</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">6:57</div></div>
-<div class="la hb"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
-<div class="main"><div class="txt"><div class="t1">已到南门</div><div class="t2">王先生就在附近（10 米内）</div></div><div class="av">王<span class="ok"></span></div></div>
-<div class="btn">让他的手机响起来</div></div></div>
+<div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑</div>
+<div class="main"><div class="txt"><div class="t1 xl">已到南门</div><div class="t2">跑者就在 10 米内</div></div><div class="btn">让他手机响</div></div></div></div>
 <div class="cap">V6 已到达</div></div>
 
 <div class="cell"><div class="lock"><div class="clock"><div class="d">11月11日 星期三</div><div class="t">7:18</div></div>
-<div class="la"><div class="brand"><svg><use href="#run"/></svg>助盲跑 · 陪跑中</div>
-<div class="main"><div class="txt"><div class="km">2.40<small>/ 5.00 公里</small></div><div class="t2" style="margin-top:6px">用时 <em>18:32</em> · 配速 <em>7'43"</em> · 王：刚刚好</div></div></div></div></div>
-<div class="cap">V7 陪跑中</div><div class="note">没有按钮（口袋误触）。完成 / 取消 / 超 8 小时同 B9–B11。</div></div>
+<div class="la"><div class="fhead"><span class="live"></span>陪跑中<span class="r">刚刚好</span></div>
+<div class="metrics">
+  <div class="m k"><b>2.40</b><span>/ 5.00 公里</span></div>
+  <div class="m"><b>18:32</b><span>用时</span></div>
+  <div class="m"><b>7'43"</b><span>配速</span></div>
+</div>
+<div class="trk"><div class="base"></div><div class="fill" style="width:48%"></div><div class="pt" style="left:48%"></div><div class="end"></div></div></div></div>
+<div class="cap">V7 陪跑中</div><div class="note">没有按钮（口袋误触）。右上角是跑者最近一次节奏信号。</div></div>
 
 </div>
 
@@ -252,7 +262,7 @@
 <tr><td>第一段 · 盲人</td><td>提交约跑成功时 App 本地起</td><td>后端推送</td><td>找到陪跑员、B3 请确认</td><td>已约好 / 取消 / 没找到：推最后一屏后结束，锁屏留 15 分钟；超 8 小时见 B10</td></tr>
 <tr><td>第一段 · 陪跑员</td><td>响应派单成功时 App 本地起</td><td>后端推送</td><td>盲人确认 / 提异议</td><td>同上</td></tr>
 <tr><td>第二段 · 两端</td><td>开跑前 30 分钟后端远程起卡（iOS 17.2+）；App 在前台则本地起</td><td>状态走后端推送；跑步数据 App 本地更新（现行）</td><td>出发、已到达</td><td>完成后锁屏留 30 分钟；取消立即灰底收卡</td></tr>
-<tr><td>多张卡并存</td><td colspan="4">一人同时有几张预约时，第二段的卡排在前（相关度分数高），第一段的排后；卡片已在时同一件事不再另发普通通知（Apple：别让通知和实时活动重复报同一件事）。</td></tr>
+<tr><td>多张卡并存</td><td colspan="4">第二段的卡排在前（相关度分数高）；卡片已在时同一件事不再另发普通通知。</td></tr>
 </table>
 
 <script>
