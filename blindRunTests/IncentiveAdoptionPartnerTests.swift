@@ -108,19 +108,20 @@ final class IncentiveAdoptionPartnerTests: XCTestCase {
             off.contains("连续两周"),
             "开关关着还教用户去连跑两周，等于让他白跑两周：\(off)"
         )
-        XCTAssertTrue(off.contains("还没有开放"), "要让用户知道这不是他自己的问题：\(off)")
+        // #958（负责人 11-11）删掉了「功能还没有开放」这类说明：关着时只说没有搭档，不解释产品状态。
+        XCTAssertEqual(off, "还没有可以显示的搭档。")
 
         // 拿不到开关时**不做任何承诺**，而不是退回「开着」那一句：
         // 一次网络抖动不该让用户听到一个关于产品状态的断言。
         let unknown = PartnerStreakCopy.blindEmpty(streakEnabled: nil)
         XCTAssertFalse(unknown.contains("连续两周"), "拿不到开关时不许承诺连跑两周会有结果：\(unknown)")
-        XCTAssertFalse(unknown.contains("还没有开放"), "拿不到开关时也不许断言功能没开：\(unknown)")
+        XCTAssertEqual(unknown, off, "拿不到开关时和关着说同一句，不断言任何产品状态")
 
         // 志愿者侧同构，一并钉住 —— 两侧文案分开写就一定会漂移。
         let volunteerOff = PartnerStreakCopy.volunteerEmpty(streakEnabled: false)
-        XCTAssertTrue(volunteerOff.contains("还没有开放"))
+        XCTAssertFalse(volunteerOff.contains("连续"))
         let volunteerUnknown = PartnerStreakCopy.volunteerEmpty(streakEnabled: nil)
-        XCTAssertFalse(volunteerUnknown.contains("还没有开放"))
+        XCTAssertEqual(volunteerUnknown, volunteerOff)
     }
 
     // MARK: - 收藏固定搭档

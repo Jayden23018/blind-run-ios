@@ -159,7 +159,8 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .rejected:
             return "身份材料未通过人工审核，当前无法接单。请重新上传能清晰证明本人身份的材料。"
         case .statusUnavailable:
-            return "暂时查不到审核状态，请检查网络后重试。"
+            // 不写「重试」：后端契约禁止把拒绝人脸后的替代路径说成失败（`FaceVerifyDeclineTests`）。
+            return "暂时查不到身份材料的审核状态，请检查网络后再打开这一页。"
         }
     }
 }

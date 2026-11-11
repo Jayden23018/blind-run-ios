@@ -103,7 +103,8 @@ final class RunnerRunRecordTests: XCTestCase {
     /// 第 3 段自己用了 5:58，累计到它是 6:38 + 6:12 + 5:58 = 18:48 —— 两种实现在这一行上结果不同。
     func testSplitTableShowsCumulativeTimeAndPaceInChineseUnits() {
         let rows = RunnerRunRecordContent(record: record()).splits.map(\.table)
-        XCTAssertEqual(rows.map(\.indexText), ["1", "2", "3", "4", "5", "0.21"])
+        // 最后一段按 11-08「X 公里一位小数」规则显示，与上面读屏那句「最后 0.2 公里」一致。
+        XCTAssertEqual(rows.map(\.indexText), ["1", "2", "3", "4", "5", "0.2"])
         XCTAssertEqual(rows[2].elapsedText, "18:48")
         XCTAssertEqual(rows[5].elapsedText, "32:34")
         XCTAssertEqual(rows[2].paceText, "5分58秒", "跑者端不用撇号（HANDOFF 5.3）")

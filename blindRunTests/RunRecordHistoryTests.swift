@@ -143,10 +143,10 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertFalse(unknown.showsFirstRunEmptyState, "订单没读到时不知道跑没跑过，不能把老用户当新人")
     }
 
-    func testVolunteerFirstRunCopyKeepsTheAvailabilityHint() {
+    /// 11-04（#685）起陪跑员空状态不再提「开启可服务状态」，两端说同一句。
+    func testVolunteerFirstRunCopySaysWhereRecordsAppear() {
         let viewModel = RunRecordHistoryViewModel(role: .volunteer)
-        XCTAssertTrue(viewModel.emptyStateCopy.message.hasPrefix("完成第一次陪跑后，记录会出现在这里。"))
-        XCTAssertTrue(viewModel.emptyStateCopy.message.contains("开启可服务状态"))
+        XCTAssertEqual(viewModel.emptyStateCopy.message, "完成第一次陪跑后，记录会出现在这里。")
         XCTAssertEqual(viewModel.loadingLabel, "正在加载陪跑记录")
         XCTAssertEqual(RunRecordHistoryViewModel(role: .runner).loadingLabel, "正在加载跑步记录")
     }

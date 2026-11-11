@@ -8,7 +8,8 @@ final class BlindHomeUpcomingOrdersTests: XCTestCase {
         // 列表里那份 1 号是旧的（还在匹配），`/active` 给的是新的（已确认）：要用新的。
         let active = OrderDetailResponse.preview(orderId: 1, status: .scheduledConfirmed, plannedStart: "2026-11-08T07:00:00")
         let mine: [OrderDetailResponse] = [
-            .preview(orderId: 4, status: .pendingMatch, plannedStart: nil),
+            // 不能用 `.preview(plannedStart: nil)`：工厂会把 nil 补成「明天 7:00」，用例随运行日期变红（#959）。
+            Self.orderWithoutPlannedStart(orderId: 4, status: .pendingMatch),
             .preview(orderId: 3, status: .pendingMatch, plannedStart: "2026-11-15T06:30:00"),
             .preview(orderId: 1, status: .pendingMatch, plannedStart: "2026-11-08T07:00:00"),
             .preview(orderId: 9, status: .completed, plannedStart: "2026-11-01T07:00:00"),
@@ -51,5 +52,34 @@ final class BlindHomeUpcomingOrdersTests: XCTestCase {
         XCTAssertNil(BlindHomeCompactOrderContent(order: order, size: .third).partnerText)
         XCTAssertTrue(BlindHomeCompactOrderContent(order: order, size: .third).caption.hasSuffix("陪跑员 张*"))
         XCTAssertEqual(BlindHomeCompactOrderContent(order: order, size: .half).partnerText, "陪跑员 张*")
+    }
+
+    private static func orderWithoutPlannedStart(orderId: Int64, status: RunOrderStatus) -> OrderDetailResponse {
+        OrderDetailResponse(
+            orderId: orderId,
+            status: status,
+            startAddress: "测试出发点",
+            startLatitude: 39.9,
+            startLongitude: 116.4,
+            endAddress: nil,
+            endLatitude: nil,
+            endLongitude: nil,
+            plannedStart: nil,
+            plannedEnd: nil,
+            blindName: "测试盲人",
+            blindPhone: nil,
+            volunteerPhone: nil,
+            acceptedAt: nil,
+            createdAt: nil,
+            expectedDurationMinutes: 60,
+            pacePreference: nil,
+            routePreference: nil,
+            routeNotes: nil,
+            hasGuideDogThisRun: nil,
+            specialNotes: nil,
+            visionLevel: nil,
+            tetherPreference: nil,
+            chatPreference: nil
+        )
     }
 }

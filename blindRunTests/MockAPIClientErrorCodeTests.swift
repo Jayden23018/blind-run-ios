@@ -118,12 +118,12 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
     func testAppointmentRejectionMessagesTellTheUserWhatToChange() {
         let tooLong = ErrorCode.appointmentTooLong.localizedMessage
         XCTAssertTrue(tooLong.contains("5小时"), "要给出上限，不能只说太长")
-        XCTAssertTrue(tooLong.contains("改短"), "要说清改哪个字段")
+        XCTAssertTrue(tooLong.contains("缩短时长"), "要说清改哪个字段")
         XCTAssertEqual(ErrorCode.appointmentTooLong.ttsMessage, tooLong)
 
         let night = ErrorCode.appointmentInNightWindow.localizedMessage
         XCTAssertTrue(night.contains("10点") && night.contains("5点"), "要念出禁跑时段的两端")
-        XCTAssertTrue(night.contains("整段"), "🚨 判据是整段不是开始时刻，不说清用户会去挪开始时间")
+        XCTAssertTrue(night.contains("10点前结束"), "🚨 判据是整段不是开始时刻：要说出「结束」也得在 10 点前，否则用户会去挪开始时间")
         XCTAssertEqual(ErrorCode.appointmentInNightWindow.ttsMessage, night)
 
         // 两条 422 同族，但要改的东西不同，文案不能撞。

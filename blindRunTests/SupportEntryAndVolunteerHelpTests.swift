@@ -161,7 +161,7 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
             .flatMap { [$0.heading] + $0.bullets }
             .joined(separator: "\n")
         XCTAssertTrue(text.contains("「\(SupportTicketCopy.title)」"), "要写入口的真名：\(SupportTicketCopy.title)")
-        XCTAssertTrue(text.contains("「我的」页"))
+        XCTAssertTrue(text.contains("「我的」→「\(SupportTicketCopy.title)」"), "要写清从哪一页进")
         assertNoPromise(DispatchAlgorithmNoticeCopy.sections.flatMap(\.bullets).joined(), "派单规则说明")
     }
 

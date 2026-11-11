@@ -281,7 +281,7 @@ final class IncentiveAdoptionTests: XCTestCase {
 
     /// 积分页必须显式指出时长在别处，而不是把两个数混着说。
     func testPointsPageKeepsServiceHoursInAnotherPlace() {
-        XCTAssertTrue(VolunteerPointsCopy.separateFromServiceHours.contains("志愿服务时长"))
+        XCTAssertTrue(VolunteerPointsCopy.separateFromServiceHours.contains("服务时长"))
         XCTAssertTrue(VolunteerPointsCopy.separateFromServiceHours.contains("服务成就"))
         XCTAssertFalse(VolunteerPointsCopy.disclaimer.contains("时长"))
     }
@@ -304,11 +304,11 @@ final class IncentiveAdoptionTests: XCTestCase {
     }
 
     /// 🔴 填错不会让 `POST /api/user/role` 失败，而且没有任何端点能回查邀请码是否生效
-    /// ⇒ 界面必须在**填之前**说清楚，事后我们什么都说不了。
-    func testInviteCodeEntryTellsUserItCannotBeVerified() {
-        XCTAssertTrue(InviteCodeEntryCopy.oneShotNotice.contains("只能"))
-        XCTAssertTrue(InviteCodeEntryCopy.oneShotNotice.contains("无法补填"))
-        XCTAssertTrue(InviteCodeEntryCopy.oneShotNotice.contains("填错"))
+    /// ⇒ 界面必须在**填之前**说清楚只能填这一次。
+    /// #958（负责人 11-11）删掉了「填错不会影响身份设置…」那半句防御性说明，只留一次性这一点。
+    func testInviteCodeEntrySaysItIsOneShot() {
+        XCTAssertTrue(InviteCodeEntryCopy.oneShotNotice.contains("只能填这一次"))
+        XCTAssertTrue(InviteCodeEntryCopy.oneShotNotice.contains("不能补填"))
         // 折叠态下这句播报是读屏用户知道有这个格子的唯一途径。
         XCTAssertTrue(InviteCodeEntryCopy.speechHint.contains("邀请码"))
     }

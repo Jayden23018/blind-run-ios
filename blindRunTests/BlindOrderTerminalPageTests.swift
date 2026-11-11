@@ -24,7 +24,8 @@ final class BlindOrderTerminalPageTests: XCTestCase {
             // 未知态必须留在只读退路：后端加状态时它是唯一落点。
             .unknown: false,
         ]
-        XCTAssertEqual(expected.count, RunOrderStatus.allCases.count, "有状态没写进期望表")
+        // `allCases` 刻意不含 `.unknown`（`OrderModels.swift` 的 `allCases` 注释），期望表多写了它这一项。
+        XCTAssertEqual(expected.count, RunOrderStatus.allCases.count + 1, "有状态没写进期望表")
         for (status, usesTerminal) in expected {
             XCTAssertEqual(status.usesBlindTerminalPage, usesTerminal, "\(status.rawValue)")
         }

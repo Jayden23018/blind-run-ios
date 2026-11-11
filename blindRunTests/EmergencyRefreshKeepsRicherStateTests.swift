@@ -5,7 +5,7 @@ import XCTest
 ///
 /// 对账回来的是同一条事件、同一个状态时，它没有带来任何新信息；此前却照样写 `.acknowledged`，
 /// 把比它多一层信息的状态抹成通用的「已发出」：
-/// - 「这次没有新建求助」（屏 3b，刚才那一按被并进了旧事件）—— 倒计时到点后 3 秒宽限里再按一次就会撞上；
+/// - 「上一次求助还在处理中」（屏 3b，刚才那一按被并进了旧事件）—— 倒计时到点后 3 秒宽限里再按一次就会撞上；
 /// - 「短信没送到，请自己拨 110」—— 断线重连的补读就会撞上，盲人听到的从警告变成了安慰。
 ///
 /// 单独成文件：`EmergencySOSTests.swift` 已超 SwiftLint 的长度上限，CI 棘轮不许它再变长。
@@ -17,7 +17,7 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
     }
 
     /// 🔴 #546 原样：倒计时到点、宽限刷新还没回来时再按一次，被后端并进同一条 ——
-    /// 宽限刷新回来后屏幕上仍是「这次没有新建求助」，不是通用的「已发出」。
+    /// 宽限刷新回来后屏幕上仍是「上一次求助还在处理中」，不是通用的「已发出」。
     func testGraceRefreshAfterTheCountdownFiresKeepsTheMergedRetriggerCopy() async throws {
         let (coordinator, safety) = Self.makeRecoverableFixture()
         safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(
@@ -46,7 +46,7 @@ final class EmergencyRefreshKeepsRicherStateTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
 
         XCTAssertEqual(coordinator.state, .mergedIntoOpenEvent(.pending), "宽限刷新把合并文案盖掉了")
-        XCTAssertTrue(coordinator.statusMessage?.hasPrefix("这次没有新建求助") == true, "\(coordinator.statusMessage ?? "nil")")
+        XCTAssertTrue(coordinator.statusMessage?.hasPrefix("上一次求助还在处理中") == true, "\(coordinator.statusMessage ?? "nil")")
         coordinator.reset()
     }
 

@@ -81,10 +81,10 @@ final class SupportTicketTests: XCTestCase {
     }
 
     /// 🔴 **工单不是求助。** 契约在端点 description 上逐字要求
-    /// 「客户端文案不得把用户从 SOS 引到这里」。这一屏在用户写字之前就要说清时效，
-    /// 并把真正紧急时该做的事写出来。
+    /// 「客户端文案不得把用户从 SOS 引到这里」。这一屏在用户写字之前
+    /// 就要把真正紧急时该做的事写出来。
     func testCopyTellsThemThisIsNotAnEmergencyChannel() {
-        XCTAssertTrue(SupportTicketCopy.notice.contains("不会立刻"))
+        // #958（负责人 11-11）删掉了「不会立刻有人联系你」这类说明，只留紧急时该做的事。
         XCTAssertTrue(SupportTicketCopy.notice.contains("120"))
         XCTAssertTrue(SupportTicketCopy.notice.contains("110"))
         // 反向：不许把这里说成「求助」，那个词在本 App 里专指云端 SOS 链路。

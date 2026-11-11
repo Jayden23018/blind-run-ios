@@ -168,7 +168,7 @@ final class VoiceStatusQueryTests: XCTestCase {
             volunteerCoordinate: Self.volunteerCoordinate,
             fallbackAnnouncement: "整段状态"
         )
-        XCTAssertTrue(answer.speech.contains("已经在一起"), answer.speech)
+        XCTAssertTrue(answer.speech.contains("已经汇合"), answer.speech)
         XCTAssertTrue(answer.speech.contains(RunOrderStatus.inProgress.displayName), answer.speech)
     }
 

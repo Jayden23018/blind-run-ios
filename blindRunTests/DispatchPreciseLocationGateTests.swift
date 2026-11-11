@@ -58,10 +58,11 @@ final class DispatchPreciseLocationGateTests: XCTestCase {
         XCTAssertEqual(location.temporaryPreciseLocationRequestsForTesting, [.volunteerDispatch])
     }
 
-    /// 停报的原因要说清：已暂停、后果（收不到附近的邀请）、怎么恢复。
-    func testNoticeStatesThePauseTheConsequenceAndTheWayBack() {
+    /// 停报的原因要说清：原因（精确位置关了）、后果（收不到附近的邀请）、怎么恢复。
+    /// #958 按负责人要求删掉了「已暂停」这类内部说法，只留这三样。
+    func testNoticeStatesTheCauseTheConsequenceAndTheWayBack() {
         let notice = DispatchPreciseLocationCopy.notice
-        for word in ["精确位置", "暂停", "邀请", "系统设置"] {
+        for word in ["精确位置", "收不到", "邀请", "系统设置"] {
             XCTAssertTrue(notice.contains(word), "缺「\(word)」：\(notice)")
         }
     }

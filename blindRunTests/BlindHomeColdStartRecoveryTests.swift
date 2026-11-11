@@ -23,9 +23,11 @@ final class BlindHomeColdStartRecoveryTests: XCTestCase, BlindRunTestSupport {
 
         await viewModel.loadActiveOrder()
 
-        XCTAssertEqual(client.paths, ["/api/orders/active"])
-        XCTAssertFalse(client.paths.contains("/api/orders/mine"), "还在打分页历史列表")
-        XCTAssertEqual(viewModel.activeOrder?.orderId, 801)
+        // #825 起首页在 `/active` 给了一张之后，再拉一次 `/mine` 补第 2、3 张预约；
+        // 最早那张（求助与实时推送跟它）仍只认 `/active`，所以 `/active` 必须先打、且只打一次。
+        XCTAssertEqual(client.paths.first, "/api/orders/active")
+        XCTAssertEqual(client.paths.filter { $0 == "/api/orders/active" }.count, 1)
+        XCTAssertEqual(viewModel.activeOrder?.orderId, 801, "最早那张来自 /active，不是从分页历史里挑")
         XCTAssertNil(viewModel.errorMessage)
     }
 

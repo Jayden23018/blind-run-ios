@@ -174,7 +174,7 @@ final class UserSafetyTests: XCTestCase {
         let message = serverError("ACCOUNT_SUSPENDED", server).localizedMessage
         XCTAssertTrue(message.hasPrefix(server), "后端原文一个字不动")
         XCTAssertTrue(message.contains("「\(SupportTicketCopy.title)」"), "要说清去哪里找客服，且名字与「我的」页入口一致")
-        XCTAssertTrue(message.contains("不是这次操作出了错"), "要说清为什么")
+        XCTAssertTrue(message.contains("想了解原因"), "要说清找客服是为了问原因")
     }
 
     /// 后端 message 为空时本地文案要自己说全：发生了什么、为什么、能做什么、谁能帮。

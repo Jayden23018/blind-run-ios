@@ -57,7 +57,7 @@ final class BlindRunnerReviewAndRealtimeTests: XCTestCase, BlindRunTestSupport {
         // 已评价不是失败：页面切到已评价态，不显示错误。
         XCTAssertTrue(viewModel.didSubmitReview)
         XCTAssertNil(viewModel.reviewErrorMessage)
-        XCTAssertEqual(speechService.lastSpokenText, "您已评价过此订单。")
+        XCTAssertEqual(speechService.lastSpokenText, "你已评价过此订单。")
         XCTAssertFalse(
             (speechService.lastSpokenText ?? "").contains("进行中的订单"),
             "重复评价被念成了下单受阻的文案"
