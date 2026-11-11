@@ -398,7 +398,7 @@ async function updateBlindProfile(blind) {
     token: blind.token,
     body: {
       name: 'E2E紧急联系人',
-      phone: '13800001111',
+      phone: process.env.AIDRUN_E2E_CONTACT_PHONE,
       relationship: '家人',
       isPrimary: true
     },
@@ -839,6 +839,10 @@ async function main() {
   const [blindPhone, volunteerPhone, usingSeedAccounts] = selectedPhones();
   if (usingSeedAccounts && !verificationCode) {
     throw new Error('Set AIDRUN_E2E_VERIFICATION_CODE (ask the backend owner).');
+  }
+  // 后端会给新建的紧急联系人发短信，所以这个号必须是你本人控制的号码，不留默认值。
+  if (!/^1[3-9]\d{9}$/.test(process.env.AIDRUN_E2E_CONTACT_PHONE ?? '')) {
+    throw new Error('Set AIDRUN_E2E_CONTACT_PHONE to a phone number you control.');
   }
   created.blindPhone = blindPhone;
   created.volunteerPhone = volunteerPhone;

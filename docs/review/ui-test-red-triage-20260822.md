@@ -40,7 +40,7 @@
 ### 1 & 2 —— 号码被掩码了，用例还在等全号
 
 断言在 `blindRunUITests/blindRunUITests.swift:1355-1356`（`openCurrentVolunteerService`
-的 `requirePhone` 分支）：等 `app.staticTexts["13800001001"]`。
+的 `requirePhone` 分支）：等 `app.staticTexts["<Mock 全号>"]`。
 
 失败时刻的 App UI hierarchy 里那个元素长这样：
 
