@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>陪跑员订单页 v7 定稿：与盲人端同一套深色头 + 竖线 + 地图抽屉（2026-11-11，#945）</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:#E9EAEE;color:#14171F;padding:28px 32px 40px}
+h1{font-size:22px;margin-bottom:6px}
+.lead{font-size:13px;color:#4A4F5C;line-height:1.7;max-width:1300px;margin-bottom:22px}
+.g{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.cell{width:390px}
+.cap{font-size:14px;font-weight:600;margin:12px 0 4px}
+.ref{display:inline-block;font-size:12px;font-weight:600;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:1px 6px;margin-bottom:6px}
+.anno{margin-top:6px;padding:12px 14px;background:#fff;border-radius:12px;font-size:12px;color:#4A4F5C;line-height:1.6}
+.ph{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+.tp{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
+.rd{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.rd.dk{background:rgba(255,255,255,.12);box-shadow:none;color:#fff}
+.sos{height:44px;padding:0 16px;border-radius:22px;background:#fff;color:#D7263D;font-weight:700;font-size:16px;display:flex;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.sos.od{background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2;box-shadow:none}
+.sos.lv{background:#D7263D;color:#fff}
+.bk{color:#A8C8FF;font-size:16px}.sp{flex:1}
+.hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:232px;padding:108px 24px 0;color:#fff}
+.hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}.hero .t{font-size:30px;font-weight:700;color:#A8C8FF;line-height:1.25}
+.sh{position:absolute;left:0;right:0;top:212px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
+.pl{font-size:20px;font-weight:700}.sb{font-size:15px;color:#4A4F5C;margin-top:4px}
+.n{display:flex;gap:14px;position:relative;padding-bottom:13px}
+.n:before{content:"";position:absolute;left:10px;top:24px;bottom:-2px;width:3px;background:#C5C8CF}
+.n.d:before{background:#1F2433}.n:last-child:before{display:none}
+.wide .n{padding-bottom:22px}.wide .n:last-child{padding-bottom:0}
+.dt{width:23px;height:23px;border-radius:12px;flex:none;background:#C5C8CF;color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;z-index:1}
+.d .dt,.w .dt{background:#1F2433}.w .dt{box-shadow:0 0 0 4px rgba(31,36,51,.16)}.x .dt{background:#8A8F9A}
+.nl{font-size:17px;font-weight:600;line-height:23px}
+.f .nl{font-size:15px;font-weight:500;color:#4A4F5C}
+.m .dt{background:#fff;border:2.5px solid #C5C8CF}.m .nl{font-size:15px;color:#2F4BD6}
+.t2 .nl{color:#5F6470;font-weight:500}.g2 .nl{color:#8A8F9A;font-weight:500}
+.pre{font-size:13px;color:#5F6470;margin-right:8px}
+.nd{font-size:14px;color:#4A4F5C;margin-top:2px}
+.cd{margin-top:10px;border-radius:14px;overflow:hidden;background:#EEEFF2}
+.cd .dk{background:#2E3445;color:#fff;padding:12px 16px}.cd .dk p{font-size:13px;color:#C9CFDB}.cd .dk h3{font-size:20px;margin-top:2px}
+.cd .lt{display:flex;align-items:center;gap:14px;padding:12px 16px;font-size:15px}
+.av{width:48px;height:48px;border-radius:24px;background:#A9C8F7;color:#1F3A66;font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
+.bt{position:absolute;left:24px;right:24px;bottom:30px}
+.cta{height:56px;border-radius:28px;background:#1F2433;color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.cta.gh{background:#fff;color:#14171F;border:1.5px solid #C9CCD3}
+.tx{text-align:center;font-size:16px;color:#4A4F5C;height:44px;line-height:44px}
+.cap2{font-size:13px;color:#4A4F5C;text-align:center;margin-bottom:6px}
+.map{position:absolute;left:0;right:0;top:0;height:430px;background:#EDEBE6;overflow:hidden}
+.map.short{height:380px}
+.park{position:absolute;left:0;top:40px;width:262px;height:290px;background:#D9E8CF}
+.lake{position:absolute;left:40px;top:120px;width:90px;height:60px;border-radius:50%;background:#B9D7F0}
+.road{position:absolute;background:#fff}
+.pv{position:absolute;width:34px;height:34px;border-radius:17px;background:#1F2433;color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 12px rgba(47,123,246,.16)}
+.mp{position:absolute;padding:6px 10px;border-radius:14px;background:#1F2433;color:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+.ms{position:absolute;left:0;right:0;top:404px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:22px 24px 0;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
+.ms.tall{top:354px}
+.grab{width:40px;height:5px;border-radius:3px;background:#C9CCD3;margin:-10px auto 14px}
+.st{font-size:27px;font-weight:700;line-height:1.25}.ss{font-size:16px;color:#2F4BD6;margin-top:4px}.ss.gr{color:#4A4F5C}
+.who{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #E6E7EB;border-top:1px solid #E6E7EB;margin-top:12px}
+.who .nn{font-size:19px;font-weight:700}.who .dd{font-size:14px;color:#4A4F5C}
+.chip{margin-left:auto;height:44px;padding:0 14px;border-radius:22px;background:#EEEFF2;font-size:15px;font-weight:600;display:flex;align-items:center}
+.ln{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #E6E7EB;font-size:17px}.ln span{font-size:14px;color:#4A4F5C}
+.chips{display:flex;gap:10px;margin-top:12px}.chips div{flex:1;height:48px;border-radius:24px;background:#EEEFF2;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.stats{display:flex;gap:26px;margin-top:12px;align-items:flex-end}.big{font-size:44px;font-weight:700;line-height:1}.big small{font-size:18px;margin-left:2px}.stats p{font-size:13px;color:#4A4F5C}.stats b{font-size:22px}
+.bar{height:8px;border-radius:4px;background:#E6E7EB;margin-top:14px;overflow:hidden}.bar i{display:block;height:8px;width:48%;background:#1F2433}
+.tip{margin-top:12px;background:#FFF3C4;border-radius:12px;padding:10px 14px;font-size:15px;color:#5A4500}
+.res{margin-top:16px;background:#1E7A46;border-radius:16px;padding:16px 18px;color:#fff}
+.res .big{font-size:44px}.res .three{display:flex;gap:32px;margin-top:14px}.res p{font-size:13px;color:#D5EEDD}.res b{font-size:20px}
+.star{margin-top:14px;border:1px solid #E6E7EB;border-radius:16px;padding:14px 16px}
+.star .h{display:flex;justify-content:space-between;font-size:16px;font-weight:600}.star .h span{font-size:14px;color:#4A4F5C;font-weight:400}
+.star .bar i{width:62%;background:#1E7A46;border-radius:4px}
+.box{margin-top:22px;background:#F4F5F8;border-radius:16px;padding:4px 16px}
+.row{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid #E6E7EB;font-size:16px}.row:last-child{border-bottom:none}.row span{color:#4A4F5C;font-size:15px}
+.lp{height:56px;border-radius:28px;background:#1F2433;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.lp i{position:absolute;left:0;top:0;bottom:0;width:30%;background:rgba(255,255,255,.18)}
+</style>
+</head>
+<body>
+<h1>陪跑员订单页 v7 定稿：与盲人端订单页同一套设计语言（2026-11-11，#945）</h1>
+<p class="lead">负责人 2026-11-11 定「陪跑员端整套换 v7」，看过九屏后原话「可以就具体吧」，只要求 ⑧ 完成、⑨ 已取消两屏不要挤（本稿是改后）。①–④、⑨ 用盲人 v7 的深色头 + 竖线（只展开当前一步）；⑤–⑧ 地图常驻 + 抽屉，照 Uber Driver「去接人」那一屏。竖线五步：接下陪跑 → 商量见面安排 → 等出发 → 去南门汇合 → 开跑。按钮与提示文案全部沿用现行代码。动效只留淡入淡出、当前步圆点呼吸、竖线生长；绳子、弹簧、缩放、滑入全部去掉。示例地点是公共地点。</p>
+<div class="g" id="g"></div>
+<script>
+const TOP=(dark,live,more=true)=>`<div class="tp">${dark?'<div class="bk">‹ 返回</div>':'<div class="rd">‹</div>'}<div class="sp"></div>${more?`<div class="rd ${dark?'dk':''}">···</div>`:''}<div class="sos ${live?'lv':dark?'od':''}">求助</div></div>`;
+const HERO=(k,t)=>`<div class="hero"><div class="k">${k}</div><div class="t">${t}</div></div>`;
+const MAP=(extra,cls='')=>`<div class="map ${cls}"><div class="park"></div><div class="lake"></div><div class="road" style="left:0;right:0;top:330px;height:14px"></div><div class="road" style="left:262px;top:0;bottom:0;width:14px"></div>${extra}</div>`;
+const S=[
+{c:'① 邀请详情（派单推送，接单前）',r:'照：盲人 v7 ①',a:'接单前只显示时间、地点、距离、目标与配速等封闭取值；跑者备注等自由文本接单后才显示（AGENTS §8 闸不变）。求助是本地拨号。「这次去不了」沿用现在直发 DECLINE 加 5 秒撤销。',
+ h:TOP(1,0,0)+HERO('新的陪跑邀请','明天 7:00 开跑')+`<div class="sh"><div class="pl">朝阳公园南门</div><div class="sb">离你约 2.3 公里 · 5 公里 · 轻松跑</div><div style="margin-top:20px"><div class="n w"><div class="dt"></div><div style="flex:1"><div class="nl">接下陪跑</div><div class="nd">回复剩 4:32</div><div class="cd"><div class="dk"><p>接下后先和跑者通个电话</p><h3>再一起定见面安排</h3></div><div class="lt">接单后才显示跑者备注</div></div></div></div><div class="n t2"><div class="dt"></div><div class="nl"><span class="pre">下一步</span>商量见面安排</div></div><div class="n m"><div class="dt"></div><div class="nl">还有 3 步 ›</div></div></div></div><div class="bt"><div class="cta">接下这次陪跑</div><div class="tx">这次去不了</div></div>`},
+{c:'② 通话磨合 · 通话中（PENDING_INTRO_CALL）',r:'照：盲人 v7 ②',a:'标题沿用「等待跑者陈来电 / 跑者陈正在来电」。「不合适」「未接到来电」、举报、不再匹配此人收进右上角「···」（与盲人端「更换陪跑员」一致）。求助仍是本地拨号，改为读 VolunteerOrderSOSMode.resolve。',
+ h:TOP(1,0)+HERO('先通个电话','等待跑者陈来电')+`<div class="sh"><div class="pl">朝阳公园南门</div><div class="sb">11 月 10 日 周二 · 上午 7:00 左右</div><div style="margin-top:20px"><div class="n d"><div class="dt">✓</div><div><div class="nl">已接下陪跑</div><div class="nd">今天 23:29</div></div></div><div class="n w"><div class="dt"></div><div style="flex:1"><div class="nl">商量见面安排</div><div class="nd">跑者会打给你 · 剩余 19 分钟</div><div class="cd"><div class="dk"><p>通话后</p><h3>由你填写见面安排</h3></div><div class="lt"><div class="av">陈</div><div>跑者的需要<br><b>轻松跑 · 不带导盲犬</b></div></div></div></div></div><div class="n t2"><div class="dt"></div><div class="nl"><span class="pre">下一步</span>等出发</div></div><div class="n m"><div class="dt"></div><div class="nl">还有 2 步 ›</div></div></div></div><div class="bt"><div class="cta">填写见面安排</div></div>`},
+{c:'③ 通话磨合 · 等跑者确认',r:'照：盲人 v7 ③',a:'已提交的安排单五项首屏完整可见；底部只留「修改见面安排」（白底描边），点了仍先弹「修改后需跑者重新确认」。',
+ h:TOP(1,0)+HERO('已提交见面安排','等待跑者陈确认')+`<div class="sh"><div><div class="n d f"><div class="dt">✓</div><div class="nl">已完成 1 步 ›</div></div><div class="n w"><div class="dt"></div><div style="flex:1"><div class="nl">商量见面安排</div><div class="nd">跑者确认后即完成约定</div><div class="cd" style="background:#F4F5F8;padding:4px 14px">${[['开跑时间','11 月 10 日 7:00'],['在哪见','朝阳公园南门 · 门卫亭左边'],['跑者上衣','蓝色'],['你的上衣','黄色'],['配速','轻松']].map(([a,b])=>`<div style="padding:8px 0;border-bottom:1px solid #E6E7EB"><div style="font-size:12px;color:#4A4F5C">${a}</div><b style="font-size:16px">${b}</b></div>`).join('')}</div></div></div></div></div><div class="bt"><div class="cta gh">修改见面安排</div></div>`},
+{c:'④ 已约好（SCHEDULED_CONFIRMED / PENDING_ACCEPT）',r:'照：盲人 v7 ④',a:'主按钮按现行逻辑在「确认我还会去」「我已经出发了」「我出发了」之间切换，时间未到时置灰并写「x:xx 起可以按」。「我去不了」收进「···」。过了建议出发时间，深色卡标题换成金色「已过建议出发时间 N 分钟」。',
+ h:TOP(1,0)+HERO('已约好','明天 7:00 开跑')+`<div class="sh"><div class="pl">朝阳公园南门</div><div class="sb">11 月 10 日 周二 · 7:00</div><div style="margin-top:20px"><div class="n d f"><div class="dt">✓</div><div class="nl">已完成 2 步 ›</div></div><div class="n w"><div class="dt"></div><div style="flex:1"><div class="nl">等出发</div><div class="nd">出发前请确认你还会去</div><div class="cd"><div class="dk"><p>建议 6:35 出发</p><h3>骑车约 15 分钟到南门</h3></div><div class="lt"><div class="av">陈</div><div>你陪的跑者<br><b>陈* · 蓝色上衣</b></div></div></div></div></div><div class="n t2"><div class="dt"></div><div class="nl"><span class="pre">下一步</span>去南门汇合</div></div><div class="n t2"><div class="dt"></div><div class="nl">开跑</div></div></div></div><div class="bt"><div class="cta">确认我还会去</div></div>`},
+{c:'⑤ 出发（DRIVER_EN_ROUTE）',r:'照：Uber Driver 第 7 张「Picking up」+ 盲人 v7 ⑤',a:'地图画自己、集合点与跑者实时位置（已有 peerLocation）。快捷回复两枚、导航去集合点（外部地图）都在抽屉里。竖线默认藏，拉起抽屉渐显，同盲人 v7 第 5 条。',
+ h:MAP(`<svg style="position:absolute;left:0;top:0" width="390" height="430"><path d="M150 400 L269 400 L269 338" stroke="#1F2433" stroke-width="4" stroke-dasharray="6 6" fill="none"/></svg><div class="mp" style="left:206px;top:300px">南门 · 集合点</div><div class="pv" style="left:290px;top:322px">陈</div><div class="me" style="left:140px;top:392px"></div>`)+TOP(0,0)+`<div class="ms"><div class="grab"></div><div class="st">正在前往南门</div><div class="ss">约 8 分钟 · 1.2 公里</div><div class="who"><div class="av">陈</div><div><div class="nn">陈*</div><div class="dd">蓝色上衣 · 已在南门</div></div><div class="chip">打电话</div></div><div class="chips"><div>我快到了</div><div>再等我 5 分钟</div></div><div class="ln">导航去集合点<span>高德 / 苹果地图 ›</span></div></div><div class="bt"><div class="cta">我已到达集合点</div></div>`},
+{c:'⑥ 汇合（DRIVER_ARRIVED）',r:'照：盲人 v7 ⑥；方位盘搬进抽屉',a:'方位盘缩小放在标题右侧；没有方向时不画（沿用 10-05 决定）。等满后主按钮换「结束等待」，小字沿用「结束后不算你的取消，时长不计入」。',
+ h:MAP(`<div class="mp" style="left:206px;top:290px">南门 · 你在这</div><div class="me" style="left:262px;top:330px"></div><div class="pv" style="left:228px;top:345px">陈</div>`)+TOP(0,0)+`<div class="ms"><div class="grab"></div><div style="display:flex;gap:12px;align-items:center"><div style="flex:1"><div class="st">陈就在你附近</div><div class="ss">左前方约 20 米</div></div><svg width="88" height="88" viewBox="0 0 88 88"><circle cx="44" cy="44" r="40" fill="#EEEFF2"/><path d="M44 44 L20 12 A40 40 0 0 1 52 5 Z" fill="#1F2433"/><circle cx="44" cy="44" r="6" fill="#2F7BF6"/></svg></div><div class="chips"><div>打电话</div><div>找不到对方</div></div><div class="ln">让陈的手机响起来<span>›</span></div></div><div class="bt"><div class="cap2">见面并握好引导绳后再按</div><div class="cta">开始跑步</div></div>`},
+{c:'⑦ 跑步中（IN_PROGRESS）',r:'照：盲人 v7 ⑦',a:'右上角红色实心「求助」开现有求助面板（暂停 / 让对方手机响 / 联系客服 / 长按 3 秒紧急求助），面板与二次确认文案不改。走散、电量低、定位弱提示条在抽屉里，同一时刻最多一条。暂停时主区换「继续陪跑」。',
+ h:MAP(`<svg style="position:absolute;left:0;top:0" width="390" height="430"><path d="M269 337 L60 337 L60 220 L180 220" stroke="#2F7BF6" stroke-width="5" fill="none"/></svg><div class="pv" style="left:165px;top:203px">陈</div>`)+TOP(0,1,0)+`<div class="ms"><div class="grab"></div><div class="st">和陈一起跑步中</div><div class="stats"><div class="big">2.40<small>公里</small></div><div><p>用时</p><b>18:32</b></div><div><p>配速</p><b>7′43″</b></div></div><div class="bar"><i></i></div><div class="nd" style="margin-top:6px">还剩 2.6 公里 · 目标 5 公里</div><div class="tip"><b>陈的手机电量低</b> · 跑完记得提醒对方充电</div><div class="ln">耳机语音播报<span>开 ›</span></div></div><div class="bt"><div class="lp"><i></i>长按 2 秒，结束陪跑</div><div class="tx">取消陪跑</div></div>`},
+{c:'⑧ 完成（COMPLETED）· 负责人要求不挤后的改稿',r:'照：盲人 v7 ⑧',a:'地图收矮 50pt 给抽屉；标题只写「跑完了」，次数放副标题；绿卡里距离单独一行，用时 / 配速 / 志愿时长第二行；国标星级单独一张带进度条的卡（拉不到数据时整卡不出现）；「查看跑步记录」「上报问题」并排。',
+ h:MAP(`<svg style="position:absolute;left:0;top:0" width="390" height="380"><path d="M269 337 L60 337 L60 120 L250 120 L250 337" stroke="#1E7A46" stroke-width="5" fill="none"/></svg><div class="mp" style="left:196px;top:298px">起点 · 终点 南门</div>`,'short')+TOP(0,0)+`<div class="ms tall"><div class="grab"></div><div class="st">跑完了</div><div class="ss gr">第 3 次和陈一起跑 · 朝阳公园南门</div><div class="res"><div class="big">5.20<small>公里</small></div><div class="three"><div><p>用时</p><b>42 分钟</b></div><div><p>配速</p><b>8′04″</b></div><div><p>志愿时长</p><b>45 分钟</b></div></div></div><div class="star"><div class="h">志愿服务星级 一星<span>再 6 小时到二星</span></div><div class="bar"><i></i></div></div><div class="chips" style="margin-top:14px"><div>查看跑步记录</div><div>上报问题</div></div></div><div class="bt"><div class="cta">完成</div></div>`},
+{c:'⑨ 跑者已取消（CANCELLED）· 负责人要求不挤后的改稿',r:'照：盲人 v7 ①–④ 骨架',a:'竖线五步全画出、行距 22pt，每步一行说明；中断那步打叉，后面两步灰。下面一张「原定时间 / 集合点 / 跑者」信息卡。与 #946 盲人已取消同构，但不共用文件。',
+ h:TOP(1,0,0)+HERO('已取消','陈取消了这次陪跑')+`<div class="sh"><div class="pl">不算你的取消</div><div class="sb">不需要做什么，可以继续接新的邀请</div><div class="wide" style="margin-top:26px"><div class="n d"><div class="dt">✓</div><div><div class="nl">已接下陪跑</div><div class="nd">11 月 9 日 23:29</div></div></div><div class="n d"><div class="dt">✓</div><div><div class="nl">商量见面安排</div><div class="nd">已约好 11 月 10 日 7:00</div></div></div><div class="n x"><div class="dt">×</div><div><div class="nl">等出发</div><div class="nd">跑者在这一步取消了</div></div></div><div class="n g2"><div class="dt"></div><div class="nl">去南门汇合</div></div><div class="n g2"><div class="dt"></div><div class="nl">开跑</div></div></div><div class="box"><div class="row"><span>原定时间</span>11 月 10 日 周二 7:00</div><div class="row"><span>集合点</span>朝阳公园南门</div><div class="row"><span>跑者</span>陈*</div></div></div><div class="bt"><div class="cta">回到首页</div></div>`}
+];
+document.getElementById('g').innerHTML=S.map(s=>`<div class="cell"><div class="ph">${s.h}</div><div class="cap">${s.c}</div><span class="ref">${s.r}</span><div class="anno">${s.a}</div></div>`).join('');
+</script>
+</body>
+</html>
