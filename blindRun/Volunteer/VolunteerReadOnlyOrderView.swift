@@ -4,6 +4,8 @@ struct VolunteerReadOnlyOrderView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
+    /// 举报 / 不再匹配此人：2026-11-11 起收进导航栏「···」，正文只留结果一行（`CounterpartSafetyMenu`）。
+    @StateObject private var counterpartSafety = CounterpartBlockViewModel()
     let order: OrderDetailResponse
 
     var body: some View {
@@ -24,12 +26,27 @@ struct VolunteerReadOnlyOrderView: View {
                 } else if let error = trackViewModel.errorMessage {
                     Text(error).foregroundColor(AppColors.textSecondary)
                 }
-                OrderCounterpartSafetySection(order: order)
+                CounterpartBlockOutcome(viewModel: counterpartSafety)
             }
             .padding(20)
             .readableContentColumn()
         }
         .navigationTitle("订单详情")
+        .toolbar {
+            if CounterpartSafetyGate.orderPageTarget(order) != nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        CounterpartSafetyMenuItems(viewModel: counterpartSafety)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("更多操作")
+                    .accessibilityHint(CounterpartSafetyMenu.titles(viewModel: counterpartSafety).joined(separator: "、"))
+                    .accessibilityIdentifier("volunteerOrderNavMoreMenu")
+                }
+            }
+        }
+        .counterpartSafetyPrompts(viewModel: counterpartSafety, target: CounterpartSafetyGate.orderPageTarget(order))
         .task {
             guard order.status == .completed else { return }
             await trackViewModel.load(orderID: order.orderId, appState: appState)

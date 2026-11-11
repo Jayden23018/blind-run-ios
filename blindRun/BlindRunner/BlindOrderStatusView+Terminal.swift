@@ -37,7 +37,7 @@ extension BlindOrderStatusView {
     /// 🔴 **没有「问一句」**：它在骨架态住在求助中心里，终态没有求助中心；「重复当前状态」仍在导航栏右侧。
     /// 🔴 **不自动离开页面**：取消成功必须让人听到、看到，并自己决定何时返回首页。
     ///
-    /// 改版前那条列表上的东西一件没删：失败提示、对方安全入口、Mock 调试区在 footer，
+    /// 改版前那条列表上的东西一件没删：失败提示、Mock 调试区在 footer（对方安全入口 2026-11-11 起在导航栏「···」），
     /// 预约信息与状态变更记录是信息卡里的两行折叠。
     @ViewBuilder
     func terminalContent(_ order: OrderDetailResponse) -> some View {
@@ -56,7 +56,7 @@ extension BlindOrderStatusView {
             terminalInfoCard(order)
             VStack(spacing: 16) {
                 flowFooter(order)
-                OrderCounterpartSafetySection(order: order)
+                CounterpartBlockOutcome(viewModel: counterpartSafety)
                 debugMockControls(order)
             }
         }

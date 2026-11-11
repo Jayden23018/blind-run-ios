@@ -73,10 +73,12 @@ extension VolunteerInServiceView {
                 isPrimaryEnabled: !viewModel.isTransitionPending && !gate.isLocked,
                 awaitingBlindConfirmation: viewModel.awaitingBlindConfirmation,
                 gateCaption: gate.caption,
+                counterpartSafety: CounterpartSafetyGate.orderPageTarget(order) == nil ? nil : counterpartSafety,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
                 footer: {
                     flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed)
-                    OrderCounterpartSafetySection(order: order)
+                    // 举报 / 不再匹配此人在顶栏「···」，这里只留结果一行。
+                    CounterpartBlockOutcome(viewModel: counterpartSafety)
                     VolunteerFirstRunLoader(viewModel: viewModel, phase: phase)
                 }
             )

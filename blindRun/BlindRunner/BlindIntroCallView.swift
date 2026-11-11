@@ -25,7 +25,7 @@ struct BlindIntroCallView<Footer: View>: View {
     /// 与订单状态页**同一个实例**。见类型注释。
     @ObservedObject var viewModel: BlindOrderStatusViewModel
     let order: OrderDetailResponse
-    /// 顶栏由订单页给（返回、求助都是订单页的动作）；这里只补「···」里的「更换陪跑员」和喇叭念什么。
+    /// 顶栏由订单页给（返回、求助、举报 / 不再匹配都是订单页的动作）；这里只补「···」里的「更换陪跑员」和喇叭念什么。
     let makeTopBar: (_ menu: [BlindOrderMenuItem], _ onRepeatStatus: @escaping () -> Void) -> BlindOrderTopBar
     /// 订单页的头部焦点。安排单刚到、陪跑员改了一版时钉回标题。
     var headerFocused: AccessibilityFocusState<Bool>.Binding
@@ -46,17 +46,9 @@ struct BlindIntroCallView<Footer: View>: View {
             when: isReviewingPlan ? nil : order.blindRunnerShortStartText(),
             timeline: timeline,
             card: { card },
-            footer: {
-                VStack(spacing: 16) {
-                    if let target = CounterpartSafetyGate.target(
-                        userId: viewModel.introCallCounterpartUserId,
-                        orderId: viewModel.order?.orderId
-                    ) {
-                        CounterpartSafetyActions(target: target, blockContext: .introCall)
-                    }
-                    footer()
-                }
-            },
+            // 举报 / 不再匹配此人 2026-11-11 起收进顶栏「···」：订单页在 `makeTopBar` 里接在「更换陪跑员」后面，
+            // 结果一行在 `footer()`（`BlindOrderStatusView.stageFooter`）。
+            footer: { footer() },
             bottom: { bottomButtons }
         )
         .blindIntroCallDeclineConfirmation(isPresented: $confirmsDecline, viewModel: viewModel)

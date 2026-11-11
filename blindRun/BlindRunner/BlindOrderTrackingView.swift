@@ -28,7 +28,7 @@ struct BlindOrderTrackingView<TopBar: View, Drawer: View, Timeline: View, Footer
     let bottom: OrderFlowBottomActions
     @ViewBuilder let drawer: () -> Drawer
     @ViewBuilder let timeline: () -> Timeline
-    /// 「刚才那一下的结果」、对方安全入口、Mock 调试区。排在竖线**之前**：它们是这一刻的事，竖线是回顾。
+    /// 「刚才那一下的结果」（含「不再匹配」的结果一行）、Mock 调试区。排在竖线**之前**：它们是这一刻的事，竖线是回顾。
     @ViewBuilder let footer: () -> Footer
 
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled

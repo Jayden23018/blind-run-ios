@@ -127,58 +127,6 @@ struct FlowHeroPill: View {
     }
 }
 
-// MARK: 导航栏
-
-/// 订单页导航栏：左返回、中标题、右求助。左右各一个固定宽度的槽，
-/// 这样标题始终居中、求助胶囊在任何状态下都在同一个位置。
-///
-/// 放大字号后两侧槽只增不减（`minWidth`），标题换行而不是把胶囊挤出屏幕。
-struct FlowOrderNavBar: View {
-    let title: String
-    /// `nil` = 不放返回按钮（完成页）。
-    var onBack: (() -> Void)?
-    let onHelp: () -> Void
-    /// 见 `FlowHelpPill`。
-    var helpIsCloud = false
-    var helpIsBusy = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Group {
-                if let onBack {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(AppColors.Flow.primaryText)
-                            .frame(
-                                width: FlowMetrics.v2TextButtonMinHeight,
-                                height: FlowMetrics.v2TextButtonMinHeight,
-                                alignment: .leading
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("返回")
-                } else {
-                    Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
-                }
-            }
-            .frame(minWidth: FlowMetrics.v2NavSlotWidth, alignment: .leading)
-
-            Text(title)
-                .flowFont((16, .bold, .headline))
-                .foregroundColor(AppColors.Flow.primaryText)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .accessibilityAddTraits(.isHeader)
-
-            FlowHelpPill(isCloud: helpIsCloud, isBusy: helpIsBusy, action: onHelp)
-                .frame(minWidth: FlowMetrics.v2NavSlotWidth, alignment: .trailing)
-        }
-        .frame(minHeight: FlowMetrics.v2NavHeight)
-    }
-}
-
 // MARK: 头卡
 
 /// 订单页最上面那张卡。底色随订单状态变（交付包 v2 C01）。

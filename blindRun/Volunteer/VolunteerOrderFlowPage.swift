@@ -43,6 +43,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var awaitingBlindConfirmation: Bool = false
     /// 后端放行时刻给的那句小字（`VolunteerActionGate.caption`），优先于动作自己的那句。
     var gateCaption: String? = nil
+    /// 非 `nil` = 顶栏放「···」（举报 / 不再匹配此人，2026-11-11 起从页脚收进来）。有没有对方由宿主判。
+    var counterpartSafety: CounterpartBlockViewModel? = nil
     /// 信息卡之后那块「刚才那一下的结果」。**这一页唯一的可见失败面**，少了它失败只剩一句 TTS。
     @ViewBuilder let footer: () -> Footer
 
@@ -52,7 +54,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            FlowOrderNavBar(title: navTitle, onBack: onBack, onHelp: openHelp, helpIsCloud: presentation.helpMode == .cloud)
+            FlowOrderNavBar(title: navTitle, onBack: onBack, onHelp: openHelp, helpIsCloud: presentation.helpMode == .cloud, counterpartSafety: counterpartSafety)
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
             ScrollView {
                 VStack(spacing: FlowMetrics.v2SectionGap) {

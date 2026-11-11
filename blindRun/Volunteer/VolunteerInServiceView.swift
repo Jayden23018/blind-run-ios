@@ -36,6 +36,8 @@ struct VolunteerInServiceView: View {
     @Environment(\.openURL) var openURL
     @StateObject var viewModel = VolunteerInServiceViewModel()
     @StateObject var trackViewModel = CompletedTrackSummaryViewModel()
+    /// 举报 / 不再匹配此人。入口在顶栏「···」，弹层挂在页面根上，结果一行在页脚（`CounterpartSafetyMenu`）。
+    @StateObject var counterpartSafety = CounterpartBlockViewModel()
     @State var showEmergencyConfirm = false
     @State var showsRunRecord = false
     @State var activeSheet: VolunteerSheet?
@@ -129,6 +131,10 @@ struct VolunteerInServiceView: View {
         // ⚠️ 2026-09-17 合并时搬过一次位置：它原本挂在旧 body 的末尾，而那一段被
         // 四步骨架重构删掉了。取任一边都会让这一行静默消失，所以是手动搬进来的。
         .toolbar(.hidden, for: .tabBar)
+        .counterpartSafetyPrompts(
+            viewModel: counterpartSafety,
+            target: viewModel.order.flatMap(CounterpartSafetyGate.orderPageTarget)
+        )
         .task {
             viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
             viewModel.startPolling(orderId: orderId)
