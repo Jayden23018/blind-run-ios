@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>盲人端 · 约跑前先选紧急联系人（#805 模拟图）</title>
+<style>
+  :root {
+    --primary: #0058C7; --success: #1B7F3B; --danger: #C62828;
+    --bg: #F2F2F7; --card: #FFFFFF; --text: #000000; --text2: #5A5A5F;
+    --line: #E5E5EA; --subtle: #F2F2F7; --tint: #E8F0FB;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 30px 40px; background: #F6F6F8; color: var(--text);
+         font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  .sub { color: var(--text2); font-size: 15px; margin: 0 0 22px; }
+  .row { display: flex; gap: 26px; align-items: flex-start; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; color: #fff; padding: 3px 8px;
+         border-radius: 5px; margin-right: 8px; vertical-align: 2px; }
+  .tag.before { background: #8E8E93; } .tag.after { background: var(--success); }
+  .col-title { font-size: 17px; font-weight: 700; margin: 0 0 10px; min-height: 24px; }
+  .phone { width: 390px; height: 800px; background: var(--bg); border-radius: 44px; position: relative;
+           box-shadow: 0 2px 14px rgba(0,0,0,.12); overflow: hidden; display: flex; flex-direction: column; }
+  .white { background: #fff; }
+  .status { display: flex; justify-content: space-between; padding: 18px 30px 6px; font-weight: 600; font-size: 16px; }
+  .nav { display: flex; align-items: center; height: 44px; padding: 0 16px; position: relative; }
+  .back { width: 40px; height: 40px; border-radius: 20px; background: #fff; display: flex; align-items: center;
+          justify-content: center; font-size: 22px; color: #000; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .nav-title { position: absolute; left: 0; right: 0; text-align: center; font-weight: 600; font-size: 17px; pointer-events: none; }
+  .content { padding: 8px 20px 0; flex: 1; }
+  .icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
+          color: #fff; font-size: 30px; margin: 6px 0 12px; }
+  .big { font-size: 28px; font-weight: 700; line-height: 1.25; margin: 0 0 8px; }
+  .lead { font-size: 15px; color: var(--text2); line-height: 1.5; margin: 0 0 18px; }
+  .card { background: var(--card); border-radius: 14px; margin-bottom: 16px; }
+  .card .line { padding: 16px; font-size: 16px; border-bottom: 1px solid var(--line); line-height: 1.45; }
+  .card .line:last-child { border-bottom: 0; }
+  .repeat { color: #000; font-weight: 600; display: flex; gap: 10px; align-items: center; }
+  .repeat .spk { color: var(--primary); font-size: 20px; }
+  .bottom { padding: 0 20px 26px; }
+  .btn { height: 64px; display: flex; align-items: center; justify-content: center; padding: 6px 12px; }
+  .btn span { display: flex; width: 100%; height: 52px; border-radius: 26px; align-items: center; justify-content: center;
+              font-size: 17px; font-weight: 600; }
+  .btn.solid span { background: var(--primary); color: #fff; }
+  .btn.outline span { background: var(--tint); color: var(--primary); border: 1px solid rgba(0,88,199,.35); }
+  .foot { text-align: center; font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.5; }
+  .speech { margin-top: 12px; width: 390px; font-size: 13.5px; line-height: 1.55; background: #fff; border-radius: 12px;
+            padding: 12px 14px; color: #333; border-left: 4px solid var(--primary); }
+  .speech b { color: var(--primary); }
+  /* 改前：约跑页 */
+  .steps { display: flex; gap: 6px; padding: 4px 20px 12px; }
+  .steps div { flex: 1; text-align: center; font-size: 13px; padding: 6px 0; border-radius: 8px; background: #fff; color: var(--text2); }
+  .steps div.on { background: var(--primary); color: #fff; font-weight: 600; }
+  .missing { margin: 0 20px 14px; }
+  .missing .h { font-size: 13px; color: var(--text2); padding: 0 16px 6px; }
+  .missing .r { background: #fff; border-radius: 14px; padding: 16px; display: flex; justify-content: space-between; font-size: 16px; }
+  .missing .r em { font-style: normal; color: var(--text2); }
+  .missing .f { font-size: 13px; color: var(--text2); padding: 6px 16px 0; }
+  .hl { outline: 3px dashed var(--danger); outline-offset: 4px; border-radius: 14px; }
+  .sec { margin: 0 20px 12px; }
+  .sec .t { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+  .place { background: #fff; border-radius: 14px; padding: 16px; font-size: 16px; line-height: 1.5; }
+  .place small { display: block; color: var(--text2); font-size: 13px; }
+  .search { margin-top: 10px; background: #fff; border-radius: 12px; padding: 14px 16px; color: #8E8E93; font-size: 16px; }
+  .toast { margin: 0 20px 12px; background: #E7F4EA; color: #155E2C; border-radius: 12px; padding: 12px 14px; font-size: 15px; font-weight: 600; }
+  /* 系统通讯录 */
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 60px; background: #fff; border-radius: 14px 14px 0 0;
+           box-shadow: 0 -2px 16px rgba(0,0,0,.18); padding: 14px 16px; }
+  .sheet .sh { display: flex; justify-content: space-between; font-size: 17px; margin-bottom: 12px; }
+  .sheet .sh b { font-weight: 600; } .sheet .sh a { color: var(--primary); }
+  .sheet .s { background: #EEEEF0; border-radius: 10px; padding: 9px 12px; color: #8E8E93; margin-bottom: 10px; }
+  .sheet .p { padding: 13px 4px; border-bottom: 1px solid var(--line); font-size: 17px; }
+  .sheet .p.pick { background: #E8F0FB; border-radius: 8px; padding-left: 10px; }
+  .dim { position: absolute; inset: 0; background: rgba(0,0,0,.25); }
+  .notes { width: 390px; background: #fff; border-radius: 16px; padding: 18px 20px; font-size: 14px; line-height: 1.65; }
+  .notes h3 { margin: 0 0 8px; font-size: 16px; }
+  .notes ol { margin: 0 0 12px; padding-left: 20px; }
+  .q { background: #FFF6E5; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>盲人端 · 约跑前先选紧急联系人（#805 模拟图，待负责人确认）</h1>
+<p class="sub">负责人 2026-11-06 定：门槛不变，挪到约跑前单独一页。约跑页里不再出现资料项。按钮样式按 #749 实心胶囊。数据为示例。</p>
+
+<div class="row">
+  <!-- 改前 -->
+  <div>
+    <p class="col-title"><span class="tag before">改前</span>约跑页（现在）</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>5G ▮</span></div>
+      <div class="nav"><div class="back">‹</div><div class="nav-title">预约陪跑</div></div>
+      <div class="missing hl">
+        <div class="h">约跑前还差 1 项</div>
+        <div class="r"><span>紧急联系人</span><em>未添加 ›</em></div>
+        <div class="f">补完回到这一页，接着约跑。</div>
+      </div>
+      <div class="steps"><div class="on">地点</div><div>时间</div><div>需求</div><div>确认</div></div>
+      <div class="sec">
+        <div class="t">确认出发地点</div>
+        <div class="place">当前位置<small>朝阳公园南门附近</small></div>
+        <div class="search">搜索其他地点</div>
+      </div>
+    </div>
+    <div class="speech"><b>问题：</b>资料项（紧急联系人）和约跑四步挤在同一页，像一张表单。读屏先念到「还差 1 项」，再念地点。</div>
+  </div>
+
+  <!-- 改后 ① -->
+  <div>
+    <p class="col-title"><span class="tag after">改后 ①</span>点「约跑」，还没有联系人</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>5G ▮</span></div>
+      <div class="nav"><div class="back">‹</div></div>
+      <div class="content">
+        <div class="icon" style="background: var(--danger);">☎</div>
+        <p class="big">先选一位紧急联系人</p>
+        <p class="lead">约跑前要有一位紧急联系人。跑步中你求助时，系统会给他发短信。只要选一次，以后约跑不再问。</p>
+        <div class="card">
+          <div class="line">当前：<b>还没有紧急联系人。</b></div>
+          <div class="line repeat"><span class="spk">🔊</span>重复当前状态</div>
+        </div>
+      </div>
+      <div class="bottom">
+        <div class="btn solid"><span>从通讯录选一位</span></div>
+        <div class="btn outline"><span>手动输入</span></div>
+        <div class="foot">助盲跑只拿到你选的这一位的姓名和手机号。</div>
+      </div>
+    </div>
+    <div class="speech"><b>进页播报：</b>约跑前要有一位紧急联系人。跑步中你求助时，系统会给他发短信。点「从通讯录选一位」，或者手动输入。</div>
+  </div>
+
+  <!-- 改后 ② -->
+  <div>
+    <p class="col-title"><span class="tag after">改后 ②</span>系统通讯录（苹果自带界面）</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>5G ▮</span></div>
+      <div class="nav"><div class="back">‹</div></div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="sh"><a>取消</a><b>通讯录</b><span style="width:34px"></span></div>
+        <div class="s">搜索</div>
+        <div class="p">李阿姨</div>
+        <div class="p pick">王小明</div>
+        <div class="p">张老师</div>
+        <div class="p">赵师傅</div>
+      </div>
+    </div>
+    <div class="speech"><b>选中一位：</b>进入一页确认（与 #807 共用，那边画），念出「对方会收到一条告知短信」。点「添加」才保存，第一位自动成为主联系人，关系不填。添加成功后直接进约跑页。<br><b>号码不是 11 位手机号（如座机）：</b>不进确认页，转到手动输入。<br><b>点取消，或在确认页返回：</b>不添加，回到 ① 页。</div>
+  </div>
+</div>
+
+<div class="row" style="margin-top: 30px;">
+  <!-- 改后 ③ -->
+  <div>
+    <p class="col-title"><span class="tag after">改后 ③</span>选好后直接进约跑页</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>5G ▮</span></div>
+      <div class="nav"><div class="back">‹</div><div class="nav-title">预约陪跑</div></div>
+      <div class="steps"><div class="on">地点</div><div>时间</div><div>需求</div><div>确认</div></div>
+      <div class="sec">
+        <div class="t">确认出发地点</div>
+        <div class="place">当前位置<small>朝阳公园南门附近</small></div>
+        <div class="search">搜索其他地点</div>
+      </div>
+    </div>
+    <div class="speech"><b>播报：</b>已添加紧急联系人王小明。现在开始约跑。<br>屏幕上的确认就是页面换成约跑页，不另加提示条（约跑页内部归 #806）。约跑页顶部不再有「还差 1 项」卡，这里只画「卡没了」。</div>
+  </div>
+
+  <!-- 改后 ④ -->
+  <div>
+    <p class="col-title"><span class="tag after">改后 ④</span>少见：有联系人但没有主联系人</p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>5G ▮</span></div>
+      <div class="nav"><div class="back">‹</div></div>
+      <div class="content">
+        <div class="icon" style="background: var(--danger);">☎</div>
+        <p class="big">先设一位主联系人</p>
+        <p class="lead">你已添加 2 位紧急联系人，还要选其中 1 位作为主联系人。</p>
+        <div class="card">
+          <div class="line">当前：<b>2 位联系人，没有主联系人。</b></div>
+          <div class="line repeat"><span class="spk">🔊</span>重复当前状态</div>
+        </div>
+      </div>
+      <div class="bottom">
+        <div class="btn solid"><span>去设主联系人</span></div>
+        <div class="foot">打开紧急联系人页，设好后回到这里接着约跑。</div>
+      </div>
+    </div>
+    <div class="speech"><b>说明：</b>后端会把第一位联系人自动设为主联系人，正常用不会走到这页，留着兜底。</div>
+  </div>
+
+  <div class="notes">
+    <h3>和现在的差别</h3>
+    <ol>
+      <li>紧急联系人从约跑页顶部的「还差 1 项」卡，挪到点「约跑」之后、进约跑页之前的单独一页。约跑页只剩约跑步骤。</li>
+      <li>主路径：点「从通讯录选一位」→ 选人 → 确认页点「添加」→ 直接进约跑页。现在要先进紧急联系人页、再点添加、再选人、再选关系、再保存、再返回。</li>
+      <li>已经有联系人的人看不到这一页，直接进约跑页。</li>
+      <li>表单入口和语音入口都先过这一页。</li>
+    </ol>
+    <h3>不变</h3>
+    <ol>
+      <li>下单门槛不变：没有紧急联系人不能下单（后端 403 <code>EMERGENCY_CONTACT_REQUIRED</code>）。</li>
+      <li>门页不会自己弹通讯录，要用户点按钮。按返回 = 这次不约，回首页。</li>
+      <li>紧急联系人页本身不改（归 #807）。</li>
+    </ol>
+    <div class="q"><b>请负责人确认：</b>① 版式和文案；② 「跑步中你求助时，系统会给他发短信」这句用途说明是否合适（按红线只说会发、不说已送达）；③ 确认页与 #807 共用（后端添加联系人后会给对方发告知短信，保存前要让盲人知道），所以本功能要等 #807 那一页合并后才能合并。</div>
+  </div>
+</div>
+</body>
+</html>

@@ -929,18 +929,20 @@ struct BlindRunnerHomeView: View {
 }
 
 private extension BlindRunnerHomeView {
-    /// 约跑路由过闸：最外层先看开放范围（#667，暂不接受预约就只告知），再要位置轨迹的单独同意（#368）。
-    /// 里面是 #806 的约跑页。
+    /// 约跑路由过闸：最外层先看开放范围（#667，暂不接受预约就只告知），再要位置轨迹的单独同意（#368），
+    /// 最里层缺紧急联系人时先过门页（#805），补齐后当场换成约跑页。里面是 #806 的约跑页。
     func matchFirstBooking() -> some View {
         BlindBookingLaunchScopeGate(onLeave: { path.removeAll() }) {
             BlindBookingTrackConsentGate(onDecline: {
                 path.removeAll()
                 viewModel.noteBookingTrackConsentDeclined()
             }) {
-                BlindMatchFirstBookingView(favoritePlaces: favoritePlaces, onAddFavorite: { path.append(.addFavoritePlace) }) { response in
-                    viewModel.handleOrderCreated(response)
-                    if let orderId = response.id {
-                        path = [.orderStatus(orderId)]
+                BlindBookingEmergencyContactGate {
+                    BlindMatchFirstBookingView(favoritePlaces: favoritePlaces, onAddFavorite: { path.append(.addFavoritePlace) }) { response in
+                        viewModel.handleOrderCreated(response)
+                        if let orderId = response.id {
+                            path = [.orderStatus(orderId)]
+                        }
                     }
                 }
             }
