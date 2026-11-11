@@ -36,13 +36,13 @@ AidRun helps blind and low-vision runners book a sighted volunteer guide, and su
 
 项目处于上线前阶段，邀请试用。还没有真实视障用户完整跑过一单。
 
-下面是 2026-11-01 在提交 `fddbcf2e` 上的静态统计，不代表最近一次测试结果：
+下面是 2026-11-11 在提交 `24842c0e` 上的静态统计，不代表最近一次测试结果：
 
 | 项目 | 数量 |
 |---|---|
-| `blindRun/` Swift 文件 | 259 个，84,574 行 |
-| 单元测试函数 | 2,310 个 |
-| UI 测试函数 | 181 个 |
+| `blindRun/` Swift 文件 | 484 个，104,997 行 |
+| 单元测试函数 | 2,934 个 |
+| UI 测试函数 | 239 个 |
 
 上线前还要完成的事项记在[上线前检查单](docs/pre-launch-checklist.md)里。
 
