@@ -34,6 +34,15 @@ final class CounterpartBlockViewModel: ObservableObject {
             return false
         }
     }
+
+    /// 换了对方时调。「已不再匹配」和失败提示都是对**那一个人**的，不许留到下一位身上
+    /// （盲人订单页通话期换人后退回 `PENDING_MATCH` 再匹配，页面不重建，这份状态会一直挂着）。
+    func reset() {
+        didBlock = false
+        errorMessage = nil
+        showsReport = false
+        showsBlockConfirm = false
+    }
 }
 
 // MARK: - 入口

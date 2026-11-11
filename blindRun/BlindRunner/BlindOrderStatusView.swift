@@ -468,6 +468,11 @@ struct BlindOrderStatusView: View {
             target: counterpartSafetyTarget,
             blockContext: counterpartSafetyBlockContext
         )
+        // 换到下一位对方时清掉上一位的「已不再匹配」（通话期换人 → 退回匹配 → 新的人，页面不重建）。
+        // 变成 nil 时不清：刚拉黑、订单还没转走的那几秒，结果一行要留在屏幕上。
+        .onChange(of: counterpartSafetyTarget?.userId) { userId in
+            if userId != nil { counterpartSafety.reset() }
+        }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
             Button("确认取消", role: .destructive) {
                 Task {

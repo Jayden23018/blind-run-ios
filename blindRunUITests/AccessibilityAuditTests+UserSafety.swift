@@ -83,8 +83,10 @@ extension AccessibilityAuditTests {
         // 已拉黑后「···」里只剩「举报」。
         _ = openOrderMenuItem(app, menu: menu, item: "counterpartReportButton")
         XCTAssertFalse(app.buttons["counterpartBlockButton"].exists, "已拉黑后「···」里不再有「不再匹配此人」")
-        // 点头部标题那块空白收起菜单（不点底部：那里是主按钮，见记忆 ui-test-tap-lands-on-persistent-sos-bar）。
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        // 点左侧竖线那块收起菜单：菜单从右上角弹出，点头部会点在菜单上；
+        // 也不点底部，那里是主按钮（记忆 ui-test-tap-lands-on-persistent-sos-bar）。
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.66)).tap()
+        XCTAssertTrue(app.buttons["counterpartReportButton"].waitForNonExistence(timeout: 5), "「···」菜单没收起")
     }
 
     @available(iOS 17.0, *)
