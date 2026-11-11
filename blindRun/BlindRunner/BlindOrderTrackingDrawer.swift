@@ -11,6 +11,8 @@ struct BlindOrderTrackingDrawer: View {
     let presentation: BlindOrderFlowPresentation
     let order: OrderDetailResponse
     var stats: TrackStats?
+    /// 陪跑员到出发地点的距离（`volunteerDistanceToStartText`），只有出发 / 已到达有。
+    var distanceText: String?
     var isLocationFresh = true
     var isLiveSharing = false
     /// ⑥ 陪跑员行右侧的「打电话」。按钮出不出现由 `presentation.callTitle` 决定。
@@ -25,6 +27,8 @@ struct BlindOrderTrackingDrawer: View {
             switch presentation.phase {
             case .countdown(let beat):
                 countdown(beat)
+                // 陪跑员行（含「打电话」）这三秒留着，不让版面在手指下跳（同骨架倒计时保留拨号版位）。
+                volunteerRow
             case .running:
                 header
                 runningBlock
@@ -56,7 +60,7 @@ struct BlindOrderTrackingDrawer: View {
     private var subtitleLines: [String] {
         switch order.status {
         case .driverEnRoute:
-            var lines = [BlindTrackingDrawerCopy.enRouteSubtitle(distanceText: distanceText)]
+            var lines = [BlindTrackingDrawerCopy.enRouteSubtitle(distanceText: distanceText, place: placeName)]
             if let rope = GuideRopeReminder.line(for: order, isVolunteer: false) { lines.append(rope) }
             return lines
         case .driverArrived:
@@ -66,9 +70,9 @@ struct BlindOrderTrackingDrawer: View {
         }
     }
 
-    /// 骨架副标题里已经拼好的那段距离（`offersVolunteerDistanceToStart` 两态才有）。
-    private var distanceText: String? {
-        presentation.subtitle.split(separator: "\n").map(String.init).first { $0.hasPrefix("距出发地点") }
+    /// 地点的说法：具体见面位置 → 出发地址 → nil（文案里退成「集合点」）。
+    private var placeName: String? {
+        order.meetSpotNote?.nilIfBlank ?? order.startAddress?.nilIfBlank
     }
 
     private var header: some View {
@@ -218,10 +222,9 @@ struct BlindOrderTrackingDrawer: View {
         .buttonStyle(.plain)
         // 没到点走 `.disabled()`，读屏念「变暗」；不在 action 里静默 return（同 `BlindOrderFlowView.arrivalCancelRow`）。
         .disabled(!gate.isEnabled)
-        .accessibilityElement(children: .ignore)
+        // 不包 `.accessibilityElement(children: .ignore)`：那会合成新元素、丢掉按钮自带的「变暗」。
         .accessibilityLabel(label)
         .accessibilityHint(gate.isEnabled ? BlindArrivalCancelCopy.openAccessibilityHint : "")
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("blindOrderFlowArrivalCancelRow")
     }
 }

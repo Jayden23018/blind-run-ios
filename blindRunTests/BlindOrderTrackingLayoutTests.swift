@@ -121,10 +121,10 @@ final class BlindOrderTrackingLayoutTests: XCTestCase {
 
     /// 拿不到距离时不编数字（「N 分钟后到」等 backend#943）。
     func testEnRouteSubtitleNeverInventsADistance() {
-        XCTAssertEqual(BlindTrackingDrawerCopy.enRouteSubtitle(distanceText: nil), "请在集合点原地等")
+        XCTAssertEqual(BlindTrackingDrawerCopy.enRouteSubtitle(distanceText: nil, place: nil), "请在集合点原地等")
         XCTAssertEqual(
-            BlindTrackingDrawerCopy.enRouteSubtitle(distanceText: "距出发地点约 300 米"),
-            "距出发地点约 300 米 · 请在集合点原地等"
+            BlindTrackingDrawerCopy.enRouteSubtitle(distanceText: "距出发地点约 300 米", place: "南门"),
+            "距出发地点约 300 米 · 请在南门原地等"
         )
     }
 }

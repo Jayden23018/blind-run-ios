@@ -31,7 +31,7 @@ extension RunOrderStatus {
 enum BlindTrackingDrawerCopy {
     /// 拿不到「具体见面位置」时的说法。
     static let meetPointFallback = "集合点"
-    static let waitInPlace = "请在集合点原地等"
+    static func waitInPlace(place: String?) -> String { "请在\(place?.nilIfBlank ?? meetPointFallback)原地等" }
     static let shareRowTitle = "行程分享给家人"
     static let shareOn = "已开"
     static let shareOff = "未开"
@@ -61,10 +61,11 @@ enum BlindTrackingDrawerCopy {
         }
     }
 
-    /// ⑤ 出发的副标题：「距出发地点约 300 米 · 请在集合点原地等」。
+    /// ⑤ 出发的副标题：「距出发地点约 300 米 · 请在南门原地等」。地点取具体见面位置，没有再取出发地址，
+    /// 都没有才说「集合点」—— 这一页不再有地点行，地点只能在这一句里念到。
     /// 拿不到距离时只说后半句 —— 不编数字（「N 分钟后到」等 backend#943）。
-    static func enRouteSubtitle(distanceText: String?) -> String {
-        [distanceText?.nilIfBlank, waitInPlace].compactMap { $0 }.joined(separator: " · ")
+    static func enRouteSubtitle(distanceText: String?, place: String?) -> String {
+        [distanceText?.nilIfBlank, waitInPlace(place: place)].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

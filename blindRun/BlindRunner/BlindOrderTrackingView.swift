@@ -36,6 +36,8 @@ struct BlindOrderTrackingView<Drawer: View, Timeline: View, Footer: View>: View 
 
     @State private var isExpanded = false
     @State private var dragTranslation: CGFloat = 0
+    /// 上一次拖动松手的时刻。拖完松手时按钮的点按也可能触发，不挡掉会把刚拖到的那一档又切回去。
+    @State private var lastDragEndedAt: Date?
 
     private var showsMap: Bool {
         BlindOrderTrackingLayout.showsMap(
@@ -130,6 +132,7 @@ struct BlindOrderTrackingView<Drawer: View, Timeline: View, Footer: View>: View 
     /// `xcuitest-cannot-invoke-accessibility-actions`），拖动跟手，读屏给「展开 / 收起」两个动作。
     private func drawerHandle(collapsedTop: CGFloat, expandedTop: CGFloat) -> some View {
         Button {
+            if let lastDragEndedAt, Date().timeIntervalSince(lastDragEndedAt) < BlindTrackingDrawerMetrics.tapAfterDragWindow { return }
             setExpanded(!isExpanded)
         } label: {
             Capsule()
@@ -146,6 +149,7 @@ struct BlindOrderTrackingView<Drawer: View, Timeline: View, Footer: View>: View 
                 .onEnded { value in
                     let base = isExpanded ? expandedTop : collapsedTop
                     let predicted = base + value.predictedEndTranslation.height
+                    lastDragEndedAt = Date()
                     setExpanded(predicted < (collapsedTop + expandedTop) / 2)
                 }
         )
@@ -172,6 +176,8 @@ enum BlindTrackingDrawerMetrics {
     static let handleHitHeight: CGFloat = 64
     /// 内容区顶部为拖动条让出的高度。比命中区小：命中区的下半截盖在标题上，标题本身不可点。
     static let handleReservedHeight: CGFloat = 28
+    /// 拖动松手后这段时间内的点按算作同一次手势，不再切换。
+    static let tapAfterDragWindow: TimeInterval = 0.4
 }
 
 // MARK: - 地图

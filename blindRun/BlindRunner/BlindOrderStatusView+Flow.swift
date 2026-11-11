@@ -105,6 +105,7 @@ extension BlindOrderStatusView {
                     presentation: presentation,
                     order: order,
                     stats: viewModel.trackStats,
+                    distanceText: viewModel.volunteerDistanceToStartText,
                     isLocationFresh: viewModel.isDeviceLocationFresh,
                     isLiveSharing: shareViewModel.isLiveSharing,
                     onCallVolunteer: { dialVolunteer(order) },
