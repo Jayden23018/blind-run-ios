@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>盲人订单页 已取消 / 暂无陪跑员 换 v7（2026-11-11，#946，负责人同意）</title>
+<style>
+  :root{
+    --navy:#1F2433; --ink:#14171F; --ink2:#4A4F5C; --ink3:#5F6470; --line:#E6E7EB;
+    --page:#E9EAEE; --chip:#EEEFF2; --title:#A8C8FF; --red:#D7263D; --todo:#C5C8CF; --stop:#6B7080;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:var(--page);color:var(--ink);padding:28px 32px 40px}
+  h1{font-size:22px;margin-bottom:6px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1700px;margin-bottom:22px}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .cell{width:390px}
+  .cap{font-size:14px;font-weight:600;margin:10px 0 4px}
+  .note{font-size:12px;color:var(--ink2);line-height:1.6}
+  .note b{color:var(--ink)}
+  .anno{margin-top:10px;padding:12px 14px;background:#fff;border-radius:12px}
+  .anno h4{font-size:13px;margin-bottom:6px}
+  .ask{color:#B3261E;font-weight:600}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+  .top{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
+  .round{width:44px;height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .round.dark{background:rgba(255,255,255,.12);color:#fff}
+  .spacer{flex:1}
+  .sos{height:44px;padding:0 16px;border-radius:22px;font-weight:700;font-size:16px;display:flex;align-items:center;gap:6px}
+  .sos.onDark{background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2}
+  .back-text{color:var(--title);font-size:16px}
+  .hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:232px;padding:108px 24px 0;color:#fff}
+  .hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}
+  .hero .t{font-size:30px;font-weight:700;color:var(--title);line-height:1.25}
+  .sheet{position:absolute;left:0;right:0;bottom:0;top:212px;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
+  .place{font-size:20px;font-weight:700}
+  .sub{font-size:15px;color:var(--ink2);margin-top:4px}
+  .tl{margin-top:20px}
+  .node{display:flex;gap:14px;position:relative;padding-bottom:13px}
+  .node:before{content:"";position:absolute;left:10px;top:24px;bottom:-2px;width:3px;background:var(--navy)}
+  .node:last-child:before{display:none}
+  .dot{width:23px;height:23px;border-radius:12px;flex:none;background:var(--navy);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;position:relative;z-index:1}
+  .node.stop .dot{background:#fff;border:2.5px solid var(--stop);color:var(--stop);font-size:12px}
+  .nlabel{font-size:17px;font-weight:600;line-height:23px}
+  .node.fold .nlabel{font-size:15px;font-weight:500;color:var(--ink2)}
+  .chev{margin-left:6px;font-weight:600}
+  .ndet{font-size:14px;color:var(--ink2);margin-top:2px}
+  .card{margin-top:10px;border-radius:14px;overflow:hidden;background:var(--chip)}
+  .card .dk{background:#2E3445;color:#fff;padding:12px 16px}
+  .card .dk p{font-size:13px;color:#C9CFDB}
+  .card .dk h3{font-size:20px;margin-top:2px}
+  .rows{margin-top:6px;border-top:1px solid var(--line)}
+  .line{display:flex;justify-content:space-between;align-items:center;min-height:56px;border-bottom:1px solid var(--line);font-size:17px}
+  .line span{font-size:15px;color:var(--ink2)}
+  .bottom{position:absolute;left:0;right:0;bottom:0;padding:14px 24px 30px;background:#fff;border-top:1px solid var(--line)}
+  .cta{height:56px;border-radius:28px;background:var(--navy);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .side{width:420px;padding-top:10px}
+  .side .anno{font-size:13px;line-height:1.75}
+  code{font-size:12px;background:#F1F2F5;border-radius:3px;padding:0 3px}
+</style>
+</head>
+<body>
+<h1>盲人订单页 已取消 / 暂无陪跑员 换 v7（2026-11-11，#946，负责人同意）</h1>
+<p class="lead">
+负责人 11-11 定：这两屏「照 ①–④ 改」—— 深色头 + 竖线停在中断那一步 + 一个「返回首页」。版式、色值、顶栏照 <code>blind-order-tracking-20261109/</code> v7 定稿 ④ 已约好那一屏。<br>
+<b>竖线停在哪一步不靠猜</b>：从订单的状态变更记录里取「转成已取消之前那一态」，映射到五步里的那一步；小字写谁取消的（记录里本来就有：你 / 陪跑员 / 系统）。暂无陪跑员恒停在第 1 步。拿不到记录时不画竖线（D 屏）。<br>
+中断那一步用<b>空心圆 + ✕</b>，竖线到这一步为止，后面的步不画（订单不会再往下走）。之前完成的步照 v7 规则：≥ 2 步收成「✓ 已完成 N 步 ›」。旧终态页的「预约信息」「状态变更记录」两行折叠保留在竖线下面，东西一件不丢。演示地点用公共地点，人名已脱敏。
+</p>
+
+<div class="row">
+
+<!-- A 你取消 -->
+<div class="cell">
+<div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round dark">···</div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+<div class="hero"><div class="k">已取消</div><div class="t">明天 7:00 的约跑已取消</div></div>
+<div class="sheet"><div class="place">深圳湾公园南门 · 保安亭左边</div><div class="sub">11 月 12 日 周四 · 早上 7:00</div>
+<div class="tl"><div class="node fold"><div class="dot">✓</div><div class="nlabel">已完成 2 步<span class="chev">›</span></div></div><div class="node stop"><div class="dot">✕</div><div style="flex:1"><div class="nlabel">等出发</div><div class="ndet">你取消了订单</div></div></div></div>
+<div class="rows"><div class="line">预约信息<span>⌄</span></div><div class="line">状态变更记录<span>⌄</span></div></div>
+</div>
+<div class="bottom"><div class="cta">返回首页</div></div></div>
+<div class="cap">A 已取消 · 你在「等出发」那一步取消</div>
+<div class="anno note">读屏顺序：返回 → 喇叭 → ··· → 求助 → 头部「已取消。明天 7:00 的约跑已取消」→ 地点时间 → 「已完成 2 步：匹配陪跑员、商量见面安排」→ <b>「等出发，在这一步取消了。你取消了订单」</b>→ 两行折叠 → 返回首页。<br>
+「···」里只有举报 / 不再匹配此人（有对方时才出现，同 ①–④）。不自动离开页面。</div>
+</div>
+
+<!-- B 陪跑员 / 系统取消 -->
+<div class="cell">
+<div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="round dark">···</div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+<div class="hero"><div class="k">已取消</div><div class="t">今天 7:00 的约跑已取消</div></div>
+<div class="sheet"><div class="place">深圳湾公园南门 · 保安亭左边</div><div class="sub">11 月 11 日 周三 · 早上 7:00</div>
+<div class="tl"><div class="node fold"><div class="dot">✓</div><div class="nlabel">已完成 3 步<span class="chev">›</span></div></div><div class="node stop"><div class="dot">✕</div><div style="flex:1"><div class="nlabel">在集合点汇合</div><div class="ndet">陪跑员取消了订单</div></div></div></div>
+<div class="rows"><div class="line">预约信息<span>⌄</span></div><div class="line">状态变更记录<span>⌄</span></div></div>
+</div>
+<div class="bottom"><div class="cta">返回首页</div></div></div>
+<div class="cap">B 已取消 · 陪跑员在「在集合点汇合」取消</div>
+<div class="anno note">同一版式，只换停的那一步和小字。系统取消（例如陪跑员到了而你一直没到）小字是「系统自动取消了订单」。小字直接取状态变更记录那一条的现有译文，不新写。</div>
+</div>
+
+<!-- C 暂无陪跑员 -->
+<div class="cell">
+<div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+<div class="hero"><div class="k">暂无陪跑员</div><div class="t">这次没找到陪跑员</div></div>
+<div class="sheet"><div class="place">深圳湾公园南门</div><div class="sub">11 月 12 日 周四 · 上午，想 7:00 左右</div>
+<div class="tl"><div class="node stop"><div class="dot">✕</div><div style="flex:1"><div class="nlabel">匹配陪跑员</div><div class="ndet">没有匹配到可用的陪跑员</div></div></div></div>
+<div class="rows"><div class="line">预约信息<span>⌄</span></div><div class="line">状态变更记录<span>⌄</span></div></div>
+</div>
+<div class="bottom"><div class="cta">返回首页</div></div></div>
+<div class="cap">C 暂无陪跑员（NO_VOLUNTEER）</div>
+<div class="anno note">恒停在第 1 步，不用等状态变更记录。没有对方，所以没有「···」。</div>
+</div>
+
+<!-- D 记录拿不到 -->
+<div class="cell">
+<div class="phone"><div class="top"><div class="back-text">‹ 订单</div><div class="spacer"></div><div class="round dark"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos onDark"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+<div class="hero"><div class="k">已取消</div><div class="t">明天 7:00 的约跑已取消</div></div>
+<div class="sheet"><div class="place">深圳湾公园南门</div><div class="sub">11 月 12 日 周四 · 早上 7:00</div>
+
+<div class="rows" style="margin-top:16px"><div class="line">预约信息<span>⌄</span></div><div class="line">状态变更记录<span>⌄</span></div></div>
+</div>
+<div class="bottom"><div class="cta">返回首页</div></div></div>
+<div class="cap">D 已取消 · 状态变更记录还没拿到或拿失败</div>
+<div class="anno note">不猜停在哪一步，不画竖线。记录拿到后竖线出现（淡入，减弱动态效果时直接出现）。展开「状态变更记录」能看到失败原因并重试（沿用现有那一块）。</div>
+</div>
+
+<!-- 说明 -->
+<div class="side">
+<div class="anno">
+<h4>负责人 11-11 定</h4>1. 右上角「求助」胶囊<b>留着</b>（只有本地拨号）。<br>2. 「想跑步就回首页再约一次」这类说明<b>去掉</b>：原话「这种没必要的说明把它给去掉」。卡片整块不要，头部已写「已取消」，中断步小字写谁取消。<br>3. 底部只有「返回首页」。<br><br><h4>和 ①–④ 一样的地方</h4>
+深色头、白色抽屉、地点 + 时间行、竖线折叠规则、顶栏四件、底部一个深色主按钮。<br><br>
+<h4>另一件同时改的（不出图）</h4>
+进订单页那一瞬间（订单还没拿到）现在会闪一下旧页（系统导航栏「订单状态」+ 转圈 + 旧底栏）。改成同一个深色头外壳 + 转圈，拿到订单后直接换成对应那一屏。<br><br>
+未画：深色模式、最大字号、横屏（同 v7）。
+</div>
+</div>
+
+</div>
+</body>
+</html>

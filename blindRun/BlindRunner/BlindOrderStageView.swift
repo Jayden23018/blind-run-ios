@@ -15,7 +15,8 @@ struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
     var headerIdentifier: BlindOrderStageHeaderIdentifier = .statusCard
     let place: String?
     let when: String?
-    let timeline: BlindOrderTimelineInput
+    /// `nil` = 不画竖线（终态页拿不到状态变更记录时，不猜停在哪一步，#946）。
+    let timeline: BlindOrderTimelineInput?
     @ViewBuilder let card: () -> Card
     /// 竖线下面那块：刚才那一下的结果（错误、分享提示）、举报 / 不再匹配、调试按钮。正常时大多为空。
     @ViewBuilder let footer: () -> Footer
@@ -96,7 +97,9 @@ struct BlindOrderStageScaffold<Card: View, Footer: View, Bottom: View>: View {
                 .accessibilityIdentifier("blindOrderStagePlace")
                 .padding(.bottom, 20)
             }
-            BlindOrderTimelineView(input: timeline) { _ in card() }
+            if let timeline {
+                BlindOrderTimelineView(input: timeline) { _ in card() }
+            }
             footer()
                 .padding(.top, 8)
         }

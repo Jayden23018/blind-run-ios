@@ -62,6 +62,14 @@ struct BlindOrderTimelineView<Current: View>: View {
             .padding(.bottom, BlindOrderTimelineMetrics.rowSpacing)
         case .doneFold, .todoFold:
             foldRow(row)
+        case .stopped:
+            // 中断那一步（#946）：空心圆 + ✕，下面不接卡片（负责人 11-11 去掉了说明卡）。
+            HStack(alignment: .top, spacing: BlindOrderTimelineMetrics.gap) {
+                BlindOrderTimelineDot(kind: .stopped)
+                titleBlock(row)
+            }
+            .padding(.bottom, BlindOrderTimelineMetrics.rowSpacing)
+            .accessibilityIdentifier("blindOrderTimelineStoppedStep")
         default:
             HStack(alignment: .top, spacing: BlindOrderTimelineMetrics.gap) {
                 BlindOrderTimelineDot(kind: row.isPast ? .done : .todo)
@@ -128,21 +136,21 @@ struct BlindOrderTimelineView<Current: View>: View {
     private func visibleTitle(_ row: BlindOrderTimelineRow) -> String {
         switch row {
         case .done(let step, _): return step.doneTitle
-        case .current(let step, _), .next(let step), .todo(let step): return step.title
+        case .current(let step, _), .stopped(let step, _), .next(let step), .todo(let step): return step.title
         case .doneFold, .todoFold: return BlindOrderTimelineLayout.foldTitle(for: row) ?? ""
         }
     }
 
     private func detail(_ row: BlindOrderTimelineRow) -> String? {
         switch row {
-        case .done(_, let detail), .current(_, let detail): return detail?.nilIfBlank
+        case .done(_, let detail), .current(_, let detail), .stopped(_, let detail): return detail?.nilIfBlank
         default: return nil
         }
     }
 
     private func titleFont(_ row: BlindOrderTimelineRow) -> (CGFloat, Font.Weight, Font.TextStyle) {
         switch row {
-        case .current: return (17, .bold, .body)
+        case .current, .stopped: return (17, .bold, .body)
         case .done: return (17, .semibold, .body)
         default: return (17, .medium, .body)
         }
@@ -151,7 +159,7 @@ struct BlindOrderTimelineView<Current: View>: View {
     /// 未到的步用 `secondaryText`，不用稿里的浅灰：浅灰压白底不到 4.5:1（稿 ④ 差异 3）。
     private func titleColor(_ row: BlindOrderTimelineRow) -> Color {
         switch row {
-        case .current, .done: return AppColors.Flow.primaryText
+        case .current, .done, .stopped: return AppColors.Flow.primaryText
         default: return AppColors.Flow.secondaryText
         }
     }
@@ -168,7 +176,8 @@ enum BlindOrderTimelineMetrics {
 
 /// 圆点。纯装饰，对读屏隐藏（状态已在行的读屏标签里）。
 struct BlindOrderTimelineDot: View {
-    enum Kind { case done, current, todo, fold }
+    /// `stopped` = 订单在这一步中断（#946）：空心圆 + ✕。
+    enum Kind { case done, current, todo, fold, stopped }
     let kind: Kind
     /// 只对 `.current` 有意义。
     var currentDot: BlindOrderTimelineCurrentDot = .still
@@ -186,6 +195,13 @@ struct BlindOrderTimelineDot: View {
             Circle().fill(fill)
             if kind == .fold {
                 Circle().strokeBorder(AppColors.Flow.nodeStroke, lineWidth: 2.5)
+            }
+            if kind == .stopped {
+                // 描边与 ✕ 用 `secondaryText`：控件边界压白底要 ≥ 3:1，`nodeStroke` 那种浅灰不够。
+                Circle().strokeBorder(AppColors.Flow.secondaryText, lineWidth: 2.5)
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(AppColors.Flow.secondaryText)
             }
             if showsCheck {
                 Image(systemName: "checkmark")
@@ -214,7 +230,7 @@ struct BlindOrderTimelineDot: View {
         switch kind {
         case .done, .current: return AppColors.Flow.navy
         case .todo: return AppColors.Flow.nodeStroke
-        case .fold: return AppColors.Flow.surface
+        case .fold, .stopped: return AppColors.Flow.surface
         }
     }
 }
