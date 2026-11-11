@@ -2,7 +2,7 @@ import SwiftUI
 import XCTest
 @testable import blindRun
 
-/// 陪跑员出发 / 汇合锁屏卡 + 跑步卡 v2（决定源 V3）。
+/// 陪跑员实时活动 V1–V6（#920）+ 跑步卡 v2（决定源 V3）。
 ///
 /// 卡片的真实长相只能在真机锁屏上看；这里守的是**会静默漂移**的三类东西：
 /// 1. 后端推送的 `content-state` 能不能被系统解（系统用默认解码器，解不了 = 锁屏卡冻住，没有任何报错）；
@@ -160,12 +160,14 @@ final class GuideRunActivityTests: XCTestCase {
         XCTAssertEqual(hex, "000fa0ff")
     }
 
-    // MARK: - 卡上每一行
+    // MARK: - 卡上每一块（稿第四节 V1–V6）
 
     private func presentation(
         _ state: GuideRunAttributes.ContentState,
         plannedStart: Date? = nil,
-        surname: String? = nil
+        surname: String? = nil,
+        isStale: Bool = false,
+        now: Date = Date()
     ) -> GuideRunActivityPresentation {
         GuideRunActivityPresentation(
             attributes: GuideRunAttributes(
@@ -174,98 +176,253 @@ final class GuideRunActivityTests: XCTestCase {
                 meetingPointName: "3 号入口",
                 plannedStart: plannedStart
             ),
-            state: state
+            state: state,
+            isStale: isStale,
+            now: now
         )
     }
 
-    func testLateCardSaysHowLateAndUsesTheDepartedColour() {
+    private func state(
+        _ phase: GuideRunAttributes.Phase,
+        etaMinutes: Int? = nil,
+        arriveAt: Date? = nil,
+        runnerNear: Bool = false,
+        bucket: String? = nil,
+        deadline: Date? = nil,
+        leaveBy: Date? = nil,
+        travelMinutes: Int? = nil
+    ) -> GuideRunAttributes.ContentState {
+        .init(phase: phase, etaMinutes: etaMinutes, arriveAt: arriveAt, progress: 0.5,
+              runnerNearMeetingPoint: runnerNear, distanceBucket: bucket,
+              deadline: deadline, leaveBy: leaveBy, travelMinutes: travelMinutes)
+    }
+
+    /// 固定在本地时区的某一刻，免得「今天 / 明早」随跑用例的时刻漂。
+    private func local(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
+        Calendar.current.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
+    }
+
+    func testIntroCallCardCountsDownToTheWindowEndAndSitsOnTheSecondStep() {
+        let now = Date()
+        let deadline = now.addingTimeInterval(19 * 60)
+        let view = presentation(state(.introCall, deadline: deadline), now: now)
+
+        XCTAssertEqual(view.title, "给跑者打电话")
+        XCTAssertEqual(view.subtitle, "商量见面，还剩 ")
+        XCTAssertEqual(view.subtitleCountdownTo, deadline, "倒计时交给系统自走，App 在后台也会动")
+        XCTAssertEqual(view.step, 2)
+        XCTAssertEqual(view.trailing, .person)
+        XCTAssertTrue(view.actions.isEmpty)
+        XCTAssertEqual(view.accessibilityLabel, "助盲跑，陪跑，给跑者打电话，商量见面，还剩约 19 分钟，第 2 步，共 5 步，商量")
+    }
+
+    /// 过了截止时刻（staleDate）还停在倒计时，会让「还剩 00:00」一直挂在锁屏上。
+    func testIntroCallCardStopsCountingDownOnceTheWindowHasPassed() {
+        let now = Date()
+        let view = presentation(state(.introCall, deadline: now.addingTimeInterval(60)), isStale: true, now: now)
+
+        XCTAssertEqual(view.subtitle, "打开 App 看最新进度")
+        XCTAssertNil(view.subtitleCountdownTo)
+        XCTAssertNil(view.compactCountdownTo)
+    }
+
+    func testPlanSubmittedCardWaitsForTheRunner() {
+        let view = presentation(state(.planSubmitted))
+
+        XCTAssertEqual(view.title, "等跑者确认")
+        XCTAssertEqual(view.subtitle, "见面安排已发出")
+        XCTAssertEqual(view.step, 2)
+        XCTAssertEqual(view.compactTrailing, "等确认")
+    }
+
+    func testBookedCardNamesTheDayTheTimeAndTheMeetingPoint() {
+        let now = local(2026, 11, 10, 10, 24)
+
+        let tomorrowMorning = presentation(state(.scheduled), plannedStart: local(2026, 11, 11, 7, 0), now: now)
+        XCTAssertEqual(tomorrowMorning.title, "明早 7:00 开跑")
+        XCTAssertEqual(tomorrowMorning.subtitle, "已约好，在3 号入口")
+        XCTAssertEqual(tomorrowMorning.step, 3)
+        XCTAssertTrue(tomorrowMorning.accessibilityLabel.hasPrefix("助盲跑，陪跑，明早 7 点开跑"))
+
+        XCTAssertEqual(presentation(state(.scheduled), plannedStart: local(2026, 11, 11, 19, 30), now: now).title, "明天 19:30 开跑")
+        XCTAssertEqual(presentation(state(.scheduled), plannedStart: local(2026, 11, 10, 18, 0), now: now).title, "今天 18:00 开跑")
+        XCTAssertEqual(presentation(state(.scheduled), plannedStart: local(2026, 11, 13, 7, 5), now: now).title, "11月13日 7:05 开跑")
+    }
+
+    func testPreStartCardSaysWhenToLeaveAndTurnsGoldOncePastIt() {
+        let now = Date()
+        let leaveBy = now.addingTimeInterval(10 * 60)
+        let start = now.addingTimeInterval(30 * 60)
+
+        let onTime = presentation(state(.preStart, leaveBy: leaveBy, travelMinutes: 18), plannedStart: start, now: now)
+        XCTAssertEqual(onTime.title, "\(GuideRunActivityCopy.clock(leaveBy)) 前出发")
+        XCTAssertEqual(onTime.subtitle, "路上约 18 分钟")
+        XCTAssertFalse(onTime.titleIsWarning)
+        XCTAssertEqual(onTime.step, 3)
+        XCTAssertEqual(onTime.compactCountdownTo, start)
+
+        let late = presentation(state(.preStart, leaveBy: leaveBy, travelMinutes: 18), plannedStart: start, isStale: true, now: now)
+        XCTAssertEqual(late.title, "该出发了")
+        XCTAssertTrue(late.titleIsWarning)
+    }
+
+    /// 陪跑员没有位置记录时后端不发 `suggestedDepartAt`：退到开跑时刻，不编一个出发时间。
+    func testPreStartCardWithoutSuggestedDepartureFallsBackToTheStartTime() {
+        let start = local(2026, 11, 11, 7, 0)
+        let view = presentation(state(.preStart), plannedStart: start, now: local(2026, 11, 11, 6, 35))
+
+        XCTAssertEqual(view.title, "7:00 开跑")
+        XCTAssertEqual(view.subtitle, "记得按时出发")
+        XCTAssertFalse(view.titleIsWarning)
+    }
+
+    func testDepartedCardOffersOnlyAlmostThereOnTheRightAndDrawsNoLine() {
+        let view = presentation(state(.departed, etaMinutes: 8, runnerNear: true))
+
+        XCTAssertEqual(view.title, "8 分钟后到")
+        XCTAssertEqual(view.subtitle, "跑者已到3 号入口附近")
+        XCTAssertEqual(view.actions, [.almostThere], "「再等我 5 分钟」进 App，不上卡（DECISION 第 9 条）")
+        XCTAssertNil(view.step)
+        XCTAssertEqual(view.compactTrailing, "8 分钟")
+    }
+
+    func testLateCardTurnsTheTitleGoldAndSaysHowLate() {
         let arriveAt = Date(timeIntervalSinceReferenceDate: 811_465_020)
         let view = presentation(
-            .init(phase: .late, etaMinutes: 11, arriveAt: arriveAt, progress: 0.4,
-                  runnerNearMeetingPoint: false, distanceBucket: nil),
+            state(.late, etaMinutes: 11, arriveAt: arriveAt, runnerNear: true),
             plannedStart: arriveAt.addingTimeInterval(-6 * 60)
         )
 
-        XCTAssertEqual(view.headline, "约 11 分钟后到")
-        XCTAssertTrue(view.headlineIsLate)
-        XCTAssertEqual(view.lateSuffix, "晚到约 6 分钟")
-        XCTAssertEqual(view.background, LiveActivityStatePalette.stateDeparted, "快迟到仍是出发色（交付包 04）")
-        XCTAssertEqual(view.actions, [.almostThere, .waitFiveMinutes])
+        XCTAssertEqual(view.title, "约 11 分钟后到")
+        XCTAssertTrue(view.titleIsWarning)
+        XCTAssertEqual(view.subtitle, "晚到约 6 分钟", "快迟到时副标题换成晚到多久（稿 V5 注）")
+        XCTAssertEqual(view.actions, [.almostThere])
     }
 
-    func testDepartedCardNamesTheRunnerAsRunnerNotBySurnameInASentence() {
-        let view = presentation(
-            .init(phase: .departed, etaMinutes: 8, arriveAt: nil, progress: 0.68,
-                  runnerNearMeetingPoint: true, distanceBucket: nil),
-            surname: "李"
-        )
+    func testDepartedCardWithoutRunnerNearbyFallsBackToTheArrivalTime() {
+        let arriveAt = Date(timeIntervalSinceReferenceDate: 811_465_020)
+        let view = presentation(state(.departed, etaMinutes: 8, arriveAt: arriveAt))
 
-        XCTAssertEqual(view.headline, "8 分钟后到")
-        XCTAssertEqual(view.statusLine, "跑者已到3 号入口附近")
-        XCTAssertFalse(view.accessibilityLabel.contains("先生"))
-        XCTAssertFalse(view.accessibilityLabel.contains("女士"))
-        XCTAssertTrue(view.accessibilityLabel.hasPrefix("助盲跑，正在赶去，8 分钟后到"))
+        XCTAssertEqual(view.subtitle, "预计 \(GuideRunActivityCopy.clock(arriveAt)) 到")
+        XCTAssertTrue(view.accessibilityLabel.contains("预计 \(GuideRunActivityCopy.spokenClock(arriveAt))到"))
     }
 
     func testZeroMinutesSaysArrivingNowNotZeroMinutes() {
-        let view = presentation(
-            .init(phase: .departed, etaMinutes: 0, arriveAt: nil, progress: 0.85,
-                  runnerNearMeetingPoint: false, distanceBucket: nil)
-        )
-        XCTAssertEqual(view.headline, "马上到")
+        let view = presentation(state(.departed, etaMinutes: 0))
+        XCTAssertEqual(view.title, "马上到")
         XCTAssertEqual(view.compactTrailing, "马上到")
     }
 
-    func testArrivedCardSwapsToTheArrivedColourAndOnlyOffersRinging() {
-        let view = presentation(
-            .init(phase: .arrived, etaMinutes: nil, arriveAt: nil, progress: 0.85,
-                  runnerNearMeetingPoint: true, distanceBucket: "WITHIN_10")
-        )
+    func testArrivedCardEnlargesTheTitleAndOnlyOffersRinging() {
+        let view = presentation(state(.arrived, runnerNear: true, bucket: "WITHIN_10"))
 
-        XCTAssertEqual(view.headline, "已到集合点")
-        XCTAssertEqual(view.statusLine, "跑者就在你身边")
-        XCTAssertEqual(view.background, LiveActivityStatePalette.stateArrived)
+        XCTAssertEqual(view.title, "已到3 号入口")
+        XCTAssertTrue(view.titleIsLarge)
+        XCTAssertEqual(view.subtitle, "跑者就在 10 米内")
         XCTAssertEqual(view.actions, [.ringRunner])
-        XCTAssertEqual(view.compactTrailing, "已到")
+        XCTAssertEqual(GuideRunActivityAction.ringRunner.title, "让他手机响")
+        XCTAssertNil(view.step)
+        XCTAssertEqual(view.compactTrailing, "到了")
+        XCTAssertTrue(view.compactIsPositive)
+    }
+
+    func testUnknownDistanceBucketShowsNoSubtitle() {
+        XCTAssertNil(presentation(state(.arrived, bucket: "SOMETHING_NEW")).subtitle)
     }
 
     /// #281：`end` 推送之后锁屏还要留 5 分钟，不能停在「8 分钟后到」且按钮还能按。
-    func testEndedCardShowsNoStaleEtaNoButtonsAndNoRope() {
-        // 结束时的 content-state 沿用最后一帧：还带着 ETA、跑者在附近、进度。
-        let view = presentation(
-            .init(phase: .ended, etaMinutes: 8, arriveAt: Date(), progress: 0.68,
-                  runnerNearMeetingPoint: true, distanceBucket: "WITHIN_10"),
-            surname: "李"
-        )
+    func testEndedCardShowsNoStaleEtaNoButtonAndNoLine() {
+        let view = presentation(state(.ended, etaMinutes: 8, arriveAt: Date(), runnerNear: true, bucket: "WITHIN_10"))
 
-        XCTAssertEqual(view.headline, "引导已结束")
-        XCTAssertEqual(view.eyebrow, "助盲跑 · 已结束")
+        XCTAssertEqual(view.title, "引导已结束")
+        XCTAssertNil(view.subtitle)
+        XCTAssertEqual(view.trailing, .none)
+        XCTAssertTrue(view.actions.isEmpty)
+        XCTAssertNil(view.step)
+        XCTAssertEqual(view.background, GuideRunCardPalette.ended)
         XCTAssertEqual(view.compactTrailing, "已结束")
-        XCTAssertTrue(view.actions.isEmpty, "已结束的卡不许还留着「我快到了」之类的按钮")
-        XCTAssertFalse(view.showsRope)
-        XCTAssertNil(view.arriveClock)
-        XCTAssertNil(view.statusLine)
-        XCTAssertNil(view.lateSuffix)
-        XCTAssertEqual(view.background, LiveActivityStatePalette.statePaused)
-        XCTAssertEqual(view.accessibilityLabel, "助盲跑，已结束，引导已结束")
+        XCTAssertEqual(view.accessibilityLabel, "助盲跑，陪跑，引导已结束")
     }
 
-    func testLiveCardsStillShowTheRope() {
-        for phase in [GuideRunAttributes.Phase.departed, .late, .arrived] {
-            XCTAssertTrue(
-                presentation(.init(phase: phase, etaMinutes: 5, arriveAt: nil, progress: 0.5,
-                                   runnerNearMeetingPoint: false, distanceBucket: nil)).showsRope,
-                "\(phase)"
+    /// DECISION 第 7 条：卡上不写名字。后端给了姓氏也不许出现在任何一屏的任何一块。
+    func testNoPhaseEverPutsTheRunnerSurnameOnTheCard() {
+        let now = Date()
+        let phases: [GuideRunAttributes.Phase] = [.introCall, .planSubmitted, .scheduled, .preStart, .departed, .late, .arrived, .ended]
+        for phase in phases {
+            let view = presentation(
+                state(phase, etaMinutes: 8, arriveAt: now, runnerNear: true, bucket: "WITHIN_10",
+                      deadline: now.addingTimeInterval(600), leaveBy: now.addingTimeInterval(600), travelMinutes: 18),
+                plannedStart: now.addingTimeInterval(1_800), surname: "欧阳", now: now
             )
+            for text in [view.title, view.subtitle ?? "", view.accessibilityLabel, view.compactAccessibilityLabel, view.compactTrailing] {
+                XCTAssertFalse(text.contains("欧阳"), "\(phase): \(text)")
+            }
+            XCTAssertNotEqual(view.background, LiveActivityStatePalette.stateArrived, "v4 不再按状态换底色")
         }
     }
 
-    func testUnknownDistanceBucketShowsNoStatusLine() {
-        let view = presentation(
-            .init(phase: .arrived, etaMinutes: nil, arriveAt: nil, progress: 0.85,
-                  runnerNearMeetingPoint: false, distanceBucket: "SOMETHING_NEW")
+    // MARK: - 两段的门槛与 token
+
+    /// 30 分钟门槛两侧各取一点：门槛被改成 20 或 40 分钟都会红。
+    func testPreStartWindowOpensThirtyMinutesBeforeTheStart() {
+        let start = local(2026, 11, 11, 7, 0)
+        func opens(_ status: RunOrderStatus, secondsBefore: TimeInterval) -> Bool {
+            GuideRunActivityContentBuilder.isInPreStartWindow(
+                status: status, plannedStart: start, now: start.addingTimeInterval(-secondsBefore)
+            )
+        }
+
+        XCTAssertFalse(opens(.scheduledConfirmed, secondsBefore: 30 * 60 + 1))
+        XCTAssertTrue(opens(.scheduledConfirmed, secondsBefore: 30 * 60 - 1))
+        XCTAssertTrue(opens(.pendingAccept, secondsBefore: 60), "临期确认过的单同样在等出发")
+        XCTAssertTrue(opens(.scheduledConfirmed, secondsBefore: -300), "过了开跑时刻还没出发，卡照样在（转「该出发了」）")
+        XCTAssertFalse(opens(.inProgress, secondsBefore: 60))
+        XCTAssertFalse(GuideRunActivityContentBuilder.isInPreStartWindow(status: .scheduledConfirmed, plannedStart: nil, now: start))
+    }
+
+    func testScheduledOrderBecomesThePreStartCardInsideTheWindowOnly() {
+        var order = OrderDetailResponse.preview(status: .scheduledConfirmed, plannedStart: "2026-09-19T07:00:00")
+        order.suggestedDepartAt = "2026-09-19T06:40:00"
+        order.travelMinutes = 18
+
+        let inside = GuideRunActivityContentBuilder.secondSegmentContent(
+            from: order, now: "2026-09-19T06:35:00".backendTimestamp!
         )
-        XCTAssertNil(view.statusLine)
+        XCTAssertEqual(inside?.phase, .preStart)
+        XCTAssertEqual(inside?.leaveBy, "2026-09-19T06:40:00".backendTimestamp)
+        XCTAssertEqual(inside?.travelMinutes, 18)
+        XCTAssertEqual(inside.flatMap(GuideRunActivityContentBuilder.staleDate(for:)), inside?.leaveBy)
+
+        XCTAssertNil(GuideRunActivityContentBuilder.secondSegmentContent(
+            from: order, now: "2026-09-19T06:20:00".backendTimestamp!
+        ))
+    }
+
+    func testIntroCallStepMapsToTheFirstTwoScreens() {
+        let deadline = Date().addingTimeInterval(600)
+        let calling = GuideRunActivityContentBuilder.introCallState(step: .awaitingCall, windowEndsAt: deadline)
+        XCTAssertEqual(calling.phase, .introCall)
+        XCTAssertEqual(GuideRunActivityContentBuilder.staleDate(for: calling), deadline)
+
+        let submitted = GuideRunActivityContentBuilder.introCallState(step: .awaitingRunnerConfirmation, windowEndsAt: deadline)
+        XCTAssertEqual(submitted.phase, .planSubmitted)
+        XCTAssertNil(submitted.deadline, "交了安排单后卡上不再倒计时")
+    }
+
+    /// 后端 `/api/devices/live-activity-token` 在出发 / 到达以外答 409 —— V4 就起的卡不许早传。
+    func testOnlyDepartedLateAndArrivedPhasesUploadThePushToken() {
+        let all: [GuideRunAttributes.Phase] = [.introCall, .planSubmitted, .scheduled, .preStart, .ended, .departed, .late, .arrived]
+        XCTAssertEqual(Set(all.filter(\.acceptsPushToken)), [.departed, .late, .arrived])
+        XCTAssertEqual(Set(all.filter(\.isFirstSegment)), [.introCall, .planSubmitted, .scheduled])
+    }
+
+    /// 本地四个新值能被系统解码器原样解回（App 被杀后系统按 JSON 存着这张卡）。
+    func testLocalOnlyPhasesRoundTripThroughTheDefaultCoder() throws {
+        for phase in [GuideRunAttributes.Phase.introCall, .planSubmitted, .scheduled, .preStart] {
+            let original = state(phase, deadline: Date(timeIntervalSinceReferenceDate: 811_465_020), travelMinutes: 18)
+            let decoded = try decodeLikeTheSystem(String(decoding: try JSONEncoder().encode(original), as: UTF8.self))
+            XCTAssertEqual(decoded, original)
+        }
     }
 
     // MARK: - 单测里不起真卡
@@ -302,6 +459,38 @@ final class GuideRunActivityTests: XCTestCase {
         viewModel.order = .preview(orderId: 904, status: .inProgress)
 
         XCTAssertEqual(controller.eventsForTesting, ["end"])
+    }
+
+    /// 响应派单（稿第五节「第一段 · 陪跑员」）：有意向起 V1，直接接下推 V3 收卡，拒绝什么都不做。
+    func testDispatchResponseDrivesTheFirstSegment() {
+        let controller = GuideRunActivityController.shared
+        let attributes = GuideRunActivityContentBuilder.attributes(
+            orderID: 905, startAddress: "南门", plannedStart: "2026-09-19T07:00:00"
+        )
+
+        controller.resetEventsForTesting()
+        controller.noteDispatchResponse(.interested, attributes: attributes)
+        XCTAssertEqual(controller.eventsForTesting.last, "skipped:tests")
+
+        controller.resetEventsForTesting()
+        controller.noteDispatchResponse(.accept, attributes: attributes)
+        XCTAssertEqual(controller.eventsForTesting.first, "finish:905:booked")
+
+        controller.resetEventsForTesting()
+        controller.noteDispatchResponse(.decline, attributes: attributes)
+        XCTAssertTrue(controller.eventsForTesting.isEmpty)
+    }
+
+    func testScheduledOrderOutsideTheWindowStartsNoCard() {
+        let order = OrderDetailResponse.preview(orderId: 906, status: .scheduledConfirmed, plannedStart: "2026-09-19T07:00:00")
+        let controller = GuideRunActivityController.shared
+        controller.resetEventsForTesting()
+
+        controller.sync(order: order, now: "2026-09-19T06:00:00".backendTimestamp!)
+        XCTAssertFalse(controller.eventsForTesting.contains("skipped:tests"), "离开跑还有 1 小时，不起 V4")
+
+        controller.sync(order: order, now: "2026-09-19T06:45:00".backendTimestamp!)
+        XCTAssertEqual(controller.eventsForTesting.last, "skipped:tests", "进了 30 分钟就起 V4")
     }
 
     // MARK: - 跑步卡 v2（陪跑员端）
@@ -379,19 +568,23 @@ final class GuideRunActivityTests: XCTestCase {
 @available(iOS 16.2, *)
 final class GuideRunActivityContrastTests: XCTestCase {
 
-    /// 锁屏卡上 14–15pt 的小字在出发 / 汇合两种底色上都要过正文 4.5:1。
-    /// 把透明度改回交付包的 80% 这条就红（出发蓝 4.36、汇合琥珀 4.45）。
-    func testSmallTextOnTheGuideCardClearsBodyTextContrast() {
-        let opacity = LiveActivityStatePalette.smallTextOpacityOnGuideCard
-        for background in [LiveActivityStatePalette.stateDeparted, LiveActivityStatePalette.stateArrived] {
+    /// 副标题（白 64%，稿 `--sub`）在深蓝卡底与已结束灰底上都要过正文 4.5:1。
+    func testSubtitleOnTheGuideCardClearsBodyTextContrast() {
+        let opacity = GuideRunCardPalette.subtitleOpacity
+        for background in [GuideRunCardPalette.navy, GuideRunCardPalette.ended] {
             let ratio = Self.contrast(Self.whiteBlended(opacity, over: background), background)
             XCTAssertGreaterThanOrEqual(ratio, 4.5, String(format: "#%06X 上 %.2f:1", background, ratio))
         }
-        // 反向验证公式真的会拒：80% 在出发蓝上必须不过线。
+        // 反向验证公式真的会拒：白 30% 在深蓝上必须不过线。
         XCTAssertLessThan(
-            Self.contrast(Self.whiteBlended(0.80, over: LiveActivityStatePalette.stateDeparted), LiveActivityStatePalette.stateDeparted),
+            Self.contrast(Self.whiteBlended(0.30, over: GuideRunCardPalette.navy), GuideRunCardPalette.navy),
             4.5
         )
+    }
+
+    /// 金色标题（快迟到 / 该出发了）在深蓝上要过正文 4.5:1（22pt 粗体只要 3:1，这里按更严的取）。
+    func testGoldTitleClearsContrastOnNavy() {
+        XCTAssertGreaterThanOrEqual(Self.contrast(GuideRunCardPalette.gold, GuideRunCardPalette.navy), 4.5)
     }
 
     /// 跑步卡小标题照交付包用 80%，在跑步青绿与暂停灰上都够。
@@ -459,18 +652,39 @@ final class LiveActivityCardHeightTests: XCTestCase {
         orderID: 1, runnerSurname: "李", meetingPointName: "深圳湾公园 3 号入口", plannedStart: Date()
     )
 
-    /// 最高的一种：快迟到（多一行「晚到约 N 分钟」）+ 跑者已到附近 + 两枚按钮。
+    private func guideHeight(_ state: GuideRunAttributes.ContentState, label: String) -> CGFloat {
+        let measured = height(GuideRunLockScreenView(
+            attributes: attributes,
+            presentation: GuideRunActivityPresentation(attributes: attributes, state: state)
+        ))
+        XCTContext.runActivity(named: "[card-height] guide \(label) = \(measured)") { _ in }
+        return measured
+    }
+
+    /// 带进度线的最高一种：V1 副标题带倒计时 + 右侧人像 + 底部五步线。
+    func testIntroCallCardFitsTheLockScreen() {
+        let state = GuideRunAttributes.ContentState(
+            phase: .introCall, etaMinutes: nil, arriveAt: nil, progress: 0.1,
+            runnerNearMeetingPoint: false, distanceBucket: nil, deadline: Date().addingTimeInterval(19 * 60)
+        )
+        XCTAssertLessThanOrEqual(guideHeight(state, label: "V1"), Self.maximumHeight)
+    }
+
+    func testPreStartCardFitsTheLockScreen() {
+        let state = GuideRunAttributes.ContentState(
+            phase: .preStart, etaMinutes: nil, arriveAt: nil, progress: 0.1,
+            runnerNearMeetingPoint: false, distanceBucket: nil,
+            leaveBy: Date().addingTimeInterval(600), travelMinutes: 18
+        )
+        XCTAssertLessThanOrEqual(guideHeight(state, label: "V4"), Self.maximumHeight)
+    }
+
     func testLateDepartureCardFitsTheLockScreen() {
         let state = GuideRunAttributes.ContentState(
             phase: .late, etaMinutes: 11, arriveAt: Date().addingTimeInterval(660), progress: 0.4,
             runnerNearMeetingPoint: true, distanceBucket: nil
         )
-        let measured = height(GuideRunLockScreenView(
-            attributes: attributes,
-            presentation: GuideRunActivityPresentation(attributes: attributes, state: state)
-        ))
-        XCTContext.runActivity(named: "[card-height] guide late = \(measured)") { _ in }
-        XCTAssertLessThanOrEqual(measured, Self.maximumHeight)
+        XCTAssertLessThanOrEqual(guideHeight(state, label: "V5 late"), Self.maximumHeight)
     }
 
     func testArrivedCardFitsTheLockScreen() {
@@ -478,12 +692,7 @@ final class LiveActivityCardHeightTests: XCTestCase {
             phase: .arrived, etaMinutes: nil, arriveAt: nil, progress: 0.85,
             runnerNearMeetingPoint: true, distanceBucket: "WITHIN_10"
         )
-        let measured = height(GuideRunLockScreenView(
-            attributes: attributes,
-            presentation: GuideRunActivityPresentation(attributes: attributes, state: state)
-        ))
-        XCTContext.runActivity(named: "[card-height] guide arrived = \(measured)") { _ in }
-        XCTAssertLessThanOrEqual(measured, Self.maximumHeight)
+        XCTAssertLessThanOrEqual(guideHeight(state, label: "V6"), Self.maximumHeight)
     }
 
     func testVolunteerRunCardFitsTheLockScreen() {

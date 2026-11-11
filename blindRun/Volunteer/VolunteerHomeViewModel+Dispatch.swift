@@ -137,6 +137,17 @@ extension VolunteerHomeViewModel {
                     acceptedOrderId: acceptedOrderId,
                     appState: appState
                 )
+                // 实时活动第一段（#920）：`INTERESTED` 起「商量见面」，`ACCEPT` 推「已约好」后收卡。
+                // 接下的单优先用刚拉到的详情（开跑时刻与集合点以订单为准），拉不到退回派单推送里的。
+                if #available(iOS 16.2, *) {
+                    GuideRunActivityController.shared.noteDispatchResponse(
+                        effectiveAction,
+                        attributes: acceptedOrder.map(GuideRunActivityContentBuilder.attributes(from:))
+                            ?? GuideRunActivityContentBuilder.attributes(
+                                orderID: order.orderId, startAddress: order.startAddress, plannedStart: order.plannedStart
+                            )
+                    )
+                }
                 isRespondingToDispatch = false
                 acceptedDispatchInitialOrder = acceptedOrder
             } catch let error as APIError {

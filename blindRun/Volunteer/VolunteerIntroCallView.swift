@@ -110,6 +110,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
             if let id = introCall?.counterpartUserId { counterpartUserId = id }
             clearLoadFailure()
             announceCountdownIfDue(now: now)
+            syncLiveActivity(orderId: orderId)
         } catch let error as APIError {
             if error.endsSession { return }
             guard Self.endsTheRound(error) else {
@@ -208,11 +209,33 @@ final class VolunteerIntroCallViewModel: ObservableObject {
             matchedOrder = order
             outcome = .matched
             speechService?.speak(IntroCallCopy.volunteerMatchedAnnouncement(order: order))
+            if #available(iOS 16.2, *) {
+                GuideRunActivityController.shared.finishFirstSegment(
+                    orderID: orderId, bookedAs: GuideRunActivityContentBuilder.attributes(from: order)
+                )
+            }
         } else {
             outcome = .closed
             speechService?.speak(IntroCallCopy.volunteerRoundClosed)
+            if #available(iOS 16.2, *) {
+                GuideRunActivityController.shared.finishFirstSegment(orderID: orderId, bookedAs: nil)
+            }
         }
         stopPolling()
+    }
+
+    /// 实时活动第一段（#920）：V1 商量见面 / V2 已交安排单。子状态与本页同一个判据（`step`）。
+    /// 后端不为这两屏推送，只有本页在前台轮询时更新；退到后台后卡停在最后一屏，倒计时照走。
+    private func syncLiveActivity(orderId: Int64) {
+        guard #available(iOS 16.2, *), outcome == .active, let introCall else { return }
+        GuideRunActivityController.shared.showFirstSegment(
+            attributes: GuideRunActivityContentBuilder.attributes(
+                orderID: orderId, startAddress: introCall.startAddress, plannedStart: introCall.plannedStartTime
+            ),
+            content: GuideRunActivityContentBuilder.introCallState(
+                step: step, windowEndsAt: introCall.windowEndsAt?.nilIfBlank?.backendTimestamp
+            )
+        )
     }
 
     // MARK: 提交见面安排（V2）
@@ -231,6 +254,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
                 current.plan = stored
                 introCall = current
             }
+            syncLiveActivity(orderId: orderId)
             clearLoadFailure()
             speechService?.speak(IntroCallCopy.volunteerPlanSubmittedAnnouncement)
             return .submitted
