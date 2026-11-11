@@ -139,6 +139,22 @@ final class BlindOrderTimelineTests: XCTestCase {
         XCTAssertEqual(BlindOrderTimelineLayout.rows(unfolded).count, 5)
     }
 
+    /// 终态（#946）：竖线停在中断那一步，后面的步一行都不画；之前完成的照常折叠。
+    func testStoppedPositionEndsTheLineAtThatStep() {
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.rows(input(.stopped(.awaitDeparture))),
+            [.doneFold([.matchVolunteer, .arrangeMeetup]), .stopped(.awaitDeparture, detail: nil)]
+        )
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.rows(input(.stopped(.matchVolunteer))),
+            [.stopped(.matchVolunteer, detail: nil)]
+        )
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.accessibilityLabel(for: .stopped(.awaitDeparture, detail: "你取消了订单")),
+            "等出发，到这一步结束。你取消了订单"
+        )
+    }
+
     // MARK: - 读屏
 
     /// 稿原话「后面还有 3 步：等出发、在南门汇合、开跑」（第四步名见 `BlindOrderTimelineStep` 注释）。

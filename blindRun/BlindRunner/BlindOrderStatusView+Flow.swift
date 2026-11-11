@@ -56,10 +56,13 @@ extension BlindOrderStatusView {
                 )
             }
         } else if let order = viewModel.order, order.status.usesBlindTerminalPage {
-            // 已取消 / 暂无志愿者（#818）：与骨架同一套版式，见 `BlindOrderStatusView+Terminal.swift`。
+            // 已取消 / 暂无陪跑员（#946）：v7 外壳，竖线停在中断那一步，见 `BlindOrderStatusView+Terminal.swift`。
             terminalContent(order)
+        } else if usesLoadingShell {
+            // 订单还没拿到（#946）：v7 外壳 + 转圈。此前走下面那条只读退路，每次进页面都闪一下改版前那页。
+            loadingShellContent
         } else {
-            // 只读退路：`.unknown` 与还没拿到订单的加载态。
+            // 只读退路：只剩 `.unknown`。
             // 这一条**不许删** —— 后端加状态时它是未知态唯一的落点。
             trackingContent
         }
@@ -307,12 +310,7 @@ extension BlindOrderStatusView {
     private var trackingContent: some View {
         ScrollView {
             VStack(spacing: 24) {
-                if viewModel.isLoading && viewModel.order == nil {
-                    ProgressView("正在获取订单状态...")
-                        .tint(AppColors.primary)
-                        .accessibilityLabel("正在获取订单状态")
-                }
-
+                // 加载态 2026-11-11 起走 `loadingShellContent`（#946），这里只会有订单。
                 if let order = viewModel.order {
                     // 顺序即优先级：状态（一句话 + 一个数字）→ 这一态唯一的主动作 →
                     // 同一态的次级动作 → 附属动作 → 其余全部下沉。此前主动作排在第 4 位，

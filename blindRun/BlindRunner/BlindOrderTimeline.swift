@@ -38,22 +38,25 @@ enum BlindOrderTimelineStep: Int, CaseIterable, Equatable, Hashable {
     }
 }
 
-/// 竖线走到哪儿了：某一步正在进行，或五步都完成了（已完成页）。
+/// 竖线走到哪儿了：某一步正在进行、五步都完成了（已完成页），或停在某一步不会再往下走（已取消 / 暂无陪跑员，#946）。
 enum BlindOrderTimelinePosition: Equatable {
     case current(BlindOrderTimelineStep)
     case allDone
+    /// 订单在这一步中断了。竖线画到这一步为止，后面的步不画。
+    case stopped(BlindOrderTimelineStep)
 
     /// 当前步的下标；全部完成时等于步数（也就是「没有当前步」）。
     var currentIndex: Int {
         switch self {
-        case .current(let step): return step.rawValue
+        case .current(let step), .stopped(let step): return step.rawValue
         case .allDone: return BlindOrderTimelineStep.allCases.count
         }
     }
 }
 
 extension RunOrderStatus {
-    /// 这一态落在竖线的哪一步。`nil` = 这一态不画竖线（已取消、暂无陪跑员、未知状态）。
+    /// 这一态落在竖线的哪一步。`nil` = 这一态不画竖线（未知状态），或停在哪一步不由状态决定
+    /// （已取消、暂无陪跑员：见 `BlindOrderTerminalPresentation.stoppedStep`）。
     ///
     /// 穷举 switch，不写集合字面量：后端加状态时编译器会逼一次决策（同 `blindOrderFlowStep`）。
     /// 🔴 `.unknown` 不许落到「匹配陪跑员」：「我不认识这个状态」和「正在找人」是两件事。
@@ -110,6 +113,8 @@ enum BlindOrderTimelineRow: Equatable, Identifiable {
     /// 「✓ 已完成 N 步 ›」。
     case doneFold([BlindOrderTimelineStep])
     case current(BlindOrderTimelineStep, detail: String?)
+    /// 中断在这一步（#946）。它下面不再有行。
+    case stopped(BlindOrderTimelineStep, detail: String?)
     /// 「下一步 …」。
     case next(BlindOrderTimelineStep)
     case todo(BlindOrderTimelineStep)
@@ -121,6 +126,7 @@ enum BlindOrderTimelineRow: Equatable, Identifiable {
         case .done(let step, _): return "done-\(step.rawValue)"
         case .doneFold: return "doneFold"
         case .current(let step, _): return "current-\(step.rawValue)"
+        case .stopped(let step, _): return "stopped-\(step.rawValue)"
         case .next(let step): return "next-\(step.rawValue)"
         case .todo(let step): return "todo-\(step.rawValue)"
         case .todoFold: return "todoFold"
@@ -162,6 +168,9 @@ enum BlindOrderTimelineLayout {
             rows += past.map { .done($0, detail: input.details[$0]) }
         }
 
+        if case .stopped(let stopped) = input.position {
+            return rows + [.stopped(stopped, detail: input.details[stopped])]
+        }
         guard case .current(let current) = input.position else { return rows }
         rows.append(.current(current, detail: input.details[current]))
 
@@ -190,6 +199,8 @@ enum BlindOrderTimelineLayout {
             return "已完成 \(steps.count) 步：\(steps.map(\.title).joined(separator: "、"))"
         case .current(let step, let detail):
             return ["\(step.title)，当前这一步", detail].compactMap { $0?.nilIfBlank }.joined(separator: "。")
+        case .stopped(let step, let detail):
+            return ["\(step.title)，到这一步结束", detail].compactMap { $0?.nilIfBlank }.joined(separator: "。")
         case .next(let step):
             return "下一步，\(step.title)"
         case .todo(let step):
