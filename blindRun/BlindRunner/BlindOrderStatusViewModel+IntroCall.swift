@@ -168,6 +168,7 @@ extension BlindOrderStatusViewModel {
         switch phase {
         case .background:
             isAppActive = false
+            backgroundedSinceLastApply = true
             let now = introCallNow()
             if let orderId, let dueAt = introCallPlanReminder.dueAt, dueAt > now {
                 introCallPlanReminderNotifier.schedule(orderId: orderId, at: dueAt)

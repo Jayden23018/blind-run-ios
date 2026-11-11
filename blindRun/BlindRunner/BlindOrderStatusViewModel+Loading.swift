@@ -165,6 +165,16 @@ extension BlindOrderStatusViewModel {
     @discardableResult
     func apply(_ updated: OrderDetailResponse, speakChanges: Bool) -> Bool {
         let previousStatus = order?.status
+        // 找到陪跑员那一刻（#926）：与 `order` 同一拍置上，订单页首帧就画旧 ① 打勾屏，不会先闪一下新屏。
+        // 同态刷新不动它（过渡还在演就让它演完）。
+        if previousStatus != updated.status {
+            matchFound = BlindMatchFoundTransition.shouldPlay(
+                from: previousStatus,
+                to: updated.status,
+                watchedContinuously: isAppActive && !backgroundedSinceLastApply
+            ) ? order.map { BlindMatchFoundTransition(previousOrder: $0) } : nil
+        }
+        backgroundedSinceLastApply = false
         order = updated
         announceArrivalCancelUnlockIfNeeded(for: updated, speakChanges: speakChanges)
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
@@ -199,5 +209,16 @@ extension BlindOrderStatusViewModel {
             stopPolling()
         }
         return spokeStatus
+    }
+
+    /// 订单页演到哪一步（#926）。只改这一个过渡；换了一次新的过渡就不碰（`id` 对不上）。
+    func revealMatchFound(_ id: UUID) {
+        guard matchFound?.id == id else { return }
+        matchFound?.revealed = true
+    }
+
+    func finishMatchFound(_ id: UUID) {
+        guard matchFound?.id == id else { return }
+        matchFound = nil
     }
 }

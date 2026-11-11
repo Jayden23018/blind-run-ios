@@ -32,6 +32,14 @@ enum BlindOrderStageCopy {
     /// ① 深色卡（负责人 11-11 第 12 条改的文案）。「最晚开跑前半小时会有结果」等 backend#949，**不写**。
     static let matchingCardLead = "可以先离开这个页面"
     static let matchingCardBody = "找到后马上通知你"
+    /// ① 当前步小字（#926，稿 `blind-matching-wait-20261111/` 第 3 条）：「已等 3 分钟」「已等 2 小时 15 分钟」。
+    /// 「X 小时 Y 分钟」沿用仓库已有的格式器，不另写一份（稿 B 帧注释）。取 `VolunteerMeetupPlanCopy` 那份
+    /// 是因为它不带 `@MainActor`（约跑页、跑步记录那两份都挂在 view model 上）；整小时写「2 小时」。
+    static func matchingWaited(minutes: Int) -> String {
+        "已等 \(VolunteerMeetupPlanCopy.durationText(minutes))"
+    }
+    /// 找到那一刻旧 ① 当前步的小字（稿 C 帧 0–0.3 秒）。
+    static let matchFound = "刚刚找到"
 
     static let introCallEyebrow = "先通个电话"
     static let introCallCandidateLabel = "想陪你跑的陪跑员"
@@ -122,6 +130,18 @@ struct BlindOrderStagePresentation: Equatable {
         }
     }
 
+    /// 找到那一刻前 0.3 秒的旧 ①：当前点打勾、小字换「刚刚找到」（稿 C 帧第一格）。不是 ① 时原样返回。
+    func markingMatchFound() -> BlindOrderStagePresentation {
+        guard stage == .matching else { return self }
+        var timeline = timeline
+        timeline.currentDot = .justFound
+        timeline.details[.matchVolunteer] = BlindOrderStageCopy.matchFound
+        return BlindOrderStagePresentation(
+            stage: stage, eyebrow: eyebrow, title: title, place: place, when: when, timeline: timeline,
+            cardLead: cardLead, cardBody: cardBody, volunteer: volunteer, bottom: bottom, menu: menu
+        )
+    }
+
     /// 地点行。④ 把陪跑员写的具体见面位置接在后面（同 ③「朝阳公园南门 · 南门保安亭左边」）。
     static func placeLine(order: OrderDetailResponse, includesMeetSpot: Bool) -> String? {
         guard let address = order.startAddress?.nilIfBlank else { return nil }
@@ -136,8 +156,8 @@ struct BlindOrderStagePresentation: Equatable {
         now: Date
     ) -> BlindOrderStagePresentation {
         var details: [BlindOrderTimelineStep: String] = [:]
-        if let waited = order.blindRunnerWaitedText(now: now) {
-            details[.matchVolunteer] = waited
+        if let minutes = order.blindRunnerWaitedMinutes(now: now) {
+            details[.matchVolunteer] = BlindOrderStageCopy.matchingWaited(minutes: minutes)
         }
         var bottom: [BlindOrderStageBottomAction] = []
         // 判据与改版前同一个（`offersBlindRunnerKeepWaitingControl`）：只有 REMATCHING 是真延长。
@@ -153,7 +173,8 @@ struct BlindOrderStagePresentation: Equatable {
             title: order.status == .rematching ? order.blindRunnerRematchingTitle : BlindOrderStageCopy.matchingTitle,
             place: placeLine(order: order, includesMeetSpot: false),
             when: order.flexibleMatchingDescription ?? order.blindRunnerShortStartText(now: now),
-            timeline: BlindOrderTimelineInput(position: position, details: details),
+            // 只有 ① 呼吸：匹配是长等待，等待指示要一直在动（稿第 3 条）。
+            timeline: BlindOrderTimelineInput(position: position, details: details, currentDot: .breathing),
             cardLead: BlindOrderStageCopy.matchingCardLead,
             cardBody: BlindOrderStageCopy.matchingCardBody,
             volunteer: nil,
@@ -209,5 +230,53 @@ struct BlindOrderStagePresentation: Equatable {
             line: parts.joined(separator: " · "),
             spoken: "\(BlindOrderStageCopy.bookedVolunteerLabel)，\(spokenParts.joined(separator: "，"))"
         )
+    }
+}
+
+// MARK: - 匹配中的等待与「找到了」那一刻（#926，稿 `docs/ui/mockups/blind-matching-wait-20261111/`）
+
+enum BlindMatchingWaitTiming {
+    /// 呼吸半程：3 秒一个来回（稿第 3 条）。
+    static let breathHalfCycle: TimeInterval = 1.5
+}
+
+/// 找到那一刻约 1 秒的时间点（稿 C 帧：0–0.3 打勾、0.3–0.8 竖线长与标题换字、1 秒定格）。
+enum BlindMatchFoundTiming {
+    /// 打勾那一格多长；之后揭开新屏。
+    static let checkPhase: TimeInterval = 0.3
+    /// 打勾放大到多大、放大用多久（之后弹簧弹回）。
+    static let popScale: CGFloat = 1.3
+    static let popUp: TimeInterval = 0.12
+    /// 新旧两屏交叉淡入多久；减弱动态效果时整段就是这一下（稿「0.25 秒淡入淡出」）。
+    static let crossfade: TimeInterval = 0.25
+    /// 竖线往下长、新卡片上浮淡入多久。
+    static let lineGrow: TimeInterval = 0.5
+    /// 新卡片和主按钮从下方多远淡入。
+    static let riseOffset: CGFloat = 8
+    /// 从开始到定格（之后读屏焦点才挪到新标题）。
+    static let total: TimeInterval = 1.0
+}
+
+/// 一次「找到陪跑员」过渡。由 `apply` 在换订单的同一刻置上，订单页演完后清掉。
+struct BlindMatchFoundTransition: Equatable {
+    let id = UUID()
+    /// 换之前那一单（`PENDING_MATCH` / `REMATCHING`）。前 0.3 秒照它画旧 ①。
+    let previousOrder: OrderDetailResponse
+    /// 已经揭开到新屏（前 0.3 秒为 `false`）。
+    var revealed = false
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id && lhs.revealed == rhs.revealed }
+
+    /// 该不该放这段过渡。**只认「人一直看着 ① 等，然后它变成了 ② 或 ④」**（稿第 4、5 条）：
+    /// - `previous == nil`：冷启动 / 点通知进来，人没看过等待那一屏，直接显示定格屏。
+    /// - `watchedContinuously == false`：上一次刷新之后 App 进过后台，同理不补放。
+    /// - 落点只认 v7 ②（通话）与 ④（已约好，`requiresIntroCall=false` 的单）；
+    ///   取消、暂无陪跑员、同态刷新、匹配两态之间互转都不放。
+    static func shouldPlay(from previous: RunOrderStatus?, to status: RunOrderStatus, watchedContinuously: Bool) -> Bool {
+        guard watchedContinuously, let previous, BlindOrderStage.resolve(previous) == .matching else { return false }
+        switch BlindOrderStage.resolve(status) {
+        case .introCall, .booked: return true
+        case .matching, nil: return false
+        }
     }
 }

@@ -90,6 +90,18 @@ struct BlindOrderTimelineInput: Equatable {
     var showsNextStep = true
     /// `false` = 五步全部平铺不折叠（#918 抽屉拉到顶时用）。
     var folds = true
+    /// 当前步那颗圆点怎么画（#926）。只有 ① 匹配中呼吸；找到那一刻的旧 ① 画成打勾。
+    var currentDot: BlindOrderTimelineCurrentDot = .still
+}
+
+/// 当前步圆点的三种画法（`docs/ui/mockups/blind-matching-wait-20261111/` 第 3、4 条）。
+enum BlindOrderTimelineCurrentDot: Equatable {
+    /// 静态外圈（#923 的样子）。②–⑧ 都是它。
+    case still
+    /// 外圈 3pt ↔ 11pt，3 秒一个来回；减弱动态效果时固定 6pt。只用在 ① 匹配中（长等待）。
+    case breathing
+    /// 找到那一刻：圆点填成 ✓，放大 1.3 倍再弹回，卡片淡出。只在过渡的前 0.3 秒出现。
+    case justFound
 }
 
 /// 竖线上的一行。
@@ -121,6 +133,11 @@ enum BlindOrderTimelineRow: Equatable, Identifiable {
         case .done, .doneFold: return true
         default: return false
         }
+    }
+
+    var isCurrent: Bool {
+        if case .current = self { return true }
+        return false
     }
 }
 
