@@ -11,6 +11,8 @@ struct BlindOrderStageScaffold<TopBar: OrderV7TopBar, Card: View, Footer: View, 
     let topBar: TopBar
     let eyebrow: String
     let title: String
+    /// 大字颜色。默认浅蓝；陪跑员约好页过了建议出发时间用金色（#945）。
+    var titleColor: Color = BlindOrderV7Palette.headerTitle
     let headerAccessibilityLabel: String
     var headerFocused: AccessibilityFocusState<Bool>.Binding
     var headerIdentifier: BlindOrderStageHeaderIdentifier = .statusCard
@@ -51,7 +53,7 @@ struct BlindOrderStageScaffold<TopBar: OrderV7TopBar, Card: View, Footer: View, 
                 .foregroundColor(BlindOrderV7Palette.headerEyebrow)
             Text(title)
                 .flowFont((30, .bold, .title))
-                .foregroundColor(BlindOrderV7Palette.headerTitle)
+                .foregroundColor(titleColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

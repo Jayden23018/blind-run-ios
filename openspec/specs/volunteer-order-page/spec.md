@@ -137,28 +137,6 @@ The order page SHALL display the runner's name only as the masked `blindName` se
 - **WHEN** the volunteer taps "打电话" in the arrived layout
 - **THEN** the screen and the VoiceOver label SHALL contain only the masked number
 
-### Requirement: Rope is a single accessible element and motion respects Reduce Motion
-The guide rope SHALL be exposed to VoiceOver as one element reading "第 N 步，共 4 步，{状态}" (plus remaining minutes when departed). When Reduce Motion is on, every position, scale and drawing animation on the order page (rope, direction dial, notice bar, primary-button upgrade, completion illustration) SHALL become a fade of at most 0.2 seconds and looping effects SHALL be static. Looping effects SHALL also stop when the app is not active. Colour transitions of the hero card are not motion and SHALL still apply.
-
-#### Scenario: Reduce Motion
-- **WHEN** Reduce Motion is enabled and the order becomes `DRIVER_EN_ROUTE`
-- **THEN** the volunteer avatar SHALL appear at its new position without sliding and the glow SHALL NOT pulse
-
-#### Scenario: Reduce Motion on arrival
-- **WHEN** Reduce Motion is enabled and the order becomes `DRIVER_ARRIVED`
-- **THEN** the direction dial SHALL fade in without scaling
-
-### Requirement: Hero card colour follows the order state
-The hero card SHALL use a state colour: agreed (`SCHEDULED_CONFIRMED`, `PENDING_ACCEPT`) and runner-cancelled use navy, `DRIVER_EN_ROUTE` uses the departed blue, `DRIVER_ARRIVED` uses the arrived amber, `COMPLETED` uses the done green; the invitation keeps the white card. Text on every state colour SHALL reach 4.5:1. When the state changes while the page is open, the card background SHALL cross-fade over 0.35 seconds. The state colours SHALL NOT be used outside the hero card, except the arrived direction dial, ring button and the emphasised call button after the wait threshold.
-
-#### Scenario: Departing changes the hero colour
-- **WHEN** the order moves from `PENDING_ACCEPT` to `DRIVER_EN_ROUTE` while the page is open
-- **THEN** the hero card background SHALL change from navy to the departed blue with a 0.35-second transition
-
-#### Scenario: Runner cancels
-- **WHEN** the runner cancels the order
-- **THEN** the hero card SHALL use navy
-
 ### Requirement: Completion page shows star-level progress
 After a volunteer finishes an escort, the completion page SHALL show the national star-level progress below the completion card, fetched when the page appears so that it includes the run just finished. When the achievements request fails, the progress card SHALL NOT be shown and the completion page SHALL remain fully usable.
 
@@ -308,4 +286,15 @@ The star-level card on the escort completion page SHALL use the same wording as 
 #### Scenario: Below the first star after an escort
 - **WHEN** the completion page shows the star card for a volunteer below the first star
 - **THEN** the title SHALL be 「距离一星还差 N 小时」 and the progress line SHALL be 「已累计 X / 100 小时」
+
+### Requirement: 陪跑员订单页与盲人端订单页 v7 同一套版式
+陪跑员订单页 SHALL 使用盲人端订单页 v7 的版式（#945）：邀请详情、通话磨合、已约好、跑者已取消为顶栏 + 深色头 + 五步竖线（只展开当前一步）+ 底部一枚深色主按钮；出发、汇合、完成为地图常驻 + 抽屉。五步为「接下陪跑 → 商量见面安排 → 等出发 → 去集合点汇合 → 开跑」。「我去不了」SHALL 在顶栏「···」里。页面动效 SHALL 只用淡入淡出、当前步圆点与竖线生长。
+
+#### Scenario: 跑者取消
+- **WHEN** 跑者在已约好之后取消
+- **THEN** 竖线五步全部画出，「等出发」那一步打叉并写「跑者在这一步取消了」，读屏念「等出发，在这一步取消了」
+
+#### Scenario: 出发后
+- **WHEN** 订单变成 `DRIVER_EN_ROUTE`
+- **THEN** 页面换成地图 + 抽屉，抽屉里有快捷回复与「导航去集合点」，竖线拉起抽屉才显示
 

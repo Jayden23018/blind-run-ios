@@ -55,7 +55,6 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     @State private var showsLocalHelp = false
     @AccessibilityFocusState private var headerFocused: Bool
-    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     var body: some View {
         Group {
@@ -113,6 +112,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             topBar: topBar(surface: .onDark),
             eyebrow: hero.eyebrow,
             title: headerTitle,
+            // 过了建议出发时间：大字换金色（同 v2 头卡，稿 ④ 注解）。
+            titleColor: hero.isGold ? AppColors.Flow.gold : BlindOrderV7Palette.headerTitle,
             headerAccessibilityLabel: hero.accessibilityLabel + metricsSpoken,
             headerFocused: $headerFocused,
             headerIdentifier: .volunteerStatusCard,
@@ -136,12 +137,12 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         return placeRow?.value ?? order?.startAddress?.nilIfBlank
     }
 
-    /// 地点下面那行：邀请态是距离 / 配速，其余是头部副文的第一行。
+    /// 地点下面那行：邀请态是距离 / 配速，其余是开跑时间。头部副文（建议出发时间、带绳提醒）进当前步那张卡。
     private var stageWhen: String? {
         if !inviteMetrics.isEmpty {
             return inviteMetrics.map { [$0.value, $0.unit].compactMap { $0 }.joined(separator: " ") }.joined(separator: " · ")
         }
-        return phase == .runnerCancelled ? nil : hero.lines.first
+        return phase == .runnerCancelled ? nil : order?.blindRunnerShortStartText(now: Date())
     }
 
     private var timelinePosition: BlindOrderTimelinePosition {
@@ -164,7 +165,9 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             )
         }
         if case .current(let step) = timelinePosition {
-            details[step] = presentation.replyNotice ?? hero.presence
+            // 最后 10 秒不靠颜色提示：字里直接写「快到时间了」（v2 用金色 +「不用颜色区分」时的感叹号）。
+            let reply = presentation.replyNotice.map { presentation.isReplyUrgent ? "快到时间了 · \($0)" : $0 }
+            details[step] = reply ?? hero.presence
         }
         return BlindOrderTimelineInput(position: timelinePosition, details: details, vocabulary: .volunteer)
     }
@@ -172,13 +175,16 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     /// 当前步那张卡：深色块是头部副文（建议出发时间、带绳提醒），下半截是跑者一行。
     @ViewBuilder
     private var currentCard: some View {
-        let lines = Array(hero.lines.dropFirst(stageWhen == hero.lines.first ? 1 : 0))
+        let lines = hero.lines
         if phase == .runnerCancelled {
             EmptyView()
-        } else if !lines.isEmpty || runnerLine != nil {
-            BlindOrderStepCard(lead: nil, body: lines.isEmpty ? VolunteerOrderFlowCopy.pageTitle : lines.joined(separator: "\n")) {
+        } else if !lines.isEmpty {
+            BlindOrderStepCard(lead: nil, body: lines.joined(separator: "\n")) {
                 if let runnerLine { runnerLine }
             }
+        } else if let runnerLine {
+            // 没有副文时只剩跑者一行：不画空的深色块。
+            VolunteerV7InfoBox { runnerLine }
         }
     }
 
@@ -539,9 +545,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             }
         }
         .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.surfaceSubtle)
-        )
+        .modifier(VolunteerV7InfoBoxBackground())
     }
 
     @ViewBuilder

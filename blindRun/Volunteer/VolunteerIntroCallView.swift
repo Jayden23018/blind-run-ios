@@ -386,7 +386,7 @@ struct VolunteerIntroCallView: View {
             position: .current(.arrangeMeetup),
             details: details,
             showsNextStep: !isAwaitingConfirmation,
-            currentDot: isClosed ? .interrupted : .still,
+            // 没约成不画打叉、不说「取消」：磨合里对方的表态客户端不许显示（AGENTS §5，无声拒绝是设计）。
             vocabulary: .volunteer
         )
     }
@@ -410,7 +410,6 @@ struct VolunteerIntroCallView: View {
                         lead: incoming ? IntroCallCopy.volunteerIncomingCallPill : nil,
                         body: lines.joined(separator: "\n")
                     )
-                    .accessibilityIdentifier(incoming ? "volunteerIntroCallIncomingPill" : "volunteerIntroCallCountdown")
                 }
                 // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走 `disclosesBlindRunnerNotesToVolunteer` 闸，
                 // 通话发生在接单之前。恢复路径上是空数组，该组件对空数组本来就什么都不渲染。
@@ -635,7 +634,13 @@ struct VolunteerV7InfoBox<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        content()
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.surfaceSubtle))
+        content().modifier(VolunteerV7InfoBoxBackground())
+    }
+}
+
+/// 信息块的底。`VolunteerV7InfoBox` 与订单页信息块共用这一份。
+struct VolunteerV7InfoBoxBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.surfaceSubtle))
     }
 }
