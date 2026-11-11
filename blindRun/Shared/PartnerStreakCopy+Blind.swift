@@ -10,7 +10,7 @@ extension PartnerStreakCopy {
     static func blindHeroTitle(_ count: Int) -> String { "\(count) 位固定搭档" }
 
     /// 🔴 不写「优先派给他」：收藏只是派单加分（理由见 `favoriteExplanation`）。
-    static let blindHeroCaption = "设为固定搭档后，派单时更可能派给他，但不保证一定是他。"
+    static let blindHeroCaption = "设为固定搭档后，派单时更可能派给他。"
 
     static let blindFavoritesSectionTitle = "固定搭档"
     static let blindRanTogetherSectionTitle = "一起跑过的人"
@@ -71,7 +71,7 @@ extension PartnerStreakCopy {
     static func blindRemoveSpoken(_ name: String) -> String { "取消\(name)的固定搭档" }
 
     static let blindAddTitle = "设为固定搭档"
-    static let blindAddFootnote = "派单时更可能派给他，但不保证一定是他。"
+    static let blindAddFootnote = "派单时更可能派给他。"
 
     // MARK: 取消固定搭档的确认（2026-11-05 从 `PartnerStreaks.swift` 挪来，那个文件超了 400 行）
 
@@ -118,8 +118,8 @@ extension PartnerStreakCopy {
             title: "\(removeFavoriteTitle(name))？",
             // 后果必须写进正文、且是读屏能一口气念清楚的一整句 —— 只给「确定 / 取消」
             // 等于把一个会影响**别人**的决定做成了一次无声点击。
-            message: "\(name)已经退出了你们的固定搭档。取消收藏会把这条退出记录一起删掉："
-                + "之后你如果再把\(name)设为固定搭档，他的退出就不作数了，而他不会收到任何提示。",
+            message: "\(name)已退出固定搭档。"
+                + "取消收藏后，以后可以重新把他设为固定搭档。",
             confirm: "仍然取消收藏",
             // 🚩 **不写「取消」**：在一个讲「取消收藏」的弹窗里，「取消」有两种读法
             // （取消这个动作？还是确认取消收藏？）。念出来尤其分不清。

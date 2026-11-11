@@ -316,7 +316,7 @@ enum PartnerStreakCopy {
         case true:
             return "还没有可以显示的搭档。和同一位陪跑员连续两周一起跑步之后，这里会显示你们的连续记录。"
         case false:
-            return "还没有可以显示的搭档。连续一起跑步的记录功能还没有开放，开放之后这里会显示你和同一位陪跑员连续跑步的周数。"
+            return "还没有可以显示的搭档。"
         case nil:
             return "还没有可以显示的搭档。"
         }
@@ -327,7 +327,7 @@ enum PartnerStreakCopy {
         case true:
             return "还没有跑者把你设为固定搭档，也还没有连续一起跑步的记录。"
         case false:
-            return "还没有跑者把你设为固定搭档。连续一起跑步的记录功能还没有开放。"
+            return "还没有跑者把你设为固定搭档。"
         case nil:
             return "还没有跑者把你设为固定搭档。"
         }
@@ -346,7 +346,7 @@ enum PartnerStreakCopy {
     /// 加分（默认 15 分）加在满分 100 的五维加权和之外，**不是压倒一切** ——
     /// 附近有个不错的陌生人时，很远的固定搭档仍然会输。
     /// 所以只能说「更可能」。承诺「优先」就是承诺一件系统做不到的事。
-    static let favoriteExplanation = "设为固定搭档后，系统派单时会更可能派给他，但不保证一定是他。"
+    static let favoriteExplanation = "设为固定搭档后，派单时更可能派给他。"
 
     /// 🚨 「没一起跑完过」与「这个 id 根本不是志愿者」后端**同码同文案**，
     /// 客户端不要试图区分 —— 区分开就等于确认了这个 id 是个志愿者。
@@ -394,7 +394,7 @@ enum PartnerStreakCopy {
     /// 三个后果逐条对应契约 `DELETE /api/volunteer/favorites/{blindUserId}`：不进固定搭档优先轮、
     /// 不再获得派单加分、双人火花停止累积。**本轮不可撤销**，也没有「再跑一单就恢复」的路径
     /// （#327：原文这么承诺过，后端从没实现）。不写「优先派」：收藏只是加分，不是承诺（同 `favoriteExplanation`）。
-    static let optOutConfirmMessage = "退出后无法撤销。系统派这位跑者的订单时，不再把你当作固定搭档先问你，也不再给你加分；你们连续一起跑步的记录会停止累积。"
+    static let optOutConfirmMessage = "退出后无法撤销。这位跑者的订单不再把你当固定搭档先问，也不再加分；连续一起跑步的记录会停止累积。"
 
     static let optOutConfirmAction = "确认退出"
     /// 不写「取消」：在讲「退出」的弹窗里它有两种读法，读屏尤其分不清（同取消收藏那一处的「保留收藏」）。

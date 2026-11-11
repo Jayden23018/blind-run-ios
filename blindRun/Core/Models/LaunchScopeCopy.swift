@@ -43,7 +43,7 @@ extension LaunchScopeResponse {
 
 enum LaunchScopeCopy {
     /// 暂未开放而后端 `areaHint` 为空时。与后端 `ORDER_SERVICE_NOT_OPEN` 的默认文案同一句，不提城市、不引导改地点或时间。
-    static let closedFallback = "陪跑服务暂未开放，现在还不能预约，开放后再来下单。"
+    static let closedFallback = "陪跑服务暂未开放，开放后再来预约。"
     static let outsideAreaPrefix = "这个出发点不在开放范围内。"
     static let outsideDutyHoursPrefix = "这个开跑时间不在可预约时段内。"
     /// 首次进入、本账号还没有规则数据时的等待提示。
@@ -52,7 +52,7 @@ enum LaunchScopeCopy {
 
     // 三个建单拒绝码的兜底句：只在后端 `message` 为空时用（`ErrorCode.prefersServerMessage`）。取自后端 `ErrorCode.java` 的默认文案。
     static let outsideOpenAreaFallback = "这个出发点不在开放范围内，请换一个开放范围内的出发点。"
-    static let outsideDutyHoursFallback = "这个时间没有值守人员，暂不接受预约，请换个时间。"
+    static let outsideDutyHoursFallback = "这个时间暂不接受预约，请换个时间。"
 
     /// 只给 `ErrorCode.localizedMessage` 那三个码用。
     static func rejectionFallback(for code: ErrorCode) -> String {

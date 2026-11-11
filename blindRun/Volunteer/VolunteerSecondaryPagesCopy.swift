@@ -84,10 +84,10 @@ enum VolunteerSecondaryPagesCopy {
     static let ratingsNavigationTitle = "评分"
     static let averageTitle = "平均评分"
     static let ratingScale = "/ 5"
-    static let ratingRule = "跑者跑完后评价这次陪跑：「很好」记 5 分，「一般」记 4 分。"
+    static let ratingRule = "评分来自跑者跑完后的评价。"
     static let highRatedTitle = "好评徽章"
     static let recentTitle = "最近的评价"
-    static let recentFootnote = "点一行进那次的跑后记录。评语只有跑者本人和客服能看到。"
+    static let recentFootnote = "点一行查看那次的跑后记录。"
     static let recentEmpty = "最近还没有完成的陪跑。"
     static let recentRowHint = "点击查看那次的跑后记录"
 

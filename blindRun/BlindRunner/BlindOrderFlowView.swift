@@ -532,7 +532,7 @@ struct BlindOrderFlowView<Footer: View>: View {
     private var callAction: OrderFlowCallAction? {
         guard let title = presentation.callTitle, let onCallVolunteer else { return nil }
         // 刻意**不念号码**（理由同 `PrimaryAction.blindAccessibilityHint` 的 `.callVolunteer`）。
-        return OrderFlowCallAction(title: title, accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出", action: onCallVolunteer)
+        return OrderFlowCallAction(title: title, accessibilityHint: "确认后拨出", action: onCallVolunteer)
     }
 }
 

@@ -116,7 +116,7 @@ extension VolunteerInServiceViewModel {
         appState: AppState
     ) {
         transitionState = .awaitingConfirmation(target: target)
-        let message = "操作结果尚未确认，正在后台同步状态。请勿重复提交同一操作。"
+        let message = "正在确认结果，请不要重复操作。"
         errorMessage = nil
         speechService?.speakError(message)
         startTransitionConfirmation(orderID: orderID, target: target, appState: appState)

@@ -91,7 +91,7 @@ extension VolunteerOrderFlowPresentation {
                 accessibilityLabel: VolunteerOrderFlowCopy.reportIssue,
                 // 契约在 `POST /api/support/tickets` 的 description 上逐字写着
                 // 「这不是紧急求助入口」，所以这里的提示要先把时效说清楚。
-                accessibilityHint: "提交一条事后反馈，不会立刻有人联系你"
+                accessibilityHint: "事后提交一条反馈"
             )
         ]
 

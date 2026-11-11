@@ -124,7 +124,7 @@ final class VolunteerFaceVerifyCompletionTests: XCTestCase, BlindRunTestSupport 
         XCTAssertNil(viewModel.activeCertifyId)
         XCTAssertTrue(viewModel.canStartFaceVerify)
         XCTAssertEqual(client.resultCount, 0)
-        XCTAssertEqual(viewModel.errorMessage, "活体认证参数或流程配置异常，请重新发起认证（错误码 Z1010）")
+        XCTAssertEqual(viewModel.errorMessage, "刷脸没完成，请重新开始（错误码 Z1010）")
         XCTAssertFalse(viewModel.errorMessage?.contains("certifyId") == true)
     }
 
@@ -173,7 +173,7 @@ final class VolunteerFaceVerifyCompletionTests: XCTestCase, BlindRunTestSupport 
         viewModel.configure(with: appState, speechService: SpeechService())
 
         XCTAssertEqual(viewModel.certificationButtonTitle, "开始认证")
-        XCTAssertEqual(viewModel.certificationAccessibilityHint, "点击后进入志愿者注册认证流程")
+        XCTAssertEqual(viewModel.certificationAccessibilityHint, "进入陪跑员注册认证")
         XCTAssertFalse(viewModel.canSubmit)
     }
 }

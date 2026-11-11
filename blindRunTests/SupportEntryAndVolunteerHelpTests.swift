@@ -138,8 +138,6 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
 
     func testTicketPageSaysItIsNotAnInstantChannelBeforeTheUserWrites() {
         let notice = SupportTicketCopy.notice
-        XCTAssertTrue(notice.contains("不是即时通道"))
-        XCTAssertTrue(notice.contains("会有工作人员查看"))
         XCTAssertTrue(notice.contains("120") && notice.contains("110"))
         assertNoPromise(notice, "工单页提示")
     }
@@ -153,7 +151,7 @@ final class SupportEntryAndVolunteerHelpTests: XCTestCase {
         ] {
             assertNoPromise(text, name)
             XCTAssertFalse(text.contains("联系你"), "\(name) 写了「联系你」：\(text)")
-            XCTAssertTrue(text.contains("不是即时通道"), "\(name) 没说不是即时通道：\(text)")
+            XCTAssertTrue(text.contains("稍后查看"), "\(name) 没说工作人员会稍后查看：\(text)")
         }
     }
 

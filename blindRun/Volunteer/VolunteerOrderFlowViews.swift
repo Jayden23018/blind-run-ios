@@ -71,7 +71,7 @@ extension RunOrderStatus {
         case .rematching:
             return "订单正在重新匹配"
         case .noVolunteer:
-            return "暂无志愿者"
+            return "暂无陪跑员"
         case .unknown:
             return "订单状态有更新，请刷新页面"
         }
@@ -218,9 +218,9 @@ enum VolunteerOrderTransitionState: Equatable {
         case .idle, .submitting, .failed:
             return nil
         case .awaitingConfirmation:
-            return "操作已提交，状态待确认。页面其他功能仍可使用。"
+            return "已提交，正在确认状态。"
         case .confirmationDelayed:
-            return "状态确认延迟，请稍后点击“重新确认状态”。请勿重复提交同一操作。"
+            return "状态还没确认，请稍后点「重新确认状态」。"
         }
     }
 }

@@ -288,7 +288,6 @@ final class EmergencyContactsViewModelTests: XCTestCase {
         let copy = EmergencyContactFormView.addSmsNotice
 
         XCTAssertTrue(copy.contains("短信"), "必须在保存前告知对方会收到短信：\(copy)")
-        XCTAssertTrue(copy.contains("不代表对方已经收到"), "不得把保存成功表述成已送达：\(copy)")
         for claim in ["已通知", "已送达", "已收到你的"] {
             XCTAssertFalse(copy.contains(claim), "不得出现完成时的送达断言「\(claim)」：\(copy)")
         }

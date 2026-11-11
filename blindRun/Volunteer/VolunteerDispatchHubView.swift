@@ -164,7 +164,7 @@ enum VolunteerDispatchHubCopy {
     static let pauseConfirmPrimary = "暂停接单"
 
     static let introCallCardTitle = "1 个待回复的邀请"
-    static let introCallCardSubtitle = "通话磨合中，聊完记得表态"
+    static let introCallCardSubtitle = "等跑者来电，聊完记得表态"
 
     static func laterRowTitle(_ count: Int) -> String { "之后还有 \(count) 次陪跑" }
 }

@@ -172,7 +172,7 @@ final class HomeLoadDeadlineTests: XCTestCase, BlindRunTestSupport {
 
         XCTAssertFalse(viewModel.canStartNewBooking)
         viewModel.explainBookingUnavailable()
-        XCTAssertEqual(viewModel.errorMessage, "订单状态尚未确认，请先重试加载，避免创建重复预约。")
+        XCTAssertEqual(viewModel.errorMessage, "订单状态还没加载好，请先重试。")
     }
 
     func testVolunteerHomeTimeoutReleasesLoadingAndOffersRetryState() async {

@@ -10,7 +10,7 @@ import Foundation
 extension APIError {
     /// 服务器证书或 TLS 握手出错时的文案。这类错误是服务端的事（证书过期、续期失败），
     /// 一律说「检查网络」会让每个用户都去折腾自己的网络，而盲人用户无从判断问题在哪一边。
-    static let secureConnectionMessage = "服务器的安全连接出了问题，不是你的网络问题，我们正在处理，请稍后再试。"
+    static let secureConnectionMessage = "服务器连接出了问题，请稍后再试。"
 
     /// 证书类与 TLS 握手类的 `URLError`。`NSError(domain: NSURLErrorDomain, …)` 同样认。
     static func isSecureConnectionFailure(_ error: Error) -> Bool {

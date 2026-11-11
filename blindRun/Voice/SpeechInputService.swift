@@ -700,13 +700,13 @@ final class SpeechInputService: ObservableObject {
         guard audioSession.isInputAvailable,
               audioSession.inputNumberOfChannels > 0,
               audioSession.sampleRate > 0 else {
-            handleRecognitionStartupFailure("当前运行环境没有可用的麦克风输入，请使用键盘输入。")
+            handleRecognitionStartupFailure("麦克风不可用，请使用键盘输入。")
             return
         }
 
         let inputNode = audioEngine.inputNode
         guard let recordingFormat = validRecordingFormat(from: inputNode) else {
-            handleRecognitionStartupFailure("当前运行环境没有可用的麦克风输入，请使用键盘输入。")
+            handleRecognitionStartupFailure("麦克风不可用，请使用键盘输入。")
             return
         }
 

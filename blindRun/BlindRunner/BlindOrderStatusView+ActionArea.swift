@@ -32,7 +32,7 @@ extension BlindOrderStatusView {
                     dismiss()
                 }
                 .accessibilityLabel("返回首页")
-                .accessibilityHint("点击后返回盲人首页")
+                .accessibilityHint("回到首页")
             }
         }
     }

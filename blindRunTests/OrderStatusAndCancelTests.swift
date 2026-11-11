@@ -49,7 +49,7 @@ final class OrderStatusAndCancelTests: XCTestCase, BlindRunTestSupport {
     func testRematchingCopyKeepsBlindRunnerInStableWaitingState() {
         XCTAssertEqual(
             RunOrderStatus.rematching.blindRunnerDescription,
-            "正在确认陪跑员状态，请稍候；如需更换陪跑员，系统会继续处理。"
+            "正在确认陪跑员状态，请稍候。"
         )
         XCTAssertEqual(RunOrderStatus.rematching.blindRunnerAnnouncement, "正在确认陪跑员状态，请稍候。")
         XCTAssertEqual(VoiceService.statusAnnouncement(for: .rematching), "正在确认陪跑员状态，请稍候。")

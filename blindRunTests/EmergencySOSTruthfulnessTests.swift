@@ -174,7 +174,7 @@ final class EmergencySOSTruthfulnessTests: XCTestCase, EmergencySOSTestSupport {
         XCTAssertFalse(EmergencySafetyCopy.volunteerNeedHelpButtonTitle.contains("误触"))
         XCTAssertEqual(
             ErrorCode.emergencyVolunteerCannotDismiss.localizedMessage,
-            "志愿者无权撤销求助，请确认对方是否需要帮助。"
+            "陪跑员不能撤销求助，请确认对方是否需要帮助。"
         )
         // 撤销权只在受助者本人手里，且入口文案要说清代价（会给家属补一条解除短信）。
         XCTAssertTrue(EmergencySafetyCopy.cancelOwnerConfirmation.contains("解除短信"))

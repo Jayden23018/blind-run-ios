@@ -258,8 +258,8 @@ enum ErrorCode: String, Codable, Sendable {
             //
             // 时刻用「晚上10点 / 早上5点」而不是后端那句的 `22:00` / `05:00`：这段要过 TTS，
             // 念数字冒号不如念钟点稳。语义两边一致，措辞刻意不抄。
-            return "晚上10点到次日早上5点之间不安排陪跑。此订单从开始到结束整段都要避开这个时段，"
-                + "请改到白天，或者把时长改短、让它在晚上10点前结束。"
+            return "晚上10点到次日早上5点不安排陪跑，"
+                + "请改到白天，或缩短时长在晚上10点前结束。"
         case .appointmentTooFar:
             // 不写死「7 天」：那是后端配置，而这条码恰恰是在**客户端那个 7 天已经不对**时才会到达。
             // 念一个错的天数比不念更糟 —— 用户会照着它改，然后再被拒一次。
@@ -308,7 +308,7 @@ enum ErrorCode: String, Codable, Sendable {
             return "服务器内部错误，请稍后重试。"
         case .idInfoInvalid:
             return "身份信息核验未通过，请检查后重试。"
-        case .idCardAlreadyRegistered: return "这个身份证号已经注册过志愿者，一个身份证只能注册一个志愿者账号。请用原来的账号登录；如果不是你本人注册的，请联系客服。"
+        case .idCardAlreadyRegistered: return "这个身份证号已注册过陪跑员账号，请用原账号登录；不是你本人注册的请联系客服。"
         case .orderInProgress:
             // 后端只在「取消受阻」这一处抛该码（`OrderLifecycleService`），文案跟着这个唯一场景走。
             return "陪跑员已出发或服务进行中，如需取消请联系陪跑员。"
@@ -327,7 +327,7 @@ enum ErrorCode: String, Codable, Sendable {
             return "时间参数格式错误。"
         case .emergencyVolunteerCannotDismiss:
             // 文案面向志愿者：他不该有撤销权，能做的只有确认对方是否需要帮助。
-            return "志愿者无权撤销求助，请确认对方是否需要帮助。"
+            return "陪跑员不能撤销求助，请确认对方是否需要帮助。"
         case .emergencyNotOwner:
             return "只能撤销自己发出的紧急求助。"
         case .emergencyAlreadyClosed:
@@ -389,7 +389,7 @@ enum ErrorCode: String, Codable, Sendable {
             // 只在后端 message 为空时才会被念到（`prefersServerMessage`）。
             return AccountSuspensionCopy.fallback
         case .supportTicketLimitExceeded:
-            return "你提交的内容已经到上限了，请等客服回复后再提交新的。"
+            return "提交次数已到上限，请过段时间再提交。"
         case .orderServiceNotOpen, .orderOutsideOpenArea, .appointmentOutsideDutyHours: return LaunchScopeCopy.rejectionFallback(for: self)
         }
     }

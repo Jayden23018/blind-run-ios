@@ -80,7 +80,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         case .locked(let opensAt):
             return BlindArrivalCancelCopy.lockedDetail(opensAt: opensAt)
         case nil:
-            return "当前订单状态不能由盲人取消。"
+            return "现在不能取消这个订单。"
         }
     }
 
@@ -109,7 +109,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     }
 
     func explainBookingUnavailable() {
-        let message = "订单状态尚未确认，请先重试加载，避免创建重复预约。"
+        let message = "订单状态还没加载好，请先重试。"
         errorMessage = message
         speechService?.speakError(message)
     }
@@ -880,10 +880,10 @@ struct BlindRunnerHomeView: View {
     }
 
     private var syncNotice: some View {
-        Label("正在后台同步当前状态，页面仍可使用", systemImage: "arrow.triangle.2.circlepath")
+        Label("正在更新状态", systemImage: "arrow.triangle.2.circlepath")
             .flowFont(FlowFonts.rowDetail())
             .foregroundColor(AppColors.Flow.secondaryText)
-            .accessibilityLabel("正在后台同步当前状态，页面仍可使用")
+            .accessibilityLabel("正在更新状态")
     }
 
     private func errorSection(_ message: String) -> some View {

@@ -59,8 +59,8 @@ enum BookingTimeProblem: Equatable {
             // 念钟点比念数字冒号稳，所以只取小时数、自己拼成钟点。
             let start = AppConstants.Timing.nightWindowStartHour
             let end = AppConstants.Timing.nightWindowEndHour
-            return "晚上\(start - 12)点到次日早上\(end)点之间不安排陪跑。此订单从开始到结束整段都要避开这个时段，"
-                + "请改到白天，或者把时长改短、让它在晚上\(start - 12)点前结束。"
+            return "晚上\(start - 12)点到次日早上\(end)点不安排陪跑，"
+                + "请改到白天，或缩短时长在晚上\(start - 12)点前结束。"
         }
     }
 }

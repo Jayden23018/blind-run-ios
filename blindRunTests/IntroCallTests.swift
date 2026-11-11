@@ -1320,7 +1320,7 @@ final class IntroCallTests: XCTestCase {
         let fresh = ISO8601DateFormatter.aidRunFormatter.string(from: now.addingTimeInterval(18 * 60 + 40))
         XCTAssertEqual(
             IntroCallCopy.blindWindowRemainingText(windowEndsAt: fresh, now: now),
-            "这一轮通话还剩 18 分钟"
+            "通话确认还剩 18 分钟"
         )
     }
 

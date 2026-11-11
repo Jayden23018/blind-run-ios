@@ -926,7 +926,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
             detail: asAction ? masked : nil,
             action: .callRunner,
             accessibilityLabel: VolunteerOrderFlowCopy.callRunner,
-            accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出"
+            accessibilityHint: "确认后拨出"
         )
     }
 

@@ -31,7 +31,7 @@ struct AccountDeletionFlowModifier: ViewModifier {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("系统将先检查是否存在进行中的服务。检查通过后仍需再次确认，才会提交账户删除请求。")
+                Text("删除前还会再确认一次。")
             }
             .alert("最终确认删除账户", isPresented: $viewModel.showFinalConfirmation) {
                 Button("永久删除账户", role: .destructive) {

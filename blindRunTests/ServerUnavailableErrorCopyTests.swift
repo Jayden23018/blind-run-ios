@@ -15,7 +15,7 @@ final class ServerUnavailableErrorCopyTests: XCTestCase {
         for code: URLError.Code in [.cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .badServerResponse] {
             let message = APIError.networkError(URLError(code)).localizedMessage
             XCTAssertEqual(message, APIError.serverUnavailableMessage, "\(code.rawValue)")
-            XCTAssertTrue(message.contains("不是你的手机"), "\(code.rawValue)")
+            XCTAssertFalse(message.contains("网络"), "服务端的问题不叫用户查网络：\(code.rawValue)")
             XCTAssertTrue(message.contains("120"), "\(code.rawValue)")
         }
     }
@@ -37,7 +37,7 @@ final class ServerUnavailableErrorCopyTests: XCTestCase {
             let message = APIError.networkError(URLError(code)).localizedMessage
             XCTAssertEqual(message, APIError.ambiguousConnectionMessage, "\(code.rawValue)")
             XCTAssertFalse(message.contains("不是你的手机"), "\(code.rawValue)")
-            XCTAssertTrue(message.contains("信号弱"), "\(code.rawValue)")
+            XCTAssertFalse(message.contains("检查网络"), "\(code.rawValue)")
         }
     }
 
@@ -70,6 +70,6 @@ final class ServerUnavailableErrorCopyTests: XCTestCase {
                 XCTAssertFalse(sentence.contains("。。"), sentence)
             }
         }
-        XCTAssertTrue(EmergencySafetyCopy.failure(APIError.unknown(statusCode: 503).reasonClause).contains("不是你的手机"))
+        XCTAssertTrue(EmergencySafetyCopy.failure(APIError.unknown(statusCode: 503).reasonClause).contains("服务暂时出了问题"))
     }
 }

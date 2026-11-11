@@ -192,9 +192,9 @@ enum VoiceStatusQuery {
         case .pendingAccept:
             return "陪跑员已经接单，但还没出发，所以暂时算不出距离。"
         case .scheduledConfirmed:
-            return "离出发还有一段时间，陪跑员还不会往这边走，所以暂时算不出距离。"
+            return "陪跑员还没出发，暂时算不出距离。"
         case .inProgress:
-            return "你和陪跑员已经在一起了，不需要距离。"
+            return "你们已经汇合了。"
         case .completed, .cancelled:
             return "本次预约已经结束，没有陪跑员位置。"
         case .unknown:

@@ -180,7 +180,7 @@ final class UserSafetyTests: XCTestCase {
     /// 后端 message 为空时本地文案要自己说全：发生了什么、为什么、能做什么、谁能帮。
     func testSuspensionFallbackCoversAllFourQuestions() {
         let message = serverError("ACCOUNT_SUSPENDED").localizedMessage
-        for phrase in ["不能下单或接单", "平台对账号的限制", "紧急求助", "客服"] {
+        for phrase in ["不能下单或接单", "被平台限制", "紧急求助", "客服"] {
             XCTAssertTrue(message.contains(phrase), "缺「\(phrase)」")
         }
     }

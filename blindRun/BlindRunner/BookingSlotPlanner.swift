@@ -75,7 +75,7 @@ nonisolated enum BookingSlotUnavailableReason: Equatable, Sendable {
 
     var text: String {
         switch self {
-        case .offDuty: return "不在值守时间"
+        case .offDuty: return "暂不可约"
         case .passed: return "已过"
         case .tooFar: return "超出可约范围"
         }

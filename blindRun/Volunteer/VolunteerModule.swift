@@ -9,16 +9,16 @@ enum VolunteerOrderActionGuard {
         registrationStatus: VolunteerRegistrationStatus? = nil
     ) -> String? {
         guard let profile, profile.isProfileCompleteForDispatch else {
-            return "请先完善志愿者资料"
+            return "请先完善陪跑员资料"
         }
 
         if let registrationStatus {
             guard registrationStatus.isRegistrationComplete else {
-                return "请先完成志愿者注册流程"
+                return "请先完成陪跑员注册"
             }
         } else {
             guard profile.isMainRegistrationCompleteWhenStatusUnavailable else {
-                return "请先完成志愿者注册流程"
+                return "请先完成陪跑员注册"
             }
         }
 
@@ -111,9 +111,9 @@ final class VolunteerProfileViewModel: ObservableObject {
             return "认证资料已提交，请等待审核"
         }
         if isRegistrationInProgress {
-            return "点击后继续志愿者注册认证流程"
+            return "继续陪跑员注册认证"
         }
-        return "点击后进入志愿者注册认证流程"
+        return "进入陪跑员注册认证"
     }
 
     /// 是否需要显示真实注册流程（非 mock 环境）
@@ -136,7 +136,7 @@ final class VolunteerProfileViewModel: ObservableObject {
     func startMockCertification() {
         guard !isCertificationRunning, let appState else { return }
         guard appState.isVolunteerProfileComplete else {
-            let message = "请先提交志愿者资料"
+            let message = "请先提交陪跑员资料"
             errorMessage = message
             speechService?.speakError(message)
             return
@@ -264,12 +264,12 @@ struct VolunteerCertificationGateView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 8) {
-                HighContrastText("志愿者认证", style: .title)
+                HighContrastText("陪跑员认证", style: .title)
                     .accessibilityAddTraits(.isHeader)
-                Text(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证。" : "填写昵称并完成 Demo 模拟认证。")
+                Text(viewModel.shouldShowRealRegistration ? "填写昵称并完成陪跑员认证。" : "填写昵称并完成 Demo 模拟认证。")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证" : "填写昵称并完成 Demo 模拟认证")
+                    .accessibilityLabel(viewModel.shouldShowRealRegistration ? "填写昵称并完成陪跑员认证" : "填写昵称并完成 Demo 模拟认证")
             }
 
             Spacer()
@@ -387,7 +387,7 @@ struct VolunteerCertificationGateView: View {
             .disabled(!viewModel.canSubmit)
             .opacity(viewModel.canSubmit ? 1 : 0.45)
             .accessibilityLabel("提交")
-            .accessibilityHint(viewModel.canSubmit ? "点击后提交志愿者资料" : "请先填写昵称")
+            .accessibilityHint(viewModel.canSubmit ? "提交陪跑员资料" : "请先填写昵称")
         }
         .padding(.horizontal, 24)
         .padding(.top, 12)

@@ -122,7 +122,7 @@ enum CounterpartSafetyGate {
 /// 账号停用的提示。四件事都要说到：发生了什么、为什么、能做什么、谁能帮。
 enum AccountSuspensionCopy {
     /// 后端 message 已经说了「不能下单或接单」和「仍可紧急求助」，这里补另外两件。
-    static let supplement = "这是平台对账号的限制，不是这次操作出了错。想了解原因或有异议，可以在「我的」页的「联系客服」里留言。"
+    static let supplement = "想了解原因，可以在「我的」→「联系客服」里留言。"
     static let fallback = "你的账号已被平台限制，暂时不能下单或接单。遇到危险仍可以使用紧急求助。\(supplement)"
     /// 陪跑员首页滑块下面那一句。
     static let dispatchNotice = "账号已被平台限制。想了解原因，可以在「我的」页的「联系客服」里留言"
@@ -134,7 +134,7 @@ enum UserSafetyCopy {
     static let reportHint = "向客服说明发生了什么，对方不会知道"
     static let reportMessageHint = "举报上面这条留言，对方不会知道"
     /// 🔴 时效要在写字之前说清楚：举报不是求助。这一句只说事实，不放任何求助按钮。
-    static let reportNotice = "举报由客服事后处理，不会立刻有人联系你，对方也不会知道。如果现在有危险，请直接拨打 120 或 110。"
+    static let reportNotice = "对方不会知道。如果现在有危险，请直接拨打 120 或 110。"
     static let reasonPrompt = "选择举报原因"
     static let detailPrompt = "补充说明，选填"
     static let reasonRequired = "先选一个举报原因再提交。"
@@ -147,7 +147,7 @@ enum UserSafetyCopy {
 
     static func reportSubmitted(ticketId: Int64?) -> String {
         let number = ticketId.map { "，工单号 \($0)" } ?? ""
-        return "举报已提交\(number)。客服回复后你会收到通知。"
+        return "举报已提交\(number)。"
     }
 
     static func quoted(_ text: String) -> String { "你要举报的留言：\(text)" }
@@ -171,9 +171,9 @@ enum UserSafetyCopy {
         var confirmMessage: String {
             switch self {
             case .standard:
-                return "确认后，你们之后不会再被匹配到一起，对方不会收到任何提示。已经约好的订单照常进行，从下一单起生效。可以在「我的」页的「已拉黑的人」里解除。"
+                return "之后不再匹配到一起，对方不会收到提示。已约好的订单照常进行。"
             case .introCall:
-                return "确认后，这一轮通话确认会结束，你们之后不会再被匹配到一起，对方不会收到任何提示。可以在「我的」页的「已拉黑的人」里解除。"
+                return "本次通话确认会结束，之后不再匹配到一起，对方不会收到提示。"
             }
         }
     }

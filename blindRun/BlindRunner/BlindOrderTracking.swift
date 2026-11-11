@@ -207,7 +207,7 @@ extension BlindOrderFlowPresentation.PrimaryAction {
             // 刻意**不念号码**：VoiceOver 每次焦点落到按钮上就把 11 位号码整个念出来，
             // 而视障跑者在户外常常不戴耳机（要听车流）—— 外放等于把陪跑员的号码
             // 广播给周围所有人。号码对「要不要打这通电话」没有任何帮助。
-            return "系统会先弹出拨号确认，确认后才会拨出"
+            return "确认后拨出"
         case .openIntroCall:
             return IntroCallCopy.blindEntryAccessibilityHint
         case .keepWaiting:

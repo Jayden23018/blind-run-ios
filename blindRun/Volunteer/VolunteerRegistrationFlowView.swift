@@ -43,9 +43,9 @@ enum CloudAuthMetaInfoError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .sdkNotConfigured:
-            return "活体认证 SDK 未配置，请更新客户端后重试"
+            return "刷脸暂时用不了，请更新 App 后重试"
         case .sdkMetaInfoUnavailable, .sdkMetaInfoSerializationFailed:
-            return "活体认证 SDK 初始化失败，请重试"
+            return "刷脸没打开，请重试"
         }
     }
 }
@@ -254,15 +254,15 @@ struct CloudAuthVerificationFailure: Equatable, Sendable {
         let suffix = diagnostics?.userFacingSubcodeSuffix ?? ""
         switch kind {
         case .sdkUnavailable:
-            return "活体认证 SDK 未配置，请更新客户端后重试"
+            return "刷脸暂时用不了，请更新 App 后重试"
         case .presenterUnavailable:
             return "无法打开活体认证页面，请稍后重试"
         case .internalError:
-            return "活体认证 SDK 初始化或内部处理失败，请重新发起认证\(suffix)"
+            return "刷脸没完成，请重新开始\(suffix)"
         case .moduleIntegration:
-            return "活体认证刷脸模块接入异常，请更新客户端后重试\(suffix)"
+            return "刷脸暂时用不了，请更新 App 后重试\(suffix)"
         case .businessParameter:
-            return "活体认证参数或流程配置异常，请重新发起认证\(suffix)"
+            return "刷脸没完成，请重新开始\(suffix)"
         case .cameraUnavailable:
             return "无法使用相机完成活体认证，请检查相机权限后重试\(suffix)"
         case .duplicateFlow:
@@ -272,7 +272,7 @@ struct CloudAuthVerificationFailure: Equatable, Sendable {
         case .deviceTimeError:
             return "设备时间不准确，请校准系统时间后重试\(suffix)"
         case .unknown(let code):
-            return "活体认证 SDK 返回未知状态（\(code)），请重新发起认证\(suffix)"
+            return "刷脸没完成，请重新开始\(suffix)"
         }
     }
 }
@@ -899,7 +899,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         guard response.isPending,
               let certifyId = response.certifyId?.trimmed,
               !certifyId.isEmpty else {
-            let message = response.message ?? "活体认证服务返回不完整，请稍后重试"
+            let message = response.message ?? "刷脸暂时用不了，请稍后重试"
             errorMessage = message
             speechService?.speakError(message)
             return
@@ -907,7 +907,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
         activeCertifyId = certifyId
         canReturnToBasicInfoForIdentityEdit = false
-        faceVerifyMessage = response.message ?? "活体认证已发起，正在打开客户端认证页面"
+        faceVerifyMessage = response.message ?? "正在打开刷脸页面"
         speechService?.speak(faceVerifyMessage ?? "活体认证已发起")
 
         isPerformingFaceVerify = true
@@ -1416,7 +1416,7 @@ struct VolunteerRegistrationFlowView: View {
     // MARK: - Step 1（界面上拆成说明页 + 第 1、2 步，见 `VolunteerRegistrationBasicInfoPages.swift`）
 
     private var navigationTitleText: String {
-        guard let stepNumber = viewModel.visibleStepNumber else { return "志愿者注册" }
+        guard let stepNumber = viewModel.visibleStepNumber else { return "陪跑员注册" }
         return "第 \(stepNumber) 步，共 \(RegistrationScreenMetrics.totalSteps) 步"
     }
 
@@ -1476,7 +1476,7 @@ struct VolunteerRegistrationFlowView: View {
                 }
                 .buttonStyle(TextButtonStyle(alignment: .center))
                 .accessibilityLabel("刷新注册状态")
-                .accessibilityHint("重新查询志愿者注册是否已完成")
+                .accessibilityHint("重新查询陪跑员注册是否完成")
             } else {
                 PrimaryButton(viewModel.faceVerifyButtonTitle, isLoading: viewModel.isLoading || viewModel.isPerformingFaceVerify) {
                     Task { await viewModel.startFaceVerify() }
@@ -1571,11 +1571,11 @@ struct VolunteerRegistrationFlowView: View {
     /// 活体通过后，完成态已经交给 AppState，根路由马上切到志愿者首页（#768）。
     /// 这一屏只在切换前的一瞬可见，不放按钮；接单前还差什么在首页「查看接单前进度」里看。
     private var faceVerifiedCompletionStep: some View {
-        ProgressView("正在进入志愿者首页")
+        ProgressView("正在进入首页")
             .font(AppFonts.body())
             .foregroundColor(AppColors.textPrimary)
             .frame(maxWidth: .infinity)
-            .accessibilityLabel("正在进入志愿者首页")
+            .accessibilityLabel("正在进入首页")
     }
 
     /// 走了替代认证路径的落地屏。
@@ -1627,12 +1627,12 @@ struct VolunteerRegistrationFlowView: View {
             .accessibilityHint("上传能证明本人身份的材料，等待管理员人工审核")
             .accessibilityIdentifier("volunteerDeclinedUploadEntry")
 
-            Button("返回志愿者首页") {
+            Button("返回首页") {
                 viewModel.prepareReturnToVolunteerHome()
                 dismiss()
             }
             .buttonStyle(TextButtonStyle(alignment: .center))
-            .accessibilityLabel("返回志愿者首页")
+            .accessibilityLabel("返回首页")
             .accessibilityHint("材料审核通过后才能接单")
 
             Divider()

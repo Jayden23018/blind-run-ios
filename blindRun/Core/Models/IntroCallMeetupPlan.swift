@@ -732,7 +732,7 @@ extension IntroCallMeetupCopy {
 
     /// 409 `INTRO_CALL_PLAN_REQUIRED`。两端都可能碰到：盲人确认时这一轮没有安排单；
     /// 开关打开后陪跑员走老入口直接说「合适」。所以**不点名是谁没提交**，两端读起来都是真话。
-    static let planNotSubmittedYet = "这一轮还没有提交见面安排。"
+    static let planNotSubmittedYet = "还没有提交见面安排。"
 
     /// 409 `INTRO_CALL_PLAN_TIME_UNAVAILABLE`。🚨 **刻意不说原因**：真实原因是跑者在该时段另有一单，
     /// 告诉陪跑员等于泄露跑者的行程。逐字取视觉稿「该时段不可用，请调整时间」。
@@ -741,11 +741,11 @@ extension IntroCallMeetupCopy {
     /// 422 `INTRO_CALL_PLAN_TOO_FAR_FROM_ORIGINAL`。**不写死「3 公里」**：上限是后端配置
     /// （`app.intro-call.plan-max-relocation-meters`），与 `APPOINTMENT_TOO_FAR` 不写死天数同一条理由。
     /// 视觉稿那句带实际距离的版本（「距原集合地点 8.4 公里，超出 3 公里调整上限」）由 V2 表单就地拼。
-    static let planTooFarFromOriginal = "新的集合地点离原来的地点太远，超出了调整上限，请选近一些的地点。"
+    static let planTooFarFromOriginal = "新的集合地点离原地点太远，请选近一些的。"
 
     /// 409 `INTRO_CALL_PLAN_TOO_MANY_SUBMISSIONS`。不说「上一版仍有效」：被拒的提交也计数，
     /// 这一轮可能一版都没成功过。
-    static let planTooManySubmissions = "这一轮的见面安排已经提交太多次，不能再修改了。"
+    static let planTooManySubmissions = "见面安排的修改次数已用完。"
 
     /// `PUT /plan` 改了时间、被 `APPOINTMENT_TOO_SOON` 拒时说的话。
     ///

@@ -15,10 +15,10 @@ struct SessionExpiryDeferral: Equatable {
     var bannerMessage: String {
         switch role {
         case .volunteer:
-            return "登录已过期。为了不打断陪跑，暂时不退出；结束陪跑等操作需要先点「现在重新登录」。"
+            return "登录已过期，陪跑可以继续；结束陪跑前要先点「现在重新登录」。"
                 + "云端求助发不出去，紧急情况请直接拨打120或110，App 不会代你发送求助。"
         default:
-            return "登录已过期，跑完后需要重新登录。为了不打断跑步，暂时不退出；"
+            return "登录已过期，跑完后需要重新登录；"
                 + "云端求助发不出去，紧急情况请直接拨打120或110，App 不会代你发送求助。"
         }
     }

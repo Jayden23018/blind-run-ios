@@ -238,7 +238,7 @@ extension blindRunUITests {
         tapVolunteerFlowPrimary(app)
 
         XCTAssertTrue(
-            app.staticTexts["操作已提交，状态待确认。页面其他功能仍可使用。"].waitForExistence(timeout: 3),
+            app.staticTexts["已提交，正在确认状态。"].waitForExistence(timeout: 3),
             "POST completion must release the action spinner before confirmation GET completes"
         )
         // 🔴 这一条是本用例的核心：同一次流转不许被提交两次。
@@ -260,7 +260,7 @@ extension blindRunUITests {
         XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "Back navigation must remain usable")
 
         XCTAssertTrue(
-            app.staticTexts["状态确认延迟，请稍后点击“重新确认状态”。请勿重复提交同一操作。"]
+            app.staticTexts["状态还没确认，请稍后点「重新确认状态」。"]
                 .waitForExistence(timeout: 5),
             "A permanently suspended confirmation must become a delayed, nonmodal state"
         )

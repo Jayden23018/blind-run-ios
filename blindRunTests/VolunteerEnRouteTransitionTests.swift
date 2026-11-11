@@ -30,7 +30,7 @@ final class VolunteerEnRouteTransitionTests: XCTestCase, BlindRunTestSupport {
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertEqual(
             speechService.lastSpokenText,
-            "操作结果尚未确认，正在后台同步状态。请勿重复提交同一操作。"
+            "正在确认结果，请不要重复操作。"
         )
         XCTAssertEqual(viewModel.order?.status, .pendingAccept)
     }

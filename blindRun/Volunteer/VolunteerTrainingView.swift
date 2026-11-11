@@ -42,7 +42,7 @@ enum VolunteerTrainingCopy {
     static let requiredSection = "必修"
     static let electiveSection = "选修"
     /// 选修组下的灰字。后半句是合规口径：积分 ≠ 志愿服务时长（中央网信办 2026-06-19 通知）。
-    static let electiveFooter = "选修课不影响接单。积分和志愿服务时长是两回事。"
+    static let electiveFooter = "选修课不影响接单。"
     static func requiredProgress(done: Int, total: Int) -> String { "\(done) / \(total) 门" }
     /// 进度卡的说明。🚩 同 `blockedBanner`：要说清「没学完 → 接不到单」。
     /// 写法同结果页（`VolunteerTrainingQuizView`）。不用「」括课名：被压窄的「」，落在行尾，

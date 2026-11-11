@@ -406,7 +406,7 @@ struct VolunteerInviteCard: View {
     /// 陪跑员要做的决定是同一个，「先聊聊还是直接接」是后端的机制，不该变成两个按钮。
     private var acceptHint: String {
         invite.order.dispatchRespondAction == .interested
-            ? "先锁定此订单并等跑者打电话给你，聊完双方都说合适才算接单"
+            ? "跑者会打电话给你，聊完双方都说合适才算接单"
             : "接受预约"
     }
 

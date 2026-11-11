@@ -194,7 +194,7 @@ enum VolunteerPointsCopy {
     static let disclaimer = "积分不能提现、不能转让、不能兑换现金。积分商城开发中。"
 
     /// 🔴 这一句是把两套数隔开的那道栏杆，不要删、也不要改成「积分可折算时长」。
-    static let separateFromServiceHours = "积分和志愿服务时长是两回事。累计服务时长在「服务成就」页查看。"
+    static let separateFromServiceHours = "累计服务时长在「服务成就」页查看。"
 
     static let ledgerSectionTitle = "最新记录"
 

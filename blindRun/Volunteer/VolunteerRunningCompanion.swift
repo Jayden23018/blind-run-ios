@@ -41,9 +41,9 @@ enum VolunteerRunCopy {
     static let ringingRowTitle = "正在响铃…"
     static let supportRowTitle = "联系客服"
     /// 「不是紧急求助」打头：它和紧急按钮并排，工单不是即时通道（同 `SupportTicketCopy.notice`）。🔴 不承诺回复时限（负责人 2026-11-04）。
-    static let supportRowSubtitle = "不是紧急求助 · 不是即时通道，会有工作人员查看"
+    static let supportRowSubtitle = "不是紧急求助，工作人员会稍后查看"
     static let supportSubmittedTitle = "已提交"
-    static let supportSubmitted = "会有工作人员查看，不是即时通道"
+    static let supportSubmitted = "工作人员会稍后查看"
     static let supportFailed = "没有提交成功，再点一次重试"
     /// 跑步中登录已过期（#437）：暂停 / 响铃 / 联系客服都要带登录凭证调云端，按下去必然 401。
     /// 不叫人重试 —— 重试一个必然失败的请求，对一只手握着引导绳的人是纯负担。
