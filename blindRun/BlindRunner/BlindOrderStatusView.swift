@@ -123,6 +123,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 🚩 取 `blindStats` 不是 `volunteerStats`：屏幕上那个数字是**跑者自己跑了多远**。
     /// 两条轨迹是各自独立采集的（后端 10 秒采样窗口、起点与点数都不同），拿错就是显示别人的成绩。
     @Published var trackStats: TrackStats?
+    @Published var liveRunRoute: [CLLocationCoordinate2D] = [] // 同一次 `/track` 的跑者轨迹，订单页 v7 地图画已跑路线（#918）
 
     /// 汇合 → 跑步中那三秒倒计时还剩第几拍。`nil` = 不在倒计时。
     ///
@@ -264,7 +265,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
 struct BlindOrderStatusView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var speechService: SpeechService
-    @EnvironmentObject private var locationService: LocationService
+    @EnvironmentObject var locationService: LocationService
     /// 不是 `private`：评价框的语音输入在 `+StatusSections.swift` 里用它（#795）。
     @EnvironmentObject var speechInputService: SpeechInputService
     /// 求助中心的「播报我的位置」要逆地理。取 `@EnvironmentObject` 而不是就地 new 一个：

@@ -520,7 +520,7 @@ struct BlindOrderFlowView<Footer: View>: View {
                     title: action.title,
                     systemImage: action.systemImage,
                     isEnabled: action.isEnabled,
-                    accessibilityHint: primaryActionHint(action),
+                    accessibilityHint: action.blindAccessibilityHint,
                     action: onPrimaryAction
                 )
             },
@@ -531,38 +531,8 @@ struct BlindOrderFlowView<Footer: View>: View {
 
     private var callAction: OrderFlowCallAction? {
         guard let title = presentation.callTitle, let onCallVolunteer else { return nil }
-        // 刻意**不念号码**（理由同 `primaryActionHint` 的 `.callVolunteer`）。
+        // 刻意**不念号码**（理由同 `PrimaryAction.blindAccessibilityHint` 的 `.callVolunteer`）。
         return OrderFlowCallAction(title: title, accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出", action: onCallVolunteer)
-    }
-
-    /// `nil` = 这一档不加提示。`FlowActionButton` 走 `accessibilityHintIfPresent`，
-    /// 传空串会**覆盖**掉自动合成的提示，所以不能拿 `""` 当「没有」。
-    private func primaryActionHint(_ action: BlindOrderFlowPresentation.PrimaryAction) -> String? {
-        switch action {
-        case .callVolunteer:
-            // 刻意**不念号码**：VoiceOver 每次焦点落到按钮上就把 11 位号码整个念出来，
-            // 而视障跑者在户外常常不戴耳机（要听车流）—— 外放等于把陪跑员的号码
-            // 广播给周围所有人。号码对「要不要打这通电话」没有任何帮助。
-            return "系统会先弹出拨号确认，确认后才会拨出"
-        case .openIntroCall:
-            return IntroCallCopy.blindEntryAccessibilityHint
-        case .keepWaiting:
-            return KeepWaitingCopy.accessibilityHint
-        case .startRun:
-            return BlindRunCopy.startRunHint
-        case .startRunLocked(let opensAt):
-            return BlindRunCopy.startRunLockedHint(opensAt: opensAt)
-        case .preparing:
-            // 刻意不给提示。`.disabled()` 已经让读屏念「变暗」，再补一句「马上就可以按了」
-            // 是在这三秒里往耳朵里多塞一条没有动作可做的信息。
-            return nil
-        case .announceStats:
-            return BlindRunCopy.announceStatsHint
-        case .done:
-            // 「完成」两个字不说明按下去会发生什么 —— 而这一刻它是这一屏唯一的出口
-            //（返回箭头按稿藏掉了）。
-            return BlindRunCopy.finishedButtonHint
-        }
     }
 }
 
