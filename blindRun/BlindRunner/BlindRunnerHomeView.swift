@@ -34,8 +34,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     @Published private(set) var refreshPhase: HomeRefreshPhase = .idle
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
+    /// 下过单、回到首页时要重拉一次（#936，`reloadAfterBookingIfNeeded`）。
+    var needsReloadAfterBooking = false
 
-    private weak var appState: AppState?
+    private(set) weak var appState: AppState?
     private(set) var speechService: SpeechService?
     /// 首页整页刷新：同一时间只跑一个，`refreshPhase` 由它经回调写（#859）。
     private lazy var pageRefresh = SingleFlightRefresh { [weak self] phase in
@@ -349,13 +351,6 @@ final class BlindRunnerHomeViewModel: ObservableObject {
                 orderLoadState = .failed(message: "当前状态加载失败，请重试。")
             }
             speechService?.speakError("当前状态加载失败，请重试。")
-        }
-    }
-
-    func handleOrderCreated(_ response: OrderResponse) {
-        speechService?.resetLastStatus()
-        if let status = response.status {
-            speechService?.speakStatusChange(status)
         }
     }
 
@@ -685,6 +680,7 @@ struct BlindRunnerHomeView: View {
                 appState.endDeferredSessionExpiry()
                 // 紧急请求没等到弹出就离开了订单页。留着的话下一次按入口值不变、`onChange` 不触发。
                 viewModel.orderSafetyRequest = nil
+                Task { await viewModel.reloadAfterBookingIfNeeded() } // 刚下的单回首页要在（#936）
             }
             // 🗑「取消订单」的确认弹窗已从首页移除。设计稿把首页收成两块，取消属于低频的
             // 破坏性操作，归宿是订单页信息列表的最后一行（`AGENTS.md` §5 的可取消状态不变，
