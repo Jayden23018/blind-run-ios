@@ -101,7 +101,8 @@ extension AccessibilityAuditTests {
         let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 10), "首页没有订单卡")
         card.tap()
-        let orderPage = app.navigationBars["陪跑订单"].firstMatch
+        // v7 起订单页藏了系统导航栏（#917 / #918），用自带顶栏的返回键认订单页。
+        let orderPage = app.buttons["blindOrderTopBarBackButton"].firstMatch
         XCTAssertTrue(orderPage.waitForExistence(timeout: 10), "没有进到订单页")
 
         XCUIDevice.shared.press(.home)
