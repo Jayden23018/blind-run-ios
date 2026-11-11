@@ -23,13 +23,17 @@ extension BlindOrderStatusView {
             )
         } else if BlindOrderStage.resolve(order.status) == .matching {
             // ①「已等 N 分钟」每分钟刷新（#926）。轮询也会重画，这里兜住轮询停了的时候。
-            TimelineView(.everyMinute) { context in
-                if let presentation = BlindOrderStagePresentation.make(
-                    order: order,
-                    canKeepWaiting: viewModel.canShowKeepWaiting,
-                    now: context.date
-                ) {
-                    stageScaffold(presentation, order: order)
+            // 派单进度原位写在当前步那一行（#949），不弹浮层。
+            DispatchWideningReader(coordinator: appState.realtimeCoordinator, orderID: order.orderId) { widened in
+                TimelineView(.everyMinute) { context in
+                    if let presentation = BlindOrderStagePresentation.make(
+                        order: order,
+                        canKeepWaiting: viewModel.canShowKeepWaiting,
+                        dispatchWidened: widened,
+                        now: context.date
+                    ) {
+                        stageScaffold(presentation, order: order)
+                    }
                 }
             }
         } else if let presentation = BlindOrderStagePresentation.make(

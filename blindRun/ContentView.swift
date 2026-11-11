@@ -434,7 +434,7 @@ struct ContentView: View {
         .onChange(of: rootRouter.route) { route in
             MainRunLoopWatchdog.shared.setPageCategory(route.diagnosticCategory)
         }
-        .modifier(SessionLifecycleStatusModifier())
+        .modifier(SessionLifecycleStatusModifier()).modifier(DispatchProgressAnnouncer(coordinator: appState.realtimeCoordinator)) // #949
         .overlay(alignment: .top) {
             if let notification = appState.realtimeCoordinator.currentNotification {
                 RealtimeForegroundNotificationBanner(

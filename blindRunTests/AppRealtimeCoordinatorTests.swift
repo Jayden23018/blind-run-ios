@@ -849,7 +849,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.attach(to: service, role: .blind)
         coordinator.registerActiveOrder(9, status: .pendingMatch)
 
-        for (index, eventType) in ["DISPATCH_STARTED", "DISPATCH_EXPANDING", "REMATCH_TIMEOUT"].enumerated() {
+        for (index, eventType) in ["REMATCH_TIMEOUT"].enumerated() { // 派单两条 #949 起不进浮层，见 DispatchProgressNotificationTests
             service.simulateIncomingEventForTesting(.notification(makeNotification(
                 eventID: Int64(50 + index),
                 body: "派单进度 \(eventType)",

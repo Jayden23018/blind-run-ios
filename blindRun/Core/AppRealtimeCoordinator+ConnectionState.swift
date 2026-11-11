@@ -31,6 +31,10 @@ extension AppRealtimeCoordinator {
         currentNotification = nil
         latestSeparationAlert = nil
         latestSafetyEvent = nil
+        dispatchProgressTask?.cancel()
+        dispatchProgressTask = nil
+        dispatchProgressAnnouncement = nil
+        widenedDispatchOrderIDs = []
         // 换账号/登出后不能把上一个用户的补读游标带过去。
         lastObservedNotificationTimestamp = nil
         queuedNotifications = []
