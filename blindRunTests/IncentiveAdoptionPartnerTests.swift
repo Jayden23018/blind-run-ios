@@ -8,31 +8,23 @@ final class IncentiveAdoptionPartnerTests: XCTestCase {
 
     // MARK: - 取消收藏与退出的二次确认、空态
 
-    /// 🔴 **取消收藏对「已退出」的搭档不可逆，而不可逆的后果落在对方身上。**
+    /// 取消收藏一位「已退出」的搭档，仍要二次确认，并说出对方已退出。
     ///
-    /// 后端 `optOut()` 是打标记不删行（注释逐字写着防的就是「盲人重新收藏一次把退出撤销掉」），
-    /// 但同一个 service 的 `remove()` 硬删整行连同 `volunteer_opted_out_at`，
-    /// `add()` 随后建一条 `optedOut = null` 的新行 —— 那道防线被取消收藏按钮自己绕过了。
-    ///
-    /// 断言挑的取值能区分四种破法：
-    /// - 「已退出那一档用短文案」→ 后果那几条红
-    /// - 「弹了但只写确定/取消」→ 后果那几条红
-    /// - 「次要按钮写成『取消』」→ 最后一条红（在讲「取消收藏」的弹窗里有两种读法）
-    /// - 「没退出那一档也塞长文案」→ 下一条用例红
-    func testRemovingAnOptedOutPartnerWarnsThatItSilentlyUndoesTheirOptOut() throws {
+    /// 后端 `remove()` 硬删整行连同 `volunteer_opted_out_at`，之后再收藏会建一条 `optedOut = null` 的新行。
+    /// 原文案把这条后果写全（「他的退出就不作数了，而他不会收到任何提示」）；
+    /// #958 改成短句，负责人 2026-11-12 定**保留短句**（#959 / #960）。正文逐字钉住，改动要再问负责人。
+    func testRemovingAnOptedOutPartnerStillConfirmsWithTheApprovedCopy() throws {
         let confirmation = PartnerStreakCopy.removeFavoriteConfirmation(name: "张*", hasOptedOut: true)
         XCTAssertEqual(confirmation.title, "取消收藏张*？")
-        // 后果三件事，缺一件这个弹窗就退化成一次无声点击：
-        XCTAssertTrue(confirmation.message.contains("已经退出了你们的固定搭档"), "①对方退出过")
-        XCTAssertTrue(confirmation.message.contains("不作数"), "②再收藏会撤销他的退出")
-        XCTAssertTrue(confirmation.message.contains("不会收到任何提示"), "③他不会被告知")
+        XCTAssertEqual(confirmation.message, "张*已退出固定搭档。取消收藏后，以后可以重新把他设为固定搭档。")
+        XCTAssertEqual(confirmation.confirm, "仍然取消收藏")
         // 次要按钮不许写「取消」—— 在讲「取消收藏」的弹窗里那两个字有两种读法。
         XCTAssertNotEqual(confirmation.cancel, "取消")
         XCTAssertEqual(confirmation.cancel, "保留收藏")
     }
 
     /// 没退出过的搭档也要确认（负责人 2026-11-05 定，#752），但用短文案：
-    /// 那一档可逆，不许借用「他的退出就不作数了」那段警告 —— 那句话对没退出的人是假的。
+    /// 那一档可逆，用「还可以再设回来」的短句，不提退出。
     /// 「弹窗确实出现」由 UI 用例 `testBlindPartnerDetailConfirmsEveryRemoval` 守。
     func testRemovingAPartnerWhoNeverOptedOutStillAsksButWithTheShortCopy() {
         let confirmation = PartnerStreakCopy.removeFavoriteConfirmation(name: "李*", hasOptedOut: false)
