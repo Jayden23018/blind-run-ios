@@ -53,7 +53,8 @@ final class BlindOrderActivityController {
     private let defaults: UserDefaults
     /// 开跑前 30 分钟那一刻的定时器。只在 App 活着时有用。
     private var preRunTask: Task<Void, Never>?
-    private var lastOrder: OrderDetailResponse?
+    /// 现在排着的那一刻。同一单同一时刻不重排（订单页每次位置更新都会走 `sync`）。
+    private var preRunFireAt: (orderID: Int64, date: Date)?
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -178,7 +179,6 @@ final class BlindOrderActivityController {
         volunteerDistanceMeters: Int? = nil,
         now: Date = Date()
     ) {
-        lastOrder = order
         let decision = Self.decision(
             status: order.status,
             plannedStart: order.plannedStart?.backendTimestamp,
@@ -190,7 +190,8 @@ final class BlindOrderActivityController {
         case .ignore:
             return
         case .end:
-            endAll()
+            // 只收**这一单**的卡：打开一张已完成的历史单不能把正在进行那单的卡收掉。
+            endCards(of: order.orderId)
             return
         case .show(let phase):
             show(phase, order: order, source: source, introCall: introCall, volunteerDistanceMeters: volunteerDistanceMeters, now: now)
@@ -202,6 +203,7 @@ final class BlindOrderActivityController {
     func endAll() {
         preRunTask?.cancel()
         preRunTask = nil
+        preRunFireAt = nil
         #if DEBUG
         eventsForTesting.append("end")
         #endif
@@ -214,11 +216,27 @@ final class BlindOrderActivityController {
         }
     }
 
+    private func endCards(of orderID: Int64) {
+        let mine = Activity<BlindOrderActivityAttributes>.activities.filter {
+            $0.attributes.orderID == orderID && $0.activityState != .ended && $0.activityState != .dismissed
+        }
+        guard !mine.isEmpty else { return }
+        #if DEBUG
+        eventsForTesting.append("end:\(orderID)")
+        #endif
+        Task {
+            for activity in mine {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
+
     /// 首页拉不到活跃订单（取消 / 没找到 / 跑完，且这一跳没被看见）：收掉还在更新的那张。
     /// **已结束、只在锁屏上多留一会儿的不动**（B4 已约好那 15 分钟）。
     func endLive() {
         preRunTask?.cancel()
         preRunTask = nil
+        preRunFireAt = nil
         guard let live = Self.liveActivity() else { return }
         #if DEBUG
         eventsForTesting.append("endLive:\(live.attributes.orderID)")
@@ -236,7 +254,9 @@ final class BlindOrderActivityController {
     ) {
         var live = Self.liveActivity()
         if let other = live, other.attributes.orderID != order.orderId {
-            // 换单：上一单的卡收掉（盲人同一时刻只跟一单）。
+            // 另一单：只有这一单真要起卡时才换（盲人同一时刻只跟一单）。
+            // 打开一张已取消 / 已约好的旧单只是看看，不许把正在进行那单的卡收掉。
+            guard Self.startsCard(for: phase, alreadyStarted: { hasStarted(orderID: order.orderId, stage: $0) }) else { return }
             Task { await other.end(nil, dismissalPolicy: .immediate) }
             live = nil
         }
@@ -331,16 +351,26 @@ final class BlindOrderActivityController {
     /// App 活着（在前台）时，到开跑前 30 分钟那一刻再判一次。App 在后台时这个 Task 会被挂起，
     /// 到点起不了卡（系统限制），等 App 回前台由首页重拉订单补起。
     private func schedulePreRunTimer(for order: OrderDetailResponse, decision: Decision, now: Date) {
-        preRunTask?.cancel()
-        preRunTask = nil
-        guard decision == .show(.scheduled), let start = order.plannedStart?.backendTimestamp else { return }
-        let fireAt = start.addingTimeInterval(-BlindOrderActivityTiming.preRunLead)
+        let fireAt = order.plannedStart?.backendTimestamp?.addingTimeInterval(-BlindOrderActivityTiming.preRunLead)
+        let wanted = decision == .show(.scheduled) && (fireAt.map { $0 > now } ?? false)
+        if wanted, let current = preRunFireAt, current.orderID == order.orderId, current.date == fireAt {
+            return
+        }
+        // 只换掉同一单的定时器；看别的单（`.ignore` 之外的任何一份）不动当前单排着的那个。
+        if wanted || preRunFireAt?.orderID == order.orderId {
+            preRunTask?.cancel()
+            preRunTask = nil
+            preRunFireAt = nil
+        }
+        guard wanted, let fireAt else { return }
         let delay = fireAt.timeIntervalSince(now)
-        guard delay > 0 else { return }
         let orderID = order.orderId
+        preRunFireAt = (orderID, fireAt)
         preRunTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled, let self, let order = self.lastOrder, order.orderId == orderID else { return }
+            guard !Task.isCancelled, let self else { return }
+            self.preRunFireAt = nil
+            // 用排定时器时那份订单：到点时它的状态若已变（取消、陪跑员出发），首页 / 订单页早已喂过新的、这个 Task 已被取消。
             self.sync(order: order, source: .home)
         }
     }

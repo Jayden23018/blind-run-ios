@@ -155,7 +155,10 @@ final class RunLiveActivityController {
         #if DEBUG
         eventsForTesting.append("end")
         #endif
-        let stale = Activity<RunLiveActivityAttributes>.activities.filter { !lingeringActivityIDs.contains($0.id) }
+        let all = Activity<RunLiveActivityAttributes>.activities
+        // 已经不在系统名单里的就不用再记着了。
+        lingeringActivityIDs.formIntersection(all.map(\.id))
+        let stale = all.filter { !lingeringActivityIDs.contains($0.id) }
         guard !stale.isEmpty else { return }
         Task {
             for running in stale {

@@ -161,7 +161,13 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         } else {
             activeOrder = nil
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
-            appState?.liveEscortCoordinator.clearOwnedOrder()
+            if updated.status == .completed {
+                // 跑完走 `updateOwnedOrder`：它在收会话之前把跑步卡换成「跑完了」（稿 B9，锁屏留 30 分钟）。
+                // 直接 `clearOwnedOrder()` 会把跑步卡立刻收掉。
+                appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: .completed)
+            } else {
+                appState?.liveEscortCoordinator.clearOwnedOrder()
+            }
         }
         // 锁屏「约跑进度」卡（#919）。取消 / 没找到也要喂进去：卡要推完 B11 那一屏再收。
         if #available(iOS 16.2, *) {

@@ -260,8 +260,9 @@ struct BlindOrderActivityPresentation: Equatable {
         titleIsLarge = state.phase == .arrived && !isStale
         compactShowsSearchingDot = state.phase == .matching
 
-        // B10：第一段找人的三屏到 8 小时变灰。别的屏不会 stale（第二段不设 staleDate）。
-        if isStale && state.phase.isFindingStage {
+        // B10：匹配中到 8 小时变灰改字。商量那两屏也会到点变灰（灰底在上面），但字不改 ——
+        // 那时已经找到人了，写「还在找陪跑员」是错话。
+        if isStale && state.phase == .matching {
             title = BlindOrderActivityCopy.staleMatching
             subtitle = BlindOrderActivityCopy.staleSubtitle
             self.countdown = nil
