@@ -57,6 +57,9 @@ extension VolunteerHomeViewModel {
             applyUpcoming(fromSummary: upcoming)
         }
         recoverIntroCallIfNeeded(summary: summary)
+        if #available(iOS 16.2, *) {
+            GuideRunActivityController.shared.reconcileFirstSegment(activeIntroCallOrderID: summary.introCallOrderId)
+        }
         // 三岔路的「有进行中订单」那一岔在这里就判得了。另一岔（2 小时内开始的陪跑）：摘要带了 `upcomingOrders`
         // 时这里也判得了（#471）；没带时等 `startAuxiliaryLoad` 回落的那两条请求回来，在它的收尾里判。
         resolveLaunchRouteIfNeeded()

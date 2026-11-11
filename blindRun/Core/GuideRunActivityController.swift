@@ -19,129 +19,6 @@ import Foundation
 //    后端其余状态答 409）；
 // 2. App 在前台时，订单页每拿到一份新订单就本地更新一次。
 
-/// 订单 → 卡片内容。**抽成纯函数只为可测**。
-@available(iOS 16.2, *)
-enum GuideRunActivityContentBuilder {
-    /// 开跑前多久起第二段（DECISION 第 2 条）。
-    static let preStartLeadTime: TimeInterval = 30 * 60
-    /// 第一段 V3「已约好」推完之后锁屏留多久（稿第五节）。
-    static let bookedLingerTime: TimeInterval = 15 * 60
-
-    /// 出发 / 汇合两态（后端 `live-activity-token` 也只在这两态收 token）。
-    static func showsCard(for status: RunOrderStatus) -> Bool {
-        status == .driverEnRoute || status == .driverArrived
-    }
-
-    /// V4 的门槛：已约好（含临期确认 `PENDING_ACCEPT`）且离开跑不到 30 分钟（含已过开跑时刻还没出发）。
-    static func isInPreStartWindow(status: RunOrderStatus, plannedStart: Date?, now: Date) -> Bool {
-        guard status == .scheduledConfirmed || status == .pendingAccept, let plannedStart else { return false }
-        return now >= plannedStart.addingTimeInterval(-preStartLeadTime)
-    }
-
-    /// 第二段这一刻该画什么；`nil` = 这份订单不该有第二段的卡。
-    static func secondSegmentContent(from order: OrderDetailResponse, now: Date) -> GuideRunAttributes.ContentState? {
-        if showsCard(for: order.status) { return contentState(from: order) }
-        guard isInPreStartWindow(status: order.status, plannedStart: order.plannedStart?.backendTimestamp, now: now) else {
-            return nil
-        }
-        return preStartState(from: order)
-    }
-
-    static func attributes(from order: OrderDetailResponse) -> GuideRunAttributes {
-        GuideRunAttributes(
-            orderID: order.orderId,
-            // 卡上不写名字（DECISION 第 7 条），字段照旧只取 `blindSurname`、**不拿掩码名顶替**，
-            // 以免以后有人重新把它画上卡时画出「李*」。
-            runnerSurname: order.blindSurname?.nilIfBlank,
-            meetingPointName: order.startAddress?.nilIfBlank ?? "",
-            plannedStart: order.plannedStart?.backendTimestamp
-        )
-    }
-
-    /// 第一段起卡时还没有订单详情（通话期 `GET /api/orders/{id}` 对陪跑员恒 403），
-    /// 只有派单推送或 `IntroCallView` 里的地址与时间。
-    static func attributes(orderID: Int64, startAddress: String?, plannedStart: String?) -> GuideRunAttributes {
-        GuideRunAttributes(
-            orderID: orderID,
-            runnerSurname: nil,
-            meetingPointName: startAddress?.nilIfBlank ?? "",
-            plannedStart: plannedStart?.nilIfBlank?.backendTimestamp
-        )
-    }
-
-    /// 与后端推送的 `content-state` 同口径（后端 `docs/live-activity.md`「ContentState」一节），
-    /// 这样本地更新与推送更新交替到达时卡片不会来回跳。
-    static func contentState(from order: OrderDetailResponse) -> GuideRunAttributes.ContentState {
-        if order.status == .driverArrived {
-            return GuideRunAttributes.ContentState(
-                phase: .arrived,
-                etaMinutes: nil,
-                arriveAt: nil,
-                progress: 0.85,
-                runnerNearMeetingPoint: order.runnerAtMeetingPoint ?? false,
-                distanceBucket: order.meet?.distanceBucket.rawValue
-            )
-        }
-        let eta = order.eta
-        return GuideRunAttributes.ContentState(
-            phase: eta?.late == true ? .late : .departed,
-            etaMinutes: eta?.remainingMinutes,
-            arriveAt: eta?.arriveAt?.backendTimestamp,
-            progress: eta?.progress ?? 0.1,
-            // 三态字段：`nil`（跑者位置未知）按 `false`，与后端推送同一条口径。
-            runnerNearMeetingPoint: order.runnerAtMeetingPoint ?? false,
-            distanceBucket: nil
-        )
-    }
-
-    /// V4。`suggestedDepartAt` / `travelMinutes` 只在陪跑员有位置记录时下发，缺了卡上退到「7:00 开跑」。
-    static func preStartState(from order: OrderDetailResponse) -> GuideRunAttributes.ContentState {
-        GuideRunAttributes.ContentState(
-            phase: .preStart,
-            etaMinutes: nil,
-            arriveAt: nil,
-            progress: 0.1,
-            runnerNearMeetingPoint: false,
-            distanceBucket: nil,
-            leaveBy: order.suggestedDepartAt?.nilIfBlank?.backendTimestamp,
-            travelMinutes: order.travelMinutes
-        )
-    }
-
-    /// V1 / V2。子状态的判据与通话页同一个（`VolunteerIntroCallViewModel.step`）。
-    static func introCallState(step: IntroCallVolunteerStep, windowEndsAt: Date?) -> GuideRunAttributes.ContentState {
-        GuideRunAttributes.ContentState(
-            phase: step == .awaitingCall ? .introCall : .planSubmitted,
-            etaMinutes: nil,
-            arriveAt: nil,
-            progress: 0.1,
-            runnerNearMeetingPoint: false,
-            distanceBucket: nil,
-            deadline: step == .awaitingCall ? windowEndsAt : nil
-        )
-    }
-
-    /// V3。
-    static let bookedState = GuideRunAttributes.ContentState(
-        phase: .scheduled, etaMinutes: nil, arriveAt: nil, progress: 0.1,
-        runnerNearMeetingPoint: false, distanceBucket: nil
-    )
-
-    /// 到点后卡片该换样子的那一刻：V1 商量截止、V4 建议出发时刻。widget 读 `context.isStale`。
-    static func staleDate(for content: GuideRunAttributes.ContentState) -> Date? {
-        switch content.phase {
-        case .introCall: return content.deadline
-        case .preStart: return content.leaveBy
-        default: return nil
-        }
-    }
-
-    /// APNs 的 token 是 `Data`，后端要十六进制串（`^[0-9a-fA-F]{32,512}$`）。
-    static func hexString(_ token: Data) -> String {
-        token.map { String(format: "%02x", $0) }.joined()
-    }
-}
-
 @available(iOS 16.2, *)
 @MainActor
 final class GuideRunActivityController {
@@ -179,15 +56,24 @@ final class GuideRunActivityController {
     /// 开始 / 更新 / 结束第二段。**幂等**：同一单、内容没变时什么都不做。
     func sync(order: OrderDetailResponse, now: Date = Date()) {
         guard let content = GuideRunActivityContentBuilder.secondSegmentContent(from: order, now: now) else {
-            endSecondSegment()
+            endSecondSegment(orderID: order.orderId)
             return
         }
         adoptRunningActivityIfNeeded()
-        if let activity, activity.attributes.orderID == order.orderId {
+        if let activity, activity.attributes.orderID == order.orderId, lastContent?.phase.isFirstSegment != true {
             update(activity, to: content, orderID: order.orderId)
             uploadPendingTokenIfAllowed()
             return
         }
+        // 别的单已经出发 / 到了：首页为下一单起 V4 不许把它挤掉（两单连着跑时会遇到）。
+        if let activity, activity.attributes.orderID != order.orderId,
+           lastContent?.phase.acceptsPushToken == true, content.phase == .preStart {
+            #if DEBUG
+            eventsForTesting.append("skipped:other-order-en-route")
+            #endif
+            return
+        }
+        // 同一单从第一段的卡升级上来时也重起：第一段的卡没要推送 token，留着它出发后后端就推不到。
         end()
         start(
             attributes: GuideRunActivityContentBuilder.attributes(from: order),
@@ -196,11 +82,26 @@ final class GuideRunActivityController {
         )
     }
 
-    /// 手上的订单不该有第二段的卡：只收第二段的卡。第一段的卡由通话页管，这里不碰
-    /// （订单页拿着一张还没到 30 分钟的已约好订单时，不能把另一单正在商量的卡收掉）。
-    private func endSecondSegment() {
+    /// 手上的订单不该有第二段的卡：只收**这一单**的第二段卡。
+    /// 第一段的卡由通话页管；别的单的卡（订单页正看着另一单时）也不碰。
+    private func endSecondSegment(orderID: Int64) {
         adoptRunningActivityIfNeeded()
         if lastContent?.phase.isFirstSegment == true { return }
+        if let activity, activity.attributes.orderID != orderID { return }
+        end()
+    }
+
+    /// 首页每次拿到派单摘要时对一次账（审查 A2）：第一段的卡对应的单已不在通话中
+    /// （窗口超时、对方换人、退到后台时成了单），就立即收掉 —— 后端不为这三屏推 `end`，
+    /// 不对账的话卡会一直停在「商量见面」。成没成这里分不出来，一律按没成收，不画「没约成」。
+    func reconcileFirstSegment(activeIntroCallOrderID: Int64?) {
+        adoptRunningActivityIfNeeded()
+        guard let activity,
+              GuideRunActivityContentBuilder.firstSegmentIsOver(
+                  cardOrderID: activity.attributes.orderID,
+                  cardPhase: lastContent?.phase,
+                  activeIntroCallOrderID: activeIntroCallOrderID
+              ) else { return }
         end()
     }
 
