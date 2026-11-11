@@ -9,6 +9,7 @@ struct AidRunWidgetBundle: WidgetBundle {
         if #available(iOS 16.2, *) {
             RunLiveActivityWidget()
             GuideRunActivityWidget()
+            BlindOrderActivityWidget()
         }
     }
 }

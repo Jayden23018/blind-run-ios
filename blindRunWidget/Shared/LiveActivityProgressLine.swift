@@ -29,7 +29,9 @@ enum LiveActivityProgressMode: Hashable, Sendable {
             let title = LiveActivityProgressLine.spokenStepTitles[step - 1]
             return "第 \(step) 步，共 \(LiveActivityProgressLine.stepCount) 步，\(title)"
         case .distance(_, let endLabel):
+            // 「你 · 南门」念成「你所在的南门」：中间那个点读屏念出来是噪音。
             let label = endLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: " · ", with: "所在的")
             return label.isEmpty ? "陪跑员在路上" : "陪跑员在路上，前往\(label)"
         case .mileage(let progress):
             let percent = Int((LiveActivityProgressLine.clampedProgress(progress) * 100).rounded())
@@ -47,23 +49,29 @@ struct LiveActivityProgressLine: View {
     /// 看距离时左端的字。
     static let distanceStartLabel = "出发"
 
-    /// 尺寸。卡高 ≤ 160pt 的预算里这根线占约 30pt（线 + 节点下两字），里程线只有 6pt。
+    /// 尺寸。卡高 ≤ 160pt 的预算里这根线占约 40pt（22pt 节点行 + 3pt 间距 + 一行 13pt 字），里程线只有 6pt。
     enum Metrics {
-        static let lineWidth: CGFloat = 2
-        static let dot: CGFloat = 8
-        static let currentDot: CGFloat = 10
-        static let currentRing: CGFloat = 16
-        static let endRing: CGFloat = 14
-        static let runnerIcon: CGFloat = 14
-        static let labelSize: CGFloat = 11
+        static let lineWidth: CGFloat = 3
+        static let dot: CGFloat = 10
+        static let currentDot: CGFloat = 14
+        /// 当前一步外圈（稿：白点外一圈 4pt 浅蓝光晕）。
+        static let currentRing: CGFloat = 22
+        static let endRing: CGFloat = 16
+        /// 看距离时沿线走的那个白底圆（里面是跑步小人）。
+        static let runnerMarker: CGFloat = 22
+        static let runnerIcon: CGFloat = 12
+        /// 稿 `.stp .lb` 13px。
+        static let labelSize: CGFloat = 13
         static let labelSpacing: CGFloat = 3
         static let mileageHeight: CGFloat = 6
         /// 切换「看步骤 → 看距离」时线放大的那一下。Apple 上限 2 秒；息屏常亮时系统不做动画，直接换。
         static let modeChangeAnimation: Double = 1
     }
 
-    /// 看距离右端那个圈的默认颜色（稿里是蓝圈，深色卡底上取亮一档的蓝）。
-    static let defaultAccent = Color(red: 0x6E / 255, green: 0xA8 / 255, blue: 0xFF / 255)
+    /// 稿里的浅蓝（`--acc: #A8C8FF`）：当前一步的光晕、看距离右端的圈。
+    static let defaultAccent = Color(red: 0xA8 / 255, green: 0xC8 / 255, blue: 0xFF / 255)
+    /// 跑步小人画在白底圆里，图标用稿里的卡底深蓝（`--navy: #1F2433`）。
+    static let markerInk = Color(red: 0x1F / 255, green: 0x24 / 255, blue: 0x33 / 255)
 
     let mode: LiveActivityProgressMode
     /// 线、节点、小人的颜色。卡底是彩色或深色，默认白。
@@ -91,7 +99,7 @@ struct LiveActivityProgressLine: View {
         Group {
             switch mode {
             case .steps(let current):
-                StepsLine(current: Self.clampedStep(current), tint: tint)
+                StepsLine(current: Self.clampedStep(current), tint: tint, accent: accent)
             case .distance(let progress, let endLabel):
                 DistanceLine(progress: Self.clampedProgress(progress), endLabel: endLabel, tint: tint, accent: accent)
             case .mileage(let progress):
@@ -108,6 +116,7 @@ struct LiveActivityProgressLine: View {
 private struct StepsLine: View {
     let current: Int
     let tint: Color
+    let accent: Color
 
     private typealias M = LiveActivityProgressLine.Metrics
 
@@ -142,7 +151,7 @@ private struct StepsLine: View {
                 ForEach(1...LiveActivityProgressLine.stepCount, id: \.self) { step in
                     Text(LiveActivityProgressLine.stepTitles[step - 1])
                         .font(.system(size: M.labelSize, weight: step == current ? .bold : .regular))
-                        .foregroundStyle(tint.opacity(step == current ? 1 : 0.7))
+                        .foregroundStyle(tint.opacity(step == current ? 1 : 0.6))
                         .lineLimit(1)
                         .fixedSize()
                         .frame(maxWidth: .infinity)
@@ -155,7 +164,7 @@ private struct StepsLine: View {
     private func node(_ step: Int) -> some View {
         if step == current {
             ZStack {
-                Circle().stroke(tint.opacity(0.45), lineWidth: 2)
+                Circle().fill(accent.opacity(0.38))
                     .frame(width: M.currentRing, height: M.currentRing)
                 Circle().fill(tint)
                     .frame(width: M.currentDot, height: M.currentDot)
@@ -165,7 +174,7 @@ private struct StepsLine: View {
                 .frame(width: M.dot, height: M.dot)
         } else {
             // 空心点要盖住背后的线：先填卡底色做不到（卡底由调用方定），所以描边粗一点、中间留空。
-            Circle().stroke(tint.opacity(0.6), lineWidth: 1.5)
+            Circle().stroke(tint.opacity(0.45), lineWidth: 2)
                 .frame(width: M.dot, height: M.dot)
         }
     }
@@ -200,23 +209,26 @@ private struct DistanceLine: View {
                     Circle().stroke(accent, lineWidth: 3)
                         .frame(width: M.endRing, height: M.endRing)
                         .offset(x: proxy.size.width - M.endRing)
-                    Image(systemName: "figure.run")
-                        .font(.system(size: M.runnerIcon, weight: .bold))
-                        .foregroundStyle(tint)
-                        .frame(width: M.currentRing, height: M.currentRing)
-                        .offset(x: x - M.currentRing / 2)
+                    Circle().fill(tint)
+                        .frame(width: M.runnerMarker, height: M.runnerMarker)
+                        .overlay(
+                            Image(systemName: "figure.run")
+                                .font(.system(size: M.runnerIcon, weight: .bold))
+                                .foregroundStyle(LiveActivityProgressLine.markerInk)
+                        )
+                        .offset(x: min(max(x - M.runnerMarker / 2, 0), proxy.size.width - M.runnerMarker))
                 }
                 .frame(maxHeight: .infinity)
             }
-            .frame(height: M.currentRing)
+            .frame(height: M.runnerMarker)
             HStack {
                 Text(LiveActivityProgressLine.distanceStartLabel)
                     .font(.system(size: M.labelSize))
-                    .foregroundStyle(tint.opacity(0.7))
+                    .foregroundStyle(tint.opacity(0.6))
                 Spacer(minLength: 8)
                 Text(endLabel)
                     .font(.system(size: M.labelSize, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(accent)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

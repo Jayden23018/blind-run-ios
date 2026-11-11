@@ -249,6 +249,15 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         realtimeCoordinator.registerActiveOrder(orderID, status: status)
 
         if status.endsLiveEscortSession {
+            // 盲人跑完：跑步卡换成绿底「跑完了」（稿 B9），锁屏留 30 分钟。**排在 `clearOwnedOrder` 前**：
+            // 那里会清掉最后一次的里程，也会立刻结束全部跑步卡（`finish` 认领的那张除外）。
+            if #available(iOS 16.2, *), status == .completed, role == .blind {
+                RunLiveActivityController.shared.finish(
+                    orderID: orderID,
+                    stats: latestTrackStats,
+                    targetDistanceMeters: liveActivityTargetMeters
+                )
+            }
             clearOwnedOrder()
             return
         }

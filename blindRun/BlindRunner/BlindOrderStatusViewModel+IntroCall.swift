@@ -27,6 +27,7 @@ extension BlindOrderStatusViewModel {
             // 见 `submittedIntroCallDecision` 的注释。
             submittedIntroCallDecision = view.myDecisionValue
             handleIntroCallViewUpdate(view)
+            syncOrderLiveActivity()
         } catch {
             introCall = nil
             // 🚩 **已经表过态就不算失败。** 表态服务端已经记下了，拉不到 view 不改变这件事，

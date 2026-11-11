@@ -163,6 +163,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
             appState?.liveEscortCoordinator.clearOwnedOrder()
         }
+        // 锁屏「约跑进度」卡（#919）。取消 / 没找到也要喂进去：卡要推完 B11 那一屏再收。
+        if #available(iOS 16.2, *) {
+            BlindOrderActivityController.shared.sync(order: updated, source: .home)
+        }
         orderLoadState = .loaded(activeOrder)
         errorMessage = nil
     }
@@ -297,6 +301,14 @@ final class BlindRunnerHomeViewModel: ObservableObject {
                 )
             } else {
                 appState.liveEscortCoordinator.clearOwnedOrder()
+            }
+            // 锁屏「约跑进度」卡（#919）。App 回前台首页会重拉，开跑前 30 分钟的卡在这里补起。
+            if #available(iOS 16.2, *) {
+                if let activeOrder {
+                    BlindOrderActivityController.shared.sync(order: activeOrder, source: .home)
+                } else {
+                    BlindOrderActivityController.shared.endLive()
+                }
             }
             // ponytail: 两个请求先后发，播报多等一次往返；嫌慢时改成与 `/active` 并发。
             await loadOtherOrders(appState: appState)

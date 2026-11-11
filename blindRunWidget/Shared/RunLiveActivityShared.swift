@@ -19,11 +19,10 @@ import SwiftUI
 // 并由 `blindRunTests/RunLiveActivityTests.swift` 逐条钉回 app 侧的唯一源 ——
 // 机器对撞代替「记得改两处」，见 `AGENTS.md` §1.2。
 
-/// 这张卡是给谁看的。跑者端多一行顶行与一枚播报按钮，陪跑员端只有三个数字。
+/// 这张卡是给谁看的。跑者端右侧多一枚圆形喇叭键（稿 B8），陪跑员端没有按钮（稿 V7）。
 ///
-/// 两端 `partnerName` 都是对方**姓氏**（决定源 V11，取代 2026-09-16 的「不显示对方姓名」）：
-/// 陪跑员端取 `blindSurname`，跑者端取 `volunteerSurname`。姓氏缺失时为 `nil`，
-/// 陪跑员端第 1 行写「跑者：刚刚好」而不是掩码名，跑者端不画顶行。
+/// 2026-11-11 起**卡上不写名字**（负责人：「不需要说是谁来了」）。`partnerName` 字段留着只为
+/// 认回旧版本起的卡时能解码，卡上不再读它。
 enum RunLiveActivitySide: String, Codable, Hashable, Sendable {
     case runner
     case volunteer
@@ -71,6 +70,8 @@ struct RunLiveActivityAttributes: ActivityAttributes, Hashable {
         /// **超过 5 分钟的由 app 侧丢掉再塞进来**（`RunLiveActivityCopy.rhythmFreshness`）。
         var rhythmSignal: String?
         var isPaused: Bool?
+        /// 跑完了（稿 B9）：同一版式换绿底，锁屏留 30 分钟。只在 `RunLiveActivityController.finish` 里置真。
+        var isFinished: Bool?
     }
 
     /// 这张卡属于哪一单。
@@ -88,19 +89,22 @@ struct RunLiveActivityAttributes: ActivityAttributes, Hashable {
 /// 锁屏卡上每一处用户可见 / 可听的文字。**只在这里出现字面量。**
 enum RunLiveActivityCopy {
     static let appName = "助盲跑"
-    static let distanceLabel = "里程（公里）"
-    static let durationLabel = "时长"
+    /// 稿 B8：数字下面的彩色小标签。
+    static let distanceLabel = "公里"
+    static let durationLabel = "用时"
     static let paceLabel = "配速"
-    static let announceButtonTitle = "播报当前数据"
+    /// 稿 B8 右侧圆键。读屏念「听当前状态，按钮」（「按钮」是系统按控件类型自己加的）。
+    static let announceButtonTitle = "听当前状态"
+    static let runnerRunning = "陪跑中"
+    static let runnerFinished = "跑完了"
+    /// 跑完的卡在锁屏上留多久（稿「五」：完成后锁屏留 30 分钟）。
+    static let finishedLinger: TimeInterval = 30 * 60
 
     /// 数字还没到时的占位。**不写 0.00** —— 「跑了 0 公里」和「还没拿到数据」是两件事，
     /// 而锁屏上没有第二处能说明区别。
     static let pendingValue = "--"
     static let pendingSpokenValue = "暂无数据"
 
-    static func partnerHeadline(_ name: String) -> String {
-        "陪跑中 · \(name)"
-    }
 
     /// 三个数字**一个都还没到**时念的那一句。
     ///
@@ -138,26 +142,42 @@ enum RunLiveActivityCopy {
         }
     }
 
-    /// 第 1 行：「陪跑中 · 李：刚刚好」/「陪跑中」/「已暂停」。
-    static func volunteerHeadline(surname: String?, rhythmSignal: String?, isPaused: Bool) -> String {
-        if isPaused { return volunteerPaused }
-        guard let title = rhythmTitle(rhythmSignal) else { return volunteerRunning }
-        return "\(volunteerRunning) · \(surname ?? runnerFallbackName)：\(title)"
+    /// 稿 V7 顶行左边：「陪跑中」/「已暂停」。卡上不写名字。
+    static func volunteerHeadline(isPaused: Bool) -> String {
+        isPaused ? volunteerPaused : volunteerRunning
     }
 
-    /// 「/ 5.00 公里」；没有目标时只写「公里」。
-    static func targetSuffix(_ targetDistanceText: String?) -> String {
-        targetDistanceText.map { "/ \($0) \(kilometers)" } ?? kilometers
+    /// 稿 V7 顶行右边：跑者最近一次节奏信号（「刚刚好」）。没有或认不出时不显示。
+    static func volunteerRhythm(_ rawValue: String?, isPaused: Bool) -> String? {
+        isPaused ? nil : rhythmTitle(rawValue)
     }
 
-    /// 陪跑员端 v2 整张卡念一站：「陪跑中，里程 2.40 公里，目标 5.00 公里，时长 18 分 32 秒，配速 …」。
+    /// 读屏念节奏信号：「跑者觉得刚刚好」。
+    static func spokenRhythm(_ title: String) -> String {
+        "\(runnerFallbackName)觉得\(title)"
+    }
+
+    /// 跑者端顶行：「陪跑中」/「跑完了」。
+    static func runnerHeadline(isFinished: Bool) -> String {
+        isFinished ? runnerFinished : runnerRunning
+    }
+
+    /// 稿 V7 里程那一格：「2.40 / 5.00」；没有目标时只写「2.40」。
+    static func distanceWithTarget(_ distanceText: String, target: String?) -> String {
+        target.map { "\(distanceText) / \($0)" } ?? distanceText
+    }
+
+    /// 整张卡念一站（不含按钮）：「助盲跑，陪跑中，里程 2.4 公里，目标 5.00 公里，用时 18 分 32 秒，配速 …」。
     @available(iOS 16.2, *)
-    static func volunteerCardAccessibilityLabel(
+    static func cardAccessibilityLabel(
         headline: String,
+        rhythm: String? = nil,
         state: RunLiveActivityAttributes.ContentState
     ) -> String {
         [
-            headline.replacingOccurrences(of: " · ", with: "，"),
+            appName,
+            headline,
+            rhythm.map { spokenRhythm($0) },
             distanceAccessibilityLabel(state.spokenDistance),
             state.targetDistanceText.map { "目标 \($0) \(kilometers)" },
             durationAccessibilityLabel(state.spokenDuration),
@@ -182,37 +202,39 @@ enum RunLiveActivityCopy {
 
 // MARK: - 尺寸
 
-/// 锁屏卡的尺寸。**与全屏那一套（`FlowMetrics` / `FlowFonts`）刻意不同**：
-/// 实时活动有高度上限，全屏的 82 / 36 放进来会把顶行和按钮挤出可见区
-/// （2026-09-16 在模拟器 demo 上实测过：按钮拉到 110pt 时顶行当场被裁掉）。
-/// 状态清单 §16 给的就是这一套缩小值。
+/// 跑步卡的尺寸（稿 B8 / V7，照 Gentler Streak / Apple 健身：顶行 + 三个并排同字号大数字 + 彩色小标签）。
+/// 卡高预算 160pt：15 + 18（顶行）+ 10 + 52（数字与标签，与 52pt 圆键取大）+ 12 + 6（里程线）+ 14 ≈ 127。
 enum RunLiveActivityMetrics {
-    /// 里程。卡上最大的数字，等宽。
-    static let distanceSize: CGFloat = 56
-    /// 时长 / 配速。
-    static let metricSize: CGFloat = 24
-    /// 顶行「陪跑中 · 张伟」。
-    static let headlineSize: CGFloat = 15
-    /// 三个数字各自的标签。
+    static let headlineSize: CGFloat = 14
+    /// 三个数字同字号（稿 `.m b` 30px）。
+    static let metricSize: CGFloat = 30
+    /// 数字下面的小标签（稿 `.m span` 13px）。
     static let labelSize: CGFloat = 13
-    /// 顶行左侧那枚小头像，以及里面那个姓氏的字号。
-    static let avatarDiameter: CGFloat = 20
-    static let avatarInitialSize: CGFloat = 10
-    /// 「播报当前数据」四个字。
-    static let announceButtonTitleSize: CGFloat = 17
-
-    /// 「播报当前数据」的高度。
+    static let liveDot: CGFloat = 8
+    /// 右侧白色圆形喇叭键（负责人 2026-11-11 定 52pt）。
     ///
-    /// 🚩 **52 低于本仓库的 64pt 触达下限，是一次有意偏离**，两条理由缺一不可：
-    /// ① 实时活动整卡高度上限约 175pt（同上，demo 实测），56 的里程 + 标签 + 64 的按钮放不下；
-    /// ② 这不是 App 自己的画布 —— 锁屏上按钮周围一圈是系统的卡片留白，
-    ///    实际可点区域比 52 大，而 App 内的 64pt 线针对的是「一屏里挨着好几个控件」。
-    /// 项目负责人 2026-09-16 明确要求「播报那个按钮做小一点」。
-    static let announceButtonHeight: CGFloat = 52
-    static let announceButtonRadius: CGFloat = 14
-    static let cardPadding: CGFloat = 14
-    static let rowSpacing: CGFloat = 6
-    static let columnSpacing: CGFloat = 16
+    /// 🚩 **52 低于本仓库的 64pt 触达下限，是一次有意偏离**：① 实时活动整卡高度上限 160pt，
+    /// 64 的圆键会把数字挤小；② 锁屏上这一格周围是系统卡片留白，且整张卡只有这一个可点元素。
+    /// 负责人 2026-09-16 要求「播报那个按钮做小一点」，2026-11-11 定稿 52pt 圆键。
+    static let announceButtonDiameter: CGFloat = 52
+    static let announceIconSize: CGFloat = 24
+    static let horizontalPadding: CGFloat = 18
+    static let topPadding: CGFloat = 15
+    static let bottomPadding: CGFloat = 14
+    static let headlineToMetrics: CGFloat = 10
+    static let metricsToLine: CGFloat = 12
+    static let labelSpacing: CGFloat = 5
+    static let columnSpacing: CGFloat = 6
+}
+
+/// 跑步卡 v4 的颜色（稿 `draft.html` `:root`）。锁屏上永远深色呈现。
+enum RunLiveActivityV4Palette {
+    /// `--green`：跑完了（B9）。
+    static let finished: UInt32 = 0x17432B
+    /// `--greenDot`：「陪跑中」前面的小绿点、里程标签。
+    static let liveGreen: UInt32 = 0x5BD38E
+    /// `--acc`：用时、配速标签。
+    static let accent: UInt32 = 0xA8C8FF
 }
 
 // MARK: - 取值
@@ -354,13 +376,13 @@ extension RunLiveActivitySpeaker: AVSpeechSynthesizerDelegate {
 
 // MARK: - 锁屏按钮背后的意图
 
-/// 「播报当前数据」。
+/// 「听当前状态」（稿 B8 右侧圆键；原名「播报当前数据」）。
 ///
 /// 采用 `AudioPlaybackIntent` 而不是裸 `AppIntent`：后者会在 **widget 进程**里执行，
 /// 那个进程没有音频会话，按下去不会有任何声音。
 @available(iOS 17.0, *)
 struct AnnounceRunStatsIntent: AudioPlaybackIntent {
-    static var title: LocalizedStringResource = "播报当前数据"
+    static var title: LocalizedStringResource = "听当前状态"
 
     /// 不打开 App —— 这是这枚按钮存在的全部意义（状态清单 §16：「不必解锁」）。
     static var openAppWhenRun: Bool = false

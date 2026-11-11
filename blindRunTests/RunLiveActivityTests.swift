@@ -198,8 +198,7 @@ final class RunLiveActivityTests: XCTestCase {
         }
     }
 
-    /// 陪跑员端那张卡带跑者**姓氏**（决定源 V11，取代 2026-09-16「陪跑员端不显示对方姓名」）。
-    /// 传进来什么就带什么 —— 「只传姓氏、不传掩码名」由调用方 `blindSurname` 保证。
+    /// 陪跑员端那张卡的 plan 仍带跑者姓氏（旧卡解码兼容），但 2026-11-11 起**卡上不写名字**。
     func testVolunteerCardCarriesTheRunnerSurname() {
         let plan = LiveEscortSessionCoordinator.liveActivityPlan(
             orderID: 42,
@@ -210,10 +209,7 @@ final class RunLiveActivityTests: XCTestCase {
 
         XCTAssertEqual(plan?.side, .volunteer)
         XCTAssertEqual(plan?.partnerName, "李")
-        XCTAssertEqual(
-            RunLiveActivityCopy.volunteerHeadline(surname: plan?.partnerName, rhythmSignal: "OK", isPaused: false),
-            "陪跑中 · 李：刚刚好"
-        )
+        XCTAssertEqual(RunLiveActivityCopy.volunteerHeadline(isPaused: false), "陪跑中")
     }
 
     func testVolunteerCardWithoutSurnameFallsBackToRunnerWord() {
@@ -225,10 +221,7 @@ final class RunLiveActivityTests: XCTestCase {
         )
 
         XCTAssertNil(plan?.partnerName)
-        XCTAssertEqual(
-            RunLiveActivityCopy.volunteerHeadline(surname: plan?.partnerName, rhythmSignal: "OK", isPaused: false),
-            "陪跑中 · 跑者：刚刚好"
-        )
+        XCTAssertEqual(RunLiveActivityCopy.volunteerRhythm("OK", isPaused: false), "刚刚好")
     }
 
     func testRunnerCardCarriesThePartnerNameForTheHeadline() {
@@ -241,7 +234,39 @@ final class RunLiveActivityTests: XCTestCase {
 
         XCTAssertEqual(plan?.side, .runner)
         XCTAssertEqual(plan?.partnerName, "张伟")
-        XCTAssertEqual(RunLiveActivityCopy.partnerHeadline("张伟"), "陪跑中 · 张伟")
+        // 卡上不写名字（负责人 2026-11-11）：顶行只有状态，读屏那一句里也没有名字。
+        XCTAssertEqual(RunLiveActivityCopy.runnerHeadline(isFinished: false), "陪跑中")
+        let state = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: "张伟")
+        XCTAssertFalse(
+            RunLiveActivityCopy.cardAccessibilityLabel(headline: "陪跑中", state: state).contains("张伟")
+        )
+    }
+
+    // MARK: - v4（稿 B8 / B9）
+
+    /// 稿 B8：右侧圆键读屏念「听当前状态」（「按钮」由系统按控件类型补上）。
+    func testAnnounceButtonIsCalledListenToCurrentStatus() {
+        XCTAssertEqual(RunLiveActivityCopy.announceButtonTitle, "听当前状态")
+        XCTAssertEqual(RunLiveActivityMetrics.announceButtonDiameter, 52)
+    }
+
+    /// 稿 B9：跑完换绿底、顶行「跑完了」，锁屏留 30 分钟。
+    func testFinishedCardIsGreenAndLingersThirtyMinutes() {
+        let finished = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: nil, isFinished: true)
+        let running = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: nil)
+
+        XCTAssertEqual(RunLiveActivityWidget.background(for: finished), RunLiveActivityV4Palette.finished)
+        XCTAssertEqual(RunLiveActivityWidget.background(for: running), BlindOrderActivityPalette.card)
+        XCTAssertEqual(RunLiveActivityCopy.runnerHeadline(isFinished: true), "跑完了")
+        XCTAssertEqual(RunLiveActivityCopy.finishedLinger, 30 * 60)
+    }
+
+    /// 旧版本起的卡（没有 `isFinished` 键）被新版本认回时要能解码，否则锁屏卡冻住。
+    func testContentStateWithoutTheNewKeyStillDecodes() throws {
+        let json = #"{"distanceText":"1.00","durationText":"06:00","paceText":"6'00\"","spokenDistance":"1 公里","spokenDuration":"6 分","spokenPace":"6 分每公里"}"#
+        let state = try JSONDecoder().decode(RunLiveActivityAttributes.ContentState.self, from: Data(json.utf8))
+        XCTAssertNil(state.isFinished)
+        XCTAssertEqual(state.distanceText, "1.00")
     }
 
     /// 还没选角色时不该有卡。`unset` 是 `UserRole` 的真实取值，不是理论分支。
