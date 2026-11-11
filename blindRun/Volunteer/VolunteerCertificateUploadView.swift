@@ -677,7 +677,6 @@ struct VolunteerCertificateUploadView: View {
                 viewModel.upload()
             }
             .disabled(!viewModel.canUpload)
-            .opacity(viewModel.canUpload ? 1 : 0.45)
             .accessibilityLabel(viewModel.uploadButtonTitle)
             .accessibilityHint(viewModel.canUpload ? "点击后上传所选\(viewModel.materialNoun)" : "正在处理，请稍候")
             .accessibilityIdentifier("volunteerCertificateUploadButton")

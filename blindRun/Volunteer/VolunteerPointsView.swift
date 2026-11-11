@@ -21,6 +21,10 @@ struct VolunteerPointsView: View {
     @State private var pageState: AsyncLoadState<VolunteerPointsPage> = .idle
     /// 「查看更早的记录」的按钮忙碌态，不是页面加载态。
     @State private var isLoadingMore = false
+    /// 「查看更早的记录」翻页失败的那一句（#870）。有值时在按钮上方显示并念出；已显示的记录与 `pageState` 不动。
+    @State private var loadMoreFailure: String?
+    /// 翻页失败后点「重新加载」的次数：同一句文案再失败时靠它再念一遍。
+    @State private var loadMoreAttempt = 0
 
     private static let pageSize = 20
 
@@ -158,6 +162,17 @@ struct VolunteerPointsView: View {
             }
 
             if hasMore {
+                if let loadMoreFailure {
+                    IncentiveFailureSection(
+                        message: loadMoreFailure,
+                        retryTitle: VolunteerPointsCopy.retry,
+                        identifier: "volunteerPointsLoadMoreRetryButton",
+                        attempt: loadMoreAttempt
+                    ) {
+                        loadMoreAttempt += 1
+                        Task { await load(reset: false) } // 重试翻的还是同一页
+                    }
+                }
                 Button(isLoadingMore ? "正在加载…" : "查看更早的记录") {
                     Task { await load(reset: false) }
                 }
@@ -242,6 +257,7 @@ struct VolunteerPointsView: View {
             pageState = .loading(requestID: UUID())
         } else {
             isLoadingMore = true
+            loadMoreFailure = nil
         }
         defer { isLoadingMore = false }
 
@@ -259,7 +275,11 @@ struct VolunteerPointsView: View {
                 hasMore: response.hasMorePages
             ))
         } catch {
-            guard reset || shown == nil else { return }
+            guard reset || shown == nil else {
+                // 翻页失败：保留已显示的记录，只把失败说出来（#870），不改页面状态。
+                loadMoreFailure = (error as? APIError)?.localizedMessage ?? VolunteerPointsCopy.loadFailure
+                return
+            }
             pageState = .failed(message: (error as? APIError)?.localizedMessage ?? VolunteerPointsCopy.loadFailure)
         }
     }

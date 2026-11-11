@@ -161,7 +161,7 @@ extension AccessibilityAuditTests {
     /// 大标题不光要在无障碍树里，还要真的画在屏上：截图里标题那一块要有和底色不同的像素。
     /// 只断言导航栏存在会假绿 —— #700 / #711 的导航栏实底把大标题整个盖住，树里照样有「我的」（2026-11-05 真机）。
     @MainActor
-    private func assertLargeTitleIsDrawn(_ app: XCUIApplication, title: String, variant: String) {
+    func assertLargeTitleIsDrawn(_ app: XCUIApplication, title: String, variant: String) {
         let label = app.navigationBars[title].staticTexts[title].firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 5), "\(variant)：导航栏里没有标题「\(title)」")
         let frame = label.frame

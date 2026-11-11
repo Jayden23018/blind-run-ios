@@ -109,10 +109,10 @@ struct VolunteerSettingsView: View {
             .readableContentColumn()
         }
         .background(AppColors.Flow.page)
-        // 导航栏给页面同色的实底：上推后饱和色的方块滚到半透明栏下面，标题「我的」压在模糊的红绿上，
-        // 真机审计判对比度不足（2026-11-05，#700）。实底下标题永远压在页面底色上；在顶部时与页面同色，看不出栏。
+        // 导航栏底色用页面同色，但**不强制常显**（不写 `.toolbarBackground(.visible)`）：
+        // 常显的实底会把顶部的大标题「我的」整个盖住（2026-11-05 真机截图，#748；盲人端同写法同问题，#711 已改）。
+        // 上推后系统自己换成带底色的栏，标题对比度由审计用例守着。
         .toolbarBackground(AppColors.Flow.page, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .navigationTitle(isTabRoot ? VolunteerSettingsCopy.tabTitle : VolunteerSettingsCopy.gearTitle)
         .task {
             guard isTabRoot else { return }

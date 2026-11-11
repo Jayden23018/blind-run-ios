@@ -385,7 +385,6 @@ struct VolunteerCertificationGateView: View {
                 viewModel.submit()
             }
             .disabled(!viewModel.canSubmit)
-            .opacity(viewModel.canSubmit ? 1 : 0.45)
             .accessibilityLabel("提交")
             .accessibilityHint(viewModel.canSubmit ? "点击后提交志愿者资料" : "请先填写昵称")
         }
