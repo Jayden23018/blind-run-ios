@@ -8,15 +8,16 @@ extension VolunteerInServiceView {
     var fallbackContent: some View {
         let helpMode = VolunteerOrderSOSMode.resolve(status: viewModel.order?.status)
         return VStack(spacing: 0) {
-            FlowOrderNavBar(
-                title: VolunteerOrderFlowCopy.pageTitle,
+            // v7 顶栏（#945），压在深色头那一截上，与其余各态同一个位置。
+            VolunteerOrderTopBar(
+                surface: .onDark,
                 onBack: { dismiss() },
+                isCloudHelp: helpMode == .cloud,
                 onHelp: {
                     if helpMode == .cloud { showEmergencyConfirm = true } else { showsLocalHelp = true }
-                },
-                helpIsCloud: helpMode == .cloud
+                }
             )
-            .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
+            .background(BlindOrderV7Palette.headerTop.ignoresSafeArea(edges: .top))
             ScrollView {
                 Group {
                     switch VolunteerOrderFallback.resolve(status: viewModel.order?.status, errorMessage: viewModel.errorMessage) {
@@ -31,7 +32,7 @@ extension VolunteerInServiceView {
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding)
             }
         }
-        .background(AppColors.Flow.page.ignoresSafeArea())
+        .background(AppColors.Flow.surface.ignoresSafeArea())
         .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
     }
 
@@ -56,7 +57,7 @@ extension VolunteerInServiceView {
     }
 
     /// 紧急信息区（挂在跑步中页头卡下方）。**「代盲人发起求助」的按钮不在这里** ——
-    /// 它是跑步中页导航栏右上的求助胶囊（`FlowHelpPill`，#217 / #218）。
+    /// 它是跑步中页顶栏右上的求助胶囊（`VolunteerOrderHelpPill`，#945）。
     ///
     /// 2026-08-19 把触发按钮搬走：它此前是这个 `VStack` 的第一个子视图，而这个 `VStack` 底部对齐、
     /// 上方就是高度自适应的底部面板（已随旧地图路径删除），于是一个全宽红色 `PrimaryButton` 浮在屏幕

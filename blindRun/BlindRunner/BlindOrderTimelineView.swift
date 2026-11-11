@@ -19,6 +19,10 @@ struct BlindOrderTimelineView<Current: View>: View {
         self.current = current
     }
 
+    private var rowSpacing: CGFloat {
+        input.roomy ? BlindOrderTimelineMetrics.roomyRowSpacing : BlindOrderTimelineMetrics.rowSpacing
+    }
+
     private var rows: [BlindOrderTimelineRow] {
         BlindOrderTimelineLayout.rows(input, pastExpanded: pastExpanded, futureExpanded: futureExpanded)
     }
@@ -59,7 +63,7 @@ struct BlindOrderTimelineView<Current: View>: View {
                 }
                 .modifier(BlindOrderStageArrivalReveal(isActive: arrival))
             }
-            .padding(.bottom, BlindOrderTimelineMetrics.rowSpacing)
+            .padding(.bottom, rowSpacing)
         case .doneFold, .todoFold:
             foldRow(row)
         case .stopped:
@@ -68,14 +72,14 @@ struct BlindOrderTimelineView<Current: View>: View {
                 BlindOrderTimelineDot(kind: .stopped)
                 titleBlock(row)
             }
-            .padding(.bottom, BlindOrderTimelineMetrics.rowSpacing)
+            .padding(.bottom, rowSpacing)
             .accessibilityIdentifier("blindOrderTimelineStoppedStep")
         default:
             HStack(alignment: .top, spacing: BlindOrderTimelineMetrics.gap) {
                 BlindOrderTimelineDot(kind: row.isPast ? .done : .todo)
                 titleBlock(row)
             }
-            .padding(.bottom, BlindOrderTimelineMetrics.rowSpacing)
+            .padding(.bottom, rowSpacing)
         }
     }
 
@@ -102,7 +106,7 @@ struct BlindOrderTimelineView<Current: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(BlindOrderTimelineLayout.accessibilityLabel(for: row))
+        .accessibilityLabel(BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: input.vocabulary))
     }
 
     /// 「✓ 已完成 N 步 ›」「还有 N 步 ›」。整行可点，至少 64pt 高。
@@ -128,15 +132,15 @@ struct BlindOrderTimelineView<Current: View>: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(BlindOrderTimelineLayout.accessibilityLabel(for: row))
+        .accessibilityLabel(BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: input.vocabulary))
         .accessibilityHint(BlindOrderTimelineLayout.foldAccessibilityHint)
         .modifier(BlindOrderTimelineFoldIdentifier(isPast: row.isPast))
     }
 
     private func visibleTitle(_ row: BlindOrderTimelineRow) -> String {
         switch row {
-        case .done(let step, _): return step.doneTitle
-        case .current(let step, _), .stopped(let step, _), .next(let step), .todo(let step): return step.title
+        case .done(let step, _): return input.vocabulary.doneTitle(step)
+        case .current(let step, _), .stopped(let step, _), .next(let step), .todo(let step): return input.vocabulary.title(step)
         case .doneFold, .todoFold: return BlindOrderTimelineLayout.foldTitle(for: row) ?? ""
         }
     }
@@ -172,6 +176,8 @@ enum BlindOrderTimelineMetrics {
     static let lineWidth: CGFloat = 3
     static let gap: CGFloat = 14
     static let rowSpacing: CGFloat = 13
+    /// `BlindOrderTimelineInput.roomy`（#945 ⑨）。
+    static let roomyRowSpacing: CGFloat = 22
 }
 
 /// 圆点。纯装饰，对读屏隐藏（状态已在行的读屏标签里）。

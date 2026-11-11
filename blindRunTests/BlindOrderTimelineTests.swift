@@ -188,4 +188,48 @@ final class BlindOrderTimelineTests: XCTestCase {
     ) -> BlindOrderTimelineInput {
         BlindOrderTimelineInput(position: position, details: details, showsNextStep: showsNextStep)
     }
+
+    // MARK: - 陪跑员措辞与中断（#945）
+
+    /// 陪跑员视角只换第 1、4 步的说法；盲人默认不变。两种说法都断言，换错一边会红。
+    func testVolunteerVocabularyRenamesOnlyTheFirstAndFourthStep() {
+        let volunteer = BlindOrderTimelineStep.allCases.map { OrderTimelineVocabulary.volunteer.title($0) }
+        XCTAssertEqual(volunteer, ["接下陪跑", "商量见面安排", "等出发", "去集合点汇合", "开跑"])
+        let blind = BlindOrderTimelineStep.allCases.map { OrderTimelineVocabulary.blindRunner.title($0) }
+        XCTAssertEqual(blind, BlindOrderTimelineStep.allCases.map(\.title))
+        XCTAssertEqual(OrderTimelineVocabulary.volunteer.doneTitle(.matchVolunteer), "已接下陪跑")
+        XCTAssertEqual(OrderTimelineVocabulary.blindRunner.doneTitle(.matchVolunteer), "已匹配陪跑员")
+    }
+
+    /// 读屏句跟着措辞走：折叠行念出的是陪跑员说法，不是盲人说法。
+    func testVolunteerFoldRowSpeaksVolunteerStepNames() {
+        let input = BlindOrderTimelineInput(position: .current(.arrangeMeetup), vocabulary: .volunteer)
+        let rows = BlindOrderTimelineLayout.rows(input)
+        guard let fold = rows.first(where: { if case .todoFold = $0 { return true } else { return false } }) else {
+            return XCTFail("当前在第 2 步时后面应有「还有 2 步」")
+        }
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.accessibilityLabel(for: fold, vocabulary: .volunteer),
+            "后面还有 2 步：去集合点汇合、开跑"
+        )
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.accessibilityLabel(for: .done(.matchVolunteer, detail: nil), vocabulary: .volunteer),
+            "已接下陪跑"
+        )
+    }
+
+    /// 陪跑员 ⑨：停住的那一步用陪跑员说法念「到这一步结束」，已做的两步不折叠。
+    func testVolunteerStoppedTimelineSpeaksVolunteerNames() {
+        let input = BlindOrderTimelineInput(position: .stopped(.awaitDeparture), folds: false, vocabulary: .volunteer)
+        let rows = BlindOrderTimelineLayout.rows(input)
+        XCTAssertEqual(rows.map(\.id), ["done-0", "done-1", "stopped-2"])
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.accessibilityLabel(for: rows[0], vocabulary: .volunteer),
+            "已接下陪跑"
+        )
+        XCTAssertEqual(
+            BlindOrderTimelineLayout.accessibilityLabel(for: rows[2], vocabulary: .volunteer),
+            "等出发，到这一步结束"
+        )
+    }
 }

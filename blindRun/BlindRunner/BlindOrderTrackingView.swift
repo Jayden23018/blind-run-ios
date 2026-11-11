@@ -10,6 +10,8 @@ struct BlindTrackingMapInput {
     var volunteer: CLLocationCoordinate2D?
     var me: CLLocationCoordinate2D?
     var route: [CLLocationCoordinate2D] = []
+    /// 对方那颗图钉的名字。盲人端看到的是陪跑员；陪跑员订单页（#945）传「跑者」。
+    var peerTitle = "陪跑员"
 }
 
 /// 出发 / 已到达 / 陪跑中 / 已完成四态共用的**同一个**页面（稿 ⑤–⑧ 与 A/B/C 三帧）。
@@ -206,7 +208,8 @@ private struct BlindTrackingMap: View {
             volunteer: input.volunteer,
             me: input.me,
             route: input.route,
-            size: size
+            size: size,
+            peerTitle: input.peerTitle
         ) {
             MapViewWrapper(
                 centerCoordinate: content.center,

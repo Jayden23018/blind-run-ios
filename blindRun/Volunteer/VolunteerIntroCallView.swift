@@ -285,6 +285,7 @@ struct VolunteerIntroCallView: View {
     @State private var showsLocalHelp = false
     @State private var showsPlanForm = false
     @State private var showsEditConfirm = false
+    @AccessibilityFocusState private var headerFocused: Bool
 
     let route: VolunteerIntroCallRoute
 
@@ -335,52 +336,31 @@ struct VolunteerIntroCallView: View {
     private var isClosed: Bool { viewModel.outcome == .closed }
     private var isAwaitingConfirmation: Bool { !isClosed && viewModel.step == .awaitingRunnerConfirmation }
 
+    /// v7 ②③（#945）：与盲人端同一个外壳 —— 深色头 + 竖线（当前步「商量见面安排」）+ 底部按钮。
+    /// 求助：这一态不是 `IN_PROGRESS`，`VolunteerOrderSOSMode.resolve` 恒给本地拨号。
     private var callPage: some View {
-        VStack(spacing: 0) {
-            FlowOrderNavBar(
-                title: IntroCallCopy.pageTitle,
-                onBack: { dismiss() },
-                onHelp: { showsLocalHelp = true }
+        TimelineView(.periodic(from: Date(), by: Self.clockTick)) { context in
+            let incoming = viewModel.isShowingIncomingCall(now: context.date)
+            BlindOrderStageScaffold(
+                topBar: VolunteerOrderTopBar(
+                    surface: .onDark,
+                    onBack: { dismiss() },
+                    isCloudHelp: VolunteerOrderSOSMode.resolve(status: .pendingIntroCall) == .cloud,
+                    onHelp: { showsLocalHelp = true }
+                ),
+                eyebrow: isAwaitingConfirmation ? IntroCallCopy.volunteerPlanSubmittedEyebrow : IntroCallCopy.pageTitle,
+                title: title(incoming: incoming),
+                headerAccessibilityLabel: headerSpoken(incoming: incoming),
+                headerFocused: $headerFocused,
+                headerIdentifier: .volunteerIntroCallHeader,
+                place: eyebrow,
+                when: nil,
+                timeline: timelineInput(now: context.date),
+                card: { currentCard(incoming: incoming) },
+                footer: { pageFooter },
+                bottom: { bottomActions }
             )
-            .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
-            ScrollView {
-                VStack(spacing: FlowMetrics.v2SectionGap) {
-                    TimelineView(.periodic(from: Date(), by: Self.clockTick)) { context in
-                        heroCard(now: context.date)
-                    }
-                    if isAwaitingConfirmation {
-                        planSummaryCard
-                    } else if !isClosed {
-                        // 复用接单后那块「本单为视障跑者」提示位，不新建组件。
-                        // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走
-                        // `disclosesBlindRunnerNotesToVolunteer` 闸，通话发生在接单之前。
-                        // 恢复路径上是空数组，该组件对空数组本来就什么都不渲染。
-                        VolunteerRunnerNeedsBanner(needs: dispatchOrder?.escortNeeds ?? [])
-                        paceCard
-                    }
-                    if let errorMessage = viewModel.errorMessage, !isClosed {
-                        Text(errorMessage)
-                            .flowFont(FlowV2Fonts.callout(bold: true))
-                            .foregroundColor(AppColors.destructive)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityLabel(errorMessage)
-                            .accessibilityIdentifier("volunteerIntroCallError")
-                    }
-                    if let target = CounterpartSafetyGate.target(
-                        userId: viewModel.counterpartUserId,
-                        orderId: route.orderId
-                    ) {
-                        CounterpartSafetyActions(target: target, blockContext: isClosed ? .standard : .introCall)
-                    }
-                }
-                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
-                .padding(.vertical, FlowMetrics.v2SectionGap)
-                .readableContentColumn()
-            }
         }
-        .background(AppColors.Flow.page.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) { bottomActions }
         .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
         .alert(IntroCallCopy.volunteerEditPlanConfirmTitle, isPresented: $showsEditConfirm) {
             Button("取消", role: .cancel) {}
@@ -388,6 +368,76 @@ struct VolunteerIntroCallView: View {
         }
         .sheet(isPresented: $showsPlanForm) {
             planForm
+        }
+    }
+
+    /// 竖线：第 1 步「已接下陪跑」，当前「商量见面安排」，下面是剩余时间。
+    /// ③ 等跑者确认时不露「下一步」：安排单五项首屏要完整可见（同盲人 v7 第 11 条 D）。
+    private func timelineInput(now: Date) -> BlindOrderTimelineInput {
+        var details: [BlindOrderTimelineStep: String] = [:]
+        if isClosed {
+            details[.arrangeMeetup] = IntroCallCopy.volunteerRoundClosedTitle
+        } else if let window = IntroCallCopy.volunteerWindowPillText(
+            windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
+        ) {
+            details[.arrangeMeetup] = window
+        }
+        return BlindOrderTimelineInput(
+            position: .current(.arrangeMeetup),
+            details: details,
+            showsNextStep: !isAwaitingConfirmation,
+            // 没约成不画打叉、不说「取消」：磨合里对方的表态客户端不许显示（AGENTS §5，无声拒绝是设计）。
+            vocabulary: .volunteer
+        )
+    }
+
+    private func headerSpoken(incoming: Bool) -> String {
+        ([eyebrow?.replacingOccurrences(of: " · ", with: "，"), title(incoming: incoming).unmaskedForSpeech] + lines(incoming: incoming).map(Optional.some))
+            .compactMap { $0?.nilIfBlank }
+            .joined(separator: "，")
+    }
+
+    /// 当前步那张卡：② 深色块写来电号码与「聊完记得提交」，下面是跑者需要与配速；③ 是安排单摘要。
+    @ViewBuilder
+    private func currentCard(incoming: Bool) -> some View {
+        if isAwaitingConfirmation {
+            planSummaryCard
+        } else if !isClosed {
+            let lines = lines(incoming: incoming)
+            VStack(alignment: .leading, spacing: 12) {
+                if !lines.isEmpty {
+                    BlindOrderStepCard(
+                        lead: incoming ? IntroCallCopy.volunteerIncomingCallPill : nil,
+                        body: lines.joined(separator: "\n")
+                    )
+                }
+                // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走 `disclosesBlindRunnerNotesToVolunteer` 闸，
+                // 通话发生在接单之前。恢复路径上是空数组，该组件对空数组本来就什么都不渲染。
+                VolunteerRunnerNeedsBanner(needs: dispatchOrder?.escortNeeds ?? [])
+                paceCard
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pageFooter: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let errorMessage = viewModel.errorMessage, !isClosed {
+                Text(errorMessage)
+                    .flowFont(FlowV2Fonts.callout(bold: true))
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(errorMessage)
+                    .accessibilityIdentifier("volunteerIntroCallError")
+            }
+            // 通话磨合页的举报 / 不再匹配仍铺在页面里（INDEX「举报」行：负责人 11-11 定陪跑员通话磨合页不变）。
+            if let target = CounterpartSafetyGate.target(
+                userId: viewModel.counterpartUserId,
+                orderId: route.orderId
+            ) {
+                CounterpartSafetyActions(target: target, blockContext: isClosed ? .standard : .introCall)
+            }
         }
     }
 
@@ -412,91 +462,6 @@ struct VolunteerIntroCallView: View {
 
     private var runnerName: String? {
         viewModel.introCall?.counterpartName?.nilIfBlank
-    }
-
-    private func heroCard(now: Date) -> some View {
-        let incoming = viewModel.isShowingIncomingCall(now: now)
-        return FlowHeroCard(style: .tinted(AppColors.Flow.stateMatching)) {
-            if let eyebrow {
-                Text(eyebrow)
-                    .flowFont(FlowV2Fonts.subhead(bold: true))
-                    .foregroundColor(AppColors.Flow.onHeroEyebrow)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityHidden(true)
-            }
-            RopeView(
-                state: .introCall(ropeStage),
-                theme: .onHero(AppColors.Flow.stateMatching),
-                runnerName: runnerName
-            )
-            heroBody(incoming: incoming)
-            heroPill(now: now, incoming: incoming)
-        }
-    }
-
-    private var ropeStage: IntroCallRopeStage {
-        if isClosed { return .ended }
-        return isAwaitingConfirmation ? .planSubmitted : .beforeCall
-    }
-
-    private func heroBody(incoming: Bool) -> some View {
-        let title = title(incoming: incoming)
-        let lines = lines(incoming: incoming)
-        return VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .flowFont(FlowV2Fonts.title())
-                .foregroundColor(AppColors.Flow.onHeroStrong)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(lines, id: \.self) { line in
-                Text(line)
-                    .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(AppColors.Flow.onHeroBody)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            ([eyebrow?.replacingOccurrences(of: " · ", with: "，"), title.unmaskedForSpeech] + lines.map(Optional.some))
-                .compactMap { $0?.nilIfBlank }
-                .joined(separator: "，")
-        )
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityIdentifier("volunteerIntroCallHeader")
-    }
-
-    /// 倒计时胶囊。**单独一个读屏元素、常驻**（来电提醒期间也在，只是上面多一枚来电胶囊），
-    /// 按分钟静默更新（`updatesFrequently`），只在剩 5 / 1 分钟时由 view model 主动播。
-    /// 并进头卡标签会让整段标题每 15 秒被重念一遍。
-    @ViewBuilder
-    private func heroPill(now: Date, incoming: Bool) -> some View {
-        if !isClosed {
-            VStack(alignment: .leading, spacing: 8) {
-                if incoming {
-                    HStack { FlowHeroPill(text: IntroCallCopy.volunteerIncomingCallPill, systemImage: "phone.fill") }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(IntroCallCopy.volunteerIncomingCallPill.replacingOccurrences(of: " · ", with: "，"))
-                        .accessibilityIdentifier("volunteerIntroCallIncomingPill")
-                }
-                countdownPill(now: now)
-            }
-            .padding(.top, 4)
-        }
-    }
-
-    @ViewBuilder
-    private func countdownPill(now: Date) -> some View {
-        if let text = IntroCallCopy.volunteerWindowPillText(
-            windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
-        ) {
-            HStack { FlowHeroPill(text: text, systemImage: "clock") }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(IntroCallCopy.volunteerWindowPillAccessibilityLabel(
-                    windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
-                ) ?? text)
-                .accessibilityAddTraits(.updatesFrequently)
-                .accessibilityIdentifier("volunteerIntroCallCountdown")
-        }
     }
 
     private func title(incoming: Bool) -> String {
@@ -553,7 +518,7 @@ struct VolunteerIntroCallView: View {
     @ViewBuilder
     private var planSummaryCard: some View {
         if let summary = planSummary, !summary.rows.isEmpty {
-            FlowCard {
+            VolunteerV7InfoBox {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(summary.rows.enumerated()), id: \.element.id) { index, row in
                         if index > 0 { FlowSeparator() }
@@ -589,7 +554,7 @@ struct VolunteerIntroCallView: View {
     private var paceCard: some View {
         if let pace = dispatchOrder?.pacePreference?.nilIfBlank {
             let text = PacePreference(rawValue: pace)?.displayName ?? pace
-            FlowCard {
+            VolunteerV7InfoBox {
                 FlowInfoRow(label: "配速", accessibilityLabel: "配速，\(text)") {
                     Text(text)
                         .flowFont(FlowFonts.rowValue())
@@ -604,38 +569,32 @@ struct VolunteerIntroCallView: View {
 
     // MARK: 底栏
 
+    /// 底部按钮（v7：一枚深色实心 + 次要按钮）。「不合适」「未接到来电」留在这里不进「···」：
+    /// 两枚都自带二次确认，「未接到来电」进页满几分钟才出现（#660 V-9），菜单项装不下这两条规则。
     @ViewBuilder
     private var bottomActions: some View {
-        if isClosed {
-            // V4′：留在这一页，等陪跑员自己点（v6 停 3 秒自动关页，会截断那句播报）。
-            OrderFlowBottomActions(
-                owner: .volunteer,
-                primary: OrderFlowPrimaryAction(title: IntroCallCopy.volunteerBackHomeButtonTitle) { dismiss() },
-                safetyHub: nil
-            )
-        } else if isAwaitingConfirmation {
-            // V3：此刻没有该他做的主动作 —— 不放黄色主按钮。
-            OrderFlowBottomActions(
-                owner: .volunteer,
-                primary: nil,
-                secondary: AnyView(awaitingConfirmationButtons),
-                safetyHub: nil
-            )
-        } else {
-            OrderFlowBottomActions(
-                owner: .volunteer,
-                primary: OrderFlowPrimaryAction(
+        VStack(spacing: FlowMetrics.actionButtonSpacing) {
+            if isClosed {
+                // V4′：留在这一页，等陪跑员自己点（v6 停 3 秒自动关页，会截断那句播报）。
+                BlindOrderStageButton(title: IntroCallCopy.volunteerBackHomeButtonTitle, style: .solid) { dismiss() }
+                    .accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
+            } else if isAwaitingConfirmation {
+                // V3：此刻没有该他做的主动作 —— 不放实心主按钮。
+                awaitingConfirmationButtons
+            } else {
+                BlindOrderStageButton(
                     title: IntroCallCopy.volunteerFillPlanButtonTitle,
-                    isLoading: viewModel.isSubmitting,
+                    style: .solid,
                     isEnabled: !viewModel.isSubmitting && viewModel.introCall != nil,
                     accessibilityHint: IntroCallCopy.volunteerFillPlanAccessibilityHint
                 ) {
                     showsPlanForm = true
-                },
-                secondary: AnyView(awaitingCallButtons),
-                safetyHub: nil
-            )
+                }
+                .accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
+                awaitingCallButtons
+            }
         }
+        .padding(.bottom, 4)
     }
 
     /// V1：「不合适」与「未接到来电」。
@@ -655,9 +614,9 @@ struct VolunteerIntroCallView: View {
     @ViewBuilder
     private var awaitingConfirmationButtons: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
-            FlowActionButton(
-                IntroCallCopy.volunteerEditPlanButtonTitle,
-                style: .outlined,
+            BlindOrderStageButton(
+                title: IntroCallCopy.volunteerEditPlanButtonTitle,
+                style: .outline,
                 isEnabled: !viewModel.isSubmitting,
                 accessibilityHint: IntroCallCopy.volunteerEditPlanConfirmTitle
             ) {
@@ -667,5 +626,21 @@ struct VolunteerIntroCallView: View {
 
             VolunteerIntroCallDeclineButton(viewModel: viewModel, look: .text)
         }
+    }
+}
+
+/// v7 抽屉里的信息块：浅灰圆角底（同盲人 v7 ③ 安排单），取代 v2 的白卡（白卡压在白底抽屉上只剩一圈阴影）。
+struct VolunteerV7InfoBox<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content().modifier(VolunteerV7InfoBoxBackground())
+    }
+}
+
+/// 信息块的底。`VolunteerV7InfoBox` 与订单页信息块共用这一份。
+struct VolunteerV7InfoBoxBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.surfaceSubtle))
     }
 }

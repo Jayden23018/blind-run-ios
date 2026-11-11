@@ -72,7 +72,12 @@ enum BlindOrderTopBarMetrics {
     static let hitSize: CGFloat = AppTouchTarget.blindPrimary
 }
 
-struct BlindOrderTopBar: View {
+/// v7 ①–④ 外壳（`BlindOrderStageScaffold`）认的顶栏：两端各一个，外壳只要它的返回动作（读屏「两指 Z」）。
+protocol OrderV7TopBar: View {
+    var onBack: () -> Void { get }
+}
+
+struct BlindOrderTopBar: OrderV7TopBar {
     let surface: BlindOrderBarSurface
     let onBack: () -> Void
     let onRepeatStatus: () -> Void

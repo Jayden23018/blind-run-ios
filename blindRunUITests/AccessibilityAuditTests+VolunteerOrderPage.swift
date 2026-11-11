@@ -35,9 +35,8 @@ extension AccessibilityAuditTests {
             waitUntilSettled(page)
             attachScreenshot(app, name: "volunteer-order-scheduled-confirmed-\(variant.name)-top")
             try audit(app, allowing: isHeroNumberCappedByDesign)
-            // 下半屏：「我去不了」在最底下，要滚出来再审一遍。
-            let release = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
-            for _ in 0..<6 where !release.isHittable { app.swipeUp() }
+            // 下半屏：抽屉最底下是信息块，滚出来再审一遍。v7（#945）起「我去不了」收进顶栏「···」，不在页面里。
+            for _ in 0..<3 { app.swipeUp() }
             attachScreenshot(app, name: "volunteer-order-scheduled-confirmed-\(variant.name)-bottom")
             try audit(app, allowing: isHeroNumberCappedByDesign)
             app.terminate()
