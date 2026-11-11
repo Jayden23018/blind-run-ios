@@ -141,6 +141,8 @@ struct FlowOrderNavBar: View {
     /// 见 `FlowHelpPill`。
     var helpIsCloud = false
     var helpIsBusy = false
+    /// 非 `nil` = 求助胶囊左边放「···」，里面是举报 / 不再匹配此人（2026-11-11 从页面底部收进来，`CounterpartSafetyMenu`）。
+    var counterpartSafety: CounterpartBlockViewModel?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -163,7 +165,8 @@ struct FlowOrderNavBar: View {
                     Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
                 }
             }
-            .frame(minWidth: FlowMetrics.v2NavSlotWidth, alignment: .leading)
+            // 右槽多了「···」时左槽同步加宽，标题仍在正中。
+            .frame(minWidth: FlowMetrics.v2NavSlotWidth + moreSlotWidth, alignment: .leading)
 
             Text(title)
                 .flowFont((16, .bold, .headline))
@@ -172,10 +175,39 @@ struct FlowOrderNavBar: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityAddTraits(.isHeader)
 
-            FlowHelpPill(isCloud: helpIsCloud, isBusy: helpIsBusy, action: onHelp)
-                .frame(minWidth: FlowMetrics.v2NavSlotWidth, alignment: .trailing)
+            HStack(spacing: 8) {
+                if let counterpartSafety {
+                    FlowOrderNavMoreMenu(viewModel: counterpartSafety)
+                }
+                FlowHelpPill(isCloud: helpIsCloud, isBusy: helpIsBusy, action: onHelp)
+            }
+            .frame(minWidth: FlowMetrics.v2NavSlotWidth + moreSlotWidth, alignment: .trailing)
         }
         .frame(minHeight: FlowMetrics.v2NavHeight)
+    }
+
+    private var moreSlotWidth: CGFloat {
+        counterpartSafety == nil ? 0 : FlowMetrics.v2TextButtonMinHeight + 8
+    }
+}
+
+/// 陪跑员订单页顶栏的「···」。陪跑员端是明眼人，图标与返回键同尺寸（`v2TextButtonMinHeight`）。
+private struct FlowOrderNavMoreMenu: View {
+    @ObservedObject var viewModel: CounterpartBlockViewModel
+
+    var body: some View {
+        Menu {
+            CounterpartSafetyMenuItems(viewModel: viewModel)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(AppColors.Flow.primaryText)
+                .frame(width: FlowMetrics.v2TextButtonMinHeight, height: FlowMetrics.v2TextButtonMinHeight)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("更多操作")
+        .accessibilityHint(CounterpartSafetyMenu.titles(viewModel: viewModel).joined(separator: "、"))
+        .accessibilityIdentifier("volunteerOrderNavMoreMenu")
     }
 }
 

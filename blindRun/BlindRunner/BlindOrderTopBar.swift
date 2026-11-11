@@ -51,6 +51,9 @@ struct BlindOrderMenuItem: Identifiable {
         case cancelBooking
         case shareRunPlan
         case runnerMessage
+        /// 举报 / 不再匹配此人：2026-11-11 起从页面底部收进「···」（`CounterpartSafetyMenu`）。
+        case reportCounterpart
+        case blockCounterpart
     }
 
     let kind: Kind
@@ -228,6 +231,28 @@ struct BlindOrderHelpPill: View {
     }
 }
 
+/// 用系统导航栏的那几态（已取消、只读退路）右上角的「···」：只装举报 / 不再匹配此人（2026-11-11 收进菜单）。
+/// v7 ①–⑧ 自带顶栏，那里的「···」走 `BlindOrderMenuItem`。
+struct BlindOrderNavBarSafetyMenu: View {
+    @ObservedObject var viewModel: CounterpartBlockViewModel
+
+    var body: some View {
+        Menu {
+            CounterpartSafetyMenuItems(viewModel: viewModel)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(AppColors.Flow.accent)
+                // 同导航栏喇叭：视觉 44 不顶出导航栏，命中区用 contentShape 撑到 64。
+                .frame(width: 44, height: 44) // guard:allow small-touch-target
+                .contentShape(Rectangle().size(width: 64, height: 64))
+        }
+        .accessibilityLabel("更多操作")
+        .accessibilityHint(CounterpartSafetyMenu.titles(viewModel: viewModel).joined(separator: "、"))
+        .accessibilityIdentifier("blindOrderNavBarMoreMenu")
+    }
+}
+
 /// 菜单项 identifier。字面量分支的理由同 `OrderFlowBottomActions.Owner`。
 private struct BlindOrderMenuItemIdentifier: ViewModifier {
     let kind: BlindOrderMenuItem.Kind
@@ -238,6 +263,9 @@ private struct BlindOrderMenuItemIdentifier: ViewModifier {
         case .cancelBooking: content.accessibilityIdentifier("blindOrderMenuCancelBooking")
         case .shareRunPlan: content.accessibilityIdentifier("blindOrderMenuShareRunPlan")
         case .runnerMessage: content.accessibilityIdentifier("blindOrderFlowRunnerMessageRow")
+        // 沿用改版前底部那两枚按钮的 identifier：守着「入口在不在、走不走得通」的 UI 用例只多一步「先开 ···」。
+        case .reportCounterpart: content.accessibilityIdentifier("counterpartReportButton")
+        case .blockCounterpart: content.accessibilityIdentifier("counterpartBlockButton")
         }
     }
 }

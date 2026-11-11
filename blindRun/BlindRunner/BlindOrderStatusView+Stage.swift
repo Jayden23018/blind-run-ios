@@ -17,7 +17,7 @@ extension BlindOrderStatusView {
             BlindIntroCallView(
                 viewModel: viewModel,
                 order: order,
-                makeTopBar: { menu, onRepeat in stageTopBar(menu: menu, onRepeatStatus: onRepeat) },
+                makeTopBar: { menu, onRepeat in stageTopBar(menu: menu + counterpartMenuItems, onRepeatStatus: onRepeat) },
                 headerFocused: $statusHeaderFocused,
                 footer: { stageFooter(order) }
             )
@@ -82,7 +82,7 @@ extension BlindOrderStatusView {
     private func stageScaffold(_ presentation: BlindOrderStagePresentation, order: OrderDetailResponse) -> some View {
         BlindOrderStageScaffold(
             topBar: stageTopBar(
-                menu: presentation.menu.map { stageMenuItem($0, order: order) },
+                menu: presentation.menu.map { stageMenuItem($0, order: order) } + counterpartMenuItems,
                 onRepeatStatus: { viewModel.repeatStatus() }
             ),
             eyebrow: presentation.eyebrow,
@@ -135,6 +135,45 @@ extension BlindOrderStatusView {
         case .changeVolunteer:
             // 只在 ②③ 出现，那两屏的菜单由 `BlindIntroCallView` 自己拼（确认框挂在它身上）。
             return BlindOrderMenuItem(kind: kind, title: IntroCallCopy.declineButtonTitle) {}
+        case .reportCounterpart, .blockCounterpart:
+            // 不由 `BlindOrderStagePresentation` 给（要看运行时的对方 id），统一从 `counterpartMenuItems` 拼。
+            return counterpartMenuItem(kind)
+        }
+    }
+
+    // MARK: 举报 / 不再匹配此人（2026-11-11 起收进「···」，见 `CounterpartSafetyMenu`）
+
+    /// 举报谁。②③ 通话期 `order.volunteer` 恒为 null，对方 id 从通话数据里取；其余走订单页判定
+    /// （跑步中不给，`CounterpartSafetyGate.orderPageTarget`）。跑完那一幕只留绿色卡（#831），也不给。
+    var counterpartSafetyTarget: CounterpartSafetyTarget? {
+        guard let order = viewModel.order, order.status != .completed else { return nil }
+        if BlindOrderStage.resolve(order.status) == .introCall {
+            return CounterpartSafetyGate.target(userId: viewModel.introCallCounterpartUserId, orderId: order.orderId)
+        }
+        return CounterpartSafetyGate.orderPageTarget(order)
+    }
+
+    /// 通话期确认框说的是「这一轮换人」，其余是普通的不再匹配（文案在 `UserSafetyCopy.BlockContext`）。
+    var counterpartSafetyBlockContext: UserSafetyCopy.BlockContext {
+        viewModel.order.flatMap { BlindOrderStage.resolve($0.status) } == .introCall ? .introCall : .standard
+    }
+
+    /// 顶栏「···」末尾那两项。没有对方时为空；已不再匹配后只剩「举报」。
+    var counterpartMenuItems: [BlindOrderMenuItem] {
+        guard counterpartSafetyTarget != nil else { return [] }
+        return counterpartSafety.didBlock
+            ? [counterpartMenuItem(.reportCounterpart)]
+            : [counterpartMenuItem(.reportCounterpart), counterpartMenuItem(.blockCounterpart)]
+    }
+
+    private func counterpartMenuItem(_ kind: BlindOrderMenuItem.Kind) -> BlindOrderMenuItem {
+        if kind == .blockCounterpart {
+            return BlindOrderMenuItem(kind: kind, title: UserSafetyCopy.blockTitle, isDestructive: true) {
+                counterpartSafety.showsBlockConfirm = true
+            }
+        }
+        return BlindOrderMenuItem(kind: .reportCounterpart, title: UserSafetyCopy.reportTitle) {
+            counterpartSafety.showsReport = true
         }
     }
 
@@ -153,12 +192,12 @@ extension BlindOrderStatusView {
         }
     }
 
-    /// 竖线下面：刚才那一下的结果、举报 / 不再匹配、调试按钮。正常时大多为空。
+    /// 竖线下面：刚才那一下的结果（含「不再匹配」的结果一行）、调试按钮。正常时大多为空。
     @ViewBuilder
     func stageFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 16) {
             flowFooter(order)
-            OrderCounterpartSafetySection(order: order)
+            CounterpartBlockOutcome(viewModel: counterpartSafety)
             debugMockControls(order)
         }
     }

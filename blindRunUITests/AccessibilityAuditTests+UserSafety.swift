@@ -3,7 +3,8 @@ import XCTest
 /// 举报与拉黑（#524）：入口真的渲染出来、64pt、走得通，并且整页过审计。
 extension AccessibilityAuditTests {
 
-    /// 订单页 → 举报 → 不再匹配此人 → 「我的」→ 已拉黑的人 → 解除，一条路走完。
+    /// 订单页「···」→ 举报 → 不再匹配此人 → 「我的」→ 已拉黑的人 → 解除，一条路走完。
+    /// 2026-11-11 起两项收进顶栏「···」（负责人定），页面底部不再有这两枚按钮。
     @MainActor
     func testBlindReportAndBlockFlowPassesAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("performAccessibilityAudit 需要 iOS 17") }
@@ -11,13 +12,31 @@ extension AccessibilityAuditTests {
         let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         if card.waitForExistence(timeout: 15) { card.tap() }
 
-        let report = revealButton(app, "counterpartReportButton")
-        XCTAssertGreaterThanOrEqual(report.frame.height, 63.5, "举报按钮可点高度不足 64pt：\(report.frame)")
-        attachScreenshot(app, name: "blind-order-safety-actions")
+        let more = app.descendants(matching: .any)["blindOrderTopBarMoreMenu"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 15), "订单页顶栏没有「···」")
+        XCTAssertGreaterThanOrEqual(more.frame.height, 63.5, "「···」可点高度不足 64pt：\(more.frame)")
+        for _ in 0..<3 { app.swipeUp() }
+        XCTAssertFalse(app.buttons["counterpartReportButton"].exists, "举报不该再铺在页面底部")
+        XCTAssertFalse(app.buttons["counterpartBlockButton"].exists, "不再匹配不该再铺在页面底部")
+
+        let report = openOrderMenuItem(app, menu: "blindOrderTopBarMoreMenu", item: "counterpartReportButton")
+        XCTAssertTrue(app.buttons["counterpartBlockButton"].exists, "「···」里要同时有「不再匹配此人」")
+        attachScreenshot(app, name: "blind-order-safety-menu")
         report.tap()
         try submitReportAndCheckTheForm(app)
-        blockFromTheOrderPage(app)
+        blockFromTheOrderMenu(app)
         try unblockFromSettings(app)
+    }
+
+    /// 打开订单页顶栏的「···」，等到那一项出现再交回去。
+    @MainActor
+    private func openOrderMenuItem(_ app: XCUIApplication, menu: String, item: String) -> XCUIElement {
+        let more = app.descendants(matching: .any)[menu].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 15), "顶栏没有「···」")
+        more.tap()
+        let element = app.buttons[item].firstMatch
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "「···」里没有 \(item)")
+        return element
     }
 
     @available(iOS 17.0, *)
@@ -47,22 +66,25 @@ extension AccessibilityAuditTests {
     }
 
     @MainActor
-    private func blockFromTheOrderPage(_ app: XCUIApplication) {
-        let block = revealButton(app, "counterpartBlockButton")
-        XCTAssertGreaterThanOrEqual(block.frame.height, 63.5)
-        block.tap()
+    private func blockFromTheOrderMenu(_ app: XCUIApplication) {
+        let menu = "blindOrderTopBarMoreMenu"
+        openOrderMenuItem(app, menu: menu, item: "counterpartBlockButton").tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "不再匹配必须二次确认")
         attachScreenshot(app, name: "blind-block-confirm")
         alert.buttons["取消"].tap()
-        XCTAssertTrue(block.waitForExistence(timeout: 5), "取消后入口还在")
 
-        block.tap()
-        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        openOrderMenuItem(app, menu: menu, item: "counterpartBlockButton").tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "取消后入口还在，再点一次还要确认")
         alert.buttons["不再匹配"].tap()
         let done = app.descendants(matching: .any)["counterpartBlockSucceeded"].firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10), "结果要留在屏幕上")
-        XCTAssertFalse(app.buttons["counterpartBlockButton"].exists, "已拉黑后这一页不再显示入口")
+
+        // 已拉黑后「···」里只剩「举报」。
+        _ = openOrderMenuItem(app, menu: menu, item: "counterpartReportButton")
+        XCTAssertFalse(app.buttons["counterpartBlockButton"].exists, "已拉黑后「···」里不再有「不再匹配此人」")
+        // 点头部标题那块空白收起菜单（不点底部：那里是主按钮，见记忆 ui-test-tap-lands-on-persistent-sos-bar）。
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
     }
 
     @available(iOS 17.0, *)
@@ -113,6 +135,8 @@ extension AccessibilityAuditTests {
         for _ in 0..<3 { app.swipeUp() }
         XCTAssertFalse(app.buttons["counterpartReportButton"].exists)
         XCTAssertFalse(app.buttons["counterpartBlockButton"].exists)
+        // 2026-11-11 起两项在「···」里；跑步中判定给空，「···」整枚不出现。
+        XCTAssertFalse(app.descendants(matching: .any)["blindOrderTopBarMoreMenu"].firstMatch.exists, "跑步中顶栏不该有「···」")
     }
 
     @MainActor
@@ -123,11 +147,14 @@ extension AccessibilityAuditTests {
             let current = app.staticTexts["当前订单"].firstMatch
             if current.waitForExistence(timeout: 5) { current.tap() }
         }
-        let report = revealButton(app, "counterpartReportButton")
-        XCTAssertGreaterThanOrEqual(report.frame.height, 63.5)
-        XCTAssertTrue(app.buttons["counterpartBlockButton"].exists)
-        attachScreenshot(app, name: "volunteer-order-safety-actions")
-        // 不在这里整页审计：这一页原有元素的审计红灯记在 issue 里，本用例只守新加的两枚按钮。
+        // 2026-11-11 起两项收进顶栏「···」（负责人定），页脚不再有。
+        XCTAssertTrue(page.waitForExistence(timeout: 10), "没到陪跑员订单页")
+        for _ in 0..<3 { app.swipeUp() }
+        XCTAssertFalse(app.buttons["counterpartReportButton"].exists, "举报不该再铺在页脚")
+        _ = openOrderMenuItem(app, menu: "volunteerOrderNavMoreMenu", item: "counterpartReportButton")
+        XCTAssertTrue(app.buttons["counterpartBlockButton"].exists, "「···」里要同时有「不再匹配此人」")
+        attachScreenshot(app, name: "volunteer-order-safety-menu")
+        // 不在这里整页审计：这一页原有元素的审计红灯记在 issue 里，本用例只守这两项入口。
     }
 
     /// 陪跑员通话期间读不到订单详情，通话页是他唯一的入口（backend#916）。
@@ -138,10 +165,10 @@ extension AccessibilityAuditTests {
         if card.waitForExistence(timeout: 10) { card.tap() }
         // 订单页 v7（#917）：通话在订单页同页显示，不再有「进通话页」按钮。
         XCTAssertTrue(blind.descendants(matching: .any)["blindIntroCallTitle"].firstMatch.waitForExistence(timeout: 15), "没到通话那一步")
-        let blindReport = revealButton(blind, "counterpartReportButton")
-        XCTAssertGreaterThanOrEqual(blindReport.frame.height, 63.5)
+        // 盲人这边通话就是订单页的一屏，两项与「更换陪跑员」同在顶栏「···」（2026-11-11）。
+        _ = openOrderMenuItem(blind, menu: "blindOrderTopBarMoreMenu", item: "counterpartReportButton")
         XCTAssertTrue(blind.buttons["counterpartBlockButton"].exists)
-        attachScreenshot(blind, name: "blind-intro-call-safety-actions")
+        attachScreenshot(blind, name: "blind-intro-call-safety-menu")
         blind.terminate()
 
         let volunteer = launchVolunteerHome(seedOrderStatus: "PENDING_INTRO_CALL")

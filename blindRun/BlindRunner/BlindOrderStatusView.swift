@@ -285,6 +285,8 @@ struct BlindOrderStatusView: View {
     @StateObject var viewModel = BlindOrderStatusViewModel()
     @StateObject var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject var shareViewModel = RunPlanLiveShareViewModel()
+    /// 举报 / 不再匹配此人。入口在「···」，弹层挂在页面根上，结果一行在正文 footer（`CounterpartSafetyMenu`）。
+    @StateObject var counterpartSafety = CounterpartBlockViewModel()
     @State private var showEmergencyConfirmation = false
     @State var showEmergencyCancelConfirmation = false
     /// 云端求助失败后的一跳拨号兜底（`EmergencyCallContext.cloudFailed`）。
@@ -454,7 +456,18 @@ struct BlindOrderStatusView: View {
                     .accessibilityIdentifier("blindOrderFlowRepeatStatusButton")
                 }
             }
+            // 用系统导航栏的那几态（已取消、只读退路）：举报 / 不再匹配收在这里的「···」。
+            if !usesStagePage && !usesTrackingMapPage && counterpartSafetyTarget != nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    BlindOrderNavBarSafetyMenu(viewModel: counterpartSafety)
+                }
+            }
         }
+        .counterpartSafetyPrompts(
+            viewModel: counterpartSafety,
+            target: counterpartSafetyTarget,
+            blockContext: counterpartSafetyBlockContext
+        )
         .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
             Button("确认取消", role: .destructive) {
                 Task {

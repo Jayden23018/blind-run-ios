@@ -65,7 +65,7 @@ extension BlindOrderStatusView {
         }
     }
 
-    /// 骨架与 v7 地图页共用的 footer：结果面、对方安全入口、Mock 调试区。
+    /// 骨架与 v7 地图页共用的 footer：结果面、「不再匹配」的结果一行、Mock 调试区。
     @ViewBuilder
     func flowSkeletonFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 16) {
@@ -74,7 +74,8 @@ extension BlindOrderStatusView {
             // 原样接回来」的决定作废：评价与「设为固定搭档」挪进跑者跑步详情（`RunnerRunRecordFeedbackSections.swift`），
             // 举报与不再匹配收进这个人的页面（`BlindPartnerDetailView`）；本单信息与状态流水不再显示。
             // 跑完当场停在这一页时不另加去跑步详情的入口，要评价从首页 → 记录进去。
-            if order.status != .completed { OrderCounterpartSafetySection(order: order) }
+            // 其余状态的举报 / 不再匹配 2026-11-11 起在顶栏「···」，这里只留结果一行。
+            CounterpartBlockOutcome(viewModel: counterpartSafety)
             debugMockControls(order)
         }
     }
@@ -131,6 +132,8 @@ extension BlindOrderStatusView {
             surface: .onMap,
             onBack: { dismiss() },
             onRepeatStatus: { viewModel.repeatStatus() },
+            // ⑤–⑧ 原本没有次要操作；举报 / 不再匹配收进「···」后才有（跑步中由判定给空，不出「···」）。
+            menu: counterpartMenuItems,
             sosMode: sosMode,
             onHelp: { showSafetyHub = true }
         )
@@ -329,7 +332,7 @@ extension BlindOrderStatusView {
                     runPlanShareSection(order)
                     dispatchAlgorithmNoticeSection(order)
                     peerMapSection(order)
-                    OrderCounterpartSafetySection(order: order)
+                    CounterpartBlockOutcome(viewModel: counterpartSafety)
                     orderInfoSection(order)
                     statusLogSection
                     debugMockControls(order)
