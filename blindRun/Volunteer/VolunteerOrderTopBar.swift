@@ -210,3 +210,17 @@ private struct VolunteerOrderMenuItemIdentifier: ViewModifier {
         }
     }
 }
+
+// MARK: - v7 新增文案（#945）
+
+extension VolunteerOrderFlowCopy {
+    /// v7 ⑨ 竖线上停住那一步下面的小字。
+    static let runnerCancelledStepDetail = "跑者在这一步取消了"
+    /// v7 ⑧ 抽屉标题（负责人 11-11「有点挤」后只写这三个字，次数进副标题）。
+    static let completedDrawerTitle = "跑完了"
+}
+
+extension IntroCallCopy {
+    /// 陪跑员 v7 ③ 深色头小字（定稿稿面）：安排单已交、等跑者确认。
+    static let volunteerPlanSubmittedEyebrow = "已提交见面安排"
+}

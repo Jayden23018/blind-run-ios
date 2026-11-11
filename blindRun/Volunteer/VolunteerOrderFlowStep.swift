@@ -217,10 +217,6 @@ enum VolunteerOrderFlowCopy {
     /// 逐字取自设计交付文档 v3 §5。**「不算你的取消」是这一屏唯一重要的一句话** ——
     /// 志愿者第一反应是「这会不会记在我头上」。
     static let runnerCancelledSubtitle = "不算你的取消，不需要做什么"
-    /// v7 ⑨ 竖线上中断那一步下面的小字（#945）。
-    static let runnerCancelledStepDetail = "跑者在这一步取消了"
-    /// v7 ⑧ 抽屉标题（负责人 11-11「有点挤」后只写这三个字，次数进副标题）。
-    static let completedDrawerTitle = "跑完了"
 
     /// 跑者取消那一刻陪跑中页面念的那一句。
     ///
