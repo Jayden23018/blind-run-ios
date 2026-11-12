@@ -21,16 +21,18 @@ extension BlindRunPhase {
 enum BlindRunCardsCopy {
     static let runningTitle = "陪跑中"
     static let finishedTitle = "跑完了"
+    static let distanceUnit = "公里"
+    static let durationLabel = "用时"
+    static let paceLabel = "每公里配速"
 
     /// 副标题前半句：和谁一起。`name` 是上屏的掩码名。
     static func companion(name: String?) -> String {
         "和\(name?.nilIfBlank ?? "陪跑员")一起"
     }
 
-    /// 副标题后半句：跑完后有同跑次数时才有。
-    /// `togetherCount` 已含本单（`OrderDetailResponse.completedTogetherCount`），`nil` 或 0 不说次数。
-    static func togetherLine(count: Int?, isFinished: Bool) -> String? {
-        guard isFinished, let count, count > 0 else { return nil }
+    /// 陪跑员卡第二行。`count` 已含本单（`OrderDetailResponse.completedTogetherCount`），`nil` 或 0 不说次数。
+    static func togetherLine(count: Int?) -> String? {
+        guard let count, count > 0 else { return nil }
         return "你们第 \(count) 次一起跑"
     }
 
@@ -42,7 +44,13 @@ enum BlindRunCardsCopy {
 
 enum BlindRunCardsMetrics {
     /// 里程数字 92pt（DECISION「版式」：改 v7 第 10 条的 44pt）。
-    static let distanceFont: (CGFloat, Font.Weight, Font.TextStyle) = (92, .semibold, .largeTitle)
+    static let distanceFont: (CGFloat, Font.Weight, Font.TextStyle) = (92, .bold, .largeTitle)
+    static let distanceUnitFont: (CGFloat, Font.Weight, Font.TextStyle) = (24, .semibold, .title2)
+    static let metricFont: (CGFloat, Font.Weight, Font.TextStyle) = (32, .bold, .title2)
+    static let metricLabelFont: (CGFloat, Font.Weight, Font.TextStyle) = (15, .regular, .subheadline)
+    static let titleFont: (CGFloat, Font.Weight, Font.TextStyle) = (30, .bold, .title)
+    static let heroCornerRadius: CGFloat = 24
+    static let heroPadding: CGFloat = 22
     static let cardGap: CGFloat = 14
     static let routeHeight: CGFloat = 132
     static let routeCornerRadius: CGFloat = 16
@@ -57,7 +65,6 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
     let partnerName: String?
     /// 念出来的陪跑员名（`volunteerNameForSpeech`）。
     let partnerSpokenName: String
-    var togetherCount: Int?
     let stats: TrackStats?
     var isLocationFresh = true
     var isLiveSharing = false
@@ -77,10 +84,7 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: BlindRunCardsMetrics.cardGap) {
                         header
-                        if !isFinished {
-                            locationFreshnessRow
-                        }
-                        heroCard
+                        BlindRunHeroCard(stats: stats, isFinished: isFinished)
                         if !isFinished {
                             shareStatusCard
                         }
@@ -102,65 +106,37 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
     // MARK: - 标题
 
     private var header: some View {
-        let together = BlindRunCardsCopy.togetherLine(count: togetherCount, isFinished: isFinished)
-        let subtitle = ([BlindRunCardsCopy.companion(name: partnerName)] + [together].compactMap { $0 })
-            .joined(separator: " · ")
         // 念法沿用 v7 那两句（「和陈一起跑步中」「跑完了，和陈一起」），不念掩码星号。
         let spokenTitle = BlindTrackingDrawerCopy.title(
             status: isFinished ? .completed : .inProgress,
             name: partnerSpokenName,
             meetSpot: nil
         ) ?? (isFinished ? BlindRunCardsCopy.finishedTitle : BlindRunCardsCopy.runningTitle)
-        return VStack(alignment: .leading, spacing: 4) {
+        let freshness = isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale
+        return VStack(alignment: .leading, spacing: 2) {
             Text(isFinished ? BlindRunCardsCopy.finishedTitle : BlindRunCardsCopy.runningTitle)
-                .flowFont(FlowV2Fonts.title())
+                .flowFont(BlindRunCardsMetrics.titleFont)
                 .foregroundColor(AppColors.Flow.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(subtitle)
-                .flowFont(FlowV2Fonts.callout())
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+            // 定稿图：「和陈*一起 · ● 定位正常」一行。定位状态只在陪跑中有。
+            HStack(spacing: 6) {
+                Text(BlindRunCardsCopy.companion(name: partnerName) + (isFinished ? "" : " ·"))
+                if !isFinished {
+                    Circle()
+                        .fill(isLocationFresh ? AppColors.success : AppColors.warning)
+                        .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
+                    Text(freshness)
+                }
+            }
+            .flowFont(FlowV2Fonts.callout())
+            .foregroundColor(AppColors.Flow.secondaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([spokenTitle, together].compactMap { $0 }.joined(separator: "。"))
+        .accessibilityLabel(isFinished ? spokenTitle : "\(spokenTitle)。\(freshness)")
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("blindOrderFlowStatusCard")
-    }
-
-    /// 本机定位新不新鲜：低视力用户唯一看得见 GPS 状态的地方（理由见 `BlindOrderFlowView.locationFreshnessBadge`）。
-    private var locationFreshnessRow: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(isLocationFresh ? AppColors.success : AppColors.warning)
-                .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
-                .accessibilityHidden(true)
-            Text(isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale)
-                .flowFont(FlowV2Fonts.callout())
-                .foregroundColor(AppColors.Flow.secondaryText)
-        }
-        .padding(.top, -8)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("blindOrderFlowLocationFreshness")
-    }
-
-    // MARK: - 彩色卡
-
-    @ViewBuilder
-    private var heroCard: some View {
-        let card = FlowHeroCard(style: BlindHeroPalette(tone: isFinished ? .done : .running).cardStyle) {
-            BlindActiveRunView(
-                stats: stats,
-                paceLabel: BlindRunCopy.metricPaceLabel(isFinished: isFinished),
-                onHero: true,
-                distanceFont: BlindRunCardsMetrics.distanceFont
-            )
-        }
-        if isFinished {
-            card.accessibilityIdentifier("blindOrderTrackingResultCard")
-        } else {
-            card
-        }
     }
 
     // MARK: - ⑦ 行程分享状态
@@ -218,8 +194,12 @@ struct BlindRunFinishedCards: View {
     var body: some View {
         VStack(alignment: .leading, spacing: BlindRunCardsMetrics.cardGap) {
             BlindRunCardsRouteMap(track: track)
-            RunnerRunRecordVolunteerSection(feedback: feedback, orderId: order.orderId)
-            RunnerRunRecordReviewSection(feedback: feedback)
+            BlindRunPartnerCard(
+                feedback: feedback,
+                orderId: order.orderId,
+                togetherLine: BlindRunCardsCopy.togetherLine(count: order.completedTogetherCount)
+            )
+            RunnerRunRecordReviewSection(feedback: feedback, titleInsideCard: true)
             if let summary = homeRunModel.snapshot.summary {
                 Text(BlindRunCardsCopy.monthLine(summary))
                     .flowFont(FlowV2Fonts.callout())
@@ -256,5 +236,182 @@ struct BlindRunCardsRouteMap: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+// MARK: - 彩色卡（两屏同一个位置、同一个大小）
+
+/// 定稿图的排法：里程 92pt 左对齐、「公里」贴在数字右下；下面一行用时与每公里配速，数字在上、标签在下。
+/// 颜色用现有状态色（跑步中青绿 `stateRunning`、已完成绿 `stateDone`，白字对比度逐色验过），不新增颜色。
+/// 整张卡一个读屏元素，念「里程 … 用时 … 配速 …」。
+struct BlindRunHeroCard: View {
+    let stats: TrackStats?
+    let isFinished: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(stats?.distanceKilometersText ?? "--")
+                    .flowFont(BlindRunCardsMetrics.distanceFont, monospacedDigit: true)
+                    .tracking(FlowMetrics.runDistanceTracking)
+                    // 裁掉这个数字等于裁掉这一屏，宁可缩也不换行（同 `BlindActiveRunView`）。
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text(BlindRunCardsCopy.distanceUnit)
+                    .flowFont(BlindRunCardsMetrics.distanceUnitFont)
+            }
+            .foregroundColor(AppColors.Flow.onHeroStrong)
+
+            // 最大字号两格并排会挤，改上下排（定稿图第二排）。不用 `ViewThatFits`，理由见 `RunExperienceRatingPicker`。
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 40))
+            layout {
+                metric(stats?.durationClockText, label: BlindRunCardsCopy.durationLabel)
+                metric(stats?.paceClockText, label: BlindRunCardsCopy.paceLabel)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(BlindRunCardsMetrics.heroPadding)
+        .background(
+            RoundedRectangle(cornerRadius: BlindRunCardsMetrics.heroCornerRadius, style: .continuous)
+                .fill(isFinished ? AppColors.Flow.stateDone : AppColors.Flow.stateRunning)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+        .accessibilityIdentifier("blindRunCardsHero")
+    }
+
+    private func metric(_ value: String?, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value ?? "--")
+                .flowFont(BlindRunCardsMetrics.metricFont, monospacedDigit: true)
+                .foregroundColor(AppColors.Flow.onHeroStrong)
+                .lineLimit(1)
+            Text(label)
+                .flowFont(BlindRunCardsMetrics.metricLabelFont)
+                .foregroundColor(AppColors.Flow.onHeroBody)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// 拿不到数据时说清是在获取，不念「杠杠」（同 `BlindActiveRunView.spokenLabel`）。
+    private var spoken: String {
+        guard let stats, let distance = stats.distanceText else { return "里程、用时和配速正在获取" }
+        return ["\(BlindRunCopy.distanceSpokenLabel) \(distance)",
+                stats.durationText.map { "\(BlindRunCardsCopy.durationLabel) \($0)" },
+                stats.averagePaceText.map { "\(BlindRunCopy.metricPaceLabel(isFinished: isFinished)) \($0)" }]
+            .compactMap { $0 }.joined(separator: "，")
+    }
+}
+
+// MARK: - ⑧ 陪跑员卡
+
+/// 定稿图：头像、名字、第二行（同跑次数，没有就写搭档状态），右边一个灰底胶囊「设为固定搭档」。
+/// 点名字进这个人的页面（举报、不再匹配都在那里），动作与跑步详情那一节相同。
+struct BlindRunPartnerCard: View {
+    @ObservedObject var feedback: RunnerRunFeedbackViewModel
+    let orderId: Int64
+    var togetherLine: String?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private static let tintIndex = 2
+    private var displayName: String { feedback.volunteerName ?? PartnerStreakCopy.unknownVolunteerName }
+    private var spokenName: String {
+        feedback.volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+    }
+    private var secondLine: String? { togetherLine ?? feedback.partnerStatus.text }
+    private var showsAddButton: Bool { feedback.partnerStatus == .notPartner && !feedback.didBlockVolunteer }
+
+    var body: some View {
+        if let row = feedback.personRow {
+            RunRecordCard {
+                // 最大字号下按钮排到名字下面，不并排。
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                    : AnyLayout(HStackLayout(spacing: 8))
+                layout {
+                    personLink(row)
+                    if showsAddButton { addChip }
+                }
+                if let notice = feedback.favoriteNotice {
+                    outcome(notice, color: AppColors.success)
+                }
+                if let failure = feedback.favoriteErrorMessage {
+                    outcome(failure, color: AppColors.destructive)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("blindRunCardsPartner")
+        }
+    }
+
+    private func personLink(_ row: PartnerRow) -> some View {
+        NavigationLink {
+            BlindPartnerDetailView(
+                row: row,
+                index: Self.tintIndex,
+                setFavorite: { isFavorite in await feedback.setFavorite(isFavorite) },
+                onBlocked: { await feedback.volunteerBlocked() },
+                reportOrderId: orderId,
+                showsFavoriteActions: feedback.partnerStatus != .unknown
+            )
+        } label: {
+            HStack(spacing: 12) {
+                if !dynamicTypeSize.isAccessibilitySize {
+                    BlindPartnerAvatar(name: displayName, tint: BlindPartnerAvatar.tint(for: row, index: Self.tintIndex))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName)
+                        .flowFont((18, .bold, .headline))
+                        .foregroundColor(AppColors.Flow.primaryText)
+                    if let secondLine {
+                        Text(secondLine)
+                            .flowFont(FlowV2Fonts.subhead())
+                            .foregroundColor(AppColors.Flow.secondaryText)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: AppTouchTarget.blindPrimary, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([spokenName, secondLine].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityHint("点击查看这位陪跑员，可以举报或不再匹配")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("blindRunCardsPartnerRow")
+    }
+
+    /// 灰底胶囊，看得见的部分 44pt 高，可点区撑到 64pt（撑在 label 里，外挂 frame 撑不大可点区）。
+    private var addChip: some View {
+        Button {
+            Task { await feedback.addVolunteerToFavorites() }
+        } label: {
+            Text(feedback.isUpdatingFavorite ? "正在设置…" : PartnerStreakCopy.blindAddTitle)
+                .flowFont((16, .semibold, .callout))
+                .foregroundColor(AppColors.Flow.primaryText)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 44) // guard:allow small-touch-target 只是看得见的胶囊，可点区是下一行的 64pt
+                .background(Capsule().fill(AppColors.ButtonPalette.neutralFill))
+                .frame(minHeight: AppTouchTarget.blindPrimary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(feedback.isUpdatingFavorite)
+        .accessibilityLabel(PartnerStreakCopy.addFavoriteTitle(spokenName))
+        // 🔴 承诺只能说到「更可能」：收藏只是派单加分。
+        .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
+        .accessibilityIdentifier("blindRunCardsAddFavoriteButton")
+    }
+
+    private func outcome(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(AppFonts.body())
+            .foregroundColor(color)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 8)
     }
 }

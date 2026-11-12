@@ -132,14 +132,26 @@ struct RunnerRunRecordReviewSection: View {
     @EnvironmentObject private var speechInputService: SpeechInputService
     @EnvironmentObject private var speechService: SpeechService
 
+    /// 订单页已完成那一屏（#968）把标题放进卡片里，小一号；跑步详情仍是卡片外的节标题。
+    var titleInsideCard = false
+
     static let onceOnly = "只能评一次，提交后不能改。"
     static let commentPlaceholder = "想说的话（选填）"
 
     var body: some View {
         if feedback.hasLoadedReview {
             VStack(alignment: .leading, spacing: 8) {
-                RunRecordSectionTitle(text: RunExperienceRating.sectionTitle).padding(.top, 8)
+                if !titleInsideCard {
+                    RunRecordSectionTitle(text: RunExperienceRating.sectionTitle).padding(.top, 8)
+                }
                 RunRecordCard {
+                    if titleInsideCard {
+                        Text(RunExperienceRating.sectionTitle)
+                            .flowFont((16, .semibold, .callout))
+                            .foregroundColor(AppColors.Flow.primaryText)
+                            .padding(.bottom, 10)
+                            .accessibilityAddTraits(.isHeader)
+                    }
                     if feedback.didSubmitReview {
                         submittedCard
                     } else {

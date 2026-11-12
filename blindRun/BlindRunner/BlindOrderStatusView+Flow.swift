@@ -133,7 +133,6 @@ extension BlindOrderStatusView {
             isFinished: isFinished,
             partnerName: order.volunteerName,
             partnerSpokenName: order.volunteerNameForSpeech,
-            togetherCount: order.completedTogetherCount,
             stats: viewModel.trackStats,
             isLocationFresh: viewModel.isDeviceLocationFresh,
             isLiveSharing: shareViewModel.isLiveSharing,
