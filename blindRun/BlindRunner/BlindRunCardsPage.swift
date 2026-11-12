@@ -108,31 +108,18 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: gap) {
-                        header
-                            .padding(.bottom, BlindRunCardsMetrics.runningGap - gap)
-                        BlindRunHeroCard(stats: stats, isFinished: isFinished)
-                        if !isFinished {
-                            BlindRunPlanCard(plannedMeters: plannedDistanceMeters, stats: stats)
-                            shareStatusCard
-                        }
-                        cards()
-                        footer()
-                        blankArea
-                    }
-                    .padding(.horizontal, BlindRunCardsMetrics.pagePadding)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
-                    .readableContentColumn()
-                }
+        // 骨架与陪跑员端跑步中 / 跑完了共用（`RunCardsScaffold`，#972）。
+        RunCardsScaffold(gap: gap, topBar: topBar, bottom: bottom, onTapBlank: onTapBlank, header: header) {
+            BlindRunHeroCard(stats: stats, isFinished: isFinished)
+                .accessibilityIdentifier("blindRunCardsHero")
+            if !isFinished {
+                BlindRunPlanCard(plannedMeters: plannedDistanceMeters, stats: stats)
+                    .accessibilityIdentifier("blindRunCardsPlan")
+                shareStatusCard
             }
-            bottom
+            cards()
+            footer()
         }
-        .background(AppColors.Flow.page)
     }
 
     /// 卡与卡的间距：陪跑中 14，已完成 10（标题到彩色卡两屏都是 14，彩色卡因此在同一个位置）。
@@ -150,26 +137,12 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
             meetSpot: nil
         ) ?? (isFinished ? BlindRunCardsCopy.finishedTitle : BlindRunCardsCopy.runningTitle)
         let freshness = isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale
-        return VStack(alignment: .leading, spacing: 2) {
-            Text(isFinished ? BlindRunCardsCopy.finishedTitle : BlindRunCardsCopy.runningTitle)
-                .flowFont(BlindRunCardsMetrics.titleFont)
-                .foregroundColor(AppColors.Flow.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-            // 定稿图：「和陈*一起 · ● 定位正常」一行。定位状态只在陪跑中有。
-            HStack(spacing: 6) {
-                Text(BlindRunCardsCopy.companion(name: partnerName) + (isFinished ? "" : " ·"))
-                if !isFinished {
-                    Circle()
-                        .fill(isLocationFresh ? AppColors.success : AppColors.warning)
-                        .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
-                    Text(freshness)
-                }
-            }
-            .flowFont(FlowV2Fonts.callout())
-            .foregroundColor(AppColors.Flow.secondaryText)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
+        // 定稿图：「和陈*一起 · ● 定位正常」一行。定位状态只在陪跑中有。
+        return RunCardsHeader(
+            title: isFinished ? BlindRunCardsCopy.finishedTitle : BlindRunCardsCopy.runningTitle,
+            companion: BlindRunCardsCopy.companion(name: partnerName),
+            isLocationFresh: isFinished ? nil : isLocationFresh
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isFinished ? spokenTitle : "\(spokenTitle)。\(freshness)")
         .accessibilityAddTraits(.isHeader)
@@ -194,21 +167,6 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("blindOrderTrackingShareStatus")
-    }
-
-    // MARK: - 底部空白
-
-    /// 卡片与主按钮之间剩下的那一截。主按钮样子不变，可点范围扩到这里（DECISION「版式」）。
-    /// 对读屏隐藏：读屏用户走主按钮本身，这里再给一个元素只是多划一下。
-    @ViewBuilder
-    private var blankArea: some View {
-        if let onTapBlank {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onTapBlank)
-                .accessibilityHidden(true)
-        }
     }
 }
 

@@ -5,8 +5,9 @@ import SwiftUI
 /// 陪跑员订单页（邀请 / 约好 / 出发 / 汇合 / 完成 / 跑者取消）。与盲人端订单页 v7 同一套版式：
 /// - ① 邀请、④ 约好、⑨ 跑者已取消：顶栏 + 深色头 + 白底抽屉（地点、五步竖线、当前步那张卡）+ 底部一枚深色主按钮
 ///   （外壳 `BlindOrderStageScaffold`）；
-/// - ⑤ 出发、⑥ 汇合、⑧ 完成：上半屏地图常驻 + 下半屏抽屉，竖线拉起抽屉才渐显（外壳 `BlindOrderTrackingView`）。
-/// 跑步中是另一个结构体 `VolunteerRunningPage`，用同一个地图外壳。
+/// - ⑤ 出发、⑥ 汇合：上半屏地图常驻 + 下半屏抽屉，竖线拉起抽屉才渐显（外壳 `BlindOrderTrackingView`）；
+/// - ⑧ 跑完了：v8 卡片页（#972，外壳 `RunCardsScaffold`，`VolunteerOrderFlowPage+FinishCards.swift`）。
+/// 跑步中是另一个结构体 `VolunteerRunningPage`，用同一个卡片页外壳。
 ///
 /// 动效只留淡入淡出、当前步圆点、竖线生长（定稿第 5 条）：不再有弹簧、缩放、滑入、绳子画出。
 ///
@@ -29,8 +30,10 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var meet: VolunteerOrderMeetPanel?
     /// 出发页的快捷回复。`nil` = 不显示。
     var quickReplies: VolunteerOrderQuickReplies?
-    /// 出发 / 汇合 / 完成三态的地图。`nil` = 只画集合点（宿主拿不到位置时）。
+    /// 出发 / 汇合两态的地图。`nil` = 只画集合点（宿主拿不到位置时）。
     var mapInput: BlindTrackingMapInput?
+    /// ⑧ 跑完了：整条轨迹与跑者那一份统计（`/track`）。`nil` = 还没拉到或拉失败，彩色卡退回订单上的实跑数字。
+    var finishedTrack: OrderTrackResponse?
     /// `nil` = 不放返回按钮（完成页）。
     var onBack: (() -> Void)?
     let onRowAction: (VolunteerOrderFlowPresentation.Action) -> Void
@@ -62,7 +65,10 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     var body: some View {
         Group {
-            if usesMap, let order {
+            if phase == .completed, let order {
+                // 跑完了换成 v8 卡片页（#972），同盲人端 ⑧。
+                finishedCardsLayout(order: order)
+            } else if usesMap, let order {
                 trackingLayout(order: order)
             } else {
                 stageLayout
@@ -77,11 +83,11 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         }
     }
 
-    /// 出发起地图常驻（定稿第 1 条）。
+    /// 出发、汇合用地图（v7 定稿第 1 条）；跑完了改走卡片页（#972）。
     var usesMap: Bool {
         switch phase {
-        case .departed, .arrived, .completed: return true
-        case .confirmStillGoing, .agreedEarly, .agreedSoon, .runnerCancelled, .none: return false
+        case .departed, .arrived: return true
+        case .completed, .confirmStillGoing, .agreedEarly, .agreedSoon, .runnerCancelled, .none: return false
         }
     }
 
@@ -256,50 +262,6 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: presentation.primaryAction)
-    }
-}
-
-/// ⑧ 完成页的绿色成果卡：距离单独一行，用时在第二行（负责人 11-11「有点挤」后的改稿）。
-/// 只读订单上已有的实跑数字；没有就整卡不画（跑步记录页有完整数据）。
-struct VolunteerCompletedResultCard: View {
-    let order: OrderDetailResponse
-
-    var body: some View {
-        if let meters = order.actualDistanceMeters {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(RunPlanFormat.kilometresValue(Double(meters) / 1_000))
-                        .flowHeroNumber(FlowV2Fonts.heroM, capped: false)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                    Text("公里").flowFont(FlowV2Fonts.heroUnit())
-                }
-                if let seconds = order.actualDurationSeconds {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("用时")
-                            .flowFont(FlowV2Fonts.subhead())
-                            .foregroundColor(Color.white.opacity(0.85))
-                        Text("\(Int((Double(seconds) / 60).rounded())) 分钟")
-                            .flowFont((20, .bold, .title3))
-                    }
-                }
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppColors.Flow.stateDone))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(spoken(meters: meters))
-        }
-    }
-
-    private func spoken(meters: Int) -> String {
-        var parts = ["跑了 \(RunPlanFormat.kilometresValue(Double(meters) / 1_000)) 公里"]
-        if let seconds = order.actualDurationSeconds {
-            parts.append("用时 \(Int((Double(seconds) / 60).rounded())) 分钟")
-        }
-        return parts.joined(separator: "，")
     }
 }
 

@@ -121,12 +121,17 @@ enum VolunteerFinishLongPress {
 /// 🔴 **没有轻点路径。** `POST /api/orders/{id}/finish` 之后不可撤销，所以这里不给
 /// 「按一下弹个确认框」那种入口 —— 长按本身就是确认，多一个弹框只会让人习惯性点掉。
 ///
-/// 外观是 v2 画布 ⑤ 的白色次要按钮（2026-09-26 起）：按住时底色从左往右填成黄色。
+/// 外观（2026-11-12 起，#972）：订单页底部那枚藏青胶囊（同 `BlindOrderStageButton`，负责人「藏青，开始改」），
+/// 按住时从左往右填成跑步中彩色卡的青绿。暂停中「继续跑步」是实心，这枚退成灰底描边（一屏只有一枚实心），
+/// 按住时填成浅藏青。
 /// 「减弱动态效果」下**不需要分档**：这枚按钮全程没有位移与缩放，填充是**信息**
 /// （还差多久）不是装饰，两种设置下一模一样。
 struct VolunteerFinishLongPressButton: View {
+    enum Style { case solid, outline }
+
     let isPerformingAction: Bool
     let isEnabled: Bool
+    var style: Style = .solid
     let onFinish: () -> Void
 
     @State private var elapsed: TimeInterval = 0
@@ -140,10 +145,10 @@ struct VolunteerFinishLongPressButton: View {
     @State private var didFire = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: AppButtonMetrics.cornerRadius, style: .continuous)
         HStack(spacing: 8) {
             if isPerformingAction {
-                ProgressView().tint(AppColors.Flow.primaryText)
+                ProgressView().tint(ink)
             } else {
                 Image(systemName: "clock")
                     .font(.system(size: 17, weight: .bold))
@@ -154,24 +159,30 @@ struct VolunteerFinishLongPressButton: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundColor(AppColors.Flow.primaryText)
-        .padding(.vertical, 10)
-        .padding(.horizontal, 16)
+        .foregroundColor(ink)
+        .padding(.vertical, AppButtonMetrics.labelVerticalPadding)
+        .padding(.horizontal, AppButtonMetrics.labelHorizontalPadding)
         .frame(maxWidth: .infinity)
-        .frame(minHeight: FlowMetrics.actionButtonMinHeight)
+        .frame(minHeight: AppButtonMetrics.visibleHeight)
         .background(alignment: .leading) {
-            // 白底 + 从左往右的黄色填充（画布「长按结束陪跑」）。填充走黄色主按钮那一色：
-            // 「按够了就会发生事情」与主按钮是同一个意思。
+            // 底色 + 从左往右的填充：填充是「还差多久」唯一的视觉读数。
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
-                    AppColors.Flow.surface
-                    AppColors.Flow.cta.frame(width: proxy.size.width * fill)
+                    base
+                    progressFill.frame(width: proxy.size.width * fill)
                 }
             }
         }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(AppColors.Flow.ghostStroke, lineWidth: 1.5))
+        .overlay {
+            if style == .outline {
+                shape.strokeBorder(AppColors.ButtonPalette.neutralStroke, lineWidth: AppButtonMetrics.strokeWidth)
+            }
+        }
         .opacity(isEnabled ? 1 : 0.5)
+        // 胶囊看得见的部分 52pt，上下左右留透明可点区凑足 64pt（同 `capsuleButtonChrome`）。
+        .padding(.horizontal, AppButtonMetrics.horizontalInset)
+        .padding(.vertical, AppButtonMetrics.verticalInset)
         // ⛔ 不用 `Button`：`Button` 把长按当成「取消这次点击」吃掉（同 `SafetyLongPressGesture`）。
         .contentShape(Rectangle())
         .onLongPressGesture(
@@ -197,6 +208,15 @@ struct VolunteerFinishLongPressButton: View {
         }
         .accessibilityAction(named: VolunteerFinishLongPress.title, fire)
         .accessibilityIdentifier("volunteerFinishEscortButton")
+    }
+
+    private var ink: Color { style == .solid ? .white : AppColors.Flow.primaryText }
+
+    private var base: Color { style == .solid ? AppColors.Flow.navy : AppColors.ButtonPalette.neutralFill }
+
+    /// 实心：跑步中彩色卡的青绿（白字压它 6.7:1）；描边：浅藏青，深字照样看得清。
+    private var progressFill: Color {
+        style == .solid ? BlindRunCardsPalette.runningBottom : AppColors.Flow.navy.opacity(0.18)
     }
 
     private var label: String {
