@@ -11,6 +11,14 @@ struct RunRecordSummaryCell: Equatable {
     let value: String
     let unit: String
     let tone: RunRecordMetricTone
+
+    /// 数值拆成「数字 / 单位」交替的几段，数字用大字、单位用小字（#981）。
+    /// 服务时长的 `value` 自带单位（「2 小时 32 分钟」），整串用大字时三格并排放不下，会被折成三行。
+    var valueRuns: [(text: String, isNumber: Bool)] {
+        value.split(separator: " ").map { token in
+            (String(token), token.first?.isNumber == true)
+        }
+    }
 }
 
 extension RunRecordHistoryViewModel {
@@ -40,10 +48,13 @@ struct RunRecordSummaryCells: View {
                 ForEach(cells, id: \.label) { cellView($0) }
             }
         } else {
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
                 ForEach(Array(cells.enumerated()), id: \.element.label) { index, cell in
                     if index > 0 { Divider() }
-                    cellView(cell).frame(maxWidth: .infinity, alignment: .leading)
+                    cellView(cell)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // 服务时长最长（「2 小时 32 分钟」），先拿够它要的宽度，余下的两格平分（#981）。
+                        .layoutPriority(cell.valueRuns.count > 2 ? 1 : 0)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -55,10 +66,19 @@ struct RunRecordSummaryCells: View {
             Text(cell.label)
                 .font(.subheadline)
                 .foregroundColor(AppColors.textSecondary)
+                .lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(cell.value).font(.title.weight(.bold)).monospacedDigit()
+                ForEach(Array(cell.valueRuns.enumerated()), id: \.offset) { _, run in
+                    Text(run.text)
+                        .font(run.isNumber ? .title.weight(.bold) : .headline)
+                        .monospacedDigit()
+                }
                 if !cell.unit.isEmpty { Text(cell.unit).font(.headline) }
             }
+            // 一个数不许被拆成两行（「11.」「5 公里」，#981）；真放不下时整行等比缩小。
+            // 大字号走上面的竖排分支，这里只管默认档附近。
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .foregroundColor(cell.tone.color)
         }
     }

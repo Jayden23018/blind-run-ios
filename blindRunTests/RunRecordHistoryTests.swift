@@ -106,6 +106,11 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertEqual(viewModel.summaryText(), "9月陪跑 4 次，服务 3 小时 40 分钟。")
         XCTAssertEqual(viewModel.summaryText(spoken: true), "9月陪跑 4 次，服务 3 小时 40 分钟。")
         XCTAssertEqual(viewModel.summaryCells.map(\.label), ["陪跑", "距离", "服务"])
+        // #981：服务时长拆成「数字大字 / 单位小字」交替的几段，整串用大字时并排放不下会被折成三行。
+        let service = viewModel.summaryCells[2].valueRuns
+        XCTAssertEqual(service.map(\.text), ["3", "小时", "40", "分钟"])
+        XCTAssertEqual(service.map(\.isNumber), [true, false, true, false])
+        XCTAssertEqual(viewModel.summaryCells[1].valueRuns.map(\.text), ["18.2"], "公里数是一整段，单位另在 unit 里")
 
         records.result = .success(makeHistory(runs: 4, distanceM: nil, serviceMin: nil, topPartner: RunTopPartner(name: nil, runs: 3)))
         await viewModel.load()
