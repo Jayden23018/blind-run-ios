@@ -34,7 +34,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var mapInput: BlindTrackingMapInput?
     /// ⑧ 跑完了：整条轨迹与跑者那一份统计（`/track`）。`nil` = 还没拉到或拉失败，彩色卡退回订单上的实跑数字。
     var finishedTrack: OrderTrackResponse?
-    /// `nil` = 不放返回按钮（完成页）。
+    /// `nil` = 不放返回按钮（目前各态都给；跑完了 #972 起也有返回）。
     var onBack: (() -> Void)?
     let onRowAction: (VolunteerOrderFlowPresentation.Action) -> Void
     let onPrimaryAction: () -> Void
@@ -385,7 +385,7 @@ private struct VolunteerOrderV2Preview: View {
                     phase: phase,
                     meet: meetPanel(order: order, phase: phase),
                     quickReplies: quickReplies(phase: phase),
-                    onBack: phase == .completed ? nil : {},
+                    onBack: {},
                     onRowAction: { _ in },
                     onPrimaryAction: {},
                     footer: { EmptyView() }

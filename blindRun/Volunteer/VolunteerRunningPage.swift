@@ -26,6 +26,9 @@ struct VolunteerRunningHero: Equatable {
     let notice: String?
     let noticeSpoken: String?
     let accessibilityLabel: String
+    /// v8 彩色卡念的那一句：同 `accessibilityLabel`，但不带目标进度 ——
+    /// 计划进度卡（`BlindRunPlanCard`）自己会念，彩色卡再念一遍就是两遍（#972，同盲人端 #968）。
+    let cardAccessibilityLabel: String
 
     static let title = "陪跑中"
     /// 跑过目标不足 50 米不说「多跑了」：公里数是一位小数（#846 D8），十几米会写成「多跑了 0.1」。
@@ -80,7 +83,6 @@ struct VolunteerRunningHero: Equatable {
             spoken("已跑", stats?.distanceText),
             spoken("时长", stats?.durationText),
             spoken("配速", stats?.averagePaceText),
-            goal?.text.replacingOccurrences(of: " · ", with: "，"),
         ]
 
         return Self(
@@ -91,7 +93,8 @@ struct VolunteerRunningHero: Equatable {
             goal: goal,
             notice: notice?.0,
             noticeSpoken: notice?.1,
-            accessibilityLabel: spokenParts.compactMap { $0 }.joined(separator: "。")
+            accessibilityLabel: (spokenParts + [goal?.text.replacingOccurrences(of: " · ", with: "，")]).compactMap { $0 }.joined(separator: "。"),
+            cardAccessibilityLabel: spokenParts.compactMap { $0 }.joined(separator: "。")
         )
     }
 }
@@ -186,7 +189,7 @@ struct VolunteerRunningPage<Footer: View>: View {
                 runnerName: order.runnerShortName,
                 runnerNameSpoken: order.runnerShortName.unmaskedForSpeech,
                 isRinging: isRinging,
-                isEnabled: isRingEnabled && !isRinging,
+                isEnabled: VolunteerRunRingCard.isTappable(isRingEnabled: isRingEnabled, isRinging: isRinging),
                 onRing: onRing
             )
             footer()
@@ -219,11 +222,12 @@ struct VolunteerRunningPage<Footer: View>: View {
         .accessibilityIdentifier("volunteerRunningHeader")
     }
 
-    /// 彩色卡的念法沿用 v7 统计块：「陪跑中，地点。已跑 … 时长 … 配速 … 目标进度」，暂停时前面先说暂停。
+    /// 彩色卡的念法沿用 v7 统计块：「陪跑中，地点。已跑 … 时长 … 配速 …」，暂停时前面先说暂停。
+    /// 不带目标进度：下面的计划进度卡自己念（#972 审查）。
     private func heroSpoken(_ hero: VolunteerRunningHero) -> String {
         isPaused
-            ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.accessibilityLabel)"
-            : hero.accessibilityLabel
+            ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.cardAccessibilityLabel)"
+            : hero.cardAccessibilityLabel
     }
 
     // MARK: 底部

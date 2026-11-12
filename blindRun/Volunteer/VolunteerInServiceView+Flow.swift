@@ -68,8 +68,8 @@ extension VolunteerInServiceView {
                 mapInput: trackingMapInput(order: order),
                 // 跑完了卡片页的彩色卡与路线小图（#972）。
                 finishedTrack: trackViewModel.track,
-                // 完成页没有返回：出口是主按钮「完成」。
-                onBack: phase == .completed ? nil : { dismiss() },
+                // 跑完了也有返回（批准稿圆形 ‹，同盲人端 v8 ⑧，#972 审查）；主按钮「完成」同样关页。
+                onBack: { dismiss() },
                 onRowAction: { handleFlowRowAction($0, order: order) },
                 onPrimaryAction: { performFlowPrimaryAction(presentation.primaryAction) },
                 // 只可能是 `IN_PROGRESS`（`VolunteerOrderSOSMode.resolve`），其余状态页面自己弹本地拨号。

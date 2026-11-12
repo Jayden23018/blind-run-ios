@@ -37,6 +37,11 @@ struct VolunteerRunRingCard: View {
     let isEnabled: Bool
     let onRing: () -> Void
 
+    /// 这张卡可不可点：登录没过期、且不在响铃中（后端 `ringingUntil` 之前）。用例 `VolunteerRunFinishedSummaryTests`。
+    static func isTappable(isRingEnabled: Bool, isRinging: Bool) -> Bool {
+        isRingEnabled && !isRinging
+    }
+
     var body: some View {
         Button(action: onRing) {
             BlindRunCardSurface(insets: EdgeInsets(top: 4, leading: 18, bottom: 4, trailing: 18)) {

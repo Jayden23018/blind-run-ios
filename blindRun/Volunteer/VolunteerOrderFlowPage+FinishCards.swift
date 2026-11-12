@@ -14,7 +14,7 @@ extension VolunteerOrderFlowPage {
             bottom: OrderFlowBottomActions(owner: .volunteer, primary: trackingPrimary, safetyHub: nil, usesNavyPrimary: true),
             header: finishedHeader(order: order)
         ) {
-            BlindRunHeroCard(stats: Self.finishedStats(order: order, track: finishedTrack), isFinished: true)
+            BlindRunHeroCard(stats: VolunteerRunFinishedSummary.stats(order: order, track: finishedTrack), isFinished: true)
                 .accessibilityIdentifier("volunteerRunFinishedHero")
             BlindRunCardsRouteMap(track: finishedTrack)
             VolunteerFinishedRunnerCard(
@@ -30,26 +30,11 @@ extension VolunteerOrderFlowPage {
         }
     }
 
-    /// 彩色卡的数字：先用 `/track` 的跑者那一份（与盲人端、跑步中同一份数）；还没拉到或拉失败时退回订单上的实跑里程与用时。
-    /// 退回时不算配速（没有就是没有，卡上那一格写「--」）。两样都没有时彩色卡写「稍等一下」，不摆三个杠。
-    static func finishedStats(order: OrderDetailResponse, track: OrderTrackResponse?) -> TrackStats? {
-        if let stats = track?.blindStats, stats.distanceMeters != nil { return stats }
-        guard let meters = order.actualDistanceMeters, meters > 0 else { return track?.blindStats }
-        return TrackStats(
-            distanceMeters: Double(meters),
-            durationSeconds: order.actualDurationSeconds.map(Int64.init),
-            avgPaceSecPerKm: nil
-        )
-    }
-
-    /// 「跑完了」+「和李*一起 · 第 3 次」。念法与焦点沿用 v7 抽屉标题（同一个 identifier，状态一变读屏焦点落这里）。
-    /// 批准稿副标题写的是起止时间，订单详情里没有开跑 / 结束时刻，不编，换成一起跑的次数（没有就不写）。
+    /// 「跑完了」+「和李*一起 · 今天 7:02–7:44」。念法与焦点沿用 v7 抽屉标题（同一个 identifier，状态一变读屏焦点落这里）。
     private func finishedHeader(order: OrderDetailResponse) -> some View {
-        let companion = BlindRunCardsCopy.companion(name: order.blindName?.nilIfBlank ?? order.runnerShortName)
-        let count = order.completedTogetherCount ?? 0
-        return RunCardsHeader(
+        RunCardsHeader(
             title: VolunteerOrderFlowCopy.completedDrawerTitle,
-            companion: count > 1 ? "\(companion) · 第 \(count) 次" : companion
+            companion: VolunteerRunFinishedSummary.subtitle(order: order, track: finishedTrack)
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(hero.accessibilityLabel)
@@ -78,6 +63,48 @@ extension VolunteerOrderFlowPage {
         .accessibilityLabel(row.accessibilityLabel)
         .accessibilityHintIfPresent(row.accessibilityHint)
         .accessibilityIdentifier("volunteerOrderFlowRow-runRecord")
+    }
+}
+
+// MARK: - 跑完了页的数字与副标题（纯逻辑，用例 `VolunteerRunFinishedSummaryTests`）
+
+enum VolunteerRunFinishedSummary {
+    /// 彩色卡的数字：先用 `/track` 的跑者那一份（与盲人端、跑步中同一份数）；还没拉到或拉失败时退回订单上的实跑里程与用时。
+    /// 退回时不算配速（没有就是没有，卡上那一格写「--」）。两样都没有时彩色卡写「稍等一下」，不摆三个杠。
+    static func stats(order: OrderDetailResponse, track: OrderTrackResponse?) -> TrackStats? {
+        if let stats = track?.blindStats, stats.distanceMeters != nil { return stats }
+        guard let meters = order.actualDistanceMeters, meters > 0 else { return track?.blindStats }
+        return TrackStats(
+            distanceMeters: Double(meters),
+            durationSeconds: order.actualDurationSeconds.map(Int64.init),
+            avgPaceSecPerKm: nil
+        )
+    }
+
+    /// 副标题：「和李*一起 · 今天 7:02–7:44」（批准稿）。起止时间取跑者轨迹第一个点和最后一个点的记录时刻 ——
+    /// 订单详情里没有开跑 / 结束时刻，轨迹是唯一的真数。轨迹没拉到、不足两个点或时刻解析不了时，
+    /// 退回「和李*一起 · 第 N 次」（一起跑过两次以上才写次数），再不行只写「和李*一起」。
+    static func subtitle(
+        order: OrderDetailResponse,
+        track: OrderTrackResponse?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String {
+        let companion = BlindRunCardsCopy.companion(name: order.blindName?.nilIfBlank ?? order.runnerShortName)
+        if let range = timeRange(track: track, now: now, calendar: calendar) {
+            return "\(companion) · \(range)"
+        }
+        let count = order.completedTogetherCount ?? 0
+        return count > 1 ? "\(companion) · 第 \(count) 次" : companion
+    }
+
+    /// 「今天 7:02–7:44」。开跑那一刻的日子沿用 `RunPlanFormat.shortStart`（今天 / 明天 / 月日）。
+    static func timeRange(track: OrderTrackResponse?, now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let points = track?.blindTrack, points.count >= 2,
+              let first = points.first?.recordedAt, let last = points.last?.recordedAt,
+              let end = last.backendTimestamp,
+              let start = RunPlanFormat.shortStart(first, now: now, calendar: calendar) else { return nil }
+        return "\(start)–\(DateFormatter.aidRunDisplayClock.string(from: end))"
     }
 }
 
