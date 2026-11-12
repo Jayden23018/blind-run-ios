@@ -287,10 +287,6 @@ struct BlindOrderStatusView: View {
     @StateObject var shareViewModel = RunPlanLiveShareViewModel()
     /// 举报 / 不再匹配此人。入口在「···」，弹层挂在页面根上，结果一行在正文 footer（`CounterpartSafetyMenu`）。
     @StateObject var counterpartSafety = CounterpartBlockViewModel()
-    /// 已完成页当页的陪跑员与评价两节（#968）。与跑者跑步详情用同一个 view model。
-    @StateObject var runFeedback = RunnerRunFeedbackViewModel()
-    /// 已完成页最后那行本月累计（#968）。与首页「本月锻炼」读写同一份缓存。
-    @StateObject var homeRunModel = BlindHomeIdleModel()
     @State private var showEmergencyConfirmation = false
     @State var showEmergencyCancelConfirmation = false
     /// 云端求助失败后的一跳拨号兜底（`EmergencyCallContext.cloudFailed`）。
@@ -698,7 +694,6 @@ struct BlindOrderStatusView: View {
                 speechInputService: speechInputService,
                 placeSearchProvider: amapGeocodingService
             )
-            runFeedback.configure(appState: appState, speech: speechService)
             viewModel.startPolling(orderId: orderId)
         }
         .onDisappear {
@@ -729,6 +724,7 @@ struct BlindOrderStatusView: View {
         ))
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
+            // 评价、「设为固定搭档」与本月累计由已完成页那几张卡自己查（`BlindRunFinishedCards`，#968）。
             await trackViewModel.load(orderID: orderId, appState: appState)
             // 这一次是不限时的（它只喂屏幕，不挡播报）。终值那次限时到点时，
             // ④ 那张卡的三个数字由它兜底 —— 否则卡片顶着 `--`。
@@ -739,13 +735,6 @@ struct BlindOrderStatusView: View {
             // 设计稿要求「一次只播一条、变形为总结状态时不再播第二遍」（状态清单 §4），
             // 那三个数字已经并进 `startCompletionAnnouncement` 那唯一一句里。
             // 想再听一遍走「重复当前状态」—— 导航栏那枚与轨迹卡里那枚都是它。
-
-            // 已完成页当页的陪跑员、评价与本月累计（#968，改 11-07「评价只在跑步详情」）。排在轨迹之后：
-            // 三个数字先出来，这几块晚一步出现不挡主内容。失败都静默，对应那一块不出现。
-            if let order = viewModel.order {
-                await runFeedback.load(order: order)
-            }
-            await homeRunModel.refresh(appState: appState)
         }
         // 展开时拉一次，之后每次状态推进再拉一次 —— 服务进行中新增的那条转移会自己出现。
         // 折叠状态下不请求：这是一块用户主动来找的辅助信息，不该给主路径加一次 5 秒一轮的开销。

@@ -199,6 +199,48 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
     }
 }
 
+// MARK: - ⑧ 已完成页彩色卡下面的几张卡
+
+/// 路线小图 → 陪跑员与「设为固定搭档」→「这次陪跑怎么样」→ 本月累计。
+///
+/// 陪跑员与评价两节就是跑者跑步详情那两块（`RunnerRunRecordFeedbackSections.swift`），同一个 view model、
+/// 同一套五档评价；2026-11-12 起当页放，改 11-07「评价只在跑步详情」。本月累计与首页「本月锻炼」读写同一份缓存。
+/// 四块各自查各自的，失败都静默：对应那一块不出现，不挡三个数字。
+struct BlindRunFinishedCards: View {
+    let order: OrderDetailResponse
+    let track: OrderTrackResponse?
+
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+    @StateObject private var feedback = RunnerRunFeedbackViewModel()
+    @StateObject private var homeRunModel = BlindHomeIdleModel()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BlindRunCardsMetrics.cardGap) {
+            BlindRunCardsRouteMap(track: track)
+            RunnerRunRecordVolunteerSection(feedback: feedback, orderId: order.orderId)
+            RunnerRunRecordReviewSection(feedback: feedback)
+            if let summary = homeRunModel.snapshot.summary {
+                Text(BlindRunCardsCopy.monthLine(summary))
+                    .flowFont(FlowV2Fonts.callout())
+                    .foregroundColor(AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .accessibilityLabel(summary.spokenText)
+                    .accessibilityIdentifier("blindRunCardsMonthLine")
+            }
+        }
+        // 四块一开始可能都是空的，而 `.task` 挂在空视图上不触发（记忆 `task-on-empty-view-never-fires`）。
+        .frame(maxWidth: .infinity, minHeight: 1, alignment: .top) // guard:allow small-touch-target 占位，不是触达目标
+        .task(id: order.orderId) {
+            feedback.configure(appState: appState, speech: speechService)
+            await feedback.load(order: order)
+            await homeRunModel.refresh(appState: appState)
+        }
+    }
+}
+
 // MARK: - ⑧ 已完成页的路线小图
 
 /// 整条路线的缩略图。装饰、不可交互：里程和用时卡片里都有文字版；要细看进跑步详情。

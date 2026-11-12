@@ -143,19 +143,7 @@ extension BlindOrderStatusView {
             onTapBlank: isFinished ? nil : { handleFlowPrimaryAction(presentation, order: order) },
             cards: {
                 if isFinished {
-                    BlindRunCardsRouteMap(track: trackViewModel.track)
-                    RunnerRunRecordVolunteerSection(feedback: runFeedback, orderId: order.orderId)
-                    RunnerRunRecordReviewSection(feedback: runFeedback)
-                    if let summary = homeRunModel.snapshot.summary {
-                        Text(BlindRunCardsCopy.monthLine(summary))
-                            .flowFont(FlowV2Fonts.callout())
-                            .foregroundColor(AppColors.Flow.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity)
-                            .multilineTextAlignment(.center)
-                            .accessibilityLabel(summary.spokenText)
-                            .accessibilityIdentifier("blindRunCardsMonthLine")
-                    }
+                    BlindRunFinishedCards(order: order, track: trackViewModel.track)
                 }
             },
             footer: { flowSkeletonFooter(order) }
