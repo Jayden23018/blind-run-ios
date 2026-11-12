@@ -132,19 +132,31 @@ struct RunnerRunRecordReviewSection: View {
     @EnvironmentObject private var speechInputService: SpeechInputService
     @EnvironmentObject private var speechService: SpeechService
 
+    /// 订单页已完成那一屏（#968）把标题放进卡片里，小一号；跑步详情仍是卡片外的节标题。
+    var titleInsideCard = false
+
     static let onceOnly = "只能评一次，提交后不能改。"
     static let commentPlaceholder = "想说的话（选填）"
 
     var body: some View {
         if feedback.hasLoadedReview {
             VStack(alignment: .leading, spacing: 8) {
-                RunRecordSectionTitle(text: RunExperienceRating.sectionTitle).padding(.top, 8)
-                RunRecordCard {
-                    if feedback.didSubmitReview {
-                        submittedCard
-                    } else {
-                        form
+                if !titleInsideCard {
+                    RunRecordSectionTitle(text: RunExperienceRating.sectionTitle).padding(.top, 8)
+                }
+                if titleInsideCard {
+                    // 定稿图 `c-revised.html`：内边距 12 / 14，标题 16pt、离五格 8。
+                    BlindRunCardSurface(insets: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
+                        Text(RunExperienceRating.sectionTitle)
+                            .flowFont((16, .semibold, .callout))
+                            .foregroundColor(AppColors.Flow.primaryText)
+                            .padding(.leading, 4)
+                            .padding(.bottom, 8)
+                            .accessibilityAddTraits(.isHeader)
+                        cardContent
                     }
+                } else {
+                    RunRecordCard { cardContent }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -152,9 +164,18 @@ struct RunnerRunRecordReviewSection: View {
         }
     }
 
+    @ViewBuilder
+    private var cardContent: some View {
+        if feedback.didSubmitReview {
+            submittedCard
+        } else {
+            form
+        }
+    }
+
     private var form: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RunExperienceRatingPicker(rating: $feedback.reviewRating, showsTitle: false)
+            RunExperienceRatingPicker(rating: $feedback.reviewRating, showsTitle: false, isCompact: titleInsideCard)
                 .onChange(of: feedback.reviewRating) { _ in feedback.clearReviewError() }
 
             if feedback.reviewRating != nil {
@@ -184,12 +205,15 @@ struct RunnerRunRecordReviewSection: View {
                     .accessibilityIdentifier("runnerRunRecordReviewError")
             }
 
-            Text(feedback.reviewRating == nil ? "选一项就能提交。" + Self.onceOnly : Self.onceOnly)
-                .font(.footnote)
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
+            // 订单页那一屏没选之前不放这行说明（定稿图没有，放了一屏装不下）；选了之后照常出现在「提交评价」下面。
+            if !titleInsideCard || feedback.reviewRating != nil {
+                Text(feedback.reviewRating == nil ? "选一项就能提交。" + Self.onceOnly : Self.onceOnly)
+                    .font(.footnote)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 

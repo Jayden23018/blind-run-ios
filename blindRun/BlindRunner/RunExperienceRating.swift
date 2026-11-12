@@ -39,7 +39,18 @@ struct RunExperienceRatingPicker: View {
     @Binding var rating: Int?
     /// 跑步详情把标题画在卡片外面当一节的标题（#831），传 `false`。
     var showsTitle = true
+    /// 订单页已完成那一屏（#968，定稿 `blind-run-finish-v8-20261112/c-revised.html`）的紧凑档：
+    /// 每格看得见的部分 52 高、字 12、间距 6；可点区仍是 64，上下各多出的 6 落在卡片自己的留白里。
+    /// 只在标准字号档生效，无障碍字号档仍是整行竖排。跑步详情不传，样子不变。
+    var isCompact = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private static let compactCellHeight: CGFloat = 52
+    private var usesCompactCells: Bool { isCompact && !dynamicTypeSize.isAccessibilitySize }
+    /// 紧凑档每格可点区比看得见的部分上下各多出的量。
+    private var hitOverflow: CGFloat {
+        usesCompactCells ? (FlowMetrics.actionButtonMinHeight - Self.compactCellHeight) / 2 : 0
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -53,12 +64,14 @@ struct RunExperienceRatingPicker: View {
 
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: 8))
-                : AnyLayout(HStackLayout(spacing: 8))
+                : AnyLayout(HStackLayout(spacing: usesCompactCells ? 6 : 8))
             layout {
                 ForEach(RunExperienceRating.allCases) { option in
                     optionButton(option)
                 }
             }
+            // 可点区多出的那一截不占版面。
+            .padding(.vertical, -hitOverflow)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindRunExperienceRating")
@@ -66,33 +79,42 @@ struct RunExperienceRatingPicker: View {
 
     private func optionButton(_ option: RunExperienceRating) -> some View {
         let isSelected = rating == option.rawValue
+        let compact = usesCompactCells
+        let titleFont: (CGFloat, Font.Weight, Font.TextStyle) = compact
+            ? (12, isSelected ? .bold : .medium, .caption)
+            : FlowV2Fonts.subhead(bold: isSelected)
+        let cornerRadius: CGFloat = compact ? 12 : 14
         return Button {
             rating = option.rawValue
             HapticFeedback.play(.tick)
         } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: compact ? 1 : 4) {
                 Image(systemName: "figure.run")
-                    .font(.system(size: 22, weight: isSelected ? .bold : .regular))
+                    .font(.system(size: compact ? 15 : 22, weight: isSelected ? .bold : .regular))
                     .accessibilityHidden(true)
                 Text(option.title)
-                    .flowFont(FlowV2Fonts.subhead(bold: isSelected))
+                    .flowFont(titleFont)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.center)
             }
             .foregroundColor(isSelected ? AppColors.Flow.bluePressed : AppColors.Flow.secondaryText)
-            .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: compact ? Self.compactCellHeight : FlowMetrics.actionButtonMinHeight
+            )
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(isSelected ? AppColors.Flow.blueTint : AppColors.Flow.surface)
             )
             .overlay(
                 // 选中态不只靠颜色：边框加粗 + 字重加粗 + 读屏「已选」三处冗余。
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
                         isSelected ? AppColors.Flow.accent : AppColors.Flow.ghostStroke,
                         lineWidth: isSelected ? 2.5 : 1.5
                     )
             )
+            .padding(.vertical, hitOverflow)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -724,7 +724,7 @@ struct BlindOrderStatusView: View {
         ))
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
-            // 评价与「设为固定搭档」11-07 挪进跑者跑步详情（#831），这里不再查。
+            // 评价、「设为固定搭档」与本月累计由已完成页那几张卡自己查（`BlindRunFinishedCards`，#968）。
             await trackViewModel.load(orderID: orderId, appState: appState)
             // 这一次是不限时的（它只喂屏幕，不挡播报）。终值那次限时到点时，
             // ④ 那张卡的三个数字由它兜底 —— 否则卡片顶着 `--`。
