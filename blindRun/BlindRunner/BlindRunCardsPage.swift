@@ -262,17 +262,48 @@ struct BlindRunFinishedCards: View {
 // MARK: - ⑧ 已完成页的路线小图
 
 /// 整条路线的缩略图。装饰、不可交互：里程和用时卡片里都有文字版；要细看进跑步详情。
-/// 轨迹不足两个点时不占位置。
+/// 轨迹不足两个点、或所有点重合时不占位置。
+///
+/// 🔴 配置照跑步记录列表小图（`RunRecordListMap`），不用 `TrackRouteMap`：`mutedBasemap` 那条路径会在地图
+/// 摆到真实尺寸后重新取景（`AMapContainer.configureRunRecordMap`）。不开的话第一次取景按 0×0 算，
+/// 84pt 高的扁图上只看得到一段路线（负责人 2026-11-12 装机第三轮）。
 struct BlindRunCardsRouteMap: View {
     let track: OrderTrackResponse?
 
+    /// 起终点圆点以坐标为中心画，四边让出整个圆点再留几点空（同 `RunRecordListMap.routeInsets`）。
+    static let routeInsets = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+
     var body: some View {
-        if let track, track.primaryRouteCoordinates.count >= 2 {
-            TrackRouteMap(track: track)
-                .frame(height: BlindRunCardsMetrics.routeHeight)
-                .clipShape(RoundedRectangle(cornerRadius: BlindRunCardsMetrics.routeCornerRadius, style: .continuous))
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+        if let coordinates = track?.primaryRouteCoordinates, coordinates.count >= 2,
+           let first = coordinates.first, let last = coordinates.last,
+           RunRouteShape.hasExtent(coordinates.map { RunLatLng(lat: $0.latitude, lng: $0.longitude) }) {
+            MapViewWrapper(
+                centerCoordinate: RunRecordListMap.center(of: coordinates),
+                showsUserLocation: false,
+                annotations: [
+                    MapAnnotationItem(
+                        id: "cards-route-start", coordinate: first, title: nil, subtitle: nil,
+                        kind: .runEndpoint(isStart: true, compact: true)
+                    ),
+                    MapAnnotationItem(
+                        id: "cards-route-end", coordinate: last, title: nil, subtitle: nil,
+                        kind: .runEndpoint(isStart: false, compact: true)
+                    )
+                ],
+                polylines: [
+                    MapPolylineItem(id: "cards-route-outline", coordinates: coordinates, isPrimary: true, routeStyle: .outline),
+                    MapPolylineItem(id: "cards-route", coordinates: coordinates, routeStyle: .pace(indexes: [], fractions: [0]))
+                ],
+                tracksUserLocation: false,
+                animatesCenterChanges: false,
+                fitEdgePadding: Self.routeInsets,
+                isDecorative: true,
+                mutedBasemap: true
+            )
+            .frame(height: BlindRunCardsMetrics.routeHeight)
+            .clipShape(RoundedRectangle(cornerRadius: BlindRunCardsMetrics.routeCornerRadius, style: .continuous))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 }
