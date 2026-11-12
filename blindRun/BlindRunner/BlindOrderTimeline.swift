@@ -124,6 +124,9 @@ struct BlindOrderTimelineInput: Equatable {
     var currentDot: BlindOrderTimelineCurrentDot = .still
     /// 步骤用谁的说法。陪跑员订单页传 `.volunteer`（#945）。
     var vocabulary: OrderTimelineVocabulary = .blindRunner
+    /// 当前步那一行的读屏整句，`nil` = 照 `BlindOrderTimelineLayout.accessibilityLabel` 拼。
+    /// 陪跑员 ③ 等跑者确认用它念「商量见面安排，已等 N 分钟，进行中」（#962）：屏上那行带「·」与后半句，念出来拖沓。
+    var currentAccessibilityLabel: String?
     /// 行距放宽到 22pt（#945 ⑨ 已取消：负责人「太挤了，下面还有很大的空间」）。默认 13pt 不变。
     var roomy = false
 }

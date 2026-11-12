@@ -106,7 +106,10 @@ struct BlindOrderTimelineView<Current: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: input.vocabulary))
+        .accessibilityLabel(
+            row.isCurrent ? input.currentAccessibilityLabel ?? BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: input.vocabulary)
+                : BlindOrderTimelineLayout.accessibilityLabel(for: row, vocabulary: input.vocabulary)
+        )
     }
 
     /// 「✓ 已完成 N 步 ›」「还有 N 步 ›」。整行可点，至少 64pt 高。
