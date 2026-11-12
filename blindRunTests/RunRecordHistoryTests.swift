@@ -106,11 +106,6 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertEqual(viewModel.summaryText(), "9月陪跑 4 次，服务 3 小时 40 分钟。")
         XCTAssertEqual(viewModel.summaryText(spoken: true), "9月陪跑 4 次，服务 3 小时 40 分钟。")
         XCTAssertEqual(viewModel.summaryCells.map(\.label), ["陪跑", "距离", "服务"])
-        // #981：服务时长拆成「数字大字 / 单位小字」交替的几段，整串用大字时并排放不下会被折成三行。
-        let service = viewModel.summaryCells[2].valueRuns
-        XCTAssertEqual(service.map(\.text), ["3", "小时", "40", "分钟"])
-        XCTAssertEqual(service.map(\.isNumber), [true, false, true, false])
-        XCTAssertEqual(viewModel.summaryCells[1].valueRuns.map(\.text), ["18.2"], "公里数是一整段，单位另在 unit 里")
 
         records.result = .success(makeHistory(runs: 4, distanceM: nil, serviceMin: nil, topPartner: RunTopPartner(name: nil, runs: 3)))
         await viewModel.load()
@@ -373,4 +368,21 @@ private final class RunHistoryInMemoryTokenStore: TokenStoring, @unchecked Senda
     func save(_ token: String) { self.token = token }
     func read() -> String? { token }
     func delete() { token = nil }
+}
+
+// #981：放在扩展里，不撑大上面那个类的主体（SwiftLint type_body_length 棘轮）。
+extension RunRecordHistoryTests {
+    /// 服务时长拆成「数字大字 / 单位小字」交替的几段：整串用大字时三格并排放不下，会被折成三行。
+    func testSummaryCellSplitsServiceDurationIntoNumberAndUnitRuns() {
+        let service = RunRecordSummaryCell(
+            label: "服务", value: RunRecordHistoryViewModel.serviceDuration(220), unit: "", tone: .pace
+        )
+        XCTAssertEqual(service.valueRuns.map(\.text), ["3", "小时", "40", "分钟"])
+        XCTAssertEqual(service.valueRuns.map(\.isNumber), [true, false, true, false])
+
+        let distance = RunRecordSummaryCell(
+            label: "距离", value: RunRecordHistoryViewModel.kilometres(18_210), unit: "公里", tone: .distance
+        )
+        XCTAssertEqual(distance.valueRuns.map(\.text), ["18.2"], "公里数是一整段，单位另在 unit 里")
+    }
 }
