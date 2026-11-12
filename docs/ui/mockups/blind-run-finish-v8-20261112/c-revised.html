@@ -1,0 +1,238 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>跑步中 / 已完成 方向 C 修订版</title><style>
+  :root{
+    --navy:#1F2433; --ink:#14171F; --ink2:#4A4F5C; --ink3:#5F6470; --line:#E6E7EB;
+    --page:#E9EAEE; --chip:#EEEFF2; --blue:#A9C8F7; --blueInk:#1F3A66; --title:#A8C8FF;
+    --red:#D7263D; --todo:#C5C8CF; --green:#1E7A46;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:var(--page);color:var(--ink);padding:28px 32px 40px}
+  h1{font-size:22px;margin-bottom:6px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.7;max-width:1300px;margin-bottom:22px}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .cell{width:390px}
+  .cap{font-size:14px;font-weight:600;margin:10px 0 4px}
+  .ref{display:inline-block;font-size:12px;font-weight:600;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:1px 6px;margin-bottom:6px}
+  .note{font-size:12px;color:var(--ink2);line-height:1.6}
+  .note b{color:var(--ink)}
+  .plan{padding:4px 14px 6px;background:#F4F5F8}
+  .prow{padding:9px 0;border-bottom:1px solid var(--line)}
+  .prow:last-child{border-bottom:none}
+  .prow p{font-size:12px;color:var(--ink2)}
+  .prow b{display:block;font-size:16px;margin-top:2px}
+  .prow small{display:block;font-size:12px;font-weight:400;color:var(--ink2);margin-top:1px}
+  .chg{display:inline-block;margin-left:6px;font-size:11px;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:0 4px}
+  .anno{margin-top:10px;padding:12px 14px;background:#fff;border-radius:12px}
+  .anno h4{font-size:13px;margin-bottom:6px}
+  .diff{color:#B3261E}
+  .tag{display:inline-block;background:#FFF3C4;border-radius:4px;padding:0 4px;color:#6B5200}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+  .top{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
+  .round{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.18);font-size:18px;color:var(--ink)}
+  .round.dark{background:rgba(255,255,255,.12);box-shadow:none;color:#fff}
+  .spacer{flex:1}
+  .sos{height:44px;padding:0 16px;border-radius:22px;background:#fff;color:var(--red);font-weight:700;font-size:16px;display:flex;align-items:center;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  .sos.onDark{background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2;box-shadow:none}
+  .sos.live{background:var(--red);color:#fff}
+  .back-text{color:var(--title);font-size:16px}
+  /* 原稿②：深色头 + 抽屉 + 完整竖线 */
+  .hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:232px;padding:108px 24px 0;color:#fff}
+  .hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}
+  .hero .t{font-size:30px;font-weight:700;color:var(--title);line-height:1.25}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
+  .sheet.onHero{top:212px}
+  .place{font-size:20px;font-weight:700}
+  .sub{font-size:15px;color:var(--ink2);margin-top:4px}
+  .tl{margin-top:20px}
+  .node{display:flex;gap:14px;position:relative;padding-bottom:13px}
+  .node:before{content:"";position:absolute;left:10px;top:24px;bottom:-2px;width:3px;background:var(--todo)}
+  .node.done:before{background:var(--navy)}
+  .node:last-child:before{display:none}
+  .dot{width:23px;height:23px;border-radius:12px;flex:none;background:var(--todo);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;position:relative;z-index:1}
+  .done .dot,.now .dot{background:var(--navy)}
+  .nlabel{font-size:17px;font-weight:600;line-height:23px}
+  .todo .nlabel{color:var(--ink3);font-weight:500}
+  .ndet{font-size:14px;color:var(--ink2);margin-top:2px}
+  .card{margin-top:10px;border-radius:14px;overflow:hidden;background:var(--chip)}
+  .card .dk{background:#2E3445;color:#fff;padding:12px 16px}
+  .card .dk p{font-size:13px;color:#C9CFDB}
+  .card .dk h3{font-size:20px;margin-top:2px}
+  .card .lt{display:flex;align-items:center;gap:14px;padding:12px 16px}
+  /* 原稿①：地图常驻 + 抽屉 */
+  .map{position:absolute;left:0;right:0;top:0;height:430px;background:#EDEBE6;overflow:hidden}
+  .park{position:absolute;left:0;top:40px;width:262px;height:290px;background:#D9E8CF}
+  .lake{position:absolute;left:40px;top:120px;width:90px;height:60px;border-radius:50%;background:#B9D7F0}
+  .road{position:absolute;background:#fff}
+  .blk{position:absolute;background:#E0DDD6;border-radius:2px}
+  .lbl{position:absolute;font-size:12px;color:#4F6B45;font-weight:600}
+  .rlbl{position:absolute;font-size:11px;color:#6B6B6B}
+  .pinV{position:absolute;width:34px;height:34px;border-radius:17px;background:var(--navy);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+  .me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 12px rgba(47,123,246,.16)}
+  .meetpin{position:absolute;padding:6px 10px;border-radius:14px;background:var(--navy);color:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+  .grab{width:40px;height:5px;border-radius:3px;background:#C9CCD3;margin:-10px auto 14px}
+  .fadein{opacity:.45}
+  .msheet{position:absolute;left:0;right:0;top:404px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:22px 24px 0;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
+  .st{font-size:27px;font-weight:700;line-height:1.25}
+  .ss{font-size:16px;color:var(--ink2);margin-top:4px}
+  /* 抽屉里的竖线（只展开当前一步） */
+  .ctl{margin-top:14px;position:relative;padding-left:0}
+  .ctl .past{display:flex;gap:14px;align-items:center;position:relative;padding-bottom:10px}
+  .ctl .past:before{content:"";position:absolute;left:10px;top:20px;bottom:-2px;width:3px;background:var(--navy)}
+  .ctl .mini{width:23px;height:23px;flex:none;display:flex;align-items:center;justify-content:center}
+  .ctl .mini i{width:13px;height:13px;border-radius:7px;background:var(--navy);display:block}
+  .ctl .past span{font-size:14px;color:var(--ink2)}
+  .ctl .cur{display:flex;gap:14px;align-items:center}
+  .ctl .cur .nlabel{flex:1}
+  .ctl .all{font-size:14px;color:#2F4BD6;font-weight:600}
+  .who{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin-top:14px}
+  .av{width:48px;height:48px;border-radius:24px;background:var(--blue);color:var(--blueInk);font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
+  .who .n{font-size:19px;font-weight:700}
+  .who .d{font-size:14px;color:var(--ink2);margin-top:2px}
+  .chipbtn{margin-left:auto;height:44px;padding:0 14px;border-radius:22px;background:var(--chip);font-size:15px;font-weight:600;display:flex;align-items:center}
+  .line{display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);font-size:17px}
+  .line span{font-size:14px;color:var(--ink2)}
+  .stats{display:flex;gap:28px;margin-top:14px;align-items:flex-end}
+  .stats .big{font-size:44px;font-weight:700;letter-spacing:-1px;line-height:1}
+  .stats .big small{font-size:18px;font-weight:600;margin-left:2px}
+  .stats div p{font-size:13px;color:var(--ink2)}
+  .stats div b{font-size:22px}
+  .result{margin-top:14px;background:var(--green);border-radius:16px;padding:14px 16px;color:#fff;display:flex;gap:26px;align-items:flex-end}
+  .result .big{font-size:40px;font-weight:700;line-height:1}
+  .result .big small{font-size:16px;margin-left:2px}
+  .result p{font-size:12px;color:#D5EEDD}
+  .result b{font-size:20px}
+  .bottom.panel{z-index:6;left:0;right:0;bottom:0;padding:14px 24px 30px;background:#fff;box-shadow:0 -10px 18px rgba(255,255,255,.95)}
+  .bottom{position:absolute;left:24px;right:24px;bottom:30px}
+  .cta{height:56px;border-radius:28px;background:var(--navy);color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+  .cta.ghost{background:#fff;color:var(--ink);border:1.5px solid #C9CCD3}
+
+  /* v7 */
+  .vtag{display:inline-block;font-size:14px;font-weight:700;border-radius:6px;padding:3px 10px;margin-bottom:16px}
+  .vtag.old{background:#E0E1E6;color:#3A3F4B}
+  .vtag.new{background:#DDE6FF;color:#1E2A6E}
+  .side{width:420px;padding-top:44px}
+  .side .anno{font-size:13px;line-height:1.75}
+  .node.now .dot{box-shadow:0 0 0 4px rgba(31,36,51,.16)}
+  .pre{font-size:13px;font-weight:600;color:var(--ink3);margin-right:8px}
+  .chev{margin-left:6px;font-weight:600}
+  .node.fold .nlabel{font-size:15px;font-weight:500;color:var(--ink2)}
+  .node.more .dot{background:#fff;border:2.5px solid var(--todo)}
+  .node.more .nlabel{font-size:15px;font-weight:600;color:#2F4BD6}
+  table.m{border-collapse:collapse;font-size:13px;margin:4px 0 6px;background:#fff;border-radius:10px;overflow:hidden}
+  table.m th,table.m td{padding:7px 14px;border-bottom:1px solid var(--line);text-align:center}
+  table.m th:first-child,table.m td:first-child{text-align:left}
+  table.m th{background:#F4F5F8;font-weight:600}
+
+  .vrow{display:flex;gap:28px;align-items:flex-start;margin-bottom:44px}
+  .vhead{font-size:20px;font-weight:700;margin:0 0 14px}
+  .side{width:400px;padding-top:0}
+  .tealbg{background:linear-gradient(160deg,#0B4A53 0%,#0F6570 100%)}
+  .greenbg{background:linear-gradient(160deg,#124F2B 0%,#1B6E3F 100%)}
+  .rhero{position:absolute;left:0;right:0;top:0;padding:106px 24px 0;color:#fff}
+  .krow{display:flex;justify-content:space-between;align-items:center;font-size:16px;font-weight:600;color:#E3F3F4}
+  .krow span{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:500}
+  .krow span i{width:8px;height:8px;border-radius:4px;background:#7BE0A0;display:block}
+  .dist{font-size:92px;font-weight:700;letter-spacing:-2.5px;line-height:1;margin-top:12px}
+  .dist small{font-size:24px;font-weight:600;letter-spacing:0;margin-left:6px}
+  .pair{display:flex;gap:40px;margin-top:22px}
+  .pair b{display:block;font-size:32px;font-weight:700;line-height:1.1}
+  .pair p{font-size:15px;color:#E3F3F4;margin-top:4px}
+  .when{font-size:15px;color:#E3F3F4;margin-top:18px}
+  .rsheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:10px 24px 0}
+  .lastkm{display:flex;justify-content:space-between;align-items:baseline;padding:16px 0 4px;font-size:19px;font-weight:600}
+  .lastkm b{font-size:28px;font-weight:700}
+  .faint{font-size:15px;color:var(--ink2)}
+  .bigbtn{position:absolute;left:24px;right:24px;bottom:30px;border-radius:32px;background:var(--navy);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+  .bigbtn b{font-size:26px}
+  .bigbtn p{font-size:15px;color:#C9CFDB}
+  .route{border-radius:16px;overflow:hidden;position:relative;background:#EDEBE6}
+  .route .pk{position:absolute;left:0;top:0;bottom:0;width:66%;background:#D9E8CF}
+  .route .rd{position:absolute;background:#fff}
+  .route .tagp{position:absolute;right:10px;bottom:10px;padding:5px 10px;border-radius:12px;background:#1B6E3F;color:#fff;font-size:13px;font-weight:600}
+  .rsheet .who{border-top:none;margin-top:4px}
+  .rsheet .line{min-height:64px;padding:0}
+  /* B 全屏色 */
+  .full{position:absolute;inset:0;color:#fff;padding:106px 24px 0}
+  .full .dist{font-size:124px;letter-spacing:-4px}
+  .full .dist small{font-size:28px}
+  .full .pair b{font-size:42px}
+  .full .pair p{font-size:16px}
+  .wl{display:flex;justify-content:space-between;align-items:center;min-height:60px;font-size:20px;border-top:1px solid rgba(255,255,255,.22)}
+  .wl b{font-size:24px}
+  .wbtn{position:absolute;left:24px;right:24px;bottom:30px;border-radius:36px;background:#fff;display:flex;align-items:center;justify-content:center;gap:12px;font-size:24px;font-weight:700}
+  .gchip{height:44px;padding:0 16px;border-radius:22px;background:rgba(255,255,255,.18);color:#fff;font-size:16px;font-weight:600;display:flex;align-items:center}
+  .gchip.o{background:transparent;border:1.5px solid rgba(255,255,255,.75)}
+  .frow{display:flex;align-items:center;gap:12px;min-height:64px;font-size:19px;font-weight:600}
+  .frow .gchip:first-of-type{margin-left:auto}
+  .wav{width:44px;height:44px;border-radius:22px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:19px;flex:none}
+  /* C 卡片 */
+  .cpage{position:absolute;inset:0;background:#F2F3F6;padding:106px 16px 0}
+  .ctitle{font-size:30px;font-weight:700;padding:0 8px}
+  .csub{font-size:15px;color:var(--ink2);padding:2px 8px 0;display:flex;align-items:center;gap:6px}
+  .csub i{width:8px;height:8px;border-radius:4px;background:#1E7A46;display:block}
+  .ccard{background:#fff;border-radius:20px;padding:16px 18px;margin-top:14px}
+  .ccard.col{color:#fff;padding:20px 22px}
+  .ccard.tealbg{background:linear-gradient(160deg,#0B4A53 0%,#0F6570 100%)}
+  .ccard.greenbg{background:linear-gradient(160deg,#124F2B 0%,#1B6E3F 100%)}
+  .ccard.col .dist{font-size:76px;margin-top:0}
+  .ccard.col .pair{margin-top:16px}
+  .ccard.col .pair b{font-size:28px}
+  .ctl{font-size:14px;color:var(--ink2);margin-bottom:8px}
+  .bar{display:flex;align-items:center;gap:10px;height:36px;font-size:16px}
+  .bar .nm{width:74px;flex:none}
+  .bar .tr{flex:1;height:12px;border-radius:6px;background:#E6E7EB;overflow:hidden}
+  .bar .tr i{display:block;height:100%;border-radius:6px;background:#0F6570}
+  .bar b{width:58px;text-align:right;font-size:18px}
+  .bar.cur{color:var(--ink2)}
+  .bar.cur .tr i{background:#9CC9CE}
+  .crow{display:flex;justify-content:space-between;align-items:center;min-height:32px;font-size:17px}
+  .crow b{font-weight:600}
+  .lchip{height:44px;padding:0 16px;border-radius:22px;background:var(--chip);font-size:16px;font-weight:600;display:flex;align-items:center}
+  .ccap{text-align:center;font-size:14px;color:var(--ink2);margin-top:14px}
+
+  .ccard.col .dist{font-size:92px}
+  .ccard.col{padding:22px 22px 20px}
+  .hit{position:absolute;left:10px;right:10px;bottom:14px;border:2px dashed #7C8AA5;border-radius:26px}
+  .hit span{position:absolute;right:12px;top:-11px;background:#F2F3F6;padding:0 6px;font-size:12px;color:#4A5876;font-weight:600}
+  /* 最大字号 */
+  .ax .ctitle{font-size:42px}
+  .ax .csub{font-size:23px;flex-wrap:wrap}
+  .ax .ccard.col .dist{font-size:108px}
+  .ax .ccard.col .dist small{font-size:34px}
+  .ax .stk{margin-top:14px}
+  .ax .stk b{display:block;font-size:46px;font-weight:700;line-height:1.1}
+  .ax .stk p{font-size:24px;color:#E3F3F4;margin-bottom:10px}
+  .ax .big1{font-size:28px;font-weight:600}
+  .ax .big1 b{display:block;font-size:44px;margin-top:2px}
+  .ax .cta{height:76px;border-radius:38px;font-size:28px}
+  .fade{position:absolute;left:0;right:0;bottom:0;height:150px;background:linear-gradient(to bottom,rgba(242,243,246,0),#F2F3F6 38%)}
+</style></head><body><h1>盲人订单页 跑步中 / 已完成：方向 C 修订版（2026-11-12，负责人 11-12 定稿，#966）</h1>
+<p class="lead">负责人 11-12 看三个方向后说「我自己看我会喜欢最后一版」（C，浅灰底 + 卡片），并提出：跑步中和跑完了的彩色卡放在<b>同一个位置</b>，跑完了的地图和卡调换顺序。本稿照这两条改，另补我对 C 的三处顾虑。<br>演示地点是公共地点，人名已脱敏。① – ⑥ 不在本稿范围，照 v7。</p>
+<div class="vhead">标准字号</div><div class="vrow"><div class="cell"><div class="phone"><div class="cpage"><div class="ctitle">陪跑中</div><div class="csub">和陈一起 · <i></i>定位正常</div>
+  <div class="ccard col tealbg"><div class="dist">2.40<small>公里</small></div><div class="pair"><div><b>18:32</b><p>用时</p></div><div><b>7′43″</b><p>每公里配速</p></div></div></div>
+  <div class="ccard"><div class="ctl">每公里</div>
+   <div class="bar"><span class="nm">第 1 公里</span><div class="tr"><i style="width:92%"></i></div><b>7′50″</b></div>
+   <div class="bar"><span class="nm">第 2 公里</span><div class="tr"><i style="width:86%"></i></div><b>7′36″</b></div>
+   <div class="bar cur"><span class="nm">第 3 公里</span><div class="tr"><i style="width:36%"></i></div><b style="font-size:14px;font-weight:500">进行中</b></div></div>
+  <div class="ccard" style="padding:18px"><div class="crow">行程分享给家人<b>已开</b></div></div></div><div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos live"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+  <div class="hit" style="height:152px"><span>可点区域</span></div>
+  <div class="bottom"><div class="cta"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg> 听当前状态</div></div></div><div class="cap">陪跑中</div></div><div class="cell"><div class="phone"><div class="cpage"><div class="ctitle">跑完了</div><div class="csub">和陈一起 · 今天 7:02 – 7:44</div>
+  <div class="ccard col greenbg"><div class="dist">5.20<small>公里</small></div><div class="pair"><div><b>42 分钟</b><p>用时</p></div><div><b>8′04″</b><p>每公里配速</p></div></div></div>
+  <div style="margin-top:10px"><div class="route" style="height:84px"><div class="pk"></div><div class="rd" style="left:0;right:0;bottom:10px;height:8px"></div><div class="rd" style="left:66%;top:0;bottom:0;width:10px"></div>
+    <svg style="position:absolute;left:0;top:0" width="342" height="84"><polyline points="150,58 30,58 30,26 215,26 215,58 150,58" stroke="#1B6E3F" stroke-width="5" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="150" cy="58" r="6" fill="#fff" stroke="#1B6E3F" stroke-width="3"/></svg>
+    <div class="tagp">朝阳公园南门 · 一圈</div></div></div>
+  <div class="ccard" style="margin-top:10px;display:flex;align-items:center;gap:12px;padding:12px 18px"><div class="av">陈</div><div><div style="font-size:18px;font-weight:700">陈*</div><div class="faint" style="font-size:14px">你们第 3 次一起跑</div></div><div class="lchip" style="margin-left:auto">设为固定搭档</div></div>
+  <div class="ccard" style="margin-top:10px;padding:12px 14px"><div style="font-size:16px;font-weight:600;margin-bottom:8px;padding-left:4px">这次陪跑怎么样</div><div style="display:flex;gap:6px"><div style="flex:1;height:52px;border-radius:12px;border:1.5px solid #D5D8DF;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#4A4F5C;gap:1px"><span style="font-size:15px">🏃</span>很差</div><div style="flex:1;height:52px;border-radius:12px;border:1.5px solid #D5D8DF;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#4A4F5C;gap:1px"><span style="font-size:15px">🏃</span>较差</div><div style="flex:1;height:52px;border-radius:12px;border:1.5px solid #D5D8DF;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#4A4F5C;gap:1px"><span style="font-size:15px">🏃</span>一般</div><div style="flex:1;height:52px;border-radius:12px;border:1.5px solid #D5D8DF;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#4A4F5C;gap:1px"><span style="font-size:15px">🏃</span>顺利</div><div style="flex:1;height:52px;border-radius:12px;border:1.5px solid #D5D8DF;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#4A4F5C;gap:1px"><span style="font-size:15px">🏃</span>很顺利</div></div></div>
+  <div class="ccap" style="margin-top:8px">本月第 4 次 · 共 18.6 公里</div></div><div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div></div>
+  <div class="bottom"><div class="cta">完成</div></div></div><div class="cap">已完成</div></div><div class="side"><div class="anno note" style="margin-top:0;font-size:13px;line-height:1.75"><h4>相对上一轮 C 改了四处</h4><b>1. 彩色卡同一个位置、同一个大小</b>（负责人提的）。两屏都是：标题 → 彩色卡 → 其余。从跑步中到跑完了，卡片原地由青绿变绿，数字不跳位置。跑完了的地图挪到卡片下面。<br><b>2. 里程放大到 92pt</b>（上一轮是 76pt / 64pt）。<br><b>3. 主按钮样子不变，可点区域扩大</b>。虚线框是可点范围，覆盖底部整块空白，随手拍得到；看上去仍是一条克制的胶囊。虚线只是标注，真机上看不见。<br><b>4. 每张卡片合成一个读屏元素</b>。跑步中从标题到主按钮划 4 下，已完成划 6 下。<h4>没变的</h4>每公里横条、分享状态、陪跑员与「设为固定搭档」、当页放现有的五档评价（很差 / 较差 / 一般 / 顺利 / 很顺利；负责人 11-12 定：用已经做好的那套，不用「挺好 / 不太好」）、本月累计。</div></div></div>
+<div class="vhead">最大字号（辅助功能最大一档）</div><div class="vrow"><div class="cell"><div class="phone ax"><div class="cpage"><div class="ctitle">陪跑中</div><div class="csub">和陈一起 · <i></i>定位正常</div>
+  <div class="ccard col tealbg"><div class="dist">2.40<small>公里</small></div><div class="stk"><b>18:32</b><p>用时</p><b>7′43″</b><p style="margin-bottom:0">每公里配速</p></div></div>
+  <div class="ccard big1">刚跑完第 2 公里<b>7′36″</b></div>
+  <div class="ccard big1">行程分享给家人<b>已开</b></div></div><div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div><div class="sos live"><svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 1.2 13 3.3v4.4c0 3.4-2.3 5.9-5.5 7.1C4.3 13.6 2 11.1 2 7.7V3.3z"/></svg> 求助</div></div>
+  <div class="fade"></div><div class="bottom" style="left:16px;right:16px;bottom:24px"><div class="cta"><svg width="28" height="25" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg> 听当前状态</div></div></div><div class="cap">陪跑中</div></div><div class="cell"><div class="phone ax"><div class="cpage"><div class="ctitle">跑完了</div><div class="csub">和陈一起 · 今天 7:02 – 7:44</div>
+  <div class="ccard col greenbg"><div class="dist">5.20<small>公里</small></div><div class="stk"><b>42 分钟</b><p>用时</p><b>8′04″</b><p style="margin-bottom:0">每公里配速</p></div></div>
+  <div style="margin-top:12px"><div class="route" style="height:150px"><div class="pk"></div><div class="rd" style="left:0;right:0;bottom:10px;height:8px"></div><div class="rd" style="left:66%;top:0;bottom:0;width:10px"></div>
+    <svg style="position:absolute;left:0;top:0" width="342" height="150"><polyline points="150,124 30,124 30,26 215,26 215,124 150,124" stroke="#1B6E3F" stroke-width="5" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="150" cy="124" r="6" fill="#fff" stroke="#1B6E3F" stroke-width="3"/></svg>
+    <div class="tagp">朝阳公园南门 · 一圈</div></div></div>
+  <div class="ccard big1">陈*<b style="font-size:28px">你们第 3 次一起跑</b></div></div><div class="top"><div class="round">‹</div><div class="spacer"></div><div class="round"><svg width="20" height="18" viewBox="0 0 20 18" fill="currentColor"><path d="M2 6h3.5L10 2v14l-4.5-4H2z"/><path d="M13 5.5a5 5 0 0 1 0 7M15.5 3a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg></div></div>
+  <div class="fade"></div><div class="bottom" style="left:16px;right:16px;bottom:24px"><div class="cta">完成</div></div></div><div class="cap">已完成</div></div><div class="side"><div class="anno note" style="margin-top:0;font-size:13px;line-height:1.75"><h4>最大字号怎么排</h4>彩色卡仍在同一位置：里程 108pt，用时和配速改成上下排。<br>跑步中：每公里只留最新一公里，不画横条；分享状态一张卡。<br>已完成：卡片下面是路线图，再往下滑是陪跑员、评价、本月累计。<br>主按钮钉在底部不随内容滚动，内容从它后面淡出。<h4>注意</h4>这两屏是按比例放大的示意，真机上的换行位置会有出入，要装机后再对一次。</div></div></div>
+<div class="anno note" style="max-width:1236px"><h4>仍没核的</h4>跑步中每公里分段数据拿不拿得到；有没有两人同跑次数；当页评价改了 11-07「评价只在跑步详情」（负责人 11-12 同意）。未画：深色模式、横屏。</div></body></html>
