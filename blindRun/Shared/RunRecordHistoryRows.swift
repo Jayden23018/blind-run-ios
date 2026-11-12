@@ -51,15 +51,17 @@ struct RunRecordSummaryCells: View {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(Array(cells.enumerated()), id: \.element.label) { index, cell in
                     if index > 0 { Divider() }
-                    if cell.valueRuns.count > 2 {
-                        // 服务时长最长（「2 小时 32 分钟」）：只占它自己要的宽度，余下的两格平分（#981）。
-                        // 不能给它 `maxWidth: .infinity` 再加优先级 —— 那样它会吃掉整行，另两格宽度变 0。
-                        cellView(cell).fixedSize(horizontal: true, vertical: false)
-                    } else {
+                    if cell.tone == .distance {
+                        // 距离格拿剩下的宽度，放不下时整格等比缩小（#981）。
                         cellView(cell).frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        // 次数、服务时长只占自己要的宽度。三格平均分宽时每格约 100pt，
+                        // 「2 小时 32 分钟」放不下，会把距离和时长都折成多行（#981）。
+                        cellView(cell).fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -69,21 +71,24 @@ struct RunRecordSummaryCells: View {
             Text(cell.label)
                 .font(.subheadline)
                 .foregroundColor(AppColors.textSecondary)
-                .lineLimit(1)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                ForEach(Array(cell.valueRuns.enumerated()), id: \.offset) { _, run in
-                    Text(run.text)
-                        .font(run.isNumber ? .title.weight(.bold) : .headline)
-                        .monospacedDigit()
-                }
-                if !cell.unit.isEmpty { Text(cell.unit).font(.headline) }
-            }
-            // 一个数不许被拆成两行（「11.」「5 公里」，#981）；真放不下时整行等比缩小。
-            // 大字号走上面的竖排分支，这里只管默认档附近。
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .foregroundColor(cell.tone.color)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            // 数字和单位拼成同一个 Text：`minimumScaleFactor` 只对单个 Text 生效，
+            // 分成几个 Text 时数字会被截成「1...」而不是缩小（#981 第二次真机截图）。
+            valueText(cell)
+                .monospacedDigit()
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                .minimumScaleFactor(0.7)
+                .foregroundColor(cell.tone.color)
         }
+    }
+
+    /// 数字大字、单位小字（「2 小时 32 分钟」的数字和单位交替）。
+    private func valueText(_ cell: RunRecordSummaryCell) -> Text {
+        var parts = cell.valueRuns.map { run in
+            Text(run.text).font(run.isNumber ? .title.weight(.bold) : .headline)
+        }
+        if !cell.unit.isEmpty { parts.append(Text(cell.unit).font(.headline)) }
+        return parts.dropFirst().reduce(parts.first ?? Text("")) { $0 + Text(" ").font(.headline) + $1 }
     }
 }
 
