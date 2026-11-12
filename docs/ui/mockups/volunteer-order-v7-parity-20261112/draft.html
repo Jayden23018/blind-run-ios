@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>陪跑员订单页补齐盲人端 v7 逻辑（2026-11-12，#962）</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;background:#E9EAEE;color:#14171F;padding:28px 32px 40px}
+h1{font-size:22px;margin-bottom:6px}
+.lead{font-size:13px;color:#4A4F5C;line-height:1.7;max-width:1300px;margin-bottom:22px}
+.g{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.cell{width:390px}
+.cap{font-size:14px;font-weight:600;margin:12px 0 4px}
+.ref{display:inline-block;font-size:12px;font-weight:600;background:#DDE6FF;color:#1E2A6E;border-radius:4px;padding:1px 6px;margin-bottom:6px}
+.anno{margin-top:6px;padding:12px 14px;background:#fff;border-radius:12px;font-size:12px;color:#4A4F5C;line-height:1.6}
+.ph{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;background:#fff;box-shadow:0 0 0 10px #111,0 10px 30px rgba(0,0,0,.25)}
+.tp{position:absolute;left:0;right:0;top:0;height:96px;padding:44px 16px 0;display:flex;align-items:center;gap:10px;z-index:5}
+.rd{width:44px;height:44px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.rd.dk{background:rgba(255,255,255,.12);box-shadow:none;color:#fff}
+.sos{height:44px;padding:0 16px;border-radius:22px;background:#fff;color:#D7263D;font-weight:700;font-size:16px;display:flex;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.sos.od{background:transparent;border:1.5px solid #FF8C95;color:#FF9AA2;box-shadow:none}
+.sos.lv{background:#D7263D;color:#fff}
+.bk{color:#A8C8FF;font-size:16px}.sp{flex:1}
+.hero{background:linear-gradient(115deg,#252A38 0%,#2C3243 55%,#353C4F 100%);height:232px;padding:108px 24px 0;color:#fff}
+.hero .k{font-size:15px;color:#C9CFDB;margin-bottom:6px}.hero .t{font-size:30px;font-weight:700;color:#A8C8FF;line-height:1.25}
+.sh{position:absolute;left:0;right:0;top:212px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:24px 24px 0}
+.pl{font-size:20px;font-weight:700}.sb{font-size:15px;color:#4A4F5C;margin-top:4px}
+.n{display:flex;gap:14px;position:relative;padding-bottom:13px}
+.n:before{content:"";position:absolute;left:10px;top:24px;bottom:-2px;width:3px;background:#C5C8CF}
+.n.d:before{background:#1F2433}.n:last-child:before{display:none}
+.wide .n{padding-bottom:22px}.wide .n:last-child{padding-bottom:0}
+.dt{width:23px;height:23px;border-radius:12px;flex:none;background:#C5C8CF;color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;z-index:1}
+.d .dt,.w .dt{background:#1F2433}.w .dt{box-shadow:0 0 0 4px rgba(31,36,51,.16)}.x .dt{background:#8A8F9A}
+.nl{font-size:17px;font-weight:600;line-height:23px}
+.f .nl{font-size:15px;font-weight:500;color:#4A4F5C}
+.m .dt{background:#fff;border:2.5px solid #C5C8CF}.m .nl{font-size:15px;color:#2F4BD6}
+.t2 .nl{color:#5F6470;font-weight:500}.g2 .nl{color:#8A8F9A;font-weight:500}
+.pre{font-size:13px;color:#5F6470;margin-right:8px}
+.nd{font-size:14px;color:#4A4F5C;margin-top:2px}
+.cd{margin-top:10px;border-radius:14px;overflow:hidden;background:#EEEFF2}
+.cd .dk{background:#2E3445;color:#fff;padding:12px 16px}.cd .dk p{font-size:13px;color:#C9CFDB}.cd .dk h3{font-size:20px;margin-top:2px}
+.cd .lt{display:flex;align-items:center;gap:14px;padding:12px 16px;font-size:15px}
+.av{width:48px;height:48px;border-radius:24px;background:#A9C8F7;color:#1F3A66;font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
+.bt{position:absolute;left:24px;right:24px;bottom:30px}
+.cta{height:56px;border-radius:28px;background:#1F2433;color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.cta.gh{background:#fff;color:#14171F;border:1.5px solid #C9CCD3}
+.tx{text-align:center;font-size:16px;color:#4A4F5C;height:44px;line-height:44px}
+.cap2{font-size:13px;color:#4A4F5C;text-align:center;margin-bottom:6px}
+.map{position:absolute;left:0;right:0;top:0;height:430px;background:#EDEBE6;overflow:hidden}
+.map.short{height:380px}
+.park{position:absolute;left:0;top:40px;width:262px;height:290px;background:#D9E8CF}
+.lake{position:absolute;left:40px;top:120px;width:90px;height:60px;border-radius:50%;background:#B9D7F0}
+.road{position:absolute;background:#fff}
+.pv{position:absolute;width:34px;height:34px;border-radius:17px;background:#1F2433;color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.me{position:absolute;width:18px;height:18px;border-radius:9px;background:#2F7BF6;border:3px solid #fff;box-shadow:0 0 0 12px rgba(47,123,246,.16)}
+.mp{position:absolute;padding:6px 10px;border-radius:14px;background:#1F2433;color:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+.ms{position:absolute;left:0;right:0;top:404px;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:22px 24px 0;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
+.ms.tall{top:354px}
+.grab{width:40px;height:5px;border-radius:3px;background:#C9CCD3;margin:-10px auto 14px}
+.st{font-size:27px;font-weight:700;line-height:1.25}.ss{font-size:16px;color:#2F4BD6;margin-top:4px}.ss.gr{color:#4A4F5C}
+.who{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #E6E7EB;border-top:1px solid #E6E7EB;margin-top:12px}
+.who .nn{font-size:19px;font-weight:700}.who .dd{font-size:14px;color:#4A4F5C}
+.chip{margin-left:auto;height:44px;padding:0 14px;border-radius:22px;background:#EEEFF2;font-size:15px;font-weight:600;display:flex;align-items:center}
+.ln{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #E6E7EB;font-size:17px}.ln span{font-size:14px;color:#4A4F5C}
+.chips{display:flex;gap:10px;margin-top:12px}.chips div{flex:1;height:48px;border-radius:24px;background:#EEEFF2;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.stats{display:flex;gap:26px;margin-top:12px;align-items:flex-end}.big{font-size:44px;font-weight:700;line-height:1}.big small{font-size:18px;margin-left:2px}.stats p{font-size:13px;color:#4A4F5C}.stats b{font-size:22px}
+.bar{height:8px;border-radius:4px;background:#E6E7EB;margin-top:14px;overflow:hidden}.bar i{display:block;height:8px;width:48%;background:#1F2433}
+.tip{margin-top:12px;background:#FFF3C4;border-radius:12px;padding:10px 14px;font-size:15px;color:#5A4500}
+.res{margin-top:16px;background:#1E7A46;border-radius:16px;padding:16px 18px;color:#fff}
+.res .big{font-size:44px}.res .three{display:flex;gap:32px;margin-top:14px}.res p{font-size:13px;color:#D5EEDD}.res b{font-size:20px}
+.star{margin-top:14px;border:1px solid #E6E7EB;border-radius:16px;padding:14px 16px}
+.star .h{display:flex;justify-content:space-between;font-size:16px;font-weight:600}.star .h span{font-size:14px;color:#4A4F5C;font-weight:400}
+.star .bar i{width:62%;background:#1E7A46;border-radius:4px}
+.box{margin-top:22px;background:#F4F5F8;border-radius:16px;padding:4px 16px}
+.row{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid #E6E7EB;font-size:16px}.row:last-child{border-bottom:none}.row span{color:#4A4F5C;font-size:15px}
+.lp{height:56px;border-radius:28px;background:#1F2433;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.lp i{position:absolute;left:0;top:0;bottom:0;width:30%;background:rgba(255,255,255,.18)}
+
+h2{font-size:18px;margin:34px 0 6px}
+.h2l{font-size:13px;color:#4A4F5C;line-height:1.7;max-width:1300px;margin-bottom:16px}
+.tag{display:inline-block;font-size:12px;font-weight:700;border-radius:4px;padding:2px 8px;margin-bottom:8px}
+.tag.old{background:#E3E4E8;color:#4A4F5C}.tag.new{background:#1F2433;color:#fff}
+.w.br .dt{box-shadow:0 0 0 9px rgba(31,36,51,.13)}
+.w.pop .dt{transform:scale(1.18);box-shadow:0 0 0 6px rgba(31,36,51,.10)}
+.ln2:before{background:linear-gradient(#1F2433 0 55%,#C5C8CF 55%) !important}
+.fade{opacity:.45}
+.breath{display:flex;gap:26px;background:#fff;border-radius:12px;padding:18px 20px 12px}
+.breath div{text-align:center}.breath i{display:block;width:23px;height:23px;border-radius:12px;background:#1F2433;margin:12px auto 10px}
+.breath .b1{box-shadow:0 0 0 3px rgba(31,36,51,.16)}.breath .b2{box-shadow:0 0 0 11px rgba(31,36,51,.12)}.breath .b0{box-shadow:0 0 0 6px rgba(31,36,51,.14)}
+.breath p{font-size:12px;color:#4A4F5C}
+.spin{width:28px;height:28px;border-radius:14px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;margin-bottom:14px}
+.spin.dk{border-color:#D5D7DC;border-top-color:#4A4F5C;margin:0 auto 10px}
+.oldtop{position:absolute;left:0;right:0;top:0;height:110px;background:#252A38}
+</style>
+</head>
+<body>
+<h1>陪跑员订单页补齐盲人端 v7 逻辑（2026-11-12，#962）</h1>
+<p class="lead">九屏版式 #953 已和盲人端一致（定稿 <code>volunteer-order-v7-20261111/</code>），这份稿只画逻辑上还没跟过来、而且看得见的四处。灰标签「现在」是 main 上的样子，黑标签「改后」是照盲人端搬过来的样子。看不见的两处只写不画：订单状态一变，读屏焦点移到页头（现在焦点变量从不赋值）；「跑者取消了」那句播报补上震动（现在只念不震）。示例地点是公共地点。</p>
+
+<h2>一、等跑者确认见面安排：圆点呼吸 + 已等时长 + 跑者确认那一刻（负责人 11-12 定只搬到这一页）</h2>
+<p class="h2l">照盲人端 <code>blind-matching-wait-20261111/</code>。邀请详情 ① 不加：它已有「回复剩 4:32」倒计时。<b>跑者没确认（这轮没约成）时不播动画、不打叉</b>：磨合里对方的表态客户端不许显示（AGENTS §5，无声拒绝是设计），沿用现在的处理。</p>
+<div class="g" id="g1"></div>
+
+<h2>二、看得见的三处逻辑差</h2>
+<p class="h2l">都照盲人端现有做法搬，不新增版式。</p>
+<div class="g" id="g2"></div>
+
+<script>
+const TOP=(dark,live,more=true)=>`<div class="tp">${dark?'<div class="bk">‹ 返回</div>':'<div class="rd">‹</div>'}<div class="sp"></div>${more?`<div class="rd ${dark?'dk':''}">···</div>`:''}<div class="sos ${live?'lv':dark?'od':''}">求助</div></div>`;
+const HERO=(k,t,cls='')=>`<div class="hero ${cls}"><div class="k">${k}</div><div class="t">${t}</div></div>`;
+const MAP=(extra,cls='')=>`<div class="map ${cls}"><div class="park"></div><div class="lake"></div><div class="road" style="left:0;right:0;top:330px;height:14px"></div><div class="road" style="left:262px;top:0;bottom:0;width:14px"></div>${extra}</div>`;
+const PLAN=[['开跑时间','11 月 10 日 7:00'],['在哪见','朝阳公园南门 · 门卫亭左边'],['跑者上衣','蓝色'],['你的上衣','黄色'],['配速','轻松']].map(([a,b])=>`<div style="padding:8px 0;border-bottom:1px solid #E6E7EB"><div style="font-size:12px;color:#4A4F5C">${a}</div><b style="font-size:16px">${b}</b></div>`).join('');
+const AWAIT=(cls,detail,fade='')=>TOP(1,0)+HERO('已提交见面安排','等待跑者陈确认',fade)+`<div class="sh"><div><div class="n d f"><div class="dt">✓</div><div class="nl">已完成 1 步 ›</div></div><div class="n ${cls}"><div class="dt">${cls.includes('d')?'✓':''}</div><div style="flex:1"><div class="nl">商量见面安排</div><div class="nd">${detail}</div><div class="cd ${fade}" style="background:#F4F5F8;padding:4px 14px">${PLAN}</div></div></div></div></div><div class="bt"><div class="cta gh ${fade}">修改见面安排</div></div>`;
+const SCHED=(cls='')=>TOP(1,0)+HERO('已约好','明天 7:00 开跑',cls)+`<div class="sh"><div class="pl">朝阳公园南门</div><div class="sb">11 月 10 日 周二 · 7:00</div><div style="margin-top:20px"><div class="n d f"><div class="dt">✓</div><div class="nl">已完成 2 步 ›</div></div><div class="n w"><div class="dt"></div><div style="flex:1"><div class="nl">等出发</div><div class="nd">出发前请确认你还会去</div><div class="cd"><div class="dk"><p>建议 6:35 出发</p><h3>骑车约 15 分钟到南门</h3></div><div class="lt"><div class="av">陈</div><div>你陪的跑者<br><b>陈* · 蓝色上衣</b></div></div></div></div></div><div class="n t2"><div class="dt"></div><div class="nl"><span class="pre">下一步</span>去南门汇合</div></div><div class="n t2"><div class="dt"></div><div class="nl">开跑</div></div></div></div><div class="bt"><div class="cta">确认我还会去</div></div>`;
+const MID=TOP(1,0)+`<div class="hero"><div class="k" style="opacity:.5">已提交见面安排 → 已约好</div><div class="t" style="opacity:.55">明天 7:00 开跑</div></div><div class="sh"><div><div class="n d f"><div class="dt">✓</div><div class="nl">已完成 1 步 ›</div></div><div class="n d ln2"><div class="dt">✓</div><div style="flex:1"><div class="nl">商量见面安排</div><div class="nd">跑者已确认</div></div></div><div class="n w fade"><div class="dt"></div><div class="nl">等出发</div></div></div></div><div class="bt"><div class="cta fade">确认我还会去</div></div>`;
+
+const S1=[
+{t:'new',tl:'A 等待中',c:'③ 等跑者确认（PENDING_INTRO_CALL，已提交安排单）',a:'当前圆点外圈呼吸（3pt ↔ 11pt，3 秒一个来回）。说明行改为「已等 12 分钟 · 跑者确认后即完成约定」，每分钟刷新，超过 1 小时写「已等 1 小时 5 分钟」。起点取安排单的 <code>submittedAt</code>（已在 <code>IntroCallMeetupPlan</code> 里）；拿不到就只留后半句。读屏念「商量见面安排，已等 12 分钟，进行中」，圆点不进读屏树，不放循环声音。',
+ h:AWAIT('w br','已等 12 分钟 · 跑者确认后即完成约定')},
+{t:'new',tl:'呼吸圆点',c:'只动当前这一颗',a:'与盲人端同一组参数。系统开了「减弱动态效果」时外圈固定 6pt，只靠「已等 N 分钟」刷新表示还在进行。',
+ h:null},
+{t:'new',tl:'C 0 – 0.3 秒',c:'跑者确认那一刻 · 圆点打勾',a:'推送到达时：当前圆点变成打勾并轻微放大回弹；同时震动一次（沿用 <code>RunOrderStatus.haptic</code>，不新增），播报沿用现有一句「已经约好。出发前请确认你还会去。」读屏开着时交给读屏念，焦点移到页头。',
+ h:AWAIT('d pop','跑者已确认')},
+{t:'new',tl:'C 0.3 – 0.8 秒',c:'竖线往下长 · 标题交叉淡入',a:'竖线从「商量见面安排」长到「等出发」；深色头标题从「等待跑者陈确认」淡出、「明天 7:00 开跑」淡入；安排单卡淡出。页面不整页滑动、不缩放（#953 动效约束）。',
+ h:MID},
+{t:'new',tl:'C 1 秒后定格',c:'定格在 ④ 已约好',a:'和现有 ④ 完全一样。人不在这一页时（锁屏、在别的页），回来直接显示 ④，不补放动画。系统开了「减弱动态效果」时，整段改成 0.25 秒淡入淡出（就是现在的效果）。',
+ h:SCHED()},
+];
+
+const LOADOLD=`<div class="oldtop"></div>`+TOP(1,0,0)+`<div style="position:absolute;top:150px;left:0;right:0;text-align:center"><div class="spin dk"></div><div style="font-size:16px;color:#4A4F5C">正在获取订单状态...</div></div>`;
+const LOADNEW=TOP(1,0,0)+`<div class="hero"><div class="spin"></div><div class="t">正在获取订单状态</div></div><div class="sh"></div>`;
+const CANCEL=(stopAt,why)=>{const steps=[['已接下陪跑','11 月 9 日 23:29'],['商量见面安排','已约好 11 月 10 日 7:00'],['等出发',''],['去南门汇合',''],['开跑','']];
+ let rows='';steps.forEach(([n,d],i)=>{if(i<stopAt)rows+=`<div class="n d"><div class="dt">✓</div><div><div class="nl">${n}</div>${d?`<div class="nd">${d}</div>`:''}</div></div>`;else if(i==stopAt)rows+=`<div class="n x"><div class="dt">×</div><div><div class="nl">${n}</div><div class="nd">${why}</div></div></div>`;else rows+=`<div class="n g2"><div class="dt"></div><div class="nl">${n}</div></div>`;});
+ return TOP(1,0,0)+HERO('已取消','陈取消了这次陪跑')+`<div class="sh"><div class="pl">不算你的取消</div><div class="sb">不需要做什么，可以继续接新的邀请</div><div class="wide" style="margin-top:26px">${rows}</div><div class="box"><div class="row"><span>原定时间</span>11 月 10 日 周二 7:00</div><div class="row"><span>集合点</span>朝阳公园南门</div><div class="row"><span>跑者</span>陈*</div></div></div><div class="bt"><div class="cta">回到首页</div></div>`;};
+const CANCELNOLOG=TOP(1,0,0)+HERO('已取消','陈取消了这次陪跑')+`<div class="sh"><div class="pl">不算你的取消</div><div class="sb">不需要做什么，可以继续接新的邀请</div><div class="box" style="margin-top:26px"><div class="row"><span>原定时间</span>11 月 10 日 周二 7:00</div><div class="row"><span>集合点</span>朝阳公园南门</div><div class="row"><span>跑者</span>陈*</div></div></div><div class="bt"><div class="cta">回到首页</div></div>`;
+const RUN=(route)=>MAP(route?`<svg style="position:absolute;left:0;top:0" width="390" height="430"><path d="M269 337 L60 337 L60 220 L180 220" stroke="#2F7BF6" stroke-width="5" fill="none"/></svg><div class="mp" style="left:206px;top:300px">起点 南门</div><div class="pv" style="left:165px;top:203px">陈</div>`:`<div class="pv" style="left:165px;top:203px">陈</div>`)+TOP(0,1,0)+`<div class="ms"><div class="grab"></div><div class="st">和陈一起跑步中</div><div class="stats"><div class="big">2.40<small>公里</small></div><div><p>用时</p><b>18:32</b></div><div><p>配速</p><b>7′43″</b></div></div><div class="bar"><i></i></div><div class="nd" style="margin-top:6px">还剩 2.6 公里 · 目标 5 公里</div><div class="ln">耳机语音播报<span>开 ›</span></div></div><div class="bt"><div class="lp"><i></i>长按 2 秒，结束陪跑</div><div class="tx">取消陪跑</div></div>`;
+
+const S2=[
+{t:'old',tl:'现在',c:'1 进订单页的第一帧',a:'订单数据还没回来时，先显示顶栏 + 白底转圈（旧加载页），数据回来再跳成 v7。每次从首页点进来都会闪一下。',h:LOADOLD},
+{t:'new',tl:'改后',c:'1 进订单页的第一帧',a:'照盲人端 #946：一进来就是 v7 外壳（顶栏 + 深色头 + 「正在获取订单状态」），数据回来后同一位置淡入真实内容。拉取失败时，在同一位置显示错误句。首页点进来时手上已有订单，就直接画那一态，不经过加载页。',h:LOADNEW},
+{t:'old',tl:'现在',c:'2 跑者已取消 · 竖线停在哪一步',a:'不管跑者在哪一步取消，竖线一律停在「等出发」打叉。跑者在你已出发 / 已到达后取消时，这里会说错。',h:CANCEL(2,'跑者在这一步取消了')},
+{t:'new',tl:'改后 · 已出发后取消',c:'2 跑者已取消 · 按状态记录停',a:'照盲人端：读订单状态记录里转成「已取消」那一条的原状态。约好 / 临期确认 → 停在「等出发」；已出发 / 已到达 → 停在「去南门汇合」（本图）。这个接口陪跑员有权限读（契约写明订单双方均可查）。',h:CANCEL(3,'跑者在这一步取消了')},
+{t:'new',tl:'改后 · 拿不到记录',c:'2 跑者已取消 · 记录拉不到',a:'照盲人端 #946：拿不到状态记录就不画竖线，只留标题、说明和信息卡，免得画错。',h:CANCELNOLOG},
+{t:'old',tl:'现在',c:'3 跑步中 · 地图',a:'跑步中地图上不画已跑过的路线，只有跑完那一页才画整条。',h:RUN(false)},
+{t:'new',tl:'改后',c:'3 跑步中 · 地图实时画路线',a:'照盲人端 ⑦：用同一份实时轨迹（<code>liveRunRoute</code>）边跑边画蓝线，跑完后换成整条绿色路线（⑧ 不变）。',h:RUN(true)},
+];
+const R=s=>`<div class="cell"><span class="tag ${s.t}">${s.tl}</span>${s.h?`<div class="ph">${s.h}</div>`:`<div class="breath"><div><i class="b1"></i><p>0 秒</p></div><div><i class="b2"></i><p>1.5 秒</p></div><div><i class="b1"></i><p>3 秒</p></div><div><i class="b0"></i><p>减弱动态效果</p></div></div>`}<div class="cap">${s.c}</div><div class="anno">${s.a}</div></div>`;
+document.getElementById('g1').innerHTML=S1.map(R).join('');
+document.getElementById('g2').innerHTML=S2.map(R).join('');
+</script>
+</body>
+</html>
