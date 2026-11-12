@@ -144,7 +144,8 @@ struct BlindMatchFirstBookingView: View {
     // MARK: 主按钮
 
     private var submitBar: some View {
-        PrimaryButton("开始找陪跑员", isLoading: viewModel.isSubmitting || isCheckingStartPoint) {
+        // 藏青：约跑页是订单流程第一步，下一屏就是藏青的订单页（负责人 2026-11-12 批准，#971）。
+        PrimaryButton("开始找陪跑员", isLoading: viewModel.isSubmitting || isCheckingStartPoint, tone: .navy) {
             Task { await submit() }
         }
         .disabled(currentSlot == nil || isCheckingStartPoint)

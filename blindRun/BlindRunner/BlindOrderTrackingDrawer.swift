@@ -80,7 +80,8 @@ struct BlindOrderTrackingDrawer: View {
             ForEach(lines, id: \.self) { line in
                 Text(line)
                     .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(AppColors.Flow.accent)
+                    // 灰字，与陪跑员端抽屉一致（#971，批准稿「到达：说明文字由蓝改灰」）。
+                    .foregroundColor(AppColors.Flow.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             // 只在异常时出现（拿不到陪跑员位置）。正常状态不显示任何反向提示。
@@ -175,6 +176,9 @@ struct BlindOrderTrackingDrawer: View {
             Text(title)
                 .flowFont(FlowV2Fonts.subhead(bold: true))
                 .foregroundColor(AppColors.Flow.onBlueTint)
+                // 「打电话给陪跑员」放不下时换行，不截断。
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(AppColors.Flow.blueTint, in: Capsule())

@@ -138,6 +138,8 @@ extension AppColors {
         /// 白字 14.37:1）。它同时是盲人端首页深蓝卡的底 —— 那边的变化是同一个产品方向，不是副作用。
         static let navyTone = Tone(light: 0x1B2657, dark: 0x203570)
         static let navy = flowDynamic(navyTone)
+        static let navySelectionStrokeTone = Tone(light: 0x1B2657, dark: 0xB8C3E6) // 约跑页选中格描边（#971）：暗色藏青压深卡仅 1.46:1
+        static let navySelectionStroke = flowDynamic(navySelectionStrokeTone)
 
         /// 深蓝卡上的次要文字（「下一次陪跑，已约好」、陪跑经验行）。亮暗同值 —— 底色是品牌
         /// 深色表面，前景跟着变反而会在其中一套上失配。「增强对比度」时提到纯白。
@@ -164,10 +166,9 @@ extension AppColors {
         static let bookingSubtitleTone = Tone(light: 0x3D4F80, dark: 0xC3D2F0)
         static let bookingSubtitle = flowDynamic(bookingSubtitleTone, highContrast: bookingTitleTone)
 
-        // MARK: 主按钮（黄）
+        // MARK: 黄（原主按钮色；#971 起主按钮改藏青，只剩铃铛、「撤销」、长按进度条等小面积强调）
 
-        /// 黄底亮暗同值：它是「当前最重要的那一个动作」的唯一标记，跟随外观变化会让这条
-        /// 线索在两套外观里强弱不一。
+        /// 黄底亮暗同值：跟随外观变化会让这条线索在两套外观里强弱不一。
         static let ctaTone = Tone(light: 0xF6C343, dark: 0xF6C343)
         static let cta = flowDynamic(ctaTone)
 

@@ -187,7 +187,7 @@ enum BlindMeetupPlanLayout {
 
 /// `POST /intro-call/notify-incoming` 的客户端节流：**60 秒内最多发一次**（设计文档 §4，修审查 #10）。
 ///
-/// 每次「再次致电」都会让陪跑员手机响一条 HIGH 通知「跑者正在给你打电话」。盲人连按几次拨号
+/// 每次「再打一次电话」都会让陪跑员手机响一条 HIGH 通知「跑者正在给你打电话」。盲人连按几次拨号
 /// （确认框点了取消、又点一次）时，对方会被同一句话连轰。节流只管通知，**拨号本身从不拦**。
 struct IntroCallIncomingNotifyThrottle: Equatable {
     static let interval: TimeInterval = 60

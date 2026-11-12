@@ -116,5 +116,36 @@ export const cases = [
     mode: 'post',
     expect: 0,
     swift: 'enum C { static let d = "以上数据来自平台记录，供你自己查看。向学校或单位申报星级需要通过全国志愿服务信息系统办理。" }'
+  },
+  // call-verb-zhidian（#971）：按钮与播报一律「打电话」。
+  {
+    name: '按钮文案用「致电」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let call = "致电陪跑员" }'
+  },
+  {
+    name: '播报句子里用「致电」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'func f(_ r: String) -> String { "你的上衣记录为\\(r)，如有误请致电更正。" }'
+  },
+  {
+    name: '注释行里提到旧文案「致电」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: '// 原文案是「致电陪跑员」，#971 改成「打电话给陪跑员」\nenum C { static let call = "打电话给陪跑员" }'
+  },
+  {
+    name: '行尾注释里提到「致电」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let call = "打电话给陪跑员" } // 原「致电陪跑员」'
+  },
+  {
+    name: '「打电话」文案（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let again = "再打一次电话" }'
   }
 ];

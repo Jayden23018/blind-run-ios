@@ -421,7 +421,7 @@ extension RunOrderStatus {
         // 也**不写具体提前多久确认** —— 那是后端配置（`departure-confirm-window-minutes`），
         // 写死就是编一个数字念给盲人听，同 `KeepWaitingCopy` 那条。
         case .scheduledConfirmed:
-            return "预约已确认。计划有变可在出发前致电陪跑员。"
+            return "预约已确认。计划有变可在出发前打电话给陪跑员。"
         case .pendingAccept:
             return "陪跑员已接单，请按预约时间前往或等待在出发地点。"
         case .inProgress:
@@ -458,7 +458,7 @@ extension RunOrderStatus {
             return "有陪跑员响应了你的预约，请先与对方通话确认。"
         // 与 `blindRunnerDescription` 同一条口径：不提闸门、不写具体提前量。
         case .scheduledConfirmed:
-            return "预约已确认。计划有变可在出发前致电陪跑员。"
+            return "预约已确认。计划有变可在出发前打电话给陪跑员。"
         case .pendingAccept:
             return "陪跑员已接单，请前往或等待在预约出发地点。"
         case .inProgress:
@@ -779,7 +779,7 @@ extension OrderDetailResponse {
         // 而他要在接下来几天里靠这句话安排自己的日程。
         case .scheduledConfirmed:
             guard let plannedStartForAnnouncement else { return "\(status.blindRunnerAnnouncement)\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")" }
-            return "预约已确认，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。计划有变可在出发前致电陪跑员。\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")"
+            return "预约已确认，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。计划有变可在出发前打电话给陪跑员。\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
                 return "陪跑员已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)陪跑员出发后会继续通知你。\(GuideRopeReminder.line(for: self, isVolunteer: false) ?? "")"

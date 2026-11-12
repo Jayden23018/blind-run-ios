@@ -104,23 +104,11 @@ struct BlindOrderTopBar: OrderV7TopBar {
 
     // MARK: 返回
 
+    /// 两种表面都是同一枚圆形 ‹（#971，负责人 2026-11-12 批准）：原来深色头上是「‹ 订单」文字键，
+    /// 与地图上、陪跑员端的圆钮三种样子。深色头上用深色圆底（稿 c-revised `.round.dark`）。
     private var backButton: some View {
         Button(action: onBack) {
-            HStack(spacing: 2) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                if surface == .onDark {
-                    Text("订单").flowFont(FlowV2Fonts.body())
-                }
-            }
-            .foregroundColor(surface == .onDark ? BlindOrderV7Palette.headerTitle : AppColors.Flow.primaryText)
-            .padding(.horizontal, surface == .onDark ? 8 : 0)
-            .frame(minWidth: BlindOrderTopBarMetrics.visibleSize, minHeight: BlindOrderTopBarMetrics.visibleSize)
-            .background {
-                if surface == .onMap { roundBackground }
-            }
-            .padding((BlindOrderTopBarMetrics.hitSize - BlindOrderTopBarMetrics.visibleSize) / 2)
-            .contentShape(Rectangle())
+            roundLabel(systemImage: "chevron.left")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("返回订单列表")

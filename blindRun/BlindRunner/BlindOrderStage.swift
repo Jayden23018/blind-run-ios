@@ -207,7 +207,8 @@ struct BlindOrderStagePresentation: Equatable {
         // 判据「拼不拼得出 tel: URL」：掩码串会被 `telURL` 拦掉（同 `BlindOrderFlowPresentation.primaryAction`）。
         if order.status.offersVolunteerCall,
            EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) != nil {
-            bottom.append(.callVolunteer(title: "打电话给\(name)"))
+            // 按钮用角色不带姓（#971）；页头标题才用姓。
+            bottom.append(.callVolunteer(title: "打电话给陪跑员"))
         }
         var menu: [BlindOrderMenuItem.Kind] = []
         if order.status.canBlindRunnerCancel { menu.append(.cancelBooking) }

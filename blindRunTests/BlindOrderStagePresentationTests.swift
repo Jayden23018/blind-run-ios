@@ -60,7 +60,7 @@ final class BlindOrderStagePresentationTests: XCTestCase, BlindRunTestSupport {
         var order = makeOrder(orderId: 1, status: .scheduledConfirmed)
         order.volunteerName = "陈*"
         let page = try XCTUnwrap(BlindOrderStagePresentation.make(order: order, canKeepWaiting: false))
-        XCTAssertEqual(page.bottom, [.callVolunteer(title: "打电话给陈")])
+        XCTAssertEqual(page.bottom, [.callVolunteer(title: "打电话给陪跑员")])
     }
 
     /// 掩码串绝不能拼 `tel:`（`AGENTS.md` §5）：拼不出可拨 URL 时整个按钮不出现。

@@ -5,11 +5,16 @@ import SwiftUI
 /// 全宽大按钮，盲人端主操作按钮最小高度 `AppTouchTarget.blindPrimary`（64pt）。
 /// 支持普通和危险操作两种样式。
 struct PrimaryButton: View {
+    /// 实心底色。默认亮蓝（全 App 主按钮，#749）；订单流程（约跑页起）用藏青 `AppColors.Flow.navy`，
+    /// 与订单页 `BlindOrderStageButton` 同色（负责人 2026-11-12 批准，#971）。
+    enum Tone { case accent, navy }
+
     let title: String
     /// 标题下面一行小字（屏 3b「拨打120 / 急救电话」）。默认 nil，其余调用点不变。
     let subtitle: String?
     let isDestructive: Bool
     let isLoading: Bool
+    let tone: Tone
     let action: () -> Void
 
     init(
@@ -17,12 +22,14 @@ struct PrimaryButton: View {
         subtitle: String? = nil,
         isDestructive: Bool = false,
         isLoading: Bool = false,
+        tone: Tone = .accent,
         action: @escaping () -> Void
     ) {
         self.title = title
         self.subtitle = subtitle
         self.isDestructive = isDestructive
         self.isLoading = isLoading
+        self.tone = tone
         self.action = action
     }
 
@@ -48,7 +55,7 @@ struct PrimaryButton: View {
             }
             .padding(.vertical, subtitle == nil ? 0 : AppSpacing.small)
         }
-        .buttonStyle(PrimaryButtonStyle(isDestructive: isDestructive, isLoading: isLoading))
+        .buttonStyle(PrimaryButtonStyle(isDestructive: isDestructive, isLoading: isLoading, tone: tone))
         .disabled(isLoading)
         .accessibilityLabel(subtitle.map { "\(title)，\($0)" } ?? title)
         .accessibilityHint(isDestructive ? "危险操作，需要二次确认" : "点击执行操作")
@@ -82,6 +89,8 @@ struct PrimaryButtonStyle: ButtonStyle {
     /// 提交中：按钮被 `.disabled` 挡住重复点击，但仍按可用态画（转圈压在原色上），
     /// 免得一按下去就变灰，看起来像出错。
     var isLoading = false
+    /// `.navy`：藏青底白字（亮 `#1B2657` 14.37:1、暗 `#203570` 11.64:1），按下 85% 不透明，同 `BlindOrderStageButton`。
+    var tone: PrimaryButton.Tone = .accent
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -100,6 +109,9 @@ struct PrimaryButtonStyle: ButtonStyle {
         if looksDisabled { return AppColors.ButtonPalette.disabledFill }
         if isDestructive {
             return isPressed ? AppColors.ButtonPalette.destructiveFillPressed : AppColors.destructive
+        }
+        if tone == .navy {
+            return isPressed ? AppColors.Flow.navy.opacity(0.85) : AppColors.Flow.navy
         }
         return isPressed ? AppColors.ButtonPalette.primaryFillPressed : AppColors.ButtonPalette.primaryFill
     }

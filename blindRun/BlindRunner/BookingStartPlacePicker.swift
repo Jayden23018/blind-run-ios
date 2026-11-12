@@ -5,7 +5,8 @@ import SwiftUI
 ///
 /// v4 是两个一模一样的白胶囊「当前位置 / 常用地点」，看不出区别，常用地点也只能用首页那一个默认的。
 /// v5 照「默认出发地点」页（#817）的资料库圆排：当前定位（蓝箭头）、每个常用地点（按地名配图标、写离你几公里）、添加。
-/// 选中的圆外一圈蓝环，下面写「这次从这里」—— 只管这一单，不改默认出发地点。
+/// 选中的圆外一圈藏青环，下面写「这次从这里」—— 只管这一单，不改默认出发地点。
+/// 颜色 2026-11-12 由亮蓝改藏青（#971）：约跑页是订单流程第一步，整页强调色与订单页同为藏青。
 /// 辅助功能大字档一排四个圆放不下，改成一行一个的列表（同默认出发地点页 ④）。
 struct BookingStartPlacePicker: View {
     let places: [ResolvedPlace]
@@ -20,6 +21,18 @@ struct BookingStartPlacePicker: View {
     let onAdd: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// 这一页的强调色（#971）。
+    private static let accent = AppColors.Flow.navy
+    /// 当前定位圆：资料库里是亮蓝底，这一页换藏青底。
+    private static let currentLocationIcon = BlindStartPlaceIcon(symbol: BlindStartPlaceIcon.currentLocation.symbol, fill: accent)
+    /// 添加圆：加号换藏青。
+    private static let addIcon = BlindStartPlaceIcon(
+        symbol: BlindStartPlaceIcon.add.symbol,
+        fill: BlindStartPlaceIcon.add.fill,
+        glyph: accent,
+        stroke: BlindStartPlaceIcon.add.stroke
+    )
 
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .top), count: 4)
     private var usesList: Bool { dynamicTypeSize.isAccessibilitySize }
@@ -43,6 +56,7 @@ struct BookingStartPlacePicker: View {
                             accessibilityHint: item.accessibilityHint,
                             identifier: item.identifier,
                             selectedTag: BookingStartPlaceCopy.selectedTag,
+                            accent: Self.accent,
                             action: item.action
                         )
                     }
@@ -76,7 +90,7 @@ struct BookingStartPlacePicker: View {
             id: "current",
             title: BlindStartPlaceCopy.currentLocation,
             subtitle: BlindStartPlaceCopy.currentLocationFollows,
-            icon: .currentLocation,
+            icon: Self.currentLocationIcon,
             isSelected: isCurrentSelected,
             accessibilityLabel: isCurrentSelected
                 ? "\(BlindStartPlaceCopy.currentLocation)，\(BookingStartPlaceCopy.selectedSpoken)"
@@ -108,7 +122,7 @@ struct BookingStartPlacePicker: View {
                 id: "add",
                 title: usesList ? BlindStartPlaceCopy.addSpoken : BlindStartPlaceCopy.add,
                 subtitle: nil,
-                icon: .add,
+                icon: Self.addIcon,
                 isSelected: false,
                 accessibilityLabel: BlindStartPlaceCopy.addSpoken,
                 accessibilityHint: "搜索地点并收藏",
@@ -129,12 +143,13 @@ struct BookingStartPlacePicker: View {
                 isSelected: false,
                 prominent: true,
                 iconDiameter: 52,
-                subtitleIsDefaultTag: item.isSelected
+                subtitleIsDefaultTag: item.isSelected,
+                accent: Self.accent
             )
             .overlay(alignment: .leading) {
                 if item.isSelected {
                     Rectangle()
-                        .fill(AppColors.primary)
+                        .fill(Self.accent)
                         .frame(width: 4)
                         .accessibilityHidden(true)
                 }

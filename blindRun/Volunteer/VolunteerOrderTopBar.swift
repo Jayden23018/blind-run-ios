@@ -60,23 +60,17 @@ struct VolunteerOrderTopBar: OrderV7TopBar {
         .accessibilityElement(children: .contain)
     }
 
+    /// 两种表面都是同一枚圆形 ‹（#971，负责人 2026-11-12 批准）：原来深色头上是「‹ 返回」文字键。
+    /// 深色头上用深色圆底（稿 c-revised `.round.dark`），读屏仍念「返回」。
     private var backButton: some View {
         Button(action: onBack) {
-            HStack(spacing: 2) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                if surface == .onDark {
-                    Text("返回").flowFont(FlowV2Fonts.body())
-                }
-            }
-            .foregroundColor(surface == .onDark ? BlindOrderV7Palette.headerTitle : AppColors.Flow.primaryText)
-            .padding(.horizontal, surface == .onDark ? 8 : 0)
-            .frame(minWidth: BlindOrderTopBarMetrics.visibleSize, minHeight: BlindOrderTopBarMetrics.visibleSize)
-            .background {
-                if surface == .onMap { roundBackground }
-            }
-            .padding((BlindOrderTopBarMetrics.hitSize - BlindOrderTopBarMetrics.visibleSize) / 2)
-            .contentShape(Rectangle())
+            Image(systemName: "chevron.left")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(surface == .onDark ? .white : AppColors.Flow.primaryText)
+                .frame(width: BlindOrderTopBarMetrics.visibleSize, height: BlindOrderTopBarMetrics.visibleSize)
+                .background(roundBackground)
+                .padding((BlindOrderTopBarMetrics.hitSize - BlindOrderTopBarMetrics.visibleSize) / 2)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("返回")

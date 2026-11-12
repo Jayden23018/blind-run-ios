@@ -80,9 +80,10 @@ struct OrderFlowBottomActions: View {
     var secondary: AnyView? = nil
     /// `nil` = 这一屏不提供求助与安全。
     let safetyHub: OrderFlowSafetyHubAction?
-    /// 主按钮用订单页 v7 的深色胶囊（`BlindOrderStageButton`），不用黄色。盲人订单页出发到已完成四屏打开
-    /// （负责人 2026-11-12：开跑后的按钮「应该统一变成我的那一个深黑色」，和前四屏一致）。
-    var usesNavyPrimary = false
+    /// 主按钮用订单页 v7 的深色胶囊（`BlindOrderStageButton`），不用黄色。
+    /// 负责人 2026-11-12：开跑后的按钮「应该统一变成我的那一个深黑色」；同日批准订单流程两端主按钮统一藏青（#971），
+    /// 所以默认打开，陪跑员端地图三态（`VolunteerOrderFlowPage+Drawer`）也走它。传 `false` 走 `FlowActionButton(.primary)`（同为藏青，形状是圆角矩形）。
+    var usesNavyPrimary = true
 
     var body: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
@@ -110,6 +111,7 @@ struct OrderFlowBottomActions: View {
                             systemImage: primary.systemImage,
                             style: .solid,
                             isEnabled: primary.isEnabled && !primary.isLoading,
+                            isLoading: primary.isLoading,
                             accessibilityHint: primary.resolvedAccessibilityHint,
                             action: primary.action
                         )

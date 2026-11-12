@@ -2586,7 +2586,7 @@ final class AccessibilityAuditTests: XCTestCase {
     /// B3「确认见面安排」（视觉稿 v2 ③ B3）：
     /// - 标题是一个读屏元素，念「陪跑员李已提交见面安排，共 2 项变更。」（去星号）；
     /// - 下面五项各自一个元素，**从上到下**是 开跑时间 → 集合地点 → 具体见面位置 → 上衣颜色 → 固定句；
-    /// - 「有异议，致电沟通」「确认见面安排」在底部**同高**且 ≥ 64pt（订单页 v7 #917：胶囊 52pt 可见、64pt 可点）；
+    /// - 「有异议，打电话沟通」「确认见面安排」在底部**同高**且 ≥ 64pt（订单页 v7 #917：胶囊 52pt 可见、64pt 可点）；
     ///   「更换陪跑员」在顶栏「···」里；
     /// - 右上角「求助」不滚动就在屏内、点得到；
     /// - 整页过一遍无障碍审计。
@@ -2638,7 +2638,7 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertTrue(button.isHittable, "\(button.identifier) 点不到")
         }
         XCTAssertEqual(confirm.label, "确认见面安排")
-        XCTAssertEqual(dispute.label, "有异议，致电沟通")
+        XCTAssertEqual(dispute.label, "有异议，打电话沟通")
         XCTAssertGreaterThanOrEqual(confirm.frame.height, Self.minimumBlindPrimaryButtonHeight)
         XCTAssertEqual(
             confirm.frame.height, dispute.frame.height, accuracy: 0.5,

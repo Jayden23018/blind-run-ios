@@ -5,9 +5,9 @@ import SwiftUI
 /// 盲人侧通话磨合，**订单页同页显示**，竖线上是同一步「商量见面安排」：
 ///
 /// - **② 通电话**（B1 待通话 / B2 等见面安排）：头部「先通个电话」+ 标题，卡片里是原副标题与候选人，
-///   底部「致电陪跑员李*」（B2 换成「再次致电」）。
+///   底部「打电话给陪跑员」（B2 换成「再打一次电话」；#971 前是「致电陪跑员李*」「再次致电」）。
 /// - **③ 确认见面安排**（B3）：头部「陪跑员李*已提交」+「见面安排（N 项变更）」，卡片里逐项列安排单，
-///   底部「有异议，致电沟通」（描边）+「确认见面安排」（实心），两枚同高（视觉稿决定 3：避免让人觉得被迫同意）。
+///   底部「有异议，打电话沟通」（描边）+「确认见面安排」（实心），两枚同高（视觉稿决定 3：避免让人觉得被迫同意）。
 /// - 「更换陪跑员」收进顶栏「···」（负责人 11-09 第 9 条），按下仍先确认（#660 B-14）。
 ///
 /// 🔄 2026-11-11（v7）起**不再是盖在订单页上的全屏页**：稿里 ②③ 与 ①④ 同一顶栏、同一条竖线，
@@ -208,7 +208,7 @@ struct BlindIntroCallView<Footer: View>: View {
             planDecisionButtons
         } else if viewModel.introCall != nil, step == .awaitingCall {
             BlindOrderStageButton(
-                title: IntroCallCopy.callButtonTitle(counterpartName: counterpartName),
+                title: IntroCallCopy.callButtonTitle,
                 systemImage: "phone.fill",
                 style: .solid,
                 isEnabled: !viewModel.isPerformingAction,
@@ -217,7 +217,7 @@ struct BlindIntroCallView<Footer: View>: View {
             )
             .accessibilityIdentifier("blindIntroCallPrimaryButton")
         } else if step == .awaitingPlan, viewModel.introCall?.dialableCounterpartPhone != nil {
-            // 🚩 B2 **必须保留「再次致电」**：拨号后对方可能没接（审查 #9），而 B2 只说明 App 回过前台。
+            // 🚩 B2 **必须保留「再打一次电话」**：拨号后对方可能没接（审查 #9），而 B2 只说明 App 回过前台。
             BlindOrderStageButton(
                 title: IntroCallCopy.callAgainButtonTitle,
                 systemImage: "phone.fill",
@@ -230,7 +230,7 @@ struct BlindIntroCallView<Footer: View>: View {
         }
     }
 
-    /// 确认失败横条 +「有异议，致电沟通」+「确认见面安排」。两枚同高（视觉稿决定 3）。
+    /// 确认失败横条 +「有异议，打电话沟通」+「确认见面安排」。两枚同高（视觉稿决定 3）。
     private var planDecisionButtons: some View {
         VStack(spacing: 0) {
             if viewModel.introCallConfirmFailed {

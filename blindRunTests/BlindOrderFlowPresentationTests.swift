@@ -228,7 +228,7 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
     func testIntroCallUsesItsOwnButtonTitleSoItIsNotMistakenForDialing() {
         let action = make(.pendingIntroCall, volunteerName: nil).primaryAction
         XCTAssertEqual(action, .openIntroCall(title: IntroCallCopy.blindEntryButtonTitle))
-        XCTAssertNotEqual(action?.title, "打电话给张")
+        XCTAssertNotEqual(action?.title, "打电话给陪跑员")
     }
 
     /// 拿不到可拨的号码时不给拨号按钮。判据是「拼不拼得出 `tel:` URL」而不是「字符串非空」。

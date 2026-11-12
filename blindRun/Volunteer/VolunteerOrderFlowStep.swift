@@ -116,7 +116,7 @@ enum VolunteerOrderFlowCopy {
     static let paceLabel = "配速"
     static let phoneLabel = "电话"
     /// 拨号那一行的读屏标签。**不带号码**，理由见 `phoneRow`。
-    static let callRunner = "拨打跑者电话"
+    static let callRunner = "打电话给跑者"
     /// 汇合那一屏的拨号行标题。
     ///
     /// ⚠️ 设计稿写的是「打电话给**李明**」，而后端的姓名**一律带掩码**（`李*`，契约逐字
@@ -535,7 +535,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
         /// 「开始跑步」。**两端都能按，先按的生效**（设计交付文档 v3 §5），
         /// 客户端不判谁先 —— 后端以先到的请求为准，后到的一方由轮询/推送切到跑步中。
         case startRun
-        /// 约好页、还没到解锁时刻：白色次要按钮「我已经出发了」，按下去同样是 `en-route`。
+        /// 约好页、还没到解锁时刻：「我已经出发了」（实心藏青，#971），按下去同样是 `en-route`。
         case alreadyDeparted
         /// 等满时限后替换「开始跑步」：`POST /api/orders/{id}/end-waiting`。
         case endWaiting

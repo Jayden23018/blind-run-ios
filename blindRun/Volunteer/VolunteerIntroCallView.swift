@@ -268,7 +268,7 @@ struct VolunteerIntroCallView: View {
         if isClosed { return IntroCallCopy.volunteerRoundClosedTitle }
         // 还在拉：整屏不许空白（理由同盲人侧 `blindLoadingNotice`）。
         if shownIntroCall == nil, viewModel.errorMessage == nil { return IntroCallCopy.volunteerLoadingNotice }
-        // V3 时跑者又打来（他点了「有异议，致电沟通」）：同样换成来电那句 —— 不告诉陪跑员「跑者不同意」。
+        // V3 时跑者又打来（他点了「有异议，打电话沟通」）：同样换成来电那句 —— 不告诉陪跑员「跑者不同意」。
         if incoming { return IntroCallCopy.volunteerIncomingCallTitle(counterpartName: runnerName) }
         if isAwaitingConfirmation { return IntroCallCopy.volunteerAwaitingConfirmationTitle(counterpartName: runnerName) }
         return IntroCallCopy.volunteerWaitingForCallTitle(counterpartName: runnerName)

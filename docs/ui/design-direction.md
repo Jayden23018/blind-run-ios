@@ -196,7 +196,16 @@
   **可点区仍整行 ≥64pt**（样式里的透明边距，尺寸在 `AppButtonMetrics`）；大字号时胶囊随文字长高，圆角封顶 26。
   成套：次按钮 `OutlineSecondaryButtonStyle`（浅蓝底 + 细描边）、灰按钮 `NeutralButtonStyle` / `secondaryFillButtonLabel`
   （上一步、关闭）、文字按钮 `TextButtonStyle`（不变）。并排的一行挂 `.capsuleButtonsInRow()`（只变矮不收窄）。
-  同一屏只留一个实心主按钮。陪跑员订单流程的 `FlowActionButton`（黄色，圆角 17）不在此列。
+  同一屏只留一个实心主按钮。
+- **订单流程主按钮两端统一藏青**（负责人 2026-11-12 批准，#971，原话「藏青，开始改」）：约跑页起、两端订单页、
+  通话确认页、陪跑员邀请卡与订单相关弹层的主按钮都是藏青 `AppColors.Flow.navy` 底白字 ——
+  订单页用 `BlindOrderStageButton(.solid)`（胶囊，`OrderFlowBottomActions` 默认就走它），约跑页用
+  `PrimaryButton(tone: .navy)`，其余 `FlowActionButton(.primary / .raisedPrimary)` 也是藏青（圆角 17，形状未改）。
+  **不再有黄色主按钮**。设置、资料、登录等表单页仍用亮蓝 `PrimaryButton`（默认 `tone: .accent`）。
+  约跑页整页强调色同为藏青：选中的日期 / 时段是藏青实心白字，没选中的保持灰描边。
+- **订单页返回键两端都是圆形 ‹**（44pt 圆、64pt 可点；深色头上是深色半透明圆底），不再有「‹ 订单」「‹ 返回」文字键。
+- **按钮上称呼对方用角色**：「打电话给陪跑员 / 打电话给跑者」，动词一律「打电话」，不用「致电」；
+  页头标题用姓（「陈正在来找你」），人物卡显示「陈*」。
 - `BlindLayout.compactDecorativeMapHeight = 96`：矮窗口（iPhone 横屏）下装饰地图的高度上限。
 - 次级操作**整行铺满竖直堆叠，绝不并排** —— 对标的同类产品里**没有一个**把次级操作并排放。
 - 圆形大按钮是错方向：同外接尺寸下圆形只有 π/4 ≈ 78.5% 的可点面积。
@@ -253,7 +262,7 @@ SOS 二次确认文案是逐字锁定的（`AGENTS.md` §6），那种严肃度�
 | §4 次级操作绝不并排 | 快捷回复、汇合页「打电话 / 找不到对方」默认两列，AX 字号下改竖排 | 陪跑员单手骑车 / 小跑，两个并列的对等选项比竖排少一次视线移动 |
 | 色板只用 `AppColors` | 并进 `AppColors.Flow`（没有另起 `ZColor`），navy / page / 文字取值随交付包微调，盲人端首页一起变 | 同一个产品方向，不是第二套色板；每个新色都进了 `FlowDesignSystemTests` 的配对断言 |
 | 触达 64pt | 主按钮、次要按钮（含响铃、快捷回复）仍 64；两列按钮 48、文字按钮与求助胶囊 44 | 陪跑员是明眼人，44 是 Apple HIG 下限；最常按的那几枚仍守 64。断言在 `testVolunteerOrderV2AuxiliaryTargetsKeepTheFortyFourFloor` |
-| §2 / §5 不新增强调色 | **头卡按订单状态着色**：约好 / 跑者取消藏青、出发主蓝、汇合琥珀、完成绿（`AppColors.Flow.state*`，v2 C01）。**跑步中页头卡是青绿 `stateRunning`（`#0A6B72`），暂停时换暂停灰 `statePaused`**（`VolunteerRunningPage`，暂停灰由 FE-3 加；青绿由负责人 2026-09-30 启用，`DECISIONS-v2.md` V19，覆盖 #227 当初为避免新增色而选的藏青）；锁屏卡在 widget 目标里另有一份同值色板（FE-2）。状态色**只出现在头卡**，例外只有汇合页方位盘、响铃按钮、④b「打电话」；黄色只给唯一主按钮，红色只给求助（C06） | 项目负责人 2026-09-26 拍板（`DECISIONS-v2.md` V13）：陪跑员骑车 / 小跑时扫一眼头卡颜色就知道这一单走到哪了，这是信息不是装饰。头卡上的字全是半透明白，逐色验 ≥4.5:1 在 `testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`（交付包原值算不过，已调，见 `FlowPalette` 第 6 条） |
+| §2 / §5 不新增强调色 | **头卡按订单状态着色**：约好 / 跑者取消藏青、出发主蓝、汇合琥珀、完成绿（`AppColors.Flow.state*`，v2 C01）。**跑步中页头卡是青绿 `stateRunning`（`#0A6B72`），暂停时换暂停灰 `statePaused`**（`VolunteerRunningPage`，暂停灰由 FE-3 加；青绿由负责人 2026-09-30 启用，`DECISIONS-v2.md` V19，覆盖 #227 当初为避免新增色而选的藏青）；锁屏卡在 widget 目标里另有一份同值色板（FE-2）。状态色**只出现在头卡**，例外只有汇合页方位盘、响铃按钮、④b「打电话」；唯一主按钮原是黄色，2026-11-12 起改藏青（#971，见 §4），红色只给求助（C06） | 项目负责人 2026-09-26 拍板（`DECISIONS-v2.md` V13）：陪跑员骑车 / 小跑时扫一眼头卡颜色就知道这一单走到哪了，这是信息不是装饰。头卡上的字全是半透明白，逐色验 ≥4.5:1 在 `testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`（交付包原值算不过，已调，见 `FlowPalette` 第 6 条） |
 
 ⚠️ **这六条不许外溢**。盲人端照抄其中任何一条都是回退 —— 那边的约束来自视障用户本身，不是审美。
 **唯一已批准的外溢是最后一行的头卡状态色**（负责人 2026-10-07，见 §2 例外段）；其余五条对盲人端仍然无效，

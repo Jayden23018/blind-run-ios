@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import blindRun
 
-/// `FlowActionButton` 的 `minHeight`（#446）：盲人端 B3「确认见面安排」「有异议，致电沟通」两枚 84pt，
+/// `FlowActionButton` 的 `minHeight`（#446）：盲人端 B3「确认见面安排」「有异议，打电话沟通」两枚 84pt，
 /// 此前为了高度复制了一份按钮外观（`PlanDecisionButton`）。参数没接进 frame 时 `.call` 只有 80，这条会红。
 final class FlowActionButtonHeightTests: XCTestCase {
 

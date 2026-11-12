@@ -184,12 +184,11 @@ enum IntroCallCopy {
 
     // MARK: 盲人侧
 
-    /// B1 主按钮（视觉稿 v2「致电陪跑员李*」）。拿不到称呼时用这一句，不留空。
-    static let callButtonTitle = "致电陪跑员"
-    static func callButtonTitle(counterpartName: String?) -> String {
-        counterpartName?.nilIfBlank.map { "致电陪跑员\($0)" } ?? callButtonTitle
-    }
-    static let callAgainButtonTitle = "再次致电"
+    /// B1 主按钮。视觉稿 v2 原是「致电陪跑员李*」；按钮用角色、不带姓（#971，负责人 2026-11-12 批准：按钮一律「打电话给陪跑员 / 跑者」，页头标题才用姓）。
+    /// 动词统一「打电话」，不用「致电」。
+    static let callButtonTitle = "打电话给陪跑员"
+    /// B2 重拨。原「再次致电」，动词统一「打电话」（#971）。
+    static let callAgainButtonTitle = "再打一次电话"
 
     /// 🚨 **hint 里不许出现号码。**
     ///
@@ -229,7 +228,7 @@ enum IntroCallCopy {
 
     /// 订单状态页上那个「进通话页」的按钮。
     ///
-    /// 🚨 **不许与 `callButtonTitle`（「打电话给这位志愿者」）用同一句话。** 那个按钮按下去
+    /// 🚨 **不许与 `callButtonTitle`（「打电话给陪跑员」）用同一句话。** 那个按钮按下去
     /// 立刻弹系统拨号确认，这个只是打开一个页面 —— 对看不见屏幕的人，两件事听起来一样
     /// 就等于随时可能误拨。所以措辞落在「确认」而不是「打电话」上，hint 里再说一遍
     /// 「打开一个页面」。
@@ -271,7 +270,8 @@ enum IntroCallCopy {
     static let blindConfirmPlanAccessibilityHint = "确认后就约好了"
     /// 「有异议」直接拨号，安排单保留。陪跑员那边只会再收到一次「跑者正在给你打电话」，
     /// **不暴露「跑者不同意」**（设计文档 §3）。
-    static let blindDisputePlanButtonTitle = "有异议，致电沟通"
+    /// 原「有异议，致电沟通」，动词统一「打电话」（#971）。
+    static let blindDisputePlanButtonTitle = "有异议，打电话沟通"
 
     /// 确认没送到时**屏幕上**那一条红字（视觉稿 ④）。读屏念的是更短的
     /// `IntroCallMeetupCopy.confirmNotDelivered`（「确认未送达，请重试。」）—— 两句不同是视觉稿原样。
