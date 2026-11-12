@@ -78,7 +78,7 @@ extension VolunteerInServiceViewModel {
                 // `didCancelOrder` 也**不在这里置位**：它的含义是「这一单是我自己退掉的，
                 // 关页面吧」（`REMATCHING` 那条分支），而这一次是盲人取消的，
                 // 要留在页面上把「不算你的取消」说清楚。
-                speechService?.speak(sentence)
+                speakRunnerCancellation(sentence, status: updated.status)
                 spoke = true
                 // 首页念不念由订单页的回话决定（`OrderLiveTrack.acknowledge`，unify-order-live-tracking design §6），
                 // 这一句回的是 `spoke: true`。去重键留作纵深防御：回话超时首页照念时，通用的「这一单已取消。」
@@ -87,6 +87,29 @@ extension VolunteerInServiceViewModel {
             }
         }
         return spoke
+    }
+
+    /// 跑者取消那一整句 + 同一下触觉（#962 第 5 项）。其余状态句走 `speakStatusChange`，自带 `status.haptic`；
+    /// 这一句刻意不走它的去重（见 `SpeechService.markStatusAnnounced` 的注释），所以在这里补震动，只震一次。
+    /// 触觉与语音同生同灭：单独一下震动没有语义（`HapticFeedback` 的约定）。
+    private func speakRunnerCancellation(_ sentence: String, status: RunOrderStatus) {
+        speechService?.speak(sentence)
+        status.haptic.map(HapticFeedback.play)
+    }
+
+    /// 取回本单的状态变更记录（同盲人端 `BlindOrderStatusViewModel.loadStatusLogs`）。后端已按时间倒序返回，不重排。
+    /// 失败**不报错、不播报**：这一屏只是少画一条竖线，标题、说明和信息卡都还在；
+    /// 而跑者取消那一句刚念完，再念一句「获取记录失败」会把注意力引到一个他做不了任何事的地方。
+    ///
+    /// `appState` 由页面传进来、不读 `self.appState`：订单一进来就是 `CANCELLED` 时，读记录的 `.task(id:)`
+    /// 可能排在 `configure` 那个 `.task` 之前，那时 `self.appState` 还是 nil，而 id 之后不再变，竖线就永远不画。
+    func loadStatusLogs(using appState: AppState) async {
+        guard let order else { return }
+        do {
+            statusLogs = try await appState.orders.statusLogs(orderId: order.orderId)
+        } catch {
+            return
+        }
     }
 
     /// 过期由 track 判（`.peerLocationExpired`，design §3）；离页、换单时页面也直接清。

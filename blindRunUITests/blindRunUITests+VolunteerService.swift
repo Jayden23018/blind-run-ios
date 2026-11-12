@@ -167,9 +167,8 @@ extension blindRunUITests {
                 "\(orientation.rawValue) 方向下「长按结束」只有 \(finishControl.frame.height)pt"
             )
             XCTAssertTrue(finishControl.isHittable, "\(orientation.rawValue) 方向下「长按结束」点不到")
-            // 取消（→ REMATCHING）是跑到一半陪不了时唯一不把单记成完成的出口，横屏也不能被挤掉。
-            let cancel = app.descendants(matching: .any)["volunteerRunningCancel"].firstMatch
-            XCTAssertTrue(cancel.isHittable, "\(orientation.rawValue) 方向下「取消订单」点不到")
+            // 回归哨兵：跑步中没有取消入口（#962，负责人 11-12「整个删掉」），底部只留长按结束。identifier 已不存在，故意留着。
+            XCTAssertFalse(app.descendants(matching: .any)["volunteerRunningCancel"].firstMatch.exists)  // guard:allow stale-ui-test-identifier
         }
     }
 

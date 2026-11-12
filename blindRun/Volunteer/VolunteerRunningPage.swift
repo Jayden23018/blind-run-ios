@@ -97,10 +97,10 @@ struct VolunteerRunningHero: Equatable {
 }
 
 /// 陪跑员跑步中那一屏（v7 ⑦，#945）：地图常驻 + 抽屉（距离 / 用时 / 配速、目标进度、一条提示、耳机播报）+
-/// 底部长按结束。右上角红色实心「求助」开跑步中求助面板（V5，面板本身不改）。
+/// 底部长按结束（底部只有它，#962 删了取消）。右上角红色实心「求助」开跑步中求助面板（V5，面板本身不改）。
 ///
 /// 求助走云端还是本地拨号只读 `VolunteerOrderSOSMode.resolve`（AGENTS §6）：这一页只在 `IN_PROGRESS` 出现，结果恒为云端。
-/// 不画「折返」：契约里没有路线形状。地图只画跑者位置与集合点（跑中没有整条路线数据）。
+/// 不画「折返」：契约里没有路线形状。地图画跑者位置、集合点和 `/track` 的实时轨迹（#962，同盲人端 v7 ⑦）。
 ///
 /// 自己 `@ObservedObject` 持有 coordinator：`AppState.emergencyCoordinator` 是 `let`，
 /// 在宿主 body 里读它**读得到值但不跟着更新**（记忆 `nested-observableobject-does-not-republish`）。
@@ -115,10 +115,9 @@ struct VolunteerRunningPage<Footer: View>: View {
     let isFinishEnabled: Bool
     let onBack: () -> Void
     let onHelp: () -> Void
+    /// 底部唯一的结束入口。跑步中**没有取消入口**（负责人 2026-11-12 定「整个删掉」，#962）：
+    /// 要离开走右上角求助面板或长按结束。别把取消加回来，也别收进「···」。
     let onFinish: () -> Void
-    /// 跑到一半陪不了了（受伤、临时有事）：订单转 `REMATCHING` 换人，**不是**结束陪跑。
-    /// 删掉的话唯一的退出就只剩「结束陪跑」—— 那会把没跑完的一单记成完成、并计入志愿时长。
-    let onCancel: () -> Void
     /// 提示（走散 / 电量低 / 定位弱）、暂停与继续。
     let tip: VolunteerRunTip?
     let isTogglingPause: Bool
@@ -300,15 +299,6 @@ struct VolunteerRunningPage<Footer: View>: View {
                 isEnabled: isFinishEnabled,
                 onFinish: onFinish
             )
-            // 取消类一律灰色文字（交付包 v3 禁止项），不和长按结束抢视觉重量。
-            FlowTextButton(
-                title: VolunteerServiceActionKind.cancelOrder.title,
-                tone: .neutral,
-                accessibilityHint: "双击后会先确认一次。取消前请先把跑者带到安全的地方",
-                action: onCancel
-            )
-            .disabled(isFinishing || !isFinishEnabled)
-            .accessibilityIdentifier("volunteerRunningCancel")
         }
         .animation(.easeInOut(duration: 0.25), value: isPaused)
     }

@@ -48,6 +48,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     var awaitingBlindConfirmation: Bool = false
     /// 后端放行时刻给的那句小字（`VolunteerActionGate.caption`），优先于动作自己的那句。
     var gateCaption: String? = nil
+    /// ⑨ 跑者已取消：本单状态变更记录，竖线停在哪一步由它推（#962）。空 = 不画竖线。
+    var statusLogs: [OrderStatusLog] = []
     /// 非 `nil` = 顶栏「···」带举报 / 不再匹配此人。有没有对方由宿主判。
     var counterpartSafety: CounterpartBlockViewModel? = nil
     /// 「刚才那一下的结果」。**这一页唯一的可见失败面**，少了它失败只剩一句 TTS。
@@ -67,6 +69,12 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             }
         }
         .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
+        // 订单状态一变，读屏焦点移到页头（#962 第 4 项，同盲人端 `BlindOrderStatusView` 的 `statusHeaderFocused`）。
+        // 状态句已经在播（`speakVolunteerStatusChange`），焦点不跟过来就是「听到了，但滑不到」。
+        .onChange(of: order?.status) { status in
+            guard status != nil else { return }
+            headerFocused = true
+        }
     }
 
     /// 出发起地图常驻（定稿第 1 条）。
@@ -151,23 +159,18 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         switch phase {
         case .none: return .current(.matchVolunteer)
         case .confirmStillGoing, .agreedEarly, .agreedSoon: return .current(.awaitDeparture)
-        // ⑨：停在「等出发」，同盲人端已取消（#946 的 `.stopped`）。订单上没有取消时所处的步骤，跑者能取消的只有这一段。
+        // ⑨ 的竖线不经过这里：停在哪一步读状态变更记录（`VolunteerRunnerCancelledTimeline`，#962）。
+        // 这一支只是让 switch 穷举，`timelineInput` 对 ⑨ 提前返回。
         case .runnerCancelled: return .stopped(.awaitDeparture)
         case .departed, .arrived: return .current(.meetUp)
         case .completed: return .allDone
         }
     }
 
-    var timelineInput: BlindOrderTimelineInput {
+    /// `nil` = 不画竖线（⑨ 拿不到状态变更记录时）。
+    var timelineInput: BlindOrderTimelineInput? {
+        if phase == .runnerCancelled { return VolunteerRunnerCancelledTimeline.input(logs: statusLogs) }
         var details: [BlindOrderTimelineStep: String] = [:]
-        if phase == .runnerCancelled {
-            // ⑨：已做的两步都写出来、行距放宽（负责人 11-11「太挤了」），停的那步打叉。
-            details[.awaitDeparture] = VolunteerOrderFlowCopy.runnerCancelledStepDetail
-            return BlindOrderTimelineInput(
-                position: timelinePosition, details: details, folds: false,
-                vocabulary: .volunteer, roomy: true
-            )
-        }
         if case .current(let step) = timelinePosition {
             // 最后 10 秒不靠颜色提示：字里直接写「快到时间了」（v2 用金色 +「不用颜色区分」时的感叹号）。
             let reply = presentation.replyNotice.map { presentation.isReplyUrgent ? "快到时间了 · \($0)" : $0 }

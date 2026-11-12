@@ -250,7 +250,7 @@ enum VolunteerOrderFlowCopy {
     ///
     /// 走骨架的三态（`SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE`）都用
     /// 「去不了」：这三态志愿者退出的后果完全相同 —— 转 `REMATCHING`，换个人。
-    /// 汇合与跑步中仍走旧面板的「取消订单」，那两态搬过来时一并收口。
+    /// 跑步中没有取消入口（#962），这里不为 `IN_PROGRESS` 留文案。
     ///
     /// 返回结构体而不是在 `confirmationDialog` 里写四个三元表达式：那样写会把 SwiftUI 的
     /// 类型检查器拖到超时。
@@ -281,7 +281,6 @@ enum VolunteerOrderFlowCopy {
         let isLate = isWithinLateCancelWindow(
             plannedStart: plannedStart, windowHours: lateCancelWindowHours, now: now
         )
-        if status == .inProgress { return runningCancelSheet }
         return CancelSheetCopy(
             title: "取消这次陪跑？",
             lateNotice: isLate

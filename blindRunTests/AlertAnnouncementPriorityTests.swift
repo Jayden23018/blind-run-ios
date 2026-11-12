@@ -1,7 +1,8 @@
 import XCTest
 @testable import blindRun
 
-/// 警示档（`.alert`）的两条特殊规则与陪跑员跑步中的取消确认（#653）。
+/// 警示档（`.alert`）的两条特殊规则（#653）。
+/// 陪跑员跑步中取消的确认文案那条已随入口删掉（#962，负责人 11-12「整个删掉」）。
 ///
 /// 放在单独的文件：`AnnouncementQueueTests.swift` 已到棘轮上限。
 @MainActor
@@ -89,31 +90,4 @@ final class AlertAnnouncementPriorityTests: XCTestCase {
         service.stop()
     }
 
-    // MARK: - 陪跑员跑步中取消
-
-    /// 跑步中取消的确认层要提醒别把跑者留在原地，也不能再说「离开始不到 N 小时」。
-    /// 取一个已经开跑的时间，这样窗口判定一定命中，能抓到套用通用文案的实现。
-    func testCancelSheetDuringTheRunWarnsAboutLeavingTheRunnerAlone() {
-        let sheet = VolunteerOrderFlowCopy.cancelSheet(
-            for: .inProgress,
-            plannedStart: Date().addingTimeInterval(-600),
-            lateCancelWindowHours: 12
-        )
-
-        XCTAssertTrue(sheet.title.contains("跑步中"))
-        XCTAssertTrue(sheet.message.contains("安全的地方"))
-        XCTAssertTrue(sheet.message.contains("转给其他陪跑员"), "后果仍要说清")
-        XCTAssertEqual(sheet.keep, "继续陪跑")
-        XCTAssertEqual(sheet.cancel, "仍然取消")
-        XCTAssertTrue(sheet.lateNotice?.contains("会记一次临时取消") == true)
-        XCTAssertFalse(sheet.lateNotice?.contains("离开始") == true, "已经开跑了，这句话不成立")
-
-        let withoutStart = VolunteerOrderFlowCopy.cancelSheet(for: .inProgress, plannedStart: nil, lateCancelWindowHours: 12)
-        XCTAssertNotNil(withoutStart.lateNotice, "开跑之后取消一定会记，不看计划时间解析得出来与否")
-
-        for status in [RunOrderStatus.driverEnRoute, .driverArrived] {
-            let sheet = VolunteerOrderFlowCopy.cancelSheet(for: status, plannedStart: nil, lateCancelWindowHours: 12)
-            XCTAssertEqual(sheet.title, "取消这次陪跑？", "\(status) 保持原文案")
-        }
-    }
 }

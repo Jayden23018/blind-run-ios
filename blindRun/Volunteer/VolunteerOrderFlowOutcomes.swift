@@ -169,3 +169,24 @@ extension VolunteerOrderFlowPresentation {
         )
     }
 }
+
+/// ⑨ 跑者已取消那一屏的竖线（#962 第 2 项）。**纯函数**，用例 `VolunteerOrderFlowPresentationTests`。
+///
+/// 停在哪一步照盲人端已取消页（`BlindOrderTerminalPresentation.stoppedStep`）：读状态变更记录里最新一条转
+/// `CANCELLED` 的 `fromStatus`，经 `RunOrderStatus.blindOrderTimelinePosition` 落到五步 ——
+/// 约好 / 临期确认 → 「等出发」，已出发 / 已到达 → 「去集合点汇合」。此前写死停在「等出发」，
+/// 跑者在汇合时（`DRIVER_ARRIVED` 满门槛后）取消会停错。
+enum VolunteerRunnerCancelledTimeline {
+    /// `nil` = 记录没拿到、或前一态不在竖线上：不画竖线，不猜。只留标题、说明和信息卡。
+    static func input(logs: [OrderStatusLog]) -> BlindOrderTimelineInput? {
+        guard let step = BlindOrderTerminalPresentation.stoppedStep(status: .cancelled, logs: logs) else { return nil }
+        // 已做的步都写出来、行距放宽（负责人 11-11「太挤了」），停的那步打叉并写「跑者在这一步取消了」。
+        return BlindOrderTimelineInput(
+            position: .stopped(step),
+            details: [step: VolunteerOrderFlowCopy.runnerCancelledStepDetail],
+            folds: false,
+            vocabulary: .volunteer,
+            roomy: true
+        )
+    }
+}

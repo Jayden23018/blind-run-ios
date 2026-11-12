@@ -5,8 +5,12 @@ extension VolunteerInServiceView {
 
     /// 没有流转动作、没有地图：这几种情况下陪跑员要么还不是、要么已经不是这一单的参与者。
     /// 求助仍在右上角 —— 走得到这里的都不是 `IN_PROGRESS`，`resolve` 只会给本地拨号。
+    ///
+    /// 订单还没拿到（进页面那一瞬间，或第一次拉取失败）：整屏是 v7 深色头外壳 + 转圈 /
+    /// 原因（#962，同盲人端 #946 `loadingShellContent`），不再闪白底转圈。判定在 `VolunteerOrderFallback`。
     var fallbackContent: some View {
         let helpMode = VolunteerOrderSOSMode.resolve(status: viewModel.order?.status)
+        let fallback = VolunteerOrderFallback.resolve(status: viewModel.order?.status, errorMessage: viewModel.errorMessage)
         return VStack(spacing: 0) {
             // v7 顶栏（#945），压在深色头那一截上，与其余各态同一个位置。
             VolunteerOrderTopBar(
@@ -18,22 +22,62 @@ extension VolunteerInServiceView {
                 }
             )
             .background(BlindOrderV7Palette.headerTop.ignoresSafeArea(edges: .top))
-            ScrollView {
-                Group {
-                    switch VolunteerOrderFallback.resolve(status: viewModel.order?.status, errorMessage: viewModel.errorMessage) {
-                    case .loading:
-                        ProgressView(VolunteerOrderFallback.loadingTitle)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 32)
-                    case let .message(title, message):
-                        EmptyStateView(title: title, message: message)
-                    }
+            switch fallback {
+            case .loading, .loadFailed:
+                loadingShellHeader(fallback)
+                Spacer(minLength: 0)
+            case let .message(title, message):
+                ScrollView {
+                    EmptyStateView(title: title, message: message)
+                        .padding(.horizontal, FlowMetrics.v2ScreenPadding)
                 }
-                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
+                .background(AppColors.Flow.surface)
             }
         }
-        .background(AppColors.Flow.surface.ignoresSafeArea())
+        .background(
+            Group {
+                if fallback.usesV7Shell {
+                    BlindOrderV7Palette.headerGradient
+                } else {
+                    AppColors.Flow.surface
+                }
+            }
+            .ignoresSafeArea()
+        )
+        // 系统导航栏藏掉之后，读屏「两指 Z」不再自动返回（同盲人端外壳）。
+        .accessibilityAction(.escape) { dismiss() }
         .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
+    }
+
+    /// 深色头里那一块：转圈 +「正在获取订单状态」，失败时同一位置换成原因（字号、颜色同盲人端 `loadingShellContent`）。
+    @ViewBuilder
+    private func loadingShellHeader(_ fallback: VolunteerOrderFallback) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if case let .loadFailed(title, message) = fallback {
+                Text(title)
+                    .flowFont((30, .bold, .title))
+                    .foregroundColor(BlindOrderV7Palette.headerTitle)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(message)
+                    .flowFont(FlowV2Fonts.callout())
+                    .foregroundColor(BlindOrderV7Palette.headerEyebrow)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ProgressView()
+                    .tint(BlindOrderV7Palette.headerTitle)
+                    .accessibilityHidden(true)
+                Text(VolunteerOrderFallback.loadingTitle)
+                    .flowFont((30, .bold, .title))
+                    .foregroundColor(BlindOrderV7Palette.headerTitle)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("volunteerOrderLoadingShell")
     }
 
     /// 取消对话框的四句话。**按状态换，不是一句通用文案。**
