@@ -34,7 +34,6 @@ final class FlowDesignSystemTests: XCTestCase {
             // 藏青主按钮的白字、按下态与不可用灰底在 `PrimaryButtonContrastTests` 里钉。
             (AppColors.Flow.onCTATone, AppColors.Flow.ctaTone, "黄底上的深字"),
             (AppColors.Flow.onCTATone, AppColors.Flow.ctaDisabledTone, "浅黄底上的深字"),
-            (AppColors.Tone(light: 0xFFFFFF, dark: 0xFFFFFF), AppColors.Flow.navyTone, "藏青主按钮文字"),
             (AppColors.Flow.bookingTitleTone, AppColors.Flow.bookingBackgroundTone, "预约块标题"),
             (AppColors.Flow.bookingSubtitleTone, AppColors.Flow.bookingBackgroundTone, "预约块副标题"),
             (AppColors.Flow.helpTextTone, AppColors.Flow.helpBackgroundTone, "求助与安全按钮文字"),

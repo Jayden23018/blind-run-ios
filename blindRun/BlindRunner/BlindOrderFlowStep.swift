@@ -453,8 +453,7 @@ struct BlindOrderFlowPresentation: Equatable {
 
     private static func dialableCallTitle(order: OrderDetailResponse) -> String? {
         guard EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) != nil else { return nil }
-        // 按钮用角色不带姓（#971）；页头标题才用姓。
-        return "打电话给陪跑员"
+        return "打电话给陪跑员" // 按钮用角色不带姓（#971）
     }
 
     /// 相位 = 订单状态 + 本地倒计时。
