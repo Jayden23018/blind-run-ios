@@ -132,18 +132,19 @@ struct BookingDateStrip: View {
         return isSelected ? .white : AppColors.Flow.primaryText
     }
 
-    /// 选中：藏青实心 + 白字（#971，负责人 2026-11-12 批准；原是白底 + 蓝描边）；能约：浅蓝底；不能约：不填色。
+    /// 选中：藏青实心 + 白字（#971，负责人 2026-11-12 批准；原是白底 + 蓝描边）；能约：中性浅灰底（原浅蓝，
+    /// 整页藏青后换掉）；不能约：不填色。
     private func dayFill(isAvailable: Bool, isSelected: Bool) -> Color {
         if isSelected { return AppColors.Flow.navy }
-        return isAvailable ? AppColors.Flow.blueTint : .clear
+        return isAvailable ? AppColors.Flow.surfaceSubtle : .clear
     }
 
     @ViewBuilder
     private func dayBorder(isAvailable: Bool, isSelected: Bool) -> some View {
         if isSelected {
-            Circle().strokeBorder(AppColors.Flow.navy, lineWidth: 1.5)
+            Circle().strokeBorder(AppColors.Flow.navySelectionStroke, lineWidth: 1.5)
         } else if isAvailable {
-            // 浅蓝填充压白卡对比度不够，低视力看不出能点：加灰描边过 3:1（与 v4 同一条有意偏离，负责人 11-06 定）。
+            // 浅灰填充压白卡对比度不够，低视力看不出能点：加灰描边过 3:1（与 v4 同一条有意偏离，负责人 11-06 定）。
             Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, lineWidth: 1)
         } else {
             Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, style: StrokeStyle(lineWidth: 1, dash: [3]))
@@ -242,7 +243,7 @@ struct BookingChoicePill: View {
             .background(Capsule().fill(fillColor))
             .overlay(
                 Capsule().strokeBorder(
-                    isSelected ? AppColors.Flow.navy : AppColors.ButtonPalette.neutralStroke,
+                    isSelected ? AppColors.Flow.navySelectionStroke : AppColors.ButtonPalette.neutralStroke,
                     style: StrokeStyle(lineWidth: isSelected ? 1.5 : 1, dash: isEnabled ? [] : [3])
                 )
             )

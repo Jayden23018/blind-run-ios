@@ -431,7 +431,7 @@ enum IntroCallMeetupCopy {
             sentences.append("陪跑员上衣为\(volunteer)。")
         }
         if let runner = plan.runnerTopColor?.spokenName {
-            sentences.append("你的上衣记录为\(runner)，如有误请致电更正。")
+            sentences.append("你的上衣记录为\(runner)，如有误请打电话更正。")
         }
         return sentences.isEmpty ? nil : sentences.joined()
     }

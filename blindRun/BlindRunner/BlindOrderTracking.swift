@@ -36,7 +36,8 @@ enum BlindTrackingDrawerCopy {
     static let shareOn = "已开"
     static let shareOff = "未开"
     static let leaveMessage = "留一句话"
-    static let call = "打电话"
+    /// 按钮写全称呼（#971 review：按钮一律「打电话给陪跑员」，不留光秃秃的「打电话」）。
+    static let call = "打电话给陪跑员"
     static let handleLabel = "进度详情"
     static let handleExpanded = "已展开"
     static let handleCollapsed = "已收起"

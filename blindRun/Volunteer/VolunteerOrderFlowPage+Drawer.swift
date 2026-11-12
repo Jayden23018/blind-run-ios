@@ -185,11 +185,16 @@ extension VolunteerOrderFlowPage {
                     let emphasized = callFirst && row.action == .callRunner
                     Button { onRowAction(row.action ?? .callRunner) } label: {
                         Label(
-                            row.action == .callRunner ? "打电话" : row.value,
+                            row.action == .callRunner ? VolunteerOrderFlowCopy.callRunnerRow : row.value,
                             systemImage: row.action == .callRunner ? "phone" : "magnifyingglass"
                         )
                         .flowFont((16, .bold, .callout))
                         .foregroundColor(emphasized ? .white : AppColors.Flow.primaryText)
+                        // 「打电话给跑者」放不下时换行，不截断（#971 review）。
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, minHeight: FlowMetrics.v2TertiaryMinHeight)
                         .background(Capsule().fill(emphasized ? AppColors.Flow.navy : AppColors.Flow.surfaceSubtle))
                         .contentShape(Capsule())

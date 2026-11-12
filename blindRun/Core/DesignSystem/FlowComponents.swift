@@ -304,7 +304,7 @@ struct FlowActionButton: View {
             .padding(.vertical, 10)
             // 挂在 label 里面：挂在 Button 外面撑不大可点区（记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
             .frame(minHeight: minHeight ?? (style == .call ? FlowMetrics.callButtonMinHeight : FlowMetrics.actionButtonMinHeight))
-            .background(background)
+            .background(fillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
                     .strokeBorder(strokeColor, lineWidth: strokeColor == .clear ? 0 : (style == .call ? 2 : 1.5))
@@ -313,10 +313,15 @@ struct FlowActionButton: View {
         }
     }
 
+    /// 提交中按可用态画（藏青底、白色转圈），免得一按下去就变灰、看着像出错。
+    /// 调用方常把 `isEnabled` 与 `isLoading` 一起置反（如邀请卡「接下这次陪跑」），只看 `isEnabled` 会画成灰底。
+    /// 同 `PrimaryButtonStyle.isLoading` 的做法；点击仍由 `.disabled(isLoading || !isEnabled)` 挡住。
+    var looksEnabled: Bool { isEnabled || isLoading }
+
     private var foreground: Color {
         switch style {
         // 不可用时同 `BlindOrderStageButton` 的灰底灰字（`NavySolidButtonStyle`）。
-        case .primary, .raisedPrimary: return isEnabled ? .white : AppColors.textSecondary
+        case .primary, .raisedPrimary: return looksEnabled ? .white : AppColors.textSecondary
         case .help: return AppColors.Flow.helpText
         case .ghost, .outlined: return AppColors.Flow.primaryText
         case .call: return AppColors.Flow.bluePressed
@@ -332,11 +337,12 @@ struct FlowActionButton: View {
         }
     }
 
-    private var background: Color {
+    /// 底色。不标 private：`FlowDesignSystemTests` 钉住主按钮是藏青（#971）。
+    var fillColor: Color {
         switch style {
         // 不可用换**具名灰底**而不是降透明度：那三秒里这枚按钮的颜色是「现在还不能按」
         // 唯一的视觉状态。与 `BlindOrderStageButton` 不可用时同一个样子（#971）。
-        case .primary, .raisedPrimary: return isEnabled ? AppColors.Flow.navy : AppColors.ButtonPalette.disabledFill
+        case .primary, .raisedPrimary: return looksEnabled ? AppColors.Flow.navy : AppColors.ButtonPalette.disabledFill
         case .help: return AppColors.Flow.helpBackground
         case .ghost, .outlined, .call: return AppColors.Flow.surface
         }

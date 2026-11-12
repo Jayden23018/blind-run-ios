@@ -151,6 +151,29 @@ final class PrimaryButtonContrastTests: XCTestCase {
         XCTAssertLessThan(Self.contrast(white, AppColors.Flow.ctaTone.light), Self.largeText)
     }
 
+    /// 约跑页选中的日期 / 时段：选中边界（WCAG 1.4.11，3:1）压亮、暗两种卡片底都看得出。
+    /// 暗色藏青填充压 `#1C1C1E` 只有 1.46:1，所以暗色靠浅藏青描边 `navySelectionStroke` 撑住。
+    func testNavySelectionBoundaryIsVisibleOnBothCardSurfaces() {
+        let boundary = 3.0
+        let surface = AppColors.Flow.surfaceTone
+        let navy = AppColors.Flow.navyTone
+        let stroke = AppColors.Flow.navySelectionStrokeTone
+        XCTAssertGreaterThanOrEqual(Self.contrast(navy.light, surface.light), boundary, "亮色：藏青填充压白卡")
+        XCTAssertGreaterThanOrEqual(Self.contrast(stroke.light, surface.light), boundary, "亮色：选中描边压白卡")
+        XCTAssertGreaterThanOrEqual(Self.contrast(stroke.dark, surface.dark), boundary, "暗色：选中描边压深色卡")
+        // 验红：暗色若描边也用藏青，边界看不出 —— 这正是单独设描边色的理由。
+        XCTAssertLessThan(Self.contrast(navy.dark, surface.dark), boundary)
+    }
+
+    /// 订单流程主按钮是藏青（#971）。有人把 `FlowActionButton(.primary)` 改回黄色或亮蓝时这条先红。
+    func testFlowActionPrimaryFillIsNavy() {
+        XCTAssertEqual(FlowActionButton("x", style: .primary) {}.fillColor, AppColors.Flow.navy)
+        XCTAssertEqual(FlowActionButton("x", style: .raisedPrimary) {}.fillColor, AppColors.Flow.navy)
+        // 提交中按可用态画：调用方把 isEnabled 与 isLoading 一起置反时，仍是藏青，不是灰底。
+        XCTAssertEqual(FlowActionButton("x", isLoading: true, isEnabled: false) {}.fillColor, AppColors.Flow.navy)
+        XCTAssertNotEqual(FlowActionButton("x", isEnabled: false) {}.fillColor, AppColors.Flow.navy)
+    }
+
     // MARK: - 辅助
 
     /// 前景色按 `alpha` 不透明度叠在背景色上的结果（逐通道线性混合，与屏幕合成一致）。

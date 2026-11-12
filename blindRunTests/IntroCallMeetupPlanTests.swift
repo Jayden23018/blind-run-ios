@@ -202,7 +202,7 @@ final class IntroCallMeetupPlanTests: XCTestCase {
             "开跑时间，已变更：由明天 7 点改为 7 点 30，8 点 30 结束。",
             "集合地点，已变更：由朝阳公园南门改为朝阳公园东门，距原地点约 800 米。",
             "具体见面位置：东门保安亭左侧。",
-            "陪跑员上衣为红色。你的上衣记录为蓝色，如有误请致电更正。",
+            "陪跑员上衣为红色。你的上衣记录为蓝色，如有误请打电话更正。",
             "见面时由陪跑员主动上前，并告知姓氏。",
         ])
     }
@@ -283,7 +283,7 @@ final class IntroCallMeetupPlanTests: XCTestCase {
         XCTAssertFalse(onlyUnknown.fullText.contains("UNKNOWN"))
 
         let mixed = speech(plan(volunteerColor: .unknown, runnerColor: .green))
-        XCTAssertTrue(mixed.items.contains("你的上衣记录为绿色，如有误请致电更正。"))
+        XCTAssertTrue(mixed.items.contains("你的上衣记录为绿色，如有误请打电话更正。"))
         XCTAssertFalse(mixed.fullText.contains("陪跑员上衣"))
     }
 

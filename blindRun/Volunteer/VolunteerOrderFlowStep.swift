@@ -116,7 +116,7 @@ enum VolunteerOrderFlowCopy {
     static let paceLabel = "配速"
     static let phoneLabel = "电话"
     /// 拨号那一行的读屏标签。**不带号码**，理由见 `phoneRow`。
-    static let callRunner = "拨打跑者电话"
+    static let callRunner = "打电话给跑者"
     /// 汇合那一屏的拨号行标题。
     ///
     /// ⚠️ 设计稿写的是「打电话给**李明**」，而后端的姓名**一律带掩码**（`李*`，契约逐字
