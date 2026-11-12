@@ -144,19 +144,19 @@ struct RunnerRunRecordReviewSection: View {
                 if !titleInsideCard {
                     RunRecordSectionTitle(text: RunExperienceRating.sectionTitle).padding(.top, 8)
                 }
-                RunRecordCard {
-                    if titleInsideCard {
+                if titleInsideCard {
+                    // 定稿图 `c-revised.html`：内边距 12 / 14，标题 16pt、离五格 8。
+                    BlindRunCardSurface(insets: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
                         Text(RunExperienceRating.sectionTitle)
                             .flowFont((16, .semibold, .callout))
                             .foregroundColor(AppColors.Flow.primaryText)
-                            .padding(.bottom, 10)
+                            .padding(.leading, 4)
+                            .padding(.bottom, 8)
                             .accessibilityAddTraits(.isHeader)
+                        cardContent
                     }
-                    if feedback.didSubmitReview {
-                        submittedCard
-                    } else {
-                        form
-                    }
+                } else {
+                    RunRecordCard { cardContent }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -164,9 +164,18 @@ struct RunnerRunRecordReviewSection: View {
         }
     }
 
+    @ViewBuilder
+    private var cardContent: some View {
+        if feedback.didSubmitReview {
+            submittedCard
+        } else {
+            form
+        }
+    }
+
     private var form: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RunExperienceRatingPicker(rating: $feedback.reviewRating, showsTitle: false)
+            RunExperienceRatingPicker(rating: $feedback.reviewRating, showsTitle: false, isCompact: titleInsideCard)
                 .onChange(of: feedback.reviewRating) { _ in feedback.clearReviewError() }
 
             if feedback.reviewRating != nil {
@@ -196,12 +205,15 @@ struct RunnerRunRecordReviewSection: View {
                     .accessibilityIdentifier("runnerRunRecordReviewError")
             }
 
-            Text(feedback.reviewRating == nil ? "选一项就能提交。" + Self.onceOnly : Self.onceOnly)
-                .font(.footnote)
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
+            // 订单页那一屏没选之前不放这行说明（定稿图没有，放了一屏装不下）；选了之后照常出现在「提交评价」下面。
+            if !titleInsideCard || feedback.reviewRating != nil {
+                Text(feedback.reviewRating == nil ? "选一项就能提交。" + Self.onceOnly : Self.onceOnly)
+                    .font(.footnote)
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 

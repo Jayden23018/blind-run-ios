@@ -36,6 +36,24 @@ enum BlindRunCardsCopy {
         return "你们第 \(count) 次一起跑"
     }
 
+    /// 彩色卡还没有里程时盖在上面的两行字。陪跑中不说「刚开跑」：中途重进这一页、第一次数据还没回来时也是这两行。
+    static func waitingTitle(isFinished: Bool) -> String {
+        isFinished ? "稍等一下" : "已开跑"
+    }
+
+    static func waitingBody(isFinished: Bool) -> String {
+        isFinished ? "这次的里程、用时和配速正在获取。" : "跑出一段路后，这里显示里程、用时和配速。"
+    }
+
+    /// 计划进度卡。`plan` 是「5 公里」「800 米」。
+    static func planTitle(_ plan: String) -> String { "计划跑 \(plan)" }
+    static let planReached = "已跑到"
+
+    static func planSpoken(plan: String, progress: String?) -> String {
+        guard let progress else { return planTitle(plan) }
+        return progress == planReached ? "\(planTitle(plan))，已经跑到" : "\(planTitle(plan))，已跑 \(progress)"
+    }
+
     /// 本月累计那一行。`summary` 取首页「本月锻炼」同一份数据。
     static func monthLine(_ summary: BlindHomeRunSummary) -> String {
         "\(summary.period) \(summary.headline)"
@@ -46,14 +64,23 @@ enum BlindRunCardsMetrics {
     /// 里程数字 92pt（DECISION「版式」：改 v7 第 10 条的 44pt）。
     static let distanceFont: (CGFloat, Font.Weight, Font.TextStyle) = (92, .bold, .largeTitle)
     static let distanceUnitFont: (CGFloat, Font.Weight, Font.TextStyle) = (24, .semibold, .title2)
-    static let metricFont: (CGFloat, Font.Weight, Font.TextStyle) = (32, .bold, .title2)
+    /// 系统字体 92pt 一行比字号高出的上下留白，各收回这么多（定稿图行高 = 字号）。
+    static let distanceLineTrim: CGFloat = 8
+    static let metricFont: (CGFloat, Font.Weight, Font.TextStyle) = (28, .bold, .title2)
     static let metricLabelFont: (CGFloat, Font.Weight, Font.TextStyle) = (15, .regular, .subheadline)
     static let titleFont: (CGFloat, Font.Weight, Font.TextStyle) = (30, .bold, .title)
-    static let heroCornerRadius: CGFloat = 24
-    static let heroPadding: CGFloat = 22
-    static let cardGap: CGFloat = 14
-    static let routeHeight: CGFloat = 132
+    static let waitingTitleFont: (CGFloat, Font.Weight, Font.TextStyle) = (44, .bold, .largeTitle)
+    static let waitingBodyFont: (CGFloat, Font.Weight, Font.TextStyle) = (17, .regular, .body)
+    /// 以下照 `c-revised.html`：`.cpage` 左右 16、`.ccard` 圆角 20、彩色卡内边距 22 / 22 / 20、
+    /// 陪跑中卡间距 14、已完成卡间距 10、路线小图高 84。
+    static let pagePadding: CGFloat = 16
+    static let cardCornerRadius: CGFloat = 20
+    static let heroInsets = EdgeInsets(top: 22, leading: 22, bottom: 20, trailing: 22)
+    static let runningGap: CGFloat = 14
+    static let finishedGap: CGFloat = 10
+    static let routeHeight: CGFloat = 84
     static let routeCornerRadius: CGFloat = 16
+    static let planBarHeight: CGFloat = 12
 }
 
 /// 陪跑中与已完成共用的同一个页面：顶栏 → 标题 → 彩色卡 → 调用方给的卡片 → 结果面 → 底栏。
@@ -68,6 +95,8 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
     let stats: TrackStats?
     var isLocationFresh = true
     var isLiveSharing = false
+    /// 订单上的计划里程（米）。`nil` = 没填，计划进度卡不出现。
+    var plannedDistanceMeters: Int?
     let topBar: TopBar
     let bottom: OrderFlowBottomActions
     /// 点卡片下面的空白 = 按一次主按钮（陪跑中「听当前状态」）。`nil` = 空白不可点。
@@ -82,18 +111,20 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
             topBar
             GeometryReader { geometry in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: BlindRunCardsMetrics.cardGap) {
+                    VStack(alignment: .leading, spacing: gap) {
                         header
+                            .padding(.bottom, BlindRunCardsMetrics.runningGap - gap)
                         BlindRunHeroCard(stats: stats, isFinished: isFinished)
                         if !isFinished {
+                            BlindRunPlanCard(plannedMeters: plannedDistanceMeters, stats: stats)
                             shareStatusCard
                         }
                         cards()
                         footer()
                         blankArea
                     }
-                    .padding(.horizontal, FlowMetrics.v2ScreenPadding)
-                    .padding(.bottom, 16)
+                    .padding(.horizontal, BlindRunCardsMetrics.pagePadding)
+                    .padding(.bottom, 8)
                     .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
                     .readableContentColumn()
                 }
@@ -101,6 +132,11 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
             bottom
         }
         .background(AppColors.Flow.page)
+    }
+
+    /// 卡与卡的间距：陪跑中 14，已完成 10（标题到彩色卡两屏都是 14，彩色卡因此在同一个位置）。
+    private var gap: CGFloat {
+        isFinished ? BlindRunCardsMetrics.finishedGap : BlindRunCardsMetrics.runningGap
     }
 
     // MARK: - 标题
@@ -132,7 +168,7 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
             .foregroundColor(AppColors.Flow.secondaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isFinished ? spokenTitle : "\(spokenTitle)。\(freshness)")
         .accessibilityAddTraits(.isHeader)
@@ -143,7 +179,7 @@ struct BlindRunCardsPage<TopBar: View, Cards: View, Footer: View>: View {
 
     /// 只显示状态、不可点：跑步中开 / 关分享还没有拍过板（见 `blindActiveRunSafetyHubSheet` 的 `offersLiveShare`）。
     private var shareStatusCard: some View {
-        RunRecordCard {
+        BlindRunCardSurface(insets: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18)) {
             HStack {
                 Text(BlindTrackingDrawerCopy.shareRowTitle)
                     .flowFont(FlowFonts.rowValue())
@@ -192,7 +228,7 @@ struct BlindRunFinishedCards: View {
     @StateObject private var homeRunModel = BlindHomeIdleModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: BlindRunCardsMetrics.cardGap) {
+        VStack(alignment: .leading, spacing: BlindRunCardsMetrics.finishedGap) {
             BlindRunCardsRouteMap(track: track)
             BlindRunPartnerCard(
                 feedback: feedback,
@@ -207,6 +243,8 @@ struct BlindRunFinishedCards: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
                     .multilineTextAlignment(.center)
+                    // 定稿图：这一行离评价卡 8，比卡间距少 2。
+                    .padding(.top, 8 - BlindRunCardsMetrics.finishedGap)
                     .accessibilityLabel(summary.spokenText)
                     .accessibilityIdentifier("blindRunCardsMonthLine")
             }

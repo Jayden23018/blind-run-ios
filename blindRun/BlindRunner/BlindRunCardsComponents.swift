@@ -1,21 +1,80 @@
 import SwiftUI
 
-// 订单页 v8 卡片页（`BlindRunCardsPage`，#968）用到的两张卡：彩色卡与已完成页的陪跑员卡。
+// 订单页 v8 卡片页（`BlindRunCardsPage`，#968）用到的卡：彩色卡、计划进度卡、已完成页的陪跑员卡。
+// 尺寸与颜色照 `docs/ui/mockups/blind-run-finish-v8-20261112/c-revised.html` 的数值。
+
+// MARK: - 颜色与卡片底
+
+/// 彩色卡的渐变（DECISION 第 5 条，负责人 2026-11-12 装机后选定稿图这一组，不用纯色状态色）。
+/// 亮暗同值，理由同 `AppColors.Flow` 的头卡状态色。白字压最浅一端：青绿 6.74、绿 6.27。
+/// 放在文件内而不是 `FlowPalette.swift`：那个文件已到单文件行数上限。
+enum BlindRunCardsPalette {
+    static let runningTop = Color(uiColor: UIColor(rgb: 0x0B4A53))
+    static let runningBottom = Color(uiColor: UIColor(rgb: 0x0F6570))
+    static let doneTop = Color(uiColor: UIColor(rgb: 0x124F2B))
+    static let doneBottom = Color(uiColor: UIColor(rgb: 0x1B6E3F))
+
+    /// CSS `linear-gradient(160deg, …)` 换成单位坐标：方向朝下偏右 20°，起止点按 370×208 的卡算。
+    static func hero(isFinished: Bool) -> LinearGradient {
+        LinearGradient(
+            colors: isFinished ? [doneTop, doneBottom] : [runningTop, runningBottom],
+            startPoint: UnitPoint(x: 0.35, y: -0.23),
+            endPoint: UnitPoint(x: 0.65, y: 1.23)
+        )
+    }
+}
+
+/// 这一页的白卡：圆角 20，内边距由调用方按定稿图给。
+struct BlindRunCardSurface<Content: View>: View {
+    var insets = EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content
+        }
+        .padding(insets)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.Flow.surface)
+        .clipShape(RoundedRectangle(cornerRadius: BlindRunCardsMetrics.cardCornerRadius, style: .continuous))
+    }
+}
 
 // MARK: - 彩色卡（两屏同一个位置、同一个大小）
 
 /// 定稿图的排法：里程 92pt 左对齐、「公里」贴在数字右下；下面一行用时与每公里配速，数字在上、标签在下。
-/// 颜色用现有状态色（跑步中青绿 `stateRunning`、已完成绿 `stateDone`，白字对比度逐色验过），不新增颜色。
+/// 还没有里程时不摆三个「--」：数字那一层照样占位（卡片大小不变），上面盖两行字说明这一刻。
 /// 整张卡一个读屏元素，念「里程 … 用时 … 配速 …」。
 struct BlindRunHeroCard: View {
     let stats: TrackStats?
     let isFinished: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    private var hasDistance: Bool { stats?.distanceKilometersText != nil }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ZStack(alignment: .topLeading) {
+            numbers
+                .opacity(hasDistance ? 1 : 0)
+            if !hasDistance {
+                waiting
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(BlindRunCardsMetrics.heroInsets)
+        .background(
+            RoundedRectangle(cornerRadius: BlindRunCardsMetrics.cardCornerRadius, style: .continuous)
+                .fill(BlindRunCardsPalette.hero(isFinished: isFinished))
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+        .accessibilityIdentifier("blindRunCardsHero")
+    }
+
+    private var numbers: some View {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(stats?.distanceKilometersText ?? "--")
+                Text(stats?.distanceKilometersText ?? "0.00")
                     .flowFont(BlindRunCardsMetrics.distanceFont, monospacedDigit: true)
                     .tracking(FlowMetrics.runDistanceTracking)
                     // 裁掉这个数字等于裁掉这一屏，宁可缩也不换行（同 `BlindActiveRunView`）。
@@ -25,6 +84,8 @@ struct BlindRunHeroCard: View {
                     .flowFont(BlindRunCardsMetrics.distanceUnitFont)
             }
             .foregroundColor(AppColors.Flow.onHeroStrong)
+            // 定稿图这一行行高等于字号（92）；系统字体自带的上下留白约多 18pt，标准字号档收回来。
+            .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 0 : -BlindRunCardsMetrics.distanceLineTrim)
 
             // 最大字号两格并排会挤，改上下排（定稿图第二排）。不用 `ViewThatFits`，理由见 `RunExperienceRatingPicker`。
             let layout = dynamicTypeSize.isAccessibilitySize
@@ -35,15 +96,19 @@ struct BlindRunHeroCard: View {
                 metric(stats?.paceClockText, label: BlindRunCardsCopy.paceLabel)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(BlindRunCardsMetrics.heroPadding)
-        .background(
-            RoundedRectangle(cornerRadius: BlindRunCardsMetrics.heroCornerRadius, style: .continuous)
-                .fill(isFinished ? AppColors.Flow.stateDone : AppColors.Flow.stateRunning)
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spoken)
-        .accessibilityIdentifier("blindRunCardsHero")
+    }
+
+    /// 还没有里程的那一刻。不写数字（没有就是没有），不写「刚开跑」（中途重进这一页时也会走到这里）。
+    private var waiting: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(BlindRunCardsCopy.waitingTitle(isFinished: isFinished))
+                .flowFont(BlindRunCardsMetrics.waitingTitleFont)
+                .foregroundColor(AppColors.Flow.onHeroStrong)
+            Text(BlindRunCardsCopy.waitingBody(isFinished: isFinished))
+                .flowFont(BlindRunCardsMetrics.waitingBodyFont)
+                .foregroundColor(AppColors.Flow.onHeroBody)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func metric(_ value: String?, label: String) -> some View {
@@ -69,9 +134,52 @@ struct BlindRunHeroCard: View {
     }
 }
 
+// MARK: - ⑦ 计划进度卡
+
+/// 「计划跑 5 公里」+ 一条进度横条（样子照定稿图「每公里」卡的横条；每公里分段没有数据，那张卡不做）。
+/// 只用订单上的计划里程和已记录的里程，两个都是真数：没填计划里程整张卡不出现；还没有里程时横条是空的。
+struct BlindRunPlanCard: View {
+    let plannedMeters: Int?
+    let stats: TrackStats?
+
+    var body: some View {
+        if let plannedMeters, plannedMeters > 0, let plan = RunPlanFormat.plannedDistance(meters: plannedMeters) {
+            let ratio = (stats?.distanceMeters).map { max($0, 0) / Double(plannedMeters) }
+            let progress = ratio.map { $0 >= 1 ? BlindRunCardsCopy.planReached : "\(Int(($0 * 100).rounded(.down)))%" }
+            BlindRunCardSurface(insets: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18)) {
+                HStack {
+                    Text(BlindRunCardsCopy.planTitle(plan))
+                        .flowFont(FlowFonts.rowValue())
+                    Spacer(minLength: 8)
+                    if let progress {
+                        Text(progress)
+                            .flowFont(FlowFonts.rowValueEmphasized(), monospacedDigit: true)
+                    }
+                }
+                .foregroundColor(AppColors.Flow.primaryText)
+                Capsule()
+                    .fill(AppColors.ButtonPalette.neutralFill)
+                    .frame(height: BlindRunCardsMetrics.planBarHeight)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { geometry in
+                            Capsule()
+                                .fill(BlindRunCardsPalette.runningBottom)
+                                .frame(width: geometry.size.width * min(ratio ?? 0, 1))
+                        }
+                    }
+                    .padding(.top, 12)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(BlindRunCardsCopy.planSpoken(plan: plan, progress: progress))
+            .accessibilityIdentifier("blindRunCardsPlan")
+        }
+    }
+}
+
 // MARK: - ⑧ 陪跑员卡
 
 /// 定稿图：头像、名字、第二行（同跑次数，没有就写搭档状态），右边一个灰底胶囊「设为固定搭档」。
+/// 一行，卡高 72：上下内边距只留 4，名字那一行和胶囊各自的可点区 64 正好填满卡片，左右相邻不重叠。
 /// 点名字进这个人的页面（举报、不再匹配都在那里），动作与跑步详情那一节相同。
 struct BlindRunPartnerCard: View {
     @ObservedObject var feedback: RunnerRunFeedbackViewModel
@@ -89,7 +197,7 @@ struct BlindRunPartnerCard: View {
 
     var body: some View {
         if let row = feedback.personRow {
-            RunRecordCard {
+            BlindRunCardSurface(insets: EdgeInsets(top: 4, leading: 18, bottom: 4, trailing: 18)) {
                 // 最大字号下按钮排到名字下面，不并排。
                 let layout = dynamicTypeSize.isAccessibilitySize
                     ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
@@ -156,6 +264,8 @@ struct BlindRunPartnerCard: View {
             Text(feedback.isUpdatingFavorite ? "正在设置…" : PartnerStreakCopy.blindAddTitle)
                 .flowFont((16, .semibold, .callout))
                 .foregroundColor(AppColors.Flow.primaryText)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 16)
                 .frame(minHeight: 44) // guard:allow small-touch-target 只是看得见的胶囊，可点区是下一行的 64pt
                 .background(Capsule().fill(AppColors.ButtonPalette.neutralFill))
@@ -175,6 +285,6 @@ struct BlindRunPartnerCard: View {
             .font(AppFonts.body())
             .foregroundColor(color)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 8)
+            .padding(.bottom, 8)
     }
 }

@@ -136,6 +136,7 @@ extension BlindOrderStatusView {
             stats: viewModel.trackStats,
             isLocationFresh: viewModel.isDeviceLocationFresh,
             isLiveSharing: shareViewModel.isLiveSharing,
+            plannedDistanceMeters: order.plannedDistanceMeters,
             topBar: mapTrackingTopBar,
             bottom: mapTrackingBottom(presentation, order: order),
             // 只有陪跑中把空白也算作主按钮：「听当前状态」按错了没有后果，「完成」会离开页面。
