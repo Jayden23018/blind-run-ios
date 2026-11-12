@@ -51,10 +51,13 @@ struct RunRecordSummaryCells: View {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(Array(cells.enumerated()), id: \.element.label) { index, cell in
                     if index > 0 { Divider() }
-                    cellView(cell)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        // 服务时长最长（「2 小时 32 分钟」），先拿够它要的宽度，余下的两格平分（#981）。
-                        .layoutPriority(cell.valueRuns.count > 2 ? 1 : 0)
+                    if cell.valueRuns.count > 2 {
+                        // 服务时长最长（「2 小时 32 分钟」）：只占它自己要的宽度，余下的两格平分（#981）。
+                        // 不能给它 `maxWidth: .infinity` 再加优先级 —— 那样它会吃掉整行，另两格宽度变 0。
+                        cellView(cell).fixedSize(horizontal: true, vertical: false)
+                    } else {
+                        cellView(cell).frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
