@@ -36,8 +36,11 @@ extension BlindOrderStatusView {
             // 改版前它就在 `trackingContent` 的 ScrollView 里（跟着内容滚），
             // 阶段 3a 把它提到外面是无意的 —— 放回去即恢复。
             // `#if DEBUG` + `currentEnvironment == .mock` 两道闸没动，Release 里仍是 `EmptyView`。
-            if order.status.usesBlindTrackingMap {
-                // 订单页 v7（#918）：出发起上半屏地图常驻，只换下半屏抽屉。四态同一个分支，地图不重建。
+            if order.status.usesBlindTrackingMap, presentation.phase.usesRunCardsPage {
+                // 订单页 v8（#968）：开跑后不放地图，陪跑中与已完成同一个卡片页。
+                runCardsContent(presentation, order: order)
+            } else if order.status.usesBlindTrackingMap {
+                // 订单页 v7（#918）：出发、已到达上半屏地图常驻，只换下半屏抽屉。两态同一个分支，地图不重建。
                 mapTrackingContent(presentation, order: order)
             } else {
                 BlindOrderFlowView(
@@ -73,10 +76,8 @@ extension BlindOrderStatusView {
     func flowSkeletonFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 16) {
             flowFooter(order)
-            // 🔴 已完成那一幕只留绿色卡（负责人 2026-11-07 定，#831）。2026-09-17 「把改版前那一页
-            // 原样接回来」的决定作废：评价与「设为固定搭档」挪进跑者跑步详情（`RunnerRunRecordFeedbackSections.swift`），
-            // 举报与不再匹配收进这个人的页面（`BlindPartnerDetailView`）；本单信息与状态流水不再显示。
-            // 跑完当场停在这一页时不另加去跑步详情的入口，要评价从首页 → 记录进去。
+            // 已完成那一幕的评价与「设为固定搭档」2026-11-12 起当页放（#968，卡片在 `runCardsContent`），
+            // 取代 11-07「只留绿色卡」（#831）。举报与不再匹配仍收进这个人的页面（`BlindPartnerDetailView`）。
             // 其余状态的举报 / 不再匹配 2026-11-11 起在顶栏「···」，这里只留结果一行。
             CounterpartBlockOutcome(viewModel: counterpartSafety)
             debugMockControls(order)
@@ -88,19 +89,17 @@ extension BlindOrderStatusView {
         flowPresentation != nil && viewModel.order?.status.usesBlindTrackingMap == true
     }
 
-    /// 订单页 v7 ⑤–⑧（#918）。竖线与顶栏用 #917 的组件；求助只在右上角胶囊，底栏只剩主按钮。
+    /// 订单页 v7 ⑤ ⑥ 与倒计时（#918；⑦ ⑧ 见 `runCardsContent`）。竖线与顶栏用 #917 的组件；求助只在右上角胶囊，底栏只剩主按钮。
     private func mapTrackingContent(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> some View {
-        let route = order.status == .completed
-            ? (trackViewModel.track?.primaryRouteCoordinates).flatMap { $0.count >= 2 ? $0 : nil } ?? viewModel.liveRunRoute
-            : viewModel.liveRunRoute
-        return BlindOrderTrackingView(
+        BlindOrderTrackingView(
             status: order.status,
             mapInput: BlindTrackingMapInput(
                 meetPoint: order.startCoordinate,
                 volunteer: viewModel.latestVolunteerCoordinate,
                 // 只用真实定位（`effectiveBackendLocation` 里做唯一一次 GCJ-02 转换），不拿 Demo 默认点取景。
                 me: locationService.currentLocation == nil ? nil : locationService.effectiveBackendLocation,
-                route: route
+                // 开跑后不在这一页（#968），出发 / 已到达没有已跑路线。
+                route: []
             ),
             topBar: mapTrackingTopBar,
             bottom: mapTrackingBottom(presentation, order: order),
@@ -108,10 +107,7 @@ extension BlindOrderStatusView {
                 BlindOrderTrackingDrawer(
                     presentation: presentation,
                     order: order,
-                    stats: viewModel.trackStats,
                     distanceText: viewModel.volunteerDistanceToStartText,
-                    isLocationFresh: viewModel.isDeviceLocationFresh,
-                    isLiveSharing: shareViewModel.isLiveSharing,
                     onCallVolunteer: { dialVolunteer(order) },
                     onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
                     onArrivalCancel: { showCancelConfirmation = true }
@@ -129,7 +125,44 @@ extension BlindOrderStatusView {
         )
     }
 
-    /// ⑤–⑧ 顶栏：压在地图上。求助走云端还是本地拨号由 `sosMode` 判（只有 `IN_PROGRESS` 是云端）。
+    /// 订单页 v8 ⑦ 陪跑中 / ⑧ 已完成（#968，定稿 `docs/ui/mockups/blind-run-finish-v8-20261112/`）。
+    /// 顶栏、底栏、结果面与地图页共用；已完成页的陪跑员与评价两节直接用跑步详情那两块。
+    private func runCardsContent(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> some View {
+        let isFinished = presentation.phase == .finished
+        return BlindRunCardsPage(
+            isFinished: isFinished,
+            partnerName: order.volunteerName,
+            partnerSpokenName: order.volunteerNameForSpeech,
+            togetherCount: order.completedTogetherCount,
+            stats: viewModel.trackStats,
+            isLocationFresh: viewModel.isDeviceLocationFresh,
+            isLiveSharing: shareViewModel.isLiveSharing,
+            topBar: mapTrackingTopBar,
+            bottom: mapTrackingBottom(presentation, order: order),
+            // 只有陪跑中把空白也算作主按钮：「听当前状态」按错了没有后果，「完成」会离开页面。
+            onTapBlank: isFinished ? nil : { handleFlowPrimaryAction(presentation, order: order) },
+            cards: {
+                if isFinished {
+                    BlindRunCardsRouteMap(track: trackViewModel.track)
+                    RunnerRunRecordVolunteerSection(feedback: runFeedback, orderId: order.orderId)
+                    RunnerRunRecordReviewSection(feedback: runFeedback)
+                    if let summary = homeRunModel.snapshot.summary {
+                        Text(BlindRunCardsCopy.monthLine(summary))
+                            .flowFont(FlowV2Fonts.callout())
+                            .foregroundColor(AppColors.Flow.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
+                            .accessibilityLabel(summary.spokenText)
+                            .accessibilityIdentifier("blindRunCardsMonthLine")
+                    }
+                }
+            },
+            footer: { flowSkeletonFooter(order) }
+        )
+    }
+
+    /// ⑤–⑧ 顶栏：压在地图上（⑦ ⑧ 压在浅灰页底上，同一套白色圆钮）。求助走云端还是本地拨号由 `sosMode` 判（只有 `IN_PROGRESS` 是云端）。
     private var mapTrackingTopBar: BlindOrderTopBar {
         BlindOrderTopBar(
             surface: .onMap,

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - 订单页 v7 抽屉内容：⑤ 出发 ⑥ 已到达 ⑦ 陪跑中 ⑧ 已完成（#918）
+// MARK: - 订单页 v7 抽屉内容：⑤ 出发 ⑥ 已到达（#918；⑦ ⑧ 见 `BlindRunCardsPage`）
 
 /// 抽屉里随状态换的那一段。地图、拖动条、竖线、底栏都在外壳 `BlindOrderTrackingView` 里。
 ///
@@ -10,11 +10,8 @@ import SwiftUI
 struct BlindOrderTrackingDrawer: View {
     let presentation: BlindOrderFlowPresentation
     let order: OrderDetailResponse
-    var stats: TrackStats?
     /// 陪跑员到出发地点的距离（`volunteerDistanceToStartText`），只有出发 / 已到达有。
     var distanceText: String?
-    var isLocationFresh = true
-    var isLiveSharing = false
     /// ⑥ 陪跑员行右侧的「打电话」。按钮出不出现由 `presentation.callTitle` 决定。
     var onCallVolunteer: (() -> Void)?
     /// ⑤ 陪跑员行右侧的「留一句话」。`nil` = 这一态不能留言（`acceptsRunnerMessage`）。
@@ -29,12 +26,9 @@ struct BlindOrderTrackingDrawer: View {
                 countdown(beat)
                 // 陪跑员行（含「打电话」）这三秒留着，不让版面在手指下跳（同骨架倒计时保留拨号版位）。
                 volunteerRow
-            case .running:
-                header
-                runningBlock
-            case .finished:
-                header
-                finishedCard
+            case .running, .finished:
+                // ⑦ ⑧ 2026-11-12 起走卡片页（`BlindRunCardsPage`，#968），不进这个抽屉。
+                EmptyView()
             case .beforeRun:
                 header
                 volunteerRow
@@ -229,7 +223,8 @@ struct BlindOrderTrackingDrawer: View {
     }
 }
 
-// MARK: - 倒计时、⑦ 陪跑中、⑧ 已完成
+// MARK: - 倒计时
+
 
 extension BlindOrderTrackingDrawer {
     // MARK: - 倒计时（⑥ → ⑦ 之间那三秒）
@@ -252,67 +247,4 @@ extension BlindOrderTrackingDrawer {
         .accessibilityLabel("\(presentation.title)，\(beat)。\(presentation.subtitle)")
         .accessibilityIdentifier("blindOrderFlowStatusCard")
     }
-
-    // MARK: - ⑦ 陪跑中
-
-    private var runningBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            locationFreshnessRow
-            BlindActiveRunView(
-                stats: stats,
-                paceLabel: BlindRunCopy.metricPaceLabel(isFinished: false),
-                distanceFont: BlindTrackingDrawerMetrics.runDistanceFont
-            )
-            FlowSeparator()
-            // 稿上带「›」。跑步中开 / 关分享还没有拍过板（见 `blindActiveRunSafetyHubSheet` 的 `offersLiveShare`），
-            // 所以这一行只显示状态、不可点。
-            HStack {
-                Text(BlindTrackingDrawerCopy.shareRowTitle)
-                    .flowFont(FlowFonts.rowValue())
-                    .foregroundColor(AppColors.Flow.primaryText)
-                Spacer(minLength: 8)
-                Text(isLiveSharing ? BlindTrackingDrawerCopy.shareOn : BlindTrackingDrawerCopy.shareOff)
-                    .flowFont(FlowFonts.rowValue())
-                    .foregroundColor(AppColors.Flow.secondaryText)
-            }
-            .frame(minHeight: 44) // guard:allow small-touch-target 纯展示行，不可点
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("blindOrderTrackingShareStatus")
-        }
-    }
-
-    /// 本机定位新不新鲜（理由见 `BlindOrderFlowView.locationFreshnessBadge`：低视力用户唯一看得见 GPS 状态的地方）。
-    private var locationFreshnessRow: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(isLocationFresh ? AppColors.success : AppColors.warning)
-                .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
-                .accessibilityHidden(true)
-            Text(isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale)
-                .flowFont(FlowFonts.rowDetail())
-                .foregroundColor(AppColors.Flow.secondaryText)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("blindOrderFlowLocationFreshness")
-    }
-
-    // MARK: - ⑧ 已完成
-
-    /// 绿色成果卡（稿 ⑧）。评价仍在跑步详情，不搬过来（DECISION 第 10 条）。
-    private var finishedCard: some View {
-        FlowHeroCard(style: BlindHeroPalette(tone: .done).cardStyle) {
-            BlindActiveRunView(
-                stats: stats,
-                paceLabel: BlindRunCopy.metricPaceLabel(isFinished: true),
-                onHero: true,
-                distanceFont: BlindTrackingDrawerMetrics.runDistanceFont
-            )
-        }
-        .accessibilityIdentifier("blindOrderTrackingResultCard")
-    }
-}
-
-extension BlindTrackingDrawerMetrics {
-    /// ⑦ ⑧ 里程数字 44pt（负责人定稿时由 64pt 降下来，给地图留上半屏）。
-    static let runDistanceFont: (CGFloat, Font.Weight, Font.TextStyle) = (44, .semibold, .largeTitle)
 }
