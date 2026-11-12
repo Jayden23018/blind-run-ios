@@ -277,7 +277,7 @@ struct BlindOrderFlowPresentation: Equatable {
     }
 
     enum PrimaryAction: Equatable {
-        /// 打电话给陪跑员。`title` 里带姓氏。
+        /// 打电话给陪跑员。`title` 恒为「打电话给陪跑员」，不带姓（#971）。
         case callVolunteer(title: String)
         /// 进通话磨合页。**不复用 `callVolunteer`** —— 那个按下去立刻弹系统拨号确认，
         /// 这个只是打开一个页面。对看不见屏幕的人，两件事听起来一样就等于随时可能误拨
@@ -393,7 +393,7 @@ struct BlindOrderFlowPresentation: Equatable {
                 warning: locationWarning,
                 // 汇合那一屏的第二个版位在这三秒里**留着**：它一消失，「求助与安全」就往下跳一格，
                 // 而视障用户靠位置记忆按钮。
-                callTitle: dialableCallTitle(order: order, name: name)
+                callTitle: dialableCallTitle(order: order)
             )
         case .running:
             return BlindOrderFlowPresentation(
@@ -439,21 +439,22 @@ struct BlindOrderFlowPresentation: Equatable {
                     order: order, name: name, canKeepWaiting: canKeepWaiting, isStartingRun: isStartingRun, now: now
                 ),
                 warning: locationWarning,
-                callTitle: metUpCallTitle(order: order, name: name),
+                callTitle: metUpCallTitle(order: order),
                 arrivalCancel: BlindArrivalCancelGate.resolve(order: order, now: now)
             )
         }
     }
 
     /// 跑步前只在汇合（`DRIVER_ARRIVED`）给。倒计时那三秒另走 `make` 的 `.countdown` 分支，同样给。
-    private static func metUpCallTitle(order: OrderDetailResponse, name: String) -> String? {
+    private static func metUpCallTitle(order: OrderDetailResponse) -> String? {
         guard order.status.canStartService else { return nil }
-        return dialableCallTitle(order: order, name: name)
+        return dialableCallTitle(order: order)
     }
 
-    private static func dialableCallTitle(order: OrderDetailResponse, name: String) -> String? {
+    private static func dialableCallTitle(order: OrderDetailResponse) -> String? {
         guard EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) != nil else { return nil }
-        return "打电话给\(name)"
+        // 按钮用角色不带姓（#971）；页头标题才用姓。
+        return "打电话给陪跑员"
     }
 
     /// 相位 = 订单状态 + 本地倒计时。
@@ -594,7 +595,7 @@ struct BlindOrderFlowPresentation: Equatable {
         // 会被 `telURL` 的掩码闸拦掉（不拦则拼成 `tel://1381234`，一个可能真打给别人的号码）。
         if order.status.offersVolunteerCall,
            EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) != nil {
-            return .callVolunteer(title: "打电话给\(name)")
+            return .callVolunteer(title: "打电话给陪跑员")
         }
         // `REMATCHING` 保留延长入口，`PENDING_MATCH` 不保留（见 `PrimaryAction.keepWaiting`）。
         // 判据走 `offersBlindRunnerKeepWaitingControl` 而不是就地写 `== .rematching`：

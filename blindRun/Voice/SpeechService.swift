@@ -339,7 +339,7 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
             return "有陪跑员响应了你的预约，请先与对方通话确认。"
         // 与 `RunOrderStatus.blindRunnerAnnouncement` 逐字相同（同该文件其余各态的既有写法）。
         case .scheduledConfirmed:
-            return "预约已确认。计划有变可在出发前致电陪跑员。"
+            return "预约已确认。计划有变可在出发前打电话给陪跑员。"
         case .pendingAccept:
             return "陪跑员已接单，请前往或等待在预约出发地点。"
         case .driverEnRoute:

@@ -125,6 +125,8 @@ struct BlindStartPlaceCircleButton: View {
     let identifier: String
     /// 选中时圆下那行主色小字。默认出发地点页写「默认」，约跑页写「这次从这里」（#821）。
     var selectedTag: String = BlindStartPlaceCopy.defaultTag
+    /// 选中环与「这次从这里」的颜色。默认亮蓝（默认出发地点页）；约跑页传藏青（#971，负责人 2026-11-12 批准）。
+    var accent: Color = AppColors.primary
     let action: () -> Void
 
     var body: some View {
@@ -135,7 +137,7 @@ struct BlindStartPlaceCircleButton: View {
                     .overlay {
                         if isSelected {
                             Circle()
-                                .strokeBorder(AppColors.primary, lineWidth: 3)
+                                .strokeBorder(accent, lineWidth: 3)
                                 .frame(width: Self.circleDiameter + 12, height: Self.circleDiameter + 12)
                         }
                     }
@@ -150,7 +152,7 @@ struct BlindStartPlaceCircleButton: View {
                 if isSelected {
                     Text(selectedTag)
                         .font(.footnote.weight(.semibold))
-                        .foregroundColor(AppColors.primary)
+                        .foregroundColor(accent)
                         .padding(.top, 1)
                 } else if let subtitle {
                     Text(subtitle)
@@ -196,6 +198,8 @@ struct BlindFavoritePlaceRowLabel: View {
     /// 副标题是「默认」时用主色加粗（最大字号列表里的选中行，稿 ④）。
     var subtitleIsDefaultTag = false
     var showsDefaultBadge = false
+    /// 「默认」字与勾的颜色。默认亮蓝；约跑页最大字号列表传藏青（#971）。
+    var accent: Color = AppColors.primary
 
     var body: some View {
         // 稿子 `.ri{margin-right:13px}`（最大字号 14）；添加页沿用改版前的 12，版式不动。
@@ -208,7 +212,7 @@ struct BlindFavoritePlaceRowLabel: View {
                 if let subtitle {
                     Text(subtitle)
                         .font(subtitleIsDefaultTag ? .subheadline.weight(.semibold) : .subheadline)
-                        .foregroundColor(subtitleIsDefaultTag ? AppColors.primary : AppColors.textSecondary)
+                        .foregroundColor(subtitleIsDefaultTag ? accent : AppColors.textSecondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -219,7 +223,7 @@ struct BlindFavoritePlaceRowLabel: View {
             if isSelected {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
-                    .foregroundColor(AppColors.primary)
+                    .foregroundColor(accent)
                     .accessibilityHidden(true)
             }
         }

@@ -164,10 +164,11 @@ extension AppColors {
         static let bookingSubtitleTone = Tone(light: 0x3D4F80, dark: 0xC3D2F0)
         static let bookingSubtitle = flowDynamic(bookingSubtitleTone, highContrast: bookingTitleTone)
 
-        // MARK: 主按钮（黄）
+        // MARK: 黄（原主按钮色）
 
-        /// 黄底亮暗同值：它是「当前最重要的那一个动作」的唯一标记，跟随外观变化会让这条
-        /// 线索在两套外观里强弱不一。
+        /// 2026-11-12 起订单流程主按钮统一藏青（#971），`FlowActionButton(.primary)` 不再用它。
+        /// 现在只剩小面积强调：邀请横幅的铃铛、拒绝 toast 的「撤销」、长按结束的进度条等。
+        /// 黄底亮暗同值：跟随外观变化会让这条线索在两套外观里强弱不一。
         static let ctaTone = Tone(light: 0xF6C343, dark: 0xF6C343)
         static let cta = flowDynamic(ctaTone)
 

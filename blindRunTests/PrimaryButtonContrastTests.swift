@@ -123,7 +123,44 @@ final class PrimaryButtonContrastTests: XCTestCase {
         XCTAssertLessThan(Self.contrast(AppColors.Flow.ghostStrokeTone.light, 0xFFFFFF), boundary)
     }
 
+    // MARK: - #971 订单流程藏青主按钮与约跑页选中格
+
+    /// 订单流程主按钮（`PrimaryButton(tone: .navy)`、`FlowActionButton(.primary)`、`BlindOrderStageButton`）
+    /// 与约跑页选中的日期 / 时段都是藏青实心 + 白字；选中时段的第二行小字是 `onNavySecondary`。
+    /// 按下态是藏青 85% 不透明压在页面底上。
+    func testNavyOrderFlowFillsKeepTheirLabelsReadable() {
+        let white: UInt32 = 0xFFFFFF
+        let navy = AppColors.Flow.navyTone
+        let secondary = AppColors.Flow.onNavySecondaryTone
+        let page = AppColors.Flow.pageTone
+        let surface = AppColors.Flow.surfaceTone
+        for (style, fill) in [("亮", navy.light), ("暗", navy.dark)] {
+            XCTAssertGreaterThanOrEqual(Self.contrast(white, fill), Self.bodyText, "白字压藏青（\(style)）")
+            XCTAssertGreaterThanOrEqual(Self.contrast(secondary.light, fill), Self.bodyText, "选中时段小字压藏青（\(style)）")
+        }
+        for (style, fill, under) in [
+            ("亮 · 页面底", navy.light, page.light),
+            ("暗 · 页面底", navy.dark, page.dark),
+            ("暗 · 卡片底", navy.dark, surface.dark)
+        ] {
+            XCTAssertGreaterThanOrEqual(
+                Self.contrast(white, Self.blend(fill, over: under, alpha: 0.85)), Self.bodyText, "按下态白字（\(style)）"
+            )
+        }
+        // 验红：原陪跑员端黄色主按钮若直接换白字只有约 1.64:1 —— 公式确实能判出不达标。
+        XCTAssertLessThan(Self.contrast(white, AppColors.Flow.ctaTone.light), Self.largeText)
+    }
+
     // MARK: - 辅助
+
+    /// 前景色按 `alpha` 不透明度叠在背景色上的结果（逐通道线性混合，与屏幕合成一致）。
+    private static func blend(_ foreground: UInt32, over background: UInt32, alpha: Double) -> UInt32 {
+        [16, 8, 0].reduce(UInt32(0)) { result, shift in
+            let top = Double((foreground >> UInt32(shift)) & 0xFF)
+            let bottom = Double((background >> UInt32(shift)) & 0xFF)
+            return result | UInt32((top * alpha + bottom * (1 - alpha)).rounded()) << UInt32(shift)
+        }
+    }
 
     private static func primaryTone() throws -> AppColors.Tone {
         try XCTUnwrap(AppColors.tones.first { $0.name == "primary" }?.tone)

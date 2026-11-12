@@ -28,7 +28,7 @@ final class BlindStartRunTests: XCTestCase {
     func testDepartedStillOffersTheCall() {
         XCTAssertEqual(
             make(.driverEnRoute, volunteerPhone: "13800000001").primaryAction,
-            .callVolunteer(title: "打电话给张")
+            .callVolunteer(title: "打电话给陪跑员")
         )
     }
 

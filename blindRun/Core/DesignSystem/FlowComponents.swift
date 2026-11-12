@@ -193,21 +193,22 @@ struct FlowInfoRow<Value: View>: View {
 /// 底部操作区的按钮。三种样式，**高度与圆角一致**，靠颜色 + 图标区分职责。
 struct FlowActionButton: View {
     enum Style {
-        /// 当前状态唯一的主操作。黄色。**全 App 只有这一处用黄色**，它就是「现在该按这个」。
+        /// 当前状态唯一的主操作。藏青底白字（`AppColors.Flow.navy`），与盲人订单页 `BlindOrderStageButton` 同色。
+        /// 2026-11-12 负责人批准（#971）：订单流程两端主按钮统一藏青，不再用黄色。
         case primary
         /// 「求助与安全」。浅红底 + 深红字 + 描边。
         /// **实心红只留给求助中心里的「紧急求助」** —— 入口醒目，但不能让人以为按一下就报警。
         case help
         /// 次级操作。白底 + 灰描边。
         case ghost
-        /// 陪跑员订单页 v2 的主按钮（交付包 D14）：黄底 + 1.5pt `ctaStroke` 描边 + 暖色阴影，
-        /// 按下缩放 0.98。与 `.primary` 分开是为了不动盲人端 —— 那边的主按钮保持无描边。
+        /// 陪跑员订单页 v2 的主按钮（交付包 D14）：按下缩放 0.98。
+        /// 颜色 2026-11-12 随 #971 与 `.primary` 一起改藏青白字，去掉了黄色描边与暖色阴影。
         case raisedPrimary
         /// 陪跑员订单页 v2 的次要按钮（「我已经出发了」、响铃）：白底 + 灰描边，字 16 bold。
         /// 与 `.ghost` 同形，只是字号字重按 v2。
         case outlined
         /// 盲人端汇合页「打电话给<陪跑员>」：白底 + 2pt 主色描边 + 深蓝字，80pt 高（定稿 v6）。
-        /// **不用黄色**：黄色在这一屏只给「开始跑步」，两个黄块会抢「先按哪个」。
+        /// **不用实心**：实心藏青在这一屏只给主按钮，两个实心块会抢「先按哪个」。
         case call
     }
 
@@ -253,13 +254,6 @@ struct FlowActionButton: View {
 
     var body: some View {
         styledButton
-        .shadow(
-            color: style == .raisedPrimary && isEnabled
-                ? AppColors.Flow.ctaStroke.opacity(FlowMetrics.v2CTAShadowOpacity) : .clear,
-            radius: FlowMetrics.v2CTAShadowRadius,
-            x: 0,
-            y: FlowMetrics.v2CTAShadowY
-        )
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel ?? title)
@@ -321,7 +315,8 @@ struct FlowActionButton: View {
 
     private var foreground: Color {
         switch style {
-        case .primary, .raisedPrimary: return AppColors.Flow.onCTA
+        // 不可用时同 `BlindOrderStageButton` 的灰底灰字（`NavySolidButtonStyle`）。
+        case .primary, .raisedPrimary: return isEnabled ? .white : AppColors.textSecondary
         case .help: return AppColors.Flow.helpText
         case .ghost, .outlined: return AppColors.Flow.primaryText
         case .call: return AppColors.Flow.bluePressed
@@ -339,21 +334,19 @@ struct FlowActionButton: View {
 
     private var background: Color {
         switch style {
-        // 不可用的黄按钮换**具名浅黄**而不是降透明度：那三秒里这枚按钮的颜色
-        // 是「现在还不能按」唯一的视觉状态，见 `AppColors.Flow.ctaDisabled`。
-        case .primary, .raisedPrimary: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
+        // 不可用换**具名灰底**而不是降透明度：那三秒里这枚按钮的颜色是「现在还不能按」
+        // 唯一的视觉状态。与 `BlindOrderStageButton` 不可用时同一个样子（#971）。
+        case .primary, .raisedPrimary: return isEnabled ? AppColors.Flow.navy : AppColors.ButtonPalette.disabledFill
         case .help: return AppColors.Flow.helpBackground
         case .ghost, .outlined, .call: return AppColors.Flow.surface
         }
     }
 
-    /// 主按钮**不描边**：黄底压页面底 1.50:1，边界靠的是 18pt Semibold 的达标标签
-    /// （10.57:1）—— W3C Understanding 1.4.11 对自带达标文字标签的控件豁免边界比。
+    /// 主按钮**不描边**：藏青底压页面底远超 3:1，本身就是边界。
     /// 求助按钮不同：它的填充压页面底只有 1.05:1，没有描边就没有按钮形状。
     private var strokeColor: Color {
         switch style {
-        case .primary: return .clear
-        case .raisedPrimary: return isEnabled ? AppColors.Flow.ctaStroke : .clear
+        case .primary, .raisedPrimary: return .clear
         case .help: return AppColors.Flow.helpStroke
         case .ghost, .outlined: return AppColors.Flow.ghostStroke
         case .call: return AppColors.Flow.accent

@@ -73,7 +73,8 @@ extension VolunteerOrderFlowPage {
         return lines + hero.lines
     }
 
-    /// 抽屉顶上的标题与蓝字副标题。合成一个元素，沿用 v2 头卡的 identifier。
+    /// 抽屉顶上的标题与灰字副标题。合成一个元素，沿用 v2 头卡的 identifier。
+    /// 副标题 2026-11-12 由蓝改灰（#971 稿「到达：说明文字由蓝改灰」）：蓝字在这一屏像链接，点了却没反应。
     func drawerHeader(title: String, subtitle: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -83,7 +84,7 @@ extension VolunteerOrderFlowPage {
             ForEach(subtitle, id: \.self) { line in
                 Text(line)
                     .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(AppColors.Flow.accent)
+                    .foregroundColor(AppColors.Flow.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

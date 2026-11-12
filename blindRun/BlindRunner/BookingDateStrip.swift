@@ -129,19 +129,19 @@ struct BookingDateStrip: View {
 
     private func dayNumberColor(isAvailable: Bool, isSelected: Bool) -> Color {
         guard isAvailable else { return AppColors.Flow.secondaryText }
-        return isSelected ? AppColors.Flow.navy : AppColors.Flow.primaryText
+        return isSelected ? .white : AppColors.Flow.primaryText
     }
 
-    /// 选中：白底 + 1.5pt 蓝描边（照参考图）；能约：浅蓝底；不能约：不填色。
+    /// 选中：藏青实心 + 白字（#971，负责人 2026-11-12 批准；原是白底 + 蓝描边）；能约：浅蓝底；不能约：不填色。
     private func dayFill(isAvailable: Bool, isSelected: Bool) -> Color {
-        if isSelected { return AppColors.Flow.surface }
+        if isSelected { return AppColors.Flow.navy }
         return isAvailable ? AppColors.Flow.blueTint : .clear
     }
 
     @ViewBuilder
     private func dayBorder(isAvailable: Bool, isSelected: Bool) -> some View {
         if isSelected {
-            Circle().strokeBorder(AppColors.ButtonPalette.primaryFill, lineWidth: 1.5)
+            Circle().strokeBorder(AppColors.Flow.navy, lineWidth: 1.5)
         } else if isAvailable {
             // 浅蓝填充压白卡对比度不够，低视力看不出能点：加灰描边过 3:1（与 v4 同一条有意偏离，负责人 11-06 定）。
             Circle().strokeBorder(AppColors.ButtonPalette.neutralStroke, lineWidth: 1)
@@ -203,7 +203,7 @@ struct BookingDateStrip: View {
     }
 }
 
-/// 约跑页的选项胶囊：白底、选中只换 1.5pt 蓝描边（照 v4 参考图）。
+/// 约跑页的选项胶囊：白底灰描边；选中换藏青实心 + 白字（#971，负责人 2026-11-12 批准；v4 原是只换蓝描边）。
 /// 未选中描边用灰按钮描边色（负责人 11-06 定，过 3:1）。可点区撑到 64pt 高。
 /// v5（#821）加可选的第二行小字：时段的时间范围、或不能选的原因。
 struct BookingChoicePill: View {
@@ -231,7 +231,7 @@ struct BookingChoicePill: View {
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption2)
-                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .foregroundColor(isSelected && isEnabled ? AppColors.Flow.onNavySecondary : AppColors.Flow.secondaryText)
                 }
             }
             .multilineTextAlignment(.center)
@@ -239,10 +239,10 @@ struct BookingChoicePill: View {
             .padding(.horizontal, fillsWidth ? 4 : 15)
             .padding(.vertical, subtitle == nil ? 0 : 6)
             .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: height) // guard:allow small-touch-target 看得见的胶囊，可点区见下方 64
-            .background(Capsule().fill(isEnabled ? AppColors.Flow.surface : AppColors.Flow.page))
+            .background(Capsule().fill(fillColor))
             .overlay(
                 Capsule().strokeBorder(
-                    isSelected ? AppColors.ButtonPalette.primaryFill : AppColors.ButtonPalette.neutralStroke,
+                    isSelected ? AppColors.Flow.navy : AppColors.ButtonPalette.neutralStroke,
                     style: StrokeStyle(lineWidth: isSelected ? 1.5 : 1, dash: isEnabled ? [] : [3])
                 )
             )
@@ -256,6 +256,11 @@ struct BookingChoicePill: View {
 
     private var textColor: Color {
         guard isEnabled else { return AppColors.Flow.secondaryText }
-        return isSelected ? AppColors.Flow.navy : AppColors.Flow.primaryText
+        return isSelected ? .white : AppColors.Flow.primaryText
+    }
+
+    private var fillColor: Color {
+        guard isEnabled else { return AppColors.Flow.page }
+        return isSelected ? AppColors.Flow.navy : AppColors.Flow.surface
     }
 }

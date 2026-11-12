@@ -184,10 +184,6 @@ enum FlowMetrics {
     static let v2IconBubbleDiameter: CGFloat = 36
     /// 底部动作区上缘那条「页面底 → 透明」渐变的高度。
     static let v2BottomFadeHeight: CGFloat = 16
-    /// 主按钮暖色阴影（CSS blur 16 → SwiftUI radius 8，见 `cardShadowNear` 的换算说明）。
-    static let v2CTAShadowRadius: CGFloat = 8
-    static let v2CTAShadowY: CGFloat = 6
-    static let v2CTAShadowOpacity: Double = 0.28
     /// 按下时的缩放。
     static let v2PressedScale: CGFloat = 0.98
 }

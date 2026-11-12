@@ -236,7 +236,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 BlindOrderStageButton(
                     title: action.title,
                     systemImage: action.systemImage,
-                    style: action == .alreadyDeparted ? .outline : .solid,
+                    // 「我已经出发了」是那一步唯一的主动作，同样实心藏青（#971，负责人 2026-11-12 批准）。
+                    style: .solid,
                     isEnabled: isPrimaryEnabled && !isPrimaryLoading,
                     accessibilityHint: primaryHint(action),
                     action: onPrimaryAction

@@ -259,13 +259,18 @@ struct BlindOrderStageButton: View {
     var systemImage: String?
     let style: Style
     var isEnabled = true
+    /// 提交中：图标换成转圈，按钮同时不可点（调用方把 `isEnabled` 一并置 false）。
+    /// 没有它时提交中只会变灰，看着像「不能按」（#971 review）。
+    var isLoading = false
     var accessibilityHint: String?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if let systemImage {
+                if isLoading {
+                    ProgressView().accessibilityHidden(true)
+                } else if let systemImage {
                     Image(systemName: systemImage).accessibilityHidden(true)
                 }
                 Text(title)

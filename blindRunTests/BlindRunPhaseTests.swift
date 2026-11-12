@@ -407,10 +407,10 @@ final class BlindRunPhaseTests: XCTestCase {
 
     // MARK: - 汇合页「打电话给<陪跑员>」（2026-10-13，`unify-order-progress-rope`）
 
-    /// 汇合时给第二个版位，名字去掉掩码星号、**不带号码**（VoiceOver 外放）。
+    /// 汇合时给第二个版位，按钮用角色不带姓（#971）、**不带号码**（VoiceOver 外放）。
     func testMetUpOffersCallingTheVolunteerByNameWithoutTheNumber() throws {
         let title = try XCTUnwrap(make(.driverArrived, volunteerName: "张*").callTitle)
-        XCTAssertEqual(title, "打电话给张")
+        XCTAssertEqual(title, "打电话给陪跑员")
         XCTAssertFalse(title.contains("*"))
         XCTAssertFalse(title.contains("138"), "号码不进标题")
         XCTAssertEqual(make(.driverArrived).primaryAction, .startRun, "主按钮仍是开始跑步，打电话不抢它的位置")
