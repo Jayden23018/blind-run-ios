@@ -16,6 +16,12 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     @Published private(set) var matchedOrder: OrderDetailResponse?
     /// 「跑者王*正在来电」显示到几点（收到 `INTRO_CALL_INCOMING` 的发出时刻 + 2 分钟）。
     @Published private(set) var incomingCallUntil: Date?
+    /// 跑者确认那一刻的过渡（#962 第 6 项）。与 `outcome = .matched` 同一拍置上（首帧不会先闪出 ④），
+    /// 页面演完约 1 秒后 `finishMatchedTransition` 清掉。判据是纯函数 `VolunteerMatchedTransition.shouldPlay`。
+    @Published private(set) var matchedTransition: VolunteerMatchedTransition?
+    /// App 在不在前台、上一次拿到通话数据之后进没进过后台。人没一直看着 ③ 时不放过渡（同盲人端 #926）。
+    private var isSceneActive = true
+    private var backgroundedSinceLastLoad = false
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -65,6 +71,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
         do {
             introCall = try await appState.safety.introCall(orderId: orderId)
             if let id = introCall?.counterpartUserId { counterpartUserId = id }
+            if isSceneActive { backgroundedSinceLastLoad = false }
             clearLoadFailure()
             announceCountdownIfDue(now: now)
             syncLiveActivity(orderId: orderId)
@@ -95,6 +102,24 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     func isShowingIncomingCall(now: Date) -> Bool {
         guard outcome == .active, let incomingCallUntil else { return false }
         return incomingCallUntil > now
+    }
+
+    // MARK: 跑者确认那一刻（#962 第 6 项）
+
+    func noteScenePhase(_ phase: ScenePhase) {
+        isSceneActive = phase == .active
+        if phase == .background { backgroundedSinceLastLoad = true }
+    }
+
+    /// 页面演到哪一步。换了一次新的过渡就不碰（`id` 对不上）。
+    func revealMatchedTransition(_ id: UUID) {
+        guard matchedTransition?.id == id else { return }
+        matchedTransition?.revealed = true
+    }
+
+    func finishMatchedTransition(_ id: UUID) {
+        guard matchedTransition?.id == id else { return }
+        matchedTransition = nil
     }
 
     // MARK: 倒计时
@@ -160,12 +185,24 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     /// 订单详情读得到 ⇒ 成了；仍然 403 ⇒ 这一单不是我的。
     /// 这不是取巧，是这个契约下唯一存在的判据：通话端点刻意不回对方的表态。
     private func resolveFinishedRound(orderId: Int64, appState: AppState) async {
+        // 过渡的前 0.3 秒要照结束前的 ③ 画，先记下来（#962 第 6 项）。
+        let previousIntroCall = introCall
+        let previousStep = previousIntroCall == nil ? nil : step
         introCall = nil
         incomingCallUntil = nil
         if let order = try? await appState.safety.matchedOrder(orderId: orderId) {
             matchedOrder = order
+            let plays = VolunteerMatchedTransition.shouldPlay(
+                previousStep: previousStep,
+                outcome: .matched,
+                watchedContinuously: isSceneActive && !backgroundedSinceLastLoad
+            )
+            matchedTransition = plays ? previousIntroCall.map { VolunteerMatchedTransition(previousIntroCall: $0) } : nil
             outcome = .matched
             speechService?.speak(IntroCallCopy.volunteerMatchedAnnouncement(order: order))
+            // 震动沿用状态表（`RunOrderStatus.haptic`，约好 / 临期确认都是 `.success`），不新增波形；
+            // 与上面那句播报同生同灭（`SpeechService.speakStatusChange` 的注释）。
+            order.status.haptic.map(HapticFeedback.play)
         } else {
             outcome = .closed
             speechService?.speak(IntroCallCopy.volunteerRoundClosed)
@@ -286,6 +323,9 @@ struct VolunteerIntroCallView: View {
     @State private var showsPlanForm = false
     @State private var showsEditConfirm = false
     @AccessibilityFocusState private var headerFocused: Bool
+    /// 跑者确认那一刻（#962 第 6 项）：开了「减弱动态效果」就只做 0.25 秒淡入淡出。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     let route: VolunteerIntroCallRoute
 
@@ -297,16 +337,29 @@ struct VolunteerIntroCallView: View {
 
     var body: some View {
         Group {
-            if viewModel.outcome == .matched, let order = viewModel.matchedOrder {
+            // 跑者确认那一刻（#962 第 6 项）：前 0.3 秒还留在 ③（圆点打勾），揭开后才换成 ④。
+            if viewModel.outcome == .matched, let order = viewModel.matchedOrder, viewModel.matchedTransition?.revealed != false {
                 // 成单：原地换成订单页（「约好」）。不 push：push 要一个 `isPresented` 绑定，
                 // 返回时会被立刻重新推回去；原地换内容没有这个问题，订单页自己的返回键关掉的是整页。
                 VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
+                    // 刚揭开：竖线往下长到「等出发」、当前行与底部按钮从下方淡入（盲人端 #926 同一套）。
+                    .environment(\.blindOrderStageArrival, viewModel.matchedTransition?.revealed == true && !reduceMotion)
                     .transition(.opacity)
             } else {
                 callPage
+                    // 过渡的前 0.3 秒这一轮已经结束，旧 ③ 上的按钮不许再点。
+                    .allowsHitTesting(viewModel.matchedTransition == nil)
+                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: viewModel.outcome)
+        // 不放过渡时（减弱动态效果之外：人没一直看着 ③、或这轮没约成）仍是原来的 0.25 秒淡入淡出。
+        .animation(.easeInOut(duration: BlindMatchFoundTiming.crossfade), value: viewModel.outcome)
+        .task(id: viewModel.matchedTransition?.id) {
+            await playMatchedTransition()
+        }
+        .onChange(of: scenePhase) { phase in
+            viewModel.noteScenePhase(phase)
+        }
         // 订单页那一族不带标签栏（设计交付 v3 §4.2 总表，S5 邀请就是 S6 的一个状态）；
         // 自带导航栏，系统那条整条藏掉，否则两条叠着。返回箭头在，不会把人关在这一页里。
         .toolbar(.hidden, for: .navigationBar)
@@ -334,7 +387,15 @@ struct VolunteerIntroCallView: View {
     }
 
     private var isClosed: Bool { viewModel.outcome == .closed }
-    private var isAwaitingConfirmation: Bool { !isClosed && viewModel.step == .awaitingRunnerConfirmation }
+    /// 过渡中（跑者刚确认，`introCall` 已清空）仍按 ③ 画：过渡只在人一直看着 ③ 时才会放。
+    private var isAwaitingConfirmation: Bool {
+        !isClosed && (viewModel.matchedTransition != nil || viewModel.step == .awaitingRunnerConfirmation)
+    }
+
+    /// 屏上照哪份通话数据画。跑者确认那一刻 view model 已清掉 `introCall`，前 0.3 秒照结束前那份画旧 ③。
+    private var shownIntroCall: IntroCallView? {
+        viewModel.introCall ?? viewModel.matchedTransition?.previousIntroCall
+    }
 
     /// v7 ②③（#945）：与盲人端同一个外壳 —— 深色头 + 竖线（当前步「商量见面安排」）+ 底部按钮。
     /// 求助：这一态不是 `IN_PROGRESS`，`VolunteerOrderSOSMode.resolve` 恒给本地拨号。
@@ -371,14 +432,26 @@ struct VolunteerIntroCallView: View {
         }
     }
 
-    /// 竖线：第 1 步「已接下陪跑」，当前「商量见面安排」，下面是剩余时间。
-    /// ③ 等跑者确认时不露「下一步」：安排单五项首屏要完整可见（同盲人 v7 第 11 条 D）。
+    /// 竖线：第 1 步「已接下陪跑」，当前「商量见面安排」。
+    /// ② 等来电：当前步小字是剩余时间。③ 等跑者确认（#962 第 6 项，照盲人端 ① #926）：圆点呼吸，
+    /// 小字「已等 N 分钟 · 跑者确认后即完成约定」，随页面 15 秒一跳的时钟刷新；跑者确认那一刻圆点打勾。
+    /// ③ 不露「下一步」：安排单五项首屏要完整可见（同盲人 v7 第 11 条 D）。
     private func timelineInput(now: Date) -> BlindOrderTimelineInput {
         var details: [BlindOrderTimelineStep: String] = [:]
+        var currentDot: BlindOrderTimelineCurrentDot = .still
+        var spoken: String?
         if isClosed {
             details[.arrangeMeetup] = IntroCallCopy.volunteerRoundClosedTitle
+        } else if viewModel.matchedTransition != nil {
+            details[.arrangeMeetup] = VolunteerIntroCallAwaitingCopy.runnerConfirmed
+            currentDot = .justFound
+        } else if isAwaitingConfirmation {
+            let submittedAt = shownIntroCall?.plan?.submittedAt
+            details[.arrangeMeetup] = VolunteerIntroCallAwaitingCopy.detail(submittedAt: submittedAt, now: now)
+            currentDot = .breathing
+            spoken = VolunteerIntroCallAwaitingCopy.spokenCurrentStep(submittedAt: submittedAt, now: now)
         } else if let window = IntroCallCopy.volunteerWindowPillText(
-            windowEndsAt: viewModel.introCall?.windowEndsAt, isAwaitingConfirmation: isAwaitingConfirmation, now: now
+            windowEndsAt: shownIntroCall?.windowEndsAt, isAwaitingConfirmation: false, now: now
         ) {
             details[.arrangeMeetup] = window
         }
@@ -386,9 +459,34 @@ struct VolunteerIntroCallView: View {
             position: .current(.arrangeMeetup),
             details: details,
             showsNextStep: !isAwaitingConfirmation,
+            currentDot: currentDot,
             // 没约成不画打叉、不说「取消」：磨合里对方的表态客户端不许显示（AGENTS §5，无声拒绝是设计）。
-            vocabulary: .volunteer
+            vocabulary: .volunteer,
+            currentAccessibilityLabel: spoken
         )
+    }
+
+    /// 跑者确认那一刻的时序（#962 第 6 项，照盲人端 `playMatchFound`）：0–0.3 秒旧 ③ 圆点打勾放大回弹 →
+    /// 揭开 ④（标题交叉淡入、竖线长到「等出发」）→ 1 秒定格。减弱动态效果时只做 0.25 秒淡入淡出。
+    /// 震动与播报不在这里：view model 判成单时已各做一次，这里再念会把那句切断。
+    /// 被取消（换了新过渡、页面关了）时 `Task.sleep` 立刻返回，整段快进到定格。
+    private func playMatchedTransition() async {
+        guard let id = viewModel.matchedTransition?.id else { return }
+        let reduce = reduceMotion
+        if !reduce {
+            try? await Task.sleep(nanoseconds: Self.nanoseconds(BlindMatchFoundTiming.checkPhase))
+        }
+        // 只是淡入淡出（两支都是 `.transition(.opacity)`），本身就是减弱动态效果时的降级形态。
+        withAnimation(.easeInOut(duration: BlindMatchFoundTiming.crossfade)) { // guard:allow motion-not-gated
+            viewModel.revealMatchedTransition(id)
+        }
+        let rest = reduce ? BlindMatchFoundTiming.crossfade : BlindMatchFoundTiming.total - BlindMatchFoundTiming.checkPhase
+        try? await Task.sleep(nanoseconds: Self.nanoseconds(rest))
+        viewModel.finishMatchedTransition(id)
+    }
+
+    private static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
+        UInt64(seconds * 1_000_000_000)
     }
 
     private func headerSpoken(incoming: Bool) -> String {
@@ -443,7 +541,7 @@ struct VolunteerIntroCallView: View {
 
     @ViewBuilder
     private var planForm: some View {
-        if let introCall = viewModel.introCall {
+        if let introCall = shownIntroCall {
             VolunteerMeetupPlanFormView(
                 original: introCall.originalArrangement,
                 editing: introCall.meetupPlan,
@@ -461,13 +559,13 @@ struct VolunteerIntroCallView: View {
     // MARK: 头卡
 
     private var runnerName: String? {
-        viewModel.introCall?.counterpartName?.nilIfBlank
+        shownIntroCall?.counterpartName?.nilIfBlank
     }
 
     private func title(incoming: Bool) -> String {
         if isClosed { return IntroCallCopy.volunteerRoundClosedTitle }
         // 还在拉：整屏不许空白（理由同盲人侧 `blindLoadingNotice`）。
-        if viewModel.introCall == nil, viewModel.errorMessage == nil { return IntroCallCopy.volunteerLoadingNotice }
+        if shownIntroCall == nil, viewModel.errorMessage == nil { return IntroCallCopy.volunteerLoadingNotice }
         // V3 时跑者又打来（他点了「有异议，致电沟通」）：同样换成来电那句 —— 不告诉陪跑员「跑者不同意」。
         if incoming { return IntroCallCopy.volunteerIncomingCallTitle(counterpartName: runnerName) }
         if isAwaitingConfirmation { return IntroCallCopy.volunteerAwaitingConfirmationTitle(counterpartName: runnerName) }
@@ -479,11 +577,11 @@ struct VolunteerIntroCallView: View {
     /// 把 `138****1234` 拼进 `tel:` 会拼成一个七位的、可能真打给别人的号码。
     private func lines(incoming: Bool) -> [String] {
         if isClosed { return [IntroCallCopy.volunteerRoundClosedSubtitle] }
-        let masked = viewModel.introCall?.counterpartPhoneMasked?.nilIfBlank
+        let masked = shownIntroCall?.counterpartPhoneMasked?.nilIfBlank
         // V1 末尾那句「聊完记得提交」（#660 V-19）：App 不知道电话打完了没有，「合适」只能靠提交表单表达。
         if incoming, let masked { return [IntroCallCopy.volunteerIncomingCallNumberLine(masked: masked), IntroCallCopy.volunteerSubmitReminder] }
         if isAwaitingConfirmation { return [IntroCallCopy.volunteerAwaitingConfirmationSubtitle] }
-        guard let masked else { return viewModel.introCall == nil ? [] : [IntroCallCopy.volunteerSubmitReminder] }
+        guard let masked else { return shownIntroCall == nil ? [] : [IntroCallCopy.volunteerSubmitReminder] }
         return [IntroCallCopy.volunteerIncomingNumberLine(masked: masked), IntroCallCopy.volunteerSubmitReminder]
     }
 
@@ -500,8 +598,8 @@ struct VolunteerIntroCallView: View {
             )
         }
         return IntroCallCopy.eyebrow(
-            plannedStart: dispatchOrder?.plannedStart?.nilIfBlank ?? viewModel.introCall?.plannedStartTime,
-            address: dispatchOrder?.startAddress?.nilIfBlank ?? viewModel.introCall?.startAddress,
+            plannedStart: dispatchOrder?.plannedStart?.nilIfBlank ?? shownIntroCall?.plannedStartTime,
+            address: dispatchOrder?.startAddress?.nilIfBlank ?? shownIntroCall?.startAddress,
             distanceKm: dispatchOrder?.distanceKm
         )
     }
@@ -509,7 +607,7 @@ struct VolunteerIntroCallView: View {
     // MARK: V3 安排摘要
 
     private var planSummary: VolunteerMeetupPlanSummary? {
-        guard let introCall = viewModel.introCall, let plan = introCall.meetupPlan else { return nil }
+        guard let introCall = shownIntroCall, let plan = introCall.meetupPlan else { return nil }
         return VolunteerMeetupPlanSummary.make(plan: plan, original: introCall.originalArrangement)
     }
 
@@ -585,7 +683,7 @@ struct VolunteerIntroCallView: View {
                 BlindOrderStageButton(
                     title: IntroCallCopy.volunteerFillPlanButtonTitle,
                     style: .solid,
-                    isEnabled: !viewModel.isSubmitting && viewModel.introCall != nil,
+                    isEnabled: !viewModel.isSubmitting && shownIntroCall != nil,
                     accessibilityHint: IntroCallCopy.volunteerFillPlanAccessibilityHint
                 ) {
                     showsPlanForm = true
