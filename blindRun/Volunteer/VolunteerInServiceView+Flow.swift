@@ -23,7 +23,6 @@ extension VolunteerInServiceView {
                 // 按满 2 秒直接结束，中间没有确认框：长按本身就是那道确认
                 // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
                 onFinish: { Task { await viewModel.complete() } },
-                onCancel: { activeSheet = .cancelOrder },
                 tip: VolunteerRunTip.resolve(
                     separationAlertAt: viewModel.separationAlertAt,
                     runnerBatteryLow: order.run?.runnerBatteryLow == true,
@@ -75,6 +74,7 @@ extension VolunteerInServiceView {
                 isPrimaryEnabled: !viewModel.isTransitionPending && !gate.isLocked,
                 awaitingBlindConfirmation: viewModel.awaitingBlindConfirmation,
                 gateCaption: gate.caption,
+                statusLogs: viewModel.statusLogs,
                 counterpartSafety: CounterpartSafetyGate.orderPageTarget(order) == nil ? nil : counterpartSafety,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
                 footer: {
@@ -89,13 +89,14 @@ extension VolunteerInServiceView {
         }
     }
 
-    /// v7 地图（#945）：集合点、跑者实时位置、本机位置；完成页画整条路线。坐标一律 GCJ-02：
+    /// v7 地图（#945）：集合点、跑者实时位置、本机位置；跑步中画实时轨迹（#962），完成页画整条路线。坐标一律 GCJ-02：
     /// 跑者位置只收后端坐标系那一份，「我」取 `effectiveBackendLocation`（唯一一次转换，同盲人端）。
+    /// 完成页只取整条终值路线（`liveRunRoute` 离开 `IN_PROGRESS` 就清空，退回它没有意义）。
     private func trackingMapInput(order: OrderDetailResponse) -> BlindTrackingMapInput {
         let runner = viewModel.latestBlindSample.flatMap { $0.system == .gcj02Backend ? $0.coordinate : nil }
         let route = order.status == .completed
             ? (trackViewModel.track?.primaryRouteCoordinates).flatMap { $0.count >= 2 ? $0 : nil } ?? []
-            : []
+            : viewModel.liveRunRoute
         return BlindTrackingMapInput(
             meetPoint: order.startCoordinate,
             volunteer: runner,

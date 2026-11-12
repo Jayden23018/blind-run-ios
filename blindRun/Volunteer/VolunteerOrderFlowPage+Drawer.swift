@@ -92,6 +92,8 @@ extension VolunteerOrderFlowPage {
         .accessibilityLabel(hero.accessibilityLabel)
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("volunteerOrderFlowStatusCard")
+        // 地图三态的焦点落点（#962 第 4 项）。各态抽屉互斥，同一时刻只有一个视图绑着它。
+        .accessibilityFocused($headerFocused)
     }
 
     // MARK: ⑥ 汇合

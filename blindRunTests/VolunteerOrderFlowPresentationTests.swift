@@ -84,7 +84,7 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         XCTAssertEqual(VolunteerOrderFallback.resolve(status: nil, errorMessage: nil), .loading)
         XCTAssertEqual(
             VolunteerOrderFallback.resolve(status: nil, errorMessage: "获取订单状态失败"),
-            .message(title: "获取订单状态失败", message: "页面会自动重试，也可以先返回")
+            .loadFailed(title: "获取订单状态失败", message: "页面会自动重试，也可以先返回")
         )
         XCTAssertEqual(
             VolunteerOrderFallback.resolve(status: .unknown, errorMessage: nil),

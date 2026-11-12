@@ -1,3 +1,4 @@
+import CoreLocation
 import Combine // 只为 `@Published` / `ObservableObject`；订单跟踪不走 Combine（unify-order-live-tracking）
 import SwiftUI
 
@@ -33,6 +34,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var latestBlindSample: LocatedCoordinate?
     /// 与盲人同步的里程 / 时长 / 配速。只在 `IN_PROGRESS` 有值。
     @Published private(set) var blindStats: TrackStats?
+    /// 跑者已跑的实时轨迹（同一次 `/track` 的主路线），跑步中地图画它（#962 第 3 项，同盲人端 `liveRunRoute`）。
+    /// 只在 `IN_PROGRESS` 有值；拉取失败保留上一份。
+    @Published private(set) var liveRunRoute: [CLLocationCoordinate2D] = []
     @Published var transitionState: VolunteerOrderTransitionState = .idle
     @Published var isAcknowledgingEmergency = false
     /// 云端求助确定一个字节都没发出去时打开，页面据此弹只列 120 / 110 的本地拨号兜底（#407 第 1 项）。
@@ -53,6 +57,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var quickMessageSentAt: [QuickMessageCode: Date] = [:]
     /// 结束等待成功 ⇒ 宿主关页。**不进**「跑者已取消」那一屏：这一单是陪跑员等满后结束的。
     @Published var didEndWaiting = false
+    /// 本单的状态变更记录（`GET /api/orders/{id}/status-logs`，订单双方都能读）。只在跑者已取消那一屏用：
+    /// 竖线停在哪一步要读转 `CANCELLED` 那条的 `fromStatus`（#962 第 2 项）。拿不到 = 空，不画竖线。
+    @Published var statusLogs: [OrderStatusLog] = []
     static let quickMessageCooldown: TimeInterval = 60
 
     // 跑步中（DECISIONS-v2 V4–V8，`VolunteerRunningCompanion.swift`）。
@@ -73,6 +80,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 两端刷新频率不同会让「他那边已经 3.2 公里，我这边还是 3.1」变成常态。
     static let trackPollingInterval: TimeInterval = 10
     private var lastTrackFetchAt: Date?
+    /// init 时种下的订单还没跑过 `order.didSet`（实时活动同步）。`configure` 拿到 `appState` 后补一次。
+    private var seededOrderPendingSideEffects: Bool
 
     weak var appState: AppState?
     var speechService: SpeechService?
@@ -96,13 +105,18 @@ final class VolunteerInServiceViewModel: ObservableObject {
         peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness,
         voiceBroadcastEnabled: @escaping () -> Bool = {
             UserDefaults.standard.bool(forKey: VolunteerRunVoiceBroadcast.defaultsKey)
-        }
+        },
+        initialOrder: OrderDetailResponse? = nil
     ) {
+        // 第一帧就画这一态（#962 第 1 项）：此前 `initialOrder` 要等 `.task` 里的 `configure` 才写入，
+        // 进页面先闪一帧加载页。init 里赋值不触发 `didSet`，那几件副作用由 `configure` 补（见 `seededOrderPendingSideEffects`）。
+        self.seededOrderPendingSideEffects = initialOrder != nil
         self.voiceBroadcastEnabled = voiceBroadcastEnabled
         self.actionDeadlineNanoseconds = actionDeadlineNanoseconds
         self.confirmationTimeout = max(0.05, confirmationTimeout)
         self.orderLoadTimeout = max(0.05, orderLoadTimeout)
         self.peerFreshness = max(0.01, peerFreshness)
+        self.order = initialOrder
     }
 
     var isTransitionPending: Bool { transitionState.blocksDuplicateSubmission }
@@ -117,7 +131,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
         self.speechService = speechService
         if order == nil {
             order = initialOrder
+        } else if seededOrderPendingSideEffects, let seeded = order {
+            // 重新赋同一个值只为触发 `didSet`：init 时 `appState` 还是 nil，实时活动那几行没跑。
+            order = seeded
         }
+        seededOrderPendingSideEffects = false
         if let order {
             appState.liveEscortCoordinator.updateOwnedOrder(orderID: order.orderId, status: order.status)
             // 换单时 `updateOwnedOrder` 会清掉姓氏，所以这里再补一次（`didSet` 那次排在它前面）。
@@ -214,6 +232,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     private func refreshBlindStatsIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
         guard order.status == .inProgress else {
             blindStats = nil
+            liveRunRoute = []
             lastTrackFetchAt = nil
             return
         }
@@ -221,7 +240,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
         if let last = lastTrackFetchAt, now.timeIntervalSince(last) < Self.trackPollingInterval { return }
         lastTrackFetchAt = now
         do {
-            blindStats = try await appState.safety.orderTrack(orderId: order.orderId).blindStats
+            let track = try await appState.safety.orderTrack(orderId: order.orderId)
+            blindStats = track.blindStats
+            liveRunRoute = track.primaryRouteCoordinates
         } catch {
             return
         }

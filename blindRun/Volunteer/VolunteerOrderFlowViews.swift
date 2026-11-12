@@ -145,10 +145,14 @@ extension RunOrderStatus {
 
 /// 订单页兜底那一屏显示什么（`VolunteerInServiceView.fallbackContent`）。
 enum VolunteerOrderFallback: Equatable {
+    /// 订单还没拿到：v7 外壳（顶栏 + 深色头）+ 转圈 +「正在获取订单状态」（#962，同盲人端 #946 `.loadingShell`）。
     case loading
+    /// 订单还没拿到且第一次拉取失败：同一个 v7 外壳，同一位置换成原因（#962）。
+    case loadFailed(title: String, message: String)
+    /// 有订单、但这一态不走订单页（`.unknown`、`REMATCHING` 等）：改版前那条只读说明。
     case message(title: String, message: String)
 
-    static let loadingTitle = "正在获取订单状态..."
+    static let loadingTitle = "正在获取订单状态"
 
     /// `status == nil` = 手上还没有订单。有订单时不看 `errorMessage`：那是某次操作的失败，不是这一屏的内容。
     static func resolve(status: RunOrderStatus?, errorMessage: String?) -> Self {
@@ -157,7 +161,15 @@ enum VolunteerOrderFallback: Equatable {
         }
         guard let errorMessage else { return .loading }
         // 轮询没有停（`startPolling` 的循环不看成败），所以「会自动重试」是真的。
-        return .message(title: errorMessage, message: "页面会自动重试，也可以先返回")
+        return .loadFailed(title: errorMessage, message: "页面会自动重试，也可以先返回")
+    }
+
+    /// 走 v7 外壳的两种（订单还没拿到）。
+    var usesV7Shell: Bool {
+        switch self {
+        case .loading, .loadFailed: return true
+        case .message: return false
+        }
     }
 }
 

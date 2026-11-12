@@ -34,7 +34,7 @@ struct VolunteerInServiceView: View {
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) var dismiss
     @Environment(\.openURL) var openURL
-    @StateObject var viewModel = VolunteerInServiceViewModel()
+    @StateObject var viewModel: VolunteerInServiceViewModel
     @StateObject var trackViewModel = CompletedTrackSummaryViewModel()
     /// 举报 / 不再匹配此人。入口在顶栏「···」，弹层挂在页面根上，结果一行在页脚（`CounterpartSafetyMenu`）。
     @StateObject var counterpartSafety = CounterpartBlockViewModel()
@@ -65,6 +65,8 @@ struct VolunteerInServiceView: View {
     init(orderId: Int64, initialOrder: OrderDetailResponse? = nil) {
         self.orderId = orderId
         self.initialOrder = initialOrder
+        // 有 `initialOrder` 时第一帧就画那一态，不先闪加载外壳（#962 第 1 项）。
+        _viewModel = StateObject(wrappedValue: VolunteerInServiceViewModel(initialOrder: initialOrder))
     }
 
     /// 这一态走不走这个页面。`nil` = 走兜底页（`fallbackContent`）。
@@ -159,8 +161,12 @@ struct VolunteerInServiceView: View {
         .onChange(of: meetCue) { handleMeetCueChange($0) }
         // 跑步中求助面板只属于 `IN_PROGRESS`。订单一离开（完成 / 被取消 / 转重新匹配）就收起，
         // 不留一个按下去已经不成立的面板（云端求助另有 `EmergencyCoordinator.trigger` 的状态闸兜底）。
+        // 反过来，取消弹层不属于 `IN_PROGRESS`：跑步中没有取消入口（#962）。汇合页开着弹层时跑者按了开始，收起。
+        // 状态变化时把读屏焦点移到页头（#962 第 4 项，同盲人端 `BlindOrderStatusView` 的 `statusHeaderFocused`）
+        // 在 `VolunteerOrderFlowPage` 里做：焦点状态是那个视图自己的。
         .onChange(of: viewModel.order?.status) { status in
             if case .runHelp = activeSheet, status != .inProgress { activeSheet = nil }
+            if case .cancelOrder = activeSheet, status == .inProgress { activeSheet = nil }
         }
         .onReceive(locationService.$currentLocation) { _ in
             viewModel.observeOwnLocationAccuracy(locationService.latestDeviceSample?.horizontalAccuracy)
@@ -195,6 +201,11 @@ struct VolunteerInServiceView: View {
         }
         .volunteerFirstRunHelp(status: viewModel.order?.status, isBlocked: activeSheet != nil)
         .task(id: viewModel.order?.status) {
+            // ⑨ 跑者已取消：竖线停在哪一步要读状态变更记录（#962，同盲人端已取消页）。拿到之前不画竖线。
+            if viewModel.order?.status == .cancelled {
+                await viewModel.loadStatusLogs(using: appState)
+                return
+            }
             guard viewModel.order?.status == .completed else { return }
             await trackViewModel.load(orderID: orderId, appState: appState)
             if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
