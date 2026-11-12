@@ -163,7 +163,7 @@ extension BlindOrderStatusView {
         )
     }
 
-    /// ⑤–⑧ 底栏：只剩主按钮。求助已挪到右上角胶囊（DECISION 第 1 条），这里不再放第二个版位。
+    /// ⑤–⑧ 底栏：只剩主按钮，深色胶囊（同 ①–④）。求助已挪到右上角胶囊（DECISION 第 1 条），这里不再放第二个版位。
     private func mapTrackingBottom(_ presentation: BlindOrderFlowPresentation, order: OrderDetailResponse) -> OrderFlowBottomActions {
         OrderFlowBottomActions(
             owner: .blindRunner,
@@ -176,7 +176,8 @@ extension BlindOrderStatusView {
                     action: { handleFlowPrimaryAction(presentation, order: order) }
                 )
             },
-            safetyHub: nil
+            safetyHub: nil,
+            usesNavyPrimary: true
         )
     }
 

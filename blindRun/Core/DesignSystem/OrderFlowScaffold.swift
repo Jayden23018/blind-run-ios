@@ -80,6 +80,9 @@ struct OrderFlowBottomActions: View {
     var secondary: AnyView? = nil
     /// `nil` = 这一屏不提供求助与安全。
     let safetyHub: OrderFlowSafetyHubAction?
+    /// 主按钮用订单页 v7 的深色胶囊（`BlindOrderStageButton`），不用黄色。盲人订单页出发到已完成四屏打开
+    /// （负责人 2026-11-12：开跑后的按钮「应该统一变成我的那一个深黑色」，和前四屏一致）。
+    var usesNavyPrimary = false
 
     var body: some View {
         VStack(spacing: FlowMetrics.actionButtonSpacing) {
@@ -100,17 +103,30 @@ struct OrderFlowBottomActions: View {
                         .accessibilityHidden(true)
                 }
 
-                tagPrimary(
-                    FlowActionButton(
-                        primary.title,
-                        systemImage: primary.systemImage,
-                        style: .primary,
-                        isLoading: primary.isLoading,
-                        isEnabled: primary.isEnabled,
-                        accessibilityHint: primary.resolvedAccessibilityHint,
-                        action: primary.action
+                if usesNavyPrimary {
+                    tagPrimary(
+                        BlindOrderStageButton(
+                            title: primary.title,
+                            systemImage: primary.systemImage,
+                            style: .solid,
+                            isEnabled: primary.isEnabled && !primary.isLoading,
+                            accessibilityHint: primary.resolvedAccessibilityHint,
+                            action: primary.action
+                        )
                     )
-                )
+                } else {
+                    tagPrimary(
+                        FlowActionButton(
+                            primary.title,
+                            systemImage: primary.systemImage,
+                            style: .primary,
+                            isLoading: primary.isLoading,
+                            isEnabled: primary.isEnabled,
+                            accessibilityHint: primary.resolvedAccessibilityHint,
+                            action: primary.action
+                        )
+                    )
+                }
             }
 
             if let secondary {
