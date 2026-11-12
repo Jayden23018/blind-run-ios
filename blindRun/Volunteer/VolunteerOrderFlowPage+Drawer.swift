@@ -1,9 +1,9 @@
 import SwiftUI
 
-// `VolunteerOrderFlowPage` 的下半部分：⑤⑥⑧ 地图 + 抽屉、行的分派、主按钮（#945）。
+// `VolunteerOrderFlowPage` 的下半部分：⑤⑥ 地图 + 抽屉（⑧ 跑完了在 `+FinishCards`，#972）、行的分派、主按钮（#945）。
 // 拆出来是为了页面结构体与文件长度过 SwiftLint 棘轮（#488）。
 extension VolunteerOrderFlowPage {
-    // MARK: ⑤⑥⑧ 地图 + 抽屉
+    // MARK: ⑤⑥ 地图 + 抽屉
 
     func trackingLayout(order: OrderDetailResponse) -> some View {
         var input = mapInput ?? BlindTrackingMapInput(meetPoint: order.startCoordinate)
@@ -41,8 +41,6 @@ extension VolunteerOrderFlowPage {
     func trackingDrawer(order: OrderDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             switch phase {
-            case .completed:
-                completedDrawer(order: order)
             case .arrived:
                 arrivedDrawer
             default:
@@ -210,42 +208,11 @@ extension VolunteerOrderFlowPage {
         }
     }
 
-    // MARK: ⑧ 完成
-
-    /// 负责人 11-11「状态卡有点挤」后的改稿：标题只写「跑完了」，次数进副标题；
-    /// 绿卡里距离单独一行、用时第二行；星级单独一张卡（在 `footer` 里）；两个去处并排。
-    @ViewBuilder
-    func completedDrawer(order: OrderDetailResponse) -> some View {
-        drawerHeader(
-            title: VolunteerOrderFlowCopy.completedDrawerTitle,
-            subtitle: [hero.headline, order.startAddress?.nilIfBlank].compactMap { $0 }
-        )
-        VolunteerCompletedResultCard(order: order)
-        if !linkRows.isEmpty {
-            HStack(spacing: 10) {
-                ForEach(linkRows) { row in
-                    Button { onRowAction(row.action ?? .reportIssue) } label: {
-                        Text(row.value)
-                            .flowFont((16, .bold, .callout))
-                            .foregroundColor(AppColors.Flow.primaryText)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, minHeight: FlowMetrics.v2TertiaryMinHeight)
-                            .background(Capsule().fill(AppColors.Flow.surfaceSubtle))
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHintIfPresent(row.accessibilityHint)
-                    .accessibilityIdentifier("volunteerOrderFlowRow-\(row.id)")
-                }
-            }
-        }
-    }
-
     // MARK: 行的分派
     //
     // 行本身（有哪些、读屏说什么、接单前露不露）全在 `VolunteerOrderFlowPresentation` 里定；
     // 这里只决定**画成什么形状**：集合点画成地点行、「我去不了」进「···」、「这次去不了」画成主按钮下的文字按钮、
-    // 汇合页的拨号与找人画成两枚胶囊、完成页两个去处画成并排按钮，其余进信息块。
+    // 汇合页的拨号与找人画成两枚胶囊，其余进信息块；跑完了页的两个去处在 `+FinishCards`（#972）。
 
     var rows: [VolunteerOrderFlowPresentation.Row] { presentation.rows }
     var runnerRow: VolunteerOrderFlowPresentation.Row? { rows.first { $0.id == "runner" } }

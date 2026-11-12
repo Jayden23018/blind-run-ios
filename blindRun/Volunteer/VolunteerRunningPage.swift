@@ -26,6 +26,9 @@ struct VolunteerRunningHero: Equatable {
     let notice: String?
     let noticeSpoken: String?
     let accessibilityLabel: String
+    /// v8 彩色卡念的那一句：同 `accessibilityLabel`，但不带目标进度 ——
+    /// 计划进度卡（`BlindRunPlanCard`）自己会念，彩色卡再念一遍就是两遍（#972，同盲人端 #968）。
+    let cardAccessibilityLabel: String
 
     static let title = "陪跑中"
     /// 跑过目标不足 50 米不说「多跑了」：公里数是一位小数（#846 D8），十几米会写成「多跑了 0.1」。
@@ -80,7 +83,6 @@ struct VolunteerRunningHero: Equatable {
             spoken("已跑", stats?.distanceText),
             spoken("时长", stats?.durationText),
             spoken("配速", stats?.averagePaceText),
-            goal?.text.replacingOccurrences(of: " · ", with: "，"),
         ]
 
         return Self(
@@ -91,16 +93,20 @@ struct VolunteerRunningHero: Equatable {
             goal: goal,
             notice: notice?.0,
             noticeSpoken: notice?.1,
-            accessibilityLabel: spokenParts.compactMap { $0 }.joined(separator: "。")
+            accessibilityLabel: (spokenParts + [goal?.text.replacingOccurrences(of: " · ", with: "，")]).compactMap { $0 }.joined(separator: "。"),
+            cardAccessibilityLabel: spokenParts.compactMap { $0 }.joined(separator: "。")
         )
     }
 }
 
-/// 陪跑员跑步中那一屏（v7 ⑦，#945）：地图常驻 + 抽屉（距离 / 用时 / 配速、目标进度、一条提示、耳机播报）+
-/// 底部长按结束（底部只有它，#962 删了取消）。右上角红色实心「求助」开跑步中求助面板（V5，面板本身不改）。
+/// 陪跑员跑步中那一屏（v8 卡片页，#972；批准稿 `docs/ui/mockups/volunteer-run-finish-v8-20261112/`）。
+/// 照盲人 v8 ⑦（`BlindRunCardsPage`，#968）同一套骨架：浅灰底，标题「陪跑中」→ 青绿彩色卡（里程、用时、每公里配速）
+/// → 一条提示（走散 / 收不到位置 / 电量低 / 定位弱）→ 计划进度 → 耳机语音播报 → 让跑者手机响 → 结果面；
+/// 底部长按 2 秒结束（底部只有它，#962 删了取消）。右上角红色实心「求助」开跑步中求助面板（V5，面板本身不改）。
+/// 不放地图（改 v7 ⑦ 的「地图常驻 + 抽屉」，同盲人 v8 决定）。
 ///
 /// 求助走云端还是本地拨号只读 `VolunteerOrderSOSMode.resolve`（AGENTS §6）：这一页只在 `IN_PROGRESS` 出现，结果恒为云端。
-/// 不画「折返」：契约里没有路线形状。地图画跑者位置、集合点和 `/track` 的实时轨迹（#962，同盲人端 v7 ⑦）。
+/// 不画「折返」：契约里没有路线形状。
 ///
 /// 自己 `@ObservedObject` 持有 coordinator：`AppState.emergencyCoordinator` 是 `let`，
 /// 在宿主 body 里读它**读得到值但不跟着更新**（记忆 `nested-observableobject-does-not-republish`）。
@@ -109,8 +115,6 @@ struct VolunteerRunningPage<Footer: View>: View {
     let order: OrderDetailResponse
     let stats: TrackStats?
     let isPeerLocationFresh: Bool
-    /// 跑者位置、集合点、本机位置。`nil` = 只画集合点。
-    var mapInput: BlindTrackingMapInput?
     let isFinishing: Bool
     let isFinishEnabled: Bool
     let onBack: () -> Void
@@ -122,10 +126,12 @@ struct VolunteerRunningPage<Footer: View>: View {
     let tip: VolunteerRunTip?
     let isTogglingPause: Bool
     let onResume: () -> Void
-    /// 求助结果、流转失败文案。**这一页唯一的可见失败面**。
+    /// 「让跑者手机响」那张卡。`isRinging` = 后端 `ringingUntil` 之前；登录过期时不可点（同求助面板那一行）。
+    var isRinging = false
+    var isRingEnabled = true
+    var onRing: () -> Void = {}
+    /// 求助结果、响铃结果、流转失败文案。**这一页唯一的可见失败面**。
     @ViewBuilder let footer: () -> Footer
-
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var hero: VolunteerRunningHero {
         .make(
@@ -147,11 +153,9 @@ struct VolunteerRunningPage<Footer: View>: View {
     }
 
     var body: some View {
-        var input = mapInput ?? BlindTrackingMapInput(meetPoint: order.startCoordinate)
-        input.peerTitle = "跑者"
-        return BlindOrderTrackingView(
-            status: order.status,
-            mapInput: input,
+        let hero = hero
+        return RunCardsScaffold(
+            gap: BlindRunCardsMetrics.runningGap,
             topBar: VolunteerOrderTopBar(
                 surface: .onMap,
                 onBack: onBack,
@@ -160,23 +164,12 @@ struct VolunteerRunningPage<Footer: View>: View {
                 onHelp: onHelp
             ),
             bottom: OrderFlowBottomActions(owner: .volunteer, primary: nil, secondary: AnyView(bottomControls), safetyHub: nil),
-            drawer: { drawer },
-            timeline: {
-                BlindOrderTimelineView(
-                    input: BlindOrderTimelineInput(position: .current(.startRun), folds: false, vocabulary: .volunteer)
-                ) { _ in EmptyView() }
-            },
-            footer: { footer() }
-        )
-    }
-
-    // MARK: 抽屉
-
-    private var drawer: some View {
-        let hero = hero
-        return VStack(alignment: .leading, spacing: 16) {
-            statsBlock(hero)
-            // 同一时刻只有一条（`VolunteerRunningNotice`）。
+            header: header
+        ) {
+            // 整张卡一个读屏元素，沿用 v7 统计块的 identifier 与念法（UI 用例拿它判「进了跑步中页」）。
+            BlindRunHeroCard(stats: stats, isFinished: false, spokenLabel: heroSpoken(hero))
+                .accessibilityIdentifier("volunteerRunningStatsCard")
+            // 同一时刻只有一条（`VolunteerRunningNotice`），放在彩色卡正下方。
             switch notice {
             case .hero:
                 if let text = hero.notice {
@@ -189,99 +182,59 @@ struct VolunteerRunningPage<Footer: View>: View {
             case .none:
                 EmptyView()
             }
+            BlindRunPlanCard(plannedMeters: order.plannedDistanceMeters, stats: stats)
+                .accessibilityIdentifier("volunteerRunPlanCard")
             VolunteerRunVoiceToggle()
+            VolunteerRunRingCard(
+                runnerName: order.runnerShortName,
+                runnerNameSpoken: order.runnerShortName.unmaskedForSpeech,
+                isRinging: isRinging,
+                isEnabled: VolunteerRunRingCard.isTappable(isRingEnabled: isRingEnabled, isRinging: isRinging),
+                onRing: onRing
+            )
+            footer()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut(duration: 0.25), value: notice)
         .animation(.easeInOut(duration: 0.25), value: isPaused)
     }
 
-    private var title: String {
-        if isPaused { return VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText) }
-        return "和\(order.runnerShortName)一起跑步中"
-    }
+    // MARK: 标题
 
-    /// 标题 + 44pt 距离 + 用时 / 配速 + 目标进度。合成一个读屏元素，沿用 v2 头卡的 identifier。
-    private func statsBlock(_ hero: VolunteerRunningHero) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .flowFont(FlowV2Fonts.title(), monospacedDigit: true)
-                .foregroundColor(AppColors.Flow.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-            if isPaused {
-                Text(VolunteerRunCopy.pausedBody)
-                    .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(AppColors.Flow.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            metricsRow(hero)
-            if let goal = hero.goal { goalView(goal) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    /// 「陪跑中」+「和李*一起 · ● 定位正常」（定位说的是跑者位置收不收得到）。暂停时标题换成「已暂停 · 18:32」，
+    /// 下面多一行「暂停期间不计志愿时长」。
+    private var header: some View {
+        let companion = BlindRunCardsCopy.companion(name: order.blindName?.nilIfBlank ?? order.runnerShortName)
+        let spokenCompanion = "和\(order.runnerShortName.unmaskedForSpeech)一起跑步中"
+        let freshness = isPeerLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale
+        return RunCardsHeader(
+            title: isPaused ? VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText) : VolunteerRunningHero.title,
+            companion: companion,
+            isLocationFresh: isPeerLocationFresh,
+            note: isPaused ? VolunteerRunCopy.pausedBody : nil
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             isPaused
-                ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.accessibilityLabel)"
-                : hero.accessibilityLabel
+                ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(spokenCompanion)"
+                : "\(spokenCompanion)。\(freshness)"
         )
-        .accessibilityIdentifier("volunteerRunningStatsCard")
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("volunteerRunningHeader")
     }
 
-    /// 距离 44pt（盲人 v7 ⑦ 同值），用时 / 配速在右边；辅助字号下竖排。
-    private func metricsRow(_ hero: VolunteerRunningHero) -> some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .lastTextBaseline, spacing: 24))
-        return layout {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(hero.distance)
-                    .flowFont((44, .bold, .largeTitle), monospacedDigit: true)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                Text("公里").flowFont(FlowV2Fonts.heroUnit())
-            }
-            metric(value: hero.duration, label: "用时")
-            metric(value: hero.pace, label: "配速")
-        }
-        .foregroundColor(AppColors.Flow.primaryText)
-    }
-
-    private func metric(value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .flowFont(FlowV2Fonts.subhead())
-                .foregroundColor(AppColors.Flow.secondaryText)
-            Text(value)
-                .flowFont((22, .bold, .title2), monospacedDigit: true)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-        }
-    }
-
-    private func goalView(_ goal: VolunteerRunningHero.Goal) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(AppColors.Flow.separator)
-                    Capsule()
-                        .fill(goal.isReached ? AppColors.Flow.stateDone : AppColors.Flow.navy)
-                        .frame(width: proxy.size.width * goal.progress)
-                }
-            }
-            .frame(height: 8)
-            .accessibilityHidden(true)
-            Text(goal.text)
-                .flowFont(FlowV2Fonts.subhead(), monospacedDigit: true)
-                .foregroundColor(AppColors.Flow.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+    /// 彩色卡的念法沿用 v7 统计块：「陪跑中，地点。已跑 … 时长 … 配速 …」，暂停时前面先说暂停。
+    /// 不带目标进度：下面的计划进度卡自己念（#972 审查）。
+    private func heroSpoken(_ hero: VolunteerRunningHero) -> String {
+        isPaused
+            ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.cardAccessibilityLabel)"
+            : hero.cardAccessibilityLabel
     }
 
     // MARK: 底部
 
     private var bottomControls: some View {
         VStack(spacing: 8) {
-            // 暂停中本屏唯一的实心按钮（08 §五）；长按结束保持在它下面。
+            // 暂停中本屏唯一的实心按钮（08 §五）；长按结束保持在它下面，退成灰底描边（一屏只有一枚实心）。
             if isPaused {
                 BlindOrderStageButton(
                     title: VolunteerRunCopy.resume,
@@ -297,6 +250,7 @@ struct VolunteerRunningPage<Footer: View>: View {
             VolunteerFinishLongPressButton(
                 isPerformingAction: isFinishing,
                 isEnabled: isFinishEnabled,
+                style: isPaused ? .outline : .solid,
                 onFinish: onFinish
             )
         }

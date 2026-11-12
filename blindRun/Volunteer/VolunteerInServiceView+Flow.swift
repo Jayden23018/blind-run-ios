@@ -4,7 +4,7 @@ import UIKit
 extension VolunteerInServiceView {
     // MARK: - 跑步中
 
-    /// 求助只在这一态走云端（`VolunteerOrderSOSMode`）。右上角打开跑步中求助面板（V5），
+    /// v8 卡片页（#972），不再是地图 + 抽屉。求助只在这一态走云端（`VolunteerOrderSOSMode`）。右上角打开跑步中求助面板（V5），
     /// 面板里的紧急按钮轻点弹锁定文案的二次确认、长按 3 秒直发。
     ///
     /// 每秒一拍：信号卡 8 秒收起、5 分钟过期、走散提示 60 秒收起都是 `(状态, 现在)` 的函数，不存。
@@ -15,7 +15,6 @@ extension VolunteerInServiceView {
                 order: order,
                 stats: viewModel.blindStats,
                 isPeerLocationFresh: viewModel.latestBlindSample != nil,
-                mapInput: trackingMapInput(order: order),
                 isFinishing: viewModel.isPerformingAction,
                 isFinishEnabled: !viewModel.isTransitionPending,
                 onBack: { dismiss() },
@@ -30,7 +29,11 @@ extension VolunteerInServiceView {
                     now: context.date
                 ),
                 isTogglingPause: viewModel.isTogglingPause,
-                onResume: { Task { await viewModel.resumeRun() } }
+                onResume: { Task { await viewModel.resumeRun() } },
+                // 同跑步中求助面板那一行（`VolunteerRunHelpPanel`）：响铃中、登录过期时不可点。
+                isRinging: (viewModel.ringingUntil ?? .distantPast) > context.date,
+                isRingEnabled: !appState.isSessionExpiryDeferred,
+                onRing: { Task { await viewModel.ringRunner() } }
             ) {
                 emergencySection(for: order)
                 // 跑步中求助面板能按「让对方手机响」（后端 #445），失败或没送到要看得见。
@@ -63,8 +66,10 @@ extension VolunteerInServiceView {
                 meet: meet,
                 quickReplies: quickReplies(order: order, phase: phase, now: now),
                 mapInput: trackingMapInput(order: order),
-                // 完成页没有返回：出口是主按钮「完成」。
-                onBack: phase == .completed ? nil : { dismiss() },
+                // 跑完了卡片页的彩色卡与路线小图（#972）。
+                finishedTrack: trackViewModel.track,
+                // 跑完了也有返回（批准稿圆形 ‹，同盲人端 v8 ⑧，#972 审查）；主按钮「完成」同样关页。
+                onBack: { dismiss() },
                 onRowAction: { handleFlowRowAction($0, order: order) },
                 onPrimaryAction: { performFlowPrimaryAction(presentation.primaryAction) },
                 // 只可能是 `IN_PROGRESS`（`VolunteerOrderSOSMode.resolve`），其余状态页面自己弹本地拨号。
@@ -78,7 +83,7 @@ extension VolunteerInServiceView {
                 counterpartSafety: CounterpartSafetyGate.orderPageTarget(order) == nil ? nil : counterpartSafety,
                 // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
                 footer: {
-                    flowFooter(showsNudgeNotice: meet == nil, showsStarProgress: phase == .completed)
+                    flowFooter(showsNudgeNotice: meet == nil)
                     // 举报 / 不再匹配此人在顶栏「···」，这里只留结果一行。
                     CounterpartBlockOutcome(viewModel: counterpartSafety)
                     VolunteerFirstRunLoader(viewModel: viewModel, phase: phase)
@@ -89,19 +94,16 @@ extension VolunteerInServiceView {
         }
     }
 
-    /// v7 地图（#945）：集合点、跑者实时位置、本机位置；跑步中画实时轨迹（#962），完成页画整条路线。坐标一律 GCJ-02：
+    /// v7 地图（#945）：集合点、跑者实时位置、本机位置。坐标一律 GCJ-02：
     /// 跑者位置只收后端坐标系那一份，「我」取 `effectiveBackendLocation`（唯一一次转换，同盲人端）。
-    /// 完成页只取整条终值路线（`liveRunRoute` 离开 `IN_PROGRESS` 就清空，退回它没有意义）。
+    /// 只剩出发 / 汇合两屏用地图：跑步中、跑完了换成 v8 卡片页（#972），这两屏没有已跑路线（同盲人端 #968）。
     private func trackingMapInput(order: OrderDetailResponse) -> BlindTrackingMapInput {
         let runner = viewModel.latestBlindSample.flatMap { $0.system == .gcj02Backend ? $0.coordinate : nil }
-        let route = order.status == .completed
-            ? (trackViewModel.track?.primaryRouteCoordinates).flatMap { $0.count >= 2 ? $0 : nil } ?? []
-            : viewModel.liveRunRoute
         return BlindTrackingMapInput(
             meetPoint: order.startCoordinate,
             volunteer: runner,
             me: locationService.currentLocation == nil ? nil : locationService.effectiveBackendLocation,
-            route: route,
+            route: [],
             peerTitle: "跑者"
         )
     }
@@ -287,12 +289,9 @@ extension VolunteerInServiceView {
     /// 信息卡之后、底部操作条之前，位置对应。**少了它，「接单失败」「状态没确认上」
     /// 只剩一句 TTS**，不开读屏的低视力志愿者屏幕上零变化。
     @ViewBuilder
-    private func flowFooter(showsNudgeNotice: Bool, showsStarProgress: Bool = false) -> some View {
+    private func flowFooter(showsNudgeNotice: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // 陪跑完成页：刚跑完这一单之后离下一星还差多少（负责人 2026-10-05，真机截图评审里这一屏
-            // 吸引力 3/10、下面 60% 空白）。这是附加信息：拉不到就整块不出现，不挤占「完成」这个出口，
-            // 也不报错 —— 成就页自己有完整的失败态。
-            if showsStarProgress { VolunteerCompletionStarProgress() }
+            // 跑完了页的国标星级卡挪进了卡片列（`VolunteerOrderFlowPage+FinishCards.swift`，#972）。
             if showsNudgeNotice, let notice = viewModel.nudgeNotice {
                 Text(notice)
                     .flowFont(FlowFonts.rowValue())

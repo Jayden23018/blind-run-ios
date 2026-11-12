@@ -150,37 +150,7 @@ enum VolunteerRunVoiceBroadcast {
     static let defaultsKey = "volunteerRunVoiceBroadcastEnabled"
 }
 
-struct VolunteerRunVoiceToggle: View {
-    @AppStorage(VolunteerRunVoiceBroadcast.defaultsKey) private var isOn = false
-
-    var body: some View {
-        Toggle(isOn: $isOn) {
-            HStack(spacing: 12) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .foregroundColor(AppColors.Flow.accent)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(VolunteerRunCopy.voiceToggleTitle)
-                        .flowFont(FlowV2Fonts.callout(bold: true))
-                        .foregroundColor(AppColors.Flow.primaryText)
-                    Text(VolunteerRunCopy.voiceToggleSubtitle)
-                        .flowFont((13, .regular, .footnote))
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .frame(minHeight: FlowMetrics.actionButtonMinHeight)
-        .background(AppColors.Flow.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(AppColors.Flow.ghostStroke, lineWidth: 1)
-        )
-        .accessibilityIdentifier("volunteerRunVoiceToggle")
-    }
-}
+// 开关本身在 `VolunteerRunningCards.swift`（#972 改成卡片后挪过去，这个文件到了行数上限）。
 
 // MARK: - 跑步中求助面板（V5 / V6）
 

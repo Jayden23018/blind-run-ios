@@ -10,6 +10,9 @@ import SwiftUI
 /// 2026-10-06 负责人定三处统一）。一星以上两套文案本来就相同。
 struct VolunteerStarProgressCard: View {
     let level: VolunteerStarLevelDto
+    /// 底色与圆角。默认是成就页的浅灰小卡；跑完了卡片页（浅灰页底）用白卡、圆角 20（#972）。
+    var background: Color = AppColors.secondaryBackground
+    var cornerRadius: CGFloat = 12
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -35,8 +38,8 @@ struct VolunteerStarProgressCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(12)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(VolunteerProfileCopy.starCardAccessibilityLabel(level))
         .accessibilityIdentifier("volunteerStarLevelSection")
@@ -63,7 +66,12 @@ struct VolunteerCompletionStarProgress: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: 0)
             if let level = achievements.achievements?.resolvedStarLevel {
-                VolunteerStarProgressCard(level: level)
+                // 跑完了卡片页上的一张白卡（#972），与上下几张卡同一个样子。
+                VolunteerStarProgressCard(
+                    level: level,
+                    background: AppColors.Flow.surface,
+                    cornerRadius: BlindRunCardsMetrics.cardCornerRadius
+                )
             }
         }
         .task {

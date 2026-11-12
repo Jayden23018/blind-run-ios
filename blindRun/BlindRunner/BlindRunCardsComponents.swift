@@ -45,9 +45,13 @@ struct BlindRunCardSurface<Content: View>: View {
 /// 定稿图的排法：里程 92pt 左对齐、「公里」贴在数字右下；下面一行用时与每公里配速，数字在上、标签在下。
 /// 还没有里程时不摆三个「--」：数字那一层照样占位（卡片大小不变），上面盖两行字说明这一刻。
 /// 整张卡一个读屏元素，念「里程 … 用时 … 配速 …」。
+///
+/// 两端共用（陪跑员端跑步中 / 跑完了，#972）。identifier 由调用方按端写字面量（理由见 `RunCardsScaffold`）。
 struct BlindRunHeroCard: View {
     let stats: TrackStats?
     let isFinished: Bool
+    /// 非 `nil` = 整张卡念这一句，不用下面的默认念法（陪跑员端沿用 `VolunteerRunningHero.accessibilityLabel`）。
+    var spokenLabel: String?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var hasDistance: Bool { stats?.distanceKilometersText != nil }
@@ -67,8 +71,7 @@ struct BlindRunHeroCard: View {
                 .fill(BlindRunCardsPalette.hero(isFinished: isFinished))
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spoken)
-        .accessibilityIdentifier("blindRunCardsHero")
+        .accessibilityLabel(spokenLabel ?? spoken)
     }
 
     private var numbers: some View {
@@ -138,6 +141,7 @@ struct BlindRunHeroCard: View {
 
 /// 「计划跑 5 公里」+ 一条进度横条（样子照定稿图「每公里」卡的横条；每公里分段没有数据，那张卡不做）。
 /// 只用订单上的计划里程和已记录的里程，两个都是真数：没填计划里程整张卡不出现；还没有里程时横条是空的。
+/// 两端共用，identifier 由调用方挂。
 struct BlindRunPlanCard: View {
     let plannedMeters: Int?
     let stats: TrackStats?
@@ -171,7 +175,6 @@ struct BlindRunPlanCard: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(BlindRunCardsCopy.planSpoken(plan: plan, progress: progress))
-            .accessibilityIdentifier("blindRunCardsPlan")
         }
     }
 }
