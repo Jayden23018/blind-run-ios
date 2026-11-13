@@ -22,10 +22,11 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
 | `openspec-propose` | 大档改动（见 §10 第 5 步）而 `openspec/changes/` 下还没有对应变更时 |
 | `openspec-archive-change` | 变更的 `tasks.md` 全打勾了 —— **别停在最后一步** |
-| `swiftui-pro` | 写 / 审 SwiftUI 代码时（第三方，`.claude/skills/swiftui-pro/`） |
+| `swiftui-pro` | 写 / 审 SwiftUI 代码时 |
+| `impeccable` · `unslop-ui` | 界面评审、去 AI 味（读 `PRODUCT.md`） |
 | `aidrun-order-and-sos` | 改订单状态流转、取消入口、派单 `respond`、通话磨合（`PENDING_INTRO_CALL`）页，或新增 / 改动任何求助 / SOS 入口与降级拨号 |
 
-⚠️ `swiftui-pro` 说的「iOS 26 默认部署目标」「Swift 6.2+」不适用（本仓库 **iOS 16**）。**别改那个第三方文件**。
+⚠️ 这三个是第三方，**别改**；`swiftui-pro` 的「iOS 26 默认」「Swift 6.2+」不适用（iOS 16）。
 
 <!--
 | `swiftui-pro` | 写 / 审 SwiftUI 代码时。**第三方**（Paul Hudson，MIT，`.claude/skills/swiftui-pro/`），装在 2026-09-02，见 `docs/research/claude-code-setup-for-ios-a11y-20260902.md` |
@@ -34,6 +35,14 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 **本仓库部署目标是 iOS 16**，那两句不适用，照它建议的新 API 写会编译不过。
 它的 `references/accessibility.md` 自己是版本感知的（明确区分 iOS 18 及以前用 `@ScaledMetric`），
 可以直接用。**不要改那个第三方文件**去迁就我们 —— 改了下次更新就冲突，约束写在这里。
+
+`impeccable`（pbakaus/impeccable，Apache-2.0，取自 `plugin/skills/impeccable`，上游提交 b4bff16，v4.8.2）与
+`unslop-ui`（felipebasurto/unslop-ui，MIT，上游提交 359beb4）装在 2026-11-13，负责人决定，依据
+`docs/research/ai-ui-design-skills-update-20261113.md`。两者都不改：本仓库的约束写进根目录 `PRODUCT.md`
+（Platform = ios；盲人端关键主按钮 64pt、陪跑员端次要按钮 44pt 下限）。Impeccable 首次运行会下载引擎二进制
+（按 `engine-checksums.txt` 校验，路径已 gitignore），匿名统计在 `.impeccable/config.json` 关掉；
+它的检测器和编辑 hook 只认 HTML/CSS，对 Swift 不起作用，没装 hook。`unslop-ui` 的 U1–U16 管界面文字与装饰，
+求助二次确认的锁定文案（§6）不许按它删改；它依赖的 `/pstack:unslop` 没装，脚本会退回内置的几条英文写作规则。
 -->
 改界面前读 `docs/ui/design-direction.md`；实现界面或「按设计稿来」前读 `docs/ui/mockups/INDEX.md`（设计包放 `docs/ui/mockups/<主题>[-vN]/` 并加一行；「待确认」行先问）。写下「这个功能仓库里没有」之前读 `GLOSSARY.md`（领域词 ↔ 模块名），换同义词再搜。
 

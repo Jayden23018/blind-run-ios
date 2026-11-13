@@ -10,7 +10,8 @@
 
 1. **两个月里出了三个大体量的「反 AI 味」skill**：Impeccable、taste-skill、Hallmark。它们都比 09-07 时调研过的 `ui-ux-pro-max` 更直接地针对「AI 味」。
 2. **只有 Impeccable 有原生 iOS 模式**（`PRODUCT.md` 里写 `## Platform: ios` 就会改用 Apple HIG 和原生审计）。taste-skill 和 Hallmark 都只做 Web。
-3. **Impeccable 的 iOS 规则标准低于本仓库**，而且它的截图闭环要求用模拟器。这两条跟我们冲突：它要求 44pt 触达，我们盲人端要 64pt；我们的模拟器因为高德 SDK 永久不可用。⇒ **不整装，只拿它的 iOS「slop test」那几条当自查清单**。
+3. **Impeccable 有两条和本仓库不一致**：它的触达下限是 44pt，盲人端关键主按钮要 64pt；它的截图要求用模拟器，我们的模拟器因为高德 SDK 永久不可用。
+   ⚠️ 初稿据此判「不装」，**2026-11-13 负责人推翻**：44pt 只是比盲人端松，陪跑员端次要按钮本来就是 44pt 下限（`docs/ui/design-direction.md` 陪跑员订单页例外表），不能因为盲人端一条规则把两端都用的工具否掉。⇒ **已装进 `.claude/skills/impeccable`**，盲人端 64pt 和真机截图写进根目录 `PRODUCT.md`，第三方文件不改。
 4. **真实用户的普遍反馈是：这类 skill 能修不一致和无障碍，但改不掉「长得都一样」**（HN 上多人用过 Impeccable、ui-ux-pro-max、Hallmark 后得出同一结论）。真正起作用的仍然是：人给方向、给参考、反复迭代。
 5. **新的通用方法：Google 开源的 `DESIGN.md` 格式**（把设计 token 和规则写进一个文件给 AI 读）。它和我们缺的「审美方向声明」是同一件事。我们已有 `docs/ui/design-direction.md`，不必换格式。
 6. **09-07 的复核条件逐条结论**：官方 `frontend-design` 只是搬了家，内容没改；`ui-ux-pro-max` 仍是 44pt；都**没触发**。
@@ -43,7 +44,7 @@
   这条和我们 09-07 自己写的判断一致，而且比 Web 清单（紫渐变、Inter 字体）更适用于原生。
 - 可以直接当自查项的几条：用系统文字样式跟随 Dynamic Type、不写死字号（`:24`）；正文与控件用 SF（`:25`）；用语义系统色，原始十六进制在深色和高对比模式下会坏（`:30`）；模糊用系统材质，不手搓玻璃效果（`:33`）；用系统控件，**自造控件是最常见的原生 AI 味**（`:37`）；图标用 SF Symbols（`:38`）。
 - **和本仓库冲突的两条**：
-  1. `:20` 触达下限 44×44pt。本仓库盲人端是 64pt（`aidrun-a11y-voice`）。照它审会放过不合格的按钮。
+  1. `:20` 触达下限 44×44pt。本仓库盲人端关键主按钮是 64pt（`aidrun-a11y-voice`），陪跑员端次要按钮是 44pt。审盲人端时以 `PRODUCT.md` 为准。
   2. `:49` "Screenshots come from the Simulator, never a browser"。本仓库模拟器因高德无 arm64-sim slice 永久不可用，截图只能走真机 `xcresulttool export attachments`。
 - `:51` 要求说明证据来自模拟器还是真机。这和我们记忆 `verified-on-one-device-is-not-verified` 的要求一致，可以保留。
 
@@ -58,8 +59,8 @@
 
 ## 五、对本仓库的建议
 
-1. **不安装任何一个新 skill**。三个大的只有 Impeccable 支持 iOS，但它的触达标准更松，截图通道我们用不了。
-2. **可选的小改动（要负责人点头）**：把 Impeccable `ios.md` 的 slop test 改写成中文，加进 `docs/ui/design-direction.md` 的自查段，触达标准改成 64pt，截图通道改成真机。约 10 行。
+1. ~~不安装任何一个新 skill~~ → **2026-11-13 负责人决定装 Impeccable 和 `unslop-ui`**（`felipebasurto/unslop-ui`，18★，MIT，2026-11-04 有更新；专删界面上多余的文字和装饰，规则 U1–U16 与框架无关）。taste-skill、Hallmark 只支持 Web，仍不装。
+2. 两端触达和截图通道写进根目录 `PRODUCT.md`，Impeccable 启动时会读它。
 3. **方法层面不变**：继续用 09-07 的两遍工作法、参考图同功能（记忆 `ui-references-must-match-function-keep-layout`）、真机截图后按设计规则挑毛病（记忆 `mockup-must-be-design-critiqued-not-just-rendered`）。外部用户的反馈也证明，skill 代替不了「人给方向 + 迭代」。
 
 ## 六、来源
