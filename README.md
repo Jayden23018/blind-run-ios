@@ -1,6 +1,6 @@
-# 助盲跑 AidRun iOS 客户端
+# 助盲跑 GuideRun iOS 客户端
 
-AidRun helps blind and low-vision runners book a sighted volunteer guide, and supports the run itself with live location, voice feedback and VoiceOver. This repository holds the native iOS client, written in SwiftUI. The backend and the Android client live in private repositories and talk to this app through an API, so this repository alone does not run the full service. The project is pre-launch: testing is by invitation, and no blind or low-vision runner has completed a full order with it yet. The project's own code is licensed under Apache-2.0; third-party SDKs are excluded, see [许可证](#许可证).
+GuideRun (formerly BlindRun and AidRun) helps blind and low-vision runners book a sighted volunteer guide, and supports the run itself with live location, voice feedback and VoiceOver. This repository holds the native iOS client, written in SwiftUI. The backend and the Android client live in private repositories and talk to this app through an API, so this repository alone does not run the full service. More than 30 blind runners and more than 30 volunteer guides have finished internal testing, and the app has been submitted for App Store review. A teammate started this app; Jayden Wang took it over in July 2026 and has written most of the commits since. The project's own code is licensed under Apache-2.0; third-party SDKs are excluded, see [许可证](#许可证).
 
 ## 帮助谁
 
