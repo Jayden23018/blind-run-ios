@@ -2,7 +2,7 @@
 
 GuideRun (formerly BlindRun and AidRun) helps blind and low-vision runners book a sighted volunteer guide, and supports the run itself with live location, voice feedback and VoiceOver. This repository holds the native iOS client, written in SwiftUI. The backend and the Android client live in private repositories and talk to this app through an API, so this repository alone does not run the full service. More than 30 blind runners and more than 30 volunteer guides have finished internal testing, and the app has been submitted for App Store review. A teammate started this app; Jayden Wang took it over in July 2026 and has led it since. The project's own code is licensed under Apache-2.0; third-party SDKs are excluded, see [许可证](#许可证).
 
-This repository is developed with an AI coding assistant, Claude Code. The `.claude/` folder and `CLAUDE.md` hold the rules it works under. Changes merge only after CI passes: a build gate, lint, and a check of the app against the backend's API contract. The unit and UI tests, with Apple's accessibility audit on the main screens, run on a real iPhone.
+This repository is developed with an AI coding assistant, Claude Code. The `.claude/` folder and `CLAUDE.md` hold the rules it works under. Jayden reads every change before it merges, and a change merges only after CI passes: a build gate, lint, and a check of the app against the backend's API contract. The unit and UI tests, with Apple's accessibility audit on the main screens, run on a real iPhone.
 
 ## 帮助谁
 
