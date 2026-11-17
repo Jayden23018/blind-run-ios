@@ -96,6 +96,30 @@ final class BlindFirstRunHelpTests: XCTestCase {
         XCTAssertFalse(withCustom.contains("30 分钟"), "文案里还留着写死的 30：\(withCustom)")
     }
 
+    /// #975：语音约跑界面 #810 就删了，引导还在教「说一句话」，照做的读屏用户什么反应都得不到。
+    /// 约跑页现在是点选（`BlindMatchFirstBookingView`），引导要说出它的按钮名，用户才找得到。
+    func testBookingTopicTeachesTheTapFlowInsteadOfTheRemovedVoiceBooking() {
+        let body = topic(id: "booking").body
+
+        XCTAssertFalse(body.contains("说一句话"), "又在教已删掉的语音约跑：\(body)")
+        XCTAssertFalse(body.contains("说「确认」"), "又在教已删掉的语音确认：\(body)")
+        XCTAssertTrue(body.contains("预约新的陪跑"), "没说首页入口叫什么：\(body)")
+        XCTAssertTrue(body.contains("开始找陪跑员"), "没说约跑页底部按钮叫什么，用户不知道选完按哪里：\(body)")
+    }
+
+    /// #975：订单页 v7 起求助在右上角「求助」胶囊，底部不再有求助按钮（负责人 2026-11-09）。
+    /// 教用户去页面最下面找，等于让盲人在最坏的时刻按空。
+    func testEmergencyTopicPointsToTheTopRightHelpButtonOnTheOrderPage() {
+        let body = topic(id: "sos").body
+
+        XCTAssertFalse(body.contains("最下面"), "又教用户去订单页最下面找求助：\(body)")
+        XCTAssertTrue(body.contains("右上角"), "没说订单页的求助按钮在右上角：\(body)")
+        XCTAssertTrue(
+            body.contains("「\(EmergencySafetyCopy.title)」"),
+            "求助中心里云端那一项改名了，引导还在教旧名字：\(body)"
+        )
+    }
+
     /// 播报脚本必须把每一条都念出来。漏一条的表现是「引导听起来很完整，但少了一件事」，
     /// 人工过一遍很难发现少的是哪条。
     func testSpokenScriptContainsEveryTopic() {
