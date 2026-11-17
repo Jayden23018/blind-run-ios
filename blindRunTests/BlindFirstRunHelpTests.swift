@@ -114,6 +114,10 @@ final class BlindFirstRunHelpTests: XCTestCase {
 
         XCTAssertFalse(body.contains("最下面"), "又教用户去订单页最下面找求助：\(body)")
         XCTAssertTrue(body.contains("右上角"), "没说订单页的求助按钮在右上角：\(body)")
+        XCTAssertTrue(
+            body.contains("「\(EmergencySafetyCopy.title)」"),
+            "求助中心里云端那一项改名了，引导还在教旧名字：\(body)"
+        )
     }
 
     /// 播报脚本必须把每一条都念出来。漏一条的表现是「引导听起来很完整，但少了一件事」，
