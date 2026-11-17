@@ -83,6 +83,22 @@ final class DispatchAlgorithmNoticeTests: XCTestCase {
         )
     }
 
+    /// #979：后端是每批同时邀请 `app.dispatch.invite-batch-size`（3）人、先接先得，
+    /// 旧文案却写「逐个问」「不是先到先得」。这是合规要求的显著告知，写错事实比漏写更糟。
+    /// 口径与隐私政策 §四 新版一致（负责人 2026-11-17 定「改文字，保留同时邀请 3 人」）。
+    func testNoticeCopyDescribesBatchInvitesFirstComeFirstServed() {
+        let allCopy = Self.allNoticeCopy
+
+        for stale in ["逐个问", "逐个询问", "不是先到先得", "就问下一位"] {
+            XCTAssertFalse(allCopy.contains(stale), "又写回旧派单说法「\(stale)」—— 后端是分批同时邀请、先接先得")
+        }
+        XCTAssertTrue(allCopy.contains("每批最多 3 位，同时发出"), "没说每批同时邀请几位")
+        XCTAssertTrue(allCopy.contains("同一批里先接先得"), "没说同批先接先得")
+        XCTAssertTrue(allCopy.contains("60 分钟") && allCopy.contains("15 分钟"), "没说邀请的回复期限")
+        XCTAssertTrue(allCopy.contains("双方都说合适，才算接下"), "没说要先通话、双方都说合适才算接下")
+        XCTAssertTrue(allCopy.contains("累计 3 次没成，订单自动结束"), "没说通话累计 3 次没成订单自动结束")
+    }
+
     /// 入口文案与页面文档能真的装配出来，且不是空的。
     ///
     /// 看着平凡，但它是「常量拆到 Copy 里之后被误删一半」的最小成本看门人：
@@ -94,7 +110,7 @@ final class DispatchAlgorithmNoticeTests: XCTestCase {
         XCTAssertFalse(DispatchAlgorithmNoticeCopy.entryAccessibilityHint.isEmpty)
         XCTAssertFalse(document.title.isEmpty)
         XCTAssertFalse(document.notice.isEmpty)
-        XCTAssertEqual(document.sections.count, 4)
+        XCTAssertEqual(document.sections.count, 5)
 
         for section in document.sections {
             XCTAssertFalse(section.heading.isEmpty, "分节标题不能为空")
