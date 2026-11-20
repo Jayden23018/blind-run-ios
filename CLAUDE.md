@@ -19,3 +19,9 @@ The backend is external. All real HTTP requests use `https://blindrun.culiu-tech
   守卫 `hardcoded-team-id` 会拦「在 `.md` 里写 `DEVELOPMENT_TEAM=<10 位团队号>`」。
 - **UI 测试断言前先滚动**：SwiftUI `List` 不渲染屏幕外的行，直接断言会假失败（见 commit `4cee939`）。
 - **CI 跑不了任何 XCTest**：高德 SDK 没有 arm64-sim slice，模拟器通道永久不可用，而 runner 只有模拟器。CI 做的是 `build-for-testing` 编译门禁 + 规格校验；单测与 UI 测试**一律真机本地跑**，用 `scripts/device-test.sh`（会先探活、锁屏立即失败、按小写 `Test case` 统计）。
+
+## 主动建议哪些 skill
+
+- 通用 skill 只主动建议这组：code-review、security-reviewer、context7。本仓库 `.claude/skills/` 里的项目 skill 照 `AGENTS.md` §0 用。
+- 跨端任务用一个会话双挂载后端仓库：`claude --add-dir /Users/mac/Downloads/demo`，不开两个会话传话。
+- 本仓库不用 Agent Teams。
